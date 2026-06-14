@@ -1,0 +1,19 @@
+# Secrets & local config — never commit
+config.json
+secrets.json
+*.token
+.env
+
+# Standing instructions are user-authored; ship only the example
+INSTRUCTIONS.md
+
+# Runtime state (handshake secrets, dedup sets, tunnel URL, pidfile)
+.runtime/
+*.pid
+
+# Agent run logs — contain real ticket content / PII
+logs/
+
+# Node
+node_modules/
+npm-debug.log*

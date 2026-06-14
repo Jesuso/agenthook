@@ -1,0 +1,24 @@
+{
+  "name": "agenthook",
+  "version": "0.1.0",
+  "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
+  "type": "module",
+  "bin": {
+    "agenthook": "./src/cli.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "node src/server.js",
+    "register": "node src/cli.js register",
+    "unregister": "node src/cli.js unregister",
+    "catchup": "node src/cli.js catchup"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  }
+}
