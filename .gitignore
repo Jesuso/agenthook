@@ -1,5 +1,6 @@
 # Secrets & local config — never commit
 config.json
+agenthook.config.json
 secrets.json
 *.token
 .env

@@ -1,0 +1,35 @@
+{
+  "//": "Copy to agenthook.config.json in your project dir (or run `agenthook init`).",
+  "//secrets": "Secrets are ${ENV} refs, resolved from the shell or a .env beside this file,",
+  "//secrets2": "so this file stays shareable. State lives centrally in ~/.agenthook/<name>.",
+
+  "name": "myproject",
+  "repoPath": "/absolute/path/to/the/repo/agents/work/in",
+  "trigger": "@agent",
+  "maxConcurrent": 2,
+  "port": 4123,
+  "fullAuto": true,
+  "claudeBin": "claude",
+  "instructionsFile": "./INSTRUCTIONS.md",
+
+  "tracker": {
+    "//": "type selects the adapter; the rest is that tracker's config.",
+    "type": "asana",
+    "token": "${ASANA_TOKEN}",
+    "userGid": "YOUR_ASANA_USER_GID",
+    "workspaceGid": "YOUR_WORKSPACE_GID",
+    "projectGid": "PROJECT_TO_WATCH_GID",
+
+    "//github": "For GitHub instead, use:",
+    "//github-type": "type: github, repo: owner/repo, assigneeLogin: you,",
+    "//github-secret": "token: ${GITHUB_TOKEN}, webhookSecret: ${WEBHOOK_SECRET}"
+  },
+
+  "ingress": {
+    "//": "How the receiver is reachable. ngrok (managed tunnel) | manual/hosted (static URL).",
+    "type": "ngrok",
+    "authtoken": "${NGROK_AUTHTOKEN}",
+    "//domain": "optional reserved domain for a stable URL (omit = ephemeral)",
+    "//manual": "For a hosted URL instead: { type: hosted, url: https://hook.you.com }"
+  }
+}

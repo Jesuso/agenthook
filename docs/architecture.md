@@ -37,8 +37,8 @@ provider would have sent and POSTs it to the running receiver, reusing the entir
 path (dedup, prompt, worktree, PR, comment hook — no duplicated logic):
 
 ```bash
-node src/cli.js catchup <ref>           # replay one item the receiver missed
-node src/cli.js catchup <ref> --force   # re-run even if already handled
+agenthook catchup <ref>           # replay one item the receiver missed
+agenthook catchup <ref> --force   # re-run even if already handled
 ```
 
 So the accurate tagline isn't "loops bad". It's: **push for the 99% hot path; a targeted
@@ -48,13 +48,15 @@ replay for the gaps.** Event-first, poll only to reconcile.
 
 | File | Role |
 |------|------|
-| `src/server.js`   | HTTP receiver. Verifies (via adapter), ACKs fast, dispatches async. |
-| `src/providers/*` | One adapter per platform. Owns all platform specifics. |
+| `bin/agenthook.js` | CLI router → `src/commands/*` (init/start/stop/ls/status/follow/agents/cleanup/webhook/catchup/doctor). |
+| `src/engine.js`   | HTTP receiver + boot reconcile + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
+| `src/trackers/*`  | One tracker adapter per platform. Owns all platform specifics. |
+| `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
 | `src/store.js`    | JSON persistence: handshake secrets + dedup set. |
 | `src/queue.js`    | Bounded-concurrency job queue. |
 | `src/dispatch.js` | Spawns `claude -p` per job, streams to a per-run log. |
-| `src/prompts.js`  | Provider-blind implement/change prompt builders. |
-| `src/cli.js`      | register / unregister / catchup. |
+| `src/prompts.js`  | Blind implement/change prompt builders. |
+| `src/config.js` · `src/heartbeat.js` · `src/paths.js` · `src/wizard.js` | Config loader (4 path roots, `${VAR}` refs), profile status, derived paths, `init` prompts. |
 
 ## Why a fast ACK then async work
 

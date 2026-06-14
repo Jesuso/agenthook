@@ -1,81 +1,154 @@
-// Loads config.json, auto-loads .env, resolves ~ and relative paths, and resolves
-// every secret (provider token, webhook secret) from the environment. config.json
-// holds only non-secret wiring; secrets live in .env or the real environment.
+// Loads an agenthook.config.json profile and resolves it into an absolute,
+// secret-filled runtime Config.
+//
+// v2 model (see docs/agenthook-v2.md):
+//   - Config lives in a project dir as `agenthook.config.json` (cwd auto-discovery,
+//     walking up like tsconfig.json), or anywhere via an explicit path.
+//   - Secrets are NEVER literals in a shared file: any string value may carry
+//     `${VAR}` refs that resolve from the environment (a `.env` beside the config
+//     and one in cwd are auto-loaded first; shell-exported vars win).
+//   - Four distinct locations, never conflated: the install dir (read-only package),
+//     the config dir, the central state dir (~/.agenthook/<name>), and the target repo.
+//   - Runtime state is central and keyed by the profile `name`, so a global
+//     `agenthook ls` can see every profile without spelunking project dirs.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// The installed package root (this file is src/config.js). Used only to read
+// bundled templates — never for runtime state.
+export const installDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-// Pull .env into process.env before anything reads a secret. Shell-exported vars
-// already present win — loadEnvFile does not overwrite them. (Node ≥ 20.12.)
-const envFile = path.join(root, ".env");
-if (typeof process.loadEnvFile === "function" && fs.existsSync(envFile)) {
-  process.loadEnvFile(envFile);
+// Where all profiles keep their runtime state, one subdir per profile name.
+export const registryDir = path.join(os.homedir(), ".agenthook");
+
+const CONFIG_NAME = "agenthook.config.json";
+
+/** Expand ~ and resolve a path against a base dir (absolute paths pass through).
+ * @param {string} p @param {string} base */
+function resolvePath(p, base) {
+  if (p.startsWith("~")) p = path.join(os.homedir(), p.slice(1));
+  return path.isAbsolute(p) ? p : path.resolve(base, p);
 }
 
-// Default env var holding each provider's API token. Override per provider with
-// providers.<name>.tokenEnv.
-/** @type {Record<string, string>} */
-const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", github: "GITHUB_TOKEN" };
-
-/** @param {string} [p] */
-const expand = (p) => {
-  if (!p) return p;
-  if (p.startsWith("~")) p = path.join(os.homedir(), p.slice(1));
-  return path.isAbsolute(p) ? p : path.join(root, p);
-};
-
-// env var first, then a token FILE if the user opted into that legacy path.
-/** @param {string} [envName] @param {string} [file] @returns {string|undefined} */
-const resolveSecret = (envName, file) => {
-  const fromEnv = envName ? process.env[envName] : undefined;
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-  if (file && fs.existsSync(file)) return fs.readFileSync(file, "utf8").trim();
-  return undefined;
-};
-
-/** @returns {import('./types.js').Config} */
-export function loadConfig() {
-  const file = path.join(root, "config.json");
-  if (!fs.existsSync(file)) {
-    throw new Error(`config.json not found. Copy config.example.json -> config.json and fill it in.`);
+/** Walk up from `start` looking for agenthook.config.json. @param {string} start */
+export function discoverConfigPath(start = process.cwd()) {
+  let dir = path.resolve(start);
+  for (;;) {
+    const candidate = path.join(dir, CONFIG_NAME);
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null; // hit filesystem root
+    dir = parent;
   }
-  const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+}
 
-  if (!cfg.provider) throw new Error("config: `provider` is required (e.g. \"asana\" or \"github\").");
-  const pcfg = cfg.providers?.[cfg.provider];
-  if (!pcfg) throw new Error(`config: providers.${cfg.provider} block is missing.`);
+/** Load a .env file into process.env without clobbering already-set vars. @param {string} file */
+function loadEnv(file) {
+  if (typeof process.loadEnvFile === "function" && fs.existsSync(file)) {
+    try {
+      process.loadEnvFile(file); // Node ≥ 20.12: does not overwrite existing vars
+    } catch {
+      /* malformed .env is non-fatal */
+    }
+  }
+}
 
-  // Resolve filesystem paths up front so the rest of the app deals in absolutes.
-  cfg.root = root;
-  cfg.repoPath = expand(cfg.repoPath);
-  cfg.dataDir = expand(cfg.dataDir);
-  cfg.logDir = expand(cfg.logDir);
-  cfg.instructionsFile = expand(cfg.instructionsFile);
-  cfg.publicUrlFile = expand(cfg.publicUrlFile);
-  if (pcfg.tokenFile) pcfg.tokenFile = expand(pcfg.tokenFile);
+/** Recursively interpolate ${VAR} refs in every string of a JSON value.
+ * Throws listing every unresolved var so misconfig fails loud, not silent.
+ * @param {any} node @param {string[]} missing @param {string} pathLabel @returns {any} */
+function interpolate(node, missing, pathLabel = "") {
+  if (typeof node === "string") {
+    return node.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name) => {
+      const v = process.env[name];
+      if (v == null || v === "") {
+        missing.push(`${name} (at ${pathLabel || "<root>"})`);
+        return "";
+      }
+      return v;
+    });
+  }
+  if (Array.isArray(node)) return node.map((v, i) => interpolate(v, missing, `${pathLabel}[${i}]`));
+  if (node && typeof node === "object") {
+    /** @type {Record<string, any>} */
+    const out = {};
+    for (const [k, v] of Object.entries(node)) out[k] = interpolate(v, missing, pathLabel ? `${pathLabel}.${k}` : k);
+    return out;
+  }
+  return node;
+}
 
-  // Resolve secrets from the environment (.env or shell). tokenFile is a fallback.
-  const tokenEnv = pcfg.tokenEnv || DEFAULT_TOKEN_ENV[cfg.provider] || "";
-  pcfg.token = resolveSecret(tokenEnv, pcfg.tokenFile);
-  if (!pcfg.token) {
+/**
+ * @param {{ configPath?: string }} [opts]
+ * @returns {import('./types.js').Config}
+ */
+export function loadConfig(opts = {}) {
+  const configPath = opts.configPath ? path.resolve(opts.configPath) : discoverConfigPath();
+  if (!configPath || !fs.existsSync(configPath)) {
     throw new Error(
-      `no API token for provider "${cfg.provider}". Set ${tokenEnv || "<tokenEnv>"} in .env ` +
-        `(copy .env.example) or your shell — or set providers.${cfg.provider}.tokenFile.`,
+      `no ${CONFIG_NAME} found (looked up from ${process.cwd()}). ` +
+        `Run \`agenthook init\` to create one, or pass --config <path>.`,
     );
   }
-  // Webhook secret (GitHub-style): env wins, config.json value is a fallback.
-  const wsEnv = pcfg.webhookSecretEnv || "WEBHOOK_SECRET";
-  pcfg.webhookSecret = resolveSecret(wsEnv) || pcfg.webhookSecret;
+  const configDir = path.dirname(configPath);
 
-  cfg.providerConfig = pcfg;
+  // Env precedence: shell-exported wins, then .env beside the config, then cwd .env.
+  loadEnv(path.join(configDir, ".env"));
+  if (path.resolve(process.cwd()) !== configDir) loadEnv(path.join(process.cwd(), ".env"));
+
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch (e) {
+    throw new Error(`could not parse ${configPath}: ${e.message}`);
+  }
+
+  /** @type {string[]} */
+  const missing = [];
+  const cfg = interpolate(raw, missing);
+  if (missing.length) {
+    throw new Error(`unset environment variable(s) referenced by ${configPath}:\n  - ` + missing.join("\n  - "));
+  }
+
+  if (!cfg.name || !/^[A-Za-z0-9._-]+$/.test(cfg.name)) {
+    throw new Error(`config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`);
+  }
+  if (!cfg.tracker?.type) throw new Error(`config: "tracker.type" is required (e.g. "asana" or "github").`);
+  if (!cfg.repoPath) throw new Error(`config: "repoPath" is required (the repo agents work in).`);
+
+  // --- the four locations, kept distinct ---
+  cfg.installDir = installDir;
+  cfg.configPath = configPath;
+  cfg.configDir = configDir;
+  cfg.repoPath = resolvePath(cfg.repoPath, configDir);
+
+  const stateDir = path.join(registryDir, cfg.name);
+  cfg.stateDir = stateDir;
+  cfg.dataDir = stateDir;
+  cfg.logDir = path.join(stateDir, "logs");
+  cfg.publicUrlFile = path.join(stateDir, "public_url.txt");
+  cfg.pidFile = path.join(stateDir, "server.pid");
+  cfg.heartbeatFile = path.join(stateDir, "heartbeat.json");
+
+  // instructionsFile defaults to one beside the config; resolve relative to it.
+  cfg.instructionsFile = resolvePath(cfg.instructionsFile || "./INSTRUCTIONS.md", configDir);
+
+  // --- defaults ---
   cfg.trigger = cfg.trigger || "@agent";
   cfg.maxConcurrent = cfg.maxConcurrent || 1;
   cfg.port = cfg.port || 4123;
+  cfg.claudeBin = cfg.claudeBin || "claude";
+  cfg.ingress = cfg.ingress || { type: "manual" };
+  if (!cfg.ingress.type) cfg.ingress.type = "manual";
 
-  fs.mkdirSync(cfg.dataDir, { recursive: true });
+  // The active tracker's config block, mirrored to providerConfig so adapters
+  // (which read cfg.providerConfig.token/userGid/…) stay unchanged. `type` carries
+  // the adapter key; token/webhookSecret are already interpolated from env above.
+  cfg.provider = cfg.tracker.type; // registry key
+  cfg.providerConfig = cfg.tracker;
+
+  fs.mkdirSync(cfg.stateDir, { recursive: true });
   fs.mkdirSync(cfg.logDir, { recursive: true });
   return cfg;
 }

@@ -1,11 +1,11 @@
-// Provider registry. Each adapter implements the same interface (see asana.js
-// for the reference doc-comment). Add a new platform by dropping a file here
-// and registering it below — the engine never changes.
+// Tracker registry. Each adapter implements the same interface (see asana.js for
+// the reference doc-comment). Add a platform by dropping a file here and listing
+// it below — the engine never changes. The active tracker is `cfg.tracker.type`.
 import { createAsanaAdapter } from "./asana.js";
 import { createGithubAdapter } from "./github.js";
 
 /** @type {Record<string, import('../types.js').AdapterFactory>} */
-const REGISTRY = {
+export const TRACKERS = {
   asana: createAsanaAdapter,
   github: createGithubAdapter,
 };
@@ -16,9 +16,9 @@ const REGISTRY = {
  * @returns {import('../types.js').Adapter}
  */
 export function createAdapter(cfg, store) {
-  const factory = REGISTRY[cfg.provider];
+  const factory = TRACKERS[cfg.provider];
   if (!factory) {
-    throw new Error(`unknown provider "${cfg.provider}". Known: ${Object.keys(REGISTRY).join(", ")}`);
+    throw new Error(`unknown tracker "${cfg.provider}". Known: ${Object.keys(TRACKERS).join(", ")}`);
   }
   return factory(cfg, store);
 }

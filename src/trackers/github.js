@@ -14,7 +14,9 @@ import crypto from "node:crypto";
 export function createGithubAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   const token = pc.token; // resolved from env/.env by loadConfig
-  const [owner, repo] = /** @type {string} */ (pc.repo).split("/");
+  // pc.repo is absent during `agenthook init` (the wizard discovers it), so split
+  // defensively — runtime methods that need owner/repo run only after it's set.
+  const [owner, repo] = String(pc.repo || "").split("/");
   /** @param {string} p @param {RequestInit} [init] */
   const api = (p, init = {}) =>
     fetch(`https://api.github.com${p}`, {
@@ -163,5 +165,31 @@ export function createGithubAdapter(cfg, store) {
         dedupKey: `gh:catchup-${n}`,
       };
     },
+
+    // `agenthook init` discovery: pick a repo and assignee from the token's account.
+    wizardSteps: () => [
+      {
+        key: "repo",
+        message: "Repository (owner/repo)",
+        type: "select",
+        choices: async () => {
+          const res = await api(`/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member`);
+          if (!res.ok) throw new Error(`GitHub repo list ${res.status}`);
+          return (await json(res)).map((/** @type {any} */ r) => ({ title: r.full_name, value: r.full_name }));
+        },
+      },
+      {
+        key: "assigneeLogin",
+        message: "GitHub login whose assignments trigger the agent",
+        type: "select",
+        choices: async () => {
+          const res = await api(`/user`);
+          if (!res.ok) throw new Error(`GitHub /user ${res.status}`);
+          const u = await json(res);
+          return [{ title: `${u.login} (you)`, value: u.login }];
+        },
+      },
+      { key: "webhookSecretEnv", message: "Env var holding the webhook HMAC secret", default: "WEBHOOK_SECRET" },
+    ],
   };
 }

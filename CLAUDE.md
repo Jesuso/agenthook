@@ -16,21 +16,26 @@ exists only to replay events missed during downtime.
 
 ## Commands
 
-```bash
-node src/server.js                       # run the receiver (reads config.json)
-node src/cli.js register <https-url>     # create the provider webhook at a public URL
-node src/cli.js unregister               # delete this provider's webhooks
-node src/cli.js catchup <ref> [--force]  # replay one missed item through the live server
+Everything is one CLI: `bin/agenthook.js` (the `agenthook` bin). During development run it via
+`node bin/agenthook.js <cmd>`. Each command auto-discovers `./agenthook.config.json` (walking up
+from cwd); `--config <path>` selects one explicitly.
 
-./scripts/start.sh                       # boot receiver + ngrok + auto-register (local dev)
-./scripts/stop.sh                        # kill receiver (by pidfile) + ngrok
-./scripts/agents.sh                      # list running `claude -p` agent processes
-./scripts/cleanup-worktrees.sh [--apply [--force]]  # tear down done agent worktrees
-./scripts/resume.sh "<item name>"        # find + print how to resume an agent session
-./scripts/follow.sh [session-id]         # tail a live agent's transcript read-only
+```bash
+node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd)
+node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress)
+node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
+node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
+node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
+node bin/agenthook.js follow [session]   # tail a live agent transcript read-only
+node bin/agenthook.js agents             # list running `claude -p` processes
+node bin/agenthook.js cleanup [--apply [--force]]  # tear down done agent worktrees
+node bin/agenthook.js register <url>     # manual webhook create (hosted/static URL)
+node bin/agenthook.js unregister         # delete this profile's webhooks
+node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through the live server
+node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
-node --check src/**/*.js                   # syntax check (there is no test runner)
+node --check bin/agenthook.js src/**/*.js # syntax check (there is no test runner)
 ```
 
 No build step, no bundler, no test framework — plain Node ESM (`"type": "module"`, Node ≥ 20).
@@ -40,35 +45,53 @@ manual smoke tests. There is no lint config.
 
 ## Architecture
 
-The whole point is the **provider-blind engine + swappable adapters** split. The engine never
-names a tracker; everything platform-specific lives behind one adapter interface.
+The whole point is the **blind engine + swappable adapters** split, now on **two axes**: the
+engine names neither the *tracker* (where work comes from) nor the *ingress* (how it's reachable).
+Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for the full design.
 
-Request flow (`src/server.js`):
+Request flow (`src/engine.js`):
 `POST` → `adapter.authenticate(ctx)` (sync, no network — must let the engine ACK in <10s) →
 either reply to a handshake, `401` a bad signature, or **ACK 200 immediately** and then run
 `adapter.processEvents(ctx)` off the response path → `intake()` dedups via the `seen` store →
 `queue.enqueue` → `dispatch` spawns `claude -p`.
 
+Boot flow (`engine.serve()`, server owns the ingress lifecycle):
+`ingress.up(port)` → if `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub
+dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat → on exit
+`ingress.down()`.
+
 Key files:
-- `src/server.js` — HTTP receiver. Fast-ACK-then-async is deliberate: providers retry if the
-  2xx is slow, so no network call may happen before the ACK.
-- `src/providers/*.js` + `index.js` — adapters. `asana.js`'s header is the **reference
-  doc-comment for the adapter interface**; read it before adding a provider. Register new ones
-  in `index.js`'s `REGISTRY`. Interface: `describe`, `authenticate`, `processEvents`,
-  `fetchTask`, `ensureCommentWebhook`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`.
+- `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
+- `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/agents/cleanup/
+  webhook/catchup/doctor). These replace the old bash `scripts/`.
+- `src/engine.js` — the receiver. Fast-ACK-then-async is deliberate (providers retry a slow 2xx);
+  also owns boot reconcile, heartbeat, and graceful shutdown.
+- `src/trackers/*.js` + `index.js` — tracker adapters. `asana.js`'s header is the **reference
+  doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
+  `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
+  `fetchTask`, `ensureCommentWebhook`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
+  optional `wizardSteps` (powers `init` live discovery).
+- `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
+  static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
+  `up(port) → {url}`, `down()`, optional `wizardSteps`.
 - `src/dispatch.js` — builds the prompt (standing `INSTRUCTIONS.md` + per-item prompt joined by
   the `=== TICKET ===` marker), spawns `claude -p` with `cwd: repoPath`, streams to a per-run
   log, then calls `ensureCommentWebhook` so future comments re-trigger.
-- `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation is what makes
-  parallel agents safe.
-- `src/store.js` — two JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by
-  webhook path, mode 0600) and `seen.json` (dedup set). **`seen` is reloaded from disk on every
-  batch** because `catchup` edits it out-of-band; disk is the source of truth.
-- `src/prompts.js` — provider-blind prompt builders; platform words come from `adapter.describe()`.
-- `src/config.js` — loads/validates `config.json`, expands paths to absolutes, auto-loads `.env`,
-  and **resolves all secrets from the environment** (`ASANA_TOKEN`/`GITHUB_TOKEN`/`WEBHOOK_SECRET`,
-  or `tokenEnv`/`webhookSecretEnv` overrides; `tokenFile` is a legacy fallback). The resolved
-  `token`/`webhookSecret` are attached to `cfg.providerConfig` — adapters never read env/files.
+- `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
+  agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
+- `src/store.js` — two JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
+  path, 0600) and `seen.json` (dedup set). **`seen` is reloaded from disk on every batch** because
+  `catchup` edits it out-of-band; disk is the source of truth.
+- `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
+  (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`.
+- `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
+- `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
+- `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).
+- `src/config.js` — discovers `agenthook.config.json` (cwd walk-up / `--config`), interpolates
+  `${VAR}` refs from the environment (auto-loads `.env` beside the config and in cwd), and resolves
+  the **four distinct locations**: install dir, config dir, central state dir (`~/.agenthook/<name>`,
+  also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
+  to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 
 The normalized unit passed engine-wide is the **job**: `{ kind: 'implement'|'change', ref,
 text?, dedupKey }`. Adapters produce jobs; the engine only ever sees jobs.
@@ -96,17 +119,18 @@ returning the wrong shape fails `npm run typecheck` — that's the whole point o
 
 ## Conventions
 
-- ESM only — `import`, never `require()` (one stray `require` in `asana.js` was a bug). The
-  `*.mjs` helpers and inline `node -e` snippets in `scripts/` run as CommonJS and may use
-  `require` — that boundary is intentional.
-- The ops scripts stay provider-blind by going *through the engine*: `scripts/_config.mjs`
-  resolves config paths (incl. the Claude transcript dir, mangled from `repoPath`) and
-  `scripts/_done-check.mjs` asks the active adapter whether an item is complete. The receiver
-  launches `claude -p` with `cwd: repoPath`, so agent transcripts live under that path's
-  mangled name — `resume.sh`/`follow.sh` rely on this.
-- Never `pkill -f` a pattern that matches the calling shell; kill by pidfile (`dataDir/server.pid`).
-- `config.json`, `.env`, `INSTRUCTIONS.md`, logs, and `.runtime/` are gitignored — verify before
-  any commit. `*.example` / `.env.example` files are the committed templates.
+- ESM only — `import`, never `require()` (one stray `require` in `asana.js` was a bug). All of
+  `bin/` and `src/` is ESM.
+- Ops are JS subcommands now (no bash `scripts/`). They stay blind by going *through the engine*:
+  `src/paths.js` derives the Claude transcript dir (mangled from `repoPath`) that `follow` reads,
+  and `cleanup` asks the active adapter (`fetchTask().completed`) whether an item is done. The
+  receiver launches `claude -p` with `cwd: repoPath`, so transcripts live under that path's mangle.
+- Never `pkill -f` a pattern that matches the calling shell; `stop` kills by the pidfile at
+  `cfg.pidFile` (`~/.agenthook/<name>/server.pid`).
+- Runtime state is central (`~/.agenthook/<name>/`), outside any repo. In *this* repo,
+  `agenthook.config.json`, `config.json`, `.env`, `INSTRUCTIONS.md`, and `logs/` are gitignored —
+  verify before any commit. `agenthook.config.example.json` / `.env.example` / `INSTRUCTIONS.example.md`
+  are the committed templates.
 
 ## Security posture
 

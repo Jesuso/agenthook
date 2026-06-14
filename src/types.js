@@ -72,6 +72,7 @@
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => ForgedEvent} [forgeCatchup]  optional; catchup needs it
+ * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  */
 
 /**
@@ -80,15 +81,13 @@
  */
 
 /**
- * Per-provider config block (providers.<name> in config.json). Loose by design —
- * each adapter reads its own fields. Secrets (`token`, `webhookSecret`) are NOT in
- * config.json; loadConfig resolves them from the environment and attaches them here.
+ * The active tracker's config block (the `tracker` object in agenthook.config.json).
+ * Loose by design — each adapter reads its own fields. `${VAR}` refs in any value
+ * are already resolved from the environment by loadConfig before adapters see it.
  * @typedef {object} ProviderConfig
- * @property {string} [token]            resolved API token (env/.env; set by loadConfig)
- * @property {string} [tokenEnv]         env var to read the token from (default per provider)
- * @property {string} [tokenFile]        legacy fallback: read the token from this file
- * @property {string} [webhookSecret]    resolved HMAC secret (env wins; config fallback)
- * @property {string} [webhookSecretEnv] env var for the webhook secret (default WEBHOOK_SECRET)
+ * @property {string} type               tracker adapter key (e.g. "asana", "github")
+ * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" ref)
+ * @property {string} [webhookSecret]    HMAC secret (GitHub-style; "${WEBHOOK_SECRET}")
  * @property {string} [repo]
  * @property {string} [assigneeLogin]
  * @property {string} [userGid]
@@ -98,10 +97,46 @@
  */
 
 /**
- * Resolved runtime config (paths already expanded to absolutes by config.js).
+ * The ingress config block (`ingress` in agenthook.config.json). `type` selects the
+ * adapter; the rest are adapter-specific options (already env-interpolated).
+ * @typedef {object} IngressConfig
+ * @property {string} type           ingress adapter key ("ngrok" | "manual" | "hosted")
+ * @property {string} [url]          static public base URL (manual/hosted)
+ * @property {string} [authtoken]    ngrok authtoken ("${NGROK_AUTHTOKEN}")
+ * @property {string} [domain]       ngrok reserved domain (makes the URL stable)
+ * @property {string} [webAddr]      ngrok local web-API address (default 127.0.0.1:4040)
+ */
+
+/** What an ingress adapter reports about itself.
+ * @typedef {object} IngressMeta
+ * @property {string} name        e.g. "ngrok", "manual"
+ * @property {boolean} ephemeral  true when the public URL changes per restart
+ */
+
+/** An ingress adapter: brings up / tears down how the receiver is reachable.
+ * @typedef {object} Ingress
+ * @property {() => IngressMeta} describe
+ * @property {(port: number) => Promise<{ url: string }>} up
+ * @property {() => Promise<void>} down
+ * @property {() => import('./wizard.js').WizardStep[]} [wizardSteps]
+ */
+
+/** A factory `(cfg) => Ingress`.
+ * @typedef {(cfg: Config) => Ingress} IngressFactory */
+
+/**
+ * Resolved runtime config. All paths are absolute. See config.js for the four
+ * distinct location fields (install/config/state/repo).
  * @typedef {object} Config
- * @property {string} root
- * @property {string} provider
+ * @property {string} name           profile name; keys the central state dir
+ * @property {string} installDir     read-only package root
+ * @property {string} configPath     absolute path to the loaded agenthook.config.json
+ * @property {string} configDir      dir holding the config
+ * @property {string} stateDir       ~/.agenthook/<name>
+ * @property {string} provider       active tracker key (= tracker.type)
+ * @property {ProviderConfig} tracker
+ * @property {ProviderConfig} providerConfig  alias of tracker, for adapter back-compat
+ * @property {IngressConfig} ingress
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
@@ -113,8 +148,8 @@
  * @property {string} logDir
  * @property {string} instructionsFile
  * @property {string} publicUrlFile
- * @property {Record<string, ProviderConfig>} providers
- * @property {ProviderConfig} providerConfig  the block for the active provider
+ * @property {string} pidFile
+ * @property {string} heartbeatFile
  */
 
 /**

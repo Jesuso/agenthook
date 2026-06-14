@@ -4,14 +4,17 @@
   "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
   "type": "module",
   "bin": {
-    "agenthook": "./src/cli.js"
+    "agenthook": "./bin/agenthook.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "INSTRUCTIONS.example.md",
+    "agenthook.config.example.json"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "start": "node src/server.js",
-    "register": "node src/cli.js register",
-    "unregister": "node src/cli.js unregister",
-    "catchup": "node src/cli.js catchup"
+    "agenthook": "node bin/agenthook.js"
   },
   "engines": {
     "node": ">=20"

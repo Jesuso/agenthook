@@ -3,17 +3,20 @@
 /**
  * @param {number} max
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
+ * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
  */
-export function createQueue(max, run) {
+export function createQueue(max, run, onChange) {
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   let active = 0;
+  const report = () => onChange?.({ active, queued: queue.length });
 
   function pump() {
     while (active < max && queue.length) {
       const job = queue.shift();
       if (!job) break;
       active++;
+      report();
       console.log(`[start] ${job.kind} ${job.ref} (running ${active}/${max}, ${queue.length} queued)`);
       run(job)
         .then((info) => {
@@ -30,6 +33,7 @@ export function createQueue(max, run) {
         })
         .finally(() => {
           active--;
+          report();
           pump();
         });
     }
@@ -39,6 +43,7 @@ export function createQueue(max, run) {
     /** @param {import('./types.js').Job} job */
     enqueue(job) {
       queue.push(job);
+      report();
       pump();
     },
   };

@@ -199,5 +199,41 @@ export function createAsanaAdapter(cfg, store) {
       const sig = crypto.createHmac("sha256", secret).update(body).digest("hex");
       return { path: "/mytasks/", body, headers: { "X-Hook-Signature": sig }, dedupKey: `task:${ref}` };
     },
+
+    // `agenthook init` discovery: pick workspace → project, and read the token's user gid.
+    wizardSteps: () => [
+      {
+        key: "workspaceGid",
+        message: "Workspace",
+        type: "select",
+        choices: async () => {
+          const res = await api(`/users/me?opt_fields=workspaces.name`);
+          if (!res.ok) throw new Error(`Asana /users/me ${res.status}`);
+          const me = (await json(res)).data;
+          return (me.workspaces || []).map((/** @type {any} */ w) => ({ title: `${w.name} (${w.gid})`, value: w.gid }));
+        },
+      },
+      {
+        key: "projectGid",
+        message: "Project to watch (tasks added here trigger the agent)",
+        type: "select",
+        choices: async (answers) => {
+          const res = await api(`/projects?workspace=${answers.workspaceGid}&archived=false&opt_fields=name&limit=100`);
+          if (!res.ok) throw new Error(`Asana project list ${res.status}`);
+          return ((await json(res)).data || []).map((/** @type {any} */ p) => ({ title: `${p.name} (${p.gid})`, value: p.gid }));
+        },
+      },
+      {
+        key: "userGid",
+        message: "Assignee whose tasks the agent works (the token's user)",
+        type: "select",
+        choices: async () => {
+          const res = await api(`/users/me?opt_fields=name`);
+          if (!res.ok) throw new Error(`Asana /users/me ${res.status}`);
+          const me = (await json(res)).data;
+          return [{ title: `${me.name} (${me.gid})`, value: me.gid }];
+        },
+      },
+    ],
   };
 }

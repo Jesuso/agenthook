@@ -11,8 +11,10 @@ nothing spins while you're idle.
 > Event-first, poll only to reconcile. See [docs/architecture.md](docs/architecture.md) for the
 > honest tradeoffs (push delivery isn't free — agenthook ships a targeted replay for the gaps).
 
-Works with any tracker that does webhooks. Ships with **Asana** and **GitHub Issues**; adding
-**Jira / GitLab / Linear** is one adapter file ([docs/providers.md](docs/providers.md)).
+Two swappable axes, engine blind to both: a **tracker** (where work comes from) and an
+**ingress** (how the receiver is reachable). Ships with **Asana** + **GitHub Issues** trackers
+and **ngrok** + **hosted** ingress; adding **Jira / GitLab / Linear** or a new tunnel is one
+adapter file ([docs/providers.md](docs/providers.md)).
 
 ```
  assign / comment        webhook POST            normalize           headless `claude -p`
@@ -20,100 +22,136 @@ Works with any tracker that does webhooks. Ships with **Asana** and **GitHub Iss
                                                                         + status comment back
 ```
 
-## Quickstart (local, ngrok)
+## Install
 
-Requires Node ≥ 20, the [`claude` CLI](https://claude.com/claude-code), `git`, and
-[`ngrok`](https://ngrok.com) (or any tunnel). A provider API token.
-
-```bash
-git clone <your-fork> agenthook && cd agenthook
-
-cp config.example.json config.json        # non-secret wiring: provider, repoPath, gids/repo
-cp INSTRUCTIONS.example.md INSTRUCTIONS.md # tune the standing agent policy to your repo
-cp .env.example .env                       # secrets: put ASANA_TOKEN (or GITHUB_TOKEN) here
-
-./scripts/start.sh                         # boots receiver + ngrok, registers the webhook
-tail -f logs/server.log
-```
-
-Assign yourself a task (Asana) or assign an issue to yourself (GitHub) → a run appears in
-`logs/<timestamp>-<kind>-<ref>.log`. Stop with `./scripts/stop.sh`.
-
-## Hosted (stable URL, no tunnel)
-
-For a real deploy, put the receiver behind anything that gives it a stable public HTTPS URL
-(Caddy, Cloudflare Tunnel, a load balancer) and register once:
+Requires Node ≥ 20, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
+ngrok ingress — [`ngrok`](https://ngrok.com). Plus a tracker API token.
 
 ```bash
-docker compose -f docker/compose.yml up -d --build
-node src/cli.js register https://agenthook.your-domain.com
+npm i -g agenthook        # or run ad-hoc with `npx agenthook <cmd>`
 ```
 
-Config, instructions, tokens, and the target repo are **mounted**, never baked into the image.
-See [docker/compose.yml](docker/compose.yml).
+## Quickstart
+
+agenthook is a tool you run *inside the project you want agents to work on* — its config lives
+there like a `tsconfig.json`, while runtime state lives centrally in `~/.agenthook/<name>`.
+
+```bash
+cd ~/my-project
+
+agenthook init            # interactive: pick tracker + ingress, fetches your
+                          # workspace/project/repo so you choose from a list
+                          # → writes ./agenthook.config.json
+
+cp .env.example .env      # put your ASANA_TOKEN (or GITHUB_TOKEN + WEBHOOK_SECRET) here
+$EDITOR .env              # (init prints exactly which vars it referenced)
+
+agenthook doctor          # preflight: token resolves, repo is git, port free, …
+agenthook start           # ingress up → register webhook → serve
+```
+
+Assign yourself a task (Asana) / assign an issue to yourself (GitHub) → a run appears under
+`~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with `agenthook stop`.
+
+`init` writes secrets as `${ENV}` **references**, never literal values, so the config is safe to
+commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
+
+## Profiles & parallel runs
+
+A **profile** is one config = one process = one isolated state dir. Run as many as you like
+side by side; nothing is shared.
+
+```bash
+agenthook start --config ~/proj-a/agenthook.config.json   # port 4123
+agenthook start --config ~/proj-b/agenthook.config.json   # port 4124 (set in its config)
+
+agenthook ls              # every profile + live status
+# NAME    UP  PORT  TRACKER  INGRESS  AGENTS  QUEUE  LAST EVENT
+# proj-a  *   4123  asana    ngrok    1       0      2m ago
+# proj-b  *   4124  github   hosted   0       0      1h ago
+
+agenthook status proj-a   # one profile in detail (url, queue, recent runs)
+```
+
+Each command auto-discovers `./agenthook.config.json` (walking up from the cwd); `--config`
+selects one explicitly.
+
+## Ingress (how the webhook reaches you)
+
+Set by `ingress.type` in the config; the server owns its lifecycle (brings the tunnel up on
+`start`, tears it down on `stop`).
+
+- **`ngrok`** — managed tunnel, URL rotates each boot (so agenthook scrubs + re-registers the
+  webhook on every `start`). A reserved `domain` makes it stable. Needs `NGROK_AUTHTOKEN`.
+- **`hosted`** (alias `manual`) — you front the receiver (`127.0.0.1:<port>`) with anything
+  giving a stable HTTPS URL (Caddy, Cloudflare Tunnel, a load balancer) and set
+  `ingress.url`. Stable URL → no re-register churn. Best for parallel/production.
 
 ## Configuration
 
-Non-secret wiring lives in `config.json`; **secrets live in `.env`** (both gitignored). The
-receiver auto-loads `.env` at startup, and any shell-exported var overrides it.
-
-`config.json` key fields:
+`agenthook.config.json` holds non-secret wiring + `${ENV}` secret refs. State (dedup set,
+handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>/`.
 
 | Field | Meaning |
 |-------|---------|
-| `provider` | `"asana"` or `"github"`. |
-| `repoPath` | The repo agents work in (worktrees are created as siblings). |
+| `name` | Profile name; keys the state dir. Must be unique across running profiles. |
+| `repoPath` | The repo agents work in (worktrees are siblings). Relative paths resolve against the config. |
+| `port` | Local receiver port. Distinct per parallel profile. |
 | `trigger` | Comment prefix that requests a change (default `@agent`). |
-| `maxConcurrent` | How many agents may run at once (each in its own worktree). |
+| `maxConcurrent` | How many agents run at once (each in its own worktree). |
 | `fullAuto` | Adds `--dangerously-skip-permissions` to `claude -p`. |
-| `providers.<name>` | Per-provider non-secret ids (gids / repo / assignee — see `config.example.json`). |
+| `tracker` | `{ type, token, … }` — `type` is `asana`/`github`; the rest is that tracker's wiring. |
+| `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
 
-`.env` keys (see `.env.example`): `ASANA_TOKEN`, or `GITHUB_TOKEN` + `WEBHOOK_SECRET`.
+See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented
+template and [`.env.example`](.env.example) for the env vars each tracker/ingress needs.
 
 ## Reconcile a missed item
 
 Webhooks are push-only and fire on a *transition* (assignment), not a state — so a missed
-assignment can't be recovered by polling. Replay it explicitly:
+assignment can't be recovered by polling. Replay it explicitly through the running server:
 
 ```bash
-node src/cli.js catchup <ref>           # forge + POST the exact signed event
-node src/cli.js catchup <ref> --force   # re-run even if already handled
+agenthook catchup <ref>           # forge + POST the exact signed event
+agenthook catchup <ref> --force   # re-run even if already handled
 ```
 
 ## Operating running agents
 
-Each run is a plain `claude -p` OS process working in its own git worktree. Manage them with:
+Each run is a plain `claude -p` OS process working in its own git worktree.
 
 ```bash
-./scripts/agents.sh                       # list running agent processes (pid, runtime, ref)
-./scripts/follow.sh [session-id]          # tail a live agent read-only (no second process)
-./scripts/resume.sh "<item name>"         # find an agent's session/branch/PR + how to resume
-./scripts/cleanup-worktrees.sh            # dry run: which worktrees are done (PR merged/closed
-./scripts/cleanup-worktrees.sh --apply    #          or item completed) and safe to remove
+agenthook agents                  # list running agent processes (pid, runtime, ref)
+agenthook follow [session-id]     # tail a live agent read-only (no second process)
+agenthook cleanup                 # dry run: which worktrees are done and safe to remove
+agenthook cleanup --apply         #   remove them (add --force for dirty ones)
 ```
 
-Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup-worktrees.sh` is the one
-place that does, and only once the PR is merged/closed or the tracker item is completed.
+Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
+does, and only once the PR is merged/closed or the tracker item is completed.
 
 ## Safety
 
-The receiver runs `claude -p --dangerously-skip-permissions`: a verified webhook leads
-straight to code execution on your host. The only gate is the HMAC signature + a
-non-guessable URL — it is **not** sandboxed. Agents branch off the default branch, open
-*draft* PRs, and ask rather than guess. Run on a trusted host, scope the token, stop the
-tunnel when idle, and prefer a container/VM with only the repo mounted for untrusted setups.
-Full posture in [docs/architecture.md](docs/architecture.md#security-posture).
+The receiver runs `claude -p --dangerously-skip-permissions` when `fullAuto` is set: a verified
+webhook leads straight to code execution on your host. The only gate is the HMAC signature + a
+non-guessable URL — it is **not** sandboxed. Agents branch off the default branch, open *draft*
+PRs, and ask rather than guess. Run on a trusted host, scope the token, stop the tunnel when
+idle, and prefer a container/VM with only the repo mounted for untrusted setups. Full posture
+in [docs/architecture.md](docs/architecture.md#security-posture).
 
 ## How it works
 
-- **One engine, many adapters.** `src/server.js` is provider-blind; each `src/providers/*`
-  adapter owns its tracker's signatures, payloads, and webhook lifecycle.
+- **Two blind axes.** The engine names neither tracker nor tunnel; `src/trackers/*` and
+  `src/ingress/*` adapters own all platform specifics behind one interface each.
+- **Server owns ingress.** `start` brings the tunnel up, registers the webhook (scrubbing
+  stale hooks when the URL is ephemeral), serves, then tears down on exit.
 - **Fast ACK, async work.** Verify synchronously, ACK in <10s (providers retry otherwise),
   then dispatch off the response path.
 - **Dedup.** Providers deliver at-least-once; a per-event `seen` set keeps one event → one run.
 - **Worktree isolation.** Parallel agents never collide; each gets its own worktree.
 
-Details: [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md)
+Details: [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) ·
+[docs/agenthook-v2.md](docs/agenthook-v2.md)
 
 ## License
 
