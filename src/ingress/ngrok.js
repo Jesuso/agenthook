@@ -41,9 +41,15 @@ export function createNgrokIngress(cfg) {
     describe: () => ({ name: "ngrok", ephemeral: !opts.domain }),
 
     async up(port) {
-      const args = ["http", String(port), "--web-addr", webAddr, "--log", "stdout"];
+      // ngrok v3 has no --web-addr CLI flag (it's config-file only); the inspect/API
+      // address defaults to 127.0.0.1:4040, which we read tunnels from below. For
+      // parallel profiles set `web_addr` in ngrok.yml and ingress.webAddr to match.
+      const args = ["http", String(port), "--log", "stdout"];
       if (opts.domain) args.push("--domain", opts.domain);
+      // Auth: only pass --authtoken when explicitly configured (headless/CI). Otherwise
+      // the ngrok binary self-auths from its own config (`ngrok config add-authtoken`).
       if (opts.authtoken) args.push("--authtoken", opts.authtoken);
+      else console.log("[ngrok] no ingress.authtoken set — using ngrok's own config for auth");
 
       const logPath = path.join(cfg.logDir, "ngrok.log");
       const log = fs.createWriteStream(logPath, { flags: "a" });
@@ -66,9 +72,12 @@ export function createNgrokIngress(cfg) {
 
     wizardSteps: () => [
       {
+        // Most users have run `ngrok config add-authtoken` already, so default blank:
+        // leave it and agenthook lets the ngrok binary self-auth. Only set this for
+        // headless/CI hosts where ngrok isn't pre-configured.
         key: "authtokenEnv",
-        message: "Env var holding your ngrok authtoken (blank = use ngrok's own config)",
-        default: "NGROK_AUTHTOKEN",
+        message: "Env var for ngrok authtoken — leave BLANK if ngrok is already authed",
+        default: "",
       },
       { key: "domain", message: "Reserved ngrok domain for a stable URL (blank = ephemeral)", default: "" },
     ],

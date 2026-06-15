@@ -24,7 +24,9 @@ export function createEngine(cfg) {
   const adapter = createAdapter(cfg, store);
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
-  const runClaude = createDispatcher(cfg, adapter);
+  /** @type {Set<import('node:child_process').ChildProcess>} */
+  const children = new Set();
+  const runClaude = createDispatcher(cfg, adapter, children);
   const queue = createQueue(cfg.maxConcurrent, runClaude, (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
   );
@@ -86,17 +88,9 @@ export function createEngine(cfg) {
     });
   });
 
-  let shuttingDown = false;
-  /** @param {string} [signal] */
-  async function shutdown(signal) {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`\n[shutdown] ${signal || ""} — tearing down`);
-    try {
-      await ingress.down();
-    } catch (e) {
-      console.error("[ingress] down failed:", e.message);
-    }
+  let draining = false;
+  /** Final teardown shared by graceful + forced exit. */
+  function teardown() {
     heartbeat.clear();
     try {
       fs.rmSync(cfg.pidFile, { force: true });
@@ -107,29 +101,90 @@ export function createEngine(cfg) {
     setTimeout(() => process.exit(0), 1500).unref(); // don't hang on lingering sockets
   }
 
+  /** Force path: kill in-flight agents and exit now (second signal, or no children). @param {string} reason */
+  function forceExit(reason) {
+    console.log(`[shutdown] ${reason} — killing ${children.size} agent(s)`);
+    for (const child of children) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+    teardown();
+  }
+
+  // First signal drains: stop taking new work, let running + queued agents finish,
+  // then exit. A second signal during the drain force-kills the agents immediately.
+  /** @param {string} [signal] */
+  async function shutdown(signal) {
+    if (draining) {
+      forceExit(`${signal || "signal"} during drain`);
+      return;
+    }
+    draining = true;
+
+    // Stop new work reaching the queue, then close the front door so no fresh
+    // events arrive. In-flight `claude -p` children keep running untouched.
+    queue.close();
+    try {
+      await ingress.down();
+    } catch (e) {
+      console.error("[ingress] down failed:", e.message);
+    }
+    server.close(); // stop accepting new connections; in-flight handlers finish
+
+    const { active, queued } = queue.state();
+    if (active === 0 && queued === 0) {
+      console.log(`\n[shutdown] ${signal || ""} — nothing running, exiting`);
+      teardown();
+      return;
+    }
+    console.log(
+      `\n[shutdown] ${signal || ""} — draining ${active} running + ${queued} queued agent(s); ` +
+        `send the signal again to force-kill`,
+    );
+    heartbeat.update({ draining: true, queue: queue.state() });
+    await queue.onIdle();
+    console.log(`[shutdown] drain complete — exiting`);
+    teardown();
+  }
+
   async function serve() {
     const meta = ingress.describe();
     console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}`);
 
-    const { url } = await ingress.up(cfg.port);
-    fs.writeFileSync(cfg.publicUrlFile, url);
-    heartbeat.update({ url });
+    let ingressUp = false;
+    try {
+      const { url } = await ingress.up(cfg.port);
+      ingressUp = true;
+      fs.writeFileSync(cfg.publicUrlFile, url);
+      heartbeat.update({ url });
 
-    if (meta.ephemeral) {
-      console.log("[boot] ingress URL is ephemeral — scrubbing stale webhooks");
-      try {
-        await adapter.unregisterWebhooks();
-      } catch (e) {
-        console.error("[boot] unregister failed (continuing):", e.message);
+      // Listen BEFORE registering: registering a webhook makes the tracker immediately
+      // POST a handshake/ping to the public URL, which must reach a live server (Asana
+      // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
+      await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
+      fs.writeFileSync(cfg.pidFile, String(process.pid));
+      console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
+
+      if (meta.ephemeral) {
+        console.log("[boot] ingress URL is ephemeral — scrubbing stale webhooks");
+        try {
+          await adapter.unregisterWebhooks();
+        } catch (e) {
+          console.error("[boot] unregister failed (continuing):", e.message);
+        }
       }
+      await adapter.registerWebhook(url);
+    } catch (e) {
+      // Boot failed after the tunnel came up — tear it down so it doesn't orphan
+      // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).
+      if (ingressUp) await ingress.down().catch(() => {});
+      throw e;
     }
-    await adapter.registerWebhook(url);
 
-    await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
-    fs.writeFileSync(cfg.pidFile, String(process.pid));
-    console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
     console.log(`${store.secretCount()} secret(s), ${store.seenCount()} item(s) seen`);
-
     process.on("SIGINT", () => shutdown("SIGINT"));
     process.on("SIGTERM", () => shutdown("SIGTERM"));
   }

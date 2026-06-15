@@ -9,7 +9,17 @@ export function createQueue(max, run, onChange) {
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   let active = 0;
+  let closed = false; // drain: refuse new work, let in-flight + queued finish
+  /** @type {(() => void)[]} */
+  let idleWaiters = [];
   const report = () => onChange?.({ active, queued: queue.length });
+  const resolveIdle = () => {
+    if (active === 0 && queue.length === 0 && idleWaiters.length) {
+      const waiters = idleWaiters;
+      idleWaiters = [];
+      for (const w of waiters) w();
+    }
+  };
 
   function pump() {
     while (active < max && queue.length) {
@@ -35,16 +45,35 @@ export function createQueue(max, run, onChange) {
           active--;
           report();
           pump();
+          resolveIdle();
         });
     }
   }
 
   return {
-    /** @param {import('./types.js').Job} job */
+    /** @param {import('./types.js').Job} job @returns {boolean} accepted */
     enqueue(job) {
+      if (closed) {
+        console.warn(`[drain] refusing ${job.kind} ${job.ref} — shutting down`);
+        return false;
+      }
       queue.push(job);
       report();
       pump();
+      return true;
+    },
+    /** Stop accepting new jobs (in-flight + already-queued still run to completion). */
+    close() {
+      closed = true;
+    },
+    /** {active, queued} snapshot. */
+    state: () => ({ active, queued: queue.length }),
+    /** Resolves once nothing is running and the queue is empty. Immediate if idle now. */
+    onIdle() {
+      if (active === 0 && queue.length === 0) return Promise.resolve();
+      return /** @type {Promise<void>} */ (
+        new Promise((resolve) => idleWaiters.push(() => resolve(undefined)))
+      );
     },
   };
 }

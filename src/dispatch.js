@@ -20,8 +20,9 @@ const readInstructions = (file) => {
 /**
  * @param {import('./types.js').Config} cfg
  * @param {import('./types.js').Adapter} adapter
+ * @param {Set<import('node:child_process').ChildProcess>} [children]  live `claude -p` procs, for force-kill on shutdown
  */
-export function createDispatcher(cfg, adapter) {
+export function createDispatcher(cfg, adapter, children) {
   const meta = adapter.describe();
 
   /** @param {import('./types.js').Job} job */
@@ -37,6 +38,15 @@ export function createDispatcher(cfg, adapter) {
         console.log(`[skip] ${job.ref} not assigned to us`);
         return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
       }
+    }
+
+    // Move the item into its "in progress" lane the moment work begins. Optional
+    // per-adapter hook (Asana implements it; GitHub has no sections). After the
+    // gates above, so skipped/unassigned/completed items are never moved.
+    try {
+      await adapter.onStart?.(job.ref);
+    } catch (e) {
+      console.error(`[section] onStart failed:`, e.message);
     }
 
     const base =
@@ -59,9 +69,11 @@ export function createDispatcher(cfg, adapter) {
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         env: { ...process.env },
       });
+      children?.add(child);
       child.stdout.pipe(logStream);
       child.stderr.pipe(logStream);
       child.on("close", (c) => {
+        children?.delete(child);
         logStream.end();
         resolve(c);
       });
@@ -72,6 +84,16 @@ export function createDispatcher(cfg, adapter) {
         await adapter.ensureCommentWebhook(job.ref);
       } catch (e) {
         console.error(`[hook] ensure failed:`, e.message);
+      }
+    }
+
+    // Work done → hand off to its review lane. Optional per-adapter hook, mirror
+    // of onStart. Only on a clean exit; a crashed agent stays put for inspection.
+    if (code === 0) {
+      try {
+        await adapter.onFinish?.(job.ref);
+      } catch (e) {
+        console.error(`[section] onFinish failed:`, e.message);
       }
     }
 

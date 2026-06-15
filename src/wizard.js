@@ -15,8 +15,15 @@ import { stdin, stdout } from "node:process";
  * @property {Array<{title:string,value:any}>
  *           | ((answers: Record<string, any>) => Promise<Array<{title:string,value:any}>>)} [choices]
  *                                         for type "select"; may fetch live (API discovery)
+ * @property {(query: string, answers: Record<string, any>) => Promise<Array<{title:string,value:any}>>} [search]
+ *                                         for type "select"; live server-side search by query. When
+ *                                         present the picker prompts for a query each round instead of
+ *                                         (or in addition to) the static `choices` list — use it when the
+ *                                         option set is too large to enumerate (e.g. capped API listings).
  * @property {(value: any, answers: Record<string, any>) => true|string} [validate]
  */
+
+const MAX_SHOWN = 50; // cap rows printed per round so a huge result set stays scannable
 
 /** @param {WizardStep['choices']} choices @param {Record<string,any>} answers */
 async function resolveChoices(choices, answers) {
@@ -36,19 +43,53 @@ export async function runWizard(steps, answers = {}) {
       if (step.when && !step.when(answers)) continue;
 
       if (step.type === "select") {
-        const choices = await resolveChoices(step.choices, answers);
-        if (!choices.length) throw new Error(`no choices available for "${step.key}"`);
+        // Two pickers. Small static lists keep the plain numbered prompt. Large lists
+        // (or any step with a live `search`) switch to a filter loop so you can narrow
+        // by typing instead of scrolling — and `search` reaches options the static list
+        // may never include (e.g. an API capped at the first N results).
+        const all = step.search ? null : await resolveChoices(step.choices, answers);
+        if (all && !all.length) throw new Error(`no choices available for "${step.key}"`);
         console.log(`\n${step.message}`);
-        choices.forEach((c, i) => console.log(`  ${i + 1}) ${c.title}`));
+
+        if (!step.search && all && all.length <= MAX_SHOWN) {
+          all.forEach((c, i) => console.log(`  ${i + 1}) ${c.title}`));
+          for (;;) {
+            const def = step.default != null ? all.findIndex((c) => c.value === step.default) + 1 : 1;
+            const raw = (await rl.question(`  choice [${def}]: `)).trim();
+            const n = raw === "" ? def : Number(raw);
+            if (Number.isInteger(n) && n >= 1 && n <= all.length) {
+              answers[step.key] = all[n - 1].value;
+              break;
+            }
+            console.log(`  enter 1-${all.length}`);
+          }
+          continue;
+        }
+
+        // Filter loop: prompt a query, list matches, pick a number — or blank to refine.
         for (;;) {
-          const def = step.default != null ? choices.findIndex((c) => c.value === step.default) + 1 : 1;
-          const raw = (await rl.question(`  choice [${def}]: `)).trim();
-          const n = raw === "" ? def : Number(raw);
-          if (Number.isInteger(n) && n >= 1 && n <= choices.length) {
-            answers[step.key] = choices[n - 1].value;
+          const query = (await rl.question(`  filter (type to narrow, blank = list all): `)).trim();
+          const matches = step.search
+            ? await step.search(query, answers)
+            : query
+              ? /** @type {Array<{title:string,value:any}>} */ (all).filter((c) =>
+                  c.title.toLowerCase().includes(query.toLowerCase()))
+              : /** @type {Array<{title:string,value:any}>} */ (all);
+          if (!matches.length) {
+            console.log("  no matches — try a different filter");
+            continue;
+          }
+          const shown = matches.slice(0, MAX_SHOWN);
+          shown.forEach((c, i) => console.log(`  ${i + 1}) ${c.title}`));
+          if (matches.length > MAX_SHOWN) console.log(`  …and ${matches.length - MAX_SHOWN} more — refine the filter`);
+          const raw = (await rl.question(`  choice (number, or blank to filter again): `)).trim();
+          if (raw === "") continue;
+          const n = Number(raw);
+          if (Number.isInteger(n) && n >= 1 && n <= shown.length) {
+            answers[step.key] = shown[n - 1].value;
             break;
           }
-          console.log(`  enter 1-${choices.length}`);
+          console.log(`  enter 1-${shown.length}, or blank to filter again`);
         }
         continue;
       }
