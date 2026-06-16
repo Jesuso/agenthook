@@ -1,5 +1,5 @@
 // `agenthook agents` — list running headless `claude -p` agent processes (pid,
-// runtime, kind, ref). These are plain OS processes the receiver spawns; no claude
+// runtime, step, ref). These are plain OS processes the receiver spawns; no claude
 // subcommand tracks them. Cross-platform via `ps` (-ww avoids arg truncation).
 import { spawnSync } from "node:child_process";
 
@@ -14,9 +14,9 @@ export async function agents() {
     const [, pid, etime, cmd] = m;
     if (!cmd.includes("claude -p")) continue;
     if (cmd.includes("agenthook")) continue; // skip the CLI itself, just in case
-    const kind = cmd.includes("A CHANGE has been requested") ? "change" : "implement";
+    const step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
     const ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
-    console.log(`pid=${pid.padEnd(7)} ${etime.padEnd(11)} kind=${kind.padEnd(9)} ref=${ref}`);
+    console.log(`pid=${pid.padEnd(7)} ${etime.padEnd(11)} step=${step.padEnd(10)} ref=${ref}`);
     found++;
   }
   console.log(`── ${found} agent(s) running ──`);

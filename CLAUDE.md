@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-agenthook is an **event-driven agentic-development receiver**. A tracker (Asana, GitHub
-Issues, …) fires a webhook the instant a task is assigned or an `@agent` comment is posted;
-the receiver verifies it, then spawns a headless `claude -p` inside a target repo to do the
-work in an isolated git worktree and open a draft PR. There is no polling loop — `catchup`
-exists only to replay events missed during downtime.
+agenthook is an **event-driven agentic-development receiver**. Work flows through a **pipeline**
+of steps bound to a tracker's board sections (Asana today). A task entering a step's source
+section fires a webhook; the receiver verifies it and spawns a headless `claude -p` in a
+receiver-owned git worktree to do that step's work; on a clean exit it moves the task to the next
+section — which fires the next step. There is no polling loop — forward motion is event-driven,
+crash recovery is local, and `catchup`/`reconcile` exist only to replay items missed during downtime.
 
 > Note: this repo is the receiver/framework. The `claude -p` agents it spawns run in a
-> *different* repo (`config.repoPath`) and read *that* repo's CLAUDE.md plus `INSTRUCTIONS.md`
-> — not this file.
+> *different* repo (`config.repoPath`) and read *that* repo's CLAUDE.md plus the step's
+> instruction file — not this file.
 
 ## Commands
 
@@ -32,6 +33,7 @@ node bin/agenthook.js cleanup [--apply [--force]]  # tear down done agent worktr
 node bin/agenthook.js register <url>     # manual webhook create (hosted/static URL)
 node bin/agenthook.js unregister         # delete this profile's webhooks
 node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through the live server
+node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections (explicit poll)
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
@@ -53,39 +55,39 @@ Request flow (`src/engine.js`):
 `POST` → `adapter.authenticate(ctx)` (sync, no network — must let the engine ACK in <10s) →
 either reply to a handshake, `401` a bad signature, or **ACK 200 immediately** and then run
 `adapter.processEvents(ctx)` off the response path → `intake()` dedups via the `seen` store →
-`queue.enqueue` → `dispatch` spawns `claude -p`.
+`queue.enqueue` → `dispatch` spawns `claude -p` for the step → on exit `adapter.advance` moves the
+task to the step's success/failure section (and that move is itself the next step's trigger).
 
 Boot flow (`engine.serve()`, server owns the ingress lifecycle):
 `ingress.up(port)` → if `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub
-dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat → on exit
-`ingress.down()`.
+dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat →
+`recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
+→ on exit `ingress.down()`.
 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
 - `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/agents/cleanup/
-  webhook/catchup/doctor). These replace the old bash `scripts/`.
+  webhook/catchup/reconcile/doctor). These replace the old bash `scripts/`.
 - `src/engine.js` — the receiver. Fast-ACK-then-async is deliberate (providers retry a slow 2xx);
-  also owns boot reconcile, heartbeat, and graceful shutdown.
+  also owns local crash recovery (`running.json`, no board poll), heartbeat, and graceful shutdown.
 - `src/trackers/*.js` + `index.js` — tracker adapters. `asana.js`'s header is the **reference
   doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
   `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
-  `fetchTask`, `ensureCommentWebhook`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
-  optional `onStart`/`onFinish` (legacy section moves), `advance`/`listResting` (pipeline),
-  `wizardSteps` (powers `init` live discovery).
+  `fetchTask`, `advance`, `listResting`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
+  optional `wizardSteps` (powers `init` live discovery).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
-- `src/dispatch.js` — builds the prompt (standing `INSTRUCTIONS.md` + per-item prompt joined by
-  the `=== TICKET ===` marker), spawns `claude -p`, streams to a per-run log, then calls
-  `ensureCommentWebhook`. Two flows share the spawn: legacy implement/change (`cwd: repoPath`,
-  agent makes its own worktree) and pipeline steps (receiver owns the worktree, `cwd` = it, and
-  `adapter.advance` moves the section on exit).
-- `src/pipeline.js` + `src/worktree.js` — opt-in pipeline (`tracker.pipeline[]`). A task entering a
-  step's `sourceSectionGid` fires that step; clean exit advances to `successSectionGid` (= next
-  step's source, so the move re-triggers). `worktree.js` is the **receiver-owned** worktree (create
-  on `createsWorktree`, `drainWorktree` to remove), keyed by task ref so all steps share one — no
-  globbing. **No implicit polling**: forward motion is event-driven, crash recovery reads local
-  `running.json` only, and the only board poll is the explicit `agenthook reconcile` command.
+- `src/dispatch.js` — builds the prompt (the step's standing instructions + `stepPrompt` base joined
+  by the `=== TICKET ===` marker), spawns `claude -p` (the receiver-owned worktree as `cwd` when the
+  step has one), streams to a per-run log, then resolves the section via `adapter.advance` on exit.
+- `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
+  entering a step's `sourceSectionGid` fires that step; clean exit advances to `successSectionGid`
+  (= next step's source, so the move re-triggers the next step). `worktree.js` is the
+  **receiver-owned** worktree (create on `createsWorktree`, `drainWorktree` to remove), keyed by task
+  ref so all steps share one — no globbing. **No implicit polling**: forward motion is event-driven,
+  crash recovery reads local `running.json` only, and the only board poll is the explicit
+  `agenthook reconcile` command.
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
@@ -103,17 +105,20 @@ Key files:
   also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
   to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 
-The normalized unit passed engine-wide is the **job**: `{ kind: 'implement'|'change', ref,
-text?, dedupKey }`. Adapters produce jobs; the engine only ever sees jobs.
+The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline', ref, stepId, dedupKey }`.
+Adapters produce jobs; the engine only ever sees jobs. The execution model is the pipeline: a task
+moving between board sections drives it; there is no assignment/comment path.
 
 ## Provider specifics that bite
 
 - **Asana** — every webhook carries its own `X-Hook-Secret` established by a handshake POST, so
-  secrets are keyed by request path. Two flows: `/mytasks` (assignment → implement) and
-  `/task/<gid>` (per-task comment → change). Dedup on task/story gid.
-- **GitHub** — no handshake; the secret is config-supplied and signs every delivery as
-  `X-Hub-Signature-256: sha256=…`. ONE repo-level hook covers everything, so
-  `ensureCommentWebhook` is a no-op. Dedup on `X-GitHub-Delivery`.
+  secrets are keyed by request path. One project webhook (path `/mytasks`) with filters
+  `task/added` + `story/section_changed` (verified to deliver on a project hook). Both route via the
+  task's **live** `memberships.section.gid` → the step whose `sourceSectionGid` matches. Dedup:
+  `step:<id>:<gid>` (created-in-section) and `secmove:<storyGid>` (moved). `advance` moves a task by
+  `POST /sections/<gid>/addTask`.
+- **GitHub** — removed in this revision (it had no sections to drive a pipeline). Returns in P3,
+  mapped to labels / project columns.
 
 ## Typing (JSDoc + checkJs)
 

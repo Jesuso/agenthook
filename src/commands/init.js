@@ -10,7 +10,23 @@ import { TRACKERS, createAdapter } from "../trackers/index.js";
 import { INGRESS } from "../ingress/index.js";
 
 /** @type {Record<string, string>} */
-const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", github: "GITHUB_TOKEN" };
+const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN" };
+
+// A starter pipeline: one coding step with placeholder section gids the user fills
+// in. The config is unusable until these are real (loadConfig requires a pipeline),
+// so init writes the skeleton + prints a TODO rather than a config that silently
+// does nothing. (Interactive section discovery is a follow-up.)
+const PLACEHOLDER_PIPELINE = [
+  {
+    id: "code",
+    kind: "implement",
+    createsWorktree: true,
+    instructionsFile: "./INSTRUCTIONS_CODE.md",
+    sourceSectionGid: "TODO_SOURCE_SECTION_GID",
+    successSectionGid: "TODO_REVIEW_SECTION_GID",
+    failureSectionGid: "TODO_BLOCKED_SECTION_GID",
+  },
+];
 
 /** Turn collected answers into a config block: `<x>Env` answers become "${VAL}" refs.
  * @param {string} type @param {Record<string,any>} ans */
@@ -98,6 +114,8 @@ export async function init(args) {
   if (ingress.wizardSteps) await runWizard(ingress.wizardSteps(), ingressAns);
 
   // --- assemble + write ---
+  const tracker = blockFromAnswers(trackerAns.type, trackerAns);
+  tracker.pipeline = PLACEHOLDER_PIPELINE;
   const config = {
     name: core.name,
     repoPath: core.repoPath,
@@ -106,8 +124,7 @@ export async function init(args) {
     port: Number(core.port),
     fullAuto: !!core.fullAuto,
     claudeBin: "claude",
-    instructionsFile: "./INSTRUCTIONS.md",
-    tracker: blockFromAnswers(trackerAns.type, trackerAns),
+    tracker,
     ingress: blockFromAnswers(ingressAns.type, ingressAns),
   };
 
@@ -116,6 +133,7 @@ export async function init(args) {
   console.log(`state dir will be ~/.agenthook/${config.name}`);
   console.log(`\nNext:`);
   console.log(`  - ensure ${tokenEnv}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
-  console.log(`  - drop an INSTRUCTIONS.md beside the config (standing agent rules)`);
+  console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
+  console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);
   console.log(`  - agenthook start            # boot this profile`);
 }

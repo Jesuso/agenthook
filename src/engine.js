@@ -46,10 +46,9 @@ export function createEngine(cfg) {
       if (!job.dedupKey) continue;
       if (!force && store.hasSeen(job.dedupKey)) continue;
       store.markSeen(job.dedupKey);
-      const tail = job.text ? ` -> "${job.text.slice(0, 80)}"` : "";
-      console.log(`[event] ${job.kind} ${job.ref}${tail}`);
+      console.log(`[event] step ${job.stepId} ${job.ref}`);
       heartbeat.update({
-        lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, text: job.text || null },
+        lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, step: job.stepId },
         seen: store.seenCount(),
       });
       queue.enqueue(job);

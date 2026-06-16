@@ -1,4 +1,4 @@
-// Asana adapter.
+// Asana adapter — the reference implementation of the tracker interface.
 //
 // An adapter implements:
 //   describe()                         -> { platform, taskNoun, trigger, commentHowTo }
@@ -6,19 +6,20 @@
 //                                         (fast, no network — lets the engine ACK <10s)
 //   processEvents({pathname,headers,rawBody}) -> [job]   (async; may hit the API)
 //   fetchTask(ref)                     -> { name, description, url, completed, assignedToUs, ref }
-//   ensureCommentWebhook(ref)          -> create the per-item comment hook (idempotent)
-//   registerWebhook(publicUrl)         -> create the top-level hook (CLI)
+//   advance(ref, stepId, outcome)      -> move the task to the step's success/failure section
+//   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
+//   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
 //   forgeCatchup(ref)                  -> { path, body, sig } to replay a missed item (CLI)
 //
-// job: { kind:'implement'|'change', ref, text?, dedupKey }
+// job: { kind:'pipeline', ref, stepId, dedupKey }
 //
 // Asana specifics: every webhook carries its OWN X-Hook-Secret, established by a
-// handshake POST, so secrets are keyed by request path. Two flows:
-//   /mytasks       task enters My Tasks  -> implement
-//   /task/<gid>    "@agent ..." comment  -> change
+// handshake POST, so secrets are keyed by request path. One project webhook on
+// /mytasks delivers task-added (a task created in a section) and story
+// section_changed (a task moved between sections); both route to the step whose
+// sourceSectionGid the task now rests in.
 import crypto from "node:crypto";
-import fs from "node:fs";
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createAsanaAdapter(cfg, store) {
@@ -36,7 +37,6 @@ export function createAsanaAdapter(cfg, store) {
 
   /** @param {string} pathname */
   const norm = (pathname) => pathname.replace(/\/$/, "") || "/";
-  const baseUrl = () => fs.readFileSync(cfg.publicUrlFile, "utf8").trim().replace(/\/$/, "");
 
   /** @param {string|undefined} secret @param {string} raw @param {string|string[]|undefined} sig */
   const verify = (secret, raw, sig) => {
@@ -126,28 +126,21 @@ export function createAsanaAdapter(cfg, store) {
       const jobs = [];
       for (const ev of events) {
         const rt = ev.resource?.resource_type;
-        if (rt === "task" && (ev.action === "added" || ev.action === "changed")) {
+        // A task created directly in a section: route it to that section's step.
+        if (rt === "task" && ev.action === "added") {
           const gid = ev.resource.gid;
           if (!gid) continue;
-          if (pipeline) {
-            // Pipeline: a task entering a step's source section fires that step. This
-            // covers a task CREATED directly in a section (no section_changed story).
-            // dedup by gid+section so a later re-entry can fire again.
-            try {
-              const step = await stepForTask(gid);
-              if (step) jobs.push({ kind: "pipeline", ref: gid, stepId: step.id, dedupKey: `step:${step.id}:${gid}` });
-            } catch (e) {
-              console.error(`[pipeline] route task ${gid} failed:`, e.message);
-            }
-            continue;
+          try {
+            const step = await stepForTask(gid);
+            if (step) jobs.push({ kind: "pipeline", ref: gid, stepId: step.id, dedupKey: `step:${step.id}:${gid}` });
+          } catch (e) {
+            console.error(`[pipeline] route task ${gid} failed:`, e.message);
           }
-          // Legacy: scope dedup by action — "added" fires at creation (often
-          // unassigned → skipped in dispatch), "changed" when the assignee changes.
-          // A single key would let creation burn the slot so the assignment never runs.
-          jobs.push({ kind: "implement", ref: gid, dedupKey: `task:${gid}:${ev.action}` });
         } else if (rt === "story" && ev.action === "added") {
+          // Section move → fire the step the task now rests in. One story gid = one
+          // move, so the key dedups webhook retries yet allows a later re-entry.
           const storyGid = ev.resource.gid;
-          if (!storyGid || store.hasSeen(`story:${storyGid}`) || store.hasSeen(`secmove:${storyGid}`)) continue;
+          if (!storyGid || store.hasSeen(`secmove:${storyGid}`)) continue;
           let story;
           try {
             story = await fetchStory(storyGid);
@@ -155,27 +148,14 @@ export function createAsanaAdapter(cfg, store) {
             console.error(`[story] fetch ${storyGid} failed:`, e.message);
             continue;
           }
+          if (story.resource_subtype !== "section_changed") continue;
           const taskGid = ev.parent?.gid || story.target?.gid;
-          // Section move → fire the step the task now rests in (pipeline only). One
-          // story gid = one move, so it dedups webhook retries yet allows re-entry.
-          if (pipeline && story.resource_subtype === "section_changed") {
-            try {
-              const step = await stepForTask(taskGid);
-              if (step) jobs.push({ kind: "pipeline", ref: taskGid, stepId: step.id, dedupKey: `secmove:${storyGid}` });
-            } catch (e) {
-              console.error(`[pipeline] route move ${taskGid} failed:`, e.message);
-            }
-            continue;
+          try {
+            const step = await stepForTask(taskGid);
+            if (step) jobs.push({ kind: "pipeline", ref: taskGid, stepId: step.id, dedupKey: `secmove:${storyGid}` });
+          } catch (e) {
+            console.error(`[pipeline] route move ${taskGid} failed:`, e.message);
           }
-          if (story.type !== "comment") continue;
-          const text = (story.text || "").trim();
-          if (!text.toLowerCase().startsWith(cfg.trigger.toLowerCase())) continue; // not for us
-          jobs.push({
-            kind: "change",
-            ref: taskGid,
-            text: text.slice(cfg.trigger.length).trim(),
-            dedupKey: `story:${storyGid}`,
-          });
         }
       }
       return jobs;
@@ -195,12 +175,7 @@ export function createAsanaAdapter(cfg, store) {
       };
     },
 
-    // Legacy (non-pipeline) flow: move on start/finish of the single implement run.
-    // Called by dispatch; opt-in (no section gid → no-op).
-    onStart: (ref) => moveToSection(ref, pc.inProgressSectionGid, "In Progress"),
-    onFinish: (ref) => moveToSection(ref, pc.reviewSectionGid, "Awaiting Review"),
-
-    // Pipeline: resolve a finished step's transition. 'advance' → the step's success
+    // Resolve a finished step's transition. 'advance' → the step's success
     // section (which is the next step's source, so the move itself fires the next
     // step). 'fail' → the failure section if configured, else leave the task in place
     // for a human. hold/changes are P2.
@@ -236,25 +211,6 @@ export function createAsanaAdapter(cfg, store) {
       return jobs;
     },
 
-    async ensureCommentWebhook(ref) {
-      const target = `${baseUrl()}/task/${ref}/`;
-      const list = await api(`/webhooks?workspace=${pc.workspaceGid}&opt_fields=target`);
-      const existing = (await json(list)).data || [];
-      if (existing.some((/** @type {any} */ w) => w.target === target)) {
-        console.log(`[hook] task ${ref} already watched`);
-        return;
-      }
-      const res = await api(`/webhooks`, {
-        method: "POST",
-        body: JSON.stringify({
-          data: { resource: ref, target, filters: [{ resource_type: "story", action: "added" }] },
-        }),
-      });
-      const body = await json(res);
-      if (body.errors) console.error(`[hook] create failed for ${ref}:`, JSON.stringify(body.errors));
-      else console.log(`[hook] now watching comments on task ${ref}`);
-    },
-
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/mytasks/`;
       // Remove stale hooks first (tunnel URL rotates each boot).
@@ -263,25 +219,21 @@ export function createAsanaAdapter(cfg, store) {
         await api(`/webhooks/${w.gid}`, { method: "DELETE" });
         console.log(`  deleted webhook ${w.gid}`);
       }
-      // Watch a project if configured, else fall back to the My Tasks list. Either
-      // way, dispatch gates implement jobs on assignedToUs, so only the configured
-      // user's tasks actually run.
-      const resource = pc.projectGid || pc.myTasksGid;
-      // Pipeline mode also needs section moves delivered (verified: a project webhook
-      // delivers story/section_changed). The task-added filter still fires the first
-      // step for a task created directly in a section.
-      const filters = pipeline
-        ? [
-            { resource_type: "task", action: "added" },
-            { resource_type: "story", action: "added", resource_subtype: "section_changed" },
-          ]
-        : [
-            { resource_type: "task", action: "added" },
-            { resource_type: "task", action: "changed", fields: ["assignee"] },
-          ];
+      // One project webhook delivers task-added (created in a section) and story
+      // section_changed (moved between sections) — both route to a step. (The
+      // section_changed delivery on a project webhook is verified against Asana.)
       const res = await api(`/webhooks`, {
         method: "POST",
-        body: JSON.stringify({ data: { resource, target, filters } }),
+        body: JSON.stringify({
+          data: {
+            resource: pc.projectGid,
+            target,
+            filters: [
+              { resource_type: "task", action: "added" },
+              { resource_type: "story", action: "added", resource_subtype: "section_changed" },
+            ],
+          },
+        }),
       });
       const body = await json(res);
       if (body.errors) throw new Error(`Asana: ${JSON.stringify(body.errors)}`);
@@ -296,8 +248,10 @@ export function createAsanaAdapter(cfg, store) {
       }
     },
 
-    // Forge the exact event Asana POSTs for a newly-assigned task, signed with the
-    // live /mytasks secret, so a missed task replays through the whole dispatch path.
+    // Forge a signed task-added event for the project hook, so a missed task replays
+    // through the whole dispatch path. The server re-reads the task's live section and
+    // routes it to the matching step (so this replays whatever step it now rests in).
+    // Used by `catchup <ref>` and `reconcile`.
     forgeCatchup(ref) {
       const secret = store.getSecret("/mytasks");
       if (!secret) throw new Error("no /mytasks secret yet — run register first");

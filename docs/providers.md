@@ -13,30 +13,31 @@ A factory `createXAdapter(cfg, store)` (in `src/trackers/`) returns an object wi
 |--------|---------|
 | `describe()` | `{ platform, taskNoun, trigger, commentHowTo }` — feeds the prompt builder. |
 | `authenticate({pathname, headers, rawBody})` | **Fast, no network.** Returns `{type:'handshake', headers}`, `{type:'reject'}`, or `{type:'accept'}`. Lets the receiver ACK quickly. |
-| `processEvents({pathname, headers, rawBody})` | **Async, may call the API.** Returns `[job]`. |
+| `processEvents({pathname, headers, rawBody})` | **Async, may call the API.** Returns `[job]` — maps a board event to the step the task now rests in. |
 | `fetchTask(ref)` | `{ name, description, url, completed, assignedToUs, ref }`. |
-| `ensureCommentWebhook(ref)` | Create the per-item comment hook (idempotent). No-op where a repo/project-level hook already covers comments. |
-| `registerWebhook(publicUrl)` | Create the top-level hook (called on `start`, or CLI `register`). |
+| `advance(ref, stepId, outcome)` | Resolve a finished step: move the task to the step's success (`advance`) or failure (`fail`) section. The success move is the next step's trigger. |
+| `listResting()` | `[job]` for tasks currently resting in step source sections — drives the explicit `reconcile` command (never called on boot). |
+| `registerWebhook(publicUrl)` | Create the project hook (called on `start`, or CLI `register`). |
 | `unregisterWebhooks()` | Delete this tracker's hooks (`start` boot-scrub when ingress is ephemeral; CLI `unregister`; `stop`). |
-| `forgeCatchup(ref)` *(optional)* | `{ path, body, headers, dedupKey }` to replay a missed item. |
-| `wizardSteps()` *(optional)* | `WizardStep[]` for `agenthook init`; may hit the API so the user PICKS a workspace/project/repo instead of pasting ids. |
+| `forgeCatchup(ref)` *(optional)* | `{ path, body, headers, dedupKey }` to replay a missed item (`catchup`/`reconcile`). |
+| `wizardSteps()` *(optional)* | `WizardStep[]` for `agenthook init`; may hit the API so the user PICKS a workspace/project instead of pasting ids. |
 
-A **job** is `{ kind: 'implement' | 'change', ref, text?, dedupKey }`. The engine dedups on
-`dedupKey`, then enqueues. `ref` is whatever opaque id your `fetchTask` understands.
+A **job** is `{ kind: 'pipeline', ref, stepId, dedupKey }`. The engine dedups on `dedupKey`, then
+enqueues. `ref` is whatever opaque id your `fetchTask` understands; `stepId` selects the
+`cfg.pipeline` step to run.
 
 ## Built-in trackers
 
 ### Asana (`src/trackers/asana.js`)
 - Per-webhook `X-Hook-Secret` handshake; secrets keyed by request path.
-- Two hooks: a project/My-Tasks hook (`/mytasks`) for assignment → implement, and a per-task
-  story hook (`/task/<gid>`) created after the first run for `@agent` comments → change.
+- One project hook (path `/mytasks`) with filters `task/added` + `story/section_changed`. Both
+  resolve the task's live `memberships.section.gid` → the step whose `sourceSectionGid` matches.
 - Signature: HMAC-SHA256 hex in `X-Hook-Signature`.
 
-### GitHub Issues (`src/trackers/github.js`)
-- One repo-level hook covering `issues` + `issue_comment`; `ensureCommentWebhook` is a no-op.
-- Secret is config-supplied (no handshake). Signature: `X-Hub-Signature-256: sha256=<hex>`.
-- `issues`/`assigned` (matching `assigneeLogin`) → implement; `issue_comment`/`created`
-  starting with the trigger → change. Dedup on `X-GitHub-Delivery`.
+### Section-less trackers (GitHub, …)
+- Removed for now: the pipeline is section-driven and GitHub Issues has no sections. Slated for P3,
+  mapped to labels / project columns (the adapter would translate a label/column change into the
+  same section→step routing). Until then, only Asana ships.
 
 ## Ingress interface
 
@@ -55,8 +56,9 @@ Built-in: **`ngrok`** (managed, ephemeral unless a reserved `domain` is set) and
 ## Adding a tracker (e.g. Jira, GitLab, Linear)
 
 1. Create `src/trackers/<name>.js` exporting `create<Name>Adapter(cfg, store)`.
-2. Implement the interface above. Map the platform's "assigned" and "comment" signals to
-   `implement`/`change` jobs; map its signature scheme into `authenticate`.
+2. Implement the interface above. Map the platform's "item moved to a stage" signal (section,
+   status, label, column) to a `pipeline` job for the matching step; map its signature scheme into
+   `authenticate`; implement `advance`/`listResting` against that same stage concept.
 3. Register it in `src/trackers/index.js`'s `TRACKERS`.
 4. (Optional) Add `wizardSteps()` for `init`, and document its env vars in `.env.example`.
 

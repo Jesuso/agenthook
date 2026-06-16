@@ -10,12 +10,6 @@
   "port": 4123,
   "fullAuto": true,
   "claudeBin": "claude",
-  "instructionsFile": "./INSTRUCTIONS.md",
-
-  "//digest": "Optional. true = after a clean author run, spawn an INDEPENDENT claude -p that",
-  "//digest2": "digests the draft PR (repo `pr-digest` skill) into a plain-language sign-off card",
-  "//digest3": "on the tracker + a technical concerns list on the PR. Omit/false to disable.",
-  "digest": false,
 
   "tracker": {
     "//": "type selects the adapter; the rest is that tracker's config.",
@@ -23,24 +17,42 @@
     "token": "${ASANA_TOKEN}",
     "userGid": "YOUR_ASANA_USER_GID",
     "workspaceGid": "YOUR_WORKSPACE_GID",
-    "projectGid": "PROJECT_TO_WATCH_GID",
+    "projectGid": "PROJECT_WHOSE_SECTIONS_DRIVE_THE_PIPELINE_GID",
 
-    "//github": "For GitHub instead, use:",
-    "//github-type": "type: github, repo: owner/repo, assigneeLogin: you,",
-    "//github-secret": "token: ${GITHUB_TOKEN}, webhookSecret: ${WEBHOOK_SECRET}",
-
-    "//pipeline": "Optional. When present, a task ENTERING a step's sourceSectionGid fires that",
-    "//pipeline2": "step; on a clean exit the receiver moves it to successSectionGid (= the next",
-    "//pipeline3": "step's source, so the move itself triggers the next step). createsWorktree makes",
-    "//pipeline4": "the receiver own a shared git worktree across all steps; manual = no agent (entry",
-    "//pipeline5": "only runs system actions like drainWorktree). Forward motion is all event-driven;",
-    "//pipeline6": "`agenthook reconcile` is the only board poll and is user-explicit.",
-    "//pipeline-example": [
-      { "id": "code", "kind": "implement", "instructionsFile": "./code.md", "createsWorktree": true,
-        "sourceSectionGid": "AGENT_QUEUE_GID", "successSectionGid": "REVIEW_GID", "failureSectionGid": "FAILED_GID" },
-      { "id": "review", "kind": "review", "instructionsFile": "./review.md", "model": "claude-opus-4-8",
-        "sourceSectionGid": "REVIEW_GID", "successSectionGid": "APPROVAL_GID", "failureSectionGid": "CODE_QUEUE_GID" },
-      { "id": "done", "manual": true, "drainWorktree": true, "sourceSectionGid": "DONE_GID" }
+    "//pipeline": "The execution model (required). A task ENTERING a step's sourceSectionGid fires",
+    "//pipeline2": "that step; on a clean exit the receiver moves it to successSectionGid (= the next",
+    "//pipeline3": "step's source, so the move itself triggers the next step), or failureSectionGid on",
+    "//pipeline4": "a non-zero/interrupted run. createsWorktree makes the receiver own a git worktree",
+    "//pipeline5": "shared across the task's steps; drainWorktree removes it; manual = no agent (entry",
+    "//pipeline6": "only runs system actions). Each step's instructionsFile is its standing prompt.",
+    "//pipeline7": "Forward motion is all event-driven; `agenthook reconcile` is the only (explicit) poll.",
+    "pipeline": [
+      {
+        "id": "triage",
+        "kind": "triage",
+        "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
+        "sourceSectionGid": "AWAITING_TRIAGE_GID",
+        "successSectionGid": "AGENT_QUEUE_GID",
+        "failureSectionGid": "BLOCKED_GID"
+      },
+      {
+        "id": "code",
+        "kind": "implement",
+        "createsWorktree": true,
+        "instructionsFile": "./INSTRUCTIONS_CODE.md",
+        "sourceSectionGid": "AGENT_QUEUE_GID",
+        "successSectionGid": "AWAITING_REVIEW_GID",
+        "failureSectionGid": "BLOCKED_GID"
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "model": "claude-opus-4-8",
+        "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
+        "sourceSectionGid": "AWAITING_REVIEW_GID",
+        "successSectionGid": "QC_GID",
+        "failureSectionGid": "BLOCKED_GID"
+      }
     ]
   },
 

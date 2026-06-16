@@ -2,12 +2,11 @@
 // the reference doc-comment). Add a platform by dropping a file here and listing
 // it below — the engine never changes. The active tracker is `cfg.tracker.type`.
 import { createAsanaAdapter } from "./asana.js";
-import { createGithubAdapter } from "./github.js";
 
+// GitHub (and other section-less trackers) return in P3, mapped to labels/columns.
 /** @type {Record<string, import('../types.js').AdapterFactory>} */
 export const TRACKERS = {
   asana: createAsanaAdapter,
-  github: createGithubAdapter,
 };
 
 /**

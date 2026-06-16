@@ -1,24 +1,19 @@
-// Spawns headless `claude -p` for one job, streams output to a per-run log, then
-// asks the provider to ensure a comment-watch hook exists (so future "@agent ..."
-// comments re-trigger). Provider-blind: everything platform-specific comes through
-// the adapter.
+// Spawns headless `claude -p` for one pipeline step, streams output to a per-run
+// log, and resolves the step's section transition on exit. Provider-blind: section
+// gids and the move itself live behind the adapter (advance()).
 //
-// Two flows share the spawn plumbing:
-//   - legacy    implement/change jobs → cwd = repoPath, agent makes its own worktree,
-//               section moves via onStart/onFinish.
-//   - pipeline  step jobs → the RECEIVER owns the worktree (cwd = worktree) and the
-//               section moves (adapter.advance on a clean/failed exit), keyed by stepId.
+// The receiver OWNS the worktree: the step that sets createsWorktree gets one made
+// (shared by task ref across all its steps, cwd = it); drainWorktree removes it.
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { implementPrompt, changePrompt, stepPrompt } from "./prompts.js";
-import { createDigest } from "./digest.js";
+import { stepPrompt } from "./prompts.js";
 import { findStep } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath } from "./worktree.js";
 
 /** @param {string} file */
 const readInstructions = (file) => {
-  // Read fresh each run so edits to standing instructions need no restart.
+  // Read fresh each run so edits to a step's standing instructions need no restart.
   try {
     return fs.readFileSync(file, "utf8").trim();
   } catch {
@@ -34,9 +29,6 @@ const readInstructions = (file) => {
  */
 export function createDispatcher(cfg, adapter, children, store) {
   const meta = adapter.describe();
-  // Independent sign-off digest, off unless cfg.digest === true. Runs as its own
-  // memory-less `claude -p` after a clean author exit (legacy flow only).
-  const runDigest = createDigest(cfg, adapter, children);
 
   /**
    * Spawn `claude -p` with a prompt, stream to a log, resolve the exit code.
@@ -66,18 +58,15 @@ export function createDispatcher(cfg, adapter, children, store) {
     });
   }
 
-  /** @param {string} kind @param {string} ref */
-  const logPathFor = (kind, ref) => {
+  /** @param {string} stepId @param {string} ref */
+  function logPathFor(stepId, ref) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
-    return path.join(cfg.logDir, `${stamp}-${kind}-${safeRef}.log`);
-  };
+    return path.join(cfg.logDir, `${stamp}-step-${stepId}-${safeRef}.log`);
+  }
 
-  /**
-   * Pipeline step: the receiver owns the worktree and the section transition.
-   * @param {import('./types.js').Job} job
-   */
-  async function runPipelineStep(job) {
+  /** @param {import('./types.js').Job} job */
+  return async function runClaude(job) {
     const step = findStep(cfg, job.stepId);
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
     const task = await adapter.fetchTask(job.ref);
@@ -104,13 +93,14 @@ export function createDispatcher(cfg, adapter, children, store) {
       branch = wt.branch;
       console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch})`);
     }
-    const cwd = fs.existsSync(worktree) ? worktree : cfg.repoPath;
+    const hasWorktree = fs.existsSync(worktree);
+    const cwd = hasWorktree ? worktree : cfg.repoPath;
 
     const standing = readInstructions(step.instructionsFile || cfg.instructionsFile);
-    const base = stepPrompt(task, meta, step, { worktree: fs.existsSync(worktree) ? worktree : undefined, branch });
+    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
-    const logPath = logPathFor(`step-${step.id}`, job.ref);
+    const logPath = logPathFor(step.id, job.ref);
     console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
 
     const code = await spawnClaude({
@@ -122,13 +112,6 @@ export function createDispatcher(cfg, adapter, children, store) {
         store?.setRunning(job.ref, { stepId: step.id, pid, startedAt: new Date().toISOString(), worktree: cwd }),
     });
     store?.clearRunning(job.ref);
-
-    // Comment hook so future "@agent ..." re-triggers a change on this task.
-    try {
-      await adapter.ensureCommentWebhook(job.ref);
-    } catch (e) {
-      console.error(`[hook] ensure failed:`, e.message);
-    }
 
     // Drain before advancing, so the worktree is gone by the time the next stage looks.
     if (code === 0 && step.drainWorktree) {
@@ -143,78 +126,9 @@ export function createDispatcher(cfg, adapter, children, store) {
     // to the next section is itself the event that fires the next step.
     const outcome = code === 0 ? "advance" : "fail";
     try {
-      await adapter.advance?.(job.ref, step.id, outcome);
+      await adapter.advance(job.ref, step.id, outcome);
     } catch (e) {
       console.error(`[advance] ${step.id} ${job.ref} (${outcome}) failed:`, e.message);
-    }
-
-    return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };
-  }
-
-  /** @param {import('./types.js').Job} job */
-  return async function runClaude(job) {
-    if (job.kind === "pipeline") return runPipelineStep(job);
-
-    const task = await adapter.fetchTask(job.ref);
-
-    if (job.kind === "implement") {
-      if (task.completed) {
-        console.log(`[skip] ${job.ref} completed`);
-        return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
-      }
-      if (!task.assignedToUs) {
-        console.log(`[skip] ${job.ref} not assigned to us`);
-        return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
-      }
-    }
-
-    // Move the item into its "in progress" lane the moment work begins. Optional
-    // per-adapter hook (Asana implements it; GitHub has no sections). After the
-    // gates above, so skipped/unassigned/completed items are never moved.
-    try {
-      await adapter.onStart?.(job.ref);
-    } catch (e) {
-      console.error(`[section] onStart failed:`, e.message);
-    }
-
-    const base =
-      job.kind === "implement" ? implementPrompt(task, meta) : changePrompt(task, job.text, meta);
-    const standing = readInstructions(cfg.instructionsFile);
-    const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
-
-    const logPath = logPathFor(job.kind, job.ref);
-    console.log(`[run] ${job.kind} ${job.ref} "${task.name}" -> ${logPath}`);
-
-    const code = await spawnClaude({ prompt, cwd: cfg.repoPath, logPath });
-
-    if (job.kind === "implement") {
-      try {
-        await adapter.ensureCommentWebhook(job.ref);
-      } catch (e) {
-        console.error(`[hook] ensure failed:`, e.message);
-      }
-    }
-
-    // Independent sign-off digest before the lane move, so the plain-language
-    // card is already on the item when a human sees it land in review. A PR-
-    // producing kind only (implement/change), clean author exit only, opt-in via
-    // cfg.digest. Never let a digest failure block onFinish — it is advisory.
-    if (code === 0 && cfg.digest && (job.kind === "implement" || job.kind === "change")) {
-      try {
-        await runDigest(job, task);
-      } catch (e) {
-        console.error(`[digest] failed (non-fatal):`, e.message);
-      }
-    }
-
-    // Work done → hand off to its review lane. Optional per-adapter hook, mirror
-    // of onStart. Only on a clean exit; a crashed agent stays put for inspection.
-    if (code === 0) {
-      try {
-        await adapter.onFinish?.(job.ref);
-      } catch (e) {
-        console.error(`[section] onFinish failed:`, e.message);
-      }
     }
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };

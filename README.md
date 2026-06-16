@@ -1,25 +1,26 @@
 # agenthook
 
-**Event-driven agentic development.** Assign a task on your tracker → a coding agent picks it
-up *the instant it's assigned*, works it in an isolated git worktree, and opens a draft PR.
-Comment `@agent <change>` → it resumes that branch and applies the change.
+**Event-driven agentic development.** Move a task into a board section → a coding agent picks it
+up *the instant it lands*, works that stage in an isolated git worktree, and (for the coding
+stage) opens a draft PR. A clean exit moves the task to the next section — which fires the next
+stage. You define the **pipeline** of stages (e.g. triage → code → review).
 
-No polling loop. The tracker already knows the moment something changes — so it pushes a
-webhook and the agent starts. Latency is bounded by the network, not by a poll interval, and
-nothing spins while you're idle.
+No polling loop. The tracker already knows the moment a task moves — so it pushes a webhook and
+the matching stage starts. Latency is bounded by the network, not by a poll interval, and nothing
+spins while you're idle.
 
 > Event-first, poll only to reconcile. See [docs/architecture.md](docs/architecture.md) for the
 > honest tradeoffs (push delivery isn't free — agenthook ships a targeted replay for the gaps).
 
 Two swappable axes, engine blind to both: a **tracker** (where work comes from) and an
-**ingress** (how the receiver is reachable). Ships with **Asana** + **GitHub Issues** trackers
-and **ngrok** + **hosted** ingress; adding **Jira / GitLab / Linear** or a new tunnel is one
-adapter file ([docs/providers.md](docs/providers.md)).
+**ingress** (how the receiver is reachable). Ships with the **Asana** tracker and **ngrok** +
+**hosted** ingress; adding another section/stage tracker or tunnel is one adapter file
+([docs/providers.md](docs/providers.md)).
 
 ```
- assign / comment        webhook POST            normalize           headless `claude -p`
- on your tracker  ─────▶  receiver (verify)  ──▶  dedup + queue   ──▶  branch + draft PR
-                                                                        + status comment back
+ move to a section       webhook POST            route to step        headless `claude -p`
+ on your board    ─────▶  receiver (verify)  ──▶  dedup + queue   ──▶  branch + draft PR
+                                                                        → advance to next section
 ```
 
 ## Install
@@ -50,7 +51,7 @@ agenthook doctor          # preflight: token resolves, repo is git, port free, �
 agenthook start           # ingress up → register webhook → serve
 ```
 
-Assign yourself a task (Asana) / assign an issue to yourself (GitHub) → a run appears under
+Move a task into your pipeline's first section (Asana) → a run appears under
 `~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with `agenthook stop`.
 
 `init` writes secrets as `${ENV}` **references**, never literal values, so the config is safe to
@@ -68,7 +69,7 @@ agenthook start --config ~/proj-b/agenthook.config.json   # port 4124 (set in it
 agenthook ls              # every profile + live status
 # NAME    UP  PORT  TRACKER  INGRESS  AGENTS  QUEUE  LAST EVENT
 # proj-a  *   4123  asana    ngrok    1       0      2m ago
-# proj-b  *   4124  github   hosted   0       0      1h ago
+# proj-b  *   4124  asana    hosted   0       0      1h ago
 
 agenthook status proj-a   # one profile in detail (url, queue, recent runs)
 ```
@@ -97,10 +98,10 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 | `name` | Profile name; keys the state dir. Must be unique across running profiles. |
 | `repoPath` | The repo agents work in (worktrees are siblings). Relative paths resolve against the config. |
 | `port` | Local receiver port. Distinct per parallel profile. |
-| `trigger` | Comment prefix that requests a change (default `@agent`). |
+| `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
 | `maxConcurrent` | How many agents run at once (each in its own worktree). |
 | `fullAuto` | Adds `--dangerously-skip-permissions` to `claude -p`. |
-| `tracker` | `{ type, token, … }` — `type` is `asana`/`github`; the rest is that tracker's wiring. |
+| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`; `pipeline` is the ordered steps (required). |
 | `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
 
 See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented
@@ -108,12 +109,14 @@ template and [`.env.example`](.env.example) for the env vars each tracker/ingres
 
 ## Reconcile a missed item
 
-Webhooks are push-only and fire on a *transition* (assignment), not a state — so a missed
-assignment can't be recovered by polling. Replay it explicitly through the running server:
+Webhooks are push-only and fire on a *transition* (a task moving into a section), not a state —
+so a missed move can't be recovered by polling alone. Replay it explicitly through the running
+server:
 
 ```bash
-agenthook catchup <ref>           # forge + POST the exact signed event
+agenthook catchup <ref>           # forge + POST the exact signed event for one task
 agenthook catchup <ref> --force   # re-run even if already handled
+agenthook reconcile               # re-fire every task resting in a pipeline section (the one explicit poll)
 ```
 
 ## Operating running agents

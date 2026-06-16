@@ -9,10 +9,9 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'implement'|'change'|'pipeline'} kind  implement = new assignment; change = `@agent` comment; pipeline = a step fired by a section move
- * @property {string} ref       provider-native item id (Asana gid, `owner/repo#123`, …)
- * @property {string} [text]    the change request text (change jobs only)
- * @property {string} [stepId]  pipeline jobs: which Step in cfg.pipeline to run
+ * @property {'pipeline'} kind  a step fired by a task entering its source section
+ * @property {string} ref       provider-native item id (Asana gid, …)
+ * @property {string} stepId    which Step in cfg.pipeline to run
  * @property {string} dedupKey  unique per source event; one key → at most one run
  */
 
@@ -101,11 +100,8 @@
  * @property {(ctx: EventCtx) => AuthResult} authenticate
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(ref: string) => Promise<Task>} fetchTask
- * @property {(ref: string) => Promise<void>} ensureCommentWebhook
- * @property {(ref: string) => Promise<void>} [onStart]  legacy (non-pipeline) flow; called when work begins (e.g. move to an "in progress" section)
- * @property {(ref: string) => Promise<void>} [onFinish]  legacy (non-pipeline) flow; called on a clean agent exit (e.g. move to a "review" section)
- * @property {(ref: string, stepId: string, outcome: StepOutcome) => Promise<void>} [advance]  pipeline: resolve a finished step's transition (move to success/failure section)
- * @property {() => Promise<Job[]>} [listResting]  pipeline: tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
+ * @property {(ref: string, stepId: string, outcome: StepOutcome) => Promise<void>} advance  resolve a finished step's transition (move to success/failure section)
+ * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => ForgedEvent} [forgeCatchup]  optional; catchup needs it
@@ -122,18 +118,12 @@
  * Loose by design — each adapter reads its own fields. `${VAR}` refs in any value
  * are already resolved from the environment by loadConfig before adapters see it.
  * @typedef {object} ProviderConfig
- * @property {string} type               tracker adapter key (e.g. "asana", "github")
+ * @property {string} type               tracker adapter key (e.g. "asana")
  * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" ref)
- * @property {string} [webhookSecret]    HMAC secret (GitHub-style; "${WEBHOOK_SECRET}")
- * @property {string} [repo]
- * @property {string} [assigneeLogin]
  * @property {string} [userGid]
  * @property {string} [workspaceGid]
- * @property {string} [myTasksGid]
- * @property {string} [projectGid]  Asana: watch this project instead of My Tasks
- * @property {string} [inProgressSectionGid]  Asana legacy: move task here when work begins
- * @property {string} [reviewSectionGid]  Asana legacy: move task here on a clean agent exit
- * @property {Step[]} [pipeline]  opt-in; when present, section moves drive the steps
+ * @property {string} [projectGid]  Asana: the project whose sections drive the pipeline
+ * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  */
 
 /**
@@ -182,7 +172,6 @@
  * @property {string} trigger
  * @property {number} maxConcurrent
  * @property {boolean} [fullAuto]
- * @property {boolean} [digest]  legacy flow: run the independent sign-off digest after a clean author exit
  * @property {string} repoPath
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]

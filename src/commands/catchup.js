@@ -1,8 +1,9 @@
 // `agenthook catchup <ref> [--force]` — replay one item the receiver missed while
-// down. Webhooks fire on a TRANSITION (assignment), not a state, so a missed
-// assignment can't be polled back; instead we forge the exact signed event the
-// tracker would have sent and POST it to the live server, reusing the whole
-// dispatch path (dedup, prompt, worktree, PR, comment hook). See docs/architecture.md.
+// down. Webhooks fire on a TRANSITION (a task moving into a section), not a state, so
+// a missed move can't be polled back; instead we forge the exact signed event the
+// tracker would have sent and POST it to the live server, which re-reads the task's
+// live section and routes it to the matching step. Reuses the whole dispatch path
+// (dedup, worktree, PR). See docs/architecture.md. (`reconcile` does this in bulk.)
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
@@ -36,7 +37,7 @@ export async function catchup(args) {
     });
     console.log(`POST ${forged.path} -> ${res.status}`);
     if (res.status !== 200) throw new Error(`server returned ${res.status}`);
-    console.log(`dispatched ${ref}. The server re-fetches and skips if completed or unassigned.`);
+    console.log(`dispatched ${ref}. The server routes it to the step its current section maps to.`);
   } catch (e) {
     if (removed) {
       store.markSeen(forged.dedupKey);

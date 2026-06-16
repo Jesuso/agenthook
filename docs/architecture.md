@@ -10,7 +10,7 @@ no idle spin, latency bounded by network not by poll interval.
 
 ```
  assign / comment        webhook POST           normalize          headless claude -p
- on Asana/GitHub  ─────▶  receiver (verify)  ──▶  + dedup + queue ──▶ branch + draft PR
+ on Asana board  ─────▶  receiver (verify)  ──▶  + dedup + queue ──▶ branch + draft PR
                                                                        + status comment back
 ```
 
@@ -24,10 +24,11 @@ honest caveats the loop crowd will (correctly) raise:
    the event fires, most providers eventually give up. The event is gone.
 
 2. **A push is a TRANSITION, not a STATE — and you cannot poll a transition back.** The event
-   is "task *entered* My Tasks", which fires once, at assignment time. A task that has sat
-   assigned for a month looks identical, by current state, to one assigned 10 seconds ago. So
-   no state-scanning poll can recover a missed assignment — there is nothing in the present
-   state that says "this one is new".
+   is "task *entered* this section", which fires once, at the moment of the move. A task that
+   has sat in a section for a month looks identical, by current state, to one moved in 10 seconds
+   ago. So no state-scanning poll can perfectly recover a missed move — which is why `reconcile`
+   (the one explicit poll) re-fires the step a resting task currently maps to, rather than
+   pretending to know what already ran.
 
 ### The resolution: event-first, poll only to reconcile
 
@@ -54,10 +55,9 @@ replay for the gaps.** Event-first, poll only to reconcile.
 | `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
 | `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json`. |
 | `src/queue.js`    | Bounded-concurrency job queue. |
-| `src/dispatch.js` | Spawns `claude -p` per job, streams to a per-run log. Legacy implement/change (`cwd: repoPath`, optional digest pass); pipeline steps (receiver-owned worktree, `adapter.advance` on exit). |
-| `src/pipeline.js` · `src/worktree.js` | Opt-in `tracker.pipeline[]`: section-driven steps + receiver-owned shared worktree (create/`drainWorktree`), keyed by task ref. |
-| `src/digest.js`   | Legacy sign-off pass: a second, memory-less `claude -p` that digests the draft PR (repo `pr-digest` skill) → plain-language card on the tracker + technical concerns on the PR. (Superseded by a `review`-kind pipeline step.) |
-| `src/prompts.js`  | Blind implement/change/step/digest prompt builders. |
+| `src/dispatch.js` | Spawns `claude -p` per step (receiver-owned worktree as `cwd`), streams to a per-run log, resolves the section via `adapter.advance` on exit. |
+| `src/pipeline.js` · `src/worktree.js` | `tracker.pipeline[]` (required): section-driven steps + receiver-owned shared worktree (create/`drainWorktree`), keyed by task ref. |
+| `src/prompts.js`  | Blind `stepPrompt` builder (shapes itself per step `kind`: triage/implement/change/review). |
 | `src/config.js` · `src/heartbeat.js` · `src/paths.js` · `src/wizard.js` | Config loader (4 path roots, `${VAR}` refs, pipeline resolution), profile status, derived paths, `init` prompts. |
 
 ## Why a fast ACK then async work

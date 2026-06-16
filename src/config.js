@@ -114,7 +114,7 @@ export function loadConfig(opts = {}) {
   if (!cfg.name || !/^[A-Za-z0-9._-]+$/.test(cfg.name)) {
     throw new Error(`config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`);
   }
-  if (!cfg.tracker?.type) throw new Error(`config: "tracker.type" is required (e.g. "asana" or "github").`);
+  if (!cfg.tracker?.type) throw new Error(`config: "tracker.type" is required (e.g. "asana").`);
   if (!cfg.repoPath) throw new Error(`config: "repoPath" is required (the repo agents work in).`);
 
   // --- the four locations, kept distinct ---
@@ -148,18 +148,19 @@ export function loadConfig(opts = {}) {
   cfg.provider = cfg.tracker.type; // registry key
   cfg.providerConfig = cfg.tracker;
 
-  // Opt-in pipeline: an ordered list of steps. Resolve each step's instructionsFile
-  // against the config dir (like the top-level one) and validate ids up front so a
-  // typo fails loud at load, not mid-dispatch.
+  // The pipeline is the execution model: an ordered list of steps, each bound to a
+  // source section. Required. Resolve each step's instructionsFile against the config
+  // dir and validate ids up front so a typo fails loud at load, not mid-dispatch.
   cfg.pipeline = Array.isArray(cfg.tracker.pipeline) && cfg.tracker.pipeline.length ? cfg.tracker.pipeline : null;
-  if (cfg.pipeline) {
-    const ids = new Set();
-    for (const step of cfg.pipeline) {
-      if (!step.id) throw new Error(`config: every pipeline step needs an "id".`);
-      if (ids.has(step.id)) throw new Error(`config: duplicate pipeline step id "${step.id}".`);
-      ids.add(step.id);
-      if (step.instructionsFile) step.instructionsFile = resolvePath(step.instructionsFile, configDir);
-    }
+  if (!cfg.pipeline) {
+    throw new Error(`config: "tracker.pipeline" is required (a non-empty array of steps).`);
+  }
+  const ids = new Set();
+  for (const step of cfg.pipeline) {
+    if (!step.id) throw new Error(`config: every pipeline step needs an "id".`);
+    if (ids.has(step.id)) throw new Error(`config: duplicate pipeline step id "${step.id}".`);
+    ids.add(step.id);
+    if (step.instructionsFile) step.instructionsFile = resolvePath(step.instructionsFile, configDir);
   }
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });
