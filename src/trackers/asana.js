@@ -151,11 +151,36 @@ export function createAsanaAdapter(cfg, store) {
       };
     },
 
+    // Called by the engine when a job is admitted to the queue. Opt-in: no gid → no-op.
+    onEnqueue: (ref) => moveToSection(ref, pc.queueSectionGid, "Queue"),
+
     // Called by dispatch the moment work begins. Opt-in: no section gid → no-op.
     onStart: (ref) => moveToSection(ref, pc.inProgressSectionGid, "In Progress"),
 
     // Called by dispatch on a clean agent exit. Opt-in: no section gid → no-op.
     onFinish: (ref) => moveToSection(ref, pc.reviewSectionGid, "Awaiting Review"),
+
+    // Reconcile source: tasks still in the queued / in-progress lanes that are ours
+    // and not completed. The engine re-enqueues these on boot so a restart that lost
+    // the in-memory queue self-heals from the board. Implement-only — comment (change)
+    // requests can't be reconstructed from section membership. Requires the section
+    // gids to be configured; returns [] otherwise (feature stays opt-in).
+    async listPending() {
+      const lanes = [pc.queueSectionGid, pc.inProgressSectionGid].filter(Boolean);
+      /** @type {import('../types.js').Job[]} */
+      const jobs = [];
+      const seenGids = new Set();
+      for (const gid of lanes) {
+        const res = await api(`/sections/${gid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
+        if (!res.ok) throw new Error(`section ${gid} tasks ${res.status}`);
+        for (const t of (await json(res)).data || []) {
+          if (t.completed || t.assignee?.gid !== pc.userGid || seenGids.has(t.gid)) continue;
+          seenGids.add(t.gid);
+          jobs.push({ kind: "implement", ref: t.gid, dedupKey: `task:${t.gid}:added` });
+        }
+      }
+      return jobs;
+    },
 
     async ensureCommentWebhook(ref) {
       const target = `${baseUrl()}/task/${ref}/`;

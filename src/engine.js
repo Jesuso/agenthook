@@ -33,11 +33,15 @@ export function createEngine(cfg) {
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
   // enqueue anything new. Disk is the source of truth.
-  /** @param {import('./types.js').Job[]} [jobs] */
-  function intake(jobs) {
+  /**
+   * @param {import('./types.js').Job[]} [jobs]
+   * @param {{force?: boolean}} [opts]  force skips the dedup gate (boot reconcile replays already-seen events)
+   */
+  async function intake(jobs, { force = false } = {}) {
     store.reloadSeen();
     for (const job of jobs || []) {
-      if (!job.dedupKey || store.hasSeen(job.dedupKey)) continue;
+      if (!job.dedupKey) continue;
+      if (!force && store.hasSeen(job.dedupKey)) continue;
       store.markSeen(job.dedupKey);
       const tail = job.text ? ` -> "${job.text.slice(0, 80)}"` : "";
       console.log(`[event] ${job.kind} ${job.ref}${tail}`);
@@ -45,6 +49,14 @@ export function createEngine(cfg) {
         lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, text: job.text || null },
         seen: store.seenCount(),
       });
+      // Move into the visible "queued" lane before the job can be dispatched, so the
+      // board reflects pending work and a future restart can reconcile from it. Awaited
+      // so the lane move lands before onStart (In Progress) can overtake it.
+      try {
+        await adapter.onEnqueue?.(job.ref);
+      } catch (e) {
+        console.error(`[section] onEnqueue failed:`, e.message);
+      }
       queue.enqueue(job);
     }
   }
@@ -177,6 +189,23 @@ export function createEngine(cfg) {
         }
       }
       await adapter.registerWebhook(url);
+
+      // Restart self-heal: the in-memory queue doesn't survive a restart, so re-enqueue
+      // anything the board still shows as unfinished (forced past dedup — these events
+      // were already seen when first received). dispatch re-checks assignedToUs/completed.
+      if (adapter.listPending) {
+        try {
+          const pending = await adapter.listPending();
+          if (pending.length) {
+            console.log(`[reconcile] re-enqueuing ${pending.length} unfinished item(s) from the board`);
+            await intake(pending, { force: true });
+          } else {
+            console.log("[reconcile] board clean — nothing to replay");
+          }
+        } catch (e) {
+          console.error("[reconcile] failed:", e.message);
+        }
+      }
     } catch (e) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).

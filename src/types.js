@@ -69,8 +69,10 @@
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(ref: string) => Promise<Task>} fetchTask
  * @property {(ref: string) => Promise<void>} ensureCommentWebhook
+ * @property {(ref: string) => Promise<void>} [onEnqueue]  optional; called when a job is queued (e.g. move to a "queued" section)
  * @property {(ref: string) => Promise<void>} [onStart]  optional; called when work begins (e.g. move to an "in progress" section)
  * @property {(ref: string) => Promise<void>} [onFinish]  optional; called on a clean agent exit (e.g. move to a "review" section)
+ * @property {() => Promise<Job[]>} [listPending]  optional; unfinished items the engine re-enqueues on boot (restart self-heal)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => ForgedEvent} [forgeCatchup]  optional; catchup needs it
@@ -96,6 +98,7 @@
  * @property {string} [workspaceGid]
  * @property {string} [myTasksGid]
  * @property {string} [projectGid]  Asana: watch this project instead of My Tasks
+ * @property {string} [queueSectionGid]  Asana: optional; move task here when it is queued
  * @property {string} [inProgressSectionGid]  Asana: optional; move task here when work begins
  * @property {string} [reviewSectionGid]  Asana: optional; move task here on a clean agent exit
  */
