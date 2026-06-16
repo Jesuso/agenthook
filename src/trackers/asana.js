@@ -68,6 +68,28 @@ export function createAsanaAdapter(cfg, store) {
     return (await json(res)).data;
   }
 
+  // --- pipeline routing (opt-in; null when no pipeline configured) ---
+  const pipeline = cfg.pipeline;
+  /** @param {string} id */
+  const stepById = (id) => pipeline?.find((s) => s.id === id);
+  /** @param {string|undefined} sectionGid */
+  const stepBySource = (sectionGid) => (sectionGid ? pipeline?.find((s) => s.sourceSectionGid === sectionGid) : undefined);
+
+  // Current section of a task → the step it now rests in (or undefined). We read the
+  // task's live membership rather than trusting the move event's payload, so rapid
+  // back-to-back moves resolve to the task's actual current state.
+  /** @param {string} taskGid */
+  async function stepForTask(taskGid) {
+    const res = await api(`/tasks/${taskGid}?opt_fields=memberships.section.gid`);
+    if (!res.ok) throw new Error(`task section fetch ${res.status}`);
+    const m = (await json(res)).data.memberships || [];
+    for (const mem of m) {
+      const step = stepBySource(mem.section?.gid);
+      if (step) return step;
+    }
+    return undefined;
+  }
+
   return {
     describe: () => ({
       platform: "Asana",
@@ -106,15 +128,26 @@ export function createAsanaAdapter(cfg, store) {
         const rt = ev.resource?.resource_type;
         if (rt === "task" && (ev.action === "added" || ev.action === "changed")) {
           const gid = ev.resource.gid;
-          // Scope dedup by action: when watching a PROJECT, "added" fires at task
-          // creation (often unassigned → skipped in dispatch) and "changed" fires when
-          // the assignee later changes. A single `task:<gid>` key would let the creation
-          // event burn the slot so the assignment never runs. Per-action keys give both
-          // the create-already-assigned and the create-then-assign flows a dispatch.
-          if (gid) jobs.push({ kind: "implement", ref: gid, dedupKey: `task:${gid}:${ev.action}` });
+          if (!gid) continue;
+          if (pipeline) {
+            // Pipeline: a task entering a step's source section fires that step. This
+            // covers a task CREATED directly in a section (no section_changed story).
+            // dedup by gid+section so a later re-entry can fire again.
+            try {
+              const step = await stepForTask(gid);
+              if (step) jobs.push({ kind: "pipeline", ref: gid, stepId: step.id, dedupKey: `step:${step.id}:${gid}` });
+            } catch (e) {
+              console.error(`[pipeline] route task ${gid} failed:`, e.message);
+            }
+            continue;
+          }
+          // Legacy: scope dedup by action — "added" fires at creation (often
+          // unassigned → skipped in dispatch), "changed" when the assignee changes.
+          // A single key would let creation burn the slot so the assignment never runs.
+          jobs.push({ kind: "implement", ref: gid, dedupKey: `task:${gid}:${ev.action}` });
         } else if (rt === "story" && ev.action === "added") {
           const storyGid = ev.resource.gid;
-          if (!storyGid || store.hasSeen(`story:${storyGid}`)) continue; // skip refetch of seen comments
+          if (!storyGid || store.hasSeen(`story:${storyGid}`) || store.hasSeen(`secmove:${storyGid}`)) continue;
           let story;
           try {
             story = await fetchStory(storyGid);
@@ -122,10 +155,21 @@ export function createAsanaAdapter(cfg, store) {
             console.error(`[story] fetch ${storyGid} failed:`, e.message);
             continue;
           }
+          const taskGid = ev.parent?.gid || story.target?.gid;
+          // Section move → fire the step the task now rests in (pipeline only). One
+          // story gid = one move, so it dedups webhook retries yet allows re-entry.
+          if (pipeline && story.resource_subtype === "section_changed") {
+            try {
+              const step = await stepForTask(taskGid);
+              if (step) jobs.push({ kind: "pipeline", ref: taskGid, stepId: step.id, dedupKey: `secmove:${storyGid}` });
+            } catch (e) {
+              console.error(`[pipeline] route move ${taskGid} failed:`, e.message);
+            }
+            continue;
+          }
           if (story.type !== "comment") continue;
           const text = (story.text || "").trim();
           if (!text.toLowerCase().startsWith(cfg.trigger.toLowerCase())) continue; // not for us
-          const taskGid = ev.parent?.gid || story.target?.gid;
           jobs.push({
             kind: "change",
             ref: taskGid,
@@ -151,32 +195,42 @@ export function createAsanaAdapter(cfg, store) {
       };
     },
 
-    // Called by the engine when a job is admitted to the queue. Opt-in: no gid → no-op.
-    onEnqueue: (ref) => moveToSection(ref, pc.queueSectionGid, "Queue"),
-
-    // Called by dispatch the moment work begins. Opt-in: no section gid → no-op.
+    // Legacy (non-pipeline) flow: move on start/finish of the single implement run.
+    // Called by dispatch; opt-in (no section gid → no-op).
     onStart: (ref) => moveToSection(ref, pc.inProgressSectionGid, "In Progress"),
-
-    // Called by dispatch on a clean agent exit. Opt-in: no section gid → no-op.
     onFinish: (ref) => moveToSection(ref, pc.reviewSectionGid, "Awaiting Review"),
 
-    // Reconcile source: tasks still in the queued / in-progress lanes that are ours
-    // and not completed. The engine re-enqueues these on boot so a restart that lost
-    // the in-memory queue self-heals from the board. Implement-only — comment (change)
-    // requests can't be reconstructed from section membership. Requires the section
-    // gids to be configured; returns [] otherwise (feature stays opt-in).
-    async listPending() {
-      const lanes = [pc.queueSectionGid, pc.inProgressSectionGid].filter(Boolean);
+    // Pipeline: resolve a finished step's transition. 'advance' → the step's success
+    // section (which is the next step's source, so the move itself fires the next
+    // step). 'fail' → the failure section if configured, else leave the task in place
+    // for a human. hold/changes are P2.
+    async advance(ref, stepId, outcome) {
+      const step = stepById(stepId);
+      if (!step) return;
+      const gid = outcome === "advance" ? step.successSectionGid : outcome === "fail" ? step.failureSectionGid : undefined;
+      if (!gid) {
+        console.log(`[advance] ${stepId} ${outcome}: no target section — leaving ${ref} in place`);
+        return;
+      }
+      await moveToSection(ref, gid, `${stepId}:${outcome}`);
+    },
+
+    // Reconcile source (explicit `reconcile` command ONLY — never boot): every task
+    // resting in a step's source section, as a pipeline job for that step. This is
+    // the one deliberate board poll, user-triggered, to recover from a missed webhook.
+    async listResting() {
+      if (!pipeline) return [];
       /** @type {import('../types.js').Job[]} */
       const jobs = [];
       const seenGids = new Set();
-      for (const gid of lanes) {
-        const res = await api(`/sections/${gid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
-        if (!res.ok) throw new Error(`section ${gid} tasks ${res.status}`);
+      for (const step of pipeline) {
+        if (!step.sourceSectionGid || step.manual) continue;
+        const res = await api(`/sections/${step.sourceSectionGid}/tasks?opt_fields=completed&limit=100`);
+        if (!res.ok) throw new Error(`section ${step.sourceSectionGid} tasks ${res.status}`);
         for (const t of (await json(res)).data || []) {
-          if (t.completed || t.assignee?.gid !== pc.userGid || seenGids.has(t.gid)) continue;
+          if (t.completed || seenGids.has(t.gid)) continue;
           seenGids.add(t.gid);
-          jobs.push({ kind: "implement", ref: t.gid, dedupKey: `task:${t.gid}:added` });
+          jobs.push({ kind: "pipeline", ref: t.gid, stepId: step.id, dedupKey: `reconcile:${step.id}:${t.gid}` });
         }
       }
       return jobs;
@@ -213,18 +267,21 @@ export function createAsanaAdapter(cfg, store) {
       // way, dispatch gates implement jobs on assignedToUs, so only the configured
       // user's tasks actually run.
       const resource = pc.projectGid || pc.myTasksGid;
+      // Pipeline mode also needs section moves delivered (verified: a project webhook
+      // delivers story/section_changed). The task-added filter still fires the first
+      // step for a task created directly in a section.
+      const filters = pipeline
+        ? [
+            { resource_type: "task", action: "added" },
+            { resource_type: "story", action: "added", resource_subtype: "section_changed" },
+          ]
+        : [
+            { resource_type: "task", action: "added" },
+            { resource_type: "task", action: "changed", fields: ["assignee"] },
+          ];
       const res = await api(`/webhooks`, {
         method: "POST",
-        body: JSON.stringify({
-          data: {
-            resource,
-            target,
-            filters: [
-              { resource_type: "task", action: "added" },
-              { resource_type: "task", action: "changed", fields: ["assignee"] },
-            ],
-          },
-        }),
+        body: JSON.stringify({ data: { resource, target, filters } }),
       });
       const body = await json(res);
       if (body.errors) throw new Error(`Asana: ${JSON.stringify(body.errors)}`);

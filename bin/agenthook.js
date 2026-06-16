@@ -12,6 +12,7 @@
 //   agenthook register <url>       manual webhook create (hosted/static URL)
 //   agenthook unregister           delete this profile's webhooks
 //   agenthook catchup <ref> [--force]   replay a missed item through the live server
+//   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook doctor               preflight checks for this profile
 //
 // Global flag: --config <path> selects a config explicitly (default: discover
@@ -26,6 +27,7 @@ import { agents } from "../src/commands/agents.js";
 import { cleanup } from "../src/commands/cleanup.js";
 import { register, unregister } from "../src/commands/webhook.js";
 import { catchup } from "../src/commands/catchup.js";
+import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
 
 const VALUE_FLAGS = new Set(["config"]);
@@ -48,7 +50,7 @@ function parse(argv) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, agents, cleanup, register, unregister, catchup, doctor };
+const COMMANDS = { init, start, stop, ls, status, follow, agents, cleanup, register, unregister, catchup, reconcile, doctor };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -65,6 +67,7 @@ usage: agenthook <command> [args] [--config <path>]
   register <url>            manual webhook create
   unregister                delete this profile's webhooks
   catchup <ref> [--force]   replay a missed item
+  reconcile                 replay tasks resting in pipeline sections (explicit poll)
   doctor                    preflight checks
 `;
 

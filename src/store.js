@@ -1,10 +1,16 @@
 // Tiny JSON-file persistence shared by the engine and providers.
 //   - secrets: handshake secrets keyed by webhook path (Asana). Mode 0600.
 //   - seen:    dedup keys so one event triggers exactly one run.
+//   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
 //
 // seen is reloaded from disk on every read (reloadSeen) because external tools
 // (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
 // those edits and silently dedup-skip a re-dispatch.
+//
+// `running` is OUR OWN crash-recovery state, never a poll: on boot the engine reads
+// it (a file, no network) to find jobs interrupted by a restart. Forward motion is
+// always event-driven; recovering a half-run job is the one thing the board can't
+// tell us (it can't distinguish "mid-run" from "fresh"), so we record it locally.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -15,6 +21,7 @@ import path from "node:path";
 export function createStore(dataDir) {
   const secretsFile = path.join(dataDir, "secrets.json");
   const seenFile = path.join(dataDir, "seen.json");
+  const runningFile = path.join(dataDir, "running.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -52,5 +59,20 @@ export function createStore(dataDir) {
     },
     seenCount: () => seen.size,
     seenFile,
+
+    // --- in-flight pipeline jobs (crash recovery), keyed by task ref ---
+    setRunning: (ref, info) => {
+      const m = readJson(runningFile, {});
+      m[ref] = info;
+      fs.writeFileSync(runningFile, JSON.stringify(m));
+    },
+    clearRunning: (ref) => {
+      const m = readJson(runningFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(runningFile, JSON.stringify(m));
+      }
+    },
+    listRunning: () => readJson(runningFile, {}),
   };
 }

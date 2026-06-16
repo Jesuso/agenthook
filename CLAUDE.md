@@ -70,18 +70,28 @@ Key files:
   doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
   `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
   `fetchTask`, `ensureCommentWebhook`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
-  optional `wizardSteps` (powers `init` live discovery).
+  optional `onStart`/`onFinish` (legacy section moves), `advance`/`listResting` (pipeline),
+  `wizardSteps` (powers `init` live discovery).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
 - `src/dispatch.js` — builds the prompt (standing `INSTRUCTIONS.md` + per-item prompt joined by
-  the `=== TICKET ===` marker), spawns `claude -p` with `cwd: repoPath`, streams to a per-run
-  log, then calls `ensureCommentWebhook` so future comments re-trigger.
+  the `=== TICKET ===` marker), spawns `claude -p`, streams to a per-run log, then calls
+  `ensureCommentWebhook`. Two flows share the spawn: legacy implement/change (`cwd: repoPath`,
+  agent makes its own worktree) and pipeline steps (receiver owns the worktree, `cwd` = it, and
+  `adapter.advance` moves the section on exit).
+- `src/pipeline.js` + `src/worktree.js` — opt-in pipeline (`tracker.pipeline[]`). A task entering a
+  step's `sourceSectionGid` fires that step; clean exit advances to `successSectionGid` (= next
+  step's source, so the move re-triggers). `worktree.js` is the **receiver-owned** worktree (create
+  on `createsWorktree`, `drainWorktree` to remove), keyed by task ref so all steps share one — no
+  globbing. **No implicit polling**: forward motion is event-driven, crash recovery reads local
+  `running.json` only, and the only board poll is the explicit `agenthook reconcile` command.
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
-- `src/store.js` — two JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
-  path, 0600) and `seen.json` (dedup set). **`seen` is reloaded from disk on every batch** because
-  `catchup` edits it out-of-band; disk is the source of truth.
+- `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
+  path, 0600), `seen.json` (dedup set), and `running.json` (in-flight pipeline jobs for crash
+  recovery). **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
+  disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
   (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.

@@ -12,6 +12,11 @@
   "claudeBin": "claude",
   "instructionsFile": "./INSTRUCTIONS.md",
 
+  "//digest": "Optional. true = after a clean author run, spawn an INDEPENDENT claude -p that",
+  "//digest2": "digests the draft PR (repo `pr-digest` skill) into a plain-language sign-off card",
+  "//digest3": "on the tracker + a technical concerns list on the PR. Omit/false to disable.",
+  "digest": false,
+
   "tracker": {
     "//": "type selects the adapter; the rest is that tracker's config.",
     "type": "asana",
@@ -22,7 +27,21 @@
 
     "//github": "For GitHub instead, use:",
     "//github-type": "type: github, repo: owner/repo, assigneeLogin: you,",
-    "//github-secret": "token: ${GITHUB_TOKEN}, webhookSecret: ${WEBHOOK_SECRET}"
+    "//github-secret": "token: ${GITHUB_TOKEN}, webhookSecret: ${WEBHOOK_SECRET}",
+
+    "//pipeline": "Optional. When present, a task ENTERING a step's sourceSectionGid fires that",
+    "//pipeline2": "step; on a clean exit the receiver moves it to successSectionGid (= the next",
+    "//pipeline3": "step's source, so the move itself triggers the next step). createsWorktree makes",
+    "//pipeline4": "the receiver own a shared git worktree across all steps; manual = no agent (entry",
+    "//pipeline5": "only runs system actions like drainWorktree). Forward motion is all event-driven;",
+    "//pipeline6": "`agenthook reconcile` is the only board poll and is user-explicit.",
+    "//pipeline-example": [
+      { "id": "code", "kind": "implement", "instructionsFile": "./code.md", "createsWorktree": true,
+        "sourceSectionGid": "AGENT_QUEUE_GID", "successSectionGid": "REVIEW_GID", "failureSectionGid": "FAILED_GID" },
+      { "id": "review", "kind": "review", "instructionsFile": "./review.md", "model": "claude-opus-4-8",
+        "sourceSectionGid": "REVIEW_GID", "successSectionGid": "APPROVAL_GID", "failureSectionGid": "CODE_QUEUE_GID" },
+      { "id": "done", "manual": true, "drainWorktree": true, "sourceSectionGid": "DONE_GID" }
+    ]
   },
 
   "ingress": {

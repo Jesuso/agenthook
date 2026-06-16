@@ -9,10 +9,43 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'implement'|'change'} kind  implement = new assignment; change = `@agent` comment
+ * @property {'implement'|'change'|'pipeline'} kind  implement = new assignment; change = `@agent` comment; pipeline = a step fired by a section move
  * @property {string} ref       provider-native item id (Asana gid, `owner/repo#123`, …)
  * @property {string} [text]    the change request text (change jobs only)
+ * @property {string} [stepId]  pipeline jobs: which Step in cfg.pipeline to run
  * @property {string} dedupKey  unique per source event; one key → at most one run
+ */
+
+/**
+ * One stage of a pipeline (cfg.pipeline[]). The platform-neutral fields are read by
+ * the engine; the tracker adapter reads its own binding (e.g. Asana section gids)
+ * off the same object. A step with `manual: true` has no agent — entering it only
+ * triggers system actions (e.g. drainWorktree), driven by a human moving the task.
+ * @typedef {object} Step
+ * @property {string} id                       stable id; keys per-step dedup + running state
+ * @property {'implement'|'change'|'review'|'triage'} [kind]  prompt shape (default 'implement')
+ * @property {string} [instructionsFile]       standing instructions for this step (abs after loadConfig); defaults to cfg.instructionsFile
+ * @property {boolean} [createsWorktree]       system creates the shared worktree before the agent runs
+ * @property {boolean} [drainWorktree]         system removes the worktree after the step
+ * @property {boolean} [manual]                no agent; entering the step only runs system actions
+ * @property {string} [model]                  per-step `claude --model` override
+ * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
+ * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
+ * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
+ */
+
+/**
+ * The verdict a finished step resolves to; the adapter maps it to a transition.
+ * P1 uses only 'advance' (clean exit) and 'fail' (non-zero / interrupted).
+ * @typedef {'advance'|'fail'|'hold'|'changes'} StepOutcome
+ */
+
+/** In-flight pipeline job recorded locally for crash recovery (store.running).
+ * @typedef {object} RunningInfo
+ * @property {string} stepId
+ * @property {number} [pid]
+ * @property {string} startedAt
+ * @property {string} [worktree]
  */
 
 /**
@@ -69,10 +102,10 @@
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(ref: string) => Promise<Task>} fetchTask
  * @property {(ref: string) => Promise<void>} ensureCommentWebhook
- * @property {(ref: string) => Promise<void>} [onEnqueue]  optional; called when a job is queued (e.g. move to a "queued" section)
- * @property {(ref: string) => Promise<void>} [onStart]  optional; called when work begins (e.g. move to an "in progress" section)
- * @property {(ref: string) => Promise<void>} [onFinish]  optional; called on a clean agent exit (e.g. move to a "review" section)
- * @property {() => Promise<Job[]>} [listPending]  optional; unfinished items the engine re-enqueues on boot (restart self-heal)
+ * @property {(ref: string) => Promise<void>} [onStart]  legacy (non-pipeline) flow; called when work begins (e.g. move to an "in progress" section)
+ * @property {(ref: string) => Promise<void>} [onFinish]  legacy (non-pipeline) flow; called on a clean agent exit (e.g. move to a "review" section)
+ * @property {(ref: string, stepId: string, outcome: StepOutcome) => Promise<void>} [advance]  pipeline: resolve a finished step's transition (move to success/failure section)
+ * @property {() => Promise<Job[]>} [listResting]  pipeline: tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => ForgedEvent} [forgeCatchup]  optional; catchup needs it
@@ -98,9 +131,9 @@
  * @property {string} [workspaceGid]
  * @property {string} [myTasksGid]
  * @property {string} [projectGid]  Asana: watch this project instead of My Tasks
- * @property {string} [queueSectionGid]  Asana: optional; move task here when it is queued
- * @property {string} [inProgressSectionGid]  Asana: optional; move task here when work begins
- * @property {string} [reviewSectionGid]  Asana: optional; move task here on a clean agent exit
+ * @property {string} [inProgressSectionGid]  Asana legacy: move task here when work begins
+ * @property {string} [reviewSectionGid]  Asana legacy: move task here on a clean agent exit
+ * @property {Step[]} [pipeline]  opt-in; when present, section moves drive the steps
  */
 
 /**
@@ -143,11 +176,13 @@
  * @property {string} provider       active tracker key (= tracker.type)
  * @property {ProviderConfig} tracker
  * @property {ProviderConfig} providerConfig  alias of tracker, for adapter back-compat
+ * @property {Step[]|null} pipeline  resolved tracker.pipeline (null when not configured)
  * @property {IngressConfig} ingress
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
  * @property {boolean} [fullAuto]
+ * @property {boolean} [digest]  legacy flow: run the independent sign-off digest after a clean author exit
  * @property {string} repoPath
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]
@@ -171,6 +206,9 @@
  * @property {(key: string) => void} unmarkSeen
  * @property {() => number} seenCount
  * @property {string} seenFile
+ * @property {(ref: string, info: RunningInfo) => void} setRunning
+ * @property {(ref: string) => void} clearRunning
+ * @property {() => Record<string, RunningInfo>} listRunning
  */
 
 export {};

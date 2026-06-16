@@ -26,18 +26,21 @@ export function createEngine(cfg) {
   const heartbeat = createHeartbeat(cfg);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
-  const runClaude = createDispatcher(cfg, adapter, children);
+  const runClaude = createDispatcher(cfg, adapter, children, store);
   const queue = createQueue(cfg.maxConcurrent, runClaude, (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
   );
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
-  // enqueue anything new. Disk is the source of truth.
+  // enqueue anything new. Disk is the source of truth. No section side-effect here:
+  // a job's section is gated downstream (legacy: assignedToUs in dispatch; pipeline:
+  // the task already rests in the step's source section), so moving on enqueue would
+  // yank tasks the dispatcher then skips.
   /**
    * @param {import('./types.js').Job[]} [jobs]
-   * @param {{force?: boolean}} [opts]  force skips the dedup gate (boot reconcile replays already-seen events)
+   * @param {{force?: boolean}} [opts]  force skips the dedup gate (explicit replay/reconcile)
    */
-  async function intake(jobs, { force = false } = {}) {
+  function intake(jobs, { force = false } = {}) {
     store.reloadSeen();
     for (const job of jobs || []) {
       if (!job.dedupKey) continue;
@@ -49,15 +52,29 @@ export function createEngine(cfg) {
         lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, text: job.text || null },
         seen: store.seenCount(),
       });
-      // Move into the visible "queued" lane before the job can be dispatched, so the
-      // board reflects pending work and a future restart can reconcile from it. Awaited
-      // so the lane move lands before onStart (In Progress) can overtake it.
-      try {
-        await adapter.onEnqueue?.(job.ref);
-      } catch (e) {
-        console.error(`[section] onEnqueue failed:`, e.message);
-      }
       queue.enqueue(job);
+    }
+  }
+
+  // Crash recovery from LOCAL state only — never a board poll. A restart kills the
+  // in-memory queue and orphans any in-flight `claude -p`; running.json is the record
+  // of what was mid-step. We resolve each as a failed run (implement isn't idempotent,
+  // so re-running blind is unsafe) → the adapter moves it to its failure lane for a
+  // human. Catching tasks that *arrived* during downtime is the explicit `reconcile`
+  // command's job, not boot's.
+  async function recoverInterrupted() {
+    const running = store.listRunning();
+    const refs = Object.keys(running);
+    if (!refs.length) return;
+    console.log(`[recover] ${refs.length} step(s) interrupted by restart — moving to failure lane`);
+    for (const ref of refs) {
+      const { stepId } = running[ref];
+      try {
+        await adapter.advance?.(ref, stepId, "fail");
+      } catch (e) {
+        console.error(`[recover] advance ${ref} (${stepId}) failed:`, e.message);
+      }
+      store.clearRunning(ref);
     }
   }
 
@@ -190,22 +207,8 @@ export function createEngine(cfg) {
       }
       await adapter.registerWebhook(url);
 
-      // Restart self-heal: the in-memory queue doesn't survive a restart, so re-enqueue
-      // anything the board still shows as unfinished (forced past dedup — these events
-      // were already seen when first received). dispatch re-checks assignedToUs/completed.
-      if (adapter.listPending) {
-        try {
-          const pending = await adapter.listPending();
-          if (pending.length) {
-            console.log(`[reconcile] re-enqueuing ${pending.length} unfinished item(s) from the board`);
-            await intake(pending, { force: true });
-          } else {
-            console.log("[reconcile] board clean — nothing to replay");
-          }
-        } catch (e) {
-          console.error("[reconcile] failed:", e.message);
-        }
-      }
+      // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
+      await recoverInterrupted();
     } catch (e) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).

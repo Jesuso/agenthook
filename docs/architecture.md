@@ -48,15 +48,17 @@ replay for the gaps.** Event-first, poll only to reconcile.
 
 | File | Role |
 |------|------|
-| `bin/agenthook.js` | CLI router → `src/commands/*` (init/start/stop/ls/status/follow/agents/cleanup/webhook/catchup/doctor). |
-| `src/engine.js`   | HTTP receiver + boot reconcile + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
+| `bin/agenthook.js` | CLI router → `src/commands/*` (init/start/stop/ls/status/follow/agents/cleanup/webhook/catchup/reconcile/doctor). |
+| `src/engine.js`   | HTTP receiver + local crash recovery + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
 | `src/trackers/*`  | One tracker adapter per platform. Owns all platform specifics. |
 | `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
-| `src/store.js`    | JSON persistence: handshake secrets + dedup set. |
+| `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json`. |
 | `src/queue.js`    | Bounded-concurrency job queue. |
-| `src/dispatch.js` | Spawns `claude -p` per job, streams to a per-run log. |
-| `src/prompts.js`  | Blind implement/change prompt builders. |
-| `src/config.js` · `src/heartbeat.js` · `src/paths.js` · `src/wizard.js` | Config loader (4 path roots, `${VAR}` refs), profile status, derived paths, `init` prompts. |
+| `src/dispatch.js` | Spawns `claude -p` per job, streams to a per-run log. Legacy implement/change (`cwd: repoPath`, optional digest pass); pipeline steps (receiver-owned worktree, `adapter.advance` on exit). |
+| `src/pipeline.js` · `src/worktree.js` | Opt-in `tracker.pipeline[]`: section-driven steps + receiver-owned shared worktree (create/`drainWorktree`), keyed by task ref. |
+| `src/digest.js`   | Legacy sign-off pass: a second, memory-less `claude -p` that digests the draft PR (repo `pr-digest` skill) → plain-language card on the tracker + technical concerns on the PR. (Superseded by a `review`-kind pipeline step.) |
+| `src/prompts.js`  | Blind implement/change/step/digest prompt builders. |
+| `src/config.js` · `src/heartbeat.js` · `src/paths.js` · `src/wizard.js` | Config loader (4 path roots, `${VAR}` refs, pipeline resolution), profile status, derived paths, `init` prompts. |
 
 ## Why a fast ACK then async work
 
