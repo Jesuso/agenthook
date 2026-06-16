@@ -15,7 +15,7 @@ A factory `createXAdapter(cfg, store)` (in `src/trackers/`) returns an object wi
 | `authenticate({pathname, headers, rawBody})` | **Fast, no network.** Returns `{type:'handshake', headers}`, `{type:'reject'}`, or `{type:'accept'}`. Lets the receiver ACK quickly. |
 | `processEvents({pathname, headers, rawBody})` | **Async, may call the API.** Returns `[job]` — maps a board event to the step the task now rests in. |
 | `fetchTask(ref)` | `{ name, description, url, completed, assignedToUs, ref }`. |
-| `advance(ref, stepId, outcome)` | Resolve a finished step: move the task to the step's success (`advance`) or failure (`fail`) section. The success move is the next step's trigger. |
+| `advance(ref, stepId, verdict)` | Resolve a finished step by moving the task to the section its `verdict.outcome` maps to: `advance`→success (the next step's trigger), `fail`→failure, `hold`→hold (parked for a human), `changes`→the target step's source (re-fires it — the rework loop). |
 | `listResting()` | `[job]` for tasks currently resting in step source sections — drives the explicit `reconcile` command (never called on boot). |
 | `registerWebhook(publicUrl)` | Create the project hook (called on `start`, or CLI `register`). |
 | `unregisterWebhooks()` | Delete this tracker's hooks (`start` boot-scrub when ingress is ephemeral; CLI `unregister`; `stop`). |
@@ -25,6 +25,22 @@ A factory `createXAdapter(cfg, store)` (in `src/trackers/`) returns an object wi
 A **job** is `{ kind: 'pipeline', ref, stepId, dedupKey }`. The engine dedups on `dedupKey`, then
 enqueues. `ref` is whatever opaque id your `fetchTask` understands; `stepId` selects the
 `cfg.pipeline` step to run.
+
+### Verdict contract (how a step decides where to go)
+
+The receiver injects `AGENTHOOK_VERDICT_FILE` (a path) into every agent. Before exiting the agent
+writes JSON there: `{ "outcome": "advance|hold|changes|fail", "target": "<stepId>", "reason": "…" }`.
+After the process exits, `dispatch.js` resolves a `Verdict` and hands it to `advance`:
+
+- **non-zero exit** → `fail` (a crashed agent's file is not trusted).
+- **clean exit + valid file** → that outcome.
+- **clean exit + missing/garbage file** → `advance` (the "clean exit advances" default).
+
+`changes` bounces work back to `verdict.target` (a `stepId`), defaulting to the **previous** step;
+the worktree + PR are kept so the re-fired step reworks the same branch. A per-`(ref,step)` attempt
+counter caps the loop — once a step has run `maxAttempts` times (default 3) for one ref, a further
+`changes` into it is forced to `fail`. `hold` parks the task (a human answers and re-files it).
+The engine owns this resolution; an adapter only maps the final outcome → a board move.
 
 ## Built-in trackers
 

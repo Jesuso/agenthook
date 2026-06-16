@@ -55,8 +55,10 @@ Request flow (`src/engine.js`):
 `POST` → `adapter.authenticate(ctx)` (sync, no network — must let the engine ACK in <10s) →
 either reply to a handshake, `401` a bad signature, or **ACK 200 immediately** and then run
 `adapter.processEvents(ctx)` off the response path → `intake()` dedups via the `seen` store →
-`queue.enqueue` → `dispatch` spawns `claude -p` for the step → on exit `adapter.advance` moves the
-task to the step's success/failure section (and that move is itself the next step's trigger).
+`queue.enqueue` → `dispatch` spawns `claude -p` for the step → on exit `dispatch` reads the agent's
+verdict file and `adapter.advance` moves the task to the section that verdict maps to (advance →
+success = the next step's trigger; fail → failure; hold → hold lane; changes → the target step's
+source = the rework loop).
 
 Boot flow (`engine.serve()`, server owns the ingress lifecycle):
 `ingress.up(port)` → if `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub
@@ -79,11 +81,15 @@ Key files:
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
 - `src/dispatch.js` — builds the prompt (the step's standing instructions + `stepPrompt` base joined
-  by the `=== TICKET ===` marker), spawns `claude -p` (the receiver-owned worktree as `cwd` when the
-  step has one), streams to a per-run log, then resolves the section via `adapter.advance` on exit.
+  by the `=== TICKET ===` marker), injects `AGENTHOOK_VERDICT_FILE`, spawns `claude -p` (the
+  receiver-owned worktree as `cwd` when the step has one), streams to a per-run log, then reads the
+  verdict file and resolves the section via `adapter.advance` on exit. **Verdict**: non-zero exit →
+  `fail`; clean exit + valid file → its outcome; clean exit + no file → `advance`. `changes` is
+  capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop.
 - `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
-  entering a step's `sourceSectionGid` fires that step; clean exit advances to `successSectionGid`
-  (= next step's source, so the move re-triggers the next step). `worktree.js` is the
+  entering a step's `sourceSectionGid` fires that step; a clean exit advances to `successSectionGid`
+  (= next step's source, so the move re-triggers the next step) unless the agent's verdict says
+  `hold`/`changes`/`fail` (`prevStep()` resolves a `changes` target's default). `worktree.js` is the
   **receiver-owned** worktree (create on `createsWorktree`, `drainWorktree` to remove), keyed by task
   ref so all steps share one — no globbing. **No implicit polling**: forward motion is event-driven,
   crash recovery reads local `running.json` only, and the only board poll is the explicit
@@ -91,8 +97,9 @@ Key files:
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
-  path, 0600), `seen.json` (dedup set), and `running.json` (in-flight pipeline jobs for crash
-  recovery). **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
+  path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
+  recovery), and `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap).
+  **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
   disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
   (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`.

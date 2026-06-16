@@ -28,15 +28,30 @@
  * @property {boolean} [drainWorktree]         system removes the worktree after the step
  * @property {boolean} [manual]                no agent; entering the step only runs system actions
  * @property {string} [model]                  per-step `claude --model` override
+ * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
+ * @property {string} [holdSectionGid]         Asana: move here on `hold` (waiting on a human); absent → leave in place
  */
 
 /**
- * The verdict a finished step resolves to; the adapter maps it to a transition.
- * P1 uses only 'advance' (clean exit) and 'fail' (non-zero / interrupted).
+ * The verdict outcome a finished step resolves to; the adapter maps it to a transition:
+ *   advance → successSectionGid · fail → failureSectionGid · hold → holdSectionGid
+ *   changes → the target step's sourceSectionGid (re-fires that step — the rework loop)
  * @typedef {'advance'|'fail'|'hold'|'changes'} StepOutcome
+ */
+
+/**
+ * A finished step's structured verdict. The agent writes {outcome, target?, reason?}
+ * to AGENTHOOK_VERDICT_FILE; the dispatcher reads it post-exit (a non-zero exit always
+ * overrides to fail), resolves a `changes` target to a concrete stepId, then hands this
+ * to adapter.advance. `reason` is logged; `target` (changes only) names the step to
+ * bounce back to (defaults to the previous step in pipeline order).
+ * @typedef {object} Verdict
+ * @property {StepOutcome} outcome
+ * @property {string} [target]   changes: the stepId to route back to (resolved to a concrete id by dispatch)
+ * @property {string} [reason]   human-readable; logged, not posted
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
@@ -100,7 +115,7 @@
  * @property {(ctx: EventCtx) => AuthResult} authenticate
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(ref: string) => Promise<Task>} fetchTask
- * @property {(ref: string, stepId: string, outcome: StepOutcome) => Promise<void>} advance  resolve a finished step's transition (move to success/failure section)
+ * @property {(ref: string, stepId: string, verdict: Verdict) => Promise<void>} advance  resolve a finished step's transition (move to the section its outcome maps to)
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
@@ -198,6 +213,9 @@
  * @property {(ref: string, info: RunningInfo) => void} setRunning
  * @property {(ref: string) => void} clearRunning
  * @property {() => Record<string, RunningInfo>} listRunning
+ * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
+ * @property {(ref: string, stepId: string) => number} bumpAttempt  increment and return the new count
+ * @property {(ref: string) => void} clearAttempts                  drop all attempt counters for ref (it left the loop)
  */
 
 export {};

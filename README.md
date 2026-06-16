@@ -2,8 +2,10 @@
 
 **Event-driven agentic development.** Move a task into a board section → a coding agent picks it
 up *the instant it lands*, works that stage in an isolated git worktree, and (for the coding
-stage) opens a draft PR. A clean exit moves the task to the next section — which fires the next
-stage. You define the **pipeline** of stages (e.g. triage → code → review).
+stage) opens a draft PR. The agent reports a **verdict** and the receiver moves the task — forward
+to the next section (which fires the next stage), back a stage for rework, into a hold lane for a
+human answer, or to a failure lane. You define the **pipeline** of stages (e.g. triage → code →
+review).
 
 No polling loop. The tracker already knows the moment a task moves — so it pushes a webhook and
 the matching stage starts. Latency is bounded by the network, not by a poll interval, and nothing
@@ -152,6 +154,9 @@ in [docs/architecture.md](docs/architecture.md#security-posture).
   then dispatch off the response path.
 - **Dedup.** Providers deliver at-least-once; a per-event `seen` set keeps one event → one run.
 - **Worktree isolation.** Parallel agents never collide; each gets its own worktree.
+- **Verdicts, not exit codes.** Each agent writes a verdict (`advance`/`hold`/`changes`/`fail`) the
+  receiver reads to route the task. The `changes` rework loop (e.g. review → code) is capped so it
+  can't spin forever; a crash always means `fail`.
 
 Details: [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) ·
 [docs/agenthook-v2.md](docs/agenthook-v2.md)

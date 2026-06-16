@@ -53,9 +53,9 @@ replay for the gaps.** Event-first, poll only to reconcile.
 | `src/engine.js`   | HTTP receiver + local crash recovery + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
 | `src/trackers/*`  | One tracker adapter per platform. Owns all platform specifics. |
 | `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
-| `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json`. |
+| `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json` + `changes`-loop counters (`attempts.json`). |
 | `src/queue.js`    | Bounded-concurrency job queue. |
-| `src/dispatch.js` | Spawns `claude -p` per step (receiver-owned worktree as `cwd`), streams to a per-run log, resolves the section via `adapter.advance` on exit. |
+| `src/dispatch.js` | Spawns `claude -p` per step (receiver-owned worktree as `cwd`, `AGENTHOOK_VERDICT_FILE` injected), streams to a per-run log, then reads the agent's verdict and resolves the section via `adapter.advance` on exit. |
 | `src/pipeline.js` · `src/worktree.js` | `tracker.pipeline[]` (required): section-driven steps + receiver-owned shared worktree (create/`drainWorktree`), keyed by task ref. |
 | `src/prompts.js`  | Blind `stepPrompt` builder (shapes itself per step `kind`: triage/implement/change/review). |
 | `src/config.js` · `src/heartbeat.js` · `src/paths.js` · `src/wizard.js` | Config loader (4 path roots, `${VAR}` refs, pipeline resolution), profile status, derived paths, `init` prompts. |
@@ -72,6 +72,26 @@ path.
 `maxConcurrent` agents run at once. Each works in its own **git worktree** (siblings of your
 repo), so parallel runs never collide on the index or working tree. Agents never remove their
 own worktree — a human (or a separate cleanup step) tears it down after the PR merges.
+
+## Step verdicts (where a finished step routes)
+
+A step doesn't just "pass or fail on exit code" — the agent reports a **verdict**. The receiver
+injects `AGENTHOOK_VERDICT_FILE`; the agent writes `{ outcome, target?, reason? }` there before
+exiting, and `dispatch.js` reads it after the process closes:
+
+| Outcome | Routes to | Used for |
+|---------|-----------|----------|
+| `advance` | success section (= next step's source) | normal forward motion |
+| `hold` | hold section (parked, out of the queue) | blocked on a human answer; they reply + re-file |
+| `changes` | the target step's source (re-fires it) | review bounces work back to coding — the rework loop |
+| `fail` | failure section | needs a human; can't proceed unattended |
+
+Trust rules: a **non-zero exit is always `fail`** (a crashed agent's verdict isn't trusted); a
+**clean exit with no/garbage file defaults to `advance`** (the "clean exit advances" spine). The
+`changes` loop keeps the worktree + draft PR (the re-fired step reworks the same branch, reading
+the review feedback off the PR) and is **capped**: `maxAttempts` (default 3) runs of a step per
+task, after which a further `changes` is forced to `fail` — bounding an endless code↔review
+ping-pong, which under `--dangerously-skip-permissions` would be unbounded code execution.
 
 ## Security posture
 

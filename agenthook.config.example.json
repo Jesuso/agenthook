@@ -20,12 +20,14 @@
     "projectGid": "PROJECT_WHOSE_SECTIONS_DRIVE_THE_PIPELINE_GID",
 
     "//pipeline": "The execution model (required). A task ENTERING a step's sourceSectionGid fires",
-    "//pipeline2": "that step; on a clean exit the receiver moves it to successSectionGid (= the next",
-    "//pipeline3": "step's source, so the move itself triggers the next step), or failureSectionGid on",
-    "//pipeline4": "a non-zero/interrupted run. createsWorktree makes the receiver own a git worktree",
-    "//pipeline5": "shared across the task's steps; drainWorktree removes it; manual = no agent (entry",
-    "//pipeline6": "only runs system actions). Each step's instructionsFile is its standing prompt.",
-    "//pipeline7": "Forward motion is all event-driven; `agenthook reconcile` is the only (explicit) poll.",
+    "//pipeline2": "that step. On exit the agent writes a VERDICT and the receiver moves the task:",
+    "//pipeline3": "advance -> successSectionGid (= the next step's source, so the move triggers it);",
+    "//pipeline4": "fail -> failureSectionGid (non-zero exit, or the agent says so); hold -> holdSectionGid",
+    "//pipeline5": "(parked for a human answer); changes -> a prior step's source (the rework loop, capped",
+    "//pipeline6": "by maxAttempts, default 3). createsWorktree makes the receiver own a git worktree",
+    "//pipeline7": "shared across the task's steps; drainWorktree removes it; manual = no agent (entry",
+    "//pipeline8": "only runs system actions). Each step's instructionsFile is its standing prompt.",
+    "//pipeline9": "Forward motion is all event-driven; `agenthook reconcile` is the only (explicit) poll.",
     "pipeline": [
       {
         "id": "triage",
@@ -33,21 +35,27 @@
         "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
         "sourceSectionGid": "AWAITING_TRIAGE_GID",
         "successSectionGid": "AGENT_QUEUE_GID",
-        "failureSectionGid": "BLOCKED_GID"
+        "failureSectionGid": "BLOCKED_GID",
+        "//holdSectionGid": "optional: where a `hold` parks a task waiting on a human answer",
+        "holdSectionGid": "NEEDS_ANSWER_GID"
       },
       {
         "id": "code",
         "kind": "implement",
         "createsWorktree": true,
+        "//maxAttempts": "optional: cap on runs per task before a `changes` loop into this step fails (default 3)",
+        "maxAttempts": 3,
         "instructionsFile": "./INSTRUCTIONS_CODE.md",
         "sourceSectionGid": "AGENT_QUEUE_GID",
         "successSectionGid": "AWAITING_REVIEW_GID",
-        "failureSectionGid": "BLOCKED_GID"
+        "failureSectionGid": "BLOCKED_GID",
+        "holdSectionGid": "NEEDS_ANSWER_GID"
       },
       {
         "id": "review",
         "kind": "review",
         "model": "claude-opus-4-8",
+        "//changes": "a review `changes` verdict bounces back to the previous step (code) on the same branch/PR",
         "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
         "sourceSectionGid": "AWAITING_REVIEW_GID",
         "successSectionGid": "QC_GID",

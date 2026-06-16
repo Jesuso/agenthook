@@ -13,6 +13,15 @@ export function findStep(cfg, stepId) {
   return cfg.pipeline.find((s) => s.id === stepId) || null;
 }
 
+/** The step before `stepId` in pipeline order — the default target a `changes`
+ * verdict bounces back to (e.g. review → code). Null if first or unknown.
+ * @param {import('./types.js').Config} cfg @param {string} stepId */
+export function prevStep(cfg, stepId) {
+  if (!cfg.pipeline) return null;
+  const i = cfg.pipeline.findIndex((s) => s.id === stepId);
+  return i > 0 ? cfg.pipeline[i - 1] : null;
+}
+
 /** @param {import('./types.js').Config} cfg */
 export function isPipeline(cfg) {
   return Array.isArray(cfg.pipeline) && cfg.pipeline.length > 0;

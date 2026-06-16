@@ -161,6 +161,9 @@ export function loadConfig(opts = {}) {
     if (ids.has(step.id)) throw new Error(`config: duplicate pipeline step id "${step.id}".`);
     ids.add(step.id);
     if (step.instructionsFile) step.instructionsFile = resolvePath(step.instructionsFile, configDir);
+    if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
+      throw new Error(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
+    }
   }
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });

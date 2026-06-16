@@ -69,11 +69,12 @@ export function createEngine(cfg) {
     for (const ref of refs) {
       const { stepId } = running[ref];
       try {
-        await adapter.advance?.(ref, stepId, "fail");
+        await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
       } catch (e) {
         console.error(`[recover] advance ${ref} (${stepId}) failed:`, e.message);
       }
       store.clearRunning(ref);
+      store.clearAttempts(ref);
     }
   }
 

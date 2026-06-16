@@ -22,6 +22,7 @@ export function createStore(dataDir) {
   const secretsFile = path.join(dataDir, "secrets.json");
   const seenFile = path.join(dataDir, "seen.json");
   const runningFile = path.join(dataDir, "running.json");
+  const attemptsFile = path.join(dataDir, "attempts.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -74,5 +75,27 @@ export function createStore(dataDir) {
       }
     },
     listRunning: () => readJson(runningFile, {}),
+
+    // --- per-(ref,step) attempt counters: the changes-loop guard (attempts.json) ---
+    // Bumped each dispatch; read before routing a `changes` back into a step so an
+    // endless code↔review ping-pong (= endless `claude -p` spawns) gets capped → fail.
+    getAttempt: (ref, stepId) => {
+      const m = readJson(attemptsFile, {});
+      return m[ref]?.[stepId] || 0;
+    },
+    bumpAttempt: (ref, stepId) => {
+      const m = readJson(attemptsFile, {});
+      m[ref] = m[ref] || {};
+      m[ref][stepId] = (m[ref][stepId] || 0) + 1;
+      fs.writeFileSync(attemptsFile, JSON.stringify(m));
+      return m[ref][stepId];
+    },
+    clearAttempts: (ref) => {
+      const m = readJson(attemptsFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(attemptsFile, JSON.stringify(m));
+      }
+    },
   };
 }

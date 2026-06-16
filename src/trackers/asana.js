@@ -6,7 +6,8 @@
 //                                         (fast, no network — lets the engine ACK <10s)
 //   processEvents({pathname,headers,rawBody}) -> [job]   (async; may hit the API)
 //   fetchTask(ref)                     -> { name, description, url, completed, assignedToUs, ref }
-//   advance(ref, stepId, outcome)      -> move the task to the step's success/failure section
+//   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
+//                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
@@ -175,19 +176,28 @@ export function createAsanaAdapter(cfg, store) {
       };
     },
 
-    // Resolve a finished step's transition. 'advance' → the step's success
-    // section (which is the next step's source, so the move itself fires the next
-    // step). 'fail' → the failure section if configured, else leave the task in place
-    // for a human. hold/changes are P2.
-    async advance(ref, stepId, outcome) {
+    // Resolve a finished step's transition by moving the task to the section its verdict
+    // maps to. Each move is itself the trigger for whatever step that section sources:
+    //   advance → successSectionGid (the next step's source — drives forward)
+    //   fail    → failureSectionGid (a human picks it up)
+    //   hold    → holdSectionGid    (parked out of the queue; a human answers + drags back)
+    //   changes → the target step's sourceSectionGid (re-fires it — the rework loop;
+    //             dispatch already resolved verdict.target to a concrete stepId)
+    // A missing target section is a no-op: the task stays put, logged.
+    async advance(ref, stepId, verdict) {
       const step = stepById(stepId);
       if (!step) return;
-      const gid = outcome === "advance" ? step.successSectionGid : outcome === "fail" ? step.failureSectionGid : undefined;
+      const { outcome, target } = verdict;
+      let gid;
+      if (outcome === "advance") gid = step.successSectionGid;
+      else if (outcome === "fail") gid = step.failureSectionGid;
+      else if (outcome === "hold") gid = step.holdSectionGid;
+      else if (outcome === "changes" && target) gid = stepById(target)?.sourceSectionGid;
       if (!gid) {
         console.log(`[advance] ${stepId} ${outcome}: no target section — leaving ${ref} in place`);
         return;
       }
-      await moveToSection(ref, gid, `${stepId}:${outcome}`);
+      await moveToSection(ref, gid, `${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""}`);
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every task
