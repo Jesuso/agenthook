@@ -36,12 +36,10 @@ export async function reconcile(args) {
       console.log(`[skip] ${job.ref} is mid-step (${running[job.ref].stepId}) — not replaying`);
       continue;
     }
+    const forged = await adapter.forgeCatchup(job.ref, job.stepId);
     // The server computes this dedup key from the forged event; clear it so the
     // replay isn't dedup-skipped (the task is genuinely still waiting).
-    const serverKey = `step:${job.stepId}:${job.ref}`;
-    if (store.hasSeen(serverKey)) store.unmarkSeen(serverKey);
-
-    const forged = adapter.forgeCatchup(job.ref);
+    if (store.hasSeen(forged.dedupKey)) store.unmarkSeen(forged.dedupKey);
     try {
       const res = await fetch(`http://127.0.0.1:${cfg.port}${forged.path}`, {
         method: "POST",

@@ -7,6 +7,7 @@
 //   agenthook ls                   table of all profiles + status
 //   agenthook status [name]        one profile in detail
 //   agenthook follow [session-id]  tail a live agent transcript (read-only)
+//   agenthook resume [ref]         print/run the claude --resume for a ref's agent
 //   agenthook agents               list running `claude -p` processes
 //   agenthook cleanup [--apply [--force]]   prune done agent worktrees
 //   agenthook register <url>       manual webhook create (hosted/static URL)
@@ -23,6 +24,7 @@ import { stop } from "../src/commands/stop.js";
 import { ls } from "../src/commands/ls.js";
 import { status } from "../src/commands/status.js";
 import { follow } from "../src/commands/follow.js";
+import { resume } from "../src/commands/resume.js";
 import { agents } from "../src/commands/agents.js";
 import { cleanup } from "../src/commands/cleanup.js";
 import { register, unregister } from "../src/commands/webhook.js";
@@ -30,7 +32,7 @@ import { catchup } from "../src/commands/catchup.js";
 import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
 
-const VALUE_FLAGS = new Set(["config"]);
+const VALUE_FLAGS = new Set(["config", "limit"]);
 
 /** @param {string[]} argv */
 function parse(argv) {
@@ -50,7 +52,7 @@ function parse(argv) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, agents, cleanup, register, unregister, catchup, reconcile, doctor };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, reconcile, doctor };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -62,6 +64,7 @@ usage: agenthook <command> [args] [--config <path>]
   ls                        all profiles + status
   status [name]             one profile in detail
   follow [session-id]       tail a live agent (read-only)
+  resume [ref [session]]    list a ref's sessions / print|--exec claude --resume for one
   agents                    running claude -p processes
   cleanup [--apply [--force]]   prune done worktrees
   register <url>            manual webhook create

@@ -71,6 +71,14 @@ export function createAsanaAdapter(cfg, store) {
 
   // --- pipeline routing (opt-in; null when no pipeline configured) ---
   const pipeline = cfg.pipeline;
+  // Assignee scoping — only act on tasks assigned to us. Default ON when userGid is
+  // set; assigneeFilter:true forces it; assigneeFilter:false = project-wide (any task,
+  // any assignee). FAIL CLOSED: when scoping is on but userGid is unset, NOTHING
+  // qualifies as ours, so we never touch a foreign task (never silently go open).
+  const scopeToUser =
+    pc.assigneeFilter === true ? true : pc.assigneeFilter === false ? false : pc.userGid != null;
+  /** @param {string|null|undefined} gid → is this assignee us? (false unless scoping off) */
+  const isOurs = (gid) => !scopeToUser || (pc.userGid != null && gid === pc.userGid);
   /** @param {string} id */
   const stepById = (id) => pipeline?.find((s) => s.id === id);
   /** @param {string|undefined} sectionGid */
@@ -81,14 +89,32 @@ export function createAsanaAdapter(cfg, store) {
   // back-to-back moves resolve to the task's actual current state.
   /** @param {string} taskGid */
   async function stepForTask(taskGid) {
-    const res = await api(`/tasks/${taskGid}?opt_fields=memberships.section.gid`);
+    const res = await api(`/tasks/${taskGid}?opt_fields=memberships.section.gid,assignee.gid`);
     if (!res.ok) throw new Error(`task section fetch ${res.status}`);
-    const m = (await json(res)).data.memberships || [];
-    for (const mem of m) {
+    const t = (await json(res)).data;
+    if (!isOurs(t.assignee?.gid)) {
+      console.log(`[assignee] skip ${taskGid} — not assigned to us`);
+      return undefined;
+    }
+    for (const mem of t.memberships || []) {
       const step = stepBySource(mem.section?.gid);
       if (step) return step;
     }
     return undefined;
+  }
+
+  // Fail-closed owner check used to gate task MUTATION (advance/moveToSection).
+  // Any uncertainty — fetch error, non-2xx, missing/!matching assignee — returns
+  // false, so we never move a task we can't positively confirm is ours.
+  /** @param {string} ref @returns {Promise<boolean>} */
+  async function ownedByUs(ref) {
+    try {
+      const res = await api(`/tasks/${ref}?opt_fields=assignee.gid`);
+      if (!res.ok) return false;
+      return isOurs((await json(res)).data?.assignee?.gid);
+    } catch {
+      return false;
+    }
   }
 
   return {
@@ -187,6 +213,12 @@ export function createAsanaAdapter(cfg, store) {
     async advance(ref, stepId, verdict) {
       const step = stepById(stepId);
       if (!step) return;
+      // Mutation chokepoint: never move a task that isn't ours (covers the blind
+      // recoverInterrupted path + defense-in-depth for dispatch). Fail-closed.
+      if (scopeToUser && !(await ownedByUs(ref))) {
+        console.log(`[assignee] refuse to move ${ref} (${stepId}:${verdict.outcome}) — not assigned to us`);
+        return;
+      }
       const { outcome, target } = verdict;
       let gid;
       if (outcome === "advance") gid = step.successSectionGid;
@@ -210,10 +242,11 @@ export function createAsanaAdapter(cfg, store) {
       const seenGids = new Set();
       for (const step of pipeline) {
         if (!step.sourceSectionGid || step.manual) continue;
-        const res = await api(`/sections/${step.sourceSectionGid}/tasks?opt_fields=completed&limit=100`);
+        const res = await api(`/sections/${step.sourceSectionGid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
         if (!res.ok) throw new Error(`section ${step.sourceSectionGid} tasks ${res.status}`);
         for (const t of (await json(res)).data || []) {
           if (t.completed || seenGids.has(t.gid)) continue;
+          if (!isOurs(t.assignee?.gid)) continue;
           seenGids.add(t.gid);
           jobs.push({ kind: "pipeline", ref: t.gid, stepId: step.id, dedupKey: `reconcile:${step.id}:${t.gid}` });
         }
@@ -262,12 +295,23 @@ export function createAsanaAdapter(cfg, store) {
     // through the whole dispatch path. The server re-reads the task's live section and
     // routes it to the matching step (so this replays whatever step it now rests in).
     // Used by `catchup <ref>` and `reconcile`.
-    forgeCatchup(ref) {
+    //
+    // dedupKey MUST equal the key processEvents will assign to this forged `task added`
+    // event — `step:<id>:<ref>`, derived from the task's live section — so that
+    // `catchup --force` clears the key the server actually checks (not a phantom
+    // `task:<ref>:added` that the server never writes). reconcile passes the stepId it
+    // already resolved (no extra fetch); catchup omits it, so we resolve via stepForTask
+    // (which also applies the assignee gate — a foreign/sectionless ref yields the inert
+    // `task:<ref>:added` fallback, matching the no-op the server would produce anyway).
+    /** @param {string} ref @param {string} [stepId] */
+    async forgeCatchup(ref, stepId) {
       const secret = store.getSecret("/mytasks");
       if (!secret) throw new Error("no /mytasks secret yet — run register first");
       const body = JSON.stringify({ events: [{ action: "added", resource: { gid: ref, resource_type: "task" } }] });
       const sig = crypto.createHmac("sha256", secret).update(body).digest("hex");
-      return { path: "/mytasks/", body, headers: { "X-Hook-Signature": sig }, dedupKey: `task:${ref}:added` };
+      const step = stepId ?? (await stepForTask(ref))?.id;
+      const dedupKey = step ? `step:${step}:${ref}` : `task:${ref}:added`;
+      return { path: "/mytasks/", body, headers: { "X-Hook-Signature": sig }, dedupKey };
     },
 
     // `agenthook init` discovery: pick workspace → project, and read the token's user gid.

@@ -28,6 +28,7 @@ node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes it
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
 node bin/agenthook.js follow [session]   # tail a live agent transcript read-only
+node bin/agenthook.js resume [ref [session]]  # last N runs / a ref's sessions / print|--exec claude --resume
 node bin/agenthook.js agents             # list running `claude -p` processes
 node bin/agenthook.js cleanup [--apply [--force]]  # tear down done agent worktrees
 node bin/agenthook.js register <url>     # manual webhook create (hosted/static URL)
@@ -68,8 +69,13 @@ dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + 
 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
-- `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/agents/cleanup/
+- `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/resume/agents/cleanup/
   webhook/catchup/reconcile/doctor). These replace the old bash `scripts/`.
+- `src/sessions.js` — ref → worktree → Claude transcript dir resolution, plus `recentRuns` (last-N
+  from the per-run logs) and `listSessions` (every session a ref has, each labelled with its pipeline
+  step by correlating the session's first-message time to the nearest run-log start). Backs `resume`.
+  Note: a ref's transcripts live under `mangle(worktreePath(cfg, ref))` (agent cwd = worktree), **not**
+  the repo mangle `follow` uses; a ref has one session per step run (code, review, …).
 - `src/engine.js` — the receiver. Fast-ACK-then-async is deliberate (providers retry a slow 2xx);
   also owns local crash recovery (`running.json`, no board poll), heartbeat, and graceful shutdown.
 - `src/trackers/*.js` + `index.js` — tracker adapters. `asana.js`'s header is the **reference

@@ -8,6 +8,16 @@
 export function createQueue(max, run, onChange) {
   /** @type {import('./types.js').Job[]} */
   const queue = [];
+  // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
+  // The engine's `seen` set dedups by EVENT key, but a single user action can emit
+  // two events with different keys (task `added` -> step:<id>:<gid> AND story
+  // `section_changed` -> secmove:<storyGid>) that resolve to the same step — both
+  // clear `seen` and would spawn two `claude -p` on the same task/step. This drops
+  // the second; a later legit re-entry (next step, or a `changes` rework) carries a
+  // different stepId, or arrives after this key is cleared on completion.
+  const inflight = new Set();
+  /** @param {import('./types.js').Job} job */
+  const workKey = (job) => `${job.ref}:${job.stepId ?? job.dedupKey}`;
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
   /** @type {(() => void)[]} */
@@ -43,6 +53,7 @@ export function createQueue(max, run, onChange) {
         })
         .finally(() => {
           active--;
+          inflight.delete(workKey(job));
           report();
           pump();
           resolveIdle();
@@ -57,6 +68,12 @@ export function createQueue(max, run, onChange) {
         console.warn(`[drain] refusing ${job.kind} ${job.ref} — shutting down`);
         return false;
       }
+      const key = workKey(job);
+      if (inflight.has(key)) {
+        console.warn(`[coalesce] ${job.kind} ${job.ref} step ${job.stepId} already queued/running — dropping duplicate`);
+        return false;
+      }
+      inflight.add(key);
       queue.push(job);
       report();
       pump();

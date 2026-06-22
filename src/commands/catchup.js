@@ -18,7 +18,7 @@ export async function catchup(args) {
   if (!ref) die("usage: agenthook catchup <ref> [--force]");
   if (typeof adapter.forgeCatchup !== "function") die(`tracker "${cfg.provider}" has no catchup support`);
 
-  const forged = adapter.forgeCatchup(ref);
+  const forged = await adapter.forgeCatchup(ref);
   store.reloadSeen();
   if (store.hasSeen(forged.dedupKey) && !args.force) {
     die(`${ref} already seen — the server would dedup-skip it. Re-run with --force.`);

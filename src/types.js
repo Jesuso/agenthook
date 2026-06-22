@@ -119,7 +119,7 @@
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
- * @property {(ref: string) => ForgedEvent} [forgeCatchup]  optional; catchup needs it
+ * @property {(ref: string, stepId?: string) => Promise<ForgedEvent>} [forgeCatchup]  optional; catchup needs it. dedupKey matches the server-assigned key; pass stepId to skip the live-section lookup
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  */
 
@@ -136,6 +136,7 @@
  * @property {string} type               tracker adapter key (e.g. "asana")
  * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" ref)
  * @property {string} [userGid]
+ * @property {boolean} [assigneeFilter]  Asana: only act on tasks assigned to userGid (default true when userGid set; false = project-wide)
  * @property {string} [workspaceGid]
  * @property {string} [projectGid]  Asana: the project whose sections drive the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it

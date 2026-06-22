@@ -13,7 +13,6 @@ export async function agents() {
     if (!m) continue;
     const [, pid, etime, cmd] = m;
     if (!cmd.includes("claude -p")) continue;
-    if (cmd.includes("agenthook")) continue; // skip the CLI itself, just in case
     const step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
     const ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
     console.log(`pid=${pid.padEnd(7)} ${etime.padEnd(11)} step=${step.padEnd(10)} ref=${ref}`);
