@@ -197,7 +197,7 @@
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
- * @property {boolean} [fullAuto]
+ * @property {boolean} [fullAuto]   opt-in; adds --dangerously-skip-permissions (unsandboxed code exec from a webhook). Default false = agents prompt for permission.
  * @property {string} repoPath
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]

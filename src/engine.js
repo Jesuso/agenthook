@@ -183,6 +183,19 @@ export function createEngine(cfg) {
     const meta = ingress.describe();
     console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}`);
 
+    if (cfg.fullAuto) {
+      // fullAuto runs agents with --dangerously-skip-permissions: a verified webhook
+      // leads straight to unsandboxed code execution on this host. Make that loud at
+      // every boot so it's never a silent default. See docs/architecture.md#security-posture.
+      console.error(
+        "\n  ⚠  fullAuto is ON — agents run `claude -p --dangerously-skip-permissions`.\n" +
+          "     A verified webhook executes code on this host, UNSANDBOXED. The only gate\n" +
+          "     is the HMAC signature + a non-guessable URL. Run on a trusted host with a\n" +
+          "     scoped token, or in a container/VM with only the repo mounted. Set\n" +
+          "     fullAuto:false to require per-action permission prompts (the safe default).\n",
+      );
+    }
+
     let ingressUp = false;
     try {
       const { url } = await ingress.up(cfg.port);

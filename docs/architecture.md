@@ -95,9 +95,18 @@ ping-pong, which under `--dangerously-skip-permissions` would be unbounded code 
 
 ## Security posture
 
-The receiver runs `claude -p --dangerously-skip-permissions`: a verified webhook leads
-straight to code execution on your machine. The gate is the signature check (HMAC) plus a
-non-guessable public URL. It is **not** sandboxed. Mitigations baked into the flow: agents
-branch off the default branch, open *draft* PRs, and ask rather than guess on ambiguous work.
-Run it on a trusted host, scope the API token, and stop the tunnel when idle. For untrusted or
-shared environments, run the agent in a container/VM with only the repo mounted.
+**Default is locked down.** `fullAuto` defaults to `false`, so the receiver runs a
+permission-gated `claude -p` — the agent prompts before each privileged action and the boot
+logs no warning. This is the posture to ship and to point at any untrusted board.
+
+**`fullAuto: true` is the dangerous opt-in.** It adds `--dangerously-skip-permissions`, and then
+a verified webhook leads straight to code execution on your machine, gated only by the signature
+check (HMAC) plus a non-guessable public URL. It is **not** sandboxed, and the server prints a
+loud warning at every boot while it's on. Mitigations baked into the flow regardless: agents
+branch off the default branch, open *draft* PRs, and ask rather than guess on ambiguous work; the
+`changes` rework loop is capped by `maxAttempts` so a code↔review ping-pong can't become unbounded
+execution. If you enable it, run on a trusted host, scope the API token, stop the tunnel when
+idle, and for untrusted or shared environments run the agent in a container/VM with only the repo
+mounted.
+
+Vulnerability disclosure: see [SECURITY.md](../SECURITY.md).

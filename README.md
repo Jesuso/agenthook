@@ -25,6 +25,15 @@ Two swappable axes, engine blind to both: a **tracker** (where work comes from) 
                                                                         → advance to next section
 ```
 
+> [!WARNING]
+> **agenthook turns a webhook into code execution on your host.** With `fullAuto` enabled it runs
+> `claude -p --dangerously-skip-permissions` — a verified webhook leads straight to *unsandboxed*
+> command execution, gated only by the HMAC signature and a non-guessable URL. `fullAuto` is **off
+> by default** (agents prompt for permission). Turn it on only on a trusted host with a scoped
+> token, ideally inside a container/VM with just the repo mounted. Read the full threat model in
+> [docs/architecture.md#security-posture](docs/architecture.md#security-posture) and report issues
+> per [SECURITY.md](SECURITY.md) before you point this at anything real.
+
 ## Install
 
 Requires Node ≥ 20, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
@@ -102,7 +111,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 | `port` | Local receiver port. Distinct per parallel profile. |
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
 | `maxConcurrent` | How many agents run at once (each in its own worktree). |
-| `fullAuto` | Adds `--dangerously-skip-permissions` to `claude -p`. |
+| `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
 | `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`; `pipeline` is the ordered steps (required). |
 | `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
 
@@ -137,12 +146,15 @@ does, and only once the PR is merged/closed or the tracker item is completed.
 
 ## Safety
 
-The receiver runs `claude -p --dangerously-skip-permissions` when `fullAuto` is set: a verified
-webhook leads straight to code execution on your host. The only gate is the HMAC signature + a
-non-guessable URL — it is **not** sandboxed. Agents branch off the default branch, open *draft*
-PRs, and ask rather than guess. Run on a trusted host, scope the token, stop the tunnel when
-idle, and prefer a container/VM with only the repo mounted for untrusted setups. Full posture
-in [docs/architecture.md](docs/architecture.md#security-posture).
+agenthook ships **locked down**: `fullAuto` is off by default, so agents run a permission-gated
+`claude -p` and prompt before acting. Enabling `fullAuto` opts into
+`claude -p --dangerously-skip-permissions` — then a verified webhook leads straight to code
+execution on your host, gated only by the HMAC signature + a non-guessable URL, and it is **not**
+sandboxed. Even with `fullAuto` on, agents branch off the default branch, open *draft* PRs, and
+ask rather than guess. Run on a trusted host, scope the token, stop the tunnel when idle, and
+prefer a container/VM with only the repo mounted. Full posture in
+[docs/architecture.md](docs/architecture.md#security-posture); disclosure process in
+[SECURITY.md](SECURITY.md).
 
 ## How it works
 

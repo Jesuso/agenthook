@@ -8,7 +8,8 @@
   "trigger": "@agent",
   "maxConcurrent": 2,
   "port": 4123,
-  "fullAuto": true,
+  "//fullAuto": "false (safe default) = agents prompt for permission. true = --dangerously-skip-permissions: a verified webhook runs UNSANDBOXED code on the host. Opt in only on a trusted host or in a container. See docs/architecture.md#security-posture.",
+  "fullAuto": false,
   "claudeBin": "claude",
 
   "tracker": {

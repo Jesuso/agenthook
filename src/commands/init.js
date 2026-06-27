@@ -63,7 +63,7 @@ export async function init(args) {
       { key: "trigger", message: "Comment trigger prefix", default: "@agent" },
       { key: "maxConcurrent", message: "Max concurrent agents", default: "2", validate: (v) => (Number(v) >= 1 ? true : "≥ 1") },
       { key: "port", message: "Local receiver port", default: "4123" },
-      { key: "fullAuto", message: "Run claude with --dangerously-skip-permissions?", type: "confirm", default: true },
+      { key: "fullAuto", message: "fullAuto: run claude with --dangerously-skip-permissions (UNSANDBOXED code exec from a webhook)?", type: "confirm", default: false },
     ],
     core,
   );

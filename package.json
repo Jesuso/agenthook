@@ -9,6 +9,7 @@
   "files": [
     "bin",
     "src",
+    "SECURITY.md",
     "INSTRUCTIONS.example.md",
     "agenthook.config.example.json"
   ],
