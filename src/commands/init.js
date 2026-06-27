@@ -10,7 +10,7 @@ import { TRACKERS, createAdapter } from "../trackers/index.js";
 import { INGRESS } from "../ingress/index.js";
 
 /** @type {Record<string, string>} */
-const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN" };
+const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN" };
 
 // A starter pipeline: one coding step with placeholder section gids the user fills
 // in. The config is unusable until these are real (loadConfig requires a pipeline),

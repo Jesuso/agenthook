@@ -50,10 +50,36 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   resolve the task's live `memberships.section.gid` → the step whose `sourceSectionGid` matches.
 - Signature: HMAC-SHA256 hex in `X-Hook-Signature`.
 
+### Jira Cloud (`src/trackers/jira.js`)
+- **Auth — `email` + API token, Basic (NOT bearer).** Jira Cloud classic API tokens (`ATATT…`)
+  authenticate only as the *password* in HTTP Basic, with the account **email as the username**:
+  `Authorization: Basic base64("<email>:<token>")`. Unlike GitHub/GitLab PATs, the token alone is
+  not a bearer credential — `Authorization: Bearer <token>` returns 403 at `<site>.atlassian.net`
+  and 401 at the `api.atlassian.com` gateway. That's why `tracker.email` is required and can't be
+  derived from the token (querying identity needs auth, which needs the email). It isn't secret, so
+  inline it in the config. The only bearer path is an OAuth 2.0 (3LO) *access* token — a different
+  credential, not your API token.
+  Source: <https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/#supply-basic-auth-headers>
+- The "section" is the issue's workflow **status**: a step binds `sourceStatus`/`successStatus`/
+  `failureStatus`/`holdStatus` (status names, matched case-insensitively). An issue entering a
+  step's `sourceStatus` fires it.
+- No handshake. The webhook signing secret is **generated and stored by agenthook** (or an
+  explicit `tracker.webhookSecret`), printed on `start` to paste into the Jira webhook; the body
+  is verified via `x-hub-signature: sha256=<hex>`. `webhookSecret: false` accepts unsigned. So the
+  API token is the only Jira secret a user supplies.
+- `advance` has no "set status" — it fetches the issue's available transitions and executes the
+  one whose `to` status matches the target (a target not reachable in the workflow is a logged
+  no-op). Auth is Basic `email:apiToken` (REST v2 → `description` is a plain string); the assignee
+  accountId for scoping is derived from `/myself` and cached, so it isn't configured by hand.
+- **Webhooks are created BY HAND** in Jira admin (Settings → System → WebHooks) — Jira Cloud
+  restricts the webhook REST API to Connect/Forge apps, so `registerWebhook` just prints setup
+  instructions and `unregisterWebhooks` is a no-op. The URL can't rotate, so pair Jira with a
+  **stable ingress** (ngrok reserved `domain`, or `hosted`) — never an ephemeral tunnel.
+
 ### Section-less trackers (GitHub, …)
 - Removed for now: the pipeline is section-driven and GitHub Issues has no sections. Slated for P3,
   mapped to labels / project columns (the adapter would translate a label/column change into the
-  same section→step routing). Until then, only Asana ships.
+  same section→step routing). For now Asana and Jira ship.
 
 ## Ingress interface
 
@@ -69,7 +95,7 @@ A factory `createXIngress(cfg)` (in `src/ingress/`) returns:
 Built-in: **`ngrok`** (managed, ephemeral unless a reserved `domain` is set) and
 **`manual`/`hosted`** (static — `up()` returns `ingress.url`, `down()` is a no-op).
 
-## Adding a tracker (e.g. Jira, GitLab, Linear)
+## Adding a tracker (e.g. GitLab, Linear)
 
 1. Create `src/trackers/<name>.js` exporting `create<Name>Adapter(cfg, store)`.
 2. Implement the interface above. Map the platform's "item moved to a stage" signal (section,

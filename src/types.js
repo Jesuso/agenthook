@@ -33,6 +33,10 @@
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
  * @property {string} [holdSectionGid]         Asana: move here on `hold` (waiting on a human); absent → leave in place
+ * @property {string} [sourceStatus]           Jira: entering this status fires the step (status name)
+ * @property {string} [successStatus]          Jira: transition here on a clean finish (advance)
+ * @property {string} [failureStatus]          Jira: transition here on a failed/interrupted run
+ * @property {string} [holdStatus]             Jira: transition here on `hold`; absent → leave in place
  */
 
 /**
@@ -134,11 +138,17 @@
  * are already resolved from the environment by loadConfig before adapters see it.
  * @typedef {object} ProviderConfig
  * @property {string} type               tracker adapter key (e.g. "asana")
- * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" ref)
+ * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" / "${JIRA_API_TOKEN}" ref)
  * @property {string} [userGid]
- * @property {boolean} [assigneeFilter]  Asana: only act on tasks assigned to userGid (default true when userGid set; false = project-wide)
+ * @property {boolean} [assigneeFilter]  only act on items assigned to us (Asana userGid / Jira assigneeAccountId); default true when that id is set; false = project-wide
  * @property {string} [workspaceGid]
  * @property {string} [projectGid]  Asana: the project whose sections drive the pipeline
+ * @property {string} [site]              Jira: site shortname ("<site>.atlassian.net"); or set baseUrl
+ * @property {string} [baseUrl]           Jira: full base URL (overrides site)
+ * @property {string} [email]             Jira: account email for Basic auth (typically a "${JIRA_EMAIL}" ref)
+ * @property {string|false} [webhookSecret]  Jira: explicit webhook signing secret; omit to let agenthook generate+store one; false disables verification
+ * @property {string} [projectKey]        Jira: project key whose statuses drive the pipeline (e.g. "CAHUI")
+ * @property {string} [assigneeAccountId] Jira: the bot's accountId — scope work to its issues
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  */
 
