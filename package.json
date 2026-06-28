@@ -4,7 +4,7 @@
   "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
   "type": "module",
   "bin": {
-    "agenthook": "./bin/agenthook.js"
+    "agenthook": "bin/agenthook.js"
   },
   "files": [
     "bin",
@@ -15,12 +15,36 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "agenthook": "node bin/agenthook.js"
+    "agenthook": "node bin/agenthook.js",
+    "prepublishOnly": "npm run typecheck"
   },
   "engines": {
     "node": ">=20"
   },
+  "keywords": [
+    "agent",
+    "agents",
+    "ai",
+    "claude",
+    "webhook",
+    "automation",
+    "devtools",
+    "pipeline",
+    "kanban",
+    "coding-agent",
+    "asana",
+    "jira"
+  ],
+  "author": "Ignacio Ortiz",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jesuso/agenthook.git"
+  },
+  "homepage": "https://github.com/Jesuso/agenthook#readme",
+  "bugs": {
+    "url": "https://github.com/Jesuso/agenthook/issues"
+  },
   "devDependencies": {
     "@types/node": "^25.9.3",
     "typescript": "^6.0.3"
