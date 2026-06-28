@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Contributor on-ramps: GitHub Discussions (Q&A + Ideas), `.github/SUPPORT.md`, a "Ways to
+  contribute" section in `CONTRIBUTING.md`, a "Contributing & community" section in the README, a
+  Sponsor button (`.github/FUNDING.yml`), and an `.editorconfig`.
+
+### Changed
+
+- Feature requests now go to **Discussions › Ideas** instead of the issue tracker; the
+  `feature_request` issue template was removed and the issue chooser funnels ideas/questions to
+  Discussions. Issues are for reproducible bugs.
+
 ## [0.1.2] — 2026-06-28
 
 ### Security

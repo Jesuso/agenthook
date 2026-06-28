@@ -3,6 +3,24 @@
 Thanks for considering a contribution. agenthook is a small, dependency-light Node project — easy
 to hack on once you know the few conventions below.
 
+## Ways to contribute
+
+You don't have to write code to help:
+
+- **Report a bug** — [open a bug report](https://github.com/Jesuso/agenthook/issues/new/choose).
+- **Suggest a feature / share an idea** — [Discussions › Ideas](https://github.com/Jesuso/agenthook/discussions/categories/ideas).
+- **Ask or answer questions** — [Discussions › Q&A](https://github.com/Jesuso/agenthook/discussions/categories/q-a).
+- **Improve docs** — a typo, a clearer step, a missing gotcha; PRs to `docs/` and the README are
+  very welcome.
+- **Test it on your tracker** — run it against your Asana or Jira board and tell us what worked or
+  broke. Real-world tracker coverage is the slowest thing to grow alone.
+- **Write a new adapter** — a tracker or ingress the engine doesn't speak yet (see
+  [Adding a tracker or ingress adapter](#adding-a-tracker-or-ingress-adapter)).
+- **Send a PR** — see the workflow below.
+- **Sponsor** — [support the project ❤](https://github.com/sponsors/Jesuso) if it saves you time.
+
+Everyone interacting in the project agrees to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Project shape
 
 - **Plain Node ESM, no build.** `"type": "module"`, Node ≥ 20. The code ships as JS and runs

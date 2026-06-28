@@ -200,6 +200,21 @@ prefer the [sandboxed container](docs/sandbox.md) with only the repo mounted. Fu
 Details: [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) ·
 [docs/agenthook-v2.md](docs/agenthook-v2.md)
 
+## Contributing & community
+
+Issues, ideas, and PRs all welcome — agenthook is dependency-light and built to be hacked on.
+
+- 🛠 **[CONTRIBUTING.md](CONTRIBUTING.md)** — dev setup, the local CI gate, and a step-by-step guide
+  to writing a new tracker/ingress adapter (the most common contribution).
+- 💬 **[Discussions](https://github.com/Jesuso/agenthook/discussions)** —
+  [Q&A](https://github.com/Jesuso/agenthook/discussions/categories/q-a) for setup help,
+  [Ideas](https://github.com/Jesuso/agenthook/discussions/categories/ideas) for features.
+- 🐛 **[Issues](https://github.com/Jesuso/agenthook/issues)** — reproducible bugs (start with
+  [`good first issue`](https://github.com/Jesuso/agenthook/labels/good%20first%20issue)).
+- ❤ **[Sponsor](https://github.com/sponsors/Jesuso)** — if agenthook saves you time.
+
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
 MIT

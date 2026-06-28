@@ -1,8 +1,12 @@
+# Funnel intake: bugs → issue form; ideas/questions → Discussions.
 blank_issues_enabled: false
 contact_links:
+  - name: 💡 Feature idea or request
+    url: https://github.com/Jesuso/agenthook/discussions/categories/ideas
+    about: Propose and discuss features in Discussions before they become tracked work.
+  - name: 💬 Question or setup help
+    url: https://github.com/Jesuso/agenthook/discussions/categories/q-a
+    about: Ask in Discussions Q&A — setup help, "does it work with my tracker?", general questions.
   - name: 🔒 Security vulnerability
     url: https://github.com/Jesuso/agenthook/blob/master/SECURITY.md
     about: Do NOT open a public issue. Follow the private disclosure process in SECURITY.md.
-  - name: 📖 Setup help
-    url: https://github.com/Jesuso/agenthook/blob/master/docs/troubleshooting.md
-    about: Most first-run problems are answered in the troubleshooting guide.
