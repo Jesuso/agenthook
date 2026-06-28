@@ -48,9 +48,10 @@ officially representing the community in public spaces.
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community
-leaders responsible for enforcement at **the maintainers (private GitHub reporting)**. All complaints will be reviewed and
-investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the
+maintainers through GitHub's [private reporting form](https://github.com/Jesuso/agenthook/security/advisories/new),
+which opens a confidential thread visible only to the maintainers. All complaints will be reviewed
+and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any
 incident.

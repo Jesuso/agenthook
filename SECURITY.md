@@ -2,9 +2,11 @@
 
 ## Reporting a vulnerability
 
-Email **the maintainers (private GitHub reporting)** with details and a proof of concept if you have one. Please do
-**not** open a public issue for anything exploitable. Expect an acknowledgement within a few days;
-once a fix ships, we're happy to credit you unless you'd rather stay anonymous.
+Use GitHub's [private vulnerability reporting](https://github.com/Jesuso/agenthook/security/advisories/new)
+to send details and a proof of concept if you have one — it opens a confidential thread with the
+maintainers, nothing is public. Please do **not** open a public issue for anything exploitable.
+Expect an acknowledgement within a few days; once a fix ships, we're happy to credit you unless
+you'd rather stay anonymous.
 
 ## Supported versions
 

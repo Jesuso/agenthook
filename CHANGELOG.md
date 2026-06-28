@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-06-28
+
+### Security
+
+- Removed the maintainer email from `SECURITY.md` and `CODE_OF_CONDUCT.md`. Vulnerability and
+  conduct reports now route through GitHub's private reporting form, so no personal or company
+  contact address is published with the package.
+
 ## [0.1.1] — 2026-06-28
 
 ### Added
@@ -52,6 +60,7 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Jesuso/agenthook/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Jesuso/agenthook/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Jesuso/agenthook/releases/tag/v0.1.0
