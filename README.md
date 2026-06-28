@@ -18,8 +18,8 @@ spins while you're idle.
 > honest tradeoffs (push delivery isn't free — agenthook ships a targeted replay for the gaps).
 
 Two swappable axes, engine blind to both: a **tracker** (where work comes from) and an
-**ingress** (how the receiver is reachable). Ships with the **Asana** tracker and **ngrok** +
-**hosted** ingress; adding another section/stage tracker or tunnel is one adapter file
+**ingress** (how the receiver is reachable). Ships with **Asana** + **Jira** trackers and **ngrok**
++ **hosted** ingress; adding another section/stage tracker or tunnel is one adapter file
 ([docs/providers.md](docs/providers.md)).
 
 ```
@@ -49,6 +49,10 @@ npm i -g @jesuso/agenthook   # installs the `agenthook` command; or run ad-hoc w
 
 ## Quickstart
 
+> **New here? Follow the [Getting Started guide](docs/getting-started.md)** — it walks the full
+> path end to end, including the two manual steps below (finding section gids, writing the
+> instruction files) that this overview compresses.
+
 agenthook is a tool you run *inside the project you want agents to work on* — its config lives
 there like a `tsconfig.json`, while runtime state lives centrally in `~/.agenthook/<name>`.
 
@@ -56,11 +60,15 @@ there like a `tsconfig.json`, while runtime state lives centrally in `~/.agentho
 cd ~/my-project
 
 agenthook init            # interactive: pick tracker + ingress, fetches your
-                          # workspace/project/repo so you choose from a list
-                          # → writes ./agenthook.config.json
+                          # workspace/project so you choose from a list
+                          # → writes ./agenthook.config.json (with TODO_* section gids)
 
-cp .env.example .env      # put your ASANA_TOKEN (or GITHUB_TOKEN + WEBHOOK_SECRET) here
-$EDITOR .env              # (init prints exactly which vars it referenced)
+$EDITOR .env              # add your ASANA_TOKEN or JIRA_API_TOKEN (init prints which vars)
+
+# Fill in the pipeline — replace the TODO_* section gids and write the per-step
+# instruction files. THIS step is required; doctor won't catch missing gids.
+$EDITOR agenthook.config.json      # see Getting Started §4
+cp INSTRUCTIONS.example.md INSTRUCTIONS_CODE.md
 
 agenthook doctor          # preflight: token resolves, repo is git, port free, …
 agenthook start           # ingress up → register webhook → serve
@@ -70,11 +78,22 @@ agenthook start           # ingress up → register webhook → serve
 `ah start`, `ah agents`, … — add or remove it later with `agenthook alias [--remove]`. It's opt-in
 and never overwrites an existing `ah` on your PATH.
 
-Move a task into your pipeline's first section (Asana) → a run appears under
-`~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with `agenthook stop`.
+Move a task you're **assigned** into your pipeline's first section (Asana) or status (Jira) → a run
+appears under `~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with
+`agenthook stop`. If nothing fires, the [troubleshooting guide](docs/troubleshooting.md) is
+symptom-first.
 
 `init` writes secrets as `${ENV}` **references**, never literal values, so the config is safe to
 commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
+
+## Documentation
+
+- **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
+- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) — token + board specifics
+- [Troubleshooting](docs/troubleshooting.md) — symptom → fix
+- [Architecture](docs/architecture.md) — how the engine works + the honest tradeoffs
+- [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely
+- [Providers](docs/providers.md) — add a tracker or ingress adapter
 
 ## Profiles & parallel runs
 
@@ -120,7 +139,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
 | `maxConcurrent` | How many agents run at once (each in its own worktree). |
 | `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
-| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`; `pipeline` is the ordered steps (required). |
+| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana` or `jira`; `pipeline` is the ordered steps (required). |
 | `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
 
 See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented
