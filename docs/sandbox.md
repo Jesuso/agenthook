@@ -53,13 +53,13 @@ docker compose -f docker/docker-compose.yml up --build
 Claude auth: simplest is `ANTHROPIC_API_KEY` in `.env` (headless, no host mount). OAuth users
 instead uncomment the `~/.claude` bind in the compose file and drop the API key.
 
-## Pre-publish image
+## Building from a local tarball
 
-agenthook isn't on npm yet, so build the image from a local tarball:
+To build the image from local source (a release candidate, or a patch you haven't published):
 
 ```bash
-npm pack                                   # produces agenthook-<version>.tgz
-AGENTHOOK_SPEC=agenthook-0.1.0.tgz \
+npm pack                                   # produces agenthook-cli-<version>.tgz
+AGENTHOOK_SPEC=agenthook-cli-0.1.0.tgz \
   docker compose -f docker/docker-compose.yml up --build
 ```
 

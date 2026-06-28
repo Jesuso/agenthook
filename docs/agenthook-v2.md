@@ -11,7 +11,7 @@ One config, one `.runtime/`, one port, one ngrok tunnel — every one of those i
 pin to a single project. Switching projects clobbers the previous setup; running two at
 once is impossible.
 
-v2 makes agenthook *a tool you install*: `npm i -g agenthook`, scaffold a config per
+v2 makes agenthook *a tool you install*: `npm i -g @agenthook/cli`, scaffold a config per
 project the way you scaffold a `tsconfig.json`, and run as many in parallel as you like —
 each fully isolated. Same engine thesis (event-first receiver spawning headless
 `claude -p`), new packaging and two clean extension axes.
@@ -20,7 +20,7 @@ each fully isolated. Same engine thesis (event-first receiver spawning headless
 
 ### 1. Distribution — global package, one binary
 
-`npm i -g agenthook` installs an `agenthook` CLI. The existing bash ops scripts
+`npm i -g @agenthook/cli` installs an `agenthook` CLI. The existing bash ops scripts
 (`start.sh`, `stop.sh`, `resume.sh`, `follow.sh`, `agents.sh`, `cleanup-worktrees.sh`)
 retire into JS subcommands so they ship cross-platform and work from any directory, not
 just inside this repo.

@@ -57,7 +57,7 @@ export function installAh({ remove = false } = {}) {
     return {
       ok: false,
       changed: false,
-      message: "`agenthook` isn't on your PATH yet. Install it globally (npm i -g agenthook), then re-run `agenthook alias`.",
+      message: "`agenthook` isn't on your PATH yet. Install it globally (npm i -g @agenthook/cli), then re-run `agenthook alias`.",
     };
   }
   const link = path.join(path.dirname(ourPath), SHORT);

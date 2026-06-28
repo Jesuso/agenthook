@@ -1,5 +1,5 @@
 {
-  "name": "agenthook",
+  "name": "@agenthook/cli",
   "version": "0.1.0",
   "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
   "type": "module",
@@ -44,6 +44,9 @@
   "homepage": "https://github.com/Jesuso/agenthook#readme",
   "bugs": {
     "url": "https://github.com/Jesuso/agenthook/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

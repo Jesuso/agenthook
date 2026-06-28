@@ -18,8 +18,8 @@ services:
       dockerfile: docker/Dockerfile
       args:
         # Point at a local tarball for a pre-publish image: `npm pack` then set
-        # AGENTHOOK_SPEC=agenthook-0.1.0.tgz (relative to the build context root).
-        AGENTHOOK_SPEC: ${AGENTHOOK_SPEC:-agenthook}
+        # AGENTHOOK_SPEC=agenthook-cli-0.1.0.tgz (relative to the build context root).
+        AGENTHOOK_SPEC: ${AGENTHOOK_SPEC:-published}
     # Secrets come from .env (tracker token, NGROK_AUTHTOKEN, and EITHER an
     # ANTHROPIC_API_KEY or a mounted ~/.claude — see below).
     env_file:

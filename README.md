@@ -41,7 +41,7 @@ Requires Node ≥ 20, the [`claude` CLI](https://claude.com/claude-code), `git`,
 ngrok ingress — [`ngrok`](https://ngrok.com). Plus a tracker API token.
 
 ```bash
-npm i -g agenthook        # or run ad-hoc with `npx agenthook <cmd>`
+npm i -g @agenthook/cli   # installs the `agenthook` command; or run ad-hoc with `npx @agenthook/cli <cmd>`
 ```
 
 ## Quickstart
