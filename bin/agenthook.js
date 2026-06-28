@@ -15,6 +15,7 @@
 //   agenthook catchup <ref> [--force]   replay a missed item through the live server
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook doctor               preflight checks for this profile
+//   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
 //
 // Global flag: --config <path> selects a config explicitly (default: discover
 // agenthook.config.json from the current dir upward).
@@ -31,6 +32,7 @@ import { register, unregister } from "../src/commands/webhook.js";
 import { catchup } from "../src/commands/catchup.js";
 import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
+import { alias } from "../src/commands/alias.js";
 
 const VALUE_FLAGS = new Set(["config", "limit"]);
 
@@ -52,7 +54,7 @@ function parse(argv) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, reconcile, doctor };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, reconcile, doctor, alias };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -72,6 +74,7 @@ usage: agenthook <command> [args] [--config <path>]
   catchup <ref> [--force]   replay a missed item
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
   doctor                    preflight checks
+  alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
 `;
 
 async function main() {

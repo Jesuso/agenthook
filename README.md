@@ -63,6 +63,10 @@ agenthook doctor          # preflight: token resolves, repo is git, port free, �
 agenthook start           # ingress up → register webhook → serve
 ```
 
+`init` offers an optional `ah` shortcut (a symlink beside the `agenthook` bin) so you can type
+`ah start`, `ah agents`, … — add or remove it later with `agenthook alias [--remove]`. It's opt-in
+and never overwrites an existing `ah` on your PATH.
+
 Move a task into your pipeline's first section (Asana) → a run appears under
 `~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with `agenthook stop`.
 

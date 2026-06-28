@@ -8,6 +8,7 @@ import path from "node:path";
 import { runWizard } from "../wizard.js";
 import { TRACKERS, createAdapter } from "../trackers/index.js";
 import { INGRESS } from "../ingress/index.js";
+import { installAh } from "./alias.js";
 
 /** @type {Record<string, string>} */
 const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN" };
@@ -131,6 +132,11 @@ export async function init(args) {
   fs.writeFileSync(out, JSON.stringify(config, null, 2) + "\n");
   console.log(`\nwrote ${out}`);
   console.log(`state dir will be ~/.agenthook/${config.name}`);
+
+  // Opt-in `ah` shortcut. Offer only — never force it (see commands/alias.js).
+  const { ah } = await runWizard([{ key: "ah", message: "Add an `ah` shortcut for `agenthook`?", type: "confirm", default: true }]);
+  if (ah) console.log(installAh().message);
+
   console.log(`\nNext:`);
   console.log(`  - ensure ${tokenEnv}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
   console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);

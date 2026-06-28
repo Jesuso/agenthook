@@ -36,6 +36,7 @@ node bin/agenthook.js unregister         # delete this profile's webhooks
 node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through the live server
 node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections (explicit poll)
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
+node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink beside the agenthook bin)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 node --check bin/agenthook.js src/**/*.js # syntax check (there is no test runner)
@@ -70,7 +71,7 @@ dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
 - `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/resume/agents/cleanup/
-  webhook/catchup/reconcile/doctor). These replace the old bash `scripts/`.
+  webhook/catchup/reconcile/doctor/alias). These replace the old bash `scripts/`.
 - `src/sessions.js` — ref → worktree → Claude transcript dir resolution, plus `recentRuns` (last-N
   from the per-run logs) and `listSessions` (every session a ref has, each labelled with its pipeline
   step by correlating the session's first-message time to the nearest run-log start). Backs `resume`.
