@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-06-28
+
+### Added
+
+- `agenthook --version` (also `-v` / `version`) prints the installed version.
+- Contributor scaffolding: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, this changelog, and GitHub
+  issue/PR templates.
+- Onboarding docs: getting-started, Asana/Jira setup, and a symptom-first troubleshooting guide.
+
+### Fixed
+
+- `agenthook alias` install hint now points at the correct `@jesuso/agenthook` package name.
+
 ## [0.1.0] — 2026-06-28
 
 First public release, published to npm as **[@jesuso/agenthook](https://www.npmjs.com/package/@jesuso/agenthook)**
@@ -39,5 +52,6 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Jesuso/agenthook/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Jesuso/agenthook/releases/tag/v0.1.0
