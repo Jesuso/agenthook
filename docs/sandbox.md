@@ -58,8 +58,8 @@ instead uncomment the `~/.claude` bind in the compose file and drop the API key.
 To build the image from local source (a release candidate, or a patch you haven't published):
 
 ```bash
-npm pack                                   # produces agenthook-cli-<version>.tgz
-AGENTHOOK_SPEC=agenthook-cli-0.1.0.tgz \
+npm pack                                   # produces jesuso-agenthook-<version>.tgz
+AGENTHOOK_SPEC=jesuso-agenthook-0.1.0.tgz \
   docker compose -f docker/docker-compose.yml up --build
 ```
 

@@ -1,5 +1,5 @@
 {
-  "name": "@agenthook/cli",
+  "name": "@jesuso/agenthook",
   "version": "0.1.0",
   "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
   "type": "module",

@@ -14,13 +14,13 @@ RUN apt-get update \
 ARG CLAUDE_VERSION=latest
 RUN npm i -g @anthropic-ai/claude-code@${CLAUDE_VERSION}
 
-# agenthook itself. Defaults to the published package (@agenthook/cli); override
+# agenthook itself. Defaults to the published package (@jesuso/agenthook); override
 # AGENTHOOK_SPEC with a local tarball name (built via `npm pack`) for dev images:
-#   docker build --build-arg AGENTHOOK_SPEC=agenthook-cli-0.1.0.tgz -f docker/Dockerfile .
+#   docker build --build-arg AGENTHOOK_SPEC=jesuso-agenthook-0.1.0.tgz -f docker/Dockerfile .
 ARG AGENTHOOK_SPEC=published
 COPY . /tmp/agenthook-src
 RUN if [ "$AGENTHOOK_SPEC" = "published" ]; then \
-      npm i -g @agenthook/cli; \
+      npm i -g @jesuso/agenthook; \
     else \
       npm i -g "/tmp/agenthook-src/${AGENTHOOK_SPEC}"; \
     fi \
