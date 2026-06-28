@@ -1,0 +1,66 @@
+name: Bug report
+description: Something isn't working as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If nothing fires on a task move, skim
+        [docs/troubleshooting.md](https://github.com/Jesuso/agenthook/blob/master/docs/troubleshooting.md)
+        first — most first-run issues (TODO section gids, assignee scoping, the Jira by-hand webhook)
+        are covered there.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: I moved an assigned task into the first section, but no agent ran…
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant server log lines
+      description: >
+        The routing lines from where you ran `agenthook start` — `[section]`, `[transition]`,
+        `[assignee]`, `[reject]`, `[advance]`, `[coalesce]`. Redact any tokens/URLs.
+      render: text
+  - type: dropdown
+    id: tracker
+    attributes:
+      label: Tracker
+      options: [Asana, Jira, other]
+    validations:
+      required: true
+  - type: dropdown
+    id: ingress
+    attributes:
+      label: Ingress
+      options: [ngrok, hosted/manual, other]
+  - type: dropdown
+    id: fullauto
+    attributes:
+      label: fullAuto
+      options: ["false (default)", "true"]
+  - type: input
+    id: version
+    attributes:
+      label: agenthook version
+      description: Output of `agenthook --version`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Node + OS
+      description: Output of `node -v` and your OS.
+      placeholder: node v20.x, macOS 14
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`agenthook doctor` output (optional)"
+      description: Helps rule out config/token/port issues. Redact paths if needed.
+      render: text

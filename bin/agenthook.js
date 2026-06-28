@@ -33,6 +33,9 @@ import { catchup } from "../src/commands/catchup.js";
 import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
+import { readFileSync } from "node:fs";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 const VALUE_FLAGS = new Set(["config", "limit"]);
 
@@ -75,10 +78,15 @@ usage: agenthook <command> [args] [--config <path>]
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
   doctor                    preflight checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
+  --version, -v             print the installed version
 `;
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
+  if (cmd === "version" || cmd === "--version" || cmd === "-v") {
+    console.log(pkg.version);
+    return;
+  }
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     console.log(HELP);
     return;
