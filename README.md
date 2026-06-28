@@ -1,5 +1,8 @@
 # agenthook
 
+[![CI](https://github.com/Jesuso/agenthook/actions/workflows/ci.yml/badge.svg)](https://github.com/Jesuso/agenthook/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@jesuso/agenthook)](https://www.npmjs.com/package/@jesuso/agenthook)
+
 **Event-driven agentic development.** Move a task into a board section → a coding agent picks it
 up *the instant it lands*, works that stage in an isolated git worktree, and (for the coding
 stage) opens a draft PR. The agent reports a **verdict** and the receiver moves the task — forward

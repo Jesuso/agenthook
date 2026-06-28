@@ -15,8 +15,9 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.js",
     "agenthook": "node bin/agenthook.js",
-    "prepublishOnly": "npm run typecheck"
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "engines": {
     "node": ">=20"

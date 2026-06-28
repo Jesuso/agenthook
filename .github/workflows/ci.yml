@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: typecheck (JSDoc + checkJs)
+        run: npm run typecheck
+      - name: tests
+        run: npm test
+      - name: syntax check (node --check)
+        run: |
+          status=0
+          for f in $(find bin src -name '*.js'); do
+            node --check "$f" || status=1
+          done
+          exit $status

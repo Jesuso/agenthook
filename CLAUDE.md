@@ -39,13 +39,17 @@ node bin/agenthook.js doctor             # preflight: token resolves, repo is gi
 node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink beside the agenthook bin)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
-node --check bin/agenthook.js src/**/*.js # syntax check (there is no test runner)
+npm test                                  # node:test suites in test/ (pure units; no network/spawn)
+node --check bin/agenthook.js src/**/*.js # syntax check
 ```
 
-No build step, no bundler, no test framework — plain Node ESM (`"type": "module"`, Node ≥ 20).
-The code ships as JS and runs unbuilt; TypeScript is used **only as a checker** via JSDoc +
-`checkJs` (`tsconfig.json`, `noEmit`). Validation is `npm run typecheck` + `node --check` +
-manual smoke tests. There is no lint config.
+No build step, no bundler — plain Node ESM (`"type": "module"`, Node ≥ 20). The code ships as JS
+and runs unbuilt; TypeScript is used **only as a checker** via JSDoc + `checkJs` (`tsconfig.json`,
+`noEmit`). Tests use the built-in `node:test` runner (zero deps) and cover the pure units —
+`paths`, `pipeline`, `queue` (concurrency + coalescing), `store` (persistence); engine/adapter
+paths that need network or `claude -p` are still validated by manual smoke tests. CI
+(`.github/workflows/ci.yml`) runs typecheck + tests + `node --check` on Node 20 & 22. There is no
+lint config.
 
 ## Architecture
 
