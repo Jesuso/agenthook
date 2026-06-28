@@ -3,12 +3,14 @@
 // it below — the engine never changes. The active tracker is `cfg.tracker.type`.
 import { createAsanaAdapter } from "./asana.js";
 import { createJiraAdapter } from "./jira.js";
+import { createGithubAdapter } from "./github.js";
 
-// GitHub (and other section-less trackers) return in P3, mapped to labels/columns.
+// GitHub has no board sections, so it drives the pipeline off issue LABELS (see github.js).
 /** @type {Record<string, import('../types.js').AdapterFactory>} */
 export const TRACKERS = {
   asana: createAsanaAdapter,
   jira: createJiraAdapter,
+  github: createGithubAdapter,
 };
 
 /**

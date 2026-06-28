@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 agenthook is an **event-driven agentic-development receiver**. Work flows through a **pipeline**
-of steps bound to a tracker's board sections (Asana today). A task entering a step's source
-section fires a webhook; the receiver verifies it and spawns a headless `claude -p` in a
+of steps bound to a tracker's stages (Asana sections, Jira statuses, or GitHub labels). A task
+entering a step's source stage fires a webhook; the receiver verifies it and spawns a headless `claude -p` in a
 receiver-owned git worktree to do that step's work; on a clean exit it moves the task to the next
 section — which fires the next step. There is no polling loop — forward motion is event-driven,
 crash recovery is local, and `catchup`/`reconcile` exist only to replay items missed during downtime.
@@ -135,8 +135,18 @@ moving between board sections drives it; there is no assignment/comment path.
   task's **live** `memberships.section.gid` → the step whose `sourceSectionGid` matches. Dedup:
   `step:<id>:<gid>` (created-in-section) and `secmove:<storyGid>` (moved). `advance` moves a task by
   `POST /sections/<gid>/addTask`.
-- **GitHub** — removed in this revision (it had no sections to drive a pipeline). Returns in P3,
-  mapped to labels / project columns.
+- **Jira** — Basic auth (`base64("<email>:<token>")`, REST v2). Steps bind `sourceStatus`; routing
+  is on the issue's status. `advance` has no "set status" — it executes the **transition** whose
+  `to` matches the target (an unreachable status is a logged no-op). Webhook is **by hand** (Jira
+  Cloud forbids token-created hooks); agenthook generates the signing secret + prints setup. Run
+  behind a **stable** ingress. Dedup: `step:<id>:<key>` (created), `secmove:<changelogId>` (status move).
+- **GitHub** — issues have no board sections, so steps bind **labels** (`sourceLabel`): an issue
+  carrying it fires the step. `advance` swaps the label — **add target, then remove source** (crash
+  between the two leaves the issue re-firing, not stuck). One repo webhook on the `issues` event,
+  **auto-created via REST** (unlike Jira) and signed with an agenthook-generated secret →
+  `x-hub-signature-256`. Routes `opened`/`reopened`/`assigned` by the issue's current labels
+  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). 'Us' = the token's login
+  from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues + Webhooks RW (fine-grained).
 
 ## Typing (JSDoc + checkJs)
 

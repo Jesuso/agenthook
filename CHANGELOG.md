@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **GitHub Issues tracker** (`src/trackers/github.js`). The pipeline runs off issue **labels**
+  (`sourceLabel`/`successLabel`/`failureLabel`/`holdLabel`): an issue carrying a step's `sourceLabel`
+  fires it, and `advance` swaps the label (add-before-remove, crash-safe). The repo webhook is
+  **auto-created via REST** and signed with an agenthook-generated secret (`x-hub-signature-256`),
+  so it works behind an ephemeral ingress. Token: `repo` + `admin:repo_hook` (classic) or Issues +
+  Webhooks RW (fine-grained); assignee scoping by the token's `/user` login, fail-closed. Adds
+  `docs/github-setup.md` and the first adapter unit tests (`test/github.test.js`).
 - Contributor on-ramps: GitHub Discussions (Q&A + Ideas), `.github/SUPPORT.md`, a "Ways to
   contribute" section in `CONTRIBUTING.md`, a "Contributing & community" section in the README, a
   Sponsor button (`.github/FUNDING.yml`), and an `.editorconfig`.

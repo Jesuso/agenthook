@@ -11,23 +11,21 @@ import { INGRESS } from "../ingress/index.js";
 import { installAh } from "./alias.js";
 
 /** @type {Record<string, string>} */
-const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN" };
+const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN" };
 
-// A starter pipeline: one coding step with placeholder section gids the user fills
-// in. The config is unusable until these are real (loadConfig requires a pipeline),
-// so init writes the skeleton + prints a TODO rather than a config that silently
-// does nothing. (Interactive section discovery is a follow-up.)
-const PLACEHOLDER_PIPELINE = [
-  {
-    id: "code",
-    kind: "implement",
-    createsWorktree: true,
-    instructionsFile: "./INSTRUCTIONS_CODE.md",
-    sourceSectionGid: "TODO_SOURCE_SECTION_GID",
-    successSectionGid: "TODO_REVIEW_SECTION_GID",
-    failureSectionGid: "TODO_BLOCKED_SECTION_GID",
-  },
-];
+// A starter pipeline: one coding step with placeholder bindings the user fills in.
+// The config is unusable until these are real (loadConfig requires a pipeline), so
+// init writes the skeleton + prints a TODO rather than a config that silently does
+// nothing. The binding fields differ per tracker — Asana sections, Jira statuses,
+// GitHub labels — so the placeholder is shaped to match. (Interactive discovery is a
+// follow-up.)
+const base = { id: "code", kind: "implement", createsWorktree: true, instructionsFile: "./INSTRUCTIONS_CODE.md" };
+/** @type {Record<string, any[]>} */
+const PLACEHOLDER_PIPELINES = {
+  asana: [{ ...base, sourceSectionGid: "TODO_SOURCE_SECTION_GID", successSectionGid: "TODO_REVIEW_SECTION_GID", failureSectionGid: "TODO_BLOCKED_SECTION_GID" }],
+  jira: [{ ...base, sourceStatus: "TODO_SOURCE_STATUS", successStatus: "TODO_REVIEW_STATUS", failureStatus: "TODO_BLOCKED_STATUS" }],
+  github: [{ ...base, sourceLabel: "TODO_SOURCE_LABEL", successLabel: "TODO_REVIEW_LABEL", failureLabel: "TODO_BLOCKED_LABEL" }],
+};
 
 /** Turn collected answers into a config block: `<x>Env` answers become "${VAL}" refs.
  * @param {string} type @param {Record<string,any>} ans */
@@ -116,7 +114,7 @@ export async function init(args) {
 
   // --- assemble + write ---
   const tracker = blockFromAnswers(trackerAns.type, trackerAns);
-  tracker.pipeline = PLACEHOLDER_PIPELINE;
+  tracker.pipeline = PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
   const config = {
     name: core.name,
     repoPath: core.repoPath,

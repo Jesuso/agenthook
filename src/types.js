@@ -37,6 +37,10 @@
  * @property {string} [successStatus]          Jira: transition here on a clean finish (advance)
  * @property {string} [failureStatus]          Jira: transition here on a failed/interrupted run
  * @property {string} [holdStatus]             Jira: transition here on `hold`; absent → leave in place
+ * @property {string} [sourceLabel]            GitHub: an issue carrying this label fires the step
+ * @property {string} [successLabel]           GitHub: swap to this label on a clean finish (advance)
+ * @property {string} [failureLabel]           GitHub: swap to this label on a failed/interrupted run
+ * @property {string} [holdLabel]              GitHub: swap to this label on `hold`; absent → leave in place
  */
 
 /**
@@ -146,9 +150,13 @@
  * @property {string} [site]              Jira: site shortname ("<site>.atlassian.net"); or set baseUrl
  * @property {string} [baseUrl]           Jira: full base URL (overrides site)
  * @property {string} [email]             Jira: account email for Basic auth (typically a "${JIRA_EMAIL}" ref)
- * @property {string|false} [webhookSecret]  Jira: explicit webhook signing secret; omit to let agenthook generate+store one; false disables verification
+ * @property {string|false} [webhookSecret]  Jira/GitHub: explicit webhook signing secret; omit to let agenthook generate+store one; false disables verification
  * @property {string} [projectKey]        Jira: project key whose statuses drive the pipeline (e.g. "CAHUI")
  * @property {string} [assigneeAccountId] Jira: the bot's accountId — scope work to its issues
+ * @property {string} [repository]         GitHub: "owner/name" whose issue labels drive the pipeline
+ * @property {string} [owner]              GitHub: repo owner (alternative to repository)
+ * @property {string} [repo]               GitHub: repo name (alternative to repository)
+ * @property {string} [assigneeLogin]      GitHub: the bot's login — scope work to its issues (else derived from /user)
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  */
 

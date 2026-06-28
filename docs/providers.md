@@ -76,10 +76,26 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   instructions and `unregisterWebhooks` is a no-op. The URL can't rotate, so pair Jira with a
   **stable ingress** (ngrok reserved `domain`, or `hosted`) — never an ephemeral tunnel.
 
-### Section-less trackers (GitHub, …)
-- Removed for now: the pipeline is section-driven and GitHub Issues has no sections. Slated for P3,
-  mapped to labels / project columns (the adapter would translate a label/column change into the
-  same section→step routing). For now Asana and Jira ship.
+### GitHub Issues (`src/trackers/github.js`)
+- **Auth — a Personal Access Token as `Bearer <token>`** (`GITHUB_TOKEN`). Classic tokens need
+  `repo` + `admin:repo_hook`; fine-grained tokens need **Issues: Read & write** + **Webhooks: Read
+  & write** + **Metadata: Read** on the target repo.
+- GitHub Issues has **no board sections, so the "section" is a label**: a step binds
+  `sourceLabel`/`successLabel`/`failureLabel`/`holdLabel`, and an issue carrying a step's
+  `sourceLabel` is "in" that step (matched case-insensitively). Set `tracker.repository` to
+  `"owner/name"` (or `owner` + `repo`).
+- `advance` **swaps the label** — it adds the target label, *then* removes the finished step's
+  `sourceLabel`. The order is deliberate: a crash between the two leaves the issue carrying both
+  labels (so it re-fires and is recoverable) rather than neither (stuck, invisible).
+- One repo webhook on the `issues` event, **auto-created via REST** (`POST /repos/{owner}/{repo}/hooks`)
+  — unlike Jira, a token can create it. The signing secret is **generated and stored by agenthook**
+  (or an explicit `tracker.webhookSecret`); the body is verified via `x-hub-signature-256: sha256=<hex>`.
+  `webhookSecret: false` accepts unsigned. So `GITHUB_TOKEN` is the only GitHub secret a user supplies.
+- Routing: `opened`/`reopened`/`assigned` route by the issue's current labels (dedup `step:<id>:<n>`);
+  `labeled` routes by the label just added (dedup `secmove:<delivery>`, so a later re-add fires again
+  while webhook retries dedup). The assignee "us" is the token owner's login from `/user` (cached);
+  scoping is fail-closed. The webhook URL is auto-managed, so GitHub works behind an **ephemeral**
+  ingress (ngrok) — the hook is scrubbed + recreated each boot.
 
 ## Ingress interface
 
