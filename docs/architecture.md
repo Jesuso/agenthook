@@ -106,7 +106,7 @@ loud warning at every boot while it's on. Mitigations baked into the flow regard
 branch off the default branch, open *draft* PRs, and ask rather than guess on ambiguous work; the
 `changes` rework loop is capped by `maxAttempts` so a code↔review ping-pong can't become unbounded
 execution. If you enable it, run on a trusted host, scope the API token, stop the tunnel when
-idle, and for untrusted or shared environments run the agent in a container/VM with only the repo
-mounted.
+idle, and for untrusted or shared environments run it in the [sandboxed container](sandbox.md) with
+only the repo mounted (the blessed `fullAuto` path).
 
 Vulnerability disclosure: see [SECURITY.md](../SECURITY.md).

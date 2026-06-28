@@ -1,0 +1,50 @@
+# Blessed sandboxed run for agenthook. The host shares ONLY the target repo and a
+# handful of tokens; the receiver and every `claude -p` agent run inside the
+# container, so `fullAuto` exec can't reach the rest of the machine. See docs/sandbox.md.
+#
+# Quick start:
+#   export REPO_PATH=/abs/path/to/your/repo          # the repo agents work in
+#   cp ../.env.example .env && edit .env             # tracker token, ngrok authtoken, claude creds
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# The repo's agenthook.config.json MUST set:
+#   "repoPath": "/work/repo", "worktreePrefix": "/work/worktrees"
+# so paths resolve inside the container.
+
+services:
+  agenthook:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        # Point at a local tarball for a pre-publish image: `npm pack` then set
+        # AGENTHOOK_SPEC=agenthook-0.1.0.tgz (relative to the build context root).
+        AGENTHOOK_SPEC: ${AGENTHOOK_SPEC:-agenthook}
+    # Secrets come from .env (tracker token, NGROK_AUTHTOKEN, and EITHER an
+    # ANTHROPIC_API_KEY or a mounted ~/.claude — see below).
+    env_file:
+      - .env
+    environment:
+      # Claude Code can auth headless from an API key. Omit and mount ~/.claude
+      # instead if you use OAuth login.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # The ONLY host code on the host filesystem the container can see. Read-write
+      # because the agent commits and pushes from its worktrees.
+      - ${REPO_PATH:?set REPO_PATH to the repo agents work in}:/work/repo
+      # Receiver state (dedup set, signing secrets, pid, logs) — persist across restarts.
+      - agenthook-state:/home/node/.agenthook
+      # Worktrees + Claude transcripts stay in named volumes, off the host tree.
+      - agenthook-worktrees:/work/worktrees
+      - agenthook-claude:/home/node/.claude
+      # OAuth users: drop the ANTHROPIC_API_KEY line above and uncomment this to
+      # reuse host login instead (read-write; Claude refreshes tokens).
+      # - ${HOME}/.claude:/home/node/.claude
+    # ngrok needs no inbound port (it dials out). For the `hosted` ingress behind your
+    # own proxy, publish the receiver port instead: ports: ["4123:4123"].
+    restart: unless-stopped
+
+volumes:
+  agenthook-state:
+  agenthook-worktrees:
+  agenthook-claude:

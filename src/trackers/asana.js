@@ -71,12 +71,12 @@ export function createAsanaAdapter(cfg, store) {
 
   // --- pipeline routing (opt-in; null when no pipeline configured) ---
   const pipeline = cfg.pipeline;
-  // Assignee scoping — only act on tasks assigned to us. Default ON when userGid is
-  // set; assigneeFilter:true forces it; assigneeFilter:false = project-wide (any task,
-  // any assignee). FAIL CLOSED: when scoping is on but userGid is unset, NOTHING
-  // qualifies as ours, so we never touch a foreign task (never silently go open).
-  const scopeToUser =
-    pc.assigneeFilter === true ? true : pc.assigneeFilter === false ? false : pc.userGid != null;
+  // Assignee scoping — only act on tasks assigned to us. ON by default; ONLY an
+  // explicit assigneeFilter:false opts into project-wide (any task, any assignee).
+  // FAIL CLOSED: with scoping on but userGid unset, NOTHING qualifies as ours, so we
+  // refuse every task rather than silently go project-wide. Going open is therefore
+  // always a deliberate config choice, never an omission. (Symmetric with Jira.)
+  const scopeToUser = pc.assigneeFilter !== false;
   /** @param {string|null|undefined} gid → is this assignee us? (false unless scoping off) */
   const isOurs = (gid) => !scopeToUser || (pc.userGid != null && gid === pc.userGid);
   /** @param {string} id */

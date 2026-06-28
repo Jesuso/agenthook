@@ -30,7 +30,8 @@ Two swappable axes, engine blind to both: a **tracker** (where work comes from) 
 > `claude -p --dangerously-skip-permissions` — a verified webhook leads straight to *unsandboxed*
 > command execution, gated only by the HMAC signature and a non-guessable URL. `fullAuto` is **off
 > by default** (agents prompt for permission). Turn it on only on a trusted host with a scoped
-> token, ideally inside a container/VM with just the repo mounted. Read the full threat model in
+> token, ideally inside the [sandboxed container](docs/sandbox.md) (the blessed `fullAuto` path —
+> only the repo mounted). Read the full threat model in
 > [docs/architecture.md#security-posture](docs/architecture.md#security-posture) and report issues
 > per [SECURITY.md](SECURITY.md) before you point this at anything real.
 
@@ -152,7 +153,7 @@ agenthook ships **locked down**: `fullAuto` is off by default, so agents run a p
 execution on your host, gated only by the HMAC signature + a non-guessable URL, and it is **not**
 sandboxed. Even with `fullAuto` on, agents branch off the default branch, open *draft* PRs, and
 ask rather than guess. Run on a trusted host, scope the token, stop the tunnel when idle, and
-prefer a container/VM with only the repo mounted. Full posture in
+prefer the [sandboxed container](docs/sandbox.md) with only the repo mounted. Full posture in
 [docs/architecture.md](docs/architecture.md#security-posture); disclosure process in
 [SECURITY.md](SECURITY.md).
 

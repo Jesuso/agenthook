@@ -35,7 +35,8 @@ events**. The trust boundary is small and worth understanding:
 ### Hardening checklist
 
 - Keep `fullAuto: false` unless you specifically need it, and never on a shared host.
-- When you do enable `fullAuto`, run the agent in a container/VM with **only the repo mounted**.
+- When you do enable `fullAuto`, run it in the [sandboxed container](docs/sandbox.md) with **only
+  the repo mounted** — the blessed path that confines code execution off the host.
 - Scope the tracker API token to a single project; rotate it if it may have leaked.
 - Pair a stable ingress with a reserved domain over an ephemeral public tunnel; stop the tunnel
   when idle.

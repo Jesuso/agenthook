@@ -1,0 +1,10 @@
+.git
+node_modules
+logs
+.runtime
+.env
+agenthook.config.json
+config.json
+INSTRUCTIONS.md
+*.tgz
+!agenthook-*.tgz

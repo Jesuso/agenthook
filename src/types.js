@@ -140,7 +140,7 @@
  * @property {string} type               tracker adapter key (e.g. "asana")
  * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" / "${JIRA_API_TOKEN}" ref)
  * @property {string} [userGid]
- * @property {boolean} [assigneeFilter]  only act on items assigned to us (Asana userGid / Jira assigneeAccountId); default true when that id is set; false = project-wide
+ * @property {boolean} [assigneeFilter]  only act on items assigned to us (Asana userGid / Jira assigneeAccountId). Default true (fail-closed: unset id ⇒ refuse all); only false opts into project-wide
  * @property {string} [workspaceGid]
  * @property {string} [projectGid]  Asana: the project whose sections drive the pipeline
  * @property {string} [site]              Jira: site shortname ("<site>.atlassian.net"); or set baseUrl
