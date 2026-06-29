@@ -61,10 +61,11 @@ Same chaining rule as the others: **one step's `successLabel` is the next step's
 `advance` adds the new label and then removes the old one (add-before-remove, so a crash mid-move
 leaves the issue re-firing rather than stuck).
 
-> **Create the labels in the repo first.** GitHub's API won't add a label to an issue unless that
-> label already exists in the repo. Go to **Issues → Labels → New label** and create every label
-> your pipeline names (`agent:code`, `agent:review`, …) once. This is the GitHub equivalent of
-> filling in Asana's section gids.
+> **Labels are created for you.** GitHub's API won't add a label to an issue unless that label
+> already exists in the repo, so `agenthook start` creates every label your pipeline names
+> (`agent:code`, `agent:review`, …) on boot — idempotent, an existing label is left untouched. This
+> is the GitHub equivalent of filling in Asana's section gids, done automatically. (You can still
+> pre-create them under **Issues → Labels** if you want custom colours.)
 
 ## 3. The webhook is automatic
 

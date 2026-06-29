@@ -84,6 +84,30 @@ test("a non-issues delivery is ignored", async () => {
   assert.equal(jobs.length, 0);
 });
 
+test("ensureLabels POSTs each unique pipeline label and ignores 422 already-exists", async () => {
+  /** @type {string[]} */
+  const created = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/labels") && init.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      created.push(body.name);
+      // pretend agent:code already exists (422); the rest are freshly created (201).
+      const exists = body.name === "agent:code";
+      return /** @type {any} */ ({ ok: !exists, status: exists ? 422 : 201, json: async () => ({}) });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+  };
+  try {
+    await adapter().ensureLabels?.();
+  } finally {
+    global.fetch = orig;
+  }
+  // The default pipeline names three distinct labels; a 422 must not throw.
+  assert.deepEqual(created.sort(), ["agent:blocked", "agent:code", "agent:review"]);
+});
+
 test("advance adds the target label before removing the source (crash-safe)", async () => {
   /** @type {string[]} */
   const calls = [];
