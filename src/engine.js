@@ -218,6 +218,14 @@ export function createEngine(cfg) {
           console.error("[boot] unregister failed (continuing):", e.message);
         }
       }
+      // Create any pipeline objects the tracker API won't auto-add to a task before
+      // the move (GitHub: the issue labels). Best-effort — a labels API hiccup must
+      // not stop the receiver serving already-labelled work.
+      try {
+        await adapter.ensureLabels?.();
+      } catch (e) {
+        console.error("[boot] ensureLabels failed (continuing):", e.message);
+      }
       await adapter.registerWebhook(url);
 
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).

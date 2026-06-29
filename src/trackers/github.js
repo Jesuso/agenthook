@@ -160,6 +160,36 @@ export function createGithubAdapter(cfg, store) {
     }
   }
 
+  /** Create any pipeline label missing from the repo. GitHub refuses to ADD a label
+   * to an issue unless that label already exists in the repo, so a fresh repo can't
+   * run the pipeline until every source/success/failure/hold label exists. We create
+   * them up front — idempotent: an already-present label answers 422 (ignored). This
+   * is the GitHub analog of filling in Asana's section gids, done for you. */
+  async function ensureLabels() {
+    if (!pipeline) return;
+    // Dedup case-insensitively (norm key) but POST the original casing.
+    /** @type {Map<string, string>} */
+    const wanted = new Map();
+    for (const step of pipeline) {
+      for (const label of [step.sourceLabel, step.successLabel, step.failureLabel, step.holdLabel]) {
+        if (label) wanted.set(norm(label), label);
+      }
+    }
+    for (const label of wanted.values()) {
+      const res = await api(`${repoPath()}/labels`, {
+        method: "POST",
+        body: JSON.stringify({ name: label, color: "ededed", description: "agenthook pipeline label" }),
+      });
+      if (res.ok) {
+        console.log(`[label] created "${label}"`);
+        continue;
+      }
+      if (res.status === 422) continue; // already exists — fine
+      const body = await json(res).catch(() => ({}));
+      console.warn(`[label] could not create "${label}" (${res.status}): ${JSON.stringify(body)}`);
+    }
+  }
+
   /** Delete every repo webhook whose target URL is one of ours (path ends `/github/`).
    * Scoped to our own path so we never disturb unrelated hooks on the repo. */
   async function deleteOurHooks() {
@@ -337,6 +367,8 @@ export function createGithubAdapter(cfg, store) {
     async unregisterWebhooks() {
       await deleteOurHooks();
     },
+
+    ensureLabels,
 
     // Forge a signed `issues/opened` event for the issue's current source label, so a
     // missed issue replays through the whole dispatch path. dedupKey mirrors the
