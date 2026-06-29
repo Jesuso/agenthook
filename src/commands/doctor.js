@@ -25,6 +25,25 @@ function onPath(bin) {
   return r.status === 0;
 }
 
+/** Pipeline step bindings (the source-, success-, failure-, hold-prefixed keys)
+ * left empty or still an `init` `TODO_*` placeholder. These pass every other
+ * check yet match no incoming event, so the receiver silently does nothing — the
+ * common first-run trap. Returns `step.id.key` per offender (absent optional
+ * bindings are fine).
+ * @param {import('../types.js').Step[]|null} pipeline */
+export function unfilledBindings(pipeline) {
+  /** @type {string[]} */
+  const out = [];
+  for (const step of pipeline || []) {
+    for (const [k, v] of Object.entries(step)) {
+      if (/^(source|success|failure|hold)/.test(k) && typeof v === "string" && (v.trim() === "" || v.startsWith("TODO_"))) {
+        out.push(`${step.id}.${k}`);
+      }
+    }
+  }
+  return out;
+}
+
 /** @param {any} args */
 export async function doctor(args) {
   /** @type {{ok:boolean, label:string, note?:string}[]} */
@@ -51,6 +70,9 @@ export async function doctor(args) {
 
   const busy = await portInUse(cfg.port);
   add(!busy, `port ${cfg.port} is free`, busy ? "something is already listening" : "");
+
+  const unfilled = unfilledBindings(cfg.pipeline);
+  add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "");
 
   let bad = 0;
   for (const c of checks) {
