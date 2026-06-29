@@ -8,7 +8,7 @@
 //   agenthook status [name]        one profile in detail
 //   agenthook follow [session-id]  tail a live agent transcript (read-only)
 //   agenthook resume [ref]         print/run the claude --resume for a ref's agent
-//   agenthook agents               list running `claude -p` processes
+//   agenthook agents [--all]       list running `claude -p` processes (this profile; --all = every profile)
 //   agenthook cleanup [--apply [--force]]   prune done agent worktrees
 //   agenthook register <url>       manual webhook create (hosted/static URL)
 //   agenthook unregister           delete this profile's webhooks
@@ -70,7 +70,7 @@ usage: agenthook <command> [args] [--config <path>]
   status [name]             one profile in detail
   follow [session-id]       tail a live agent (read-only)
   resume [ref [session]]    list a ref's sessions / print|--exec claude --resume for one
-  agents                    running claude -p processes
+  agents [--all]            running claude -p processes (this profile; --all = every profile)
   cleanup [--apply [--force]]   prune done worktrees
   register <url>            manual webhook create
   unregister                delete this profile's webhooks
