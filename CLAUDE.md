@@ -29,7 +29,7 @@ node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenth
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
 node bin/agenthook.js follow [session]   # tail a live agent transcript read-only
 node bin/agenthook.js resume [ref [session]]  # last N runs / a ref's sessions / print|--exec claude --resume
-node bin/agenthook.js agents             # list running `claude -p` processes
+node bin/agenthook.js agents [--all]     # running `claude -p` procs (this profile; --all = every profile)
 node bin/agenthook.js cleanup [--apply [--force]]  # tear down done agent worktrees
 node bin/agenthook.js register <url>     # manual webhook create (hosted/static URL)
 node bin/agenthook.js unregister         # delete this profile's webhooks
