@@ -130,6 +130,7 @@
  * @property {() => Promise<void>} [ensureLabels]  optional; create any pipeline objects the API won't auto-add to a task (GitHub: the issue labels). Called on boot before registerWebhook
  * @property {(ref: string, stepId?: string) => Promise<ForgedEvent>} [forgeCatchup]  optional; catchup needs it. dedupKey matches the server-assigned key; pass stepId to skip the live-section lookup
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
+ * @property {(answers: Record<string, any>) => (Partial<Step>|null)} [pipelineBindings]  optional; `agenthook init` turns the wizard's live stage picks (the `_*Stage` answers) into the code step's tracker bindings (real source/success/failure), so no TODO_* editing is needed. Null ⇒ init keeps the placeholder skeleton
  */
 
 /**

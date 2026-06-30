@@ -314,46 +314,65 @@ export function createAsanaAdapter(cfg, store) {
       return { path: "/mytasks/", body, headers: { "X-Hook-Signature": sig }, dedupKey };
     },
 
-    // `agenthook init` discovery: pick workspace → project, and read the token's user gid.
-    wizardSteps: () => [
-      {
-        key: "workspaceGid",
-        message: "Workspace",
-        type: "select",
-        choices: async () => {
-          const res = await api(`/users/me?opt_fields=workspaces.name`);
-          if (!res.ok) throw new Error(`Asana /users/me ${res.status}`);
-          const me = (await json(res)).data;
-          return (me.workspaces || []).map((/** @type {any} */ w) => ({ title: `${w.name} (${w.gid})`, value: w.gid }));
+    // `agenthook init` discovery: pick workspace → project, read the token's user gid,
+    // then bind the code step to real sections of the chosen project (no TODO_* editing).
+    wizardSteps: () => {
+      // The chosen project's sections — live, so the stage picks below are real gids.
+      /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
+      const sections = async (a) => {
+        const res = await api(`/projects/${a.projectGid}/sections?opt_fields=name&limit=100`);
+        if (!res.ok) throw new Error(`Asana sections ${res.status}`);
+        return ((await json(res)).data || []).map((/** @type {any} */ s) => ({ title: `${s.name} (${s.gid})`, value: s.gid }));
+      };
+      return [
+        {
+          key: "workspaceGid",
+          message: "Workspace",
+          type: "select",
+          choices: async () => {
+            const res = await api(`/users/me?opt_fields=workspaces.name`);
+            if (!res.ok) throw new Error(`Asana /users/me ${res.status}`);
+            const me = (await json(res)).data;
+            return (me.workspaces || []).map((/** @type {any} */ w) => ({ title: `${w.name} (${w.gid})`, value: w.gid }));
+          },
         },
-      },
-      {
-        key: "projectGid",
-        message: "Project to watch (tasks added here trigger the agent)",
-        type: "select",
-        // Live search: typeahead reaches every project by name, sidestepping the /projects
-        // list cap (only the first 100 ever come back). Blank query falls back to that listing.
-        search: async (query, answers) => {
-          const ws = answers.workspaceGid;
-          const url = query
-            ? `/workspaces/${ws}/typeahead?resource_type=project&query=${encodeURIComponent(query)}&count=${50}&opt_fields=name`
-            : `/projects?workspace=${ws}&archived=false&opt_fields=name&limit=100`;
-          const res = await api(url);
-          if (!res.ok) throw new Error(`Asana project search ${res.status}`);
-          return ((await json(res)).data || []).map((/** @type {any} */ p) => ({ title: `${p.name} (${p.gid})`, value: p.gid }));
+        {
+          key: "projectGid",
+          message: "Project to watch (tasks added here trigger the agent)",
+          type: "select",
+          // Live search: typeahead reaches every project by name, sidestepping the /projects
+          // list cap (only the first 100 ever come back). Blank query falls back to that listing.
+          search: async (query, answers) => {
+            const ws = answers.workspaceGid;
+            const url = query
+              ? `/workspaces/${ws}/typeahead?resource_type=project&query=${encodeURIComponent(query)}&count=${50}&opt_fields=name`
+              : `/projects?workspace=${ws}&archived=false&opt_fields=name&limit=100`;
+            const res = await api(url);
+            if (!res.ok) throw new Error(`Asana project search ${res.status}`);
+            return ((await json(res)).data || []).map((/** @type {any} */ p) => ({ title: `${p.name} (${p.gid})`, value: p.gid }));
+          },
         },
-      },
-      {
-        key: "userGid",
-        message: "Assignee whose tasks the agent works (the token's user)",
-        type: "select",
-        choices: async () => {
-          const res = await api(`/users/me?opt_fields=name`);
-          if (!res.ok) throw new Error(`Asana /users/me ${res.status}`);
-          const me = (await json(res)).data;
-          return [{ title: `${me.name} (${me.gid})`, value: me.gid }];
+        {
+          key: "userGid",
+          message: "Assignee whose tasks the agent works (the token's user)",
+          type: "select",
+          choices: async () => {
+            const res = await api(`/users/me?opt_fields=name`);
+            if (!res.ok) throw new Error(`Asana /users/me ${res.status}`);
+            const me = (await json(res)).data;
+            return [{ title: `${me.name} (${me.gid})`, value: me.gid }];
+          },
         },
-      },
-    ],
+        { key: "_sourceStage", message: "Section that FIRES the code step (a task added here triggers the agent)", type: "select", choices: sections },
+        { key: "_successStage", message: "Section to move to on SUCCESS (hand off to review)", type: "select", choices: sections },
+        { key: "_failureStage", message: "Section to move to on FAILURE (blocked — a human picks it up)", type: "select", choices: sections },
+      ];
+    },
+
+    // Map the wizard's live stage picks to this tracker's step bindings. Null when the
+    // user never reached the section picks, so init falls back to the TODO_* skeleton.
+    /** @param {Record<string,any>} a */
+    pipelineBindings: (a) =>
+      a._sourceStage ? { sourceSectionGid: a._sourceStage, successSectionGid: a._successStage, failureSectionGid: a._failureStage } : null,
   };
 }

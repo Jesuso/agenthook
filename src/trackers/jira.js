@@ -355,12 +355,41 @@ export function createJiraAdapter(cfg, store) {
     // `agenthook init` discovery. JIRA_API_TOKEN is the only secret (handled by init's
     // token-env step). site/email/projectKey are plain values written literally — email
     // is the Basic-auth username, not a secret. The webhook secret is auto-generated and
-    // the assignee accountId is derived from /myself, so neither is asked. Statuses are
-    // filled into the pipeline by hand afterwards, same as Asana's section gids.
-    wizardSteps: () => [
-      { key: "site", message: 'Jira site shortname (the "<X>" in <X>.atlassian.net)' },
-      { key: "email", message: "Bot account email (the Basic-auth username; not a secret)" },
-      { key: "projectKey", message: "Project key whose statuses drive the pipeline (e.g. CAHUI)" },
-    ],
+    // the assignee accountId is derived from /myself, so neither is asked. The project's
+    // statuses are then discovered live and bound to the code step (no TODO_* editing).
+    wizardSteps: () => {
+      // The project's workflow statuses — live, so the stage picks below are real names.
+      // site/email aren't on `pc` yet at init (they're being collected by THIS wizard),
+      // so this rebuilds base+auth from the answers rather than the factory's cached pair.
+      /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
+      const statuses = async (a) => {
+        const base = (a.baseUrl || `https://${a.site}.atlassian.net`).replace(/\/$/, "");
+        const auth = "Basic " + Buffer.from(`${a.email}:${pc.token}`).toString("base64");
+        const res = await fetch(`${base}/rest/api/2/project/${encodeURIComponent(a.projectKey)}/statuses`, {
+          headers: { Authorization: auth, Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error(`Jira project statuses ${res.status}`);
+        // The endpoint groups statuses by issue type; flatten + dedup by name (the binding key).
+        /** @type {Map<string, {title:string,value:string}>} */
+        const byName = new Map();
+        for (const type of (await json(res)) || [])
+          for (const s of type.statuses || []) byName.set(s.name, { title: s.name, value: s.name });
+        return [...byName.values()];
+      };
+      return [
+        { key: "site", message: 'Jira site shortname (the "<X>" in <X>.atlassian.net)' },
+        { key: "email", message: "Bot account email (the Basic-auth username; not a secret)" },
+        { key: "projectKey", message: "Project key whose statuses drive the pipeline (e.g. CAHUI)" },
+        { key: "_sourceStage", message: "Status that FIRES the code step (an issue entering it triggers the agent)", type: "select", choices: statuses },
+        { key: "_successStage", message: "Status to move to on SUCCESS (hand off to review)", type: "select", choices: statuses },
+        { key: "_failureStage", message: "Status to move to on FAILURE (blocked — a human picks it up)", type: "select", choices: statuses },
+      ];
+    },
+
+    // Map the wizard's live stage picks to this tracker's step bindings. Null when the
+    // user never reached the status picks, so init falls back to the TODO_* skeleton.
+    /** @param {Record<string,any>} a */
+    pipelineBindings: (a) =>
+      a._sourceStage ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage } : null,
   };
 }

@@ -13,12 +13,14 @@ import { installAh } from "./alias.js";
 /** @type {Record<string, string>} */
 const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN" };
 
-// A starter pipeline: one coding step with placeholder bindings the user fills in.
-// The config is unusable until these are real (loadConfig requires a pipeline), so
+// A starter pipeline: one coding step. When the tracker adapter can discover the
+// real stages (the common path — see each adapter's wizardSteps + pipelineBindings),
+// init writes a working binding and there is nothing to edit. The PLACEHOLDER below
+// is the FALLBACK for an adapter that can't discover (or a project with no stages):
+// the config is unusable until these are real (loadConfig requires a pipeline), so
 // init writes the skeleton + prints a TODO rather than a config that silently does
 // nothing. The binding fields differ per tracker — Asana sections, Jira statuses,
-// GitHub labels — so the placeholder is shaped to match. (Interactive discovery is a
-// follow-up.)
+// GitHub labels — so the placeholder is shaped to match.
 const base = { id: "code", kind: "implement", createsWorktree: true, instructionsFile: "./INSTRUCTIONS_CODE.md" };
 /** @type {Record<string, any[]>} */
 const PLACEHOLDER_PIPELINES = {
@@ -34,6 +36,7 @@ function blockFromAnswers(type, ans) {
   const block = { type };
   for (const [k, v] of Object.entries(ans)) {
     if (v === "" || v == null) continue;
+    if (k.startsWith("_")) continue; // wizard-internal (e.g. pipeline stage picks) — not a tracker field
     if (k.endsWith("Env")) block[k.slice(0, -3)] = `\${${v}}`;
     else block[k] = v;
   }
@@ -114,7 +117,10 @@ export async function init(args) {
 
   // --- assemble + write ---
   const tracker = blockFromAnswers(trackerAns.type, trackerAns);
-  tracker.pipeline = PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
+  // The adapter turns its wizard's live stage picks (the `_*Stage` answers) into real
+  // step bindings; only when it can't do we fall back to the editable TODO_* skeleton.
+  const bindings = adapter.pipelineBindings?.(trackerAns);
+  tracker.pipeline = bindings ? [{ ...base, ...bindings }] : PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
   const config = {
     name: core.name,
     repoPath: core.repoPath,
@@ -137,7 +143,8 @@ export async function init(args) {
 
   console.log(`\nNext:`);
   console.log(`  - ensure ${tokenEnv}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
-  console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
+  if (bindings) console.log(`  - tracker.pipeline is bound to the stages you picked — add more steps for a longer pipeline`);
+  else console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
   console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);
   console.log(`  - agenthook start            # boot this profile`);
 }

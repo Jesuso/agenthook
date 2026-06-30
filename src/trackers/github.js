@@ -403,21 +403,47 @@ export function createGithubAdapter(cfg, store) {
     },
 
     // `agenthook init` discovery. GITHUB_TOKEN is the only secret (handled by init's
-    // token-env step). The login is derived from /user, so it isn't asked. Labels are
-    // filled into the pipeline by hand afterwards, same as Asana's section gids.
-    wizardSteps: () => [
-      {
-        key: "repository",
-        message: "Repository whose issue labels drive the pipeline",
-        type: "select",
-        // The token owner's repos (most-recently-updated first). Caps at 100 — a repo
-        // beyond that can be set by hand as `"repository": "owner/name"` in the config.
-        choices: async () => {
-          const res = await api(`/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`);
-          if (!res.ok) throw new Error(`GitHub /user/repos ${res.status}`);
-          return ((await json(res)) || []).map((/** @type {any} */ r) => ({ title: r.full_name, value: r.full_name }));
+    // token-env step). The login is derived from /user, so it isn't asked. The chosen
+    // repo's labels are discovered live and bound to the code step (no TODO_* editing).
+    wizardSteps: () => {
+      // Sensible default labels for the three stages. They needn't exist yet: boot's
+      // ensureLabels() creates every pipeline label, so a fresh repo is still runnable.
+      const DEFAULTS = ["agent:code", "agent:review", "agent:blocked"];
+      // The repo's existing labels, with the agenthook defaults always offered first.
+      // `pc.repository` isn't set yet at init (it's the answer being collected here), so
+      // this reads the picked `a.repository` rather than the factory's cached owner/repo.
+      /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
+      const labels = async (a) => {
+        const [o, r] = String(a.repository).split("/");
+        const res = await api(`/repos/${o}/${r}/labels?per_page=100`);
+        if (!res.ok) throw new Error(`GitHub labels ${res.status}`);
+        const existing = ((await json(res)) || []).map((/** @type {any} */ l) => l.name);
+        const merged = [...DEFAULTS, ...existing.filter((/** @type {string} */ n) => !DEFAULTS.includes(n))];
+        return merged.map((n) => ({ title: n, value: n }));
+      };
+      return [
+        {
+          key: "repository",
+          message: "Repository whose issue labels drive the pipeline",
+          type: "select",
+          // The token owner's repos (most-recently-updated first). Caps at 100 — a repo
+          // beyond that can be set by hand as `"repository": "owner/name"` in the config.
+          choices: async () => {
+            const res = await api(`/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`);
+            if (!res.ok) throw new Error(`GitHub /user/repos ${res.status}`);
+            return ((await json(res)) || []).map((/** @type {any} */ r) => ({ title: r.full_name, value: r.full_name }));
+          },
         },
-      },
-    ],
+        { key: "_sourceStage", message: "Label that FIRES the code step (an issue carrying it triggers the agent)", type: "select", default: DEFAULTS[0], choices: labels },
+        { key: "_successStage", message: "Label to swap to on SUCCESS (hand off to review)", type: "select", default: DEFAULTS[1], choices: labels },
+        { key: "_failureStage", message: "Label to swap to on FAILURE (blocked — a human picks it up)", type: "select", default: DEFAULTS[2], choices: labels },
+      ];
+    },
+
+    // Map the wizard's live stage picks to this tracker's step bindings. Null when the
+    // user never reached the label picks, so init falls back to the TODO_* skeleton.
+    /** @param {Record<string,any>} a */
+    pipelineBindings: (a) =>
+      a._sourceStage ? { sourceLabel: a._sourceStage, successLabel: a._successStage, failureLabel: a._failureStage } : null,
   };
 }
