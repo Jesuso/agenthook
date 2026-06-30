@@ -145,6 +145,22 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](.env.example) for the env vars each tracker/ingress needs.
 
+## Start work on an item
+
+There's no event for a backlog item *until* it enters a step's source stage. To kick a fresh
+item into the pipeline, `run` assigns it to you (fail-closed scoping) and moves it into that
+stage — the live webhook then fires the step normally:
+
+```bash
+agenthook run <ref>             # assign + enter the FIRST step's source stage (alias: kick)
+agenthook run <ref> review      # target a named step's source stage
+agenthook run <ref> --no-assign # skip the assign (only if it's already assigned to you)
+```
+
+If no server is up, the item just rests in the stage; `agenthook reconcile` picks it up once
+it's running. (`catchup`/`reconcile` only replay items *already* resting in a stage — `run` is
+what puts a new one there.)
+
 ## Reconcile a missed item
 
 Webhooks are push-only and fire on a *transition* (a task moving into a section), not a state —

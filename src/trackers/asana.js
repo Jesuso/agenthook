@@ -62,6 +62,15 @@ export function createAsanaAdapter(cfg, store) {
     console.log(`[section] moved ${ref} -> ${label}`);
   }
 
+  // Assign a task to us (pc.userGid). Required before injecting work so the task clears
+  // the fail-closed scope gate. No userGid → we can't say who "us" is, so refuse.
+  /** @param {string} ref */
+  async function assignToUs(ref) {
+    if (!pc.userGid) throw new Error("cannot assign — tracker.userGid is not set");
+    const res = await api(`/tasks/${ref}`, { method: "PUT", body: JSON.stringify({ data: { assignee: pc.userGid } }) });
+    if (!res.ok) throw new Error(`assign ${res.status}`);
+  }
+
   /** @param {string} storyGid */
   async function fetchStory(storyGid) {
     const res = await api(`/stories/${storyGid}?opt_fields=text,type,resource_subtype,target.gid`);
@@ -230,6 +239,19 @@ export function createAsanaAdapter(cfg, store) {
         return;
       }
       await moveToSection(ref, gid, `${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""}`);
+    },
+
+    // Inject work into a step (`agenthook run`): assign the task to us (unless
+    // opts.assign===false) and addTask it INTO the step's SOURCE section. That move is
+    // itself the section_changed webhook event that fires the step — no special dispatch.
+    /** @param {string} ref @param {string} stepId @param {{assign?: boolean}} [opts] */
+    async enterStage(ref, stepId, opts = {}) {
+      const step = stepById(stepId);
+      if (!step) throw new Error(`unknown step "${stepId}"`);
+      if (!step.sourceSectionGid) throw new Error(`step "${stepId}" has no sourceSectionGid to enter`);
+      if (opts.assign !== false) await assignToUs(ref);
+      await moveToSection(ref, step.sourceSectionGid, `${stepId}:enter`);
+      return { stage: step.sourceSectionGid };
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every task

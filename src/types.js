@@ -124,6 +124,7 @@
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(ref: string) => Promise<Task>} fetchTask
  * @property {(ref: string, stepId: string, verdict: Verdict) => Promise<void>} advance  resolve a finished step's transition (move to the section its outcome maps to)
+ * @property {(ref: string, stepId: string, opts?: {assign?: boolean}) => Promise<{stage: string}>} [enterStage]  optional; `agenthook run` uses it. Assign the item to us (unless opts.assign===false), then move it INTO the step's source stage (add source label / addTask to source section / transition to source status) — the live webhook then fires the step. Returns the source stage entered
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks

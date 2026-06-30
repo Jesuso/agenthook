@@ -140,6 +140,15 @@ export function createJiraAdapter(cfg, store) {
     console.log(`[transition] moved ${key} -> ${statusName} (${label})`);
   }
 
+  // Assign an issue to us (our accountId). Required before injecting work so the issue
+  // clears the fail-closed scope gate.
+  /** @param {string} ref */
+  async function assignToUs(ref) {
+    const me = await ourAccountId();
+    const res = await api(`/issue/${ref}/assignee`, { method: "PUT", body: JSON.stringify({ accountId: me }) });
+    if (!res.ok) throw new Error(`assign ${res.status}`);
+  }
+
   // Fail-closed owner check gating issue MUTATION (advance/transition). Any
   // uncertainty — fetch error, non-2xx, missing/!matching assignee — returns false,
   // so we never move an issue we can't positively confirm is ours.
@@ -260,6 +269,21 @@ export function createJiraAdapter(cfg, store) {
         return;
       }
       await transitionTo(ref, status, `${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""}`);
+    },
+
+    // Inject work into a step (`agenthook run`): assign the issue to us (unless
+    // opts.assign===false) and transition it INTO the step's SOURCE status. That
+    // transition is itself the issue_updated webhook event that fires the step — no
+    // special dispatch path. (A source status unreachable from the issue's current
+    // status is a logged no-op, exactly like advance.)
+    /** @param {string} ref @param {string} stepId @param {{assign?: boolean}} [opts] */
+    async enterStage(ref, stepId, opts = {}) {
+      const step = stepById(stepId);
+      if (!step) throw new Error(`unknown step "${stepId}"`);
+      if (!step.sourceStatus) throw new Error(`step "${stepId}" has no sourceStatus to enter`);
+      if (opts.assign !== false) await assignToUs(ref);
+      await transitionTo(ref, step.sourceStatus, `${stepId}:enter`);
+      return { stage: step.sourceStatus };
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every issue

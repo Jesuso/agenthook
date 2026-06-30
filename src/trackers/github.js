@@ -145,6 +145,14 @@ export function createGithubAdapter(cfg, store) {
     const res = await api(`${repoPath()}/issues/${ref}/labels`, { method: "POST", body: JSON.stringify({ labels: [label] }) });
     if (!res.ok) throw new Error(`add label ${res.status}`);
   }
+  /** Assign the issue to us (the token owner). POST /assignees ADDS without clobbering
+   * existing assignees — so an issue becomes ours and clears the fail-closed scope gate.
+   * @param {string} ref */
+  async function assignToUs(ref) {
+    const me = await ourLogin();
+    const res = await api(`${repoPath()}/issues/${ref}/assignees`, { method: "POST", body: JSON.stringify({ assignees: [me] }) });
+    if (!res.ok) throw new Error(`assign ${res.status}`);
+  }
 
   // Fail-closed owner check gating issue MUTATION (advance/label swap). Any
   // uncertainty — fetch error, non-2xx, missing/!matching assignee — returns false,
@@ -312,6 +320,20 @@ export function createGithubAdapter(cfg, store) {
       await addLabel(ref, label);
       if (step.sourceLabel && norm(step.sourceLabel) !== norm(label)) await removeLabel(ref, step.sourceLabel);
       console.log(`[label] moved #${ref} -> ${label} (${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""})`);
+    },
+
+    // Inject work into a step (`agenthook run`): assign the issue to us (unless
+    // opts.assign===false) and add the step's SOURCE label. That label add is itself the
+    // `labeled` webhook event that fires the step — no special dispatch path. (Boot's
+    // ensureLabels guarantees the label exists in the repo so the add can't 404.)
+    /** @param {string} ref @param {string} stepId @param {{assign?: boolean}} [opts] */
+    async enterStage(ref, stepId, opts = {}) {
+      const step = stepById(stepId);
+      if (!step) throw new Error(`unknown step "${stepId}"`);
+      if (!step.sourceLabel) throw new Error(`step "${stepId}" has no sourceLabel to enter`);
+      if (opts.assign !== false) await assignToUs(ref);
+      await addLabel(ref, step.sourceLabel);
+      return { stage: step.sourceLabel };
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every open

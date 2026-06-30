@@ -13,6 +13,7 @@
 //   agenthook register <url>       manual webhook create (hosted/static URL)
 //   agenthook unregister           delete this profile's webhooks
 //   agenthook catchup <ref> [--force]   replay a missed item through the live server
+//   agenthook run <ref> [stepId]   start work on an item: assign + enter the step's source stage
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook doctor               preflight checks for this profile
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
@@ -30,6 +31,7 @@ import { agents } from "../src/commands/agents.js";
 import { cleanup } from "../src/commands/cleanup.js";
 import { register, unregister } from "../src/commands/webhook.js";
 import { catchup } from "../src/commands/catchup.js";
+import { run } from "../src/commands/run.js";
 import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
@@ -57,7 +59,7 @@ function parse(argv) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, reconcile, doctor, alias };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -75,6 +77,7 @@ usage: agenthook <command> [args] [--config <path>]
   register <url>            manual webhook create
   unregister                delete this profile's webhooks
   catchup <ref> [--force]   replay a missed item
+  run <ref> [stepId]        start work: assign + enter the step's source stage (alias: kick)
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
   doctor                    preflight checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
