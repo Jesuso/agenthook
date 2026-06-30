@@ -30,6 +30,7 @@
  * @property {string} [model]                  per-step `claude --model` override
  * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
+ * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
@@ -60,8 +61,9 @@
  * bounce back to (defaults to the previous step in pipeline order).
  * @typedef {object} Verdict
  * @property {StepOutcome} outcome
- * @property {string} [target]   changes: the stepId to route back to (resolved to a concrete id by dispatch)
- * @property {string} [reason]   human-readable; logged, not posted
+ * @property {string} [target]     changes: the stepId to route back to (resolved to a concrete id by dispatch)
+ * @property {string} [reason]     human-readable; logged, not posted
+ * @property {'easy'|'medium'|'hard'} [difficulty]  optional ticket difficulty emitted by triage; persisted per-ref to gate model/effort on subsequent steps
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
@@ -243,6 +245,9 @@
  * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
  * @property {(ref: string, stepId: string) => number} bumpAttempt  increment and return the new count
  * @property {(ref: string) => void} clearAttempts                  drop all attempt counters for ref (it left the loop)
+ * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
+ * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
+ * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
  */
 
 export {};
