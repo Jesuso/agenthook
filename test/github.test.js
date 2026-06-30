@@ -146,6 +146,52 @@ test("init label discovery offers the agenthook defaults first, then the repo's 
   }
 });
 
+test("enterStage assigns to us then adds the step's source label (run command)", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    if (String(url).endsWith("/user")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ login: "bot" }) });
+    return /** @type {any} */ ({ ok: true, status: 201, json: async () => ({}) });
+  };
+  let stage;
+  try {
+    ({ stage } = await /** @type {any} */ (adapter()).enterStage("42", "code"));
+  } finally {
+    global.fetch = orig;
+  }
+  assert.equal(stage, "agent:code");
+  const assign = calls.findIndex((c) => c.startsWith("POST") && c.includes("/issues/42/assignees"));
+  const label = calls.findIndex((c) => c.startsWith("POST") && c.includes("/issues/42/labels"));
+  assert.ok(assign >= 0, `expected an assignees POST; got:\n${calls.join("\n")}`);
+  assert.ok(label >= 0, `expected a labels POST; got:\n${calls.join("\n")}`);
+  assert.ok(assign < label, `assign must precede entering the stage; got:\n${calls.join("\n")}`);
+});
+
+test("enterStage with assign:false skips the assignee call but still enters the stage", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    return /** @type {any} */ ({ ok: true, status: 201, json: async () => ({}) });
+  };
+  try {
+    await /** @type {any} */ (adapter()).enterStage("42", "code", { assign: false });
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(!calls.some((c) => c.includes("/assignees")), `expected no assignees call; got:\n${calls.join("\n")}`);
+  assert.ok(calls.some((c) => c.startsWith("POST") && c.includes("/issues/42/labels")), `expected the stage's label POST; got:\n${calls.join("\n")}`);
+});
+
+test("enterStage throws on an unknown step", async () => {
+  await assert.rejects(() => /** @type {any} */ (adapter()).enterStage("42", "nope", { assign: false }), /unknown step/);
+});
+
 test("advance adds the target label before removing the source (crash-safe)", async () => {
   /** @type {string[]} */
   const calls = [];
