@@ -290,3 +290,127 @@ test("listResting yields one job per open issue resting in a step's source Statu
   assert.equal(jobs[0].stepId, "code");
   assert.equal(jobs[0].dedupKey, "reconcile:code:42");
 });
+
+// --- webhook lifecycle (org auto-register / scrub, user + missing-scope fallbacks) ---
+
+/** A fetch stub for the REST webhook path. Answers the GraphQL project probe (org vs
+ * user owner) and the `/orgs/{org}/hooks` list/create/delete calls, recording each. */
+function stubWebhook(opts = {}) {
+  const { owner = "org", hooks = [], createStatus = 201, listStatus = 200 } = opts;
+  const calls = { lists: 0, posts: /** @type {any[]} */ ([]), deletes: /** @type {string[]} */ ([]) };
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    const method = String(init.method || "GET").toUpperCase();
+    const reply = (status, data) => /** @type {any} */ ({ ok: status >= 200 && status < 300, status, json: async () => data });
+    if (u.endsWith("/graphql")) {
+      const data = owner === "org" ? { organization: { projectV2: { id: "PVT_proj" } }, user: null } : { organization: null, user: { projectV2: { id: "PVT_proj" } } };
+      return reply(200, { data });
+    }
+    if (u.includes("/orgs/") && u.includes("/hooks")) {
+      if (method === "GET") {
+        calls.lists++;
+        return listStatus === 200 ? reply(200, hooks) : reply(listStatus, {});
+      }
+      if (method === "POST") {
+        calls.posts.push(JSON.parse(String(init.body)));
+        return reply(createStatus, createStatus < 300 ? { id: 99, active: true } : {});
+      }
+      if (method === "DELETE") {
+        calls.deletes.push(u);
+        return reply(204, {});
+      }
+    }
+    return reply(200, {});
+  };
+  return { calls, restore: () => (global.fetch = orig) };
+}
+
+/** Capture console.log/console.warn lines for the duration of `fn`. */
+async function captureLogs(fn) {
+  const lines = /** @type {string[]} */ ([]);
+  const log = console.log;
+  const warn = console.warn;
+  console.log = (...a) => lines.push(a.join(" "));
+  console.warn = (...a) => lines.push(a.join(" "));
+  try {
+    await fn();
+  } finally {
+    console.log = log;
+    console.warn = warn;
+  }
+  return lines;
+}
+
+test("registerWebhook on an org project scrubs our stale hooks then creates one signed projects_v2_item hook", async () => {
+  const hooks = [
+    { id: 1, config: { url: "https://old.example/github-projects/" } }, // ours (stale URL)
+    { id: 2, config: { url: "https://other.example/some-hook" } }, // unrelated — must survive
+  ];
+  const { calls, restore } = stubWebhook({ owner: "org", hooks });
+  try {
+    await captureLogs(() => adapter().registerWebhook("https://new.example"));
+  } finally {
+    restore();
+  }
+  assert.equal(calls.deletes.length, 1, "only our stale hook is deleted");
+  assert.match(calls.deletes[0], /\/orgs\/acme\/hooks\/1$/);
+  assert.equal(calls.posts.length, 1, "exactly one hook created");
+  assert.deepEqual(calls.posts[0].events, ["projects_v2_item"]);
+  assert.equal(calls.posts[0].config.url, "https://new.example/github-projects/");
+  assert.equal(calls.posts[0].config.content_type, "json");
+  assert.ok(calls.posts[0].config.secret, "the generated secret is passed into the hook config");
+});
+
+test("registerWebhook falls back to manual instructions on 403 (missing admin:org_hook), without throwing or creating", async () => {
+  const { calls, restore } = stubWebhook({ owner: "org", createStatus: 403 });
+  let lines;
+  try {
+    lines = await captureLogs(() => adapter().registerWebhook("https://new.example"));
+  } finally {
+    restore();
+  }
+  assert.equal(calls.posts.length, 1, "it attempted the create");
+  assert.ok(lines.some((l) => /admin:org_hook/.test(l)), "printed the manual org-webhook instructions");
+  assert.ok(lines.some((l) => /Projects v2 item/.test(l)));
+});
+
+test("registerWebhook on a USER-owned project prints a clear not-supported message and creates no hook", async () => {
+  const { calls, restore } = stubWebhook({ owner: "user" });
+  let lines;
+  try {
+    lines = await captureLogs(() => adapter().registerWebhook("https://new.example"));
+  } finally {
+    restore();
+  }
+  assert.equal(calls.posts.length, 0, "no hook is created for a user-owned project");
+  assert.equal(calls.lists, 0, "and we never even list org hooks");
+  assert.ok(lines.some((l) => /USER-owned/.test(l) && /GitHub App/.test(l)));
+});
+
+test("unregisterWebhooks deletes only our org hooks for an org project", async () => {
+  const hooks = [
+    { id: 1, config: { url: "https://x.example/github-projects" } }, // ours
+    { id: 2, config: { url: "https://x.example/unrelated" } }, // not ours
+  ];
+  const { calls, restore } = stubWebhook({ owner: "org", hooks });
+  try {
+    await captureLogs(() => adapter().unregisterWebhooks());
+  } finally {
+    restore();
+  }
+  assert.equal(calls.deletes.length, 1);
+  assert.match(calls.deletes[0], /\/orgs\/acme\/hooks\/1$/);
+});
+
+test("unregisterWebhooks is a no-op for a user-owned project", async () => {
+  const { calls, restore } = stubWebhook({ owner: "user" });
+  try {
+    await captureLogs(() => adapter().unregisterWebhooks());
+  } finally {
+    restore();
+  }
+  assert.equal(calls.lists, 0);
+  assert.equal(calls.deletes.length, 0);
+});
