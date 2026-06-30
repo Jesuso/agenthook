@@ -5,7 +5,7 @@ secrets.json
 *.token
 .env
 
-# ...but ship the placeholder-only example configs under examples/
+# …but the committed example profiles under examples/ ARE shippable (placeholders only)
 !examples/**/agenthook.config.json
 
 # Standing instructions are user-authored; ship only the example
