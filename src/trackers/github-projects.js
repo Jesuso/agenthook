@@ -552,5 +552,28 @@ export function createGithubProjectsAdapter(cfg, store) {
       if (type !== "org") return;
       await deleteOurHooks();
     },
+
+    // Forge a signed `created` projects_v2_item event for the issue's CURRENT Status, so a
+    // missed item replays through the whole dispatch path. Unlike the github tracker (which
+    // forges from ref+label alone), Projects v2 routing needs the item node_id, so findItem
+    // ALWAYS runs — passing stepId only skips the stepByStatus lookup, not the item fetch.
+    // `created` avoids the edited path's changes.field_value gate; the server reads the item
+    // live and routes by its current Status. dedupKey mirrors the created path
+    // (`step:<id>:<ref>`) so `catchup --force` clears the key the server actually writes.
+    // Used by `catchup <number>` and `reconcile`.
+    /** @param {string} ref @param {string} [stepId] */
+    async forgeCatchup(ref, stepId) {
+      const it = await findItem(ref);
+      if (!it) throw new Error(`issue #${ref} not found in project "${pc.project}"`);
+      if (!(await issueIsOurs(it.issue))) throw new Error(`#${ref} is not assigned to us`);
+      const step = stepId ? stepById(stepId) : stepByStatus(it.status);
+      const body = JSON.stringify({ action: "created", projects_v2_item: { node_id: it.itemId, content_type: "Issue" } });
+      /** @type {Record<string, string>} */
+      const headers = { "X-GitHub-Event": "projects_v2_item", "X-GitHub-Delivery": `agenthook-forge-${ref}` };
+      const secret = webhookSecret();
+      if (secret) headers["X-Hub-Signature-256"] = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+      const dedupKey = step ? `step:${step.id}:${ref}` : `issue:${ref}:created`;
+      return { path: "/github-projects/", body, headers, dedupKey, stepId: step?.id };
+    },
   };
 }
