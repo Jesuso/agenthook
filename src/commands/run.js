@@ -22,7 +22,7 @@ export async function run(args) {
   const adapter = createAdapter(cfg, store);
 
   const ref = args._[0];
-  if (!ref) die("usage: agenthook run <ref> [stepId] [--no-assign]");
+  if (!ref) die("usage: agenthook run <ref> [stepId] [--no-assign] [--force]");
   if (!isPipeline(cfg)) die(`run is for pipeline configs; "${cfg.name}" has no tracker.pipeline.`);
   if (typeof adapter.enterStage !== "function") die(`tracker "${cfg.provider}" has no run support`);
 
@@ -46,6 +46,25 @@ export async function run(args) {
     console.warn(`[warn] --no-assign and ${ref} is not assigned to us — the receiver will SKIP it (fail-closed scoping).`);
   }
 
+  // Guard: one ref = one in-flight flow. The worktree (worktree.js) and crash-recovery
+  // state (store.running) are BOTH keyed by ref, so re-injecting an item that's already
+  // mid-flow double-dispatches — two agents race in ONE worktree and clobber each other's
+  // running.json entry (the real #19 incident). Refuse if the item rests in any pipeline
+  // stage or already has a running job, unless --force.
+  const force = args.force === true;
+  const running = force ? null : store.listRunning()[ref] || null;
+  /** @type {string|null} */
+  let inStage = null;
+  if (!force && typeof adapter.currentStage === "function") {
+    try {
+      inStage = await adapter.currentStage(ref);
+    } catch (e) {
+      die(`could not verify ${ref} is not already in the pipeline (${e.message}) — pass --force to skip this check.`);
+    }
+  }
+  const blocked = entryBlock(ref, { stage: inStage, running, force });
+  if (blocked) die(blocked);
+
   // GitHub refuses to add a label that doesn't yet exist in the repo; boot creates the
   // pipeline labels via ensureLabels. Run it here too so `run` works before a first boot.
   // (No-op for trackers without it — Asana/Jira sections/statuses already exist.)
@@ -65,6 +84,24 @@ export async function run(args) {
   } else {
     console.log(`No receiver running for "${cfg.name}" — ${ref} now rests in the stage; start it (\`agenthook start\`) or run \`agenthook reconcile\` once it's up.`);
   }
+}
+
+/**
+ * The `run` guard, pure so it's unit-testable. Returns a refusal message when the ref
+ * is already mid-flow (resting in a pipeline stage, or carrying a running job), or null
+ * to allow. `--force` always allows. One ref = one in-flight flow: the worktree and
+ * running.json are per-ref by design, so a second concurrent entry would race the first.
+ * @param {string} ref
+ * @param {{ stage?: string|null, running?: import('../types.js').RunningInfo|null, force?: boolean }} [state]
+ * @returns {string|null}
+ */
+export function entryBlock(ref, { stage, running, force } = {}) {
+  if (force) return null;
+  const where = [];
+  if (stage) where.push(stage);
+  if (running) where.push(`running${running.stepId ? ` ${running.stepId}` : ""}`);
+  if (!where.length) return null;
+  return `${ref} is already in the pipeline (${where.join(" / ")}) — finish or reset it first, or pass --force.`;
 }
 
 /** @param {string} msg @returns {never} */

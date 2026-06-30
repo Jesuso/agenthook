@@ -117,6 +117,14 @@ export function createJiraAdapter(cfg, store) {
   const stepById = (id) => pipeline?.find((s) => s.id === id);
   /** @param {string|null|undefined} status → the step whose sourceStatus an issue now rests in */
   const stepByStatus = (status) => (status ? pipeline?.find((s) => norm(s.sourceStatus) === norm(status)) : undefined);
+  /** Every distinct status the pipeline uses (source/success/failure/hold of every step),
+   * normalized → original. The `run` guard treats an issue in ANY of them as in-flight. */
+  const pipelineStatuses = () => {
+    /** @type {Map<string,string>} */
+    const m = new Map();
+    for (const s of pipeline || []) for (const st of [s.sourceStatus, s.successStatus, s.failureStatus, s.holdStatus]) if (st) m.set(norm(st), st);
+    return m;
+  };
 
   // Jira has no "set status": move by executing the transition whose target status
   // matches. A status not reachable from the issue's current status (the workflow
@@ -284,6 +292,17 @@ export function createJiraAdapter(cfg, store) {
       if (opts.assign !== false) await assignToUs(ref);
       await transitionTo(ref, step.sourceStatus, `${stepId}:enter`);
       return { stage: step.sourceStatus };
+    },
+
+    // The pipeline status an issue currently sits in (any source/success/failure/hold
+    // status of any step), or null — backs `run`'s guard against re-injecting an item
+    // already mid-flow. Read-only; no assignee gate (a status is occupied regardless).
+    async currentStage(ref) {
+      if (!pipeline) return null;
+      const res = await api(`/issue/${ref}?fields=status`);
+      if (!res.ok) throw new Error(`issue fetch ${res.status}`);
+      const name = (await json(res)).fields?.status?.name;
+      return (name && pipelineStatuses().get(norm(name))) || null;
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every issue

@@ -88,7 +88,7 @@ usage: agenthook <command> [args] [--config <path>]
   register <url>            manual webhook create
   unregister                delete this profile's webhooks
   catchup <ref> [--force]   replay a missed item
-  run <ref> [stepId]        start work: assign + enter the step's source stage (alias: kick)
+  run <ref> [stepId] [--force]  start work: assign + enter the step's source stage (alias: kick)
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
   doctor                    preflight checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`

@@ -158,6 +158,29 @@ test("pipelineBindings returns null when no stage was picked (init keeps the pla
   assert.equal(adapter().pipelineBindings?.({}), null);
 });
 
+test("currentStage returns ANY pipeline status the issue sits in (not just source) — backs run's guard", async () => {
+  const orig = global.fetch;
+  // The issue is in the SUCCESS status (In Review), not the source — still in-flight.
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ fields: { status: { name: "In Review" } } }) });
+  try {
+    assert.equal(await routed().currentStage?.("PROJ-1"), "In Review");
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("currentStage is null when the issue's status is outside the pipeline", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ fields: { status: { name: "Done" } } }) });
+  try {
+    assert.equal(await routed().currentStage?.("PROJ-9"), null);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 test("init status discovery hits the answered site/project and dedups statuses across issue types", async () => {
   const orig = global.fetch;
   /** @type {string[]} */

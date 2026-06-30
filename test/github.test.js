@@ -248,3 +248,26 @@ test("advance adds the target label before removing the source (crash-safe)", as
   assert.ok(del >= 0, `expected a remove-label DELETE; got:\n${calls.join("\n")}`);
   assert.ok(add < del, `add must precede remove; got:\n${calls.join("\n")}`);
 });
+
+test("currentStage returns ANY pipeline label the issue carries (not just source) — backs run's guard", async () => {
+  const orig = global.fetch;
+  // The issue rests in the SUCCESS label (agent:review), not the source — still in-flight.
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ labels: [{ name: "agent:review" }, { name: "bug" }] }) });
+  try {
+    assert.equal(await adapter().currentStage?.("42"), "agent:review");
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("currentStage is null when the issue carries no pipeline label (clean backlog item)", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ labels: [{ name: "wontfix" }] }) });
+  try {
+    assert.equal(await adapter().currentStage?.("7"), null);
+  } finally {
+    global.fetch = orig;
+  }
+});

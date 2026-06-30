@@ -3,6 +3,11 @@
 // path/branch and `drainWorktree` can reliably tear it down. The path is keyed by
 // task ref alone, so the "code" step creates it and later steps ("review", "done")
 // find the exact same one — no globbing.
+//
+// INVARIANT: one ref = one in-flight flow. Because this path AND store.running are
+// keyed by ref, two concurrent jobs on the same ref would share this worktree and
+// clobber each other's commits + crash-recovery entry. `agenthook run`'s entry guard
+// (src/commands/run.js) enforces it: it refuses to inject a ref already mid-flow.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
