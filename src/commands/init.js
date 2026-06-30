@@ -11,7 +11,7 @@ import { INGRESS } from "../ingress/index.js";
 import { installAh } from "./alias.js";
 
 /** @type {Record<string, string>} */
-const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN" };
+const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN", "github-projects": "GITHUB_TOKEN" };
 
 // A starter pipeline: one coding step. When the tracker adapter can discover the
 // real stages (the common path — see each adapter's wizardSteps + pipelineBindings),
@@ -27,6 +27,7 @@ const PLACEHOLDER_PIPELINES = {
   asana: [{ ...base, sourceSectionGid: "TODO_SOURCE_SECTION_GID", successSectionGid: "TODO_REVIEW_SECTION_GID", failureSectionGid: "TODO_BLOCKED_SECTION_GID" }],
   jira: [{ ...base, sourceStatus: "TODO_SOURCE_STATUS", successStatus: "TODO_REVIEW_STATUS", failureStatus: "TODO_BLOCKED_STATUS" }],
   github: [{ ...base, sourceLabel: "TODO_SOURCE_LABEL", successLabel: "TODO_REVIEW_LABEL", failureLabel: "TODO_BLOCKED_LABEL" }],
+  "github-projects": [{ ...base, sourceStatus: "TODO_SOURCE_STATUS", successStatus: "TODO_REVIEW_STATUS", failureStatus: "TODO_BLOCKED_STATUS" }],
 };
 
 /** Turn collected answers into a config block: `<x>Env` answers become "${VAL}" refs.

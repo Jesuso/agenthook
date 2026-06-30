@@ -229,6 +229,27 @@ export function createGithubProjectsAdapter(cfg, store) {
     for (const a of issue?.assignees?.nodes || []) if (a?.login && (await isOurs(a.login))) return true;
     return false;
   }
+  // The token owner's USER node id (the bot), for the assign mutation `enterStage` runs.
+  // Separate from `ourLogin` (which routing/scoping uses) and memoised the same way.
+  /** @type {string|null} */
+  let cachedUserId = null;
+  /** @type {Promise<string>|null} */
+  let userIdPromise = null;
+  function viewerId() {
+    if (cachedUserId) return Promise.resolve(cachedUserId);
+    if (!userIdPromise) {
+      userIdPromise = (async () => {
+        const body = await gql(`query{ viewer{ id } }`);
+        const id = body.data?.viewer?.id;
+        if (!id) throw new Error(`viewer id unresolved`);
+        return (cachedUserId = id);
+      })().catch((e) => {
+        userIdPromise = null;
+        throw e;
+      });
+    }
+    return userIdPromise;
+  }
 
   /** @param {string} id */
   const stepById = (id) => pipeline?.find((s) => s.id === id);
@@ -241,7 +262,7 @@ export function createGithubProjectsAdapter(cfg, store) {
   /** @param {any} node @returns {{itemId: string, issue: any, status: string|null}} */
   const shapeItem = (node) => ({ itemId: node.id, issue: node.content, status: node.status?.name ?? null });
 
-  const ITEM_FIELDS = `id content{ __typename ... on Issue { number title body url state assignees(first:10){ nodes{ login } } } }
+  const ITEM_FIELDS = `id content{ __typename ... on Issue { id number title body url state assignees(first:10){ nodes{ login } } } }
     status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } }`;
 
   /** Read one project item directly by its node id (the webhook hands us this).
@@ -296,6 +317,45 @@ export function createGithubProjectsAdapter(cfg, store) {
       { project, item: itemId, field: fieldId, option: optionId },
     );
     if (body.errors?.length) throw new Error(`updateProjectV2ItemFieldValue: ${JSON.stringify(body.errors)}`);
+  }
+
+  // --- `agenthook run` write primitives (enterStage): assign + add-to-project ---
+  /** Resolve issue #ref's GraphQL node id from tracker.repository. Needed ONLY to ADD a
+   * loose backlog issue to the project — an issue already on the board is found via
+   * findItem (a number alone can't name a repo, so the add path requires `repository`).
+   * @param {string} ref @returns {Promise<string>} */
+  async function issueNodeId(ref) {
+    const repo = pc.repository ? String(pc.repository) : null;
+    if (!repo) throw new Error(`issue #${ref} is not in project "${pc.project}" and tracker.repository is unset — add it to the project, or set "repository":"owner/name"`);
+    const [o, r] = repo.split("/");
+    const body = await gql(`query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){ id } } }`, { o, r, n: Number(ref) });
+    const id = body.data?.repository?.issue?.id;
+    if (!id) throw new Error(`issue #${ref} not found in ${repo}`);
+    return id;
+  }
+  /** Add an issue (by its content node id) to the project as a new item; returns the item
+   * node id. Idempotent on GitHub's side — re-adding an existing item returns it.
+   * @param {string} contentId @returns {Promise<string>} */
+  async function addItem(contentId) {
+    const project = await projectId();
+    const body = await gql(
+      `mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{ projectId:$p, contentId:$c }){ item{ id } } }`,
+      { p: project, c: contentId },
+    );
+    if (body.errors?.length) throw new Error(`addProjectV2ItemById: ${JSON.stringify(body.errors)}`);
+    const id = body.data?.addProjectV2ItemById?.item?.id;
+    if (!id) throw new Error(`addProjectV2ItemById returned no item`);
+    return id;
+  }
+  /** Assign the issue (by its node id) to us (the token owner). ADDS without clobbering
+   * existing assignees, so the item clears the fail-closed scope gate. @param {string} assignableId */
+  async function assignIssue(assignableId) {
+    const me = await viewerId();
+    const body = await gql(
+      `mutation($a:ID!,$u:[ID!]!){ addAssigneesToAssignable(input:{ assignableId:$a, assigneeIds:$u }){ clientMutationId } }`,
+      { a: assignableId, u: [me] },
+    );
+    if (body.errors?.length) throw new Error(`addAssigneesToAssignable: ${JSON.stringify(body.errors)}`);
   }
 
   /** Delete every ORG webhook whose target URL is one of ours (path ends `/github-projects`).
@@ -438,6 +498,32 @@ export function createGithubProjectsAdapter(cfg, store) {
       console.log(`[status] moved #${ref} -> ${status} (${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""})`);
     },
 
+    // Inject work into a step (`agenthook run`): assign the issue to us (unless
+    // opts.assign===false) and SET the item's Status to the step's sourceStatus — that
+    // Status change is itself the `projects_v2_item` edited event that fires the step (no
+    // special dispatch path). An issue that isn't a card yet is ADDED to the project first
+    // (needs tracker.repository to resolve its node id). Reuses advance's setStatus primitive.
+    /** @param {string} ref @param {string} stepId @param {{assign?: boolean}} [opts] */
+    async enterStage(ref, stepId, opts = {}) {
+      const step = stepById(stepId);
+      if (!step) throw new Error(`unknown step "${stepId}"`);
+      if (!step.sourceStatus) throw new Error(`step "${stepId}" has no sourceStatus to enter`);
+      const field = await statusField();
+      const optionId = field.options.get(norm(step.sourceStatus));
+      if (!optionId) throw new Error(`no "${step.sourceStatus}" option on the project's Status field`);
+
+      // The issue may already be a card (the common case) or a loose backlog issue we add.
+      let it = await findItem(ref);
+      let contentId = it?.issue?.id;
+      if (!it) {
+        contentId = await issueNodeId(ref); // throws clearly if tracker.repository is unset
+        it = { itemId: await addItem(contentId), issue: null, status: null };
+      }
+      if (opts.assign !== false && contentId) await assignIssue(contentId);
+      await setStatus(it.itemId, field.id, optionId);
+      return { stage: step.sourceStatus };
+    },
+
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every open
     // issue-backed item resting in a step's source Status, as a pipeline job for that
     // step. One full item scan; the assignee gate keeps it to our issues.
@@ -575,5 +661,78 @@ export function createGithubProjectsAdapter(cfg, store) {
       const dedupKey = step ? `step:${step.id}:${ref}` : `issue:${ref}:created`;
       return { path: "/github-projects/", body, headers, dedupKey, stepId: step?.id };
     },
+
+    // `agenthook init` discovery. GITHUB_TOKEN is the only secret (handled by init's
+    // token-env step); the login is derived from `viewer`, so it isn't asked. The picked
+    // project's Status single-select options are discovered live and bound to the code
+    // step (no TODO_* editing). Mirrors the github tracker's label discovery.
+    wizardSteps: () => {
+      // GitHub Projects v2 ships "Todo"/"In Progress"/"Done"; these are the agenthook
+      // convention (matching the github label tracker). They're used as the picker's
+      // default only — the real options come from the board, so a default the board
+      // doesn't have just means you type a number instead of hitting Enter.
+      const DEFAULTS = ["In Progress", "In Review", "Blocked"];
+      // The Status single-select options of the project the user just picked (a.project =
+      // "owner/number"). `pc.project` isn't set yet at init, so this reads the picked
+      // answer rather than the factory's cached owner/number (like github reads a.repository).
+      /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
+      const statusOptions = async (a) => {
+        const { owner, number } = parseProject(a.project);
+        if (!owner || !number) throw new Error(`pick a project first`);
+        const probe = await gql(
+          `query($owner:String!,$number:Int!){
+             organization(login:$owner){ projectV2(number:$number){ id } }
+             user(login:$owner){ projectV2(number:$number){ id } }
+           }`,
+          { owner, number },
+        );
+        const id = probe.data?.organization?.projectV2?.id || probe.data?.user?.projectV2?.id;
+        if (!id) throw new Error(`project "${a.project}" not found (or token lacks access)`);
+        const body = await gql(
+          `query($id:ID!){ node(id:$id){ ... on ProjectV2 {
+             field(name:"Status"){ ... on ProjectV2SingleSelectField { options{ name } } }
+           } } }`,
+          { id },
+        );
+        const opts = body.data?.node?.field?.options;
+        if (!opts?.length) throw new Error(`project "${a.project}" has no Status single-select field options`);
+        return opts.map((/** @type {any} */ o) => ({ title: o.name, value: o.name }));
+      };
+      return [
+        {
+          key: "project",
+          message: "Projects v2 board whose Status field drives the pipeline",
+          type: "select",
+          // The token owner's projects: their user-owned boards plus every org they belong
+          // to. Value is "owner/number" — the shape parseProject expects. Caps at 100 each;
+          // a project beyond that can be set by hand as "project": "owner/number".
+          choices: async () => {
+            const body = await gql(
+              `query{ viewer{ login
+                 projectsV2(first:100){ nodes{ number title } }
+                 organizations(first:100){ nodes{ login projectsV2(first:100){ nodes{ number title } } } }
+               } }`,
+            );
+            const v = body.data?.viewer;
+            if (!v?.login) throw new Error(`could not list your Projects v2 (token access?)`);
+            /** @type {Array<{title:string,value:string}>} */
+            const out = [];
+            for (const p of v.projectsV2?.nodes || []) out.push({ title: `${v.login}/${p.number} — ${p.title}`, value: `${v.login}/${p.number}` });
+            for (const org of v.organizations?.nodes || [])
+              for (const p of org.projectsV2?.nodes || []) out.push({ title: `${org.login}/${p.number} — ${p.title}`, value: `${org.login}/${p.number}` });
+            return out;
+          },
+        },
+        { key: "_sourceStage", message: "Status that FIRES the code step (an item entering it triggers the agent)", type: "select", default: DEFAULTS[0], choices: statusOptions },
+        { key: "_successStage", message: "Status to set on SUCCESS (hand off to review)", type: "select", default: DEFAULTS[1], choices: statusOptions },
+        { key: "_failureStage", message: "Status to set on FAILURE (blocked — a human picks it up)", type: "select", default: DEFAULTS[2], choices: statusOptions },
+      ];
+    },
+
+    // Map the wizard's live Status picks to this tracker's step bindings. Null when the
+    // user never reached the Status picks, so init falls back to the TODO_* skeleton.
+    /** @param {Record<string,any>} a */
+    pipelineBindings: (a) =>
+      a._sourceStage ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage } : null,
   };
 }

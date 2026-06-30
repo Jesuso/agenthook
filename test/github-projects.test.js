@@ -46,10 +46,11 @@ const STATUS_OPTIONS = { "In Progress": "opt_inprog", "In Review": "opt_review",
  * mutation variables (or null) so advance assertions can read what was set. */
 function stubGraphql(opts = {}) {
   const { status = "In Progress", assignees = [], viewer = "bot", items } = opts;
-  const captured = { mutation: /** @type {any} */ (null), calls: 0 };
+  const captured = { mutation: /** @type {any} */ (null), assigned: /** @type {any} */ (null), added: /** @type {any} */ (null), calls: 0 };
   const orig = global.fetch;
   const issueNode = {
     __typename: "Issue",
+    id: "I_42",
     number: 42,
     title: "Wire up the thing",
     body: "do it",
@@ -69,12 +70,21 @@ function stubGraphql(opts = {}) {
       captured.mutation = vars;
       return ok({ updateProjectV2ItemFieldValue: { projectV2Item: { id: vars.item } } });
     }
+    if (q.includes("addAssigneesToAssignable")) {
+      captured.assigned = vars;
+      return ok({ addAssigneesToAssignable: { clientMutationId: "x" } });
+    }
+    if (q.includes("addProjectV2ItemById")) {
+      captured.added = vars;
+      return ok({ addProjectV2ItemById: { item: { id: "PVTI_new" } } });
+    }
+    if (q.includes("repository(owner")) return ok({ repository: { issue: { id: "I_new" } } });
     if (q.includes("items(first:100")) return ok({ node: { items: { nodes: itemNodes, pageInfo: { hasNextPage: false, endCursor: null } } } });
     if (q.includes("ProjectV2SingleSelectField")) {
       return ok({ node: { field: { id: STATUS_FIELD_ID, name: "Status", options: Object.entries(STATUS_OPTIONS).map(([name, id]) => ({ id, name })) } } });
     }
     if (q.includes("fieldValueByName")) return ok({ node: { id: itemNodes[0].id, content: issueNode, status: status ? { name: status } : null } });
-    if (q.includes("viewer")) return ok({ viewer: { login: viewer } });
+    if (q.includes("viewer")) return ok({ viewer: { login: viewer, id: "U_bot" } });
     if (q.includes("projectV2(number")) return ok({ organization: { projectV2: { id: PROJECT_ID } }, user: null });
     return ok({});
   };
@@ -318,6 +328,119 @@ test("forgeCatchup leaves stepId undefined when the item's Status maps to no ste
   }
   assert.equal(forged?.stepId, undefined);
   assert.equal(forged?.dedupKey, "issue:42:created");
+});
+
+// --- agenthook run: enterStage (assign + set source Status, add-to-project if needed) ---
+
+test("enterStage assigns the issue and sets the source Status when the issue is already a card", async () => {
+  // The card currently rests in "In Review"; entering the code step sets it to In Progress.
+  const { captured, restore } = stubGraphql({ status: "In Review" });
+  let r;
+  try {
+    r = await adapter().enterStage("42", "code", {});
+  } finally {
+    restore();
+  }
+  assert.equal(r.stage, "In Progress");
+  assert.equal(captured.mutation.item, "PVTI_42");
+  assert.equal(captured.mutation.option, STATUS_OPTIONS["In Progress"]); // moved to sourceStatus
+  assert.ok(captured.assigned, "assigned the issue to us");
+  assert.equal(captured.assigned.a, "I_42"); // the issue node id
+  assert.deepEqual(captured.assigned.u, ["U_bot"]); // the viewer's user id
+});
+
+test("enterStage skips the assign when opts.assign === false", async () => {
+  const { captured, restore } = stubGraphql({ status: "In Review" });
+  try {
+    await adapter().enterStage("42", "code", { assign: false });
+  } finally {
+    restore();
+  }
+  assert.equal(captured.assigned, null);
+  assert.equal(captured.mutation.option, STATUS_OPTIONS["In Progress"]);
+});
+
+test("enterStage adds the issue to the project (via tracker.repository) when it isn't a card yet", async () => {
+  const { captured, restore } = stubGraphql({ items: [] }); // findItem → null (no card)
+  let r;
+  try {
+    r = await adapter({ repository: "acme/repo" }).enterStage("42", "code", {});
+  } finally {
+    restore();
+  }
+  assert.equal(r.stage, "In Progress");
+  assert.ok(captured.added, "added the issue to the project");
+  assert.equal(captured.added.c, "I_new"); // issue node id resolved from tracker.repository
+  assert.equal(captured.assigned.a, "I_new"); // assigned the freshly-added issue
+  assert.equal(captured.mutation.item, "PVTI_new"); // Status set on the new item
+  assert.equal(captured.mutation.option, STATUS_OPTIONS["In Progress"]);
+});
+
+test("enterStage refuses to add a loose issue when tracker.repository is unset", async () => {
+  const { restore } = stubGraphql({ items: [] });
+  try {
+    await assert.rejects(() => adapter().enterStage("42", "code", {}), /tracker\.repository is unset/);
+  } finally {
+    restore();
+  }
+});
+
+// --- agenthook init: wizardSteps discovery + pipelineBindings ---
+
+/** A fetch stub for the `viewer{ projectsV2, organizations }` project-list discovery query. */
+function stubViewerProjects(data) {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (_url, init = {}) => {
+    const q = JSON.parse(String(init.body)).query;
+    const ok = (d) => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ data: d }) });
+    if (q.includes("organizations(first:100)")) return ok({ viewer: data });
+    return ok({});
+  };
+  return { restore: () => (global.fetch = orig) };
+}
+
+test("wizardSteps project discovery flattens user + org Projects v2 into owner/number choices", async () => {
+  const { restore } = stubViewerProjects({
+    login: "alice",
+    projectsV2: { nodes: [{ number: 1, title: "Roadmap" }] },
+    organizations: { nodes: [{ login: "acme", projectsV2: { nodes: [{ number: 7, title: "Board" }] } }] },
+  });
+  let choices;
+  try {
+    const step = adapter().wizardSteps?.().find((s) => s.key === "project");
+    choices = await /** @type {any} */ (step).choices();
+  } finally {
+    restore();
+  }
+  assert.deepEqual(
+    choices.map((/** @type {any} */ c) => c.value),
+    ["alice/1", "acme/7"],
+  );
+});
+
+test("wizardSteps Status-option discovery parses the picked project's single-select options", async () => {
+  const { restore } = stubGraphql();
+  let opts;
+  try {
+    const step = adapter().wizardSteps?.().find((s) => s.key === "_sourceStage");
+    opts = await /** @type {any} */ (step).choices({ project: "acme/7" });
+  } finally {
+    restore();
+  }
+  assert.deepEqual(
+    opts.map((/** @type {any} */ o) => o.value),
+    ["In Progress", "In Review", "Blocked"],
+  );
+});
+
+test("pipelineBindings maps the wizard Status picks to step fields", () => {
+  const b = adapter().pipelineBindings?.({ _sourceStage: "In Progress", _successStage: "In Review", _failureStage: "Blocked" });
+  assert.deepEqual(b, { sourceStatus: "In Progress", successStatus: "In Review", failureStatus: "Blocked" });
+});
+
+test("pipelineBindings returns null when no Status was picked (init keeps the TODO_* skeleton)", () => {
+  assert.equal(adapter().pipelineBindings?.({}), null);
 });
 
 // --- webhook lifecycle (org auto-register / scrub, user + missing-scope fallbacks) ---
