@@ -24,9 +24,12 @@
 //     we act only when that field is the Status single-select. The payload omits the
 //     new value, so we GraphQL the item to read its current Status option.
 //   - Webhooks for Projects v2 are ORG-scoped and can't be tied to a rotating URL, so
-//     (like Jira) registerWebhook PRINTS one-time manual setup and runs behind a
-//     STABLE ingress; auto-registration is a later epic step. The assignee "us" is
-//     the token owner's login (GraphQL `viewer`, cached). Scoping is FAIL CLOSED.
+//     run behind a STABLE ingress. For an ORG-owned project registerWebhook auto-creates
+//     (and scrubs) the projects_v2_item org hook via REST, signed with the generated
+//     secret, falling back to PRINTED manual setup when the token lacks admin:org_hook.
+//     A USER-owned project has no PAT webhook path at all (projects_v2_item is delivered
+//     only by an org webhook or a GitHub App), so it just prints why. The assignee "us"
+//     is the token owner's login (GraphQL `viewer`, cached). Scoping is FAIL CLOSED.
 import crypto from "node:crypto";
 
 /** @type {import('../types.js').AdapterFactory} */
@@ -49,6 +52,22 @@ export function createGithubProjectsAdapter(cfg, store) {
     if (!res.ok) throw new Error(`GraphQL ${res.status}`);
     return res.json();
   };
+
+  /** Call the GitHub REST API (sibling of `gql`, used only for org webhook CRUD —
+   * Projects v2 itself is GraphQL). Returns the raw Response; the caller reads
+   * `.ok`/`.status` and `.json()` (untyped: `any`).
+   * @param {string} path @param {RequestInit} [init] @returns {Promise<Response>} */
+  const rest = (path, init = {}) =>
+    fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        ...(init.headers || {}),
+      },
+    });
 
   /** @param {string|null|undefined} s */
   const norm = (s) => (s || "").trim().toLowerCase();
@@ -101,6 +120,9 @@ export function createGithubProjectsAdapter(cfg, store) {
   // clears it so a later call retries (rather than caching the rejection).
   /** @type {string|null} */
   let cachedProjectId = null;
+  /** Which root resolved the project id — picks the webhook endpoint / message.
+   * @type {"org"|"user"|null} */
+  let ownerType = null;
   /** @type {Promise<string>|null} */
   let projectIdPromise = null;
   function projectId() {
@@ -117,8 +139,10 @@ export function createGithubProjectsAdapter(cfg, store) {
            }`,
           { owner: projOwner, number: projNumber },
         );
-        const id = body.data?.organization?.projectV2?.id || body.data?.user?.projectV2?.id;
+        const orgId = body.data?.organization?.projectV2?.id;
+        const id = orgId || body.data?.user?.projectV2?.id;
         if (!id) throw new Error(`project "${pc.project}" not found (or token lacks access)`);
+        ownerType = orgId ? "org" : "user";
         return (cachedProjectId = id);
       })().catch((e) => {
         projectIdPromise = null;
@@ -274,6 +298,22 @@ export function createGithubProjectsAdapter(cfg, store) {
     if (body.errors?.length) throw new Error(`updateProjectV2ItemFieldValue: ${JSON.stringify(body.errors)}`);
   }
 
+  /** Delete every ORG webhook whose target URL is one of ours (path ends `/github-projects`).
+   * Scoped to our own path so unrelated org hooks are never touched. Mirrors github.js's
+   * repo-hook scrub against `/orgs/{org}/hooks`. Throws on a failed list (the caller decides
+   * whether to fall back). @returns {Promise<void>} */
+  async function deleteOurHooks() {
+    const res = await rest(`/orgs/${projOwner}/hooks?per_page=100`);
+    if (!res.ok) throw new Error(`list org hooks ${res.status}`);
+    for (const h of /** @type {any[]} */ ((await res.json()) || [])) {
+      const url = h?.config?.url || "";
+      if (url.replace(/\/$/, "").endsWith("/github-projects")) {
+        await rest(`/orgs/${projOwner}/hooks/${h.id}`, { method: "DELETE" });
+        console.log(`  deleted webhook ${h.id} -> ${url}`);
+      }
+    }
+  }
+
   return {
     describe: () => ({
       platform: "GitHub Projects",
@@ -420,35 +460,97 @@ export function createGithubProjectsAdapter(cfg, store) {
       return jobs;
     },
 
-    // Projects v2 webhooks are ORG-scoped and can't be tied to a rotating tunnel URL,
-    // so (like Jira) we print one-time manual setup for an admin and run behind a STABLE
-    // ingress. Auto-registration is a later step of the Projects-v2 epic.
+    // Projects v2 webhooks are ORG-scoped and tied to a fixed URL (run behind a STABLE
+    // ingress). For an ORG-owned project: scrub our stale hooks, then create one
+    // `projects_v2_item` org hook signed with the generated secret — falling back to
+    // PRINTED manual setup when the token lacks admin:org_hook (403/404). For a USER-owned
+    // project there is no PAT/UI webhook path at all, so we print why. registerWebhook is
+    // awaited UNGUARDED at boot, so it must never throw — every failure keeps the receiver
+    // serving by printing instructions instead.
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/github-projects/`;
       const secret = webhookSecret();
-      console.log(
-        [
-          `[github-projects] Projects v2 webhooks are org-scoped; create it ONCE, by hand,`,
-          `       as an org admin:`,
-          `         Org Settings → Webhooks → Add webhook`,
-          `           Payload URL:  ${target}`,
-          `           Content type: application/json`,
-          `           Events:       "Projects v2 item" (let me select individual events)`,
-          secret
-            ? `           Secret:       ${secret}`
-            : `           Secret:       (none — verification disabled via "webhookSecret": false)`,
-          secret ? `         ↑ agenthook generated + stored this. Paste it verbatim into the Secret field.` : ``,
-          `       This URL is fixed, so run agenthook behind a STABLE ingress`,
-          `       (ngrok reserved 'domain', or a hosted URL) — not an ephemeral tunnel.`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
+      // Copy-pasteable org-webhook setup — printed when the token can't create the hook.
+      const printManual = () =>
+        console.log(
+          [
+            `[github-projects] couldn't create the org webhook with this token (needs`,
+            `       admin:org_hook). Create it ONCE, by hand, as an org admin:`,
+            `         Org Settings → Webhooks → Add webhook`,
+            `           Payload URL:  ${target}`,
+            `           Content type: application/json`,
+            `           Events:       "Projects v2 item" (let me select individual events)`,
+            secret
+              ? `           Secret:       ${secret}`
+              : `           Secret:       (none — verification disabled via "webhookSecret": false)`,
+            secret ? `         ↑ agenthook generated + stored this. Paste it verbatim into the Secret field.` : ``,
+            `       This URL is fixed, so run agenthook behind a STABLE ingress`,
+            `       (ngrok reserved 'domain', or a hosted URL) — not an ephemeral tunnel.`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+
+      let type;
+      try {
+        await projectId(); // resolves the project node id + memoises ownerType
+        type = ownerType;
+      } catch (e) {
+        console.warn(`[github-projects] project "${pc.project}" unresolved (${e instanceof Error ? e.message : e}) — printing manual setup`);
+        printManual();
+        return;
+      }
+
+      if (type !== "org") {
+        // User-owned Projects v2 have NO token/UI webhook path: GitHub's REST exposes only
+        // repo + org hooks, and projects_v2_item is an org-webhook (or GitHub App) event.
+        console.log(
+          [
+            `[github-projects] "${pc.project}" is USER-owned — Projects v2 webhooks can't be`,
+            `       registered with a PAT: GitHub delivers projects_v2_item only via an ORG`,
+            `       webhook or a GitHub App, and personal accounts have no webhook settings.`,
+            `       Move the project under an organization (or use a GitHub App) to receive events.`,
+          ].join("\n"),
+        );
+        return;
+      }
+
+      // Org-owned: scrub our stale hooks, then create one signed projects_v2_item hook. A
+      // missing-scope 403/404 (on either the list or the create) falls back to manual setup.
+      try {
+        await deleteOurHooks();
+        const res = await rest(`/orgs/${projOwner}/hooks`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: "web",
+            active: true,
+            events: ["projects_v2_item"],
+            config: { url: target, content_type: "json", insecure_ssl: "0", ...(secret ? { secret } : {}) },
+          }),
+        });
+        if (res.status === 403 || res.status === 404) return void printManual();
+        const body = /** @type {any} */ (await res.json());
+        if (!res.ok) throw new Error(`create org hook ${res.status}: ${JSON.stringify(body)}`);
+        console.log(`Webhook created: id=${body.id} active=${body.active} -> ${target}`);
+      } catch (e) {
+        // deleteOurHooks() may 403 first, or transport may fail — keep serving, print setup.
+        console.warn(`[github-projects] org webhook auto-create failed (${e instanceof Error ? e.message : e}) — printing manual setup`);
+        printManual();
+      }
     },
 
-    // No-op: the webhook is managed by hand in org settings, not by this token.
+    // Scrub our org hooks for an org-owned project with scope; otherwise a no-op (a
+    // user-owned project, or an unresolvable one, has no token-managed hook to delete).
     async unregisterWebhooks() {
-      /* nothing to do — see registerWebhook */
+      let type;
+      try {
+        await projectId(); // memoises ownerType
+        type = ownerType;
+      } catch {
+        return; // project unresolvable — nothing of ours to scrub
+      }
+      if (type !== "org") return;
+      await deleteOurHooks();
     },
   };
 }
