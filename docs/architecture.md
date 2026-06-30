@@ -45,6 +45,12 @@ agenthook catchup <ref> --force   # re-run even if already handled
 So the accurate tagline isn't "loops bad". It's: **push for the 99% hot path; a targeted
 replay for the gaps.** Event-first, poll only to reconcile.
 
+A step's source stage is its **inbox**, and these replay paths are exactly that — *replay*.
+`catchup`/`reconcile` re-fire the step a resting item already maps to; they never **move** an item
+into a stage, so they can't *start* backlog work. To start a new item you fill the inbox (assign +
+move it in, or `agenthook run <ref>`). See the README's *Starting vs replaying work* for the full
+trigger/run/reconcile/catchup table.
+
 ## Components
 
 | File | Role |

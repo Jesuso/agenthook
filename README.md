@@ -145,11 +145,27 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](.env.example) for the env vars each tracker/ingress needs.
 
-## Start work on an item
+## Starting vs replaying work
 
-There's no event for a backlog item *until* it enters a step's source stage. To kick a fresh
-item into the pipeline, `run` assigns it to you (fail-closed scoping) and moves it into that
-stage — the live webhook then fires the step normally:
+A step's **source stage** — its label (GitHub), section (Asana), or status (Jira) — is its
+**inbox**. Forward motion is event-driven: an item **entering** a source stage fires that step.
+Nothing in agenthook moves an item *into* an inbox on its own — `catchup`/`reconcile` only
+**replay** items already resting in one. To *start* new work, you put it in the inbox.
+
+| Action | What it does | When you reach for it |
+|--------|--------------|-----------------------|
+| **trigger** (live) | a label/section/status move into a source stage fires that step | the hot path — you, or a prior step's `advance`, move an item in |
+| **`run <ref>`** | inject a *new* item: assign it to you + move it into a step's source stage | start a backlog item that has never entered the pipeline ([#11](https://github.com/Jesuso/agenthook/issues/11)) |
+| **`reconcile`** | replay *every* item currently resting in a source stage (the one explicit poll) | recover items that entered while the server was down |
+| **`catchup <ref>`** | replay *one* such resting item | recover a single missed item |
+
+`reconcile`/`catchup` are **downtime replay only**: they re-fire the step a resting item already
+maps to — they never move an item into a stage. If an item isn't in any source stage there's
+nothing to replay; use `run` (or move it in by hand) to start it.
+
+**Start a new item.** There's no event for a backlog item *until* it enters a step's source
+stage. `run` assigns it to you (fail-closed scoping) and moves it in; the live webhook then fires
+the step normally:
 
 ```bash
 agenthook run <ref>             # assign + enter the FIRST step's source stage (alias: kick)
@@ -158,19 +174,16 @@ agenthook run <ref> --no-assign # skip the assign (only if it's already assigned
 ```
 
 If no server is up, the item just rests in the stage; `agenthook reconcile` picks it up once
-it's running. (`catchup`/`reconcile` only replay items *already* resting in a stage — `run` is
-what puts a new one there.)
+it's running.
 
-## Reconcile a missed item
-
-Webhooks are push-only and fire on a *transition* (a task moving into a section), not a state —
-so a missed move can't be recovered by polling alone. Replay it explicitly through the running
-server:
+**Replay a missed item.** Webhooks are push-only and fire on a *transition* (an item moving into a
+stage), not a state — so a move missed while the receiver was down can't be recovered by polling
+alone. Replay it explicitly through the running server:
 
 ```bash
-agenthook catchup <ref>           # forge + POST the exact signed event for one task
+agenthook catchup <ref>           # forge + POST the exact signed event for one resting item
 agenthook catchup <ref> --force   # re-run even if already handled
-agenthook reconcile               # re-fire every task resting in a pipeline section (the one explicit poll)
+agenthook reconcile               # re-fire every item resting in a source stage (the one explicit poll)
 ```
 
 ## Operating running agents
