@@ -93,6 +93,23 @@ agenthook acts only on issues **assigned to the token owner** (resolved from `/u
 if it can't resolve "us", it touches nothing. Assign the bot account to an issue (or set
 `"assigneeFilter": false` to act on any assignee, repo-wide — deliberate, not a default).
 
+## 5. Issue blocking is respected
+
+agenthook honours GitHub's **native issue dependencies** (an issue's *blocked by* relationships). An
+issue with an **open** blocker won't fire its step — it rests in its source label until every blocker
+closes, then the dependent fires automatically. Checked live per webhook event (no polling), so a
+reopened or multi-blocker case stays correct. This is a workflow gate, not a security one: if the
+dependencies API errors it fails **open** (treats the issue as unblocked) so a hiccup can't freeze the
+pipeline.
+
+To let an agent-finished blocker auto-release its dependents, flag the **terminal** (manual) step with
+`"closeIssue": true` — entering it CLOSES the issue, which fires the close-release for everything it
+was blocking:
+
+```jsonc
+{ "id": "done", "manual": true, "sourceLabel": "agent:done", "closeIssue": true }
+```
+
 ## Verify
 
 ```bash
