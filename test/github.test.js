@@ -271,3 +271,165 @@ test("currentStage is null when the issue carries no pipeline label (clean backl
     global.fetch = orig;
   }
 });
+
+// --- issue blocking (native GitHub dependencies) ---
+
+/** Stub fetch so blocked_by/blocking return the given fixtures, else an empty 200. */
+function withDeps(/** @type {(url:string)=>any} */ route) {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => route(String(url)) ?? /** @type {any} */ ({ ok: true, status: 200, json: async () => [] });
+  return () => {
+    global.fetch = orig;
+  };
+}
+
+test("block gate: an OPEN blocker rests the issue (opened path emits no job)", async () => {
+  const restore = withDeps((u) =>
+    u.includes("/issues/37/dependencies/blocked_by") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "open" }] }) : null,
+  );
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 37, labels: [{ name: "agent:code" }], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("block gate: a CLOSED blocker does not block (blockedBy filters by state — the step fires)", async () => {
+  const restore = withDeps((u) =>
+    u.includes("/issues/37/dependencies/blocked_by") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "closed" }] }) : null,
+  );
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 37, labels: [{ name: "agent:code" }], assignees: [] } })));
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].ref, "37");
+    assert.equal(jobs[0].stepId, "code");
+  } finally {
+    restore();
+  }
+});
+
+test("block gate also applies to the labeled path", async () => {
+  const restore = withDeps((u) =>
+    u.includes("/issues/38/dependencies/blocked_by") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "open" }] }) : null,
+  );
+  try {
+    const jobs = await adapter().processEvents(
+      /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 38, labels: [{ name: "agent:code" }], assignees: [] } }, { "x-github-delivery": "g" })),
+    );
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("close-release: closing a blocker fires only its now-unblocked, resting, owned dependents", async () => {
+  const restore = withDeps((u) => {
+    // #36 blocks 37 (ours, agent:code, now unblocked), 39 (ours, agent:code, still blocked by #41),
+    // 40 (ours but resting in no source label) → only #37 should fire.
+    if (u.includes("/issues/36/dependencies/blocking"))
+      return /** @type {any} */ ({
+        ok: true,
+        status: 200,
+        json: async () => [
+          { number: 37, state: "open", labels: [{ name: "agent:code" }], assignees: [] },
+          { number: 39, state: "open", labels: [{ name: "agent:code" }], assignees: [] },
+          { number: 40, state: "open", labels: [{ name: "wontfix" }], assignees: [] },
+        ],
+      });
+    if (u.includes("/issues/39/dependencies/blocked_by")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 41, state: "open" }] });
+    return null; // 37 (and any other) blocked_by → empty 200 = unblocked
+  });
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].ref, "37");
+    assert.equal(jobs[0].stepId, "code");
+    assert.equal(jobs[0].dedupKey, "unblock:36:37");
+  } finally {
+    restore();
+  }
+});
+
+test("close-release: a dependent that is itself CLOSED is never fired (no agent on a closed issue)", async () => {
+  const restore = withDeps((u) =>
+    // #36 blocks #50 — ours, resting in agent:code, unblocked — but #50 is itself closed.
+    u.includes("/issues/36/dependencies/blocking")
+      ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 50, state: "closed", labels: [{ name: "agent:code" }], assignees: [] }] })
+      : null,
+  );
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("close-release: a dependent resting in a manual/terminal step is not fired (mirrors listResting)", async () => {
+  const pl = [
+    { id: "code", sourceLabel: "agent:code", successLabel: "agent:review", failureLabel: "agent:blocked" },
+    { id: "done", sourceLabel: "agent:done", manual: true, closeIssue: true },
+  ];
+  const a = createGithubAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }),
+    /** @type {any} */ (makeStore()),
+  );
+  const restore = withDeps((u) =>
+    // #36 blocks #51 — ours, open, unblocked — but it rests in the manual terminal step agent:done.
+    u.includes("/issues/36/dependencies/blocking")
+      ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 51, state: "open", labels: [{ name: "agent:done" }], assignees: [] }] })
+      : null,
+  );
+  try {
+    const jobs = await a.processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("advance closes the issue when entering a terminal step flagged closeIssue (auto-release)", async () => {
+  const pl = [
+    { id: "review", sourceLabel: "agent:review", successLabel: "agent:done", failureLabel: "agent:blocked" },
+    { id: "done", sourceLabel: "agent:done", manual: true, closeIssue: true },
+  ];
+  const a = createGithubAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }),
+    /** @type {any} */ (makeStore()),
+  );
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+  };
+  try {
+    await a.advance("42", "review", { outcome: "advance" });
+  } finally {
+    global.fetch = orig;
+  }
+  const patch = calls.find((c) => c.startsWith("PATCH") && c.includes("/issues/42"));
+  assert.ok(patch, `expected a PATCH closing the issue on entering the terminal step; got:\n${calls.join("\n")}`);
+});
+
+test("advance does NOT close the issue entering a non-terminal step (no closeIssue flag)", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+  };
+  try {
+    // default pipeline: code → agent:review (no review/done step), so no closeIssue applies
+    await adapter().advance("42", "code", { outcome: "advance" });
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(!calls.some((c) => c.startsWith("PATCH")), `expected no close PATCH; got:\n${calls.join("\n")}`);
+});

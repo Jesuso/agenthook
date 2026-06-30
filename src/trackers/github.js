@@ -177,6 +177,41 @@ export function createGithubAdapter(cfg, store) {
     }
   }
 
+  // --- native GitHub issue dependencies (the block gate) ---
+  // GitHub's issue dependencies are LIVE data, queried per event with no caching, so a
+  // reopen, a fresh blocker, or a second blocker is always reflected. This is a WORKFLOW
+  // gate, not a security boundary: on an API error we FAIL OPEN (treat as unblocked + warn)
+  // so a flaky/absent dependencies API can't freeze the whole pipeline — the opposite of
+  // the assignee scope, which fails closed.
+  /** Open issues that BLOCK `ref` (its unresolved blockers), by number. Closed blockers
+   * are dropped — only an OPEN blocker rests a dependent. @param {string} ref @returns {Promise<number[]>} */
+  async function blockedBy(ref) {
+    const res = await api(`${repoPath()}/issues/${ref}/dependencies/blocked_by`);
+    if (!res.ok) {
+      console.warn(`[blocked] could not read blocked_by for #${ref} (${res.status}) — treating as unblocked`);
+      return [];
+    }
+    return ((await json(res)) || []).filter((/** @type {any} */ i) => i?.state === "open").map((/** @type {any} */ i) => i.number);
+  }
+  /** Issues that `ref` BLOCKS (its dependents) — full issue objects, so a caller reads
+   * their live labels/assignees without a re-fetch. @param {string} ref @returns {Promise<any[]>} */
+  async function blocking(ref) {
+    const res = await api(`${repoPath()}/issues/${ref}/dependencies/blocking`);
+    if (!res.ok) {
+      console.warn(`[blocked] could not read blocking for #${ref} (${res.status})`);
+      return [];
+    }
+    return (await json(res)) || [];
+  }
+  /** The block gate: true (and logs) when `ref` has an open blocker, so the caller rests
+   * it (emits no job). @param {string} ref @returns {Promise<boolean>} */
+  async function restIfBlocked(ref) {
+    const blockers = await blockedBy(ref);
+    if (!blockers.length) return false;
+    console.log(`[blocked] #${ref} blocked by ${blockers.map((n) => `#${n}`).join(", ")} — resting`);
+    return true;
+  }
+
   /** Create any pipeline label missing from the repo. GitHub refuses to ADD a label
    * to an issue unless that label already exists in the repo, so a fresh repo can't
    * run the pipeline until every source/success/failure/hold label exists. We create
@@ -261,6 +296,27 @@ export function createGithubAdapter(cfg, store) {
       const issue = ev.issue;
       if (issue?.number == null) return [];
       const ref = String(issue.number);
+
+      // Close-release: when an issue closes, fire any of OUR dependents it was blocking
+      // that are now fully unblocked and resting in a step's source label. The closed
+      // issue itself needn't be ours — a human closing a blocker should still release the
+      // bot's dependents. (Gated AFTER our-ness, empty-blockedBy, and resting checks below.)
+      if (ev.action === "closed") {
+        /** @type {import('../types.js').Job[]} */
+        const jobs = [];
+        for (const dep of await blocking(ref)) {
+          const depRef = String(dep.number);
+          if (dep.state !== "open") continue; // a dependent already closed itself: never fire an agent on it
+          if (!(await issueIsOurs(dep))) continue; // a dependent that isn't ours: untouched
+          const step = stepForLabels(dep.labels); // (c) currently rests in a step's source label
+          if (!step || step.manual) continue; // no source step, or a manual/terminal one (no agent runs)
+          if ((await blockedBy(depRef)).length) continue; // (b) still blocked by another open issue
+          console.log(`[unblock] #${ref} closed → firing #${depRef} (${step.id})`);
+          jobs.push({ kind: "pipeline", ref: depRef, stepId: step.id, dedupKey: `unblock:${ref}:${depRef}` });
+        }
+        return jobs;
+      }
+
       if (!(await issueIsOurs(issue))) {
         console.log(`[assignee] skip #${ref} — not assigned to us`);
         return [];
@@ -269,6 +325,7 @@ export function createGithubAdapter(cfg, store) {
       if (ev.action === "labeled") {
         const step = stepBySourceLabel(ev.label?.name);
         if (!step) return [];
+        if (await restIfBlocked(ref)) return []; // open blocker → stay in the source label, no agent
         const delivery = Array.isArray(headers["x-github-delivery"]) ? headers["x-github-delivery"][0] : headers["x-github-delivery"];
         const dedupKey = `secmove:${delivery || `${ref}:${norm(ev.label?.name)}`}`;
         return [{ kind: "pipeline", ref, stepId: step.id, dedupKey }];
@@ -277,6 +334,7 @@ export function createGithubAdapter(cfg, store) {
       if (ev.action === "opened" || ev.action === "reopened" || ev.action === "assigned") {
         const step = stepForLabels(issue.labels);
         if (!step) return [];
+        if (await restIfBlocked(ref)) return []; // open blocker → rest until it clears
         return [{ kind: "pipeline", ref, stepId: step.id, dedupKey: `step:${step.id}:${ref}` }];
       }
       return [];
@@ -329,6 +387,15 @@ export function createGithubAdapter(cfg, store) {
       await addLabel(ref, label);
       if (step.sourceLabel && norm(step.sourceLabel) !== norm(label)) await removeLabel(ref, step.sourceLabel);
       console.log(`[label] moved #${ref} -> ${label} (${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""})`);
+      // Entering a terminal step flagged closeIssue (e.g. the manual `done` step) CLOSES the
+      // GitHub issue, so a blocker that finishes its own pipeline auto-releases its dependents
+      // (the close-release path in processEvents) without a human. Explicit, never implicit.
+      const entered = stepBySourceLabel(label);
+      if (entered?.closeIssue) {
+        const res = await api(`${repoPath()}/issues/${ref}`, { method: "PATCH", body: JSON.stringify({ state: "closed" }) });
+        if (!res.ok) throw new Error(`close issue ${res.status}`);
+        console.log(`[closed] #${ref} (terminal step ${entered.id})`);
+      }
     },
 
     // Inject work into a step (`agenthook run`): assign the issue to us (unless
@@ -380,6 +447,7 @@ export function createGithubAdapter(cfg, store) {
           const ref = String(it.number);
           if (seen.has(ref)) continue;
           if (!(await issueIsOurs(it))) continue;
+          if ((await blockedBy(ref)).length) continue; // blocked → reconcile must not re-inject it
           seen.add(ref);
           jobs.push({ kind: "pipeline", ref, stepId: step.id, dedupKey: `reconcile:${step.id}:${ref}` });
         }

@@ -41,6 +41,7 @@
  * @property {string} [successLabel]           GitHub: swap to this label on a clean finish (advance)
  * @property {string} [failureLabel]           GitHub: swap to this label on a failed/interrupted run
  * @property {string} [holdLabel]              GitHub: swap to this label on `hold`; absent → leave in place
+ * @property {boolean} [closeIssue]            GitHub: entering this (terminal) step CLOSES the issue — auto-releasing the dependents it was blocking
  */
 
 /**
