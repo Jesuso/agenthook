@@ -5,6 +5,9 @@ secrets.json
 *.token
 .env
 
+# ...but example profiles ship their config (placeholders only, never real secrets)
+!examples/**/agenthook.config.json
+
 # Standing instructions are user-authored; ship only the example
 INSTRUCTIONS.md
 
