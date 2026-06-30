@@ -4,13 +4,16 @@
 import { createAsanaAdapter } from "./asana.js";
 import { createJiraAdapter } from "./jira.js";
 import { createGithubAdapter } from "./github.js";
+import { createGithubProjectsAdapter } from "./github-projects.js";
 
 // GitHub has no board sections, so it drives the pipeline off issue LABELS (see github.js).
+// github-projects instead drives off a Projects v2 board's Status field (see that file).
 /** @type {Record<string, import('../types.js').AdapterFactory>} */
 export const TRACKERS = {
   asana: createAsanaAdapter,
   jira: createJiraAdapter,
   github: createGithubAdapter,
+  "github-projects": createGithubProjectsAdapter,
 };
 
 /**
