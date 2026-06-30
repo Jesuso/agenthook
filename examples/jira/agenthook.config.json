@@ -1,0 +1,92 @@
+{
+  "//": "Runnable Jira example. Copy this dir into your project, fill the YOUR_* placeholders,",
+  "//2": "set JIRA_API_TOKEN (+ ingress secrets) in a .env beside it, then `agenthook start`.",
+  "//secrets": "Secrets stay ${ENV} refs (resolved from the shell or a .env beside this file),",
+  "//secrets2": "so this file is shareable. State lives centrally in ~/.agenthook/<name>.",
+
+  "name": "myproject-jira",
+  "repoPath": "/absolute/path/to/the/repo/agents/work/in",
+  "trigger": "@agent",
+  "maxConcurrent": 2,
+  "port": 4123,
+  "//fullAuto": "false (safe default) = agents prompt for permission. true = --dangerously-skip-permissions: a verified webhook runs UNSANDBOXED code on the host. Opt in only on a trusted host or in a container. See docs/architecture.md#security-posture.",
+  "fullAuto": false,
+  "claudeBin": "claude",
+
+  "tracker": {
+    "//": "Jira Cloud. Auth is HTTP Basic (base64 email:token) — `email` is the username, NOT a secret.",
+    "//auth": "A Jira API token is Basic-only; `Authorization: Bearer <token>` is rejected. See docs/jira-setup.md §1.",
+    "type": "jira",
+    "//site": "<site>.atlassian.net — set this OR a full `baseUrl`.",
+    "site": "YOUR_SITE",
+    "email": "bot@YOUR_COMPANY.com",
+    "token": "${JIRA_API_TOKEN}",
+    "//projectKey": "the project whose workflow statuses drive the pipeline",
+    "projectKey": "YOUR_PROJECT_KEY",
+
+    "//pipeline": "The execution model (required). Jira routes on an issue's STATUS (not gids):",
+    "//pipeline2": "an issue ENTERING a step's sourceStatus fires it. On exit the agent writes a",
+    "//pipeline3": "VERDICT and the receiver TRANSITIONS the issue: advance -> successStatus (= the",
+    "//pipeline4": "next step's source, so the move triggers it); fail -> failureStatus; hold ->",
+    "//pipeline5": "holdStatus (parked for a human); changes -> a prior step's source (the rework loop,",
+    "//pipeline6": "capped by maxAttempts, default 3). Status names match case-insensitively and are",
+    "//pipeline7": "placeholders below — rename them to YOUR board's columns.",
+    "//pipeline8": "TRANSITIONS MUST EXIST: Jira has no set-status; a target with no workflow transition",
+    "//pipeline9": "from the issue's current status is a logged no-op. See docs/jira-setup.md §2.",
+    "pipeline": [
+      {
+        "id": "triage",
+        "kind": "triage",
+        "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
+        "sourceStatus": "Awaiting Triage",
+        "successStatus": "Agent Queue",
+        "failureStatus": "Blocked",
+        "//holdStatus": "where a `hold` parks an issue waiting on a human answer",
+        "holdStatus": "Needs Info"
+      },
+      {
+        "id": "code",
+        "kind": "implement",
+        "//createsWorktree": "the receiver owns one git worktree per issue, shared across its steps",
+        "createsWorktree": true,
+        "//maxAttempts": "optional: cap on runs per issue before a `changes` loop into this step fails (default 3)",
+        "maxAttempts": 3,
+        "instructionsFile": "./INSTRUCTIONS_CODE.md",
+        "sourceStatus": "Agent Queue",
+        "successStatus": "In Review",
+        "failureStatus": "Blocked",
+        "holdStatus": "Needs Info"
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "model": "claude-opus-4-8",
+        "//changes": "a review `changes` verdict bounces back to the previous step (code) on the same branch/PR",
+        "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
+        "sourceStatus": "In Review",
+        "successStatus": "Done",
+        "failureStatus": "Blocked"
+      },
+      {
+        "id": "done",
+        "//done": "Terminal stage. manual = no agent: entering it only runs system actions.",
+        "//done2": "drainWorktree removes the code step's worktree and clears the attempt counters.",
+        "//done3": "Bound to review's successStatus, so an issue reaching `Done` tears down + stops.",
+        "manual": true,
+        "drainWorktree": true,
+        "sourceStatus": "Done"
+      }
+    ]
+  },
+
+  "ingress": {
+    "//": "How the receiver is reachable. The Jira webhook URL is created BY HAND and can't rotate,",
+    "//stable": "so Jira REQUIRES a STABLE ingress — an ngrok reserved `domain`, or a `hosted` URL.",
+    "//stable2": "NEVER an ephemeral tunnel (its URL changes each restart, orphaning the webhook).",
+    "type": "ngrok",
+    "authtoken": "${NGROK_AUTHTOKEN}",
+    "//domain": "reserved domain = the stable URL Jira's by-hand webhook points at (required here)",
+    "domain": "your-app.ngrok.app",
+    "//hosted": "Or a hosted URL behind your own proxy: { \"type\": \"hosted\", \"url\": \"https://hook.YOUR_COMPANY.com\" }"
+  }
+}
