@@ -147,6 +147,18 @@ moving between board sections drives it; there is no assignment/comment path.
   `x-hub-signature-256`. Routes `opened`/`reopened`/`assigned` by the issue's current labels
   (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). 'Us' = the token's login
   from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues + Webhooks RW (fine-grained).
+- **GitHub Projects v2** — the *other* GitHub tracker: steps bind a board's **Status single-select
+  options** (`sourceStatus`/… — Jira's keys), not labels. API is **GraphQL** (`/graphql`, Bearer);
+  board is `tracker.project:"owner/number"` (org or user), `ref` = the issue number (resolved to its
+  card by scanning items). `advance` **sets** the Status via `updateProjectV2ItemFieldValue` —
+  **single-occupancy** (one mutation, no add-before-remove), so a card sits in exactly one stage; a
+  Status with no board option is a logged no-op, and options are **not** auto-created. One **org**
+  `projects_v2_item` hook (`created`/`edited`; `edited` acts only on a Status single-select change,
+  re-reading the item live) signed like `github` → `x-hub-signature-256`. The hook auto-creates for
+  an **org**-owned project (needs `admin:org_hook`), else prints manual setup; a **user-owned**
+  project has **no PAT hook path**. URL is fixed → **stable ingress** (like Jira). 'Us' = `viewer`
+  login; fail-closed. Token: classic `project`+`repo`(+`admin:org_hook`), or fine-grained Projects RW
+  + Issues R + org Webhooks RW.
 
 ## Typing (JSDoc + checkJs)
 

@@ -18,8 +18,9 @@ spins while you're idle.
 > honest tradeoffs (push delivery isn't free — agenthook ships a targeted replay for the gaps).
 
 Two swappable axes, engine blind to both: a **tracker** (where work comes from) and an
-**ingress** (how the receiver is reachable). Ships with **Asana**, **Jira** + **GitHub** trackers
-and **ngrok** + **hosted** ingress; adding another section/stage tracker or tunnel is one adapter
+**ingress** (how the receiver is reachable). Ships with **Asana**, **Jira**, and **two GitHub**
+trackers — **GitHub Issues** (labels-as-sections) and **GitHub Projects v2** (board columns) — plus
+**ngrok** + **hosted** ingress; adding another section/stage tracker or tunnel is one adapter
 file ([docs/providers.md](docs/providers.md)).
 
 ```
@@ -79,7 +80,8 @@ agenthook start           # ingress up → register webhook → serve
 and never overwrites an existing `ah` on your PATH.
 
 Move an item you're **assigned** into your pipeline's first stage — a section (Asana), status
-(Jira), or label (GitHub) → a run appears under `~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with
+(Jira), label (GitHub Issues), or Status column (GitHub Projects v2) → a run appears under
+`~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with
 `agenthook stop`. If nothing fires, the [troubleshooting guide](docs/troubleshooting.md) is
 symptom-first.
 
@@ -89,7 +91,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 ## Documentation
 
 - **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
-- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub setup](docs/github-setup.md) — token + board specifics
+- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics
 - [Troubleshooting](docs/troubleshooting.md) — symptom → fix
 - [Architecture](docs/architecture.md) — how the engine works + the honest tradeoffs
 - [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely
@@ -139,7 +141,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
 | `maxConcurrent` | How many agents run at once (each in its own worktree). |
 | `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
-| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, or `github`; `pipeline` is the ordered steps (required). |
+| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), or `github-projects` (Projects v2 board columns); `pipeline` is the ordered steps (required). |
 | `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
 
 See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented

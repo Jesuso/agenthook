@@ -97,6 +97,36 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   scoping is fail-closed. The webhook URL is auto-managed, so GitHub works behind an **ephemeral**
   ingress (ngrok) — the hook is scrubbed + recreated each boot.
 
+### GitHub Projects v2 (`src/trackers/github-projects.js`)
+- **Auth — a PAT as `Bearer <token>`**, but the Projects v2 API surface is **GraphQL-only**
+  (`https://api.github.com/graphql`), so this adapter has a `gql(query, vars)` helper instead of the
+  REST `json(res)` the others use (REST is used only for org-webhook CRUD). Classic tokens need
+  `project` + `repo` (+ `admin:org_hook` to auto-register the org hook); fine-grained tokens need
+  **Projects: Read & write** + **Issues: Read** + **Metadata: Read** (+ org **Webhooks: Read &
+  write**).
+- The "section" is a **Projects v2 board's `Status` single-select option**: a step binds
+  `sourceStatus`/`successStatus`/`failureStatus`/`holdStatus` (option names, matched
+  case-insensitively — the **same keys as Jira**). The board is `tracker.project` =
+  `"owner/number"` (org **or** user) or the project URL; `ref` is the underlying **issue number**
+  (a number is resolved to its card by scanning the project's items — Projects v2 has no
+  issue-#N lookup).
+- `advance` **sets** the card's Status to one option via `updateProjectV2ItemFieldValue` —
+  single-occupancy (one mutation, no add-before-remove like the labels tracker), so a card is in
+  exactly one stage at a time. A target Status with no matching board option is a logged no-op
+  (like Jira's unreachable transition). Status options are **not** auto-created (labels are).
+- One **org-level** `projects_v2_item` webhook delivers `created`/`edited`; an `edited` fires a step
+  only when the changed field is the `Status` single-select (the payload omits the new value, so the
+  item is re-read via GraphQL). Signed like the `github` tracker (agenthook-generated secret, or
+  `tracker.webhookSecret`; `false` accepts unsigned), verified via `x-hub-signature-256`. Routing:
+  `created` → the step the card's Status sources (dedup `step:<id>:<ref>`); `edited` → the step
+  matching the new Status (dedup `secmove:<delivery>`).
+- The org hook is **auto-created via REST for an org-owned project** (scrubbed + recreated like
+  `github`), falling back to **printed manual setup** when the token lacks `admin:org_hook`. A
+  **user-owned project has no PAT webhook path at all** (`projects_v2_item` is org-webhook- or
+  GitHub-App-only), so `registerWebhook` just prints why. The URL is **fixed**, so pair this tracker
+  with a **stable ingress** (ngrok reserved `domain`, or `hosted`) — never an ephemeral tunnel. The
+  assignee "us" is the token owner's login (GraphQL `viewer`, cached); scoping is fail-closed.
+
 ## Ingress interface
 
 A factory `createXIngress(cfg)` (in `src/ingress/`) returns:

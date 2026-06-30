@@ -14,6 +14,8 @@
 
   "tracker": {
     "//": "type selects the adapter; the rest is that tracker's config.",
+    "//github": "GitHub Issues instead: { type:'github', repository:'owner/name', token:'${GITHUB_TOKEN}' } — steps bind labels (sourceLabel/successLabel/...). See docs/github-setup.md.",
+    "//github-projects": "GitHub Projects v2 instead: { type:'github-projects', project:'owner/number', token:'${GITHUB_TOKEN}' } — steps bind board Status options (sourceStatus/successStatus/..., like Jira). ORG webhook + STABLE ingress required. See docs/github-projects-setup.md.",
     "type": "asana",
     "token": "${ASANA_TOKEN}",
     "userGid": "YOUR_ASANA_USER_GID",
