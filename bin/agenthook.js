@@ -35,7 +35,8 @@ import { run } from "../src/commands/run.js";
 import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -56,6 +57,16 @@ function parse(argv) {
     }
   }
   return args;
+}
+
+/**
+ * True if a `--help`/`-h` flag sits anywhere in the post-command args, so the
+ * router shows usage instead of running the command. Pure so it's unit-testable
+ * (`main()` runs on direct invocation only).
+ * @param {string[]} rest
+ */
+export function wantsHelp(rest) {
+  return rest.some((a) => a === "--help" || a === "-h");
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
@@ -99,10 +110,18 @@ async function main() {
     console.error(`unknown command "${cmd}". Run \`agenthook help\`.`);
     process.exit(1);
   }
+  if (wantsHelp(rest)) {
+    console.log(HELP);
+    return;
+  }
   await fn(parse(rest));
 }
 
-main().catch((e) => {
-  console.error(e.message || e);
-  process.exit(1);
-});
+// Run only when invoked directly (not when a test imports `wantsHelp`).
+// realpath both sides so the npx/`ah` symlink resolves to this file.
+if (realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => {
+    console.error(e.message || e);
+    process.exit(1);
+  });
+}
