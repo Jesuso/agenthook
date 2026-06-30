@@ -16,7 +16,7 @@ A factory `createXAdapter(cfg, store)` (in `src/trackers/`) returns an object wi
 | `processEvents({pathname, headers, rawBody})` | **Async, may call the API.** Returns `[job]` — maps a board event to the step the task now rests in. |
 | `fetchTask(ref)` | `{ name, description, url, completed, assignedToUs, ref }`. |
 | `advance(ref, stepId, verdict)` | Resolve a finished step by moving the task to the section its `verdict.outcome` maps to: `advance`→success (the next step's trigger), `fail`→failure, `hold`→hold (parked for a human), `changes`→the target step's source (re-fires it — the rework loop). |
-| `listResting()` | `[job]` for tasks currently resting in step source sections — drives the explicit `reconcile` command (never called on boot). |
+| `listResting()` | `[job]` for tasks currently resting in step source sections (a step's source stage is its **inbox**) — drives the explicit `reconcile` command (never called on boot). Reconcile/catchup **replay** what's already resting; they never move a task in, so they can't *start* work. |
 | `registerWebhook(publicUrl)` | Create the project hook (called on `start`, or CLI `register`). |
 | `unregisterWebhooks()` | Delete this tracker's hooks (`start` boot-scrub when ingress is ephemeral; CLI `unregister`; `stop`). |
 | `forgeCatchup(ref)` *(optional)* | `{ path, body, headers, dedupKey, stepId? }` to replay a missed item (`catchup`/`reconcile`). `stepId` is the step the item's live stage maps to, or undefined when it rests in no source stage (so `catchup` can flag the no-op instead of POSTing a silently-dropped event). |
