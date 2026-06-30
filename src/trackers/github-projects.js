@@ -184,6 +184,21 @@ export function createGithubProjectsAdapter(cfg, store) {
     return fieldPromise;
   }
 
+  // Resolve a project field's NAME from its node id. Used to identify the field a
+  // `projects_v2_item` edit touched WITHOUT trusting that the webhook's `field_node_id`
+  // is byte-equal to the GraphQL field id — the two could differ in format, and a hard
+  // id-equality gate would silently drop real Status changes (see #35). Name is on the
+  // ProjectV2FieldCommon interface. Returns null on any miss (caller decides).
+  /** @param {string} nodeId @returns {Promise<string|null>} */
+  async function fieldNameByNodeId(nodeId) {
+    try {
+      const body = await gql(`query($id:ID!){ node(id:$id){ ... on ProjectV2FieldCommon { name } } }`, { id: nodeId });
+      return body.data?.node?.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // --- pipeline routing (opt-in; null when no pipeline configured) ---
   const pipeline = cfg.pipeline;
   // Assignee scoping — only act on items whose ISSUE is assigned to US, where "us" is
@@ -420,7 +435,19 @@ export function createGithubProjectsAdapter(cfg, store) {
         const fv = ev.changes?.field_value;
         if (!fv || norm(fv.field_type) !== "single_select") return []; // not a single-select change
         const field = await statusField();
-        if (field?.id && fv.field_node_id && fv.field_node_id !== field.id) return []; // a different single-select
+        // Is the edited single-select OUR Status field? Fast path: node-id match. On a
+        // mismatch we do NOT assume "different field" — the webhook's field_node_id and the
+        // GraphQL field id could differ in format, and dropping there would silently stall
+        // every Status change (the assumption #35 flagged). Instead resolve the changed
+        // field's NAME ("Status" is how statusField itself locates it) and skip only when
+        // it's positively something else. An unresolvable name falls through (logged), so a
+        // real Status change is never silently lost; the live re-read below still gates it.
+        if (fv.field_node_id && !(field?.id && fv.field_node_id === field.id)) {
+          const changedName = await fieldNameByNodeId(fv.field_node_id);
+          if (changedName != null && norm(changedName) !== "status") return []; // a genuinely different single-select
+          if (changedName == null)
+            console.warn(`[edited] changed field ${fv.field_node_id} ≠ Status id ${field?.id} and name unresolved — routing via live Status re-read (see #35)`);
+        }
       }
 
       // The payload omits the value, so read the item's content + current Status live.

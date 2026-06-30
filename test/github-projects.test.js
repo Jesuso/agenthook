@@ -80,6 +80,13 @@ function stubGraphql(opts = {}) {
     }
     if (q.includes("repository(owner")) return ok({ repository: { issue: { id: "I_new" } } });
     if (q.includes("items(first:100")) return ok({ node: { items: { nodes: itemNodes, pageInfo: { hasNextPage: false, endCursor: null } } } });
+    if (q.includes("ProjectV2FieldCommon")) {
+      // Resolve a field node id -> name. STATUS_FIELD_ID and the same-field-under-a-
+      // different-id alias both name "Status"; a real other field names itself; an
+      // unknown id resolves to null (caller falls through with a warning).
+      const NAMES = /** @type {Record<string,string>} */ ({ [STATUS_FIELD_ID]: "Status", PVTSSF_status_alt: "Status", PVTSSF_priority: "Priority" });
+      return ok({ node: { name: NAMES[vars.id] ?? null } });
+    }
     if (q.includes("ProjectV2SingleSelectField")) {
       return ok({ node: { field: { id: STATUS_FIELD_ID, name: "Status", options: Object.entries(STATUS_OPTIONS).map(([name, id]) => ({ id, name })) } } });
     }
@@ -179,6 +186,53 @@ test("a single-select edit on a DIFFERENT field (not Status) yields no job", asy
       ),
     );
     assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("#35: edited whose field_node_id differs from the Status id but resolves by NAME to Status still fires", async () => {
+  // The webhook's field_node_id and the GraphQL field id differ in format, yet both name
+  // the same Status field. The old hard id-equality gate would silently drop this; we now
+  // confirm identity by name and route the (real) Status change.
+  const { restore } = stubGraphql({ status: "In Progress" });
+  try {
+    const jobs = await adapter().processEvents(
+      /** @type {any} */ (
+        evt(
+          {
+            action: "edited",
+            projects_v2_item: { node_id: "PVTI_42", content_type: "Issue" },
+            changes: { field_value: { field_node_id: "PVTSSF_status_alt", field_type: "single_select" } },
+          },
+          { "x-github-delivery": "guid-alt" },
+        )
+      ),
+    );
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].stepId, "code");
+    assert.equal(jobs[0].dedupKey, "secmove:guid-alt");
+  } finally {
+    restore();
+  }
+});
+
+test("#35: edited whose changed field id is unknown (name unresolved) falls through to the live Status re-read", async () => {
+  // Fail-open-with-log: an id we can't match AND can't name should not silently stall; it
+  // routes by the item's actual current Status (here "In Progress" → the code step).
+  const { restore } = stubGraphql({ status: "In Progress" });
+  try {
+    const jobs = await adapter().processEvents(
+      /** @type {any} */ (
+        evt({
+          action: "edited",
+          projects_v2_item: { node_id: "PVTI_42", content_type: "Issue" },
+          changes: { field_value: { field_node_id: "PVTSSF_unknown", field_type: "single_select" } },
+        })
+      ),
+    );
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].stepId, "code");
   } finally {
     restore();
   }
