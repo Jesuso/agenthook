@@ -17,6 +17,25 @@ const PS = [
 const DOGFOOD = { name: "agenthook-dogfood", running: { "6": { stepId: "code", pid: 12345 } } };
 const ALEPH = { name: "alephbeta", running: { "1199887766": { stepId: "code", pid: 67890 } } };
 
+// A shell that merely MENTIONS the string (claude isn't its binary) and a user's own
+// manual `claude -p` (real bin, but no agenthook step/ref markers) — neither is a
+// receiver-spawned agent, yet the old substring match counted both.
+const DECOYS = [
+  `  44444 00:02 bash -c echo running claude -p now`, // substring, but claude not the binary
+  `  55555 00:01 claude -p fix the bug in my code`, // real claude bin, no step/ref markers
+].join("\n");
+
+test("decoys: a shell mentioning 'claude -p' and a marker-less manual run are excluded", () => {
+  assert.equal(parsePsAgents(DECOYS).length, 0);
+});
+
+test("one real agent + one decoy shell → only the real one is counted", () => {
+  const real = PS.split("\n")[0]; // the dogfood `code` agent, ref 6
+  const rows = parsePsAgents([real, DECOYS.split("\n")[0]].join("\n"));
+  assert.equal(rows.length, 1);
+  assert.deepEqual([rows[0].step, rows[0].ref], ["code", "6"]);
+});
+
 test("parsePsAgents keeps only claude -p rows and extracts pid/step/ref", () => {
   const rows = parsePsAgents(PS);
   assert.equal(rows.length, 3); // firefox excluded

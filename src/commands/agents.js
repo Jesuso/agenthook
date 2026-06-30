@@ -15,7 +15,13 @@ import { listProfiles } from "../heartbeat.js";
 
 /** @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
 
-/** Parse `ps -eo pid=,etime=,args=` output into the agent rows (claude -p only).
+// The `claude` bin must START the command (path-anchored), not appear mid-line: a
+// loose substring counts any process whose argv merely MENTIONS "claude -p" (a shell
+// grepping for it, an echo, …). `cfg.claudeBin` defaults to "claude", so the receiver's
+// spawn is `[node …/]claude -p <prompt>`.
+const CLAUDE_P = /(^|\/)claude\s+-p\b/;
+
+/** Parse `ps -eo pid=,etime=,args=` output into the agent rows (receiver-spawned only).
  * @param {string} stdout @returns {AgentRow[]} */
 export function parsePsAgents(stdout) {
   /** @type {AgentRow[]} */
@@ -24,9 +30,12 @@ export function parsePsAgents(stdout) {
     const m = line.match(/^\s*(\d+)\s+(\S+)\s+(.*)$/);
     if (!m) continue;
     const [, pid, etime, cmd] = m;
-    if (!cmd.includes("claude -p")) continue;
+    if (!CLAUDE_P.test(cmd)) continue;
     const step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
     const ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
+    // The receiver's prompt always carries both a `the "<id>" stage` line and `Ref: <ref>`;
+    // a row resolving NEITHER matched the bin but isn't one of ours (e.g. a manual `claude -p`).
+    if (step === "?" && ref === "?") continue;
     rows.push({ pid, etime, step, ref, profile: "?" });
   }
   return rows;
