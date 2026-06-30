@@ -19,7 +19,7 @@ A factory `createXAdapter(cfg, store)` (in `src/trackers/`) returns an object wi
 | `listResting()` | `[job]` for tasks currently resting in step source sections — drives the explicit `reconcile` command (never called on boot). |
 | `registerWebhook(publicUrl)` | Create the project hook (called on `start`, or CLI `register`). |
 | `unregisterWebhooks()` | Delete this tracker's hooks (`start` boot-scrub when ingress is ephemeral; CLI `unregister`; `stop`). |
-| `forgeCatchup(ref)` *(optional)* | `{ path, body, headers, dedupKey }` to replay a missed item (`catchup`/`reconcile`). |
+| `forgeCatchup(ref)` *(optional)* | `{ path, body, headers, dedupKey, stepId? }` to replay a missed item (`catchup`/`reconcile`). `stepId` is the step the item's live stage maps to, or undefined when it rests in no source stage (so `catchup` can flag the no-op instead of POSTing a silently-dropped event). |
 | `wizardSteps()` *(optional)* | `WizardStep[]` for `agenthook init`; may hit the API so the user PICKS a workspace/project instead of pasting ids. |
 
 A **job** is `{ kind: 'pipeline', ref, stepId, dedupKey }`. The engine dedups on `dedupKey`, then

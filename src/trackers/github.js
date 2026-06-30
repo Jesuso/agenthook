@@ -421,7 +421,7 @@ export function createGithubAdapter(cfg, store) {
       const secret = webhookSecret();
       if (secret) headers["X-Hub-Signature-256"] = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
       const dedupKey = step ? `step:${step}:${ref}` : `issue:${ref}:opened`;
-      return { path: "/github/", body, headers, dedupKey };
+      return { path: "/github/", body, headers, dedupKey, stepId: step };
     },
 
     // `agenthook init` discovery. GITHUB_TOKEN is the only secret (handled by init's
