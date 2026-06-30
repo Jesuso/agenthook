@@ -28,6 +28,7 @@
  * @property {boolean} [drainWorktree]         system removes the worktree after the step
  * @property {boolean} [manual]                no agent; entering the step only runs system actions
  * @property {string} [model]                  per-step `claude --model` override
+ * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)

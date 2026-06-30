@@ -17,6 +17,28 @@ import { ensureWorktree, drainWorktree, worktreePath } from "./worktree.js";
 // overrides. See store.bumpAttempt/getAttempt.
 const DEFAULT_MAX_ATTEMPTS = 3;
 
+/** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
+ * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
+const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
+ * without a real spawn). Order is stable: prompt, then --model, --effort, then
+ * --dangerously-skip-permissions.
+ * @param {{prompt: string, model?: string, effort?: string, fullAuto?: boolean}} o
+ * @returns {string[]}
+ */
+export function buildClaudeArgs({ prompt, model, effort, fullAuto }) {
+  const args = ["-p", prompt];
+  if (model) args.push("--model", model);
+  if (effort) {
+    if (EFFORT_LEVELS.includes(effort)) args.push("--effort", effort);
+    else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${EFFORT_LEVELS.join("|")})`);
+  }
+  if (fullAuto) args.push("--dangerously-skip-permissions");
+  return args;
+}
+
 /** @param {string} file */
 const readInstructions = (file) => {
   // Read fresh each run so edits to a step's standing instructions need no restart.
@@ -38,14 +60,12 @@ export function createDispatcher(cfg, adapter, children, store) {
 
   /**
    * Spawn `claude -p` with a prompt, stream to a log, resolve the exit code.
-   * @param {{prompt: string, cwd: string, logPath: string, model?: string, verdictFile?: string, onPid?: (pid: number|undefined) => void}} o
+   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, verdictFile?: string, onPid?: (pid: number|undefined) => void}} o
    * @returns {Promise<number>}
    */
-  function spawnClaude({ prompt, cwd, logPath, model, verdictFile, onPid }) {
+  function spawnClaude({ prompt, cwd, logPath, model, effort, verdictFile, onPid }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
-    const args = ["-p", prompt];
-    if (model) args.push("--model", model);
-    if (cfg.fullAuto) args.push("--dangerously-skip-permissions");
+    const args = buildClaudeArgs({ prompt, model, effort, fullAuto: cfg.fullAuto });
     return new Promise((resolve) => {
       const child = spawn(cfg.claudeBin, args, {
         cwd,
@@ -164,6 +184,7 @@ export function createDispatcher(cfg, adapter, children, store) {
       cwd,
       logPath,
       model: step.model,
+      effort: step.effort,
       verdictFile,
       onPid: (pid) =>
         store?.setRunning(job.ref, { stepId: step.id, pid, startedAt: new Date().toISOString(), worktree: cwd }),

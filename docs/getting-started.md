@@ -126,6 +126,9 @@ Extra step fields you'll want to know:
 - `maxAttempts` (default 3) — caps how many times a `changes` verdict can bounce back into a step
   before it's forced to `fail`, bounding an endless code↔review loop.
 - `model` — pin a step to a specific Claude model (e.g. `"claude-opus-4-8"` for review).
+- `effort` — per-step reasoning effort, passed to `claude -p --effort` (`low` | `medium` | `high`
+  | `xhigh` | `max`). Spend tokens where they matter: `"low"`/`"medium"` for `triage`/`review`,
+  `"high"` for `code`. Omit it to use the CLI default; an invalid value is dropped with a warning.
 - `kind` — a free label used in prompts/logs (`triage`, `implement`, `review`).
 
 The fully-commented reference is [`agenthook.config.example.json`](../agenthook.config.example.json).

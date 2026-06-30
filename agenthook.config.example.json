@@ -58,6 +58,8 @@
         "id": "review",
         "kind": "review",
         "model": "claude-opus-4-8",
+        "//effort": "optional: per-step `claude -p --effort` (low|medium|high|xhigh|max). Spend tokens where they matter — e.g. low/medium for triage/review, high for code. Omit = CLI default.",
+        "effort": "medium",
         "//changes": "a review `changes` verdict bounces back to the previous step (code) on the same branch/PR",
         "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
         "sourceSectionGid": "AWAITING_REVIEW_GID",
