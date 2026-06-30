@@ -373,7 +373,7 @@ export function createJiraAdapter(cfg, store) {
         headers["X-Hub-Signature"] = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
       }
       const dedupKey = step ? `step:${step}:${ref}` : `issue:${ref}:created`;
-      return { path: "/jira/", body, headers, dedupKey };
+      return { path: "/jira/", body, headers, dedupKey, stepId: step };
     },
 
     // `agenthook init` discovery. JIRA_API_TOKEN is the only secret (handled by init's

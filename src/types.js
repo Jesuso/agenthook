@@ -113,6 +113,7 @@
  * @property {string} body     exact request body, signed below
  * @property {Record<string,string>} headers  signature + provider headers
  * @property {string} dedupKey must equal the dedupKey the real event would carry
+ * @property {string} [stepId]  the step the item's live stage maps to, or undefined when it rests in NO source stage (the server would silently drop the replay — catchup pre-checks this)
  */
 
 /**

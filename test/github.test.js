@@ -192,6 +192,42 @@ test("enterStage throws on an unknown step", async () => {
   await assert.rejects(() => /** @type {any} */ (adapter()).enterStage("42", "nope", { assign: false }), /unknown step/);
 });
 
+test("forgeCatchup exposes the matched step when the issue rests in a source label", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    if (String(url).includes("/issues/42")) {
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ number: 42, labels: [{ name: "agent:code" }], assignees: [] }) });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+  };
+  try {
+    const forged = await adapter().forgeCatchup?.("42");
+    assert.equal(forged?.stepId, "code");
+    assert.equal(forged?.dedupKey, "step:code:42");
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("forgeCatchup leaves stepId undefined when the issue is in no source label (catchup detects the no-op)", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    if (String(url).includes("/issues/7")) {
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ number: 7, labels: [{ name: "wontfix" }], assignees: [] }) });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+  };
+  try {
+    const forged = await adapter().forgeCatchup?.("7");
+    assert.equal(forged?.stepId, undefined);
+    assert.equal(forged?.dedupKey, "issue:7:opened");
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 test("advance adds the target label before removing the source (crash-safe)", async () => {
   /** @type {string[]} */
   const calls = [];

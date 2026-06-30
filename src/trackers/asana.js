@@ -333,7 +333,7 @@ export function createAsanaAdapter(cfg, store) {
       const sig = crypto.createHmac("sha256", secret).update(body).digest("hex");
       const step = stepId ?? (await stepForTask(ref))?.id;
       const dedupKey = step ? `step:${step}:${ref}` : `task:${ref}:added`;
-      return { path: "/mytasks/", body, headers: { "X-Hook-Signature": sig }, dedupKey };
+      return { path: "/mytasks/", body, headers: { "X-Hook-Signature": sig }, dedupKey, stepId: step };
     },
 
     // `agenthook init` discovery: pick workspace → project, read the token's user gid,

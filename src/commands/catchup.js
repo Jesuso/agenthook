@@ -19,6 +19,12 @@ export async function catchup(args) {
   if (typeof adapter.forgeCatchup !== "function") die(`tracker "${cfg.provider}" has no catchup support`);
 
   const forged = await adapter.forgeCatchup(ref);
+  // The server routes the forged event by the item's LIVE stage; if it rests in no
+  // step's source stage, no step matches and the event is silently dropped. Catch that
+  // here so we don't print a phantom "dispatched". (forgeCatchup resolves the step.)
+  if (!forged.stepId) {
+    die(`#${ref} is not in any pipeline source stage — nothing to replay. Use 'agenthook run <ref> [step]' to start it.`);
+  }
   store.reloadSeen();
   if (store.hasSeen(forged.dedupKey) && !args.force) {
     die(`${ref} already seen — the server would dedup-skip it. Re-run with --force.`);
@@ -37,7 +43,7 @@ export async function catchup(args) {
     });
     console.log(`POST ${forged.path} -> ${res.status}`);
     if (res.status !== 200) throw new Error(`server returned ${res.status}`);
-    console.log(`dispatched ${ref}. The server routes it to the step its current section maps to.`);
+    console.log(`dispatched ${ref} -> step "${forged.stepId}" (its current stage maps to it).`);
   } catch (e) {
     if (removed) {
       store.markSeen(forged.dedupKey);
