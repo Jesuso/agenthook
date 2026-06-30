@@ -291,6 +291,35 @@ test("listResting yields one job per open issue resting in a step's source Statu
   assert.equal(jobs[0].dedupKey, "reconcile:code:42");
 });
 
+test("forgeCatchup exposes the matched step when the item rests in a source Status", async () => {
+  const { restore } = stubGraphql({ status: "In Progress" });
+  let forged;
+  try {
+    forged = await adapter().forgeCatchup?.("42");
+  } finally {
+    restore();
+  }
+  assert.equal(forged?.stepId, "code");
+  assert.equal(forged?.dedupKey, "step:code:42");
+  assert.equal(forged?.path, "/github-projects/");
+  // The forged event is a `created` projects_v2_item carrying the item's node id.
+  const ev = JSON.parse(String(forged?.body));
+  assert.equal(ev.action, "created");
+  assert.equal(ev.projects_v2_item.node_id, "PVTI_42");
+});
+
+test("forgeCatchup leaves stepId undefined when the item's Status maps to no step (catchup detects the no-op)", async () => {
+  const { restore } = stubGraphql({ status: "Done" });
+  let forged;
+  try {
+    forged = await adapter().forgeCatchup?.("42");
+  } finally {
+    restore();
+  }
+  assert.equal(forged?.stepId, undefined);
+  assert.equal(forged?.dedupKey, "issue:42:created");
+});
+
 // --- webhook lifecycle (org auto-register / scrub, user + missing-scope fallbacks) ---
 
 /** A fetch stub for the REST webhook path. Answers the GraphQL project probe (org vs
