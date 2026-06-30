@@ -108,6 +108,44 @@ test("ensureLabels POSTs each unique pipeline label and ignores 422 already-exis
   assert.deepEqual(created.sort(), ["agent:blocked", "agent:code", "agent:review"]);
 });
 
+test("pipelineBindings maps the wizard stage picks to label bindings", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "agent:code", _successStage: "agent:review", _failureStage: "agent:blocked" }), {
+    sourceLabel: "agent:code",
+    successLabel: "agent:review",
+    failureLabel: "agent:blocked",
+  });
+});
+
+test("pipelineBindings returns null when no stage was picked (init keeps the placeholder)", () => {
+  assert.equal(adapter().pipelineBindings?.({}), null);
+});
+
+test("init label discovery offers the agenthook defaults first, then the repo's own labels", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    if (String(url).includes("/labels")) {
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ name: "bug" }, { name: "agent:code" }, { name: "enhancement" }] });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => [] });
+  };
+  try {
+    const steps = adapter().wizardSteps?.({}) || [];
+    const source = steps.find((s) => s.key === "_sourceStage");
+    assert.ok(source && typeof source.choices === "function", "expected a _sourceStage select with live choices");
+    assert.equal(source.default, "agent:code");
+    const choices = await /** @type {any} */ (source.choices)({ repository: "o/r" });
+    // Defaults lead and are not duplicated by the repo's own "agent:code"; "bug"/"enhancement" follow.
+    assert.deepEqual(
+      choices.map((/** @type {any} */ c) => c.value),
+      ["agent:code", "agent:review", "agent:blocked", "bug", "enhancement"],
+    );
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 test("advance adds the target label before removing the source (crash-safe)", async () => {
   /** @type {string[]} */
   const calls = [];
