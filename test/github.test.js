@@ -352,6 +352,44 @@ test("close-release: closing a blocker fires only its now-unblocked, resting, ow
   }
 });
 
+test("close-release: a dependent that is itself CLOSED is never fired (no agent on a closed issue)", async () => {
+  const restore = withDeps((u) =>
+    // #36 blocks #50 — ours, resting in agent:code, unblocked — but #50 is itself closed.
+    u.includes("/issues/36/dependencies/blocking")
+      ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 50, state: "closed", labels: [{ name: "agent:code" }], assignees: [] }] })
+      : null,
+  );
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("close-release: a dependent resting in a manual/terminal step is not fired (mirrors listResting)", async () => {
+  const pl = [
+    { id: "code", sourceLabel: "agent:code", successLabel: "agent:review", failureLabel: "agent:blocked" },
+    { id: "done", sourceLabel: "agent:done", manual: true, closeIssue: true },
+  ];
+  const a = createGithubAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }),
+    /** @type {any} */ (makeStore()),
+  );
+  const restore = withDeps((u) =>
+    // #36 blocks #51 — ours, open, unblocked — but it rests in the manual terminal step agent:done.
+    u.includes("/issues/36/dependencies/blocking")
+      ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 51, state: "open", labels: [{ name: "agent:done" }], assignees: [] }] })
+      : null,
+  );
+  try {
+    const jobs = await a.processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
 test("advance closes the issue when entering a terminal step flagged closeIssue (auto-release)", async () => {
   const pl = [
     { id: "review", sourceLabel: "agent:review", successLabel: "agent:done", failureLabel: "agent:blocked" },

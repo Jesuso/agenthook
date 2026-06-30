@@ -306,9 +306,10 @@ export function createGithubAdapter(cfg, store) {
         const jobs = [];
         for (const dep of await blocking(ref)) {
           const depRef = String(dep.number);
+          if (dep.state !== "open") continue; // a dependent already closed itself: never fire an agent on it
           if (!(await issueIsOurs(dep))) continue; // a dependent that isn't ours: untouched
           const step = stepForLabels(dep.labels); // (c) currently rests in a step's source label
-          if (!step) continue;
+          if (!step || step.manual) continue; // no source step, or a manual/terminal one (no agent runs)
           if ((await blockedBy(depRef)).length) continue; // (b) still blocked by another open issue
           console.log(`[unblock] #${ref} closed → firing #${depRef} (${step.id})`);
           jobs.push({ kind: "pipeline", ref: depRef, stepId: step.id, dedupKey: `unblock:${ref}:${depRef}` });
