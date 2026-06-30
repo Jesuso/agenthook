@@ -133,6 +133,15 @@ export function createGithubAdapter(cfg, store) {
     }
     return undefined;
   };
+  /** Every distinct label the pipeline uses (source/success/failure/hold of every step),
+   * normalized → original casing. The `run` guard treats an issue carrying ANY of them
+   * as already in-flight, not just a source label. */
+  const pipelineLabels = () => {
+    /** @type {Map<string,string>} */
+    const m = new Map();
+    for (const s of pipeline || []) for (const l of [s.sourceLabel, s.successLabel, s.failureLabel, s.holdLabel]) if (l) m.set(norm(l), l);
+    return m;
+  };
 
   /** @param {string} ref @param {string} label */
   async function removeLabel(ref, label) {
@@ -334,6 +343,22 @@ export function createGithubAdapter(cfg, store) {
       if (opts.assign !== false) await assignToUs(ref);
       await addLabel(ref, step.sourceLabel);
       return { stage: step.sourceLabel };
+    },
+
+    // The pipeline label an issue currently carries (any source/success/failure/hold
+    // label of any step), or null — backs `run`'s guard against re-injecting an item
+    // already mid-flow. Read-only and no assignee gate: a stage is occupied regardless
+    // of who it's assigned to.
+    async currentStage(ref) {
+      if (!pipeline) return null;
+      const res = await api(`${repoPath()}/issues/${ref}`);
+      if (!res.ok) throw new Error(`issue fetch ${res.status}`);
+      const labels = pipelineLabels();
+      for (const l of (await json(res)).labels || []) {
+        const hit = labels.get(norm(typeof l === "string" ? l : l?.name));
+        if (hit) return hit;
+      }
+      return null;
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every open

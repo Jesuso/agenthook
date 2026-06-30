@@ -92,6 +92,14 @@ export function createAsanaAdapter(cfg, store) {
   const stepById = (id) => pipeline?.find((s) => s.id === id);
   /** @param {string|undefined} sectionGid */
   const stepBySource = (sectionGid) => (sectionGid ? pipeline?.find((s) => s.sourceSectionGid === sectionGid) : undefined);
+  /** Every distinct section gid the pipeline uses (source/success/failure/hold of every
+   * step). The `run` guard treats a task in ANY of them as already in-flight. */
+  const pipelineSections = () => {
+    /** @type {Set<string>} */
+    const s = new Set();
+    for (const st of pipeline || []) for (const g of [st.sourceSectionGid, st.successSectionGid, st.failureSectionGid, st.holdSectionGid]) if (g) s.add(g);
+    return s;
+  };
 
   // Current section of a task → the step it now rests in (or undefined). We read the
   // task's live membership rather than trusting the move event's payload, so rapid
@@ -252,6 +260,20 @@ export function createAsanaAdapter(cfg, store) {
       if (opts.assign !== false) await assignToUs(ref);
       await moveToSection(ref, step.sourceSectionGid, `${stepId}:enter`);
       return { stage: step.sourceSectionGid };
+    },
+
+    // The pipeline section a task currently rests in (any source/success/failure/hold
+    // section of any step), or null — backs `run`'s guard against re-injecting a task
+    // already mid-flow. Read-only; no assignee gate (a section is occupied regardless).
+    async currentStage(ref) {
+      if (!pipeline) return null;
+      const res = await api(`/tasks/${ref}?opt_fields=memberships.section.gid`);
+      if (!res.ok) throw new Error(`task section fetch ${res.status}`);
+      const gids = pipelineSections();
+      for (const mem of (await json(res)).data.memberships || []) {
+        if (mem.section?.gid && gids.has(mem.section.gid)) return mem.section.gid;
+      }
+      return null;
     },
 
     // Reconcile source (explicit `reconcile` command ONLY — never boot): every task

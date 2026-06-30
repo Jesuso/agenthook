@@ -156,6 +156,29 @@ test("advance moves the task into the step's success section (addTask)", async (
   assert.deepEqual(body, { data: { task: "G1" } });
 });
 
+test("currentStage returns ANY pipeline section the task rests in (not just source) — backs run's guard", async () => {
+  const orig = global.fetch;
+  // The task rests in the SUCCESS section (S2), not the source — still in-flight.
+  // @ts-ignore - test stub
+  global.fetch = async () => ok({ data: { memberships: [{ section: { gid: "S2" } }] } });
+  try {
+    assert.equal(await routed().currentStage?.("G1"), "S2");
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("currentStage is null when the task rests in no pipeline section", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => ok({ data: { memberships: [{ section: { gid: "ZZ" } }] } });
+  try {
+    assert.equal(await routed().currentStage?.("G1"), null);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 test("pipelineBindings maps the wizard stage picks to section-gid bindings", () => {
   const a = adapter();
   assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "111", _successStage: "222", _failureStage: "333" }), {
