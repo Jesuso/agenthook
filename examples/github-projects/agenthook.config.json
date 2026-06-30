@@ -1,0 +1,77 @@
+{
+  "//": "GitHub Projects v2 example — copy this dir's files into your project, rename to agenthook.config.json (or run `agenthook init`), then fill the YOUR_* placeholders. See README.md here and docs/github-projects-setup.md.",
+  "//secrets": "Secrets are ${ENV} refs resolved from the shell or a .env beside this file, so this file stays shareable. State lives centrally in ~/.agenthook/<name>.",
+  "//board": "Create the board Status options FIRST — Projects v2 Status options are NOT auto-created. Add every option named below (Triage, In Progress, In Review, Done, Blocked, Needs Info) to the board's Status field (Project → ⋯ → Settings → Status) before starting.",
+
+  "name": "github-projects-example",
+  "repoPath": "/absolute/path/to/the/repo/agents/work/in",
+  "trigger": "@agent",
+  "maxConcurrent": 2,
+  "port": 4123,
+  "//fullAuto": "false (safe default) = agents prompt for permission. true = --dangerously-skip-permissions: a verified webhook runs UNSANDBOXED code on the host. Opt in only on a trusted host or in a container. See docs/architecture.md#security-posture.",
+  "fullAuto": false,
+  "claudeBin": "claude",
+
+  "tracker": {
+    "//": "github-projects routes on a Projects v2 board's Status single-select field. Steps bind Status OPTION NAMES (sourceStatus/successStatus/failureStatus/holdStatus), matched case-insensitively — same keys as Jira.",
+    "type": "github-projects",
+    "//project": "owner/number — an ORG and the project number (or paste the project URL). Use an ORG-owned project so the projects_v2_item webhook can auto-create with admin:org_hook; a user-owned project has no PAT webhook path. The assignee login for scoping is read from the token's viewer.",
+    "project": "YOUR_ORG/NUMBER",
+    "//repository": "owner/name — only used by `agenthook run` to add a loose issue to the board; omit if you set a card's Status on the board by hand.",
+    "repository": "YOUR_ORG/YOUR_REPO",
+    "token": "${GITHUB_TOKEN}",
+
+    "//pipeline": "The execution model (required). A card whose Status ENTERS a step's sourceStatus fires that step. On exit the agent writes a VERDICT and the receiver SETS the card's Status (single-occupancy — one mutation, a card is in exactly one stage):",
+    "//pipeline2": "advance -> successStatus (= the next step's source, so the move triggers it); fail -> failureStatus (a human picks it up); hold -> holdStatus (parked for a human answer); changes -> a prior step's source (the rework loop, capped by maxAttempts, default 3).",
+    "//pipeline3": "createsWorktree makes the receiver own a git worktree shared across the card's steps; drainWorktree removes it; manual = no agent (entry only runs system actions). Each step's instructionsFile is its standing prompt (relative to this file).",
+    "pipeline": [
+      {
+        "id": "triage",
+        "kind": "triage",
+        "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
+        "sourceStatus": "Triage",
+        "successStatus": "In Progress",
+        "failureStatus": "Blocked",
+        "holdStatus": "Needs Info"
+      },
+      {
+        "id": "code",
+        "kind": "implement",
+        "createsWorktree": true,
+        "//maxAttempts": "cap on runs per card before a `changes` loop into this step fails (default 3)",
+        "maxAttempts": 3,
+        "instructionsFile": "./INSTRUCTIONS_CODE.md",
+        "sourceStatus": "In Progress",
+        "successStatus": "In Review",
+        "failureStatus": "Blocked",
+        "holdStatus": "Needs Info"
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "model": "claude-opus-4-8",
+        "//changes": "a review `changes` verdict bounces back to the previous step (code) on the same branch/PR",
+        "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
+        "sourceStatus": "In Review",
+        "successStatus": "Done",
+        "failureStatus": "Blocked",
+        "holdStatus": "Needs Info"
+      },
+      {
+        "id": "done",
+        "//done": "terminal: a card reaching Done runs no agent — it only drains the receiver-owned worktree the code step created.",
+        "manual": true,
+        "drainWorktree": true,
+        "sourceStatus": "Done"
+      }
+    ]
+  },
+
+  "ingress": {
+    "//": "STABLE ingress REQUIRED — the projects_v2_item webhook is ORG-scoped at a FIXED URL, so an ephemeral tunnel would orphan the org hook each boot (same constraint as Jira). Use a reserved ngrok domain or a hosted URL.",
+    "type": "ngrok",
+    "domain": "your-reserved-name.ngrok.app",
+    "authtoken": "${NGROK_AUTHTOKEN}",
+    "//hosted": "Or a hosted static URL instead: { \"type\": \"hosted\", \"url\": \"https://hook.you.com\" }"
+  }
+}
