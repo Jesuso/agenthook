@@ -1,0 +1,74 @@
+{
+  "//": "GitHub Issues (labels) example. Copy this dir, fill the YOUR_* placeholders + set",
+  "//env": "GITHUB_TOKEN and NGROK_AUTHTOKEN (a .env beside this file is auto-loaded), then run",
+  "//run": "`agenthook start`. State lives centrally in ~/.agenthook/<name>. See docs/github-setup.md.",
+
+  "name": "github-labels-example",
+  "repoPath": "/absolute/path/to/the/repo/agents/work/in",
+  "trigger": "@agent",
+  "maxConcurrent": 2,
+  "port": 4123,
+  "//fullAuto": "false (safe default) = agents prompt for permission. true = --dangerously-skip-permissions: a verified webhook runs UNSANDBOXED code on the host. Opt in only on a trusted host or in a container. See docs/architecture.md#security-posture.",
+  "fullAuto": false,
+  "claudeBin": "claude",
+
+  "tracker": {
+    "//": "GitHub Issues — steps bind LABEL names (matched case-insensitively). No gids, no statuses.",
+    "type": "github",
+    "repository": "YOUR_ORG/YOUR_REPO",
+    "token": "${GITHUB_TOKEN}",
+
+    "//labels": "Boot's ensureLabels creates every agent:* label below for you (idempotent). The token",
+    "//labels2": "owner is 'us' for assignee scoping (resolved from /user) — assign the bot to an issue.",
+    "//chain": "One step's successLabel is the next step's sourceLabel — that swap re-fires the next step:",
+    "//chain2": "agent:triage -> agent:code -> agent:review -> agent:done.",
+    "pipeline": [
+      {
+        "id": "triage",
+        "kind": "triage",
+        "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
+        "sourceLabel": "agent:triage",
+        "successLabel": "agent:code",
+        "failureLabel": "agent:blocked",
+        "holdLabel": "agent:needs-info"
+      },
+      {
+        "id": "code",
+        "kind": "implement",
+        "createsWorktree": true,
+        "//maxAttempts": "optional: cap on runs per issue before a review `changes` loop into code fails (default 3)",
+        "maxAttempts": 3,
+        "instructionsFile": "./INSTRUCTIONS_CODE.md",
+        "sourceLabel": "agent:code",
+        "successLabel": "agent:review",
+        "failureLabel": "agent:blocked",
+        "holdLabel": "agent:needs-info"
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "//changes": "a review `changes` verdict bounces back to code on the same branch/PR",
+        "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
+        "sourceLabel": "agent:review",
+        "successLabel": "agent:done",
+        "failureLabel": "agent:blocked"
+      },
+      {
+        "id": "done",
+        "//": "terminal: no agent. Entering it only runs system actions — drop the worktree and",
+        "//close": "close the issue (closeIssue auto-releases any issues this one was blocking).",
+        "manual": true,
+        "drainWorktree": true,
+        "closeIssue": true,
+        "sourceLabel": "agent:done"
+      }
+    ]
+  },
+
+  "ingress": {
+    "//": "How the receiver is reachable. GitHub auto-recreates its hook each boot, so ephemeral ngrok is fine.",
+    "type": "ngrok",
+    "authtoken": "${NGROK_AUTHTOKEN}",
+    "//domain": "optional reserved domain for a stable URL (omit = ephemeral, fine for GitHub)"
+  }
+}
