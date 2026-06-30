@@ -23,6 +23,7 @@ export function createStore(dataDir) {
   const seenFile = path.join(dataDir, "seen.json");
   const runningFile = path.join(dataDir, "running.json");
   const attemptsFile = path.join(dataDir, "attempts.json");
+  const difficultyFile = path.join(dataDir, "difficulty.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -95,6 +96,25 @@ export function createStore(dataDir) {
       if (ref in m) {
         delete m[ref];
         fs.writeFileSync(attemptsFile, JSON.stringify(m));
+      }
+    },
+
+    // --- per-ref difficulty tag (difficulty.json): persisted from triage verdict ---
+    // Keyed by ref; cleared alongside attempts when the task reaches a terminal state.
+    getDifficulty: (ref) => {
+      const m = readJson(difficultyFile, {});
+      return m[ref];
+    },
+    setDifficulty: (ref, difficulty) => {
+      const m = readJson(difficultyFile, {});
+      m[ref] = difficulty;
+      fs.writeFileSync(difficultyFile, JSON.stringify(m));
+    },
+    clearDifficulty: (ref) => {
+      const m = readJson(difficultyFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(difficultyFile, JSON.stringify(m));
       }
     },
   };

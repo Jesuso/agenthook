@@ -39,6 +39,25 @@ export function buildClaudeArgs({ prompt, model, effort, fullAuto }) {
   return args;
 }
 
+const DIFFICULTIES = /** @type {const} */ (["easy", "medium", "hard"]);
+
+/**
+ * Resolve the effective model and effort for a step, applying any difficulty escalation.
+ * Pure — no I/O. Exported for unit tests.
+ * @param {import('./types.js').Step} step
+ * @param {string|undefined} difficulty  the stored difficulty for this ref (may be absent)
+ * @returns {{model?: string, effort?: string}}
+ */
+export function resolveModelEffort(step, difficulty) {
+  const base = { model: step.model, effort: step.effort };
+  if (!difficulty || !step.escalate?.[difficulty]) return base;
+  const esc = step.escalate[difficulty];
+  return {
+    model: esc.model ?? base.model,
+    effort: esc.effort ?? base.effort,
+  };
+}
+
 /** @param {string} file */
 const readInstructions = (file) => {
   // Read fresh each run so edits to a step's standing instructions need no restart.
@@ -125,6 +144,7 @@ export function createDispatcher(cfg, adapter, children, store) {
       outcome: raw.outcome,
       target: typeof raw.target === "string" ? raw.target : undefined,
       reason: typeof raw.reason === "string" ? raw.reason : undefined,
+      difficulty: DIFFICULTIES.includes(raw?.difficulty) ? raw.difficulty : undefined,
     };
   }
 
@@ -142,7 +162,8 @@ export function createDispatcher(cfg, adapter, children, store) {
         } catch (e) {
           console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
         }
-        store?.clearAttempts(job.ref); // task is done — reset its loop counters
+        store?.clearAttempts(job.ref);
+        store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
@@ -179,12 +200,22 @@ export function createDispatcher(cfg, adapter, children, store) {
     const logPath = logPathFor(step.id, job.ref);
     console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
 
+    // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
+    // tag and this step has a matching `escalate` key, override the base model/effort.
+    const storedDifficulty = store?.getDifficulty(job.ref);
+    const { model, effort } = resolveModelEffort(step, storedDifficulty);
+    if (storedDifficulty && step.escalate?.[storedDifficulty]) {
+      console.log(`[dispatch] escalating step ${step.id} ref ${job.ref} (difficulty=${storedDifficulty}): model=${model ?? "default"} effort=${effort ?? "default"}`);
+    } else {
+      console.log(`[dispatch] step ${step.id} ref ${job.ref}: model=${model ?? "default"} effort=${effort ?? "default"}`);
+    }
+
     const code = await spawnClaude({
       prompt,
       cwd,
       logPath,
-      model: step.model,
-      effort: step.effort,
+      model,
+      effort,
       verdictFile,
       onPid: (pid) =>
         store?.setRunning(job.ref, { stepId: step.id, pid, startedAt: new Date().toISOString(), worktree: cwd }),
@@ -197,6 +228,13 @@ export function createDispatcher(cfg, adapter, children, store) {
       fs.rmSync(verdictFile, { force: true });
     } catch {
       /* best effort */
+    }
+
+    // Persist a difficulty tag emitted by this step (typically triage) so later steps
+    // (e.g. code) can gate their model/effort on it.
+    if (verdict.difficulty && store) {
+      store.setDifficulty(job.ref, verdict.difficulty);
+      console.log(`[dispatch] stored difficulty=${verdict.difficulty} for ref ${job.ref}`);
     }
 
     // Changes-loop guard: route `changes` back to its target step (verdict.target, else
@@ -238,10 +276,13 @@ export function createDispatcher(cfg, adapter, children, store) {
       console.error(`[advance] ${step.id} ${job.ref} (${verdict.outcome}) failed:`, e.message);
     }
 
-    // Reset loop counters when the task leaves the loop: a terminal `fail` (off to the
-    // failure lane) or a drained worktree (done). A `hold`/`advance` mid-pipeline keeps
-    // them, so a later `changes` still counts against the cap.
-    if (verdict.outcome === "fail" || drained) store?.clearAttempts(job.ref);
+    // Reset loop counters and difficulty when the task leaves the pipeline: a terminal
+    // `fail` or a drained worktree (done). mid-pipeline hold/advance keeps them so a
+    // later `changes` still counts against the cap and difficulty stays available.
+    if (verdict.outcome === "fail" || drained) {
+      store?.clearAttempts(job.ref);
+      store?.clearDifficulty(job.ref);
+    }
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };
   };
