@@ -161,7 +161,8 @@
  * @property {string} [repository]         GitHub: "owner/name" whose issue labels drive the pipeline
  * @property {string} [owner]              GitHub: repo owner (alternative to repository)
  * @property {string} [repo]               GitHub: repo name (alternative to repository)
- * @property {string} [assigneeLogin]      GitHub: the bot's login — scope work to its issues (else derived from /user)
+ * @property {string} [assigneeLogin]      GitHub / github-projects: the bot's login — scope work to its issues (else derived from /user or GraphQL viewer)
+ * @property {string} [project]            github-projects: the Projects v2 board as "owner/number" or its URL, whose Status field drives the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  */
 
