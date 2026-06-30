@@ -1,0 +1,76 @@
+{
+  "//": "Runnable Asana example. Copy this dir into your project, set ASANA_TOKEN in a .env beside it, fill the YOUR_*/TODO_* placeholders, then `agenthook start`. See ./README.md and docs/asana-setup.md.",
+  "name": "asana-example",
+  "repoPath": "/absolute/path/to/the/repo/agents/work/in",
+  "trigger": "@agent",
+  "maxConcurrent": 2,
+  "port": 4123,
+  "//fullAuto": "false (safe default) = agents prompt for permission. true = --dangerously-skip-permissions: a verified webhook runs UNSANDBOXED code on the host. Opt in only on a trusted host or in a container. See docs/architecture.md#security-posture.",
+  "fullAuto": false,
+  "claudeBin": "claude",
+
+  "tracker": {
+    "type": "asana",
+    "token": "${ASANA_TOKEN}",
+    "//ids": "From `agenthook init` (workspace/project typeahead + /users/me) or filled by hand.",
+    "userGid": "YOUR_ASANA_USER_GID",
+    "workspaceGid": "YOUR_WORKSPACE_GID",
+    "projectGid": "YOUR_PROJECT_GID",
+    "//assigneeFilter": "true (default) = act only on tasks assigned to userGid (fail-closed). false = project-wide.",
+    "assigneeFilter": true,
+
+    "//pipeline": "A task ENTERING a step's sourceSectionGid fires that step. On exit the agent writes a",
+    "//pipeline2": "VERDICT and the receiver moves the task: advance -> successSectionGid (= the next step's",
+    "//pipeline3": "source, so the move triggers it); fail -> failureSectionGid; hold -> holdSectionGid; changes",
+    "//pipeline4": "-> a prior step's source (the rework loop, capped by maxAttempts). List your section gids:",
+    "//pipeline5": "curl -s -H \"Authorization: Bearer $ASANA_TOKEN\" \"https://app.asana.com/api/1.0/projects/<projectGid>/sections?opt_fields=name\"",
+    "pipeline": [
+      {
+        "id": "triage",
+        "kind": "triage",
+        "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
+        "sourceSectionGid": "TODO_AWAITING_TRIAGE_GID",
+        "successSectionGid": "TODO_AGENT_QUEUE_GID",
+        "failureSectionGid": "TODO_BLOCKED_GID",
+        "holdSectionGid": "TODO_NEEDS_ANSWER_GID"
+      },
+      {
+        "id": "code",
+        "kind": "implement",
+        "createsWorktree": true,
+        "maxAttempts": 3,
+        "instructionsFile": "./INSTRUCTIONS_CODE.md",
+        "sourceSectionGid": "TODO_AGENT_QUEUE_GID",
+        "successSectionGid": "TODO_AWAITING_REVIEW_GID",
+        "failureSectionGid": "TODO_BLOCKED_GID",
+        "holdSectionGid": "TODO_NEEDS_ANSWER_GID"
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "model": "claude-opus-4-8",
+        "//changes": "a review `changes` verdict bounces back to the previous step (code) on the same branch/PR",
+        "instructionsFile": "./INSTRUCTIONS_REVIEW.md",
+        "sourceSectionGid": "TODO_AWAITING_REVIEW_GID",
+        "successSectionGid": "TODO_DONE_GID",
+        "failureSectionGid": "TODO_BLOCKED_GID"
+      },
+      {
+        "id": "done",
+        "kind": "done",
+        "//terminal": "manual = no agent runs; entry only fires system actions. drainWorktree removes the receiver-owned worktree the code/review steps shared.",
+        "manual": true,
+        "drainWorktree": true,
+        "sourceSectionGid": "TODO_DONE_GID"
+      }
+    ]
+  },
+
+  "ingress": {
+    "//": "How the receiver is reachable. ngrok (managed tunnel) | manual/hosted (static URL).",
+    "type": "ngrok",
+    "authtoken": "${NGROK_AUTHTOKEN}",
+    "//domain": "optional reserved domain for a stable URL (omit = ephemeral)",
+    "//manual": "For a hosted URL instead: { type: hosted, url: https://hook.you.com }"
+  }
+}
