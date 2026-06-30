@@ -41,6 +41,12 @@ Other agents may run at the same time in the same repo. Do NOT work in the share
 
 - Follow the repository's `CLAUDE.md` rules exactly (tests, layering, lint, etc.).
 - Keep the change scoped to the ticket. Add tests for new code.
+- **Stay out of shared root files** when your ticket lives in a subdirectory. Sibling agents
+  running in parallel will each touch a root file (`.gitignore`, top-level `README.md`, a shared
+  index) and their PRs then collide at merge — a single coordinating PR owns those. If your
+  committed file would be hit by a root ignore rule, prefer a **local** `.gitignore` in your own
+  subdirectory (e.g. `examples/<x>/.gitignore` with `!agenthook.config.json`) over editing the
+  root one.
 
 ## 3. Pre-push checks
 
@@ -50,10 +56,12 @@ Other agents may run at the same time in the same repo. Do NOT work in the share
 
 ## 4. Ship — open the PR, post initial status
 
-- Commit, push the branch, open a **draft** PR (for a change request, push to the EXISTING PR
-  — never open a second one).
+- Commit, push the branch, open a **ready** PR — NOT a draft (a draft can't be merged, so a
+  review-passed item would stall at the merge gate). For a change request, push to the EXISTING
+  PR — never open a second one.
 - **PR description (technical):** what changed and how, branch name, worktree path, test/lint
-  results.
+  results. Include a `Closes #<ref>` line (the tracker item's number) so merging the PR closes
+  the item — that keeps item-state aligned with merge-state instead of closing it early.
 - **Tracker comment (product):** one or two plain sentences on what the change does for the
   user, plus the PR URL. Do NOT start it with the trigger — that marker is for humans.
 

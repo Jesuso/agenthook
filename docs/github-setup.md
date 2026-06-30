@@ -110,6 +110,13 @@ was blocking:
 { "id": "done", "manual": true, "sourceLabel": "agent:done", "closeIssue": true }
 ```
 
+`closeIssue` is **opt-in and meant for the dependency-release case** — turn it on only if you use
+`blocked_by` dependencies and want a finished blocker to auto-release them. Otherwise leave it off:
+the normal flow closes the issue when its **PR merges** (the agent puts `Closes #<issue>` in the PR
+body), which keeps the issue open — work visible — until the change is actually integrated.
+`closeIssue: true` closes the issue the moment it reaches `done`, i.e. while its PR is still open, so
+turn it on only when auto-release is worth that early close.
+
 ## Verify
 
 ```bash
