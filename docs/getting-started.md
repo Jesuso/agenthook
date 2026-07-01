@@ -127,8 +127,11 @@ Extra step fields you'll want to know:
   before it's forced to `fail`, bounding an endless code↔review loop.
 - `model` — pin a step to a specific Claude model (e.g. `"claude-opus-4-8"` for review).
 - `effort` — per-step reasoning effort, passed to `claude -p --effort` (`low` | `medium` | `high`
-  | `xhigh` | `max`). Spend tokens where they matter: `"low"`/`"medium"` for `triage`/`review`,
-  `"high"` for `code`. Omit it to use the CLI default; an invalid value is dropped with a warning.
+  | `xhigh` | `max`). Front-load tokens where errors compound most: `"high"` for `triage` (a bad
+  spec no downstream stage can recover), `"low"` for `code` (a precise spec makes implementation
+  mechanical — escalate to `"high"` only for hard tickets via the `escalate` map), and `"medium"`
+  for `review` (anchored on tests as the oracle). See [Token & cost tracking](usage.md) for
+  per-step cost data. Omit it to use the CLI default; an invalid value is dropped with a warning.
 
 Token usage and cost for each step run are captured automatically — see [Token & cost tracking](usage.md).
 - `kind` — a free label used in prompts/logs (`triage`, `implement`, `review`).
