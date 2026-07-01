@@ -129,6 +129,8 @@ Extra step fields you'll want to know:
 - `effort` — per-step reasoning effort, passed to `claude -p --effort` (`low` | `medium` | `high`
   | `xhigh` | `max`). Spend tokens where they matter: `"low"`/`"medium"` for `triage`/`review`,
   `"high"` for `code`. Omit it to use the CLI default; an invalid value is dropped with a warning.
+
+Token usage and cost for each step run are captured automatically — see [Token & cost tracking](usage.md).
 - `kind` — a free label used in prompts/logs (`triage`, `implement`, `review`).
 
 The fully-commented reference is [`agenthook.config.example.json`](../agenthook.config.example.json).
@@ -210,6 +212,7 @@ rotated. Walk the [troubleshooting guide](troubleshooting.md) — it's symptom-f
 ## Next
 
 - [Asana setup](asana-setup.md) · [Jira setup](jira-setup.md) — token + board specifics
+- [Token & cost tracking](usage.md) — `ah usage`, where records live, surfaced columns
 - [Troubleshooting](troubleshooting.md) — symptom → fix
 - [Architecture](architecture.md) — how the engine works + the honest tradeoffs
 - [Sandbox](sandbox.md) — the blessed way to run `fullAuto` safely
