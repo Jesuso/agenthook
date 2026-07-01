@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-01
+
 ### Added
 
 - **GitHub Issues tracker** (`src/trackers/github.js`). The pipeline runs off issue **labels**
@@ -15,6 +17,26 @@ All notable changes to this project are documented here. The format is based on
   so it works behind an ephemeral ingress. Token: `repo` + `admin:repo_hook` (classic) or Issues +
   Webhooks RW (fine-grained); assignee scoping by the token's `/user` login, fail-closed. Adds
   `docs/github-setup.md` and the first adapter unit tests (`test/github.test.js`).
+- **GitHub Projects v2 tracker** (`src/trackers/github-projects.js`). Steps bind a board's **Status
+  single-select options** (not labels); the API is **GraphQL**. `advance` **sets** the Status
+  (`updateProjectV2ItemFieldValue`) so a card sits in exactly one stage (single-occupancy, no
+  add-before-remove). One **org** `projects_v2_item` webhook (`created`/`edited`) auto-creates when
+  the project is org-owned (needs `admin:org_hook`), else prints manual setup; the fixed URL wants a
+  stable ingress. Adds `docs/github-projects-setup.md`.
+- **Native GitHub issue dependencies** — the GitHub Issues tracker now respects `blocked_by`. An
+  issue with an open blocker **rests unfired** (block gate); closing the last blocker **re-fires**
+  its dependents (close-release). Optional per-step `closeIssue` closes an issue on entry for the
+  dependency-release case.
+- **Per-step `model` and `effort`**, passed to `claude -p` (`--model` / `--effort`), so each
+  pipeline step can run at its own capability tier. Plus **difficulty-gated escalation**: a triage
+  step emits a `difficulty` in its verdict, persisted per task, and a downstream step's `escalate`
+  map (`easy`/`medium`/`hard` → `{model, effort}`) sizes the agent up **only** for hard tickets —
+  cheap-by-default implementation, strong model when it's warranted.
+- **Token & cost tracking.** Every `claude -p` run is spawned with `--output-format stream-json`
+  and its `result` event captured to an append-only `usage.jsonl` (`UsageRecord`: per-run tokens,
+  cache read/create, model, cost, session). Surfaced by a new **`ah usage`** command (per-run table,
+  `--ref`, `--day`/`--week` rollups) and token/cost columns on **`ah agents`** (live tally),
+  **`ah status`**, and **`ah ls`**. Adds `docs/usage.md`.
 - Contributor on-ramps: GitHub Discussions (Q&A + Ideas), `.github/SUPPORT.md`, a "Ways to
   contribute" section in `CONTRIBUTING.md`, a "Contributing & community" section in the README, a
   Sponsor button (`.github/FUNDING.yml`), and an `.editorconfig`.
@@ -79,7 +101,8 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Jesuso/agenthook/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Jesuso/agenthook/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Jesuso/agenthook/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Jesuso/agenthook/releases/tag/v0.1.0
