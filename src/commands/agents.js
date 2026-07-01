@@ -15,6 +15,38 @@ import { listProfiles } from "../heartbeat.js";
 
 /** @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
 
+/** Read a profile's usage.jsonl; return last record per ref (keyed by ref string).
+ * @param {string} dir @returns {Record<string, {input:number, output:number, costUsd?:number}>} */
+function readLastUsage(dir) {
+  /** @type {Record<string, {input:number, output:number, costUsd?:number}>} */
+  const out = {};
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(dir, "usage.jsonl"), "utf8");
+  } catch {
+    return out;
+  }
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const rec = JSON.parse(t);
+      if (rec && rec.ref != null) out[String(rec.ref)] = rec;
+    } catch { /* ignore garbage lines */ }
+  }
+  return out;
+}
+
+/** Format token counts + optional cost into the column string.
+ * @param {number|undefined} input @param {number|undefined} output @param {number|undefined} costUsd
+ * @returns {string} */
+export function fmtTok(input, output, costUsd) {
+  if (input == null && output == null) return "-";
+  const k = (n = 0) => `${Math.round(n / 1000)}k`;
+  const cost = typeof costUsd === "number" ? ` $${costUsd.toFixed(4)}` : "";
+  return `${k(input)}/${k(output)}${cost}`;
+}
+
 // The `claude` bin must START the command (path-anchored), not appear mid-line: a
 // loose substring counts any process whose argv merely MENTIONS "claude -p" (a shell
 // grepping for it, an echo, …). `cfg.claudeBin` defaults to "claude", so the receiver's
@@ -72,32 +104,49 @@ function readRunning(dir) {
   }
 }
 
+/** Build a profile record with running + lastUsage for token display.
+ * @param {string} name @param {string} dir
+ * @returns {{ name: string, running: Record<string, any>, lastUsage: Record<string, any> }} */
+function readProfile(name, dir) {
+  return { name, running: readRunning(dir), lastUsage: readLastUsage(dir) };
+}
+
 /** @param {any} [args] */
 export async function agents(args = {}) {
   const ps = spawnSync("ps", ["-eo", "pid=,etime=,args=", "-ww"], { encoding: "utf8" });
   if (ps.status !== 0) throw new Error(`ps failed: ${ps.stderr || ps.error?.message || "unknown"}`);
 
   const all = !!args.all;
-  /** @type {{ name: string, running: Record<string, any> }[]} */
+  /** @type {{ name: string, running: Record<string, any>, lastUsage: Record<string, any> }[]} */
   let profiles;
   /** @type {string|null} */
   let active = null;
   let scope;
   if (all) {
     // Global view needs no config: read every profile's state dir directly.
-    profiles = listProfiles().map((p) => ({ name: p.name, running: readRunning(p.dir) }));
+    profiles = listProfiles().map((p) => readProfile(p.name, p.dir));
     scope = "all profiles";
   } else {
     const cfg = loadConfig({ configPath: args.config });
     active = cfg.name;
-    profiles = [{ name: cfg.name, running: readRunning(cfg.dataDir) }];
+    profiles = [readProfile(cfg.name, cfg.dataDir)];
     scope = cfg.name;
   }
+
+  /** @type {Map<string, { name: string, running: Record<string, any>, lastUsage: Record<string, any> }>} */
+  const profileMap = new Map(profiles.map((p) => [p.name, p]));
 
   const rows = selectAgents(ps.stdout, profiles, { all, active });
   for (const r of rows) {
     const owner = all ? `profile=${r.profile.padEnd(18)} ` : "";
-    console.log(`pid=${r.pid.padEnd(7)} ${r.etime.padEnd(11)} ${owner}step=${r.step.padEnd(10)} ref=${r.ref}`);
+    const prof = profileMap.get(r.profile);
+    const runInfo = prof?.running?.[r.ref];
+    // Live tally if the stream has started producing tokens; fall back to last completed run.
+    const tok =
+      runInfo && typeof runInfo.input === "number"
+        ? fmtTok(runInfo.input, runInfo.output, undefined)
+        : fmtTok(prof?.lastUsage?.[r.ref]?.input, prof?.lastUsage?.[r.ref]?.output, prof?.lastUsage?.[r.ref]?.costUsd);
+    console.log(`pid=${r.pid.padEnd(7)} ${r.etime.padEnd(11)} ${owner}step=${r.step.padEnd(10)} ref=${r.ref.padEnd(12)} tok=${tok}`);
   }
   console.log(`── ${rows.length} agent(s) running ── (${scope})`);
 }
