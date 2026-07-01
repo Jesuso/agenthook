@@ -81,6 +81,18 @@ test("fmtTok: with cost appends dollar amount", () => {
   assert.equal(fmtTok(100000, 5000, 0.0312), "100k/5k $0.0312");
 });
 
-test("fmtTok: zero tokens formats as 0k", () => {
-  assert.equal(fmtTok(0, 0, undefined), "0k/0k");
+test("fmtTok: zero tokens formats as raw 0/0", () => {
+  assert.equal(fmtTok(0, 0, undefined), "0/0");
+});
+
+test("fmtTok: sub-1000 tokens show raw count, not 0k", () => {
+  assert.equal(fmtTok(2, 377, undefined), "2/377");
+});
+
+test("fmtTok: exactly 1000 rounds to 1k", () => {
+  assert.equal(fmtTok(1000, 1000, undefined), "1k/1k");
+});
+
+test("fmtTok: mixed sub-1k and over-1k", () => {
+  assert.equal(fmtTok(500, 2500, undefined), "500/3k");
 });
