@@ -67,11 +67,32 @@
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
+ * The `input`/`output` live-tally fields grow during a run (throttled writes) and
+ * clear with the record on exit; live displays (`ah agents`) read them.
  * @typedef {object} RunningInfo
  * @property {string} stepId
  * @property {number} [pid]
  * @property {string} startedAt
  * @property {string} [worktree]
+ * @property {number} [input]   live input-token tally so far (estimate; final in UsageRecord)
+ * @property {number} [output]  live output-token tally so far (estimate; final in UsageRecord)
+ */
+
+/** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals
+ * come from `claude -p`'s stream-json `result` event (`usage` + `total_cost_usd`).
+ * @typedef {object} UsageRecord
+ * @property {string} ref
+ * @property {string} stepId
+ * @property {string} [model]      model that ran (step `--model`, else the `modelUsage` key)
+ * @property {string} startedAt    ISO timestamp the run was spawned
+ * @property {string} endedAt      ISO timestamp the run exited
+ * @property {number} [durationMs] `result.duration_ms` if present
+ * @property {number} input        usage.input_tokens
+ * @property {number} output       usage.output_tokens
+ * @property {number} cacheRead    usage.cache_read_input_tokens
+ * @property {number} cacheCreate  usage.cache_creation_input_tokens
+ * @property {number} [costUsd]    result.total_cost_usd
+ * @property {string} [sessionId]  result.session_id
  */
 
 /**
@@ -248,6 +269,8 @@
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
  * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
+ * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
+ * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
  */
 
 export {};

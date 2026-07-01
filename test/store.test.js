@@ -51,6 +51,29 @@ test("running jobs set/list/clear by ref (crash-recovery state)", () => {
   assert.deepEqual(Object.keys(s.listRunning()), ["T2"]);
 });
 
+test("recordUsage appends and readUsage round-trips records (newest-last)", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.deepEqual(s.readUsage(), [], "no file yet -> empty list");
+  const r1 = { ref: "1", stepId: "code", input: 100, output: 20, costUsd: 0.03 };
+  const r2 = { ref: "2", stepId: "review", input: 50, output: 10, costUsd: 0.01 };
+  s.recordUsage(r1);
+  s.recordUsage(r2);
+  assert.deepEqual(s.readUsage(), [r1, r2]);
+  // a fresh store over the same dir reads the appended log
+  assert.deepEqual(createStore(dir).readUsage(), [r1, r2]);
+});
+
+test("readUsage tolerates a trailing/garbage line", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  const rec = { ref: "1", stepId: "code", input: 1, output: 2 };
+  s.recordUsage(rec);
+  // simulate a partial/torn append (e.g. crash mid-write)
+  fs.appendFileSync(path.join(dir, "usage.jsonl"), '{"ref":"2","stepId":"rev');
+  assert.deepEqual(s.readUsage(), [rec], "garbage line skipped, good record kept");
+});
+
 test("attempt counters bump/get/clear per (ref,step) — the changes-loop cap", () => {
   const dir = tmpDir();
   const s = createStore(dir);
