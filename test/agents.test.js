@@ -3,7 +3,7 @@
 // asserting the default scope-to-active filter and the --all cross-profile view.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePsAgents, selectAgents } from "../src/commands/agents.js";
+import { parsePsAgents, selectAgents, fmtTok } from "../src/commands/agents.js";
 
 // Three `claude -p` agents (a dogfood GitHub issue, an Asana task, an orphan whose
 // ref is in no running.json) plus a non-agent process that must be ignored.
@@ -66,4 +66,21 @@ test("attribution prefers pid over ref when a ref collides across profiles", () 
   const other = { name: "other", running: { "6": { stepId: "code", pid: 55555 } } };
   const rows = selectAgents(PS, [other, DOGFOOD], { all: true });
   assert.equal(rows.find((r) => r.pid === "12345")?.profile, "agenthook-dogfood");
+});
+
+// --- fmtTok ---
+test("fmtTok: no token data returns dash", () => {
+  assert.equal(fmtTok(undefined, undefined, undefined), "-");
+});
+
+test("fmtTok: live tally (no cost) formats in/out in k", () => {
+  assert.equal(fmtTok(42000, 12000, undefined), "42k/12k");
+});
+
+test("fmtTok: with cost appends dollar amount", () => {
+  assert.equal(fmtTok(100000, 5000, 0.0312), "100k/5k $0.0312");
+});
+
+test("fmtTok: zero tokens formats as 0k", () => {
+  assert.equal(fmtTok(0, 0, undefined), "0k/0k");
 });
