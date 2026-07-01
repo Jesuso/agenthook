@@ -193,11 +193,16 @@ agenthook reconcile               # re-fire every item resting in a source stage
 Each run is a plain `claude -p` OS process working in its own git worktree.
 
 ```bash
-agenthook agents                  # list running agent processes (pid, runtime, ref)
+agenthook agents                  # list running agents (pid, runtime, ref, live token tally)
 agenthook follow [session-id]     # tail a live agent read-only (no second process)
+agenthook usage                   # per-run token & cost table (--ref <n>, --day, --week)
 agenthook cleanup                 # dry run: which worktrees are done and safe to remove
 agenthook cleanup --apply         #   remove them (add --force for dirty ones)
 ```
+
+Every `claude -p` run's token counts and cost are captured to `usage.jsonl` and surfaced by
+`agenthook usage` (with `--day`/`--week` rollups) plus token/cost columns on `agents`, `status`,
+and `ls`. See [Token & cost tracking](docs/usage.md).
 
 Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
 does, and only once the PR is merged/closed or the tracker item is completed.
