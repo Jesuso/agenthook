@@ -42,7 +42,7 @@ function readLastUsage(dir) {
  * @returns {string} */
 export function fmtTok(input, output, costUsd) {
   if (input == null && output == null) return "-";
-  const k = (n = 0) => `${Math.round(n / 1000)}k`;
+  const k = (n = 0) => n < 1000 ? `${n}` : `${Math.round(n / 1000)}k`;
   const cost = typeof costUsd === "number" ? ` $${costUsd.toFixed(4)}` : "";
   return `${k(input)}/${k(output)}${cost}`;
 }
