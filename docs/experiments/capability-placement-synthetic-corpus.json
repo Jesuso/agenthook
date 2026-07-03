@@ -1,0 +1,155 @@
+{
+  "name": "capability-placement-sweep-synthetic",
+  "issue": 54,
+  "repo": "Jesuso/agenthook",
+  "note": "SYNTHETIC corpus for #54. 20 fresh, confirmed-unimplemented tasks (verified absent from master at freeze) graded easy/medium/hard. Chosen over closed-ticket replay because replaying shipped tickets against current master is base-contaminated (the solution already exists \u2192 accept-rate uninformative). Tradeoff: no known-good shipped reference; accept-rate is judged on the replayed PR (tests pass + human).",
+  "distribution": {
+    "easy": 7,
+    "medium": 8,
+    "hard": 5,
+    "total": 20
+  },
+  "inject": "File each as an issue, assignee=Jesuso, label=agent:triage (fail-closed: no assignee OR no source label = no fire). Set the config tiering BEFORE injecting each config run.",
+  "tasks": [
+    {
+      "id": "E1",
+      "difficulty": "easy",
+      "title": "doctor: warn when maxConcurrent is unset or < 1",
+      "why": "One validation branch + message in doctor.js.",
+      "body": "## Goal\n`doctor` should flag a `queue.maxConcurrent` that is missing or `< 1` (would stall the queue).\n\n## Acceptance\n- With `maxConcurrent` unset or `<1`, `doctor` prints a WARN line naming the field and the effective default.\n- With a valid value, no new output.\n- Covered by a unit test."
+    },
+    {
+      "id": "E2",
+      "difficulty": "easy",
+      "title": "cleanup: report total disk reclaimed",
+      "why": "Sum sizes + one summary line; localized to cleanup.js.",
+      "body": "## Goal\nAfter `cleanup --apply`, print how much disk the removed worktrees reclaimed.\n\n## Acceptance\n- Summary line like `reclaimed 42.3 MB across 3 worktrees`.\n- `--apply` absent (dry) prints the would-reclaim total instead.\n- No change to what gets removed."
+    },
+    {
+      "id": "E3",
+      "difficulty": "easy",
+      "title": "ah usage: --since <duration> window filter",
+      "why": "New flag parsed to a cutoff; filter the usage rows.",
+      "body": "## Goal\n`ah usage --since 24h` (also `7d`, `90m`) limits the summary to runs newer than the cutoff.\n\n## Acceptance\n- Accepts `Nh`/`Nd`/`Nm`; rejects garbage with a clear error.\n- Rows older than the cutoff are excluded from totals.\n- Composes with existing `--day`/`--week`."
+    },
+    {
+      "id": "E4",
+      "difficulty": "easy",
+      "title": "reconcile: --dry-run lists without dispatching",
+      "why": "Guard the dispatch call behind a flag; print the plan.",
+      "body": "## Goal\n`reconcile --dry-run` prints the tasks it WOULD replay (ref + step) and dispatches nothing.\n\n## Acceptance\n- No `claude -p` spawned, no board writes under `--dry-run`.\n- Output lists each resting task and its target step.\n- Normal `reconcile` unchanged."
+    },
+    {
+      "id": "E5",
+      "difficulty": "easy",
+      "title": "config: ${VAR:-default} fallback in interpolation",
+      "why": "Extend the ${VAR} regex/replacer in config.js.",
+      "body": "## Goal\nConfig interpolation should support `${VAR:-default}` \u2014 use `default` when `VAR` is unset/empty.\n\n## Acceptance\n- `${PORT:-4123}` yields `4123` when `PORT` unset, else `$PORT`.\n- Plain `${VAR}` behavior unchanged (still errors/blank per current rule).\n- Unit test over the interpolation function."
+    },
+    {
+      "id": "E6",
+      "difficulty": "easy",
+      "title": "follow: --lines N controls initial tail size",
+      "why": "Add a flag; pass N to the initial read.",
+      "body": "## Goal\n`follow --lines 200` sets how many trailing lines print before live-tailing (current fixed default stays the default).\n\n## Acceptance\n- `--lines N` respected; non-numeric \u2192 clear error.\n- Live tail after the initial dump is unchanged."
+    },
+    {
+      "id": "E7",
+      "difficulty": "easy",
+      "title": "catchup: accept multiple refs in one call",
+      "why": "Loop the existing single-ref path over argv.",
+      "body": "## Goal\n`catchup <refA> <refB> ...` replays several refs in one invocation.\n\n## Acceptance\n- Each ref runs the existing single-ref logic; a bad ref is reported and skipped, others proceed.\n- Exit non-zero only if every ref failed.\n- Single-ref behavior identical to today."
+    },
+    {
+      "id": "M1",
+      "difficulty": "medium",
+      "title": "ah logs <ref>: print per-run log paths for a ref",
+      "why": "New command reusing sessions.js run-log correlation.",
+      "body": "## Goal\n`ah logs <ref>` prints the per-run log file path(s) for a task ref, most-recent last.\n\n## Acceptance\n- Resolves the ref via the same mapping `resume`/`follow` use.\n- One path per line; `--json` optional.\n- Unknown ref \u2192 clear error, non-zero exit."
+    },
+    {
+      "id": "M2",
+      "difficulty": "medium",
+      "title": "status: per-step success/fail/changes counts",
+      "why": "Aggregate the per-run logs by step; render a small table.",
+      "body": "## Goal\n`status` gains a per-step outcome tally (success / fail / changes) derived from the run logs.\n\n## Acceptance\n- Counts come from actual run-log verdicts, not guesses.\n- Renders under the existing status output; empty history \u2192 zeros, no crash.\n- Aggregation covered by a unit test with fixture logs."
+    },
+    {
+      "id": "M3",
+      "difficulty": "medium",
+      "title": "dispatch: per-step maxRuntime timeout kills hung claude -p",
+      "why": "Timer around the spawn; SIGTERM then SIGKILL; verdict=fail.",
+      "body": "## Goal\nAdd an optional per-step `maxRuntime` (seconds). A `claude -p` exceeding it is terminated and the run resolved as `fail`.\n\n## Acceptance\n- Timeout \u2192 SIGTERM, escalate to SIGKILL after a grace window; run recorded `fail` with a timeout reason.\n- Unset `maxRuntime` = no timeout (today's behavior).\n- The kill path does not leak the child or its worktree lock."
+    },
+    {
+      "id": "M4",
+      "difficulty": "medium",
+      "title": "trackers: retry advance with bounded backoff on transient 5xx",
+      "why": "Wrap the advance HTTP call in a small retry helper.",
+      "body": "## Goal\n`advance` should retry on transient 5xx / network errors with bounded exponential backoff instead of failing the move immediately.\n\n## Acceptance\n- Max N attempts, capped backoff, jitter; 4xx is NOT retried.\n- Exhausted retries \u2192 the same failure surface as today.\n- Helper unit-tested with a fake failing-then-succeeding call."
+    },
+    {
+      "id": "M5",
+      "difficulty": "medium",
+      "title": "emit structured events.jsonl audit log per profile",
+      "why": "Append-only JSONL on enqueue/dispatch/advance/fail.",
+      "body": "## Goal\nWrite one JSON line per lifecycle event (enqueue, dispatch, advance, fail) to `events.jsonl` in the profile state dir.\n\n## Acceptance\n- Each line: `{ts, event, ref, step, ...}`; append-only, never rewritten.\n- Failure to write the log never breaks the pipeline (best-effort).\n- Documented field set."
+    },
+    {
+      "id": "M6",
+      "difficulty": "medium",
+      "title": "reconcile: --step <id> replays only one step by id",
+      "why": "Filter listResting output by step before dispatch.",
+      "body": "## Goal\n`reconcile --step code` replays only tasks resting in that step's source stage.\n\n## Acceptance\n- Unknown step id \u2192 clear error listing valid ids.\n- Without `--step`, behavior unchanged.\n- Composes with `--dry-run` (E4) if present."
+    },
+    {
+      "id": "M7",
+      "difficulty": "medium",
+      "title": "agents: elapsed-runtime column per claude -p",
+      "why": "Derive start time from proc/logs; render a duration column.",
+      "body": "## Goal\n`ah agents` shows how long each running `claude -p` has been alive.\n\n## Acceptance\n- Human duration (e.g. `3m12s`) per row, sorted stable with existing columns.\n- No new false-positive process matches (respect the existing match tightening).\n- Degrades gracefully when start time is unknown."
+    },
+    {
+      "id": "M8",
+      "difficulty": "medium",
+      "title": "stop: --drain lets in-flight runs finish before exit",
+      "why": "Stop intake, await queue idle, then shut down.",
+      "body": "## Goal\n`stop --drain` stops accepting new webhook events but waits for active runs to finish before terminating (bounded by an optional timeout).\n\n## Acceptance\n- No new jobs dispatched after `--drain` begins.\n- Exits once the queue is idle or the timeout elapses (then force-stop, logged).\n- Plain `stop` behavior unchanged."
+    },
+    {
+      "id": "H1",
+      "difficulty": "hard",
+      "title": "Slack notifier: POST to a webhook on run start/finish/fail",
+      "why": "New optional, config-gated side-channel wired into dispatch.",
+      "body": "## Goal\nAn optional Slack notifier posts to a configured incoming-webhook URL on run start, success, and failure.\n\n## Acceptance\n- Config-gated (absent config = feature off, zero behavior change).\n- Non-blocking + best-effort: a Slack failure never affects the pipeline outcome.\n- Message includes ref, step, outcome, and a link/id. Documented config key."
+    },
+    {
+      "id": "H2",
+      "difficulty": "hard",
+      "title": "Linear tracker adapter",
+      "why": "Full new adapter mirroring the asana.js interface.",
+      "body": "## Goal\nAdd a `linear` tracker adapter implementing the full adapter contract (see the asana.js header doc-comment): describe, authenticate, processEvents, fetchTask, advance, listResting, registerWebhook, unregisterWebhooks, forgeCatchup, and wizardSteps.\n\n## Acceptance\n- Registered in `src/trackers/index.js` under `type: \"linear\"`.\n- Steps bind Linear workflow states; `advance` moves an issue between states.\n- Passes `npm run typecheck`; contract-style tests mirror `test/github.test.js`.\n- Setup doc under `docs/`."
+    },
+    {
+      "id": "H3",
+      "difficulty": "hard",
+      "title": "config hot-reload on SIGHUP (no in-flight drop)",
+      "why": "Re-read pipeline on signal; swap config without losing running jobs.",
+      "body": "## Goal\nOn `SIGHUP`, the running server re-reads its config (pipeline steps, tiering) and applies it to NEW jobs without dropping in-flight runs.\n\n## Acceptance\n- In-flight jobs keep the config they started with; new jobs use the reloaded config.\n- Invalid reloaded config is rejected and the old config stays live (logged).\n- No listener/webhook churn on reload."
+    },
+    {
+      "id": "H4",
+      "difficulty": "hard",
+      "title": "read-only web status page at GET /status",
+      "why": "New server route rendering heartbeat + queue as HTML.",
+      "body": "## Goal\nServe a read-only HTML status page at `GET /status`: profile, url, queue depth, active agents, recent runs \u2014 from the existing heartbeat/state.\n\n## Acceptance\n- GET only; no state mutation; safe to expose read-only.\n- Does not interfere with webhook POST routing or the fast-ACK path.\n- Renders with zero in-flight runs (empty state) without error."
+    },
+    {
+      "id": "H5",
+      "difficulty": "hard",
+      "title": "auto model-escalation on changes-loop exhaustion",
+      "why": "Extend #53 semantics: escalate a tier before final fail.",
+      "body": "## Goal\nWhen a `(ref,step)` hits `maxAttempts` on the `changes` loop, retry ONCE at the next model/effort tier before resolving `fail`.\n\n## Acceptance\n- The escalated retry is recorded distinctly in attempts/usage (not an infinite loop).\n- No escalation configured / no higher tier available \u2192 today's fail behavior.\n- The per-`(ref,step)` cap still bounds total work."
+    }
+  ]
+}
