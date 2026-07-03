@@ -36,12 +36,13 @@ import { reconcile } from "../src/commands/reconcile.js";
 import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
 import { usage } from "../src/commands/usage.js";
+import { events } from "../src/commands/events.js";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event"]);
 
 /** @param {string[]} argv */
 function parse(argv) {
@@ -71,7 +72,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -94,6 +95,7 @@ usage: agenthook <command> [args] [--config <path>]
   doctor                    preflight checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
+  events [--follow] [--event <types>] [--ref <r>] [--json]  read/tail the event bus
   --version, -v             print the installed version
 `;
 
