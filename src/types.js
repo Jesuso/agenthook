@@ -74,8 +74,10 @@
  * @property {number} [pid]
  * @property {string} startedAt
  * @property {string} [worktree]
- * @property {number} [input]   live input-token tally so far (estimate; final in UsageRecord)
- * @property {number} [output]  live output-token tally so far (estimate; final in UsageRecord)
+ * @property {number} [input]       live input-token tally so far (estimate; final in UsageRecord)
+ * @property {number} [output]      live output-token tally so far (estimate; final in UsageRecord)
+ * @property {number} [cacheRead]   live cache-read token tally (estimate; final in UsageRecord)
+ * @property {number} [cacheCreate] live cache-creation token tally (estimate; final in UsageRecord)
  */
 
 /** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals

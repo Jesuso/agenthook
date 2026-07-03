@@ -16,9 +16,9 @@ import { listProfiles } from "../heartbeat.js";
 /** @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
 
 /** Read a profile's usage.jsonl; return last record per ref (keyed by ref string).
- * @param {string} dir @returns {Record<string, {input:number, output:number, costUsd?:number}>} */
+ * @param {string} dir @returns {Record<string, {input:number, output:number, cacheRead?:number, cacheCreate?:number, costUsd?:number}>} */
 function readLastUsage(dir) {
-  /** @type {Record<string, {input:number, output:number, costUsd?:number}>} */
+  /** @type {Record<string, {input:number, output:number, cacheRead?:number, cacheCreate?:number, costUsd?:number}>} */
   const out = {};
   let raw;
   try {
@@ -45,6 +45,23 @@ export function fmtTok(input, output, costUsd) {
   const k = (n = 0) => n < 1000 ? `${n}` : `${Math.round(n / 1000)}k`;
   const cost = typeof costUsd === "number" ? ` $${costUsd.toFixed(4)}` : "";
   return `${k(input)}/${k(output)}${cost}`;
+}
+
+/** Format the live context size (input + cacheRead + cacheCreate) and output for `ah agents`.
+ * Shows the total tokens the model actually saw, so cache-heavy runs read ~1.5M not ~1.
+ * @param {number|undefined} input @param {number|undefined} cacheRead @param {number|undefined} cacheCreate
+ * @param {number|undefined} output @param {number|undefined} costUsd
+ * @returns {string} */
+export function fmtCtx(input, cacheRead, cacheCreate, output, costUsd) {
+  if (input == null && cacheRead == null && cacheCreate == null && output == null) return "-";
+  const total = (input || 0) + (cacheRead || 0) + (cacheCreate || 0);
+  const fmt = (n = 0) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return `${n}`;
+  };
+  const cost = typeof costUsd === "number" ? ` $${costUsd.toFixed(4)}` : "";
+  return `ctx=${fmt(total)} out=${fmt(output)}${cost}`;
 }
 
 // The `claude` bin must START the command (path-anchored), not appear mid-line: a
@@ -141,12 +158,13 @@ export async function agents(args = {}) {
     const owner = all ? `profile=${r.profile.padEnd(18)} ` : "";
     const prof = profileMap.get(r.profile);
     const runInfo = prof?.running?.[r.ref];
+    const last = prof?.lastUsage?.[r.ref];
     // Live tally if the stream has started producing tokens; fall back to last completed run.
     const tok =
       runInfo && typeof runInfo.input === "number"
-        ? fmtTok(runInfo.input, runInfo.output, undefined)
-        : fmtTok(prof?.lastUsage?.[r.ref]?.input, prof?.lastUsage?.[r.ref]?.output, prof?.lastUsage?.[r.ref]?.costUsd);
-    console.log(`pid=${r.pid.padEnd(7)} ${r.etime.padEnd(11)} ${owner}step=${r.step.padEnd(10)} ref=${r.ref.padEnd(12)} tok=${tok}`);
+        ? fmtCtx(runInfo.input, runInfo.cacheRead, runInfo.cacheCreate, runInfo.output, undefined)
+        : fmtCtx(last?.input, last?.cacheRead, last?.cacheCreate, last?.output, last?.costUsd);
+    console.log(`pid=${r.pid.padEnd(7)} ${r.etime.padEnd(11)} ${owner}step=${r.step.padEnd(10)} ref=${r.ref.padEnd(12)} ${tok}`);
   }
   console.log(`── ${rows.length} agent(s) running ── (${scope})`);
 }

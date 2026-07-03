@@ -86,18 +86,18 @@ test("createStreamParser: renders assistant text only (no raw JSON), captures re
   assert.equal(log, "Looking at the code.\nDone.\n", "only text blocks, no tool_use or raw JSON");
   assert.ok(p.result, "result event captured");
   assert.equal(p.result.session_id, "sess-1");
-  // final tally mirrors result.usage (output replaced, not summed)
-  assert.deepEqual(p.tally, { input: 250, output: 20 });
+  // final tally mirrors result.usage (output replaced, not summed); cache fields from result event
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30 });
 });
 
 test("createStreamParser: tally grows across assistant events before the result", () => {
   const p = createStreamParser();
   p.push(fixtureLines[0] + "\n");
-  assert.deepEqual(p.tally, { input: 0, output: 0 });
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
   p.push(fixtureLines[1] + "\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0 });
   p.push(fixtureLines[2] + "\n"); // output sums (12+8), input tracks latest turn
-  assert.deepEqual(p.tally, { input: 250, output: 20 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 0, cacheCreate: 0 });
 });
 
 test("createStreamParser: tolerates lines split across chunk boundaries", () => {
@@ -107,7 +107,7 @@ test("createStreamParser: tolerates lines split across chunk boundaries", () => 
   let log = "";
   for (const ch of whole) log += p.push(ch);
   assert.equal(log, "Looking at the code.\nDone.\n");
-  assert.deepEqual(p.tally, { input: 250, output: 20 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30 });
   assert.equal(p.result.total_cost_usd, 0.0321);
 });
 
@@ -118,16 +118,38 @@ test("createStreamParser: skips non-JSON lines without crashing", () => {
   log += p.push(fixtureLines[1] + "\n");
   log += p.push("{ broken json\n");
   assert.equal(log, "Looking at the code.\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0 });
 });
 
 test("createStreamParser: flush() processes a final line with no trailing newline", () => {
   const p = createStreamParser();
   p.push(fixtureLines[1]); // no newline — stays buffered
-  assert.deepEqual(p.tally, { input: 0, output: 0 }, "unterminated line not parsed yet");
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 }, "unterminated line not parsed yet");
   const tail = p.flush();
   assert.equal(tail, "Looking at the code.\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0 });
+});
+
+test("createStreamParser: cache_read/cache_creation tokens captured in tally from result event", () => {
+  const p = createStreamParser();
+  for (const l of fixtureLines) p.push(l + "\n");
+  // result event has cache_read=1000, cache_creation=30 → tally reflects them
+  assert.equal(p.tally.cacheRead, 1000);
+  assert.equal(p.tally.cacheCreate, 30);
+});
+
+test("createStreamParser: cache tokens from assistant event tracked live before result", () => {
+  const cacheAssistant = JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [{ type: "text", text: "Hi." }],
+      usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 500000, cache_creation_input_tokens: 20000 },
+    },
+  });
+  const p = createStreamParser();
+  p.push(cacheAssistant + "\n");
+  assert.equal(p.tally.cacheRead, 500000);
+  assert.equal(p.tally.cacheCreate, 20000);
 });
 
 test("buildUsageRecord: extracts totals/cost/session from the result event", () => {

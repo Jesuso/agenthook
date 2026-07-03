@@ -3,7 +3,7 @@
 // asserting the default scope-to-active filter and the --all cross-profile view.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePsAgents, selectAgents, fmtTok } from "../src/commands/agents.js";
+import { parsePsAgents, selectAgents, fmtTok, fmtCtx } from "../src/commands/agents.js";
 
 // Three `claude -p` agents (a dogfood GitHub issue, an Asana task, an orphan whose
 // ref is in no running.json) plus a non-agent process that must be ignored.
@@ -95,4 +95,26 @@ test("fmtTok: exactly 1000 rounds to 1k", () => {
 
 test("fmtTok: mixed sub-1k and over-1k", () => {
   assert.equal(fmtTok(500, 2500, undefined), "500/3k");
+});
+
+// --- fmtCtx ---
+test("fmtCtx: all undefined returns dash", () => {
+  assert.equal(fmtCtx(undefined, undefined, undefined, undefined, undefined), "-");
+});
+
+test("fmtCtx: no cache, small input/output shows raw counts", () => {
+  assert.equal(fmtCtx(28, 0, 0, 500, undefined), "ctx=28 out=500");
+});
+
+test("fmtCtx: cache-heavy run sums to M range", () => {
+  // Real numbers from issue: input=28, cacheRead=1360436, cacheCreate=44714, output=8667
+  assert.equal(fmtCtx(28, 1360436, 44714, 8667, undefined), "ctx=1.4M out=8.7k");
+});
+
+test("fmtCtx: with cost appends dollar amount", () => {
+  assert.equal(fmtCtx(100, 0, 0, 5000, 0.0312), "ctx=100 out=5.0k $0.0312");
+});
+
+test("fmtCtx: k formatting for sub-million context", () => {
+  assert.equal(fmtCtx(0, 50000, 0, 2000, undefined), "ctx=50.0k out=2.0k");
 });

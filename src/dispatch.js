@@ -48,11 +48,11 @@ export function buildClaudeArgs({ prompt, model, effort, fullAuto }) {
  * non-JSON lines ignored — never throws), keeps a running token tally, and captures
  * the final `{type:"result"}` event. Pure (no I/O), stateful — feed chunks via push(),
  * flush() any tail at EOF, then read `.tally` / `.result`. Exported for unit tests.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number}, result:any}}
+ * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number}, result:any}}
  */
 export function createStreamParser() {
   let buf = "";
-  const tally = { input: 0, output: 0 };
+  const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   /** @type {any} */
   let result = null;
 
@@ -63,9 +63,11 @@ export function createStreamParser() {
       const u = ev.message.usage;
       if (u && typeof u === "object") {
         // Live estimate only (final record comes from the `result` event): sum output
-        // across turns so the tally grows; track input as the latest turn's context size.
+        // across turns so the tally grows; track input/cache as the latest turn's values.
         if (typeof u.output_tokens === "number") tally.output += u.output_tokens;
         if (typeof u.input_tokens === "number") tally.input = u.input_tokens;
+        if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
+        if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
       }
       const content = ev.message.content;
       let text = "";
@@ -82,6 +84,8 @@ export function createStreamParser() {
       if (u && typeof u === "object") {
         if (typeof u.input_tokens === "number") tally.input = u.input_tokens;
         if (typeof u.output_tokens === "number") tally.output = u.output_tokens;
+        if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
+        if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
       }
       return "";
     }
@@ -206,7 +210,7 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
    * assistant text to the log and accumulates the token tally + final `result` event;
    * stderr is piped raw. `onTally` fires when the running token count changes (i.e. per
    * assistant/result event, NOT per token) so the live record isn't rewritten per token.
-   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, verdictFile?: string, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number}) => void}} o
+   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, verdictFile?: string, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any}>}
    */
   function spawnClaude({ prompt, cwd, logPath, model, effort, verdictFile, onPid, onTally }) {
@@ -367,7 +371,7 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
         store?.setRunning(job.ref, { ...baseRunning, pid });
       },
       // Live token tally onto the running record (throttled — per assistant/result event).
-      onTally: (t) => store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output }),
+      onTally: (t) => store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate }),
     });
     store?.clearRunning(job.ref);
 
