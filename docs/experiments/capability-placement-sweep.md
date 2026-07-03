@@ -68,7 +68,37 @@ corpus (`capability-placement-corpus.json`) is retained for a future per-ticket-
 Each carries an issue-ready `body` (goal + acceptance criteria). Because nothing pre-exists in the
 repo, every config faces a real, unsolved problem — so accept-rate discriminates.
 
-## Running a config (synthetic corpus)
+## Running it offline (recommended — no GitHub, no PRs)
+
+Replaying 80 runs against the live repo would open ~80 throwaway PRs. Instead, run the corpus through
+the **real** engine/dispatcher/queue with the **`local` tracker** (`src/trackers/local.js`): the board
+is a JSON file, there are no webhooks, and `describe().usesPR === false` makes the prompt builders drop
+all PR language — the code step's worktree **diff** is the deliverable and review reads it with
+`git diff`, never `gh pr`. Real `claude -p`, real tokens/cost/accept; **zero** external side effects.
+
+The driver `docs/experiments/run-sweep.mjs` builds a `local` profile per config, seeds the corpus into
+`triage`, and drives each task triage → code → review → done in a receiver-owned git worktree off the
+target repo, then reports accept / tokens / cost / rework and writes `docs/experiments/results/`.
+
+```bash
+# neutralise gh as a hard backstop (no PR can be created even if an agent ignores instructions)
+export GH_CONFIG_DIR=$(mktemp -d); unset GITHUB_TOKEN GH_TOKEN
+
+node docs/experiments/run-sweep.mjs --sweep 0   --pilot            # config 0, one easy/medium/hard
+node docs/experiments/run-sweep.mjs --sweep all --pilot            # 0,P,C,R in sequence, pilot subset
+node docs/experiments/run-sweep.mjs --sweep all --all --concurrency 4   # full 20×4 sweep
+node docs/experiments/run-sweep.mjs --sweep 0   --pilot --dry      # print the plan, spawn nothing
+```
+
+Accept = the task reached `done` (review advanced it, and review only advances when `npm test` +
+`npm run typecheck` pass in the worktree — the test oracle, not a human, is the gate). Worktrees are
+drained after each config (`--keep` to inspect diffs). Because it runs against the real repo's current
+`master`, keep the corpus **synthetic** (unimplemented) — replaying already-shipped tickets here would
+be base-contaminated (see above).
+
+## Running a config against live GitHub (alternative)
+
+If you specifically want the tracker/webhook path exercised, the live-GitHub route (opens real PRs):
 
 Per config (0, P, C, R), in order — **each step fires real agents, so order matters**:
 

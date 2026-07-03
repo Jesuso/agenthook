@@ -44,6 +44,9 @@ function verdictFooter(verdictFile, outcomeLines) {
  */
 export function stepPrompt(task, meta, step, ctx) {
   const N = meta.taskNoun;
+  // Trackers whose workflow doesn't revolve around a PR (the local/offline tracker):
+  // the worktree DIFF is the deliverable, review reads it with `git diff`, no `gh pr`.
+  const usesPR = meta.usesPR !== false;
   const head = [
     `${meta.platform} ${N}: ${task.name}`,
     `URL: ${task.url}`,
@@ -79,30 +82,47 @@ export function stepPrompt(task, meta, step, ctx) {
   }
 
   if (step.kind === "review") {
+    const artifact = usesPR ? "opened a draft PR" : "left the work as uncommitted/committed changes in the worktree";
+    const findDiff = usesPR
+      ? `Find the PR for branch "${ctx.branch}" (\`gh pr list --head ${ctx.branch} --json number,url\`),\nreview the diff, and report your findings per the standing instructions above.`
+      : `Review the change with \`git -C ${ctx.worktree || "<worktree>"} diff\` (and \`git diff --stat\`) and run the\nrelevant tests, then report your findings per the standing instructions above. There is NO PR — do\nnot run any \`gh\` command.`;
+    const changesLine = usesPR
+      ? `- "changes": the diff needs rework — leave your findings ON THE PR (\`gh pr review\`/\`gh pr comment\`)\n  so the coding stage sees them, then bounce it back. The worktree and PR are kept; the coding\n  stage re-fires on the SAME branch. (Default target is the previous stage; set "target" to override.)`
+      : `- "changes": the diff needs rework — put your findings in the verdict \`reason\`, then bounce it back.\n  The worktree is kept; the coding stage re-fires on the SAME branch. (Default target is the previous\n  stage; set "target" to override.)`;
+    const failLine = usesPR
+      ? `- "fail": fundamentally broken/unsafe, or you cannot review (no PR, gh auth failed) — route it out for a human.`
+      : `- "fail": fundamentally broken/unsafe, or you cannot review the diff — route it out for a human.`;
     return [
       `You are an INDEPENDENT reviewer for the "${step.id}" stage. Another agent worked this`,
-      `${meta.platform} ${N} in the worktree below and opened a draft PR. You did NOT write that`,
+      `${meta.platform} ${N} in the worktree below and ${artifact}. You did NOT write that`,
       `code and have no memory of it — that independence is the point. Read the diff and report;`,
-      `do NOT edit code or push, and do NOT move the ${N} between sections. Assume the PR is wrong`,
+      `do NOT edit code or push, and do NOT move the ${N} between sections. Assume the change is wrong`,
       `until the diff proves it right.`,
       ``,
       ...head,
       ``,
-      `Find the PR for branch "${ctx.branch}" (\`gh pr list --head ${ctx.branch} --json number,url\`),`,
-      `review the diff, and report your findings per the standing instructions above.`,
+      findDiff,
       verdictFooter(ctx.verdictFile, [
         `- "advance": the diff is correct and safe — move it on for approval.`,
-        `- "changes": the diff needs rework — leave your findings ON THE PR (\`gh pr review\`/\`gh pr comment\`)`,
-        `  so the coding stage sees them, then bounce it back. The worktree and PR are kept; the coding`,
-        `  stage re-fires on the SAME branch. (Default target is the previous stage; set "target" to`,
-        `  override.)`,
-        `- "fail": fundamentally broken/unsafe, or you cannot review (no PR, gh auth failed) — route`,
-        `  it out for a human.`,
+        changesLine,
+        failLine,
       ]),
     ].join("\n");
   }
 
   // implement / change share one shape: do the work in the handed-over worktree.
+  const reworkLine = usesPR
+    ? `- If a draft PR already exists for this branch, this is a REWORK pass: read the review feedback\n  on the PR first (\`gh pr view --comments\`, \`gh pr review list\`) and address it, rather than starting over.`
+    : `- If this branch already has commits from an earlier pass, this is a REWORK pass: read the review\n  findings (passed in this ticket / prior verdict) and address them, rather than starting over.`;
+  const deliverLine = usesPR
+    ? `- Implement the ${N}, run lint and the relevant tests, and open/update a draft PR.`
+    : `- Implement the ${N} and run lint and the relevant tests. The worktree branch (its DIFF) IS the\n  deliverable — do NOT open a PR, push, or run any \`gh\` command; commit your work on the branch.`;
+  const commentLine = usesPR
+    ? `- Post a brief status comment back on the ${N}: ${meta.commentHowTo}.\n  Include the branch name and PR number. Do NOT start the comment with "${meta.trigger}".`
+    : `- Do NOT post comments anywhere — put any status note in the verdict \`reason\`.`;
+  const advanceLine = usesPR
+    ? `- "advance": the work is done and the draft PR is open and green — hand it to review.`
+    : `- "advance": the work is done, committed on the branch, and the relevant tests pass — hand it to review.`;
   return [
     `You are working the "${step.id}" stage of a ${meta.platform} ${N}. Do the work autonomously`,
     `in the worktree below, following the standing instructions above and the repo's CLAUDE.md.`,
@@ -114,17 +134,13 @@ export function stepPrompt(task, meta, step, ctx) {
     ``,
     `Instructions:`,
     `- Work in the existing worktree/branch you were given — do NOT create a new worktree or branch.`,
-    `- If a draft PR already exists for this branch, this is a REWORK pass: read the review feedback`,
-    `  on the PR first (\`gh pr view --comments\`, \`gh pr review list\`) and address it, rather than`,
-    `  starting over.`,
-    `- Implement the ${N}, run lint and the relevant tests, and open/update a draft PR.`,
-    `- Post a brief status comment back on the ${N}: ${meta.commentHowTo}.`,
-    `  Include the branch name and PR number. Do NOT start the comment with "${meta.trigger}".`,
+    reworkLine,
+    deliverLine,
+    commentLine,
     `- Do NOT move the ${N} between sections yourself — the receiver moves it per your verdict below.`,
     verdictFooter(ctx.verdictFile, [
-      `- "advance": the work is done and the draft PR is open and green — hand it to review.`,
+      advanceLine,
       `- "hold": you are blocked on a human answer (the ${N} is ambiguous or unsafe to do unattended).`,
-      `  Post the question as a comment (no "${meta.trigger}" prefix) first; the ${N} parks until a human replies.`,
       `- "fail": you could not complete the work and it needs a human to step in.`,
     ]),
   ].join("\n");
