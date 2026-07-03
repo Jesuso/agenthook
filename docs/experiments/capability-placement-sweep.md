@@ -41,23 +41,74 @@ Why closed tickets and not fresh ones: the sweep needs a **fixed** set replayed 
 gives us a reference solution per ticket to score "accept" against, and the difficulty spread is real
 rather than synthetic.
 
-## Running a config
+## The replay-substrate problem (why the closed-ticket corpus can't just run)
 
-The corpus refs are closed issues, so replay = re-inject them into the pipeline's first stage, run,
-measure, reset. Per config:
+The dogfood pipeline's `repoPath` **is this repo**, and every closed ticket above is **already
+merged into `master`**. The code agent works in a worktree off current `master`, so it would be
+asked to "implement #24" while `src/trackers/github-projects.js` already exists → it no-ops or
+duplicates. **Accept-rate ≈ 100% for every config = zero discriminating signal.** Replaying shipped
+tickets is only valid against a base commit that *predates* each ticket (per-ticket base pinning),
+which the live webhook pipeline can't do.
 
-1. **Set the tiering** for this config in the pipeline (triage/code/review model + effort) — see the
-   config table above. The escalation knobs live on the pipeline steps (`model`/`effort`, per #46/#53).
-2. **Reset state** between configs so runs don't share history:
+Decision (2026-07-02): run the sweep on a **synthetic corpus** of fresh, unimplemented tasks instead
+— clean measurement, no history pollution, uses the live pipeline unchanged. Tradeoff: no known-good
+shipped reference, so accept is judged on the replayed PR (tests pass + human). The closed-ticket
+corpus (`capability-placement-corpus.json`) is retained for a future per-ticket-base harness.
+
+## The synthetic corpus (`capability-placement-synthetic-corpus.json`)
+
+20 fresh tasks, **verified absent from `master` at freeze**, graded to mirror the difficulty spread:
+
+| Difficulty | Count | IDs |
+|---|---|---|
+| easy | 7 | E1–E7 |
+| medium | 8 | M1–M8 |
+| hard | 5 | H1–H5 |
+
+Each carries an issue-ready `body` (goal + acceptance criteria). Because nothing pre-exists in the
+repo, every config faces a real, unsolved problem — so accept-rate discriminates.
+
+## Running a config (synthetic corpus)
+
+Per config (0, P, C, R), in order — **each step fires real agents, so order matters**:
+
+1. **Set the tiering** for this config in `agenthook.config.json` (gitignored local file) —
+   `pipeline[].model` + `.effort` for `triage`/`code`/`review`. cheap = `claude-sonnet-4-6`/`low`,
+   strong = `claude-opus-4-8`/`high`. Then **restart** so the server reloads it:
    ```bash
-   node bin/agenthook.js cleanup --apply --force   # drain done worktrees
-   # clear attempts.json for the corpus refs (per-(ref,step) changes-loop counts)
+   node bin/agenthook.js stop && node bin/agenthook.js start --detach
    ```
-3. **Re-inject the corpus.** For each ref, put it in triage's source label (reopen + relabel, or
-   `agenthook run <ref>` where a step supports direct injection), then let the pipeline drive it
-   triage → code → review → done.
-4. **Record per ticket:** accept (clean exit + tests pass + human accept), tokens/cost (per-run
-   logs), rework (`attempts.json` `changes` count).
+2. **Reset state** so configs don't share history:
+   ```bash
+   node bin/agenthook.js cleanup --apply --force              # drain worktrees
+   : > ~/.agenthook/agenthook-dogfood/attempts.json && echo '{}' > ~/.agenthook/agenthook-dogfood/attempts.json
+   # close the prior config's PRs + delete their branches before re-injecting (avoid conflicts)
+   ```
+3. **Inject the corpus.** File each task as an issue with `--assignee Jesuso --label agent:triage`
+   (fail-closed: no assignee **or** no source label = no fire). The pipeline then drives each
+   triage → code → review → done. See the injection snippet below.
+4. **Record per task:** accept (clean exit + tests pass + human accept), tokens/cost (`ah usage`),
+   rework (`attempts.json` `changes` count).
+
+### Injection snippet
+
+```bash
+# after config tiering is set + server restarted:
+python3 - <<'PY'
+import json, subprocess
+m = json.load(open('docs/experiments/capability-placement-synthetic-corpus.json'))
+for t in m['tasks']:
+    subprocess.run(['gh','issue','create','--repo','Jesuso/agenthook',
+        '--title', f"[sweep {t['id']} {t['difficulty']}] {t['title']}",
+        '--body', t['body'],
+        '--assignee','Jesuso','--label','agent:triage'], check=True)
+PY
+```
+
+> **Cost note:** 20 tasks × 4 configs = **80 live agent runs → ~80 PRs**. Consider a pilot
+> (config 0 on a 3-task subset: one E, one M, one H) to validate the harness + get first numbers
+> before committing to the full 80. **Efficiency:** use *tests-pass* as the automated accept signal
+> and reserve human accept for the passing subset, rather than judging all 80 by hand.
 
 ## Metrics (per config)
 
