@@ -196,8 +196,9 @@ const readInstructions = (file) => {
  * @param {import('./types.js').Adapter} adapter
  * @param {Set<import('node:child_process').ChildProcess>} [children]  live `claude -p` procs, for force-kill on shutdown
  * @param {import('./types.js').Store} [store]  for in-flight (crash-recovery) records
+ * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
  */
-export function createDispatcher(cfg, adapter, children, store) {
+export function createDispatcher(cfg, adapter, children, store, emit) {
   const meta = adapter.describe();
 
   /**
@@ -302,6 +303,7 @@ export function createDispatcher(cfg, adapter, children, store) {
         }
         store?.clearAttempts(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
+        emit?.("pipeline_done", job.ref, step.id);
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
@@ -350,6 +352,7 @@ export function createDispatcher(cfg, adapter, children, store) {
 
     const startedAt = new Date().toISOString();
     const baseRunning = { stepId: step.id, startedAt, worktree: cwd };
+    emit?.("run_start", job.ref, step.id, { model: model ?? null });
     /** @type {number|undefined} */
     let pid;
     const { code, result } = await spawnClaude({
@@ -383,6 +386,11 @@ export function createDispatcher(cfg, adapter, children, store) {
     } catch {
       /* best effort */
     }
+
+    const costUsd = typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
+    emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}) });
+    if (verdict.outcome === "hold") emit?.("blocked", job.ref, step.id, { reason: verdict.reason ?? null });
+    if (verdict.outcome === "fail") emit?.("failed", job.ref, step.id, { reason: verdict.reason ?? null });
 
     // Persist a difficulty tag emitted by this step (typically triage) so later steps
     // (e.g. code) can gate their model/effort on it.

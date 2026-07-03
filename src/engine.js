@@ -17,6 +17,7 @@ import { createIngress } from "./ingress/index.js";
 import { createQueue } from "./queue.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
+import { createEmitter } from "./events.js";
 
 /** @param {import('./types.js').Config} cfg */
 export function createEngine(cfg) {
@@ -24,9 +25,10 @@ export function createEngine(cfg) {
   const adapter = createAdapter(cfg, store);
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
+  const emit = createEmitter(cfg.dataDir);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
-  const runClaude = createDispatcher(cfg, adapter, children, store);
+  const runClaude = createDispatcher(cfg, adapter, children, store, emit);
   const queue = createQueue(cfg.maxConcurrent, runClaude, (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
   );
@@ -51,6 +53,7 @@ export function createEngine(cfg) {
         lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, step: job.stepId },
         seen: store.seenCount(),
       });
+      emit("enqueued", job.ref, job.stepId);
       queue.enqueue(job);
     }
   }
