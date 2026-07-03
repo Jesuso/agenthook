@@ -25,13 +25,23 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../../src/config.js";
 import { createStore } from "../../src/store.js";
 import { createAdapter } from "../../src/trackers/index.js";
 import { seedBoard, localBoardPath } from "../../src/trackers/local.js";
 import { createDispatcher } from "../../src/dispatch.js";
-import { drainWorktree } from "../../src/worktree.js";
+import { drainWorktree, branchName } from "../../src/worktree.js";
+
+/** best-effort git (ignore failures — cleanup is idempotent). @param {string} repo @param {string[]} a */
+function git(repo, a) {
+  try {
+    return execFileSync("git", ["-C", repo, ...a], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "";
+  }
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../..");
@@ -126,11 +136,23 @@ async function runSweep(sweepId) {
   const cfg = loadConfig({ configPath: configFile });
   const concurrency = concurrencyArg > 0 ? concurrencyArg : cfg.maxConcurrent > 1 ? cfg.maxConcurrent : 4;
 
+  // Refs are namespaced by config so branches/worktrees never collide across configs
+  // (branchName is agent/<ref>, config-blind) or with an earlier run of the same config.
+  const refOf = (t) => `${sweepId}-${t.id}`;
+
   // fresh state for a clean measurement (no shared attempts/usage/difficulty).
   for (const f of ["attempts.json", "difficulty.json", "running.json", "usage.jsonl", "seen.json"]) {
     fs.rmSync(path.join(cfg.dataDir, f), { force: true });
   }
-  seedBoard(cfg, selected.map((t) => ({ ref: t.id, name: `[${t.id} ${t.difficulty}] ${t.title}`, description: t.body })), "triage");
+  // Clean any leftover worktree/branch for these refs so a re-run starts from master,
+  // not a prior run's committed code (contamination).
+  for (const t of selected) {
+    const ref = refOf(t);
+    try { drainWorktree(cfg, ref); } catch { /* none */ }
+    git(cfg.repoPath, ["worktree", "prune"]);
+    git(cfg.repoPath, ["branch", "-D", branchName(ref)]);
+  }
+  seedBoard(cfg, selected.map((t) => ({ ref: refOf(t), name: `[${t.id} ${t.difficulty}] ${t.title}`, description: t.body })), "triage");
 
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
@@ -165,19 +187,23 @@ async function runSweep(sweepId) {
   try { attempts = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, "attempts.json"), "utf8")); } catch { /* none */ }
 
   const results = selected.map((t) => {
-    const rows = usage.filter((u) => String(u.ref) === t.id);
+    const ref = refOf(t);
+    const rows = usage.filter((u) => String(u.ref) === ref);
     const cost = rows.reduce((a, u) => a + (u.costUsd || 0), 0);
     const inTok = rows.reduce((a, u) => a + (u.input || 0), 0);
     const outTok = rows.reduce((a, u) => a + (u.output || 0), 0);
-    const codeAttempts = attempts?.[t.id]?.code || 0;
-    const finalStage = board[t.id]?.stage || "?";
+    const codeAttempts = attempts?.[ref]?.code || 0;
+    const finalStage = board[ref]?.stage || "?";
     return { id: t.id, difficulty: t.difficulty, finalStage, accepted: finalStage === "done", rework: Math.max(0, codeAttempts - 1), costUsd: +cost.toFixed(4), input: inTok, output: outTok, runs: rows.length };
   });
 
-  // drain worktrees (done step is manual + skipped by the driver loop).
+  // drain worktrees + delete branches (done step is manual + skipped by the driver loop).
   if (!has("--keep")) {
     for (const t of selected) {
-      try { drainWorktree(cfg, t.id); } catch { /* ignore */ }
+      const ref = refOf(t);
+      try { drainWorktree(cfg, ref); } catch { /* ignore */ }
+      git(cfg.repoPath, ["worktree", "prune"]);
+      git(cfg.repoPath, ["branch", "-D", branchName(ref)]);
     }
     fs.rmSync(configFile, { force: true });
   }
