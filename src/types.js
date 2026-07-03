@@ -113,6 +113,7 @@
  * @property {string} taskNoun      e.g. "task", "issue"
  * @property {string} trigger       comment prefix that requests a change (default "@agent")
  * @property {string} commentHowTo  one line telling the agent how to comment back
+ * @property {boolean} [usesPR]     does this tracker's workflow revolve around a pull request? Default true. When false (e.g. the local/offline tracker) the prompt builders drop all PR language: the worktree DIFF is the deliverable and review reads it with `git diff`, never `gh pr`
  */
 
 /**

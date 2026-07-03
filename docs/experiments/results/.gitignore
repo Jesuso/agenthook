@@ -1,0 +1,3 @@
+# Generated sweep results (machine-specific run artifacts) — keep the dir, ignore output.
+*
+!.gitignore
