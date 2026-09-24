@@ -586,3 +586,75 @@ test("unregisterWebhooks deletes /github hooks but never a forge /forge hook", a
   }
   assert.deepEqual(deletes, ["https://api.github.com/repos/o/r/hooks/1"]);
 });
+
+// --- queue-stage pull: listQueued + enterStage leaving the queue label ---
+const qPipeline = [{ id: "code", sourceLabel: "agent:code", successLabel: "agent:review", queueLabel: "queue:code" }];
+/** @param {any} [pc] */
+function queued(pc = {}) {
+  const providerConfig = { type: "github", token: "t", repository: "o/r", ...pc };
+  return createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: qPipeline, providerConfig }), /** @type {any} */ (makeStore()));
+}
+
+test("listQueued lists the queue label oldest-first, keeping only our open, unblocked issues", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  /** @param {any} data */
+  const res = (data) => /** @type {any} */ ({ ok: true, status: 200, json: async () => data });
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (u.endsWith("/user")) return res({ login: "bot" });
+    if (u.includes("/issues/5/dependencies/blocked_by")) return res([{ number: 1, state: "open" }]);
+    if (u.includes("/dependencies/blocked_by")) return res([]);
+    return res([
+      { number: 3, assignees: [{ login: "bot" }] },
+      { number: 4, assignees: [{ login: "bot" }], pull_request: {} },
+      { number: 5, assignees: [{ login: "bot" }] },
+      { number: 6, assignees: [{ login: "someone" }] },
+      { number: 8, assignee: { login: "Bot" } },
+    ]);
+  };
+  let refs;
+  try {
+    refs = await queued().listQueued("code");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(refs, ["3", "8"]);
+  const list = urls.find((u) => u.includes("/issues?"));
+  assert.ok(list?.includes("labels=queue%3Acode") && list.includes("assignee=bot") && list.includes("sort=created&direction=asc"), list);
+});
+
+test("listQueued fails closed when our login can't be resolved", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+  try {
+    await assert.rejects(() => queued().listQueued("code"), /\/user 500/);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("enterStage on a queue step adds the source label, THEN removes the queue label", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    // The label add succeeds; the queue-label removal 404s (not on the issue) — tolerated.
+    const ok = init.method === "POST";
+    return /** @type {any} */ ({ ok, status: ok ? 200 : 404, json: async () => ({}) });
+  };
+  try {
+    await queued({ assigneeFilter: false }).enterStage("42", "code", { assign: false });
+  } finally {
+    global.fetch = orig;
+  }
+  const add = calls.findIndex((c) => c.startsWith("POST") && c.endsWith("/issues/42/labels"));
+  const del = calls.findIndex((c) => c.startsWith("DELETE") && c.endsWith("/issues/42/labels/queue%3Acode"));
+  assert.ok(add >= 0 && del > add, `expected add-then-remove; got:\n${calls.join("\n")}`);
+});

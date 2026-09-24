@@ -174,6 +174,17 @@ export function createLocalAdapter(cfg, _store) {
       return jobs;
     },
 
+    // Tasks resting in the step's opt-in queueStatus, in board-file order. No
+    // assignee scoping (single-tenant). [] without the key.
+    /** @param {string} stepId */
+    async listQueued(stepId) {
+      const step = stepById(stepId);
+      if (!step?.queueStatus || step.manual) return [];
+      return Object.entries(readBoard(cfg))
+        .filter(([, it]) => it.stage === step.queueStatus)
+        .map(([ref]) => ref);
+    },
+
     // No webhooks to manage.
     registerWebhook: async () => {},
     unregisterWebhooks: async () => {},

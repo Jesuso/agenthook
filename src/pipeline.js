@@ -32,6 +32,14 @@ export function isPipeline(cfg) {
   return Array.isArray(cfg.pipeline) && cfg.pipeline.length > 0;
 }
 
+/** The step's opt-in queue stage (backlog lane) under whichever tracker binding it uses
+ * — Asana `queueSectionGid`, Jira/github-projects/local `queueStatus`, GitHub
+ * `queueLabel` — or undefined. Setting one IS the opt-in to queue-stage pulls.
+ * @param {import('./types.js').Step} step */
+export function queueStageOf(step) {
+  return step.queueSectionGid || step.queueStatus || step.queueLabel || undefined;
+}
+
 /** Does a comment body open with the trigger prefix (e.g. "@agent")? An unset trigger
  * matches nothing (fail-closed). @param {string|undefined} trigger @param {unknown} body */
 export function startsWithTrigger(trigger, body) {

@@ -620,3 +620,38 @@ test("unregisterWebhooks is a no-op for a user-owned project", async () => {
   assert.equal(calls.lists, 0);
   assert.equal(calls.deletes.length, 0);
 });
+
+// --- queue-stage pull: listQueued ---
+test("listQueued returns our open cards in the queue Status, board POSITION order", async () => {
+  const card = (/** @type {number} */ n, /** @type {string} */ status, o = {}) => ({
+    id: `PVTI_${n}`,
+    content: { __typename: "Issue", id: `I_${n}`, number: n, state: "OPEN", assignees: { nodes: [{ login: "bot" }] }, ...o },
+    status: { name: status },
+  });
+  const items = [
+    card(9, "Backlog"),
+    card(2, "In Progress"),
+    card(4, "backlog", { state: "CLOSED" }),
+    card(5, "Backlog", { assignees: { nodes: [{ login: "someone" }] } }),
+    card(1, "Backlog"),
+  ];
+  const { restore } = stubGraphql({ items });
+  /** @type {string[]} */
+  const queries = [];
+  const inner = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => (queries.push(JSON.parse(String(init.body)).query), inner(url, init));
+  const pl = [{ id: "code", sourceStatus: "In Progress", queueStatus: "Backlog" }];
+  const a = createGithubProjectsAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github-projects", token: "t", project: "acme/7" } }),
+    /** @type {any} */ (makeStore()),
+  );
+  let refs;
+  try {
+    refs = await a.listQueued("code");
+  } finally {
+    restore();
+  }
+  assert.deepEqual(refs, ["9", "1"]);
+  assert.ok(queries.some((q) => q.includes("orderBy:{field:POSITION, direction:ASC}")), "items are read in board position order");
+});
