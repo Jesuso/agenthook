@@ -110,6 +110,7 @@ export function createLocalAdapter(cfg, _store) {
         url: it.url || `local://${ref}`,
         completed: isTerminal(it.stage),
         assignedToUs: true,
+        displayId: String(ref),
       };
     },
 

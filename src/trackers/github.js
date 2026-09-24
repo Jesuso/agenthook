@@ -351,6 +351,7 @@ export function createGithubAdapter(cfg, store) {
         url: issue.html_url,
         completed: issue.state === "closed",
         assignedToUs: await issueIsOurs(issue),
+        displayId: `#${ref}`,
       };
     },
 

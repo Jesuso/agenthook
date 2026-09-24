@@ -215,3 +215,38 @@ test("init section discovery lists the chosen project's sections (name + gid)", 
     global.fetch = orig;
   }
 });
+
+// --- fetchTask displayId: the human id comes from a custom field (default name "ID").
+/** Run fetchTask("G9") against a stubbed task carrying `custom_fields`. @param {any[]} custom_fields @param {object} [pc] */
+async function fetchWith(custom_fields, pc = {}) {
+  const orig = global.fetch;
+  /** @type {string[]} */
+  const urls = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return ok({ data: { name: "Fix it", notes: "", permalink_url: "https://app.asana.com/t/G9", completed: false, custom_fields } });
+  };
+  try {
+    return { task: await routed(pc).fetchTask("G9"), urls };
+  } finally {
+    global.fetch = orig;
+  }
+}
+
+test("fetchTask maps displayId from the custom field named ID (case-insensitive)", async () => {
+  const { task, urls } = await fetchWith([{ name: "Priority", display_value: "High" }, { name: "id", display_value: "ID-2738" }]);
+  assert.equal(task.displayId, "ID-2738");
+  assert.equal(task.name, "Fix it");
+  assert.ok(urls[0].includes("custom_fields.name,custom_fields.display_value"), "requests the custom fields");
+});
+
+test("fetchTask honors a custom displayIdField", async () => {
+  const { task } = await fetchWith([{ name: "ID", display_value: "ID-1" }, { name: "Ticket", display_value: "TK-9" }], { displayIdField: "Ticket" });
+  assert.equal(task.displayId, "TK-9");
+});
+
+test("fetchTask leaves displayId undefined when the field is absent", async () => {
+  assert.equal((await fetchWith([{ name: "Priority", display_value: "High" }])).task.displayId, undefined);
+  assert.equal((await fetchWith(/** @type {any} */ (undefined))).task.displayId, undefined);
+});

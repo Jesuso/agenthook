@@ -17,6 +17,24 @@ function fmtTokens(n) {
   return String(n);
 }
 
+/** @param {string} ref — mirrors dispatch's log-filename ref sanitizing */
+const safeRef = (ref) => String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+
+/**
+ * The ref a run-log filename (`<stamp>-step-<stepId>-<safeRef>.log`) belongs to, among
+ * the refs refmeta knows. Matching on the known refs sidesteps splitting stepId from
+ * ref (either may contain '-'), and needs no config. Longest match wins. Pure.
+ * @param {string} file @param {string[]} refs @returns {string|undefined}
+ */
+export function refForLog(file, refs) {
+  const base = file.replace(/\.log$/, "");
+  let best;
+  for (const r of refs) {
+    if (base.endsWith(`-${safeRef(r)}`) && (!best || r.length > best.length)) best = r;
+  }
+  return best;
+}
+
 /** @param {any} args */
 export async function status(args) {
   let name = args._[0];
@@ -53,6 +71,7 @@ export async function status(args) {
   // Usage totals.
   const store = createStore(p.dir);
   const usageRecords = store.readUsage();
+  const refmeta = store.listRefMeta();
   if (usageRecords.length) {
     let totalTokens = 0;
     let totalCost = 0;
@@ -91,7 +110,10 @@ export async function status(args) {
         const tokStr = rec
           ? ` [${fmtTokens((rec.input || 0) + (rec.output || 0))} tok${rec.costUsd != null ? `, $${rec.costUsd.toFixed(3)}` : ""}]`
           : "";
-        console.log(`  ${l}${tokStr}`);
+        const ref = refForLog(l, Object.keys(refmeta));
+        const m = ref ? refmeta[ref] : undefined;
+        const metaStr = m ? `  ${m.displayId ?? ref}  ${m.pr ? `#${m.pr}` : "—"}  ${m.title ?? ""}`.trimEnd() : "";
+        console.log(`  ${l}${tokStr}${metaStr}`);
       }
     }
   } catch {

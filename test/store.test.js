@@ -85,3 +85,17 @@ test("attempt counters bump/get/clear per (ref,step) — the changes-loop cap", 
   s.clearAttempts("T1");
   assert.equal(s.getAttempt("T1", "code"), 0);
 });
+
+test("refmeta set shallow-merges, lists, and persists across instances", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.getRefMeta("123"), undefined);
+  assert.deepEqual(s.listRefMeta(), {});
+  s.setRefMeta("123", { displayId: "ID-1", title: "First" });
+  s.setRefMeta("123", { pr: 42 }); // later PR lookup keeps id/title
+  s.setRefMeta("123", { displayId: undefined, title: "Renamed" }); // undefined never erases
+  assert.deepEqual(s.getRefMeta("123"), { displayId: "ID-1", title: "Renamed", pr: 42 });
+  s.setRefMeta("456", { title: "Other" });
+  assert.deepEqual(Object.keys(createStore(dir).listRefMeta()).sort(), ["123", "456"]);
+  assert.equal(createStore(dir).getRefMeta("123")?.pr, 42);
+});

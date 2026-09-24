@@ -206,9 +206,14 @@ export function createAsanaAdapter(cfg, store) {
     },
 
     async fetchTask(ref) {
-      const res = await api(`/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed`);
+      const res = await api(
+        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value`,
+      );
       if (!res.ok) throw new Error(`task fetch ${res.status}`);
       const t = (await json(res)).data;
+      // Human id (e.g. "ID-2738") lives in a custom field; name configurable, default "ID".
+      const idField = String(pc.displayIdField ?? "ID").toLowerCase();
+      const idCf = (t.custom_fields || []).find((/** @type {any} */ f) => String(f?.name ?? "").toLowerCase() === idField);
       return {
         ref,
         name: t.name,
@@ -216,6 +221,7 @@ export function createAsanaAdapter(cfg, store) {
         url: t.permalink_url,
         completed: t.completed === true,
         assignedToUs: t.assignee?.gid === pc.userGid,
+        displayId: idCf?.display_value ? String(idCf.display_value) : undefined,
       };
     },
 

@@ -2,6 +2,8 @@
 //   - secrets: handshake secrets keyed by webhook path (Asana). Mode 0600.
 //   - seen:    dedup keys so one event triggers exactly one run.
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
+//   - refmeta: per-ref display metadata ({displayId,title,pr}) for the CLIs. Never
+//     cleared — unlike running, status/events need it after the run ends.
 //
 // seen is reloaded from disk on every read (reloadSeen) because external tools
 // (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
@@ -25,6 +27,7 @@ export function createStore(dataDir) {
   const attemptsFile = path.join(dataDir, "attempts.json");
   const difficultyFile = path.join(dataDir, "difficulty.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
+  const refmetaFile = path.join(dataDir, "refmeta.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -118,6 +121,19 @@ export function createStore(dataDir) {
         fs.writeFileSync(difficultyFile, JSON.stringify(m));
       }
     },
+
+    // --- per-ref display metadata (refmeta.json): human id, title, PR number ---
+    // Written by dispatch (receiver-side only); read by agents/status/events. Shallow
+    // merge so the PR lookup and the fetchTask write can land independently.
+    getRefMeta: (ref) => readJson(refmetaFile, {})[ref],
+    setRefMeta: (ref, patch) => {
+      const m = readJson(refmetaFile, {});
+      const cur = m[ref] || {};
+      for (const [k, v] of Object.entries(patch)) if (v !== undefined) cur[k] = v;
+      m[ref] = cur;
+      fs.writeFileSync(refmetaFile, JSON.stringify(m));
+    },
+    listRefMeta: () => readJson(refmetaFile, {}),
 
     // --- per-run token/cost records (usage.jsonl): append-only, one JSON per line ---
     // Distinct from the rewritten state files above: a finished run appends exactly one

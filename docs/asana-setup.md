@@ -29,9 +29,15 @@ fetches your **user gid** from `/users/me`. After `init`, the `tracker` block al
   "userGid": "1200xxxxxxxxxxxx",       // you — used for assignee scoping
   "workspaceGid": "1199xxxxxxxxxxxx",
   "projectGid": "1200xxxxxxxxxxxx",    // the project whose sections drive the pipeline
+  "displayIdField": "ID",              // optional — see below
   "pipeline": [ /* TODO section gids — see below */ ]
 }
 ```
+
+`displayIdField` (optional, default `"ID"`) names the custom field that holds the task's human id
+(e.g. `ID-2738`). `ah agents`, `ah status` and `ah events` show that id instead of the raw task
+gid, and `ah events --ref ID-2738` accepts it. Matching is case-insensitive; with no such field the
+raw gid is shown.
 
 ## 3. Section gids — the one thing you fill by hand
 

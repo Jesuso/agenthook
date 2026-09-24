@@ -3,7 +3,7 @@
 // asserting the default scope-to-active filter and the --all cross-profile view.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePsAgents, selectAgents, fmtTok, fmtCtx } from "../src/commands/agents.js";
+import { parsePsAgents, selectAgents, fmtTok, fmtCtx, formatAgentRow, agentRecord } from "../src/commands/agents.js";
 
 // Three `claude -p` agents (a dogfood GitHub issue, an Asana task, an orphan whose
 // ref is in no running.json) plus a non-agent process that must be ignored.
@@ -117,4 +117,50 @@ test("fmtCtx: with cost appends dollar amount", () => {
 
 test("fmtCtx: k formatting for sub-million context", () => {
   assert.equal(fmtCtx(0, 50000, 0, 2000, undefined), "ctx=50.0k out=2.0k");
+});
+
+// --- formatAgentRow / agentRecord: human id, title, PR instead of pid/ref ---
+const ROW = { pid: "1293223", etime: "00:51", step: "review", ref: "1218828631775704", profile: "alephbeta" };
+const META = { displayId: "ID-2738", title: "Make the thing work across every profile and board at once", pr: 94 };
+
+test("formatAgentRow default: displayId, step, #pr, etime, truncated title, ctx — no pid/ref", () => {
+  const line = formatAgentRow(ROW, META, "ctx=79.5k out=188");
+  assert.match(line, /^ID-2738\s+review\s+#94\s+00:51\s+Make the thing/);
+  assert.ok(line.endsWith("ctx=79.5k out=188"));
+  assert.ok(line.includes("…"), "long title truncated");
+  assert.ok(!line.includes("pid="), "no pid by default");
+  assert.ok(!line.includes(ROW.ref), "no raw ref by default");
+  assert.ok(!line.includes("profile="), "no profile label without --all");
+});
+
+test("formatAgentRow --verbose appends pid + ref; --all keeps the profile label", () => {
+  const line = formatAgentRow(ROW, META, "-", { verbose: true, all: true });
+  assert.ok(line.startsWith("profile=alephbeta"));
+  assert.ok(line.endsWith(`pid=1293223 ref=${ROW.ref}`));
+});
+
+test("formatAgentRow falls back to the ref and a — placeholder when nothing is known", () => {
+  const line = formatAgentRow(ROW, undefined, "-");
+  assert.match(line, new RegExp(`^${ROW.ref}\\s+review\\s+—\\s+00:51`));
+  assert.ok(!line.includes("#"), "no PR shown");
+});
+
+test("agentRecord --json shape: live tally + running model/startedAt", () => {
+  const run = { stepId: "review", pid: 1293223, startedAt: "2026-09-24T10:00:00Z", model: "claude-opus-5-5", input: 5, cacheRead: 79000, cacheCreate: 495, output: 188 };
+  assert.deepEqual(agentRecord(ROW, META, run, undefined), {
+    profile: "alephbeta", pid: 1293223, ref: ROW.ref, displayId: "ID-2738", title: META.title, pr: 94,
+    step: "review", model: "claude-opus-5-5", startedAt: "2026-09-24T10:00:00Z", ctx: 79500, out: 188, etime: "00:51",
+  });
+});
+
+test("agentRecord --json with no meta/running: nulls, last-run usage fallback", () => {
+  const rec = agentRecord(ROW, undefined, undefined, { input: 10, output: 3, cacheRead: 0, cacheCreate: 0 });
+  assert.equal(rec.displayId, null);
+  assert.equal(rec.pr, null);
+  assert.equal(rec.model, null);
+  assert.equal(rec.ctx, 10);
+  assert.equal(rec.out, 3);
+  const none = agentRecord(ROW, undefined, undefined, undefined);
+  assert.equal(none.ctx, null);
+  assert.equal(none.out, null);
 });

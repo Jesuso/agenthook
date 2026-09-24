@@ -6,16 +6,49 @@
 // (shared by task ref across all its steps, cwd = it); drainWorktree removes it.
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
 import { findStep, prevStep } from "./pipeline.js";
-import { ensureWorktree, drainWorktree, worktreePath } from "./worktree.js";
+import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 
 // How many times one step may run for a single ref before a `changes` loop back
 // into it is forced to fail. Caps an endless code↔review ping-pong (each loop is a
 // fresh `claude -p` under fullAuto = real money + code exec). Per-step `maxAttempts`
 // overrides. See store.bumpAttempt/getAttempt.
 const DEFAULT_MAX_ATTEMPTS = 3;
+
+// Upper bound on the best-effort `gh pr list` lookup, so a slow/absent `gh` never
+// delays a run by more than this.
+const PR_LOOKUP_TIMEOUT_MS = 5000;
+
+/** @typedef {(cmd: string, args: string[], opts: {cwd: string, timeout: number}) => Promise<string>} ExecFn */
+
+/** @type {ExecFn} */
+const execOut = (cmd, args, opts) =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, { ...opts, encoding: "utf8" }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+
+/**
+ * Best-effort PR number for a ref's deterministic branch (`gh pr list --head`). Any
+ * error, timeout or empty result → undefined; never throws. Exported (with an
+ * injectable exec) for offline tests.
+ * @param {string} repoPath @param {string} ref @param {ExecFn} [exec]
+ * @returns {Promise<number|undefined>}
+ */
+export async function lookupPr(repoPath, ref, exec = execOut) {
+  try {
+    const out = await exec(
+      "gh",
+      ["pr", "list", "--head", branchName(ref), "--state", "all", "--json", "number", "-q", ".[0].number"],
+      { cwd: repoPath, timeout: PR_LOOKUP_TIMEOUT_MS },
+    );
+    const n = Number(String(out).trim());
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
  * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
@@ -205,6 +238,15 @@ const readInstructions = (file) => {
 export function createDispatcher(cfg, adapter, children, store, emit) {
   const meta = adapter.describe();
 
+  /** Cache the ref's PR number in refmeta once one exists. Receiver-side only (the CLIs
+   * never write state); skipped for PR-less trackers and once a PR is known.
+   * @param {string} ref */
+  async function recordPr(ref) {
+    if (!store || meta.usesPR === false || store.getRefMeta(ref)?.pr) return;
+    const pr = await lookupPr(cfg.repoPath, ref);
+    if (pr) store.setRefMeta(ref, { pr });
+  }
+
   /**
    * Spawn `claude -p` with a prompt. stdout is stream-json: a line parser renders the
    * assistant text to the log and accumulates the token tally + final `result` event;
@@ -296,6 +338,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     const step = findStep(cfg, job.stepId);
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
     const task = await adapter.fetchTask(job.ref);
+    // Durable display metadata for `ah agents`/`status`/`events` (survives run exit).
+    store?.setRefMeta(job.ref, { displayId: task.displayId, title: task.name });
 
     // Manual stage (e.g. "done"): no agent — entering it only runs system actions.
     if (step.manual) {
@@ -343,6 +387,14 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
 
     const logPath = logPathFor(step.id, job.ref);
     console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
+    // Header line: the human id + title (filename stays keyed by the ref).
+    try {
+      fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
+    } catch (e) {
+      console.error(`[run] log header failed for ${job.ref}:`, e.message);
+    }
+    // A rework pass already has a branch (and maybe a PR): pick it up before spawning.
+    if (hasWorktree) await recordPr(job.ref);
 
     // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
     // tag and this step has a matching `escalate` key, override the base model/effort.
@@ -355,8 +407,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     }
 
     const startedAt = new Date().toISOString();
-    const baseRunning = { stepId: step.id, startedAt, worktree: cwd };
-    emit?.("run_start", job.ref, step.id, { model: model ?? null });
+    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null };
+    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;
     const { code, result } = await spawnClaude({
@@ -374,6 +426,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       onTally: (t) => store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate }),
     });
     store?.clearRunning(job.ref);
+    // The step may just have opened the PR.
+    await recordPr(job.ref);
 
     // Persist the final per-run usage record from the captured `result` event (token
     // totals + cost). Append-only usage.jsonl, distinct from the rewritten state files.

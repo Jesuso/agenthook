@@ -433,3 +433,17 @@ test("advance does NOT close the issue entering a non-terminal step (no closeIss
   }
   assert.ok(!calls.some((c) => c.startsWith("PATCH")), `expected no close PATCH; got:\n${calls.join("\n")}`);
 });
+
+test("fetchTask returns #<n> as the displayId", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "T", body: "b", html_url: "u", state: "open" }) });
+  let task;
+  try {
+    task = await adapter().fetchTask("94");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.equal(task.displayId, "#94");
+  assert.equal(task.name, "T");
+});
