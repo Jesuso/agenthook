@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -276,6 +276,28 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
   // fresh store instance reads the same file
   const s2 = createStore(dir);
   assert.equal(s2.getDifficulty("T1"), "hard");
+});
+
+// --- lookupPr: best-effort `gh pr list --head agent/<ref>`; never throws ---
+
+test("lookupPr queries the ref's branch and parses the number", async () => {
+  /** @type {any[]} */
+  const calls = [];
+  const pr = await lookupPr("/repo", "94", async (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    return "123\n";
+  });
+  assert.equal(pr, 123);
+  assert.equal(calls[0].cmd, "gh");
+  assert.deepEqual(calls[0].args.slice(0, 4), ["pr", "list", "--head", "agent/94"]);
+  assert.equal(calls[0].opts.cwd, "/repo");
+  assert.ok(calls[0].opts.timeout > 0, "bounded by a timeout");
+});
+
+test("lookupPr: empty output, garbage, or a failing gh → undefined", async () => {
+  assert.equal(await lookupPr("/r", "1", async () => ""), undefined);
+  assert.equal(await lookupPr("/r", "1", async () => "null"), undefined);
+  assert.equal(await lookupPr("/r", "1", async () => { throw new Error("ENOENT gh"); }), undefined);
 });
 
 test("descriptionHasHeadings: markers, case, whitespace", () => {

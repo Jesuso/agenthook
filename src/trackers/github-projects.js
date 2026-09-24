@@ -479,6 +479,7 @@ export function createGithubProjectsAdapter(cfg, store) {
         url: issue.url,
         completed: norm(issue.state) === "closed",
         assignedToUs: await issueIsOurs(issue),
+        displayId: `#${ref}`,
       };
     },
 

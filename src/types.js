@@ -80,6 +80,15 @@
  * @property {number} [output]      live output-token tally so far (estimate; final in UsageRecord)
  * @property {number} [cacheRead]   live cache-read token tally (estimate; final in UsageRecord)
  * @property {number} [cacheCreate] live cache-creation token tally (estimate; final in UsageRecord)
+ * @property {string|null} [model]   the model the run was launched with (null = CLI default)
+ */
+
+/** Durable per-ref display metadata (refmeta.json). Never cleared: `status`/`events`
+ * read it after the run ends to show a human id, title and PR instead of the raw ref.
+ * @typedef {object} RefMeta
+ * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
+ * @property {string} [title]      the task title
+ * @property {number} [pr]         the PR number for the ref's branch, once one exists
  */
 
 /** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals
@@ -108,6 +117,7 @@
  * @property {string} url
  * @property {boolean} completed
  * @property {boolean} assignedToUs
+ * @property {string} [displayId]  the human-facing id operators use (Asana "ID-2738", GitHub "#94", Jira "CAHUI-7"); undefined when the tracker has none
  */
 
 /**
@@ -183,6 +193,7 @@
  * @property {boolean} [assigneeFilter]  only act on items assigned to us (Asana userGid / Jira assigneeAccountId). Default true (fail-closed: unset id ⇒ refuse all); only false opts into project-wide
  * @property {string} [workspaceGid]
  * @property {string} [projectGid]  Asana: the project whose sections drive the pipeline
+ * @property {string} [displayIdField]  Asana: name of the custom field holding the task's human id (default "ID", case-insensitive)
  * @property {string} [site]              Jira: site shortname ("<site>.atlassian.net"); or set baseUrl
  * @property {string} [baseUrl]           Jira: full base URL (overrides site)
  * @property {string} [email]             Jira: account email for Basic auth (typically a "${JIRA_EMAIL}" ref)
@@ -294,6 +305,9 @@
  * @property {(ref: string) => void} clearFindings                  drop pending findings for ref
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
+ * @property {(ref: string) => RefMeta|undefined} getRefMeta        display metadata for ref (undefined = none recorded)
+ * @property {(ref: string, patch: RefMeta) => void} setRefMeta     shallow-merge patch into ref's record (undefined values skipped)
+ * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
  */
 
 export {};

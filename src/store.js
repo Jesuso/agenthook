@@ -2,6 +2,8 @@
 //   - secrets: handshake secrets keyed by webhook path (Asana). Mode 0600.
 //   - seen:    dedup keys so one event triggers exactly one run.
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
+//   - refmeta: per-ref display metadata ({displayId,title,pr}) for the CLIs. Never
+//     cleared — unlike running, status/events need it after the run ends.
 //   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
 //              keyed by `${ref}:${stepId}`), so a crash/force-kill doesn't lose them.
 //
@@ -38,6 +40,7 @@ export function createStore(dataDir) {
   const difficultyFile = path.join(dataDir, "difficulty.json");
   const findingsFile = path.join(dataDir, "findings.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
+  const refmetaFile = path.join(dataDir, "refmeta.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -148,6 +151,18 @@ export function createStore(dataDir) {
       }
     },
 
+    // --- per-ref display metadata (refmeta.json): human id, title, PR number ---
+    // Written by dispatch (receiver-side only); read by agents/status/events. Shallow
+    // merge so the PR lookup and the fetchTask write can land independently.
+    getRefMeta: (ref) => readJson(refmetaFile, {})[ref],
+    setRefMeta: (ref, patch) => {
+      const m = readJson(refmetaFile, {});
+      const cur = m[ref] || {};
+      for (const [k, v] of Object.entries(patch)) if (v !== undefined) cur[k] = v;
+      m[ref] = cur;
+      fs.writeFileSync(refmetaFile, JSON.stringify(m));
+    },
+    listRefMeta: () => readJson(refmetaFile, {}),
     // --- per-ref review findings (findings.json): set on a `changes` bounce, read by the target step ---
     getFindings: (ref) => readJson(findingsFile, {})[ref],
     setFindings: (ref, f) => {

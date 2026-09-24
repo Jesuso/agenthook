@@ -246,6 +246,7 @@ export function createJiraAdapter(cfg, store) {
         url: `${baseUrl}/browse/${ref}`,
         completed: f.status?.statusCategory?.key === "done",
         assignedToUs: await isOurs(f.assignee?.accountId),
+        displayId: ref, // the issue key is already human-readable
       };
     },
 

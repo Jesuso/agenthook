@@ -8,7 +8,7 @@
 //   agenthook status [name]        one profile in detail
 //   agenthook follow [session-id]  tail a live agent transcript (read-only)
 //   agenthook resume [ref]         print/run the claude --resume for a ref's agent
-//   agenthook agents [--all]       list running `claude -p` processes (this profile; --all = every profile)
+//   agenthook agents [--all] [--verbose] [--json]  list running `claude -p` processes (this profile; --all = every profile)
 //   agenthook cleanup [--apply [--force]]   prune done agent worktrees
 //   agenthook register <url>       manual webhook create (hosted/static URL)
 //   agenthook unregister           delete this profile's webhooks
@@ -85,7 +85,7 @@ usage: agenthook <command> [args] [--config <path>]
   status [name]             one profile in detail
   follow [session-id]       tail a live agent (read-only)
   resume [ref [session]]    list a ref's sessions / print|--exec claude --resume for one
-  agents [--all]            running claude -p processes (this profile; --all = every profile)
+  agents [--all] [--verbose] [--json]  running claude -p processes (--all = every profile; --verbose = +pid/ref)
   cleanup [--apply [--force]]   prune done worktrees
   register <url>            manual webhook create
   unregister                delete this profile's webhooks
@@ -95,7 +95,7 @@ usage: agenthook <command> [args] [--config <path>]
   doctor                    preflight checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
-  events [--follow] [--event <types>] [--ref <r>] [--json]  read/tail the event bus
+  events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
   --version, -v             print the installed version
 `;
 

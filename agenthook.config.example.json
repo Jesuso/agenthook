@@ -21,6 +21,7 @@
     "userGid": "YOUR_ASANA_USER_GID",
     "workspaceGid": "YOUR_WORKSPACE_GID",
     "projectGid": "PROJECT_WHOSE_SECTIONS_DRIVE_THE_PIPELINE_GID",
+    "//displayIdField": "Optional (Asana): name of the custom field holding the task's human id (e.g. ID-2738) shown by `ah agents`/`status`/`events`. Default \"ID\"; no match = the raw gid.",
 
     "//pipeline": "The execution model (required). A task ENTERING a step's sourceSectionGid fires",
     "//pipeline2": "that step. On exit the agent writes a VERDICT and the receiver moves the task:",
