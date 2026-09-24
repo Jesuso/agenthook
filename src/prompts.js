@@ -22,7 +22,7 @@ function verdictFooter(verdictFile, outcomeLines) {
     `Before you exit, write your verdict as JSON to this exact file:`,
     `  ${verdictFile}`,
     `(also passed to you as the env var $AGENTHOOK_VERDICT_FILE). Schema:`,
-    `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>" }`,
+    `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>", "findings": "<optional, changes only: full Markdown review findings>" }`,
     `Valid outcomes for THIS stage:`,
     ...outcomeLines,
     `If you exit cleanly without writing the file, the receiver assumes "advance". A`,
@@ -40,7 +40,7 @@ function verdictFooter(verdictFile, outcomeLines) {
  * @param {import('./types.js').Task} task
  * @param {import('./types.js').AdapterMeta} meta
  * @param {import('./types.js').Step} step
- * @param {{ worktree?: string, branch?: string, verdictFile?: string }} ctx
+ * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string } }} ctx
  */
 export function stepPrompt(task, meta, step, ctx) {
   const N = meta.taskNoun;
@@ -97,8 +97,8 @@ export function stepPrompt(task, meta, step, ctx) {
       ? `Find the PR for branch "${ctx.branch}" (\`gh pr list --head ${ctx.branch} --json number,url\`),\nreview the diff, and report your findings per the standing instructions above.`
       : `Review the change with \`git -C ${ctx.worktree || "<worktree>"} diff\` (and \`git diff --stat\`) and run the\nrelevant tests, then report your findings per the standing instructions above. There is NO PR — do\nnot run any \`gh\` command.`;
     const changesLine = usesPR
-      ? `- "changes": the diff needs rework — leave your findings ON THE PR (\`gh pr review\`/\`gh pr comment\`)\n  so the coding stage sees them, then bounce it back. The worktree and PR are kept; the coding\n  stage re-fires on the SAME branch. (Default target is the previous stage; set "target" to override.)`
-      : `- "changes": the diff needs rework — put your findings in the verdict \`reason\`, then bounce it back.\n  The worktree is kept; the coding stage re-fires on the SAME branch. (Default target is the previous\n  stage; set "target" to override.)`;
+      ? `- "changes": the diff needs rework — put the FULL findings (Markdown) in the verdict \`findings\` field — the receiver hands\n  them verbatim to the coding stage — and also post them on the PR (\`gh pr comment\`), then bounce it back. The worktree and PR are kept; the coding\n  stage re-fires on the SAME branch. (Default target is the previous stage; set "target" to override.)`
+      : `- "changes": the diff needs rework — put the FULL findings (Markdown) in the verdict \`findings\` field (the receiver hands\n  them verbatim to the coding stage), then bounce it back.\n  The worktree is kept; the coding stage re-fires on the SAME branch. (Default target is the previous\n  stage; set "target" to override.)`;
     const failLine = usesPR
       ? `- "fail": fundamentally broken/unsafe, or you cannot review (no PR, gh auth failed) — route it out for a human.`
       : `- "fail": fundamentally broken/unsafe, or you cannot review the diff — route it out for a human.`;
@@ -122,7 +122,7 @@ export function stepPrompt(task, meta, step, ctx) {
 
   // implement / change share one shape: do the work in the handed-over worktree.
   const reworkLine = usesPR
-    ? `- If a draft PR already exists for this branch, this is a REWORK pass: read the review feedback\n  on the PR first (\`gh pr view --comments\`, \`gh pr review list\`) and address it, rather than starting over.`
+    ? `- If a draft PR already exists for this branch, this is a REWORK pass: read the review feedback\n  first (findings passed in this ticket come first; else \`gh pr view <branch> --json reviews,comments\`\n  and \`gh api repos/{owner}/{repo}/pulls/<pr>/comments\` for inline comments) and address it, rather than starting over.`
     : `- If this branch already has commits from an earlier pass, this is a REWORK pass: read the review\n  findings (passed in this ticket / prior verdict) and address them, rather than starting over.`;
   const deliverLine = usesPR
     ? `- Implement the ${N}, run lint and the relevant tests, and open/update a draft PR.`
@@ -141,6 +141,9 @@ export function stepPrompt(task, meta, step, ctx) {
     ``,
     `Description:`,
     task.description?.trim() || "(no description provided)",
+    ...(ctx.findings
+      ? [``, `Review findings from the "${ctx.findings.fromStep}" stage (address every point):`, ctx.findings.text]
+      : []),
     ``,
     `Instructions:`,
     ...readCommentsLine,

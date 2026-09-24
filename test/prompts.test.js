@@ -28,3 +28,12 @@ test("review prompt unchanged by readCommentsHowTo", () => {
   const b = stepPrompt(task, { ...meta, readCommentsHowTo: undefined }, step("review"), ctx);
   assert.equal(a, b);
 });
+
+test("stepPrompt renders findings block only when ctx.findings set", () => {
+  const withF = stepPrompt(task, meta, step("implement"), { findings: { fromStep: "review", text: "FIX-ME-XYZ" } });
+  assert.match(withF, /Review findings from the "review" stage/);
+  assert.match(withF, /FIX-ME-XYZ/);
+  const without = stepPrompt(task, meta, step("implement"), {});
+  assert.doesNotMatch(without, /Review findings from/);
+  assert.doesNotMatch(without, /gh pr review list/);
+});
