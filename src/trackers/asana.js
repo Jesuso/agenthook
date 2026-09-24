@@ -5,7 +5,7 @@
 //   authenticate({pathname,headers,rawBody}) -> {type:'handshake',headers} | {type:'reject'} | {type:'accept'}
 //                                         (fast, no network — lets the engine ACK <10s)
 //   processEvents({pathname,headers,rawBody}) -> [job]   (async; may hit the API)
-//   fetchTask(ref)                     -> { name, description, url, completed, assignedToUs, ref }
+//   fetchTask(ref)                     -> { name, description, url, completed, assignedToUs, ref, routeKeys }
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
@@ -30,6 +30,33 @@
 // cfg.trigger on a held task re-runs the step that held, with the comment as `comment`.
 import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
+
+/**
+ * Raw route keys from the custom field named `fieldName` (case-insensitive). Values are
+ * returned as-is — `repos.normalizeKeys` does the lowercasing/dedup. Unset/absent → [].
+ * @param {any} customFields
+ * @param {string | undefined} fieldName
+ * @returns {string[]}
+ */
+export function extractRouteKeys(customFields, fieldName) {
+  const cf = findCustomField(customFields, fieldName);
+  if (!cf) return [];
+  const clean = (/** @type {any[]} */ vs) => vs.filter((v) => typeof v === "string" && v.trim() !== "");
+  const multi = Array.isArray(cf.multi_enum_values) ? clean(cf.multi_enum_values.map((/** @type {any} */ v) => v?.name)) : [];
+  if (multi.length) return multi;
+  for (const v of [cf.enum_value?.name, cf.text_value, cf.display_value]) {
+    const c = clean([v]);
+    if (c.length) return c;
+  }
+  return [];
+}
+
+/** @param {any} customFields @param {string | undefined} fieldName */
+function findCustomField(customFields, fieldName) {
+  if (!fieldName || !Array.isArray(customFields)) return undefined;
+  const want = String(fieldName).trim().toLowerCase();
+  return customFields.find((f) => String(f?.name ?? "").trim().toLowerCase() === want);
+}
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createAsanaAdapter(cfg, store) {
@@ -301,13 +328,16 @@ export function createAsanaAdapter(cfg, store) {
 
     async fetchTask(ref) {
       const res = await api(
-        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value`,
+        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value,custom_fields.enum_value.name,custom_fields.multi_enum_values.name,custom_fields.text_value`,
       );
       if (!res.ok) throw new Error(`task fetch ${res.status}`);
       const t = (await json(res)).data;
       // Human id (e.g. "ID-2738") lives in a custom field; name configurable, default "ID".
       const idField = String(pc.displayIdField ?? "ID").toLowerCase();
       const idCf = (t.custom_fields || []).find((/** @type {any} */ f) => String(f?.name ?? "").toLowerCase() === idField);
+      if (pc.routeField && !findCustomField(t.custom_fields, pc.routeField)) {
+        console.log(`[route] ${ref}: no custom field "${pc.routeField}" — unrouted`);
+      }
       return {
         ref,
         name: t.name,
@@ -316,6 +346,7 @@ export function createAsanaAdapter(cfg, store) {
         completed: t.completed === true,
         assignedToUs: t.assignee?.gid === pc.userGid,
         displayId: idCf?.display_value ? String(idCf.display_value) : undefined,
+        routeKeys: extractRouteKeys(t.custom_fields, pc.routeField),
       };
     },
 

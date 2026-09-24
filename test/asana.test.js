@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createAsanaAdapter } from "../src/trackers/asana.js";
+import { createAsanaAdapter, extractRouteKeys } from "../src/trackers/asana.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -548,6 +548,39 @@ test("fetchTask honors a custom displayIdField", async () => {
 test("fetchTask leaves displayId undefined when the field is absent", async () => {
   assert.equal((await fetchWith([{ name: "Priority", display_value: "High" }])).task.displayId, undefined);
   assert.equal((await fetchWith(/** @type {any} */ (undefined))).task.displayId, undefined);
+});
+
+// --- routeKeys (multi-repo routing) ---
+
+test("extractRouteKeys reads enum, multi-enum, text, display_value", () => {
+  assert.deepEqual(extractRouteKeys([{ name: "Platform", enum_value: { name: "iOS" } }], "Platform"), ["iOS"]);
+  assert.deepEqual(
+    extractRouteKeys([{ name: "Platform", multi_enum_values: [{ name: "backend" }, { name: "iOS" }] }], "Platform"),
+    ["backend", "iOS"],
+  );
+  assert.deepEqual(extractRouteKeys([{ name: "Platform", text_value: "ios" }], "Platform"), ["ios"]);
+  assert.deepEqual(extractRouteKeys([{ name: "Platform", display_value: "Android" }], "Platform"), ["Android"]);
+});
+
+test("extractRouteKeys returns [] for unset / missing / unconfigured", () => {
+  const unset = { name: "Platform", enum_value: null, multi_enum_values: [], text_value: null, display_value: null };
+  assert.deepEqual(extractRouteKeys([unset], "Platform"), []);
+  assert.deepEqual(extractRouteKeys([{ name: "Other", text_value: "x" }], "Platform"), []);
+  assert.deepEqual(extractRouteKeys([unset], undefined), []);
+  assert.deepEqual(extractRouteKeys([{ name: "Platform", text_value: "x" }], ""), []);
+  assert.deepEqual(extractRouteKeys(undefined, "Platform"), []);
+});
+
+test("extractRouteKeys matches the field name case-insensitively", () => {
+  assert.deepEqual(extractRouteKeys([{ name: "Platform", enum_value: { name: "iOS" } }], "platform"), ["iOS"]);
+});
+
+test("fetchTask returns routeKeys when routeField set, [] otherwise", async () => {
+  const cf = [{ name: "Platform", enum_value: { name: "iOS" } }];
+  const on = await fetchWith(cf, { routeField: "Platform" });
+  assert.deepEqual(on.task.routeKeys, ["iOS"]);
+  assert.ok(on.urls[0].includes("custom_fields.enum_value.name,custom_fields.multi_enum_values.name,custom_fields.text_value"));
+  assert.deepEqual((await fetchWith(cf)).task.routeKeys, []);
 });
 
 // --- complete (forge merge) ---
