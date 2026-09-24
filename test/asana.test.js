@@ -73,7 +73,7 @@ test("authenticate rejects a bad signature", () => {
 test("a task added in a step's source section routes to that step", async () => {
   const orig = global.fetch;
   // @ts-ignore - test stub
-  global.fetch = async (url) => (String(url).includes("/tasks/G1") ? ok({ data: { memberships: [{ section: { gid: "S1" } }] } }) : ok({}));
+  global.fetch = async (url) => (String(url).includes("/tasks/G1?") ? ok({ data: { memberships: [{ section: { gid: "S1" } }] } }) : ok({}));
   let jobs;
   try {
     jobs = await routed().processEvents(/** @type {any} */ ({ rawBody: JSON.stringify({ events: [{ action: "added", resource: { resource_type: "task", gid: "G1" } }] }) }));
@@ -89,7 +89,7 @@ test("a task added in a step's source section routes to that step", async () => 
 test("a task added in a non-source section yields no job", async () => {
   const orig = global.fetch;
   // @ts-ignore - test stub
-  global.fetch = async (url) => (String(url).includes("/tasks/G1") ? ok({ data: { memberships: [{ section: { gid: "ZZ" } }] } }) : ok({}));
+  global.fetch = async (url) => (String(url).includes("/tasks/G1?") ? ok({ data: { memberships: [{ section: { gid: "ZZ" } }] } }) : ok({}));
   let jobs;
   try {
     jobs = await routed().processEvents(/** @type {any} */ ({ rawBody: JSON.stringify({ events: [{ action: "added", resource: { resource_type: "task", gid: "G1" } }] }) }));
@@ -105,7 +105,7 @@ test("a section_changed story routes to the step the task now rests in (secmove 
   global.fetch = async (url) => {
     const u = String(url);
     if (u.includes("/stories/ST1")) return ok({ data: { resource_subtype: "section_changed", target: { gid: "G1" } } });
-    if (u.includes("/tasks/G1")) return ok({ data: { memberships: [{ section: { gid: "S1" } }] } });
+    if (u.includes("/tasks/G1?")) return ok({ data: { memberships: [{ section: { gid: "S1" } }] } });
     return ok({});
   };
   let jobs;
@@ -216,6 +216,28 @@ test("init section discovery lists the chosen project's sections (name + gid)", 
   }
 });
 
+// --- native task dependencies (the block gate; mirrors github.test.js): a task with an
+// incomplete "blocked by" dependency rests in its source section; a blocker completing
+// releases each eligible dependent; completeTask on a terminal step completes the task.
+
+/** Build an adapter over a custom pipeline. @param {any[]} pl @param {Record<string, any>} [pc] */
+function withPipeline(pl, pc = {}) {
+  const providerConfig = { type: "asana", token: "t", assigneeFilter: false, ...pc };
+  return createAsanaAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig }), /** @type {any} */ (makeStore()));
+}
+
+/** Run `fn` with global.fetch stubbed by `stub`, restoring it after. @param {(url: string, init: any) => any} stub @param {() => Promise<any>} fn */
+async function withFetch(stub, fn) {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => stub(String(url), init);
+  try {
+    return await fn();
+  } finally {
+    global.fetch = orig;
+  }
+}
+
 // --- the `@agent` comment trigger (story comment_added → resume the held step) ---
 
 /** Adapter over a store stub whose held record / attempt count / seen set the test controls.
@@ -247,6 +269,193 @@ async function runComment(a, { text = "@agent use Postgres", author = "U1", assi
     global.fetch = orig;
   }
 }
+
+const addedEvent = (gid) => JSON.stringify({ events: [{ action: "added", resource: { resource_type: "task", gid } }] });
+
+test("a task added to a source section with an incomplete dependency rests (no job)", async () => {
+  const jobs = await withFetch(
+    (u) => {
+      if (u.includes("/tasks/G1/dependencies")) return ok({ data: [{ gid: "B1", completed: false }] });
+      if (u.includes("/tasks/G1?")) return ok({ data: { memberships: [{ section: { gid: "S1" } }] } });
+      return ok({});
+    },
+    () => routed().processEvents(/** @type {any} */ ({ rawBody: addedEvent("G1") })),
+  );
+  assert.equal(jobs.length, 0);
+});
+
+test("a task whose dependencies are all completed routes as before", async () => {
+  const jobs = await withFetch(
+    (u) => {
+      if (u.includes("/tasks/G1/dependencies")) return ok({ data: [{ gid: "B1", completed: true }] });
+      if (u.includes("/tasks/G1?")) return ok({ data: { memberships: [{ section: { gid: "S1" } }] } });
+      return ok({});
+    },
+    () => routed().processEvents(/** @type {any} */ ({ rawBody: addedEvent("G1") })),
+  );
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].dedupKey, "step:code:G1");
+});
+
+test("a task moved into a source section with an incomplete dependency rests (no job)", async () => {
+  const jobs = await withFetch(
+    (u) => {
+      if (u.includes("/stories/ST1")) return ok({ data: { resource_subtype: "section_changed", target: { gid: "G1" } } });
+      if (u.includes("/tasks/G1/dependencies")) return ok({ data: [{ gid: "B1", completed: false }] });
+      if (u.includes("/tasks/G1?")) return ok({ data: { memberships: [{ section: { gid: "S1" } }] } });
+      return ok({});
+    },
+    () => routed().processEvents(/** @type {any} */ ({ rawBody: JSON.stringify({ events: [{ action: "added", resource: { resource_type: "story", gid: "ST1" } }] }) })),
+  );
+  assert.equal(jobs.length, 0);
+});
+
+test("a dependencies API error warns and the task fires (fail-open)", async () => {
+  /** @type {string[]} */
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...a) => void warnings.push(a.join(" "));
+  let jobs;
+  try {
+    jobs = await withFetch(
+      (u) => {
+        if (u.includes("/tasks/G1/dependencies")) return /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+        if (u.includes("/tasks/G1?")) return ok({ data: { memberships: [{ section: { gid: "S1" } }] } });
+        return ok({});
+      },
+      () => routed().processEvents(/** @type {any} */ ({ rawBody: addedEvent("G1") })),
+    );
+  } finally {
+    console.warn = origWarn;
+  }
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].stepId, "code");
+  assert.ok(warnings.some((w) => w.includes("dependencies for G1")), `expected a fail-open warning; got:\n${warnings.join("\n")}`);
+});
+
+// Release fixture: blocker B1 completes; its dependents cover every eligibility branch.
+// Only D1 (ours, open, resting in a non-manual source section, no other open blocker) fires.
+const releasePipeline = [
+  { id: "code", sourceSectionGid: "S1", successSectionGid: "S2", failureSectionGid: "S3" },
+  { id: "done", sourceSectionGid: "S2", manual: true },
+];
+const releaseDependents = [
+  { gid: "D1", completed: false, assignee: { gid: "U" }, memberships: [{ section: { gid: "S1" } }] }, // eligible
+  { gid: "D2", completed: false, assignee: { gid: "OTHER" }, memberships: [{ section: { gid: "S1" } }] }, // not ours
+  { gid: "D3", completed: true, assignee: { gid: "U" }, memberships: [{ section: { gid: "S1" } }] }, // completed
+  { gid: "D4", completed: false, assignee: { gid: "U" }, memberships: [{ section: { gid: "S2" } }] }, // manual step's source
+  { gid: "D5", completed: false, assignee: { gid: "U" }, memberships: [{ section: { gid: "ZZ" } }] }, // not a source section
+  { gid: "D6", completed: false, assignee: { gid: "U" }, memberships: [{ section: { gid: "S1" } }] }, // another open blocker
+];
+/** @param {boolean} blockerCompleted @param {string[]} urls */
+const releaseStub = (blockerCompleted, urls) => (/** @type {string} */ u) => {
+  urls.push(u);
+  if (u.includes("/tasks/B1/dependents")) return ok({ data: releaseDependents });
+  if (u.includes("/tasks/B1?")) return ok({ data: { completed: blockerCompleted } });
+  if (u.includes("/tasks/D6/dependencies")) return ok({ data: [{ gid: "B1", completed: true }, { gid: "B2", completed: false }] });
+  if (u.includes("/dependencies")) return ok({ data: [{ gid: "B1", completed: true }] });
+  return ok({});
+};
+const changedEvent = JSON.stringify({ events: [{ action: "changed", resource: { resource_type: "task", gid: "B1" }, change: { field: "completed", action: "changed" } }] });
+
+test("a completed blocker releases exactly its eligible dependents (unblock dedup key)", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const jobs = await withFetch(releaseStub(true, urls), () =>
+    withPipeline(releasePipeline, { assigneeFilter: true, userGid: "U" }).processEvents(/** @type {any} */ ({ rawBody: changedEvent })),
+  );
+  assert.deepEqual(jobs, [{ kind: "pipeline", ref: "D1", stepId: "code", dedupKey: "unblock:B1:D1" }]);
+});
+
+test("a task changed event for a task that is NOT completed releases nothing", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const jobs = await withFetch(releaseStub(false, urls), () =>
+    withPipeline(releasePipeline, { assigneeFilter: true, userGid: "U" }).processEvents(/** @type {any} */ ({ rawBody: changedEvent })),
+  );
+  assert.equal(jobs.length, 0);
+  assert.ok(!urls.some((u) => u.includes("/dependents")), "an incomplete task must not look up its dependents");
+});
+
+test("registerWebhook posts four filters, including task changed on `completed`", async () => {
+  let body;
+  await withFetch(
+    (u, init) => {
+      if (init.method === "POST" && u.endsWith("/webhooks")) {
+        body = JSON.parse(String(init.body));
+        return ok({ data: { gid: "W1", active: true } });
+      }
+      return ok({ data: [] });
+    },
+    () => routed({ projectGid: "P1", workspaceGid: "WS" }).registerWebhook("https://x.example"),
+  );
+  assert.deepEqual(body?.data.filters, [
+    { resource_type: "task", action: "added" },
+    { resource_type: "story", action: "added", resource_subtype: "section_changed" },
+    { resource_type: "task", action: "changed", fields: ["completed"] },
+    { resource_type: "story", action: "added", resource_subtype: "comment_added" },
+  ]);
+});
+
+test("listResting omits blocked tasks", async () => {
+  const jobs = await withFetch(
+    (u) => {
+      if (u.includes("/sections/S1/tasks")) return ok({ data: [{ gid: "T1", completed: false }, { gid: "T2", completed: false }] });
+      if (u.includes("/tasks/T2/dependencies")) return ok({ data: [{ gid: "B1", completed: false }] });
+      if (u.includes("/dependencies")) return ok({ data: [] });
+      return ok({});
+    },
+    () => routed().listResting(),
+  );
+  assert.deepEqual(
+    jobs.map((j) => j.ref),
+    ["T1"],
+  );
+});
+
+/** Record every fetch as `METHOD url body`. @param {string[]} calls @param {string} [assignee] */
+const recordStub = (calls, assignee = "U") => (/** @type {string} */ u, /** @type {any} */ init) => {
+  calls.push(`${init.method || "GET"} ${u} ${init.body || ""}`);
+  return ok({ data: { assignee: { gid: assignee } } });
+};
+
+test("advance into a step flagged completeTask marks the task completed", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const pl = [
+    { id: "code", sourceSectionGid: "S1", successSectionGid: "S2" },
+    { id: "done", sourceSectionGid: "S2", manual: true, completeTask: true },
+  ];
+  await withFetch(recordStub(calls), () => withPipeline(pl, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" })));
+  assert.ok(calls.some((c) => c.startsWith("POST https://app.asana.com/api/1.0/sections/S2/addTask")), calls.join("\n"));
+  assert.ok(
+    calls.some((c) => c === `PUT https://app.asana.com/api/1.0/tasks/G1 ${JSON.stringify({ data: { completed: true } })}`),
+    `expected a completing PUT; got:\n${calls.join("\n")}`,
+  );
+});
+
+test("advance without the completeTask flag never completes the task", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const pl = [
+    { id: "code", sourceSectionGid: "S1", successSectionGid: "S2" },
+    { id: "done", sourceSectionGid: "S2", manual: true },
+  ];
+  await withFetch(recordStub(calls), () => withPipeline(pl, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" })));
+  assert.ok(calls.some((c) => c.startsWith("POST https://app.asana.com/api/1.0/sections/S2/addTask")));
+  assert.ok(!calls.some((c) => c.startsWith("PUT")), `expected no PUT; got:\n${calls.join("\n")}`);
+});
+
+test("a task that isn't ours is never completed (nor moved)", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const pl = [
+    { id: "code", sourceSectionGid: "S1", successSectionGid: "S2" },
+    { id: "done", sourceSectionGid: "S2", manual: true, completeTask: true },
+  ];
+  await withFetch(recordStub(calls, "OTHER"), () => withPipeline(pl, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" })));
+  assert.ok(!calls.some((c) => c.startsWith("PUT") || c.startsWith("POST")), `expected no mutation; got:\n${calls.join("\n")}`);
+});
 
 // --- fetchTask displayId: the human id comes from a custom field (default name "ID").
 /** Run fetchTask("G9") against a stubbed task carrying `custom_fields`. @param {any[]} custom_fields @param {object} [pc] */
