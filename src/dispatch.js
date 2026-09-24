@@ -307,7 +307,7 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
         }
         store?.clearAttempts(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
-        emit?.("pipeline_done", job.ref, step.id);
+        emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
@@ -393,8 +393,6 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
 
     const costUsd = typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
     emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}) });
-    if (verdict.outcome === "hold") emit?.("blocked", job.ref, step.id, { reason: verdict.reason ?? null });
-    if (verdict.outcome === "fail") emit?.("failed", job.ref, step.id, { reason: verdict.reason ?? null });
 
     // Persist a difficulty tag emitted by this step (typically triage) so later steps
     // (e.g. code) can gate their model/effort on it.
@@ -432,6 +430,15 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       } catch (e) {
         console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
       }
+    }
+
+    // Emitted after the changes guard so a forced fail (cap / no target) is reported too.
+    if (verdict.outcome === "hold" || verdict.outcome === "fail") {
+      emit?.(verdict.outcome === "hold" ? "blocked" : "failed", job.ref, step.id, {
+        reason: verdict.reason ?? null,
+        name: task.name,
+        url: task.url,
+      });
     }
 
     // The move to the next section is itself the event that fires the next step.

@@ -100,3 +100,11 @@ test("queue.json round-trips in insertion order and dedups by ref:stepId", () =>
   s.removeQueued(j("Z", "code"));
   assert.deepEqual(s.listQueued().map((x) => `${x.ref}:${x.stepId}`), ["A:code", "A:review"]);
 });
+
+test("isStateDedupKey: only step: keys are state-based", async () => {
+  const { isStateDedupKey } = await import("../src/store.js");
+  assert.equal(isStateDedupKey("step:code:88"), true);
+  assert.equal(isStateDedupKey("secmove:123"), false);
+  assert.equal(isStateDedupKey("unblock:x"), false);
+  assert.equal(isStateDedupKey(undefined), false);
+});

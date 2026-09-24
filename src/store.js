@@ -17,6 +17,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
+ * State-based dedup keys (`step:<id>:<ref>`) are released when the run ends;
+ * event-based ones (`secmove:`/`unblock:`/`reconcile:`/…) are unique per event and stay permanent.
+ * @param {string} key
+ */
+export function isStateDedupKey(key) {
+  return typeof key === "string" && key.startsWith("step:");
+}
+
+/**
  * @param {string} dataDir
  * @returns {import('./types.js').Store}
  */

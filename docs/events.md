@@ -20,9 +20,9 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 | `enqueued` | job enters the queue after dedup (engine `intake`), or is re-enqueued from `queue.json` on boot | `restored?` (`true` on boot restore) |
 | `run_start` | `claude -p` spawns for a step | `model` (string \| null) |
 | `run_end` | step finishes (any outcome) | `outcome` (`advance`\|`hold`\|`changes`\|`fail`), `costUsd?` (number) |
-| `pipeline_done` | task advances into a terminal step (`manual + drainWorktree`, e.g. `done`) | — |
-| `blocked` | verdict is `hold` | `reason` (string \| null) |
-| `failed` | verdict is `fail` | `reason` (string \| null) |
+| `pipeline_done` | task advances into a terminal step (`manual + drainWorktree`, e.g. `done`) | `name`, `url` |
+| `blocked` | verdict is `hold` | `reason` (string \| null), `name`, `url` |
+| `failed` | verdict is `fail` (incl. a `changes` forced to fail by the loop cap) or a run interrupted by restart | `reason` (string \| null), `name`, `url` (no name/url for restart) |
 
 `pipeline_done` is the signal that a ticket is fully finished and its PR is ready for merge.
 `blocked` and `failed` are the needs-attention signals.
@@ -34,3 +34,23 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
   (Asana, Jira, GitHub, GitHub Projects) gets the same stream.
 - **One emitter, one profile.** Each profile writes its own `events.jsonl`; events from different
   profiles are in different files.
+
+## Sinks
+
+Opt-in, top-level `sinks` in `agenthook.config.json` forwards events to chat/webhooks. Absent = off.
+
+```json
+"sinks": [
+  { "type": "slack",    "url": "${SLACK_WEBHOOK_URL}" },
+  { "type": "telegram", "botToken": "${TELEGRAM_BOT_TOKEN}", "chatId": "123456" },
+  { "type": "webhook",  "url": "https://example.com/hook", "events": ["blocked"] }
+]
+```
+
+- `events` defaults to `["blocked","failed","pipeline_done"]`; any event name is accepted.
+- slack: `{ text }` to the incoming-webhook URL. telegram: Bot API `sendMessage`. webhook: the raw
+  event JSON plus a `profile` field.
+- Text: `[agenthook:<profile>] <event> <ref> "<name>" (step <step>)`, then `reason`, then `url`.
+- Required fields are validated at config load (`slack`/`webhook` → `url`; `telegram` → `botToken` + `chatId`).
+- **Best-effort:** fire-and-forget, 5s timeout, failures only `console.warn` (never the URL/token);
+  no retries or queuing; never affects the pipeline.

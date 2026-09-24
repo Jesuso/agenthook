@@ -100,3 +100,16 @@ test("events.jsonl is append-only across emitter instances", () => {
   assert.equal(evs.length, 3);
   assert.deepEqual(evs.map((e) => e.event), ["enqueued", "run_start", "run_end"]);
 });
+
+test("onEvent receives the written object; a throwing onEvent doesn't break append", () => {
+  const dir = tmpDir();
+  const seen = [];
+  const emit = createEmitter(dir, (ev) => {
+    seen.push(ev);
+    throw new Error("sink boom");
+  });
+  emit("blocked", "9", "code", { reason: "q" });
+  const written = readEvents(dir);
+  assert.equal(written.length, 1);
+  assert.deepEqual(seen[0], written[0]);
+});

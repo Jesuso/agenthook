@@ -166,6 +166,23 @@ export function loadConfig(opts = {}) {
     }
   }
 
+  if (cfg.sinks != null) {
+    if (!Array.isArray(cfg.sinks)) throw new Error(`config: sinks must be an array.`);
+    /** @type {Record<string, string[]>} */
+    const need = { slack: ["url"], webhook: ["url"], telegram: ["botToken", "chatId"] };
+    cfg.sinks.forEach((/** @type {any} */ s, /** @type {number} */ i) => {
+      if (!s || !need[s.type]) {
+        throw new Error(`config: sinks[${i}].type must be one of slack, telegram, webhook (got ${JSON.stringify(s?.type)}).`);
+      }
+      for (const f of need[s.type]) {
+        if (s[f] == null || s[f] === "") throw new Error(`config: sinks[${i}] (${s.type}) requires "${f}".`);
+      }
+      if (s.events != null && (!Array.isArray(s.events) || s.events.some((/** @type {any} */ e) => typeof e !== "string"))) {
+        throw new Error(`config: sinks[${i}].events must be an array of strings.`);
+      }
+    });
+  }
+
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   fs.mkdirSync(cfg.logDir, { recursive: true });
   return cfg;
