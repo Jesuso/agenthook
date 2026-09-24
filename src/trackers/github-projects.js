@@ -32,6 +32,15 @@
 //     is the token owner's login (GraphQL `viewer`, cached). Scoping is FAIL CLOSED.
 import crypto from "node:crypto";
 
+/**
+ * Route keys from the routeField single-select's option name → [name] or [].
+ * @param {string | null | undefined} routeValueName
+ * @returns {string[]}
+ */
+export function extractRouteKeys(routeValueName) {
+  return typeof routeValueName === "string" && routeValueName.trim() !== "" ? [routeValueName] : [];
+}
+
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubProjectsAdapter(cfg, store) {
   const pc = cfg.providerConfig;
@@ -274,14 +283,17 @@ export function createGithubProjectsAdapter(cfg, store) {
   // The item's neutral shape: its project-item node id, its content issue node, and the
   // current Status option name (or null). `status` is the GraphQL alias of the item's
   // Status field value; `issue.__typename` distinguishes Issue cards from drafts/PRs.
-  /** @param {any} node @returns {{itemId: string, issue: any, status: string|null}} */
-  const shapeItem = (node) => ({ itemId: node.id, issue: node.content, status: node.status?.name ?? null });
+  /** @param {any} node @returns {{itemId: string, issue: any, status: string|null, route: string|null}} */
+  const shapeItem = (node) => ({ itemId: node.id, issue: node.content, status: node.status?.name ?? null, route: node.route?.name ?? null });
 
+  // routeField (optional) names a second single-select field, read in the same query.
   const ITEM_FIELDS = `id content{ __typename ... on Issue { id number title body url state assignees(first:10){ nodes{ login } } } }
-    status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } }`;
+    status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } }${
+      pc.routeField ? `\n    route: fieldValueByName(name:${JSON.stringify(String(pc.routeField))}){ ... on ProjectV2ItemFieldSingleSelectValue { name } }` : ""
+    }`;
 
   /** Read one project item directly by its node id (the webhook hands us this).
-   * @param {string} nodeId @returns {Promise<{itemId: string, issue: any, status: string|null}|null>} */
+   * @param {string} nodeId @returns {Promise<{itemId: string, issue: any, status: string|null, route: string|null}|null>} */
   async function itemByNodeId(nodeId) {
     const body = await gql(`query($id:ID!){ node(id:$id){ ... on ProjectV2Item { ${ITEM_FIELDS} } } }`, { id: nodeId });
     const n = body.data?.node;
@@ -291,10 +303,10 @@ export function createGithubProjectsAdapter(cfg, store) {
   /** Every Issue-backed item in the project (paged), in board POSITION order (top first —
    * listQueued's priority). Backs find-by-number + listResting/listQueued — a project has
    * no "issue #N" lookup, so we scan its items. Best-effort full paging.
-   * @returns {Promise<Array<{itemId: string, issue: any, status: string|null}>>} */
+   * @returns {Promise<Array<{itemId: string, issue: any, status: string|null, route: string|null}>>} */
   async function fetchItems() {
     const id = await projectId();
-    /** @type {Array<{itemId: string, issue: any, status: string|null}>} */
+    /** @type {Array<{itemId: string, issue: any, status: string|null, route: string|null}>} */
     const out = [];
     /** @type {string|null} */
     let after = null;
@@ -481,6 +493,7 @@ export function createGithubProjectsAdapter(cfg, store) {
         completed: norm(issue.state) === "closed",
         assignedToUs: await issueIsOurs(issue),
         displayId: `#${ref}`,
+        routeKeys: extractRouteKeys(pc.routeField ? it.route : null),
       };
     },
 
@@ -547,7 +560,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       let contentId = it?.issue?.id;
       if (!it) {
         contentId = await issueNodeId(ref); // throws clearly if tracker.repository is unset
-        it = { itemId: await addItem(contentId), issue: null, status: null };
+        it = { itemId: await addItem(contentId), issue: null, status: null, route: null };
       }
       if (opts.assign !== false && contentId) await assignIssue(contentId);
       await setStatus(it.itemId, field.id, optionId);

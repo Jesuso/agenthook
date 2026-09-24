@@ -23,6 +23,31 @@ import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
 
+/**
+ * Raw route keys from issue labels starting with `prefix` (case-insensitive), e.g.
+ * prefix "platform:" + label "platform:ios" → "ios". Configured pipeline labels are
+ * never returned. Prefix unset/blank → [].
+ * @param {any} labels  issue.labels — `{name}` objects or strings
+ * @param {string | undefined} prefix
+ * @param {Array<string | undefined>} [pipelineLabels]
+ * @returns {string[]}
+ */
+export function extractRouteKeys(labels, prefix, pipelineLabels = []) {
+  const p = (prefix || "").trim().toLowerCase();
+  if (!p || !Array.isArray(labels)) return [];
+  const skip = new Set(pipelineLabels.filter(Boolean).map((l) => String(l).trim().toLowerCase()));
+  /** @type {string[]} */
+  const out = [];
+  for (const l of labels) {
+    const name = typeof l === "string" ? l : l?.name;
+    if (typeof name !== "string") continue;
+    if (skip.has(name.trim().toLowerCase()) || !name.trim().toLowerCase().startsWith(p)) continue;
+    const key = name.trim().slice(p.length).trim();
+    if (key) out.push(key);
+  }
+  return out;
+}
+
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
   const pc = cfg.providerConfig;
@@ -386,6 +411,11 @@ export function createGithubAdapter(cfg, store) {
         completed: issue.state === "closed",
         assignedToUs: await issueIsOurs(issue),
         displayId: `#${ref}`,
+        routeKeys: extractRouteKeys(
+          issue.labels,
+          cfg.providerConfig?.routeField,
+          (pipeline || []).flatMap((st) => [st.sourceLabel, st.successLabel, st.failureLabel, st.holdLabel, st.queueLabel]),
+        ),
       };
     },
 

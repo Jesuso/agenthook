@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createLocalAdapter, seedBoard, localBoardPath } from "../src/trackers/local.js";
+import { createLocalAdapter, seedBoard, localBoardPath, extractRouteKeys } from "../src/trackers/local.js";
+import { resolveRepo } from "../src/repos.js";
 
 const pipeline = [
   { id: "triage", kind: "triage", sourceStatus: "triage", successStatus: "code", failureStatus: "blocked", holdStatus: "held" },
@@ -111,4 +112,31 @@ test("listQueued returns tasks in the step's queueStatus, board order; [] withou
   seedBoard(cfg, [{ ref: "Q1", name: "one" }, { ref: "Q2", name: "two" }], "backlog");
   assert.deepEqual(await a.listQueued("code"), ["Q1", "Q2"]);
   assert.deepEqual(await a.listQueued("review"), []);
+});
+
+test("extractRouteKeys: string, array, absent, unset", () => {
+  assert.deepEqual(extractRouteKeys({ platform: "ios" }, "platform"), ["ios"]);
+  assert.deepEqual(extractRouteKeys({ platform: ["ios", "", 3, "web"] }, "platform"), ["ios", "web"]);
+  assert.deepEqual(extractRouteKeys({}, "platform"), []);
+  assert.deepEqual(extractRouteKeys({ platform: 5 }, "platform"), []);
+  assert.deepEqual(extractRouteKeys({ platform: "ios" }, undefined), []);
+});
+
+test("routing e2e: seedBoard keeps the extra field → fetchTask routeKeys → resolveRepo", async () => {
+  const cfg = makeCfg();
+  cfg.providerConfig = { routeField: "platform" };
+  cfg.repos = [
+    { id: "web", path: "/w", match: [], default: true },
+    { id: "ios", path: "/i", match: ["ios"] },
+  ];
+  const board = seedBoard(cfg, [{ ref: "R1", name: "a", platform: "ios" }, { ref: "R2", name: "b", platform: "zzz" }], "triage");
+  assert.equal(board.R1.platform, "ios");
+  const a = adapter(cfg);
+  const t1 = await a.fetchTask("R1");
+  assert.deepEqual(t1.routeKeys, ["ios"]);
+  assert.equal(/** @type {any} */ (resolveRepo(cfg, t1.routeKeys)).repo.id, "ios");
+  const t2 = await a.fetchTask("R2");
+  assert.equal(/** @type {any} */ (resolveRepo(cfg, t2.routeKeys)).repo.id, "web");
+  cfg.providerConfig = undefined;
+  assert.deepEqual((await adapter(cfg).fetchTask("R1")).routeKeys, []);
 });

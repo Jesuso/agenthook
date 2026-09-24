@@ -137,6 +137,20 @@ agenthook follow          # watch the agent
 
 Stuck? See [troubleshooting](troubleshooting.md).
 
+## Routing to multiple repos
+
+Add a second **single-select** field to the board (e.g. `Platform`) and set `routeField` to its name. The option name is the route key, read in the same query as Status.
+
+```json
+"tracker": { "type": "github-projects", "routeField": "Platform" },
+"repos": [
+  { "id": "web", "path": "/work/web", "default": true, "match": [] },
+  { "id": "ios", "path": "/work/ios", "match": ["ios"] }
+]
+```
+
+If a task yields more than one matching key, routing is a conflict and the task is held (no agent spawns) until you fix the value. (Not possible here: a single-select holds one value.) Ops notes: [multi-repo profiles](usage.md#multi-repo-profiles).
+
 ## Labels vs board: which GitHub tracker?
 
 | | [`github`](github-setup.md) (labels) | `github-projects` (this) |

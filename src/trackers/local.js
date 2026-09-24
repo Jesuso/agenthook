@@ -23,7 +23,21 @@ export function localBoardPath(cfg) {
   return path.join(cfg.dataDir, "local-board.json");
 }
 
-/** @typedef {{ name: string, description?: string, url?: string, stage: string }} LocalItem */
+/** @typedef {{ name: string, description?: string, url?: string, stage: string, [key: string]: any }} LocalItem */
+
+/**
+ * Raw route keys from the top-level key `routeField` of a board item: a string → [s],
+ * an array → its non-empty strings. Unset/absent/other → [].
+ * @param {Record<string, any>} item
+ * @param {string | undefined} routeField
+ * @returns {string[]}
+ */
+export function extractRouteKeys(item, routeField) {
+  if (!routeField) return [];
+  const v = item?.[routeField];
+  const vs = Array.isArray(v) ? v : [v];
+  return vs.filter((x) => typeof x === "string" && x.trim() !== "");
+}
 
 /** Read the board (missing file → empty). @param {import('../types.js').Config} cfg
  * @returns {Record<string, LocalItem>} */
@@ -44,14 +58,14 @@ function writeBoard(cfg, board) {
  * Seed (or reset) the board: place each task at a starting stage. Used by the offline
  * driver to inject a corpus. Overwrites any existing board.
  * @param {import('../types.js').Config} cfg
- * @param {Array<{ref: string, name: string, description?: string, url?: string}>} tasks
+ * @param {Array<{ref: string, name: string, description?: string, url?: string, [key: string]: any}>} tasks
  * @param {string} stage  the stage to place every task in (a step's sourceStatus)
  */
 export function seedBoard(cfg, tasks, stage) {
   /** @type {Record<string, LocalItem>} */
   const board = {};
-  for (const t of tasks) {
-    board[String(t.ref)] = { name: t.name, description: t.description || "", url: t.url || `local://${t.ref}`, stage };
+  for (const { ref, ...t } of tasks) {
+    board[String(ref)] = { ...t, name: t.name, description: t.description || "", url: t.url || `local://${ref}`, stage };
   }
   writeBoard(cfg, board);
   return board;
@@ -111,6 +125,7 @@ export function createLocalAdapter(cfg, _store) {
         completed: isTerminal(it.stage),
         assignedToUs: true,
         displayId: String(ref),
+        routeKeys: extractRouteKeys(it, cfg.providerConfig?.routeField),
       };
     },
 

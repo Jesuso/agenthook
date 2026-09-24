@@ -113,6 +113,20 @@ agent's question, then transition the issue from its `holdStatus` back to the st
 The step re-runs, but without your reply in its prompt. (A future adapter would subscribe the
 webhook to `comment_created`.)
 
+## Routing to multiple repos
+
+Route on a Jira field. `routeField` is one of: `components` (component names), `labels`, or a custom field id `customfield_N` (text, single/multi-select or labels-type; referenced by id only). Anything else is ignored with a warning.
+
+```json
+"tracker": { "type": "jira", "routeField": "components" },
+"repos": [
+  { "id": "web", "path": "/work/web", "default": true, "match": [] },
+  { "id": "ios", "path": "/work/ios", "match": ["ios"] }
+]
+```
+
+If a task yields more than one matching key, routing is a conflict and the task is held (no agent spawns) until you fix the value. Ops notes: [multi-repo profiles](usage.md#multi-repo-profiles).
+
 ## Verify
 
 ```bash
