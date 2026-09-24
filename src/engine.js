@@ -11,13 +11,32 @@
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
 import http from "node:http";
 import fs from "node:fs";
-import { createStore } from "./store.js";
+import { createStore, isStateDedupKey } from "./store.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
 import { createQueue } from "./queue.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { createEmitter } from "./events.js";
+
+/**
+ * Wrap a job runner so a `step:` dedup key is released when the job settles
+ * (resolve or reject). Other keys stay in `seen`.
+ * @param {(job: import('./types.js').Job) => Promise<any>} run
+ * @param {{reloadSeen: () => void, unmarkSeen: (key: string) => void}} store
+ */
+export function releaseOnSettle(run, store) {
+  return async (/** @type {import('./types.js').Job} */ job) => {
+    try {
+      return await run(job);
+    } finally {
+      if (isStateDedupKey(job.dedupKey)) {
+        store.reloadSeen(); // seen is edited out-of-band (catchup)
+        store.unmarkSeen(job.dedupKey);
+      }
+    }
+  };
+}
 
 /** @param {import('./types.js').Config} cfg */
 export function createEngine(cfg) {
@@ -29,7 +48,7 @@ export function createEngine(cfg) {
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
   const runClaude = createDispatcher(cfg, adapter, children, store, emit);
-  const queue = createQueue(cfg.maxConcurrent, runClaude, (state) =>
+  const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
   );
 
@@ -54,7 +73,8 @@ export function createEngine(cfg) {
         seen: store.seenCount(),
       });
       emit("enqueued", job.ref, job.stepId);
-      queue.enqueue(job);
+      // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
+      if (!queue.enqueue(job) && isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
     }
   }
 
@@ -78,6 +98,7 @@ export function createEngine(cfg) {
       }
       store.clearRunning(ref);
       store.clearAttempts(ref);
+      store.unmarkSeen(`step:${stepId}:${ref}`);
     }
   }
 
