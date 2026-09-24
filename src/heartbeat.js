@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { registryDir } from "./config.js";
+import { reposOf } from "./repos.js";
 
 /** @param {number} pid */
 export function isAlive(pid) {
@@ -33,6 +34,7 @@ export function createHeartbeat(cfg) {
     ingress: cfg.ingress?.type || "manual",
     fullAuto: !!cfg.fullAuto,
     repoPath: cfg.repoPath,
+    repos: reposOf(cfg).map((r) => ({ id: r.id, path: r.path })),
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     queue: { active: 0, queued: 0 },

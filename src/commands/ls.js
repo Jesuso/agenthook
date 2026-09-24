@@ -59,6 +59,7 @@ export async function ls() {
       port: hb.port || "?",
       tracker: hb.tracker || "?",
       ingress: hb.ingress || "?",
+      repos: hb.repos?.length ?? 1,
       agents: hb.queue ? hb.queue.active : 0,
       queue: hb.queue ? hb.queue.queued : 0,
       tokens,
@@ -67,12 +68,12 @@ export async function ls() {
     };
   });
   console.log(
-    `${pad("NAME", 16)}${pad("UP", 4)}${pad("PORT", 7)}${pad("TRACKER", 9)}${pad("INGRESS", 9)}` +
+    `${pad("NAME", 16)}${pad("UP", 4)}${pad("PORT", 7)}${pad("TRACKER", 9)}${pad("INGRESS", 9)}${pad("REPOS", 7)}` +
       `${pad("AGENTS", 8)}${pad("QUEUE", 7)}${pad("TOKENS", 9)}${pad("COST", 9)}LAST EVENT`,
   );
   for (const r of rows) {
     console.log(
-      `${pad(r.name, 16)}${pad(r.up, 4)}${pad(r.port, 7)}${pad(r.tracker, 9)}${pad(r.ingress, 9)}` +
+      `${pad(r.name, 16)}${pad(r.up, 4)}${pad(r.port, 7)}${pad(r.tracker, 9)}${pad(r.ingress, 9)}${pad(r.repos, 7)}` +
         `${pad(r.agents, 8)}${pad(r.queue, 7)}${pad(r.tokens, 9)}${pad(r.cost, 9)}${r.last}`,
     );
   }

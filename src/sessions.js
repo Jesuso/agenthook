@@ -7,10 +7,44 @@ import fs from "node:fs";
 import path from "node:path";
 import { claudeProjectDir } from "./paths.js";
 import { worktreePath } from "./worktree.js";
+import { reposOf, repoById, primaryRepo } from "./repos.js";
+
+/** A path's mtime in ms, or -1 if it doesn't exist. @param {string} p */
+const mtime = (p) => {
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch {
+    return -1;
+  }
+};
+
+/**
+ * The repo a ref ran in. Multi-repo worktrees nest under `<base>/<repo.id>/<ref>`, so the
+ * transcript dir depends on it. The sticky `repo.json` entry wins; a drained ref has none
+ * (cleared on terminal states), so fall back to the repo whose worktree transcript dir
+ * exists (newest mtime if several), else the default repo. Single-repo: always the one.
+ * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {{ getRepo: (ref: string) => string|undefined }} [store]
+ * @returns {import('./types.js').RepoConfig} */
+export function refRepo(cfg, ref, store) {
+  const sticky = repoById(cfg, store?.getRepo(ref));
+  if (sticky) return sticky;
+  let best = null;
+  let bestM = -1;
+  for (const repo of reposOf(cfg)) {
+    const m = mtime(claudeProjectDir(worktreePath(cfg, ref, repo)));
+    if (m > bestM) {
+      best = repo;
+      bestM = m;
+    }
+  }
+  return best ?? primaryRepo(cfg);
+}
 
 /** Claude transcript dir for a task ref's worktree.
- * @param {import('./types.js').Config} cfg @param {string} ref */
-export const sessionDir = (cfg, ref) => claudeProjectDir(worktreePath(cfg, ref));
+ * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {{ getRepo: (ref: string) => string|undefined }} [store] */
+export const sessionDir = (cfg, ref, store) => claudeProjectDir(worktreePath(cfg, ref, refRepo(cfg, ref, store)));
 
 /** The session id to resume for a ref: the newest DISPATCHED transcript (its first
  * turn carries the engine's "=== TICKET ===" marker, which a hand-run session won't),
@@ -87,9 +121,10 @@ export function recentRuns(cfg, limit = 10) {
  * pipeline step it ran (correlated by matching the session's first-message time to
  * the nearest run-log start for that ref). One `claude -p` per step run = one session.
  * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {{ getRepo: (ref: string) => string|undefined }} [store]
  * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string }[]} */
-export function listSessions(cfg, ref) {
-  const dir = sessionDir(cfg, ref);
+export function listSessions(cfg, ref, store) {
+  const dir = sessionDir(cfg, ref, store);
   let files;
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));

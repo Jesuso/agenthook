@@ -195,7 +195,7 @@ Each run is a plain `claude -p` OS process working in its own git worktree.
 
 ```bash
 agenthook agents                  # list running agents (pid, runtime, ref, live token tally)
-agenthook follow [session-id]     # tail a live agent read-only (no second process)
+agenthook follow [session-id] [--repo <id>]  # tail a live agent read-only (no second process)
 agenthook usage                   # per-run token & cost table (--ref <n>, --day, --week)
 agenthook cleanup                 # dry run: which worktrees are done and safe to remove
 agenthook cleanup --apply         #   remove them (add --force for dirty ones)

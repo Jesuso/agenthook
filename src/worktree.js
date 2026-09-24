@@ -34,6 +34,25 @@ export function worktreePath(cfg, ref, repo = primaryRepo(cfg)) {
   return cfg.multiRepo ? path.join(base, repo.id, safeRef(ref)) : path.join(base, safeRef(ref));
 }
 
+/** Every worktree git knows for a repo (`git worktree list --porcelain`), main checkout
+ * included. Callers filter to agent worktrees by path prefix. Throws if git fails.
+ * @param {string} repoPath @returns {{ path: string, branch: string }[]} */
+export function listWorktrees(repoPath) {
+  /** @type {{ path: string, branch: string }[]} */
+  const records = [];
+  let cur = { path: "", branch: "" };
+  for (const line of git(repoPath, ["worktree", "list", "--porcelain"]).split("\n")) {
+    if (line.startsWith("worktree ")) cur = { path: line.slice(9), branch: "" };
+    else if (line.startsWith("branch ")) cur.branch = line.slice(7).replace("refs/heads/", "");
+    else if (line === "") {
+      if (cur.path) records.push(cur);
+      cur = { path: "", branch: "" };
+    }
+  }
+  if (cur.path) records.push(cur);
+  return records;
+}
+
 /** @param {string} ref */
 export function branchName(ref) {
   return `agent/${safeRef(ref)}`;

@@ -59,7 +59,8 @@ export async function status(args) {
   console.log(`tracker : ${hb.tracker || "?"}`);
   console.log(`ingress : ${hb.ingress || "?"}${hb.url ? `  ${hb.url}` : ""}`);
   console.log(`port    : ${hb.port || "?"}`);
-  console.log(`repo    : ${hb.repoPath || "?"}`);
+  if (hb.repos?.length > 1) for (const r of hb.repos) console.log(`repo    : ${r.id}  ${r.path}`);
+  else console.log(`repo    : ${hb.repoPath || "?"}`);
   console.log(`auto    : ${hb.fullAuto ? "fullAuto (--dangerously-skip-permissions)" : "permissioned"}`);
   // Down: heartbeat may be stale (kill -9), so trust queue.json instead.
   if (p.up && hb.queue) console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued`);
