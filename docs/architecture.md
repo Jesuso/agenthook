@@ -105,6 +105,9 @@ path.
 `maxConcurrent` agents run at once. Each works in its own **git worktree** (siblings of your
 repo), so parallel runs never collide on the index or working tree. Agents never remove their
 own worktree — a human (or a separate cleanup step) tears it down after the PR merges.
+A new agent branch is based on a freshly fetched `origin/<default>` (not your checkout's local
+branch, which the receiver never touches); if the fetch fails or there is no `origin`, it falls
+back to the local default branch.
 
 ## Step verdicts (where a finished step routes)
 

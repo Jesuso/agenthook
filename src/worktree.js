@@ -12,7 +12,8 @@
 // keyed by ref, two concurrent jobs on the same ref would share this worktree and
 // clobber each other's commits + crash-recovery entry. `agenthook run`'s entry guard
 // (src/commands/run.js) enforces it: it refuses to inject a ref already mid-flow.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import { worktreeDir } from "./paths.js";
@@ -23,6 +24,8 @@ import { primaryRepo } from "./repos.js";
 /** @param {string} repo @param {string[]} args */
 const git = (repo, args) =>
   execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+const execFileP = promisify(execFile);
 
 /** @param {string} ref */
 const safeRef = (ref) => String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
@@ -79,22 +82,57 @@ function branchExists(repo, branch) {
 }
 
 /**
+ * Pick the start point for a new agent branch: a freshly fetched `origin/<default>` when
+ * possible, else the local default branch. The fetch is async (never block the event loop /
+ * webhook ACKs), best-effort, and touches only `refs/remotes/origin/<name>` — never the
+ * checkout's branches, index or working tree.
+ * @param {string} repo @returns {Promise<{ ref: string, sha: string }>}
+ */
+async function resolveBase(repo) {
+  const name = defaultBranch(repo);
+  let ref = name;
+  let hasOrigin = true;
+  try {
+    git(repo, ["remote", "get-url", "origin"]);
+  } catch {
+    hasOrigin = false;
+  }
+  if (hasOrigin) {
+    try {
+      await execFileP("git", ["-C", repo, "fetch", "--quiet", "origin", name], {
+        timeout: 10_000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      git(repo, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${name}`]);
+      ref = `origin/${name}`;
+    } catch (e) {
+      const msg = String(e.stderr || e.message || e).trim().split("\n")[0];
+      console.warn(`[worktree] fetch origin ${name} failed: ${msg}; basing on local ${name}`);
+    }
+  }
+  return { ref, sha: git(repo, ["rev-parse", "--short", ref]) };
+}
+
+/**
  * Ensure a worktree exists for this task, creating the branch on first use.
  * Idempotent: a second call (e.g. the review step) returns the existing one.
+ * `base` is set only when a new branch was created.
  * @param {import('./types.js').Config} cfg @param {string} ref @param {import('./types.js').RepoConfig} [repo]
- * @returns {{ worktree: string, branch: string, created: boolean }}
+ * @returns {Promise<{ worktree: string, branch: string, created: boolean, base?: { ref: string, sha: string } }>}
  */
-export function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
+export async function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
   const worktree = worktreePath(cfg, ref, repo);
   const branch = branchName(ref);
   if (fs.existsSync(worktree)) return { worktree, branch, created: false };
   fs.mkdirSync(path.dirname(worktree), { recursive: true });
   if (branchExists(repo.path, branch)) {
     git(repo.path, ["worktree", "add", worktree, branch]);
-  } else {
-    git(repo.path, ["worktree", "add", "-b", branch, worktree, defaultBranch(repo.path)]);
+    return { worktree, branch, created: true };
   }
-  return { worktree, branch, created: true };
+  const base = await resolveBase(repo.path);
+  // --no-track: a plain `git push` from the agent must not target origin/<default>.
+  git(repo.path, ["worktree", "add", "--no-track", "-b", branch, worktree, base.ref]);
+  return { worktree, branch, created: true, base };
 }
 
 /** Remove the worktree (keeps the branch, which the PR still needs).
