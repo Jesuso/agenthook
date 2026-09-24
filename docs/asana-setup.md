@@ -215,6 +215,20 @@ Safety rules:
 - `cancelled` and green runs are ignored. Only GitHub Actions is supported (not other check
   providers).
 
+## Routing to multiple repos
+
+To send tickets to different repos, add a **custom field** to the project (e.g. a dropdown or text field named `Platform`). The adapter reads its value (enum, multi-enum, text) as the route key.
+
+```json
+"tracker": { "type": "asana", "routeField": "Platform" },
+"repos": [
+  { "id": "web", "path": "/work/web", "default": true, "match": [] },
+  { "id": "ios", "path": "/work/ios", "match": ["ios"] }
+]
+```
+
+If a task yields more than one matching key, routing is a conflict and the task is held (no agent spawns) until you fix the value. Ops notes: [multi-repo profiles](usage.md#multi-repo-profiles).
+
 ## Verify
 
 ```bash

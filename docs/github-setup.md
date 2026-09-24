@@ -125,6 +125,20 @@ body), which keeps the issue open — work visible — until the change is actua
 `closeIssue: true` closes the issue the moment it reaches `done`, i.e. while its PR is still open, so
 turn it on only when auto-release is worth that early close.
 
+## Routing to multiple repos
+
+Create a **label convention** yourself, e.g. `platform:ios`, `platform:web`. `routeField` is the label **prefix**; the text after it is the route key. Pipeline labels (`agent:*`, etc.) are never used as keys, and agenthook does not create routing labels.
+
+```json
+"tracker": { "type": "github", "routeField": "platform:" },
+"repos": [
+  { "id": "web", "path": "/work/web", "default": true, "match": [] },
+  { "id": "ios", "path": "/work/ios", "match": ["ios"] }
+]
+```
+
+If a task yields more than one matching key, routing is a conflict and the task is held (no agent spawns) until you fix the value. Ops notes: [multi-repo profiles](usage.md#multi-repo-profiles).
+
 ## Verify
 
 ```bash

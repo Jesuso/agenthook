@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createGithubAdapter } from "../src/trackers/github.js";
+import { createGithubAdapter, extractRouteKeys } from "../src/trackers/github.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -657,4 +657,24 @@ test("enterStage on a queue step adds the source label, THEN removes the queue l
   const add = calls.findIndex((c) => c.startsWith("POST") && c.endsWith("/issues/42/labels"));
   const del = calls.findIndex((c) => c.startsWith("DELETE") && c.endsWith("/issues/42/labels/queue%3Acode"));
   assert.ok(add >= 0 && del > add, `expected add-then-remove; got:\n${calls.join("\n")}`);
+});
+
+test("extractRouteKeys: prefix match, case-insensitive, pipeline labels never returned", () => {
+  const labels = [{ name: "Platform:iOS" }, "platform:web", { name: "platform:" }, { name: "bug" }, { name: "agent:code" }];
+  assert.deepEqual(extractRouteKeys(labels, "platform:"), ["iOS", "web"]);
+  assert.deepEqual(extractRouteKeys([{ name: "agent:code" }, { name: "agent:x" }], "agent:", ["agent:code"]), ["x"]);
+  assert.deepEqual(extractRouteKeys([{ name: "platform:ios" }], "platform:", ["Platform:IOS"]), []);
+  assert.deepEqual(extractRouteKeys(labels, undefined), []);
+  assert.deepEqual(extractRouteKeys(undefined, "platform:"), []);
+});
+
+test("fetchTask returns routeKeys from labels; [] when routeField unset", async () => {
+  const issue = { title: "t", body: "", html_url: "u", state: "open", labels: [{ name: "agent:code" }, { name: "platform:ios" }, { name: "platform:web" }] };
+  const restore = withDeps((u) => (u.endsWith("/issues/5") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => issue }) : null));
+  try {
+    assert.deepEqual((await adapter({ routeField: "platform:" }).fetchTask("5")).routeKeys, ["ios", "web"]);
+    assert.deepEqual((await adapter().fetchTask("5")).routeKeys, []);
+  } finally {
+    restore();
+  }
 });

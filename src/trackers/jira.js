@@ -26,6 +26,36 @@
 //     (ngrok reserved domain, or a hosted URL) — never an ephemeral tunnel.
 import crypto from "node:crypto";
 
+/**
+ * How `routeField` resolves: components | labels | customfield_N, else null.
+ * @param {string | undefined} routeField
+ * @returns {{kind: "component"|"label"|"custom", field: string} | null}
+ */
+export function routeSource(routeField) {
+  const f = (routeField || "").trim();
+  const l = f.toLowerCase();
+  if (l === "components" || l === "component") return { kind: "component", field: "components" };
+  if (l === "labels" || l === "label") return { kind: "label", field: "labels" };
+  if (/^customfield_\d+$/.test(l)) return { kind: "custom", field: l };
+  return null;
+}
+
+/**
+ * Raw route keys from an issue's `fields` per `routeField`. Unset/unknown/absent → [].
+ * @param {any} fields
+ * @param {string | undefined} routeField
+ * @returns {string[]}
+ */
+export function extractRouteKeys(fields, routeField) {
+  const src = routeSource(routeField);
+  if (!src || !fields) return [];
+  const v = fields[src.field];
+  const vs = Array.isArray(v) ? v : [v];
+  return vs
+    .map((x) => (typeof x === "string" ? x : src.kind === "custom" ? (x?.value ?? x?.name) : x?.name))
+    .filter((x) => typeof x === "string" && x.trim() !== "");
+}
+
 /** @type {import('../types.js').AdapterFactory} */
 export function createJiraAdapter(cfg, store) {
   const pc = cfg.providerConfig;
@@ -233,9 +263,13 @@ export function createJiraAdapter(cfg, store) {
     },
 
     async fetchTask(ref) {
-      const res = await api(`/issue/${ref}?fields=summary,description,status,assignee`);
+      const routeField = cfg.providerConfig?.routeField;
+      const src = routeSource(routeField);
+      if (routeField && !src) console.log(`[route] ${ref}: routeField "${routeField}" is not components|labels|customfield_N`);
+      const res = await api(`/issue/${ref}?fields=summary,description,status,assignee${src ? `,${src.field}` : ""}`);
       if (!res.ok) throw new Error(`issue fetch ${res.status}`);
       const f = (await json(res)).fields || {};
+      if (src) console.log(`[route] ${ref}: routeField "${routeField}" → ${src.kind}`);
       // REST v2 description is a string (or null); guard in case a v3-shaped ADF
       // object ever arrives so the prompt never gets "[object Object]".
       const description = typeof f.description === "string" ? f.description : f.description ? JSON.stringify(f.description) : "";
@@ -247,6 +281,7 @@ export function createJiraAdapter(cfg, store) {
         completed: f.status?.statusCategory?.key === "done",
         assignedToUs: await isOurs(f.assignee?.accountId),
         displayId: ref, // the issue key is already human-readable
+        routeKeys: extractRouteKeys(f, routeField),
       };
     },
 

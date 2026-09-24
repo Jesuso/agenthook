@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createGithubProjectsAdapter } from "../src/trackers/github-projects.js";
+import { createGithubProjectsAdapter, extractRouteKeys } from "../src/trackers/github-projects.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -654,4 +654,32 @@ test("listQueued returns our open cards in the queue Status, board POSITION orde
   }
   assert.deepEqual(refs, ["9", "1"]);
   assert.ok(queries.some((q) => q.includes("orderBy:{field:POSITION, direction:ASC}")), "items are read in board position order");
+});
+
+test("extractRouteKeys: [name] or []", () => {
+  assert.deepEqual(extractRouteKeys("ios"), ["ios"]);
+  assert.deepEqual(extractRouteKeys(null), []);
+  assert.deepEqual(extractRouteKeys(""), []);
+});
+
+test("routeField adds a route: alias to the item query; fetchTask returns [name]", async () => {
+  const issue = { __typename: "Issue", id: "I_42", number: 42, title: "t", body: "", url: "u", state: "OPEN", assignees: { nodes: [] } };
+  const items = [{ id: "PVTI_42", content: issue, status: { name: "In Progress" }, route: { name: "ios" } }];
+  const { restore } = stubGraphql({ items });
+  /** @type {string[]} */
+  const queries = [];
+  const inner = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => (queries.push(JSON.parse(String(init.body)).query), inner(url, init));
+  try {
+    const t = await adapter({ routeField: 'Plat"form' }).fetchTask("42");
+    assert.deepEqual(t.routeKeys, ["ios"]);
+    assert.ok(queries.some((q) => q.includes('route: fieldValueByName(name:"Plat\\"form")')), queries.join("\n"));
+    queries.length = 0;
+    const t2 = await adapter().fetchTask("42");
+    assert.deepEqual(t2.routeKeys, []);
+    assert.ok(!queries.some((q) => q.includes("route:")));
+  } finally {
+    restore();
+  }
 });

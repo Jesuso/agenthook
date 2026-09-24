@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createJiraAdapter } from "../src/trackers/jira.js";
+import { createJiraAdapter, extractRouteKeys } from "../src/trackers/jira.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -243,4 +243,44 @@ test("listQueued searches the queue status ranked (ORDER BY Rank ASC), skipping 
     global.fetch = orig;
   }
   assert.ok(urls[0].includes(`status = "Backlog" ORDER BY Rank ASC`), urls[0]);
+});
+
+test("extractRouteKeys: components, labels, customfield string/option/array", () => {
+  const f = {
+    components: [{ name: "ios" }, { name: "web" }],
+    labels: ["a", "b"],
+    customfield_1: "x",
+    customfield_2: { value: "opt" },
+    customfield_3: [{ value: "m1" }, { name: "m2" }, "m3"],
+  };
+  assert.deepEqual(extractRouteKeys(f, "Components"), ["ios", "web"]);
+  assert.deepEqual(extractRouteKeys(f, "labels"), ["a", "b"]);
+  assert.deepEqual(extractRouteKeys(f, "customfield_1"), ["x"]);
+  assert.deepEqual(extractRouteKeys(f, "customfield_2"), ["opt"]);
+  assert.deepEqual(extractRouteKeys(f, "customfield_3"), ["m1", "m2", "m3"]);
+  assert.deepEqual(extractRouteKeys(f, "customfield_9"), []);
+  assert.deepEqual(extractRouteKeys(f, "Platform"), []);
+  assert.deepEqual(extractRouteKeys(f, undefined), []);
+});
+
+test("fetchTask requests the routed field only when routeField is set", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => (urls.push(String(url)), /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ fields: { summary: "s", components: [{ name: "ios" }] } }) }));
+  try {
+    const t = await routed({ routeField: "components" }).fetchTask("PROJ-1");
+    assert.deepEqual(t.routeKeys, ["ios"]);
+    await routed({ routeField: "customfield_10010" }).fetchTask("PROJ-1");
+    const t2 = await routed().fetchTask("PROJ-1");
+    assert.deepEqual(t2.routeKeys, []);
+    await routed({ routeField: "bogus" }).fetchTask("PROJ-1");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(urls[0].endsWith("fields=summary,description,status,assignee,components"), urls[0]);
+  assert.ok(urls[1].endsWith("fields=summary,description,status,assignee,customfield_10010"), urls[1]);
+  assert.ok(urls[2].endsWith("fields=summary,description,status,assignee"), urls[2]);
+  assert.ok(urls[3].endsWith("fields=summary,description,status,assignee"), urls[3]);
 });
