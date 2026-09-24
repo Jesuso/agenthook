@@ -70,7 +70,7 @@ leaves the issue re-firing rather than stuck).
 ## 3. The webhook is automatic
 
 Unlike Jira, GitHub lets a token create webhooks — so `agenthook start` **creates it for you** on
-the repo (`issues` event), scrubbing any of its own stale hooks first. The signing secret is
+the repo (`issues` + `issue_comment` events), scrubbing any of its own stale hooks first. The signing secret is
 generated and stored by agenthook; deliveries are verified via `x-hub-signature-256: sha256=<hex>`
 (constant-time HMAC). `GITHUB_TOKEN` is the only secret you supply.
 
@@ -86,6 +86,14 @@ required (it is for Jira).
 
 If you'd rather supply your own secret, set `"webhookSecret": "..."`; `false` accepts unsigned
 deliveries (don't, outside local testing).
+
+`issue_comment` carries the **`@agent` resume**: when a step ends with `hold` (the agent posted a
+question and the issue moved to its `holdLabel`), reply on the issue with a comment starting with
+`@agent` (your `trigger`), **from the token owner's account**. That re-runs the held step with your
+reply in its prompt, and on its next verdict the issue leaves the hold label. Comments from anyone
+else, comments on PRs, and edited/deleted comments are ignored, even with `assigneeFilter: false`.
+See [architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply). The
+event takes effect on the next `agenthook start`, which recreates the hook.
 
 ## 4. Assignee scoping
 

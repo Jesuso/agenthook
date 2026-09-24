@@ -8,14 +8,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
-import { findStep, prevStep, stepForStage } from "./pipeline.js";
+import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 
-// How many times one step may run for a single ref before a `changes` loop back
-// into it is forced to fail. Caps an endless code↔review ping-pong (each loop is a
-// fresh `claude -p` under fullAuto = real money + code exec). Per-step `maxAttempts`
-// overrides. See store.bumpAttempt/getAttempt.
-const DEFAULT_MAX_ATTEMPTS = 3;
+// DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
+// before a `changes` loop back into it is forced to fail. Caps an endless code↔review
+// ping-pong (each loop is a fresh `claude -p` under fullAuto = real money + code exec).
+// Per-step `maxAttempts` overrides. See store.bumpAttempt/getAttempt.
 
 // Upper bound on the best-effort `gh pr list` lookup, so a slow/absent `gh` never
 // delays a run by more than this.
@@ -615,6 +614,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
         store?.clearAttempts(job.ref);
         store?.clearFindings(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
+        store?.clearHeld(job.ref);
         emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
@@ -622,6 +622,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
 
     // Count this run before it starts — the changes-loop guard reads it post-exit.
     store?.bumpAttempt(job.ref, step.id);
+    // Any re-entry (an `@agent` resume, or a human dragging the item back) consumes a
+    // pending hold: the ref is no longer parked, so a later reply must not resume it.
+    store?.clearHeld(job.ref);
 
     // System-owned worktree: create it on the step that declares createsWorktree,
     // otherwise reuse the one an earlier step made (same deterministic path).
@@ -648,7 +651,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     const standing = readInstructions(step.instructionsFile || cfg.instructionsFile);
     const pending = store?.getFindings(job.ref);
     const findings = pending && pending.target === step.id ? pending : undefined;
-    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings });
+    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings, resumeComment: job.comment });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
     const logPath = logPathFor(step.id, job.ref);
@@ -717,6 +720,11 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
 
     const costUsd = typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
     emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}) });
+    if (verdict.outcome === "hold") {
+      // Park it: an owner's `@agent` reply on the item resumes THIS step (see the
+      // adapters' comment trigger), with the reply appended to the prompt.
+      store?.setHeld(job.ref, { stepId: step.id, ...(verdict.reason ? { reason: verdict.reason } : {}), heldAt: new Date().toISOString() });
+    }
 
     // Findings were delivered in this run's prompt — consume them whatever the outcome.
     if (findings) store?.clearFindings(job.ref);
@@ -777,6 +785,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     if (verdict.outcome === "fail" || drained) {
       store?.clearAttempts(job.ref);
       store?.clearDifficulty(job.ref);
+      store?.clearHeld(job.ref);
       store?.clearFindings(job.ref);
     }
 

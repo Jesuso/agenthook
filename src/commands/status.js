@@ -64,6 +64,10 @@ export async function status(args) {
   // Down: heartbeat may be stale (kill -9), so trust queue.json instead.
   if (p.up && hb.queue) console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued`);
   else if (!p.up && persisted) console.log(`queue   : ${persisted} queued (persisted — resumes on start)`);
+  // Opt-in queue stages (backlog lanes): depth as of the last pull pass.
+  if (p.up && hb.queueStage) {
+    for (const [stepId, q] of Object.entries(hb.queueStage)) console.log(`backlog : ${stepId} ${q.depth} waiting (as of ${ago(q.at)})`);
+  }
   if (hb.seen != null) console.log(`seen    : ${hb.seen} item(s)`);
   if (hb.startedAt) console.log(`started : ${ago(hb.startedAt)}`);
   if (hb.lastEvent) {

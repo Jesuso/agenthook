@@ -288,8 +288,9 @@ export function createGithubProjectsAdapter(cfg, store) {
     return n ? shapeItem(n) : null;
   }
 
-  /** Every Issue-backed item in the project (paged). Backs find-by-number + listResting —
-   * a project has no "issue #N" lookup, so we scan its items. Best-effort full paging.
+  /** Every Issue-backed item in the project (paged), in board POSITION order (top first —
+   * listQueued's priority). Backs find-by-number + listResting/listQueued — a project has
+   * no "issue #N" lookup, so we scan its items. Best-effort full paging.
    * @returns {Promise<Array<{itemId: string, issue: any, status: string|null}>>} */
   async function fetchItems() {
     const id = await projectId();
@@ -300,7 +301,7 @@ export function createGithubProjectsAdapter(cfg, store) {
     for (;;) {
       const body = await gql(
         `query($id:ID!,$after:String){ node(id:$id){ ... on ProjectV2 {
-           items(first:100, after:$after){ nodes{ ${ITEM_FIELDS} } pageInfo{ hasNextPage endCursor } }
+           items(first:100, after:$after, orderBy:{field:POSITION, direction:ASC}){ nodes{ ${ITEM_FIELDS} } pageInfo{ hasNextPage endCursor } }
          } } }`,
         { id, after },
       );
@@ -573,6 +574,25 @@ export function createGithubProjectsAdapter(cfg, store) {
         jobs.push({ kind: "pipeline", ref, stepId: step.id, dedupKey: `reconcile:${step.id}:${ref}` });
       }
       return jobs;
+    },
+
+    // Queue-stage source (the one narrow boot/run_end board read — see engine pullQueued):
+    // open issue cards whose Status is the step's opt-in queueStatus, in board POSITION
+    // order (top first), filtered like listResting (ours, fail-closed). [] without the key.
+    /** @param {string} stepId */
+    async listQueued(stepId) {
+      const step = stepById(stepId);
+      if (!step?.queueStatus || step.manual) return [];
+      /** @type {string[]} */
+      const refs = [];
+      for (const it of await fetchItems()) {
+        if (it.issue?.__typename !== "Issue") continue;
+        if (norm(it.issue.state) === "closed") continue;
+        if (norm(it.status) !== norm(step.queueStatus)) continue;
+        if (!(await issueIsOurs(it.issue))) continue;
+        refs.push(String(it.issue.number));
+      }
+      return refs;
     },
 
     // Projects v2 webhooks are ORG-scoped and tied to a fixed URL (run behind a STABLE

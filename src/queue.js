@@ -25,8 +25,9 @@ export function planRestore(queued, runningRefs, stepIds) {
  * @param {number} max
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
  * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
- * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void}} [persist]
- *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run
+ * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
+ *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run,
+ *   onSettle after a job settles and its slot is released (the engine's queue-stage pull trigger)
  */
 export function createQueue(max, run, onChange, persist) {
   /** @type {import('./types.js').Job[]} */
@@ -85,6 +86,7 @@ export function createQueue(max, run, onChange, persist) {
           report();
           pump();
           resolveIdle();
+          if (!closed) persist?.onSettle?.();
         });
     }
   }

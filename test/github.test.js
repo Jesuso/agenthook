@@ -434,6 +434,121 @@ test("advance does NOT close the issue entering a non-terminal step (no closeIss
   assert.ok(!calls.some((c) => c.startsWith("PATCH")), `expected no close PATCH; got:\n${calls.join("\n")}`);
 });
 
+// --- the `@agent` comment trigger (issue_comment → resume the held step) ---
+
+const heldPipeline = [
+  { id: "triage", sourceLabel: "agent:triage", successLabel: "agent:code", failureLabel: "agent:blocked", holdLabel: "agent:held" },
+  { id: "code", sourceLabel: "agent:code", successLabel: "agent:review", failureLabel: "agent:blocked", holdLabel: "agent:held" },
+];
+
+/** Adapter over a store stub whose held record / attempt count the test controls.
+ * assigneeLogin pins "us" to "bot" so no /user fetch is needed (unless overridden).
+ * @param {{pc?: object, held?: any, ran?: number}} [o] */
+function commentAdapter({ pc = {}, held = { stepId: "triage", heldAt: "2026-09-24T00:00:00.000Z" }, ran = 1 } = {}) {
+  const store = { ...makeStore(), getHeld: () => held, getAttempt: () => ran };
+  const providerConfig = { type: "github", token: "t", repository: "o/r", assigneeFilter: false, assigneeLogin: "bot", ...pc };
+  return createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: heldPipeline, providerConfig }), /** @type {any} */ (store));
+}
+
+/** An issue_comment delivery. @param {{action?: string, login?: string, body?: string, issue?: any}} [o] */
+function commentEvt({ action = "created", login = "bot", body = "@agent use Postgres", issue = {} } = {}) {
+  const ev = {
+    action,
+    issue: { number: 42, labels: [{ name: "agent:held" }], assignees: [{ login: "bot" }], ...issue },
+    comment: { id: 9001, body, user: { login } },
+  };
+  return /** @type {any} */ (evt(ev, { "x-github-event": "issue_comment" }));
+}
+
+test("issue_comment: an owner's @agent reply on a held issue resumes the held step", async () => {
+  const jobs = await commentAdapter().processEvents(commentEvt({ login: "BOT" })); // login match is case-insensitive
+  assert.deepEqual(jobs, [{ kind: "pipeline", ref: "42", stepId: "triage", dedupKey: "trigger:9001", comment: "@agent use Postgres" }]);
+});
+
+test("issue_comment: resumes under assignee scoping when the issue is ours", async () => {
+  const jobs = await commentAdapter({ pc: { assigneeFilter: true } }).processEvents(commentEvt());
+  assert.equal(jobs.length, 1);
+});
+
+test("issue_comment: assigneeFilter:false still rejects a non-owner author", async () => {
+  assert.deepEqual(await commentAdapter().processEvents(commentEvt({ login: "mallory" })), []);
+});
+
+test("issue_comment: a body not starting with the trigger yields no job", async () => {
+  assert.deepEqual(await commentAdapter().processEvents(commentEvt({ body: "thanks @agent, use Postgres" })), []);
+});
+
+test("issue_comment: an issue not assigned to us yields no job (assignee gate)", async () => {
+  const a = commentAdapter({ pc: { assigneeFilter: true } });
+  assert.deepEqual(await a.processEvents(commentEvt({ issue: { assignees: [{ login: "someone-else" }] } })), []);
+});
+
+test("issue_comment: a comment on a PR yields no job", async () => {
+  assert.deepEqual(await commentAdapter().processEvents(commentEvt({ issue: { pull_request: { url: "x" } } })), []);
+});
+
+test("issue_comment: no held record yields no job", async () => {
+  assert.deepEqual(await commentAdapter({ held: null }).processEvents(commentEvt()), []);
+});
+
+test("issue_comment: the held step at its attempt cap yields no job (bounds a self-trigger loop)", async () => {
+  assert.deepEqual(await commentAdapter({ ran: 3 }).processEvents(commentEvt()), []);
+});
+
+test("issue_comment: edited / deleted actions yield no job", async () => {
+  assert.deepEqual(await commentAdapter().processEvents(commentEvt({ action: "edited" })), []);
+  assert.deepEqual(await commentAdapter().processEvents(commentEvt({ action: "deleted" })), []);
+});
+
+test("issue_comment: an unresolvable login fails closed (no job)", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub: /user errors
+  global.fetch = async () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+  try {
+    assert.deepEqual(await commentAdapter({ pc: { assigneeLogin: undefined } }).processEvents(commentEvt()), []);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("registerWebhook subscribes the hook to issues + issue_comment", async () => {
+  /** @type {any} */
+  let posted;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/hooks") && init.method === "POST") posted = JSON.parse(String(init.body));
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => (String(url).includes("/hooks?") ? [] : { id: 1, active: true }) });
+  };
+  try {
+    await adapter({ webhookSecret: "s" }).registerWebhook("https://example.test");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(posted?.events, ["issues", "issue_comment"]);
+});
+
+test("advance on a resumed step drops the hold label too (issue ends with only the target label)", async () => {
+  const labels = new Set(["agent:held"]); // resumed from hold: carries the holdLabel, not the sourceLabel
+  const orig = global.fetch;
+  // @ts-ignore - test stub: a tiny label store for issue 42
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (init.method === "POST" && u.endsWith("/issues/42/labels")) for (const l of JSON.parse(String(init.body)).labels) labels.add(l);
+    if (init.method === "DELETE" && u.includes("/issues/42/labels/")) {
+      const l = decodeURIComponent(u.split("/labels/")[1]);
+      if (!labels.delete(l)) return /** @type {any} */ ({ ok: false, status: 404, json: async () => ({}) });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+  };
+  try {
+    await commentAdapter().advance("42", "triage", { outcome: "advance" });
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual([...labels], ["agent:code"]);
+});
+
 test("fetchTask returns #<n> as the displayId", async () => {
   const orig = global.fetch;
   // @ts-ignore - test stub
@@ -470,4 +585,76 @@ test("unregisterWebhooks deletes /github hooks but never a forge /forge hook", a
     global.fetch = orig;
   }
   assert.deepEqual(deletes, ["https://api.github.com/repos/o/r/hooks/1"]);
+});
+
+// --- queue-stage pull: listQueued + enterStage leaving the queue label ---
+const qPipeline = [{ id: "code", sourceLabel: "agent:code", successLabel: "agent:review", queueLabel: "queue:code" }];
+/** @param {any} [pc] */
+function queued(pc = {}) {
+  const providerConfig = { type: "github", token: "t", repository: "o/r", ...pc };
+  return createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: qPipeline, providerConfig }), /** @type {any} */ (makeStore()));
+}
+
+test("listQueued lists the queue label oldest-first, keeping only our open, unblocked issues", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  /** @param {any} data */
+  const res = (data) => /** @type {any} */ ({ ok: true, status: 200, json: async () => data });
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (u.endsWith("/user")) return res({ login: "bot" });
+    if (u.includes("/issues/5/dependencies/blocked_by")) return res([{ number: 1, state: "open" }]);
+    if (u.includes("/dependencies/blocked_by")) return res([]);
+    return res([
+      { number: 3, assignees: [{ login: "bot" }] },
+      { number: 4, assignees: [{ login: "bot" }], pull_request: {} },
+      { number: 5, assignees: [{ login: "bot" }] },
+      { number: 6, assignees: [{ login: "someone" }] },
+      { number: 8, assignee: { login: "Bot" } },
+    ]);
+  };
+  let refs;
+  try {
+    refs = await queued().listQueued("code");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(refs, ["3", "8"]);
+  const list = urls.find((u) => u.includes("/issues?"));
+  assert.ok(list?.includes("labels=queue%3Acode") && list.includes("assignee=bot") && list.includes("sort=created&direction=asc"), list);
+});
+
+test("listQueued fails closed when our login can't be resolved", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+  try {
+    await assert.rejects(() => queued().listQueued("code"), /\/user 500/);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("enterStage on a queue step adds the source label, THEN removes the queue label", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    // The label add succeeds; the queue-label removal 404s (not on the issue) — tolerated.
+    const ok = init.method === "POST";
+    return /** @type {any} */ ({ ok, status: ok ? 200 : 404, json: async () => ({}) });
+  };
+  try {
+    await queued({ assigneeFilter: false }).enterStage("42", "code", { assign: false });
+  } finally {
+    global.fetch = orig;
+  }
+  const add = calls.findIndex((c) => c.startsWith("POST") && c.endsWith("/issues/42/labels"));
+  const del = calls.findIndex((c) => c.startsWith("DELETE") && c.endsWith("/issues/42/labels/queue%3Acode"));
+  assert.ok(add >= 0 && del > add, `expected add-then-remove; got:\n${calls.join("\n")}`);
 });

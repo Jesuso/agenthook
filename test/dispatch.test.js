@@ -1,5 +1,6 @@
 // Dispatch argv builder — pure-unit coverage (no real `claude` spawn): the per-step
-// --model / --effort passthrough and the invalid-effort fallback (warn + omit).
+// --model / --effort passthrough and the invalid-effort fallback (warn + omit). The
+// held-state tests at the bottom drive runClaude with a fake `claude` sh script.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -276,6 +277,92 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
   // fresh store instance reads the same file
   const s2 = createStore(dir);
   assert.equal(s2.getDifficulty("T1"), "hard");
+});
+
+// --- held-state lifecycle (the `@agent` resume) through the real dispatcher ---
+// A fake `claude` (a tiny sh script, no network) writes $FAKE_VERDICT to the verdict
+// file and records the prompt it was handed, so runClaude runs end to end.
+
+/** @param {{steps?: any[]}} [o] */
+function heldHarness({ steps } = {}) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$2" > "$FAKE_PROMPT_OUT"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: steps || [{ id: "triage", kind: "triage" }, { id: "code" }, { id: "done", manual: true, drainWorktree: true }],
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store);
+  const promptOut = path.join(dir, "prompt.txt");
+  /** @param {string} stepId @param {any} verdict @param {string} [comment] */
+  const runStep = async (stepId, verdict, comment) => {
+    process.env.FAKE_VERDICT = JSON.stringify(verdict);
+    process.env.FAKE_PROMPT_OUT = promptOut;
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await run({ kind: "pipeline", ref: "42", stepId, dedupKey: `k:${stepId}`, ...(comment ? { comment } : {}) });
+    } finally {
+      console.log = log;
+    }
+    return fs.readFileSync(promptOut, "utf8");
+  };
+  return { store, advanced, runStep, run };
+}
+
+test("dispatch: a hold verdict writes held.json[ref]; the next run of any step clears it", async () => {
+  const { store, runStep } = heldHarness();
+  await runStep("triage", { outcome: "hold", reason: "which DB?" });
+  const held = store.getHeld("42");
+  assert.equal(held?.stepId, "triage");
+  assert.equal(held?.reason, "which DB?");
+  assert.ok(held?.heldAt);
+
+  // the owner's reply resumes triage: the comment reaches the prompt, and the hold is consumed
+  const prompt = await runStep("triage", { outcome: "advance" }, "@agent use Postgres");
+  assert.match(prompt, /=== HUMAN REPLY \(resume\) ===[\s\S]*@agent use Postgres/);
+  assert.equal(store.getHeld("42"), undefined);
+
+  // a different step re-entering (e.g. a manual drag-back) also consumes it
+  await runStep("triage", { outcome: "hold" });
+  assert.equal(store.getHeld("42")?.stepId, "triage");
+  const plain = await runStep("code", { outcome: "advance" });
+  assert.ok(!plain.includes("HUMAN REPLY"), "no reply section without job.comment");
+  assert.equal(store.getHeld("42"), undefined);
+});
+
+test("dispatch: a held ref that later fails ends with no held record", async () => {
+  const { store, runStep } = heldHarness();
+  await runStep("triage", { outcome: "hold" });
+  assert.equal(store.getHeld("42")?.stepId, "triage");
+  await runStep("triage", { outcome: "fail" }, "@agent try again");
+  assert.equal(store.getHeld("42"), undefined);
+});
+
+test("dispatch: the manual drain step clears the held record", async () => {
+  const { store, run } = heldHarness();
+  store.setHeld("42", { stepId: "triage", heldAt: "x" });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "done", dedupKey: "k:done" });
+  } finally {
+    console.log = log;
+  }
+  assert.equal(store.getHeld("42"), undefined);
 });
 
 // --- lookupPr: best-effort `gh pr list --head agent/<ref>`; never throws ---

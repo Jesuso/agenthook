@@ -45,6 +45,33 @@ agenthook catchup <ref> --force   # re-run even if already handled
 So the accurate tagline isn't "loops bad". It's: **push for the 99% hot path; a targeted
 replay for the gaps.** Event-first, poll only to reconcile.
 
+### The one exception: an opt-in queue stage
+
+Nothing refills a freed `maxConcurrent` slot on its own, so a step may opt in to a **queue
+stage** — a backlog lane on the board — by setting one key: `queueSectionGid` (Asana),
+`queueStatus` (Jira, GitHub Projects, local), or `queueLabel` (GitHub). A step that sets a
+queue-stage key opts in to reading **that one stage**, only on `run_end` (when a slot is free)
+and once on boot. It is **never timer-driven**, and `listResting` is still never called on boot.
+Without a queue key nothing changes: `listQueued` is never called.
+
+A pull moves the top `maxConcurrent − active − queued − pending` items into the step with
+`enterStage(…, {assign:false})` — the same move `agenthook run` makes — so the live webhook fires
+the step as usual (no direct enqueue). `pending` holds pulled refs whose webhook hasn't landed
+yet (expired lazily after 10 min), and passes are single-flight, so concurrent settles can't
+double-pull. Only items assigned to us (fail-closed), still open, and — on GitHub — not blocked
+are pulled. Priority is board order:
+
+| tracker | queue order |
+|---|---|
+| Asana | section order (`GET /sections/<gid>/tasks`) |
+| Jira | `ORDER BY Rank ASC` |
+| GitHub Projects | board position (`items(orderBy:{field:POSITION})`) |
+| GitHub (labels) | **oldest-created first** — labels have no order, so this is the fallback |
+
+On GitHub a pulled issue gains the source label and then loses its `queueLabel` (add-then-remove,
+the same crash-safe order as `advance`). Each pull emits a `pulled` event, and `agenthook status`
+shows each queue's depth as of the last pass (`backlog : code 7 waiting (as of 3m ago)`).
+
 A step's source stage is its **inbox**, and these replay paths are exactly that — *replay*.
 `catchup`/`reconcile` re-fire the step a resting item already maps to; they never **move** an item
 into a stage, so they can't *start* backlog work. To start a new item you fill the inbox (assign +
@@ -88,7 +115,7 @@ exiting, and `dispatch.js` reads it after the process closes:
 | Outcome | Routes to | Used for |
 |---------|-----------|----------|
 | `advance` | success section (= next step's source) | normal forward motion |
-| `hold` | hold section (parked, out of the queue) | blocked on a human answer; they reply + re-file |
+| `hold` | hold section (parked, out of the queue) | blocked on a human answer; the owner's `@agent …` reply resumes it (below) |
 | `changes` | the target step's source (re-fires it) | review bounces work back to coding — the rework loop |
 | `fail` | failure section | needs a human; can't proceed unattended |
 
@@ -98,6 +125,32 @@ Trust rules: a **non-zero exit is always `fail`** (a crashed agent's verdict isn
 the review feedback off the PR) and is **capped**: `maxAttempts` (default 3) runs of a step per
 task, after which a further `changes` is forced to `fail` — bounding an endless code↔review
 ping-pong, which under `--dangerously-skip-permissions` would be unbounded code execution.
+
+### Resuming a held step (`@agent` reply)
+
+An agent may end a run with a question: it posts the question as a comment and writes `hold`. The
+receiver records the held step in `held.json` (`ref → {stepId, reason, heldAt}`) and the item parks in
+the hold lane. The **owner** answers with a comment that starts with `trigger` (default `@agent`),
+e.g. `@agent use Postgres 16`. That comment re-runs **the step that held**, in the same worktree,
+with the reply appended to its prompt as a delimited `=== HUMAN REPLY (resume) ===` block. No drag
+or relabel needed. (Moving the item back to the step's source stage by hand still works; the agent
+then runs without the reply.)
+
+A comment triggers a resume only when **all** of these hold. Anything uncertain means no run and a
+log line:
+
+- the author is **exactly the tracker identity** agenthook runs as (Asana `userGid`, GitHub the
+  token's login). This check is independent of `assigneeFilter`, and an unset/unresolvable identity
+  rejects every comment (fail-closed);
+- the body starts with `trigger` (agents are told never to start their own comments with it);
+- the item passes the normal assignee gate;
+- the item has a held record naming a non-manual step;
+- that step is under its `maxAttempts` cap. Agents post with the same token as the owner, so this
+  bounds a self-trigger loop.
+
+Any run of any step for the item consumes the held record, as do `fail` and the drain step. Supported
+on **Asana** (story `comment_added`) and **GitHub** labels (`issue_comment`). Not yet on Jira or
+GitHub Projects; there, resume by moving the item back to the step's source status.
 
 ## Security posture
 

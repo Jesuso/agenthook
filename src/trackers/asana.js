@@ -9,19 +9,27 @@
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
+//   listQueued(stepId)                 -> [ref] in the step's opt-in queue section, board order
+//                                         (optional; only on run_end + once on boot, never a timer)
 //   complete(ref)                      -> mark the task completed (optional; forge merge)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
 //   forgeCatchup(ref)                  -> { path, body, sig } to replay a missed item (CLI)
 //
-// job: { kind:'pipeline', ref, stepId, dedupKey }
+// job: { kind:'pipeline', ref, stepId, dedupKey, comment? }
 //
 // Asana specifics: every webhook carries its OWN X-Hook-Secret, established by a
 // handshake POST, so secrets are keyed by request path. One project webhook on
 // /mytasks delivers task-added (a task created in a section) and story
 // section_changed (a task moved between sections); both route to the step whose
-// sourceSectionGid the task now rests in.
+// sourceSectionGid the task now rests in — unless the task has an incomplete "blocked
+// by" dependency, in which case it rests there until its last blocker completes (task
+// changed `completed` → the unblock release fires it).
+// sourceSectionGid the task now rests in. The same hook's story comment_added carries
+// the `@agent` resume: an OWNER-authored (created_by = userGid) comment starting with
+// cfg.trigger on a held task re-runs the step that held, with the comment as `comment`.
 import crypto from "node:crypto";
+import { startsWithTrigger, resumeJob } from "../pipeline.js";
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createAsanaAdapter(cfg, store) {
@@ -74,7 +82,7 @@ export function createAsanaAdapter(cfg, store) {
 
   /** @param {string} storyGid */
   async function fetchStory(storyGid) {
-    const res = await api(`/stories/${storyGid}?opt_fields=text,type,resource_subtype,target.gid`);
+    const res = await api(`/stories/${storyGid}?opt_fields=text,type,resource_subtype,target.gid,created_by.gid`);
     if (!res.ok) throw new Error(`story fetch ${res.status}`);
     return (await json(res)).data;
   }
@@ -121,6 +129,39 @@ export function createAsanaAdapter(cfg, store) {
     return undefined;
   }
 
+  // --- native Asana task dependencies (the block gate; mirrors github.js) ---
+  // Dependencies are LIVE data, queried per event with no caching, so a reopened blocker
+  // or a fresh second blocker is always reflected. This is a WORKFLOW gate, not a security
+  // boundary: on an API error we FAIL OPEN (treat as unblocked + warn) so a flaky
+  // dependencies API can't freeze the pipeline — the opposite of the assignee scope.
+  /** Gids of the tasks that BLOCK `gid` and are not yet completed. @param {string} gid @returns {Promise<string[]>} */
+  async function openDependencies(gid) {
+    const res = await api(`/tasks/${gid}/dependencies?opt_fields=completed`);
+    if (!res.ok) {
+      console.warn(`[blocked] could not read dependencies for ${gid} (${res.status}) — treating as unblocked`);
+      return [];
+    }
+    return ((await json(res)).data || []).filter((/** @type {any} */ t) => t?.completed !== true).map((/** @type {any} */ t) => t.gid);
+  }
+  /** Tasks that `gid` BLOCKS (its dependents), with the fields the release checks read
+   * (completed, assignee, section) so no per-dependent re-fetch. @param {string} gid @returns {Promise<any[]>} */
+  async function dependents(gid) {
+    const res = await api(`/tasks/${gid}/dependents?opt_fields=completed,assignee.gid,memberships.section.gid`);
+    if (!res.ok) {
+      console.warn(`[blocked] could not read dependents for ${gid} (${res.status})`);
+      return [];
+    }
+    return (await json(res)).data || [];
+  }
+  /** The block gate: true (and logs) when `gid` has an incomplete dependency, so the
+   * caller rests it in its source section (emits no job). @param {string} gid @returns {Promise<boolean>} */
+  async function restIfBlocked(gid) {
+    const blockers = await openDependencies(gid);
+    if (!blockers.length) return false;
+    console.log(`[blocked] ${gid} blocked by ${blockers.join(", ")} — resting`);
+    return true;
+  }
+
   // Fail-closed owner check used to gate task MUTATION (advance/moveToSection).
   // Any uncertainty — fetch error, non-2xx, missing/!matching assignee — returns
   // false, so we never move a task we can't positively confirm is ours.
@@ -133,6 +174,27 @@ export function createAsanaAdapter(cfg, store) {
     } catch {
       return false;
     }
+  }
+
+  /** The `@agent` comment trigger for a comment_added story. Emits a resume job only
+   * when ALL hold (anything uncertain → no job): the text starts with cfg.trigger, the
+   * author is pc.userGid (strict — assigneeFilter:false does NOT open this up; an unset
+   * userGid rejects), the task passes the assignee gate, and it is held on a runnable
+   * step still under its attempt cap (resumeJob). Dedup: `trigger:<storyGid>`.
+   * @param {any} story @param {string} storyGid @param {string|undefined} taskGid
+   * @returns {Promise<import('../types.js').Job|null>} */
+  async function resumeFromComment(story, storyGid, taskGid) {
+    if (!taskGid || !startsWithTrigger(cfg.trigger, story.text)) return null;
+    const author = story.created_by?.gid;
+    if (!pc.userGid || !author || author !== pc.userGid) {
+      console.log(`[trigger] ${taskGid}: comment ${storyGid} not by our user — ignoring`);
+      return null;
+    }
+    if (!(await ownedByUs(taskGid))) {
+      console.log(`[trigger] ${taskGid}: not assigned to us — ignoring`);
+      return null;
+    }
+    return resumeJob(cfg, store, taskGid, storyGid, story.text);
   }
 
   return {
@@ -178,15 +240,16 @@ export function createAsanaAdapter(cfg, store) {
           if (!gid) continue;
           try {
             const step = await stepForTask(gid);
-            if (step) jobs.push({ kind: "pipeline", ref: gid, stepId: step.id, dedupKey: `step:${step.id}:${gid}` });
+            if (step && !(await restIfBlocked(gid))) jobs.push({ kind: "pipeline", ref: gid, stepId: step.id, dedupKey: `step:${step.id}:${gid}` });
           } catch (e) {
             console.error(`[pipeline] route task ${gid} failed:`, e.message);
           }
         } else if (rt === "story" && ev.action === "added") {
           // Section move → fire the step the task now rests in. One story gid = one
-          // move, so the key dedups webhook retries yet allows a later re-entry.
+          // move, so the key dedups webhook retries yet allows a later re-entry. A
+          // comment story (the `@agent` resume) keys on the same gid as `trigger:`.
           const storyGid = ev.resource.gid;
-          if (!storyGid || store.hasSeen(`secmove:${storyGid}`)) continue;
+          if (!storyGid || store.hasSeen(`secmove:${storyGid}`) || store.hasSeen(`trigger:${storyGid}`)) continue;
           let story;
           try {
             story = await fetchStory(storyGid);
@@ -194,13 +257,42 @@ export function createAsanaAdapter(cfg, store) {
             console.error(`[story] fetch ${storyGid} failed:`, e.message);
             continue;
           }
-          if (story.resource_subtype !== "section_changed") continue;
           const taskGid = ev.parent?.gid || story.target?.gid;
+          if (story.resource_subtype === "comment_added") {
+            const job = await resumeFromComment(story, storyGid, taskGid);
+            if (job) jobs.push(job);
+            continue;
+          }
+          if (story.resource_subtype !== "section_changed") continue;
           try {
             const step = await stepForTask(taskGid);
-            if (step) jobs.push({ kind: "pipeline", ref: taskGid, stepId: step.id, dedupKey: `secmove:${storyGid}` });
+            if (step && !(await restIfBlocked(taskGid))) jobs.push({ kind: "pipeline", ref: taskGid, stepId: step.id, dedupKey: `secmove:${storyGid}` });
           } catch (e) {
             console.error(`[pipeline] route move ${taskGid} failed:`, e.message);
+          }
+        } else if (rt === "task" && ev.action === "changed") {
+          // Completion-release: when a task completes, fire any of OUR dependents it was
+          // blocking that are now fully unblocked and resting in a step's source section.
+          // The completed task itself needn't be ours — a human completing a blocker should
+          // still release the bot's dependents. We re-read `completed` live (an un-complete
+          // also delivers `changed`), so only a task that IS completed releases anything.
+          const gid = ev.resource.gid;
+          if (!gid || (ev.change?.field && ev.change.field !== "completed")) continue;
+          try {
+            const res = await api(`/tasks/${gid}?opt_fields=completed`);
+            if (!res.ok) throw new Error(`task fetch ${res.status}`);
+            if ((await json(res)).data?.completed !== true) continue;
+            for (const dep of await dependents(gid)) {
+              if (!dep?.gid || dep.completed) continue; // a dependent already completed: never fire an agent on it
+              if (!isOurs(dep.assignee?.gid)) continue; // a dependent that isn't ours: untouched
+              const step = (dep.memberships || []).map((/** @type {any} */ m) => stepBySource(m.section?.gid)).find(Boolean);
+              if (!step || step.manual) continue; // not resting in a source section, or a manual one (no agent runs)
+              if ((await openDependencies(dep.gid)).length) continue; // still blocked by another incomplete task
+              console.log(`[unblock] ${gid} completed → firing ${dep.gid} (${step.id})`);
+              jobs.push({ kind: "pipeline", ref: dep.gid, stepId: step.id, dedupKey: `unblock:${gid}:${dep.gid}` });
+            }
+          } catch (e) {
+            console.error(`[unblock] release dependents of ${gid} failed:`, e.message);
           }
         }
       }
@@ -231,7 +323,8 @@ export function createAsanaAdapter(cfg, store) {
     // maps to. Each move is itself the trigger for whatever step that section sources:
     //   advance → successSectionGid (the next step's source — drives forward)
     //   fail    → failureSectionGid (a human picks it up)
-    //   hold    → holdSectionGid    (parked out of the queue; a human answers + drags back)
+    //   hold    → holdSectionGid    (parked out of the queue; the owner's `@agent` reply
+    //                                  resumes it, or a human drags it back)
     //   changes → the target step's sourceSectionGid (re-fires it — the rework loop;
     //             dispatch already resolved verdict.target to a concrete stepId)
     // A missing target section is a no-op: the task stays put, logged.
@@ -255,6 +348,15 @@ export function createAsanaAdapter(cfg, store) {
         return;
       }
       await moveToSection(ref, gid, `${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""}`);
+      // Entering a step flagged completeTask (e.g. the manual `done` step) marks the task
+      // COMPLETED, so a blocker that finishes its own pipeline auto-releases its dependents
+      // (the completion-release path in processEvents) without a human. Explicit, never implicit.
+      const entered = stepBySource(gid);
+      if (entered?.completeTask) {
+        const res = await api(`/tasks/${ref}`, { method: "PUT", body: JSON.stringify({ data: { completed: true } }) });
+        if (!res.ok) throw new Error(`complete task ${res.status}`);
+        console.log(`[completed] ${ref} (step ${entered.id})`);
+      }
     },
 
     // Inject work into a step (`agenthook run`): assign the task to us (unless
@@ -297,9 +399,10 @@ export function createAsanaAdapter(cfg, store) {
       return null;
     },
 
-    // Reconcile source (explicit `reconcile` command ONLY — never boot): every task
-    // resting in a step's source section, as a pipeline job for that step. This is
-    // the one deliberate board poll, user-triggered, to recover from a missed webhook.
+    // Reconcile source (explicit `reconcile` command ONLY — never boot): every unblocked
+    // task resting in a step's source section, as a pipeline job for that step. This is
+    // the one deliberate board poll, user-triggered, to recover from a missed webhook
+    // (incl. a cross-project blocker whose completion never reached our project hook).
     async listResting() {
       if (!pipeline) return [];
       /** @type {import('../types.js').Job[]} */
@@ -312,11 +415,30 @@ export function createAsanaAdapter(cfg, store) {
         for (const t of (await json(res)).data || []) {
           if (t.completed || seenGids.has(t.gid)) continue;
           if (!isOurs(t.assignee?.gid)) continue;
+          if ((await openDependencies(t.gid)).length) continue; // blocked → reconcile must not re-inject it
           seenGids.add(t.gid);
           jobs.push({ kind: "pipeline", ref: t.gid, stepId: step.id, dedupKey: `reconcile:${step.id}:${t.gid}` });
         }
       }
       return jobs;
+    },
+
+    // Queue-stage source (the one narrow boot/run_end board read — see engine pullQueued):
+    // tasks resting in the step's opt-in queueSectionGid, in the API's section order (the
+    // board's top-to-bottom priority), filtered like listResting. [] without the key.
+    /** @param {string} stepId */
+    async listQueued(stepId) {
+      const step = stepById(stepId);
+      if (!step?.queueSectionGid || step.manual) return [];
+      const res = await api(`/sections/${step.queueSectionGid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
+      if (!res.ok) throw new Error(`section ${step.queueSectionGid} tasks ${res.status}`);
+      /** @type {string[]} */
+      const refs = [];
+      for (const t of (await json(res)).data || []) {
+        if (t.completed || !isOurs(t.assignee?.gid)) continue;
+        refs.push(t.gid);
+      }
+      return refs;
     },
 
     async registerWebhook(publicUrl) {
@@ -328,8 +450,12 @@ export function createAsanaAdapter(cfg, store) {
         console.log(`  deleted webhook ${w.gid}`);
       }
       // One project webhook delivers task-added (created in a section) and story
-      // section_changed (moved between sections) — both route to a step. (The
-      // section_changed delivery on a project webhook is verified against Asana.)
+      // section_changed (moved between sections) — both route to a step — plus task
+      // `completed` changes, which release the dependents a finished blocker was holding.
+      // (The section_changed delivery on a project webhook is verified against Asana.)
+      // section_changed (moved between sections) — both route to a step — plus story
+      // comment_added (the `@agent` resume of a held step). (The section_changed
+      // delivery on a project webhook is verified against Asana.)
       const res = await api(`/webhooks`, {
         method: "POST",
         body: JSON.stringify({
@@ -339,6 +465,8 @@ export function createAsanaAdapter(cfg, store) {
             filters: [
               { resource_type: "task", action: "added" },
               { resource_type: "story", action: "added", resource_subtype: "section_changed" },
+              { resource_type: "task", action: "changed", fields: ["completed"] },
+              { resource_type: "story", action: "added", resource_subtype: "comment_added" },
             ],
           },
         }),

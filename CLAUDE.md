@@ -10,6 +10,8 @@ entering a step's source stage fires a webhook; the receiver verifies it and spa
 receiver-owned git worktree to do that step's work; on a clean exit it moves the task to the next
 section — which fires the next step. There is no polling loop — forward motion is event-driven,
 crash recovery is local, and `catchup`/`reconcile` exist only to replay items missed during downtime.
+The one narrow exception is an opt-in **queue stage** (below): a step that sets one pulls its
+backlog when a slot frees — on `run_end` and once on boot, never on a timer.
 
 > Note: this repo is the receiver/framework. The `claude -p` agents it spawns run in a
 > *different* repo (`config.repoPath`) and read *that* repo's CLAUDE.md plus the step's
@@ -72,7 +74,8 @@ Boot flow (`engine.serve()`, server owns the ingress lifecycle):
 dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat →
 `forge?` (ephemeral → `forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort,
 never aborts boot) → `recoverInterrupted()` (resolve `running.json` survivors as failures — **local
-only, no board poll**) → on exit `ingress.down()`.
+only, no board poll**) → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots;
+**only** reads a step's opt-in queue stage, a no-op without one) → on exit `ingress.down()`.
 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
@@ -89,7 +92,9 @@ Key files:
   doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
   `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
   `fetchTask`, `advance`, `listResting`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
-  optional `wizardSteps` (powers `init` live discovery).
+  optional `wizardSteps` (powers `init` live discovery), optional `listQueued(stepId)` (refs in the
+  step's queue stage, board order, filtered like `listResting` — not `store.listQueued`, which is
+  the local `queue.json`).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
@@ -121,12 +126,20 @@ Key files:
   **receiver-owned** worktree (create on `createsWorktree`, `drainWorktree` to remove), keyed by task
   ref so all steps share one — no globbing. **No implicit polling**: forward motion is event-driven,
   crash recovery reads local `running.json` only, and the only board poll is the explicit
-  `agenthook reconcile` command.
+  `agenthook reconcile` command — with **one narrow exception**: a step that sets a queue-stage key
+  (`queueSectionGid` Asana / `queueStatus` Jira·github-projects·local / `queueLabel` GitHub) opts in
+  to reading **that one stage**, only on `run_end` (when a slot is free) and once on boot. It is
+  never timer-driven, and `listResting` is still never called on boot. `src/pull.js` pulls the top
+  `maxConcurrent − active − queued − pending` items via `enterStage(…, {assign:false})` (the same
+  move `ah run` makes — the webhook then fires the step). Order: Asana section order, Jira
+  `Rank ASC`, GH Projects board position, GitHub labels **oldest-created first** (labels have no order).
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
   path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
-  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), and `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap).
+  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), and
+  `held.json` (`ref → {stepId, reason, heldAt}` written on a `hold` verdict; any later run of the
+  ref, `fail`, or drain clears it — it names the step an `@agent` reply resumes).
   **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
   disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
@@ -140,9 +153,16 @@ Key files:
   also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
   to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 
-The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId, dedupKey }`.
+The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId, dedupKey, comment? }`.
 Adapters produce jobs; the engine only ever sees jobs. The execution model is the pipeline: a task
-moving between board sections drives it; there is no assignment/comment path.
+moving between board sections drives it. The one comment path is the **`@agent` resume**: an
+owner-authored comment starting with `cfg.trigger` on a **held** item re-runs the held step with
+the comment as `job.comment` (appended to the prompt). Gate (all required, fail-closed): author
+**strictly** = our tracker identity (independent of `assigneeFilter` — never reuse `isOurs`), body
+starts with the trigger, the item passes the assignee gate, `store.getHeld(ref)` names a non-manual
+step, and that step is under its `maxAttempts` cap (agent and owner share one token, so the cap
+bounds self-triggering). Adapter-neutral half: `resumeJob` in `src/pipeline.js`. Asana + GitHub
+labels only; Jira / Projects v2 not yet.
 
 ## Provider specifics that bite
 
@@ -151,7 +171,9 @@ moving between board sections drives it; there is no assignment/comment path.
   `task/added` + `story/section_changed` (verified to deliver on a project hook). Both route via the
   task's **live** `memberships.section.gid` → the step whose `sourceSectionGid` matches. Dedup:
   `step:<id>:<gid>` (created-in-section) and `secmove:<storyGid>` (moved). `advance` moves a task by
-  `POST /sections/<gid>/addTask`.
+  `POST /sections/<gid>/addTask`. A third filter, `story/comment_added`, carries the `@agent` resume
+  (author = `created_by.gid` must equal `userGid`; dedup `trigger:<storyGid>`; project-hook delivery
+  not yet smoke-tested).
 - **Jira** — Basic auth (`base64("<email>:<token>")`, REST v2). Steps bind `sourceStatus`; routing
   is on the issue's status. `advance` has no "set status" — it executes the **transition** whose
   `to` matches the target (an unreachable status is a logged no-op). Webhook is **by hand** (Jira
@@ -162,7 +184,9 @@ moving between board sections drives it; there is no assignment/comment path.
   between the two leaves the issue re-firing, not stuck). One repo webhook on the `issues` event,
   **auto-created via REST** (unlike Jira) and signed with an agenthook-generated secret →
   `x-hub-signature-256`. Routes `opened`/`reopened`/`assigned` by the issue's current labels
-  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). 'Us' = the token's login
+  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). The hook also takes
+  `issue_comment` (`created` only, PRs skipped) for the `@agent` resume (dedup `trigger:<comment.id>`);
+  since a resumed issue carries the step's `holdLabel`, `advance` removes that too. 'Us' = the token's login
   from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues + Webhooks RW (fine-grained).
 - **GitHub Projects v2** — the *other* GitHub tracker: steps bind a board's **Status single-select
   options** (`sourceStatus`/… — Jira's keys), not labels. API is **GraphQL** (`/graphql`, Bearer);

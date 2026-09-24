@@ -13,6 +13,7 @@
  * @property {string} ref       provider-native item id (Asana gid, …)
  * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or ""; ci: "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
+ * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  * @property {CiRun} [ci]       ci jobs only: the red run
  */
 
@@ -48,15 +49,19 @@
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
  * @property {string} [holdSectionGid]         Asana: move here on `hold` (waiting on a human); absent → leave in place
+ * @property {string} [queueSectionGid]        Asana: opt-in queue stage (backlog section) this step pulls from, in section order, when a slot frees
  * @property {string} [sourceStatus]           Jira: entering this status fires the step (status name)
  * @property {string} [successStatus]          Jira: transition here on a clean finish (advance)
  * @property {string} [failureStatus]          Jira: transition here on a failed/interrupted run
  * @property {string} [holdStatus]             Jira: transition here on `hold`; absent → leave in place
+ * @property {string} [queueStatus]            Jira / github-projects / local: opt-in queue stage (backlog status) this step pulls from, in board order, when a slot frees
  * @property {string} [sourceLabel]            GitHub: an issue carrying this label fires the step
  * @property {string} [successLabel]           GitHub: swap to this label on a clean finish (advance)
  * @property {string} [failureLabel]           GitHub: swap to this label on a failed/interrupted run
  * @property {string} [holdLabel]              GitHub: swap to this label on `hold`; absent → leave in place
+ * @property {string} [queueLabel]             GitHub: opt-in queue stage (backlog label) this step pulls from, oldest-created first, when a slot frees
  * @property {boolean} [closeIssue]            GitHub: entering this (terminal) step CLOSES the issue — auto-releasing the dependents it was blocking
+ * @property {boolean} [completeTask]          Asana: entering this (terminal) step marks the task COMPLETED — auto-releasing the dependents it was blocking
  */
 
 /**
@@ -101,6 +106,13 @@
  * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
  * @property {string} [title]      the task title
  * @property {number} [pr]         the PR number for the ref's branch, once one exists
+ */
+
+/** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.
+ * @typedef {object} HeldInfo
+ * @property {string} stepId
+ * @property {string} [reason]   the agent's hold reason (its question, in short)
+ * @property {string} heldAt     ISO timestamp the hold verdict landed
  */
 
 /** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals
@@ -181,6 +193,7 @@
  * @property {(ref: string, stepId: string, opts?: {assign?: boolean}) => Promise<{stage: string}>} [enterStage]  optional; `agenthook run` uses it. Assign the item to us (unless opts.assign===false), then move it INTO the step's source stage (add source label / addTask to source section / transition to source status) — the live webhook then fires the step. Returns the source stage entered
  * @property {(ref: string) => Promise<string|null>} [currentStage]  optional; `agenthook run`'s guard uses it. The pipeline stage (label / section gid / status) the item currently rests in among ANY step's source/success/failure/hold stage, or null. Read-only — refuses re-injecting an item already mid-flow (one ref = one in-flight flow)
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
+ * @property {(stepId: string) => Promise<string[]>} [listQueued]  optional; refs resting in the step's opt-in QUEUE stage (queueSectionGid/queueStatus/queueLabel), board priority order (top first), filtered exactly like listResting (ours, fail-closed; open; GitHub: not blocked). [] when the step has no queue key. The engine calls it only when a slot frees (run_end) and once on boot — never on a timer. Not the same as store.listQueued (the local queue.json)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => Promise<void>} [complete]  optional; mark the item completed/closed on the tracker (Asana: completed:true). Used by a forge `merge` job; absent = no-op
@@ -347,6 +360,9 @@
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
  * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
+ * @property {(ref: string) => HeldInfo|undefined} getHeld          the step ref is parked on by a `hold` verdict (undefined = not held)
+ * @property {(ref: string, info: HeldInfo) => void} setHeld        record a `hold` verdict for ref
+ * @property {(ref: string) => void} clearHeld                      drop the held record for ref (resumed / re-entered / terminal)
  * @property {(ref: string) => {target: string, fromStep: string, text: string}|undefined} getFindings  review findings pending for ref's rework step
  * @property {(ref: string, f: {target: string, fromStep: string, text: string}) => void} setFindings  persist findings on a `changes` bounce (latest wins)
  * @property {(ref: string) => void} clearFindings                  drop pending findings for ref

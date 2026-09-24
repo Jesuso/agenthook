@@ -173,6 +173,21 @@ export function loadConfig(opts = {}) {
     if (step.completeOnMerge && !step.manual) {
       throw new Error(`config: pipeline step "${step.id}" completeOnMerge requires manual:true (no agent runs on a merge).`);
     }
+    // Queue stage (opt-in backlog lane the engine pulls from when a slot frees). A manual
+    // step runs no agent, so it has nothing to pull into; a queue equal to the step's own
+    // source would pull an item into the stage it already rests in (a self-loop).
+    const queueKeys = /** @type {const} */ ([
+      ["queueSectionGid", "sourceSectionGid"],
+      ["queueStatus", "sourceStatus"],
+      ["queueLabel", "sourceLabel"],
+    ]);
+    for (const [qk, sk] of queueKeys) {
+      if (step[qk] == null) continue;
+      if (step.manual) throw new Error(`config: pipeline step "${step.id}" ${qk} is not allowed on a manual step (no agent to pull into).`);
+      if (step[sk] != null && String(step[qk]).trim().toLowerCase() === String(step[sk]).trim().toLowerCase()) {
+        throw new Error(`config: pipeline step "${step.id}" ${qk} must differ from its own ${sk} (it would self-loop).`);
+      }
+    }
   }
 
   const onMerge = cfg.pipeline.filter((/** @type {import('./types.js').Step} */ s) => s.completeOnMerge);
