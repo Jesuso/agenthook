@@ -177,6 +177,7 @@ export function createJiraAdapter(cfg, store) {
       taskNoun: "issue",
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s -u "${pc.email}:$JIRA_API_TOKEN" -X POST ${baseUrl}/rest/api/2/issue/<key>/comment -H "Content-Type: application/json" -d '{"body":"<text>"}' (your token is in the env as $JIRA_API_TOKEN)`,
+      readCommentsHowTo: `curl -s -u "${pc.email}:$JIRA_API_TOKEN" ${baseUrl}/rest/api/2/issue/<key>/comment`,
     }),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):

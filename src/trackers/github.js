@@ -262,6 +262,7 @@ export function createGithubAdapter(cfg, store) {
       taskNoun: "issue",
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -X POST https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments -d '{"body":"<text>"}' (your token is in the env as $GITHUB_TOKEN)`,
+      readCommentsHowTo: `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments (or gh issue view <number> --comments)`,
     }),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
