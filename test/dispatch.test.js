@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -283,8 +283,6 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
 // A fake `claude` (a tiny sh script, no network) writes $FAKE_VERDICT to the verdict
 // file and records the prompt it was handed, so runClaude runs end to end.
 
-import { createDispatcher } from "../src/dispatch.js";
-
 /** @param {{steps?: any[]}} [o] */
 function heldHarness({ steps } = {}) {
   const dir = tmpDir();
@@ -365,4 +363,121 @@ test("dispatch: the manual drain step clears the held record", async () => {
     console.log = log;
   }
   assert.equal(store.getHeld("42"), undefined);
+});
+
+// --- lookupPr: best-effort `gh pr list --head agent/<ref>`; never throws ---
+
+test("lookupPr queries the ref's branch and parses the number", async () => {
+  /** @type {any[]} */
+  const calls = [];
+  const pr = await lookupPr("/repo", "94", async (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    return "123\n";
+  });
+  assert.equal(pr, 123);
+  assert.equal(calls[0].cmd, "gh");
+  assert.deepEqual(calls[0].args.slice(0, 4), ["pr", "list", "--head", "agent/94"]);
+  assert.equal(calls[0].opts.cwd, "/repo");
+  assert.ok(calls[0].opts.timeout > 0, "bounded by a timeout");
+});
+
+test("lookupPr: empty output, garbage, or a failing gh → undefined", async () => {
+  assert.equal(await lookupPr("/r", "1", async () => ""), undefined);
+  assert.equal(await lookupPr("/r", "1", async () => "null"), undefined);
+  assert.equal(await lookupPr("/r", "1", async () => { throw new Error("ENOENT gh"); }), undefined);
+});
+
+test("descriptionHasHeadings: markers, case, whitespace", () => {
+  const d = "intro\n  ## technical notes\nh2. Acceptance Criteria\n**Extra**";
+  assert.equal(descriptionHasHeadings(d, ["Technical Notes", "ACCEPTANCE criteria", "extra"]), true);
+});
+
+test("descriptionHasHeadings: missing, mid-line, empty -> false", () => {
+  assert.equal(descriptionHasHeadings("## Technical Notes", ["Technical Notes", "Acceptance Criteria"]), false);
+  assert.equal(descriptionHasHeadings("see Technical Notes here", ["Technical Notes"]), false);
+  assert.equal(descriptionHasHeadings("", ["A"]), false);
+  assert.equal(descriptionHasHeadings(undefined, ["A"]), false);
+});
+
+test("resolveModelEffort: lite applies with fallback; escalate wins", () => {
+  const step = { id: "t", model: "m", effort: "high", lite: { descriptionHeadings: ["Spec"], effort: "low" }, escalate: { hard: { effort: "max" } } };
+  assert.deepEqual(resolveModelEffort(step, undefined, "## Spec"), { model: "m", effort: "low" });
+  assert.deepEqual(resolveModelEffort(step, undefined, "nothing"), { model: "m", effort: "high" });
+  assert.deepEqual(resolveModelEffort(step, "hard", "## Spec"), { model: "m", effort: "max" });
+});
+
+// --- merge jobs (forge): no agent spawn; move → complete → emit, fail-closed on assignee ---
+
+/**
+ * A dispatcher over a recording stub adapter. `pipeline` defaults to one with a
+ * completeOnMerge `done` step; repoPath is a temp dir so a direct drain is a no-op.
+ * @param {{assignedToUs?: boolean, fetchThrows?: boolean, pipeline?: any[], enterStage?: boolean, complete?: boolean}} [o]
+ */
+function mergeHarness(o = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  /** @type {any[]} */
+  const events = [];
+  const pipeline = o.pipeline ?? [
+    { id: "code", sourceSectionGid: "S1" },
+    { id: "done", manual: true, completeOnMerge: true, drainWorktree: true, sourceSectionGid: "S9" },
+  ];
+  const cfg = { pipeline, repoPath: fs.mkdtempSync(path.join(os.tmpdir(), "ah-merge-")) };
+  /** @type {any} */
+  const adapter = {
+    describe: () => ({ platform: "Stub", taskNoun: "task", trigger: "@agent", commentHowTo: "" }),
+    fetchTask: async (ref) => {
+      calls.push(`fetch ${ref}`);
+      if (o.fetchThrows) throw new Error("boom");
+      return { ref, name: `Task ${ref}`, url: `u/${ref}`, completed: false, assignedToUs: o.assignedToUs ?? true };
+    },
+    advance: async () => calls.push("advance"),
+  };
+  if (o.enterStage !== false) adapter.enterStage = async (ref, stepId, opts) => calls.push(`enter ${ref} ${stepId} assign=${opts?.assign}`);
+  if (o.complete !== false) adapter.complete = async (ref) => calls.push(`complete ${ref}`);
+  const store = {
+    clearAttempts: (ref) => calls.push(`clearAttempts ${ref}`),
+    clearFindings: (ref) => calls.push(`clearFindings ${ref}`),
+    clearDifficulty: (ref) => calls.push(`clearDifficulty ${ref}`),
+  };
+  const emit = (event, ref, step, extra) => events.push({ event, ref, step, ...extra });
+  const run = createDispatcher(/** @type {any} */ (cfg), adapter, undefined, /** @type {any} */ (store), emit);
+  return { run, calls, events };
+}
+
+test("merge: moves into the completeOnMerge step (assign:false) BEFORE completing, emits merged", async () => {
+  const h = mergeHarness();
+  const out = await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "complete G1"]);
+  assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
+  assert.equal(out.code, 0);
+  assert.equal(out.name, "Task G1");
+});
+
+test("merge: task not assigned to us → no tracker writes, no event", async () => {
+  const h = mergeHarness({ assignedToUs: false });
+  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.deepEqual(h.calls, ["fetch G1"]);
+  assert.deepEqual(h.events, []);
+});
+
+test("merge: fetch error fails closed (skip)", async () => {
+  const h = mergeHarness({ fetchThrows: true });
+  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.deepEqual(h.calls, ["fetch G1"]);
+  assert.deepEqual(h.events, []);
+});
+
+test("merge: no completeOnMerge step → complete + direct cleanup (attempts/findings/difficulty)", async () => {
+  const h = mergeHarness({ pipeline: [{ id: "code" }] });
+  await h.run({ kind: "merge", ref: "G1", stepId: "", dedupKey: "merged:5" });
+  assert.deepEqual(h.calls, ["fetch G1", "complete G1", "clearAttempts G1", "clearFindings G1", "clearDifficulty G1"]);
+  assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "", name: "Task G1", url: "u/G1" }]);
+});
+
+test("merge: tracker without complete() is a logged no-op; still moves + emits", async () => {
+  const h = mergeHarness({ complete: false });
+  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false"]);
+  assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
 });

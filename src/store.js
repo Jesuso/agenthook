@@ -4,6 +4,10 @@
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
 //   - held:    refs parked by a `hold` verdict (ref -> {stepId,reason?,heldAt}), so an
 //              owner's `@agent` reply comment knows which step to resume.
+//   - refmeta: per-ref display metadata ({displayId,title,pr}) for the CLIs. Never
+//     cleared — unlike running, status/events need it after the run ends.
+//   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
+//              keyed by `${ref}:${stepId}`), so a crash/force-kill doesn't lose them.
 //
 // seen is reloaded from disk on every read (reloadSeen) because external tools
 // (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
@@ -17,6 +21,22 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
+ * State-based dedup keys (`step:<id>:<ref>`) are released when the run ends;
+ * event-based ones (`secmove:`/`unblock:`/`reconcile:`/…) are unique per event and stay permanent.
+ * @param {string} key
+ */
+export function isStateDedupKey(key) {
+  return typeof key === "string" && key.startsWith("step:");
+}
+
+/**
+ * queue.json identity: kind + ref + stepId (entries written before `merge` jobs have no
+ * kind → pipeline).
+ * @param {import('./types.js').Job} a @param {import('./types.js').Job} b
+ */
+const sameQueued = (a, b) => (a.kind ?? "pipeline") === (b.kind ?? "pipeline") && a.ref === b.ref && a.stepId === b.stepId;
+
+/**
  * @param {string} dataDir
  * @returns {import('./types.js').Store}
  */
@@ -24,10 +44,13 @@ export function createStore(dataDir) {
   const secretsFile = path.join(dataDir, "secrets.json");
   const seenFile = path.join(dataDir, "seen.json");
   const runningFile = path.join(dataDir, "running.json");
+  const queueFile = path.join(dataDir, "queue.json");
   const attemptsFile = path.join(dataDir, "attempts.json");
   const difficultyFile = path.join(dataDir, "difficulty.json");
   const heldFile = path.join(dataDir, "held.json");
+  const findingsFile = path.join(dataDir, "findings.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
+  const refmetaFile = path.join(dataDir, "refmeta.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -80,6 +103,23 @@ export function createStore(dataDir) {
       }
     },
     listRunning: () => readJson(runningFile, {}),
+
+    // --- jobs waiting in the queue (queue.json), insertion-ordered, deduped by kind:ref:stepId ---
+    // (kind keeps a `merge` job and the pipeline job for its completeOnMerge step apart)
+    addQueued: (job) => {
+      /** @type {import("./types.js").Job[]} */
+      const l = readJson(queueFile, []);
+      if (l.some((j) => sameQueued(j, job))) return;
+      l.push(job);
+      fs.writeFileSync(queueFile, JSON.stringify(l));
+    },
+    removeQueued: (job) => {
+      /** @type {import("./types.js").Job[]} */
+      const l = readJson(queueFile, []);
+      const n = l.filter((j) => !sameQueued(j, job));
+      if (n.length !== l.length) fs.writeFileSync(queueFile, JSON.stringify(n));
+    },
+    listQueued: () => readJson(queueFile, []),
 
     // --- per-(ref,step) attempt counters: the changes-loop guard (attempts.json) ---
     // Bumped each dispatch; read before routing a `changes` back into a step so an
@@ -139,6 +179,33 @@ export function createStore(dataDir) {
       if (ref in m) {
         delete m[ref];
         fs.writeFileSync(heldFile, JSON.stringify(m));
+      }
+    },
+
+    // --- per-ref display metadata (refmeta.json): human id, title, PR number ---
+    // Written by dispatch (receiver-side only); read by agents/status/events. Shallow
+    // merge so the PR lookup and the fetchTask write can land independently.
+    getRefMeta: (ref) => readJson(refmetaFile, {})[ref],
+    setRefMeta: (ref, patch) => {
+      const m = readJson(refmetaFile, {});
+      const cur = m[ref] || {};
+      for (const [k, v] of Object.entries(patch)) if (v !== undefined) cur[k] = v;
+      m[ref] = cur;
+      fs.writeFileSync(refmetaFile, JSON.stringify(m));
+    },
+    listRefMeta: () => readJson(refmetaFile, {}),
+    // --- per-ref review findings (findings.json): set on a `changes` bounce, read by the target step ---
+    getFindings: (ref) => readJson(findingsFile, {})[ref],
+    setFindings: (ref, f) => {
+      const m = readJson(findingsFile, {});
+      m[ref] = f;
+      fs.writeFileSync(findingsFile, JSON.stringify(m));
+    },
+    clearFindings: (ref) => {
+      const m = readJson(findingsFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(findingsFile, JSON.stringify(m));
       }
     },
 

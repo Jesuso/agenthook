@@ -21,6 +21,7 @@
 //     (so no login is pasted). Scoping is FAIL CLOSED — see scopeToUser below.
 import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
+import { verifyHubSignature } from "../hmac.js";
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
@@ -48,18 +49,6 @@ export function createGithubAdapter(cfg, store) {
 
   /** @param {string|null|undefined} s */
   const norm = (s) => (s || "").trim().toLowerCase();
-
-  /** Verify GitHub's `x-hub-signature-256: sha256=<hex>` HMAC over the raw body.
-   * @param {string|undefined} secret @param {string} raw @param {string|string[]|undefined} sig */
-  const verify = (secret, raw, sig) => {
-    const sigStr = Array.isArray(sig) ? sig[0] : sig;
-    if (!secret || !sigStr) return false;
-    const hex = sigStr.startsWith("sha256=") ? sigStr.slice(7) : sigStr;
-    const computed = crypto.createHmac("sha256", secret).update(raw).digest("hex");
-    const a = Buffer.from(computed);
-    const b = Buffer.from(hex);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  };
 
   // Webhook secret: NEVER required of the user. An explicit tracker.webhookSecret wins
   // (and `false` disables verification — accept unsigned). Otherwise agenthook GENERATES
@@ -301,6 +290,7 @@ export function createGithubAdapter(cfg, store) {
       taskNoun: "issue",
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -X POST https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments -d '{"body":"<text>"}' (your token is in the env as $GITHUB_TOKEN)`,
+      readCommentsHowTo: `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments (or gh issue view <number> --comments)`,
     }),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
@@ -308,7 +298,7 @@ export function createGithubAdapter(cfg, store) {
     authenticate({ rawBody, headers }) {
       const secret = webhookSecret();
       if (!secret) return { type: "accept" };
-      if (!verify(secret, rawBody, headers["x-hub-signature-256"])) {
+      if (!verifyHubSignature(secret, rawBody, headers["x-hub-signature-256"])) {
         console.warn("[reject] bad/absent x-hub-signature-256");
         return { type: "reject" };
       }
@@ -395,6 +385,7 @@ export function createGithubAdapter(cfg, store) {
         url: issue.html_url,
         completed: issue.state === "closed",
         assignedToUs: await issueIsOurs(issue),
+        displayId: `#${ref}`,
       };
     },
 

@@ -164,7 +164,41 @@ export function loadConfig(opts = {}) {
     if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
       throw new Error(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
     }
+    if (step.lite != null) {
+      const h = step.lite.descriptionHeadings;
+      if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {
+        throw new Error(`config: pipeline step "${step.id}" lite.descriptionHeadings must be a non-empty array of strings.`);
+      }
+    }
+    if (step.completeOnMerge && !step.manual) {
+      throw new Error(`config: pipeline step "${step.id}" completeOnMerge requires manual:true (no agent runs on a merge).`);
+    }
   }
+
+  const onMerge = cfg.pipeline.filter((/** @type {import('./types.js').Step} */ s) => s.completeOnMerge);
+  if (onMerge.length > 1) {
+    throw new Error(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => s.id).join(", ")}).`);
+  }
+
+  if (cfg.sinks != null) {
+    if (!Array.isArray(cfg.sinks)) throw new Error(`config: sinks must be an array.`);
+    /** @type {Record<string, string[]>} */
+    const need = { slack: ["url"], webhook: ["url"], telegram: ["botToken", "chatId"] };
+    cfg.sinks.forEach((/** @type {any} */ s, /** @type {number} */ i) => {
+      if (!s || !need[s.type]) {
+        throw new Error(`config: sinks[${i}].type must be one of slack, telegram, webhook (got ${JSON.stringify(s?.type)}).`);
+      }
+      for (const f of need[s.type]) {
+        if (s[f] == null || s[f] === "") throw new Error(`config: sinks[${i}] (${s.type}) requires "${f}".`);
+      }
+      if (s.events != null && (!Array.isArray(s.events) || s.events.some((/** @type {any} */ e) => typeof e !== "string"))) {
+        throw new Error(`config: sinks[${i}].events must be an array of strings.`);
+      }
+    });
+  }
+
+  // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
+  if (cfg.forge && !cfg.forge.type) throw new Error(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   fs.mkdirSync(cfg.logDir, { recursive: true });

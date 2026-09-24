@@ -1,11 +1,34 @@
 // Bounded-concurrency job queue. Worktree isolation (see INSTRUCTIONS.md) lets
 // multiple agents run at once; MAX caps how many.
 /**
+ * Boot-restore plan for persisted queue entries: which to re-enqueue (in order) and
+ * which to drop (ref was mid-run at boot — recovery failed it — or step is gone). A
+ * `merge` job is always kept: the PR merged regardless, its `merged:<n>` key is already
+ * in `seen` (a redelivery won't re-fire it), and its stepId may be "".
+ * @param {import('./types.js').Job[]} queued
+ * @param {Iterable<string>} runningRefs
+ * @param {Iterable<string>} stepIds
+ */
+export function planRestore(queued, runningRefs, stepIds) {
+  const running = new Set(runningRefs);
+  const steps = new Set(stepIds);
+  /** @type {import('./types.js').Job[]} */ const keep = [];
+  /** @type {import('./types.js').Job[]} */ const drop = [];
+  for (const j of queued) {
+    const stale = j.kind !== "merge" && (running.has(j.ref) || !steps.has(j.stepId));
+    (stale ? drop : keep).push(j);
+  }
+  return { keep, drop };
+}
+
+/**
  * @param {number} max
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
  * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
+ * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void}} [persist]
+ *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run
  */
-export function createQueue(max, run, onChange) {
+export function createQueue(max, run, onChange, persist) {
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -14,10 +37,12 @@ export function createQueue(max, run, onChange) {
   // `section_changed` -> secmove:<storyGid>) that resolve to the same step — both
   // clear `seen` and would spawn two `claude -p` on the same task/step. This drops
   // the second; a later legit re-entry (next step, or a `changes` rework) carries a
-  // different stepId, or arrives after this key is cleared on completion.
+  // different stepId, or arrives after this key is cleared on completion. A `merge`
+  // job is keyed apart from pipeline jobs: it moves the task into its completeOnMerge
+  // step, and that step's own pipeline job must not be coalesced away behind it.
   const inflight = new Set();
   /** @param {import('./types.js').Job} job */
-  const workKey = (job) => `${job.ref}:${job.stepId ?? job.dedupKey}`;
+  const workKey = (job) => `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
   /** @type {(() => void)[]} */
@@ -35,6 +60,7 @@ export function createQueue(max, run, onChange) {
     while (active < max && queue.length) {
       const job = queue.shift();
       if (!job) break;
+      persist?.onRemove?.(job);
       active++;
       report();
       console.log(`[start] ${job.kind} ${job.ref} (running ${active}/${max}, ${queue.length} queued)`);
@@ -75,6 +101,7 @@ export function createQueue(max, run, onChange) {
       }
       inflight.add(key);
       queue.push(job);
+      persist?.onAdd?.(job);
       report();
       pump();
       return true;

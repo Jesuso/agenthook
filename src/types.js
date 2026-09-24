@@ -9,9 +9,9 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'pipeline'} kind  a step fired by a task entering its source section
+ * @property {'pipeline'|'merge'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task)
  * @property {string} ref       provider-native item id (Asana gid, …)
- * @property {string} stepId    which Step in cfg.pipeline to run
+ * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
  * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  */
@@ -28,10 +28,12 @@
  * @property {boolean} [createsWorktree]       system creates the shared worktree before the agent runs
  * @property {boolean} [drainWorktree]         system removes the worktree after the step
  * @property {boolean} [manual]                no agent; entering the step only runs system actions
+ * @property {boolean} [completeOnMerge]       manual steps only, at most one: a forge merge event moves the task INTO this step (then marks it completed)
  * @property {string} [model]                  per-step `claude --model` override
  * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
+ * @property {{descriptionHeadings: string[], model?: string, effort?: 'low'|'medium'|'high'|'xhigh'|'max'}} [lite]  description-gated override (intended for triage): when every heading starts a line of the task description, use this model/effort as the base; `escalate` still wins on top
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
@@ -64,6 +66,7 @@
  * @property {StepOutcome} outcome
  * @property {string} [target]     changes: the stepId to route back to (resolved to a concrete id by dispatch)
  * @property {string} [reason]     human-readable; logged, not posted
+ * @property {string} [findings]   changes: full Markdown review findings, handed verbatim to the target step's next prompt (falls back to `reason`)
  * @property {'easy'|'medium'|'hard'} [difficulty]  optional ticket difficulty emitted by triage; persisted per-ref to gate model/effort on subsequent steps
  */
 
@@ -79,6 +82,15 @@
  * @property {number} [output]      live output-token tally so far (estimate; final in UsageRecord)
  * @property {number} [cacheRead]   live cache-read token tally (estimate; final in UsageRecord)
  * @property {number} [cacheCreate] live cache-creation token tally (estimate; final in UsageRecord)
+ * @property {string|null} [model]   the model the run was launched with (null = CLI default)
+ */
+
+/** Durable per-ref display metadata (refmeta.json). Never cleared: `status`/`events`
+ * read it after the run ends to show a human id, title and PR instead of the raw ref.
+ * @typedef {object} RefMeta
+ * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
+ * @property {string} [title]      the task title
+ * @property {number} [pr]         the PR number for the ref's branch, once one exists
  */
 
 /** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.
@@ -114,6 +126,7 @@
  * @property {string} url
  * @property {boolean} completed
  * @property {boolean} assignedToUs
+ * @property {string} [displayId]  the human-facing id operators use (Asana "ID-2738", GitHub "#94", Jira "CAHUI-7"); undefined when the tracker has none
  */
 
 /**
@@ -123,6 +136,7 @@
  * @property {string} taskNoun      e.g. "task", "issue"
  * @property {string} trigger       comment prefix that requests a change (default "@agent")
  * @property {string} commentHowTo  one line telling the agent how to comment back
+ * @property {string} [readCommentsHowTo] one line telling the agent how to read the task's existing comments (where a human's answer to a held question lands); omitted when the tracker has no comment channel
  * @property {boolean} [usesPR]     does this tracker's workflow revolve around a pull request? Default true. When false (e.g. the local/offline tracker) the prompt builders drop all PR language: the worktree DIFF is the deliverable and review reads it with `git diff`, never `gh pr`
  */
 
@@ -166,6 +180,7 @@
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
+ * @property {(ref: string) => Promise<void>} [complete]  optional; mark the item completed/closed on the tracker (Asana: completed:true). Used by a forge `merge` job; absent = no-op
  * @property {() => Promise<void>} [ensureLabels]  optional; create any pipeline objects the API won't auto-add to a task (GitHub: the issue labels). Called on boot before registerWebhook
  * @property {(ref: string, stepId?: string) => Promise<ForgedEvent>} [forgeCatchup]  optional; catchup needs it. dedupKey matches the server-assigned key; pass stepId to skip the live-section lookup
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
@@ -188,6 +203,7 @@
  * @property {boolean} [assigneeFilter]  only act on items assigned to us (Asana userGid / Jira assigneeAccountId). Default true (fail-closed: unset id ⇒ refuse all); only false opts into project-wide
  * @property {string} [workspaceGid]
  * @property {string} [projectGid]  Asana: the project whose sections drive the pipeline
+ * @property {string} [displayIdField]  Asana: name of the custom field holding the task's human id (default "ID", case-insensitive)
  * @property {string} [site]              Jira: site shortname ("<site>.atlassian.net"); or set baseUrl
  * @property {string} [baseUrl]           Jira: full base URL (overrides site)
  * @property {string} [email]             Jira: account email for Basic auth (typically a "${JIRA_EMAIL}" ref)
@@ -231,6 +247,41 @@
  * @typedef {(cfg: Config) => Ingress} IngressFactory */
 
 /**
+ * An event sink (`sinks[]` in agenthook.config.json): forwards lifecycle events to a chat/webhook.
+ * @typedef {object} SinkConfig
+ * @property {"slack"|"telegram"|"webhook"} type
+ * @property {string} [url]        slack incoming-webhook / generic webhook URL
+ * @property {string} [botToken]   telegram bot token
+ * @property {string|number} [chatId]  telegram chat id
+ * @property {string[]} [events]   events to forward (default blocked, failed, pipeline_done)
+ */
+
+/**
+ * The optional forge config block (`forge` in agenthook.config.json). `type` selects
+ * the adapter; values are already env-interpolated.
+ * @typedef {object} ForgeConfig
+ * @property {string} type              forge adapter key ("github")
+ * @property {string} [token]           API token (typically "${GITHUB_TOKEN}")
+ * @property {string} [repository]      GitHub: "owner/name" whose PRs complete tasks
+ * @property {string} [owner]           GitHub: repo owner (alternative to repository)
+ * @property {string} [repo]            GitHub: repo name (alternative to repository)
+ * @property {string} [webhookSecret]   explicit signing secret; omit to let agenthook generate+store one (no opt-out — always verified)
+ */
+
+/** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
+ * Serves the `/forge` path; turns a merged agent PR into a `merge` job.
+ * @typedef {object} Forge
+ * @property {() => {name: string}} describe
+ * @property {(ctx: EventCtx) => AuthResult} authenticate  sync, no network (same ACK window as the tracker)
+ * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
+ * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup
+ * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
+ */
+
+/** A factory `(cfg, store) => Forge`.
+ * @typedef {(cfg: Config, store: Store) => Forge} ForgeFactory */
+
+/**
  * Resolved runtime config. All paths are absolute. See config.js for the four
  * distinct location fields (install/config/state/repo).
  * @typedef {object} Config
@@ -244,6 +295,8 @@
  * @property {ProviderConfig} providerConfig  alias of tracker, for adapter back-compat
  * @property {Step[]|null} pipeline  resolved tracker.pipeline (null when not configured)
  * @property {IngressConfig} ingress
+ * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
+ * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
@@ -274,6 +327,9 @@
  * @property {(ref: string, info: RunningInfo) => void} setRunning
  * @property {(ref: string) => void} clearRunning
  * @property {() => Record<string, RunningInfo>} listRunning
+ * @property {(job: Job) => void} addQueued
+ * @property {(job: Job) => void} removeQueued
+ * @property {() => Job[]} listQueued
  * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
  * @property {(ref: string, stepId: string) => number} bumpAttempt  increment and return the new count
  * @property {(ref: string) => void} clearAttempts                  drop all attempt counters for ref (it left the loop)
@@ -283,8 +339,14 @@
  * @property {(ref: string) => HeldInfo|undefined} getHeld          the step ref is parked on by a `hold` verdict (undefined = not held)
  * @property {(ref: string, info: HeldInfo) => void} setHeld        record a `hold` verdict for ref
  * @property {(ref: string) => void} clearHeld                      drop the held record for ref (resumed / re-entered / terminal)
+ * @property {(ref: string) => {target: string, fromStep: string, text: string}|undefined} getFindings  review findings pending for ref's rework step
+ * @property {(ref: string, f: {target: string, fromStep: string, text: string}) => void} setFindings  persist findings on a `changes` bounce (latest wins)
+ * @property {(ref: string) => void} clearFindings                  drop pending findings for ref
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
+ * @property {(ref: string) => RefMeta|undefined} getRefMeta        display metadata for ref (undefined = none recorded)
+ * @property {(ref: string, patch: RefMeta) => void} setRefMeta     shallow-merge patch into ref's record (undefined values skipped)
+ * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
  */
 
 export {};

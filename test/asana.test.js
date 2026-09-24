@@ -248,6 +248,24 @@ async function runComment(a, { text = "@agent use Postgres", author = "U1", assi
   }
 }
 
+// --- fetchTask displayId: the human id comes from a custom field (default name "ID").
+/** Run fetchTask("G9") against a stubbed task carrying `custom_fields`. @param {any[]} custom_fields @param {object} [pc] */
+async function fetchWith(custom_fields, pc = {}) {
+  const orig = global.fetch;
+  /** @type {string[]} */
+  const urls = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return ok({ data: { name: "Fix it", notes: "", permalink_url: "https://app.asana.com/t/G9", completed: false, custom_fields } });
+  };
+  try {
+    return { task: await routed(pc).fetchTask("G9"), urls };
+  } finally {
+    global.fetch = orig;
+  }
+}
+
 test("comment_added: the owner's @agent reply on a held task resumes the held step", async () => {
   const { jobs, urls } = await runComment(commentRouted());
   assert.deepEqual(jobs, [{ kind: "pipeline", ref: "G1", stepId: "code", dedupKey: "trigger:ST1", comment: "@agent use Postgres" }]);
@@ -304,4 +322,71 @@ test("registerWebhook's filters include story comment_added (and keep section_ch
   }
   const subtypes = (posted?.data?.filters || []).map((/** @type {any} */ f) => f.resource_subtype).filter(Boolean);
   assert.deepEqual(subtypes, ["section_changed", "comment_added"]);
+});
+
+test("fetchTask maps displayId from the custom field named ID (case-insensitive)", async () => {
+  const { task, urls } = await fetchWith([{ name: "Priority", display_value: "High" }, { name: "id", display_value: "ID-2738" }]);
+  assert.equal(task.displayId, "ID-2738");
+  assert.equal(task.name, "Fix it");
+  assert.ok(urls[0].includes("custom_fields.name,custom_fields.display_value"), "requests the custom fields");
+});
+
+test("fetchTask honors a custom displayIdField", async () => {
+  const { task } = await fetchWith([{ name: "ID", display_value: "ID-1" }, { name: "Ticket", display_value: "TK-9" }], { displayIdField: "Ticket" });
+  assert.equal(task.displayId, "TK-9");
+});
+
+test("fetchTask leaves displayId undefined when the field is absent", async () => {
+  assert.equal((await fetchWith([{ name: "Priority", display_value: "High" }])).task.displayId, undefined);
+  assert.equal((await fetchWith(/** @type {any} */ (undefined))).task.displayId, undefined);
+});
+
+// --- complete (forge merge) ---
+
+test("complete PUTs completed:true on the task", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  let body;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    if (init.body) body = JSON.parse(String(init.body));
+    return ok({ data: {} });
+  };
+  try {
+    await routed().complete?.("G1");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(calls, ["PUT https://app.asana.com/api/1.0/tasks/G1"]);
+  assert.deepEqual(body, { data: { completed: true } });
+});
+
+test("complete throws on a non-2xx", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
+  try {
+    await assert.rejects(() => /** @type {any} */ (routed()).complete("G1"), /complete 403/);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("complete refuses (no PUT) a task not assigned to us — fail-closed", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    return ok({ data: { assignee: { gid: "SOMEONE_ELSE" } } });
+  };
+  try {
+    await routed({ assigneeFilter: true, userGid: "ME" }).complete?.("G1");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(!calls.some((c) => c.startsWith("PUT")), `unexpected write: ${calls.join("\n")}`);
 });

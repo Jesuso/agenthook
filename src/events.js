@@ -11,21 +11,29 @@ import path from "node:path";
  *
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
- *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed
+ *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged
  *   ref   — task ref (provider-native id)
  *   step  — pipeline step id
  *
  * @param {string} dataDir  profile data directory (~/.agenthook/<name>/)
+ * @param {(ev: Record<string, any>) => void} [onEvent]  optional fan-out (sinks), called after the append; its throws are swallowed
  * @returns {(event: string, ref: string, step: string, extra?: Record<string, any>) => void}
  */
-export function createEmitter(dataDir) {
+export function createEmitter(dataDir, onEvent) {
   const eventsFile = path.join(dataDir, "events.jsonl");
   return function emit(event, ref, step, extra) {
+    let obj;
     try {
-      const line = JSON.stringify({ ts: new Date().toISOString(), event, ref, step, ...extra });
-      fs.appendFileSync(eventsFile, line + "\n");
+      obj = { ts: new Date().toISOString(), event, ref, step, ...extra };
+      fs.appendFileSync(eventsFile, JSON.stringify(obj) + "\n");
     } catch (e) {
       console.warn(`[events] failed to write "${event}" for ${ref}/${step}:`, e.message);
+    }
+    if (!onEvent || !obj) return;
+    try {
+      onEvent(obj);
+    } catch (e) {
+      console.warn(`[events] onEvent failed for "${event}" ${ref}/${step}:`, e.message);
     }
   };
 }

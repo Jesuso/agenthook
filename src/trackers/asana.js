@@ -9,6 +9,7 @@
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
+//   complete(ref)                      -> mark the task completed (optional; forge merge)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
 //   forgeCatchup(ref)                  -> { path, body, sig } to replay a missed item (CLI)
@@ -164,6 +165,7 @@ export function createAsanaAdapter(cfg, store) {
       taskNoun: "task",
       trigger: cfg.trigger,
       commentHowTo: `post via the Asana API (token in env ASANA_TOKEN) using POST /tasks/<gid>/stories`,
+      readCommentsHowTo: `GET /tasks/<gid>/stories via the Asana API (token in env ASANA_TOKEN); comments are stories with type "comment"`,
     }),
 
     authenticate({ pathname, headers, rawBody }) {
@@ -236,9 +238,14 @@ export function createAsanaAdapter(cfg, store) {
     },
 
     async fetchTask(ref) {
-      const res = await api(`/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed`);
+      const res = await api(
+        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value`,
+      );
       if (!res.ok) throw new Error(`task fetch ${res.status}`);
       const t = (await json(res)).data;
+      // Human id (e.g. "ID-2738") lives in a custom field; name configurable, default "ID".
+      const idField = String(pc.displayIdField ?? "ID").toLowerCase();
+      const idCf = (t.custom_fields || []).find((/** @type {any} */ f) => String(f?.name ?? "").toLowerCase() === idField);
       return {
         ref,
         name: t.name,
@@ -246,6 +253,7 @@ export function createAsanaAdapter(cfg, store) {
         url: t.permalink_url,
         completed: t.completed === true,
         assignedToUs: t.assignee?.gid === pc.userGid,
+        displayId: idCf?.display_value ? String(idCf.display_value) : undefined,
       };
     },
 
@@ -291,6 +299,19 @@ export function createAsanaAdapter(cfg, store) {
       if (opts.assign !== false) await assignToUs(ref);
       await moveToSection(ref, step.sourceSectionGid, `${stepId}:enter`);
       return { stage: step.sourceSectionGid };
+    },
+
+    // Mark the task completed (a forge saw its agent PR merge). Same fail-closed
+    // mutation gate as advance: never complete a task that isn't ours.
+    /** @param {string} ref */
+    async complete(ref) {
+      if (scopeToUser && !(await ownedByUs(ref))) {
+        console.log(`[assignee] refuse to complete ${ref} — not assigned to us`);
+        return;
+      }
+      const res = await api(`/tasks/${ref}`, { method: "PUT", body: JSON.stringify({ data: { completed: true } }) });
+      if (!res.ok) throw new Error(`complete ${res.status}`);
+      console.log(`[complete] ${ref} marked completed`);
     },
 
     // The pipeline section a task currently rests in (any source/success/failure/hold
