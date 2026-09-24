@@ -334,6 +334,29 @@ export function createJiraAdapter(cfg, store) {
       return jobs;
     },
 
+    // Queue-stage source (the one narrow boot/run_end board read — see engine pullQueued):
+    // issues in the step's opt-in queueStatus, ranked (`ORDER BY Rank ASC` = the board's
+    // top-to-bottom priority), filtered like listResting; a done-category status is skipped.
+    // Single page (maxResults 100) — only the top few are ever pulled. [] without the key.
+    /** @param {string} stepId */
+    async listQueued(stepId) {
+      const step = stepById(stepId);
+      if (!step?.queueStatus || step.manual) return [];
+      const project = pc.projectKey;
+      const assigneeClause = scopeToUser ? ` AND assignee = "${await ourAccountId()}"` : "";
+      const jql = `${project ? `project = "${project}" AND ` : ""}status = "${step.queueStatus}"${assigneeClause} ORDER BY Rank ASC`;
+      const res = await api(`/search/jql?jql=${encodeURIComponent(jql)}&fields=status,assignee&maxResults=100`);
+      if (!res.ok) throw new Error(`search "${step.queueStatus}" ${res.status}`);
+      /** @type {string[]} */
+      const refs = [];
+      for (const it of (await json(res)).issues || []) {
+        if (it.fields?.status?.statusCategory?.key === "done") continue;
+        if (!(await isOurs(it.fields?.assignee?.accountId))) continue;
+        refs.push(it.key);
+      }
+      return refs;
+    },
+
     // Jira Cloud forbids creating webhooks with an API token (Connect/Forge apps
     // only), so there is nothing to auto-register or scrub. Print one-time manual
     // setup the first admin runs, then return — boot continues regardless.

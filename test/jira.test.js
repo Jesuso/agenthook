@@ -212,3 +212,35 @@ test("init status discovery hits the answered site/project and dedups statuses a
     global.fetch = orig;
   }
 });
+
+test("listQueued searches the queue status ranked (ORDER BY Rank ASC), skipping done-category issues", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    urls.push(decodeURIComponent(String(url)));
+    return /** @type {any} */ ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        issues: [
+          { key: "A-2", fields: { status: { statusCategory: { key: "new" } } } },
+          { key: "A-1", fields: { status: { statusCategory: { key: "done" } } } },
+          { key: "A-5", fields: { status: { statusCategory: { key: "new" } } } },
+        ],
+      }),
+    });
+  };
+  const pl = [{ id: "code", sourceStatus: "To Do", queueStatus: "Backlog" }];
+  const a = createJiraAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "jira", token: "t", site: "acme", email: "e", assigneeFilter: false } }),
+    /** @type {any} */ (makeStore()),
+  );
+  try {
+    assert.deepEqual(await a.listQueued("code"), ["A-2", "A-5"]);
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(urls[0].includes(`status = "Backlog" ORDER BY Rank ASC`), urls[0]);
+});

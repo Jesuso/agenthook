@@ -212,7 +212,7 @@ export function createGithubAdapter(cfg, store) {
     /** @type {Map<string, string>} */
     const wanted = new Map();
     for (const step of pipeline) {
-      for (const label of [step.sourceLabel, step.successLabel, step.failureLabel, step.holdLabel]) {
+      for (const label of [step.sourceLabel, step.successLabel, step.failureLabel, step.holdLabel, step.queueLabel]) {
         if (label) wanted.set(norm(label), label);
       }
     }
@@ -400,6 +400,10 @@ export function createGithubAdapter(cfg, store) {
       if (!step.sourceLabel) throw new Error(`step "${stepId}" has no sourceLabel to enter`);
       if (opts.assign !== false) await assignToUs(ref);
       await addLabel(ref, step.sourceLabel);
+      // Labels aren't single-occupancy: leaving the step's queue stage means dropping its
+      // queueLabel too (a queue pull, or `run` on a queued issue). Add-then-remove, same
+      // crash-safe order as advance; removeLabel tolerates a 404 (label not on the issue).
+      if (step.queueLabel && norm(step.queueLabel) !== norm(step.sourceLabel)) await removeLabel(ref, step.queueLabel);
       return { stage: step.sourceLabel };
     },
 
@@ -444,6 +448,31 @@ export function createGithubAdapter(cfg, store) {
         }
       }
       return jobs;
+    },
+
+    // Queue-stage source (the one narrow boot/run_end board read — see engine pullQueued):
+    // open issues carrying the step's opt-in queueLabel, filtered like listResting (ours,
+    // not a PR, not blocked). Labels have no order, so priority falls back to OLDEST-
+    // CREATED FIRST. Single page (per_page 100). [] without the key.
+    /** @param {string} stepId */
+    async listQueued(stepId) {
+      const step = stepById(stepId);
+      if (!step?.queueLabel || step.manual) return [];
+      const assigneeQ = scopeToUser ? `&assignee=${encodeURIComponent(await ourLogin())}` : "";
+      const res = await api(
+        `${repoPath()}/issues?state=open&labels=${encodeURIComponent(step.queueLabel)}${assigneeQ}&sort=created&direction=asc&per_page=100`,
+      );
+      if (!res.ok) throw new Error(`list issues "${step.queueLabel}" ${res.status}`);
+      /** @type {string[]} */
+      const refs = [];
+      for (const it of (await json(res)) || []) {
+        if (it.pull_request) continue; // the issues list endpoint also returns PRs — skip them
+        const ref = String(it.number);
+        if (!(await issueIsOurs(it))) continue;
+        if ((await blockedBy(ref)).length) continue; // blocked → must not be pulled into work
+        refs.push(ref);
+      }
+      return refs;
     },
 
     // Auto-create the repo webhook (GitHub, unlike Jira, allows it with a token). Scrub

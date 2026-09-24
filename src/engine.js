@@ -18,6 +18,8 @@ import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
 import { createForge, isForgePath } from "./forges/index.js";
 import { createQueue, planRestore } from "./queue.js";
+import { createPuller } from "./pull.js";
+import { queueStageOf } from "./pipeline.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { createEmitter } from "./events.js";
@@ -55,7 +57,7 @@ export function createEngine(cfg) {
   const runClaude = createDispatcher(cfg, adapter, children, store, emit);
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
-    { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job) },
+    { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
   );
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
@@ -74,6 +76,7 @@ export function createEngine(cfg) {
       if (!force && store.hasSeen(job.dedupKey)) continue;
       store.markSeen(job.dedupKey);
       console.log(`[event] step ${job.stepId} ${job.ref}`);
+      puller.arrived(job.ref); // a pulled ref's webhook-driven job arrived — the queue counts its slot now
       heartbeat.update({
         lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, step: job.stepId },
         seen: store.seenCount(),
@@ -126,6 +129,21 @@ export function createEngine(cfg) {
       queue.enqueue(j);
     }
   }
+
+  // Queue-stage pull (opt-in per step; see src/pull.js). Triggered once on boot and after
+  // every job settles — never on a timer; a no-op without any queue key.
+  const puller = createPuller({
+    steps: adapter.listQueued && adapter.enterStage ? (cfg.pipeline || []).filter((s) => !s.manual && queueStageOf(s)) : [],
+    max: cfg.maxConcurrent,
+    queueState: () => queue.state(),
+    inflightRefs: () => [...Object.keys(store.listRunning()), ...store.listQueued().map((j) => j.ref)],
+    listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
+    enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),
+    stageOf: queueStageOf,
+    isDraining: () => draining,
+    emit,
+    onDepth: (queueStage) => heartbeat.update({ queueStage }),
+  });
 
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -300,6 +318,8 @@ export function createEngine(cfg) {
       const runningRefs = Object.keys(store.listRunning());
       await recoverInterrupted();
       restoreQueued(runningRefs);
+      // Queue-stage pull into any free slots (opt-in; no-op without a queue key).
+      await puller.pull();
     } catch (e) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).

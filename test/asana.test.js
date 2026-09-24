@@ -300,3 +300,48 @@ test("complete refuses (no PUT) a task not assigned to us — fail-closed", asyn
   }
   assert.ok(!calls.some((c) => c.startsWith("PUT")), `unexpected write: ${calls.join("\n")}`);
 });
+
+// --- queue-stage pull: listQueued ---
+const qPipeline = [{ id: "code", sourceSectionGid: "S1", successSectionGid: "S2", queueSectionGid: "Q1" }];
+/** @param {any} [pc] */
+const queued = (pc = {}) =>
+  createAsanaAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: qPipeline, providerConfig: { type: "asana", token: "t", ...pc } }), /** @type {any} */ (makeStore()));
+
+test("listQueued reads the queue section in API order, keeping only our open tasks", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return ok({
+      data: [
+        { gid: "t3", completed: false, assignee: { gid: "me" } },
+        { gid: "t1", completed: true, assignee: { gid: "me" } },
+        { gid: "t2", completed: false, assignee: { gid: "someone" } },
+        { gid: "t9", completed: false, assignee: { gid: "me" } },
+      ],
+    });
+  };
+  try {
+    assert.deepEqual(await queued({ userGid: "me" }).listQueued("code"), ["t3", "t9"]);
+    assert.ok(urls[0].includes("/sections/Q1/tasks"), urls[0]);
+    // Fail-closed: scoping on but no userGid → nothing is ours.
+    assert.deepEqual(await queued().listQueued("code"), []);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listQueued is [] (no API call) for a step without a queue key", async () => {
+  let calls = 0;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => (calls++, ok({ data: [] }));
+  try {
+    assert.deepEqual(await routed().listQueued("code"), []);
+  } finally {
+    global.fetch = orig;
+  }
+  assert.equal(calls, 0);
+});

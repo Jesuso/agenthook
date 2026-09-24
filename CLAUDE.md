@@ -10,6 +10,8 @@ entering a step's source stage fires a webhook; the receiver verifies it and spa
 receiver-owned git worktree to do that step's work; on a clean exit it moves the task to the next
 section — which fires the next step. There is no polling loop — forward motion is event-driven,
 crash recovery is local, and `catchup`/`reconcile` exist only to replay items missed during downtime.
+The one narrow exception is an opt-in **queue stage** (below): a step that sets one pulls its
+backlog when a slot frees — on `run_end` and once on boot, never on a timer.
 
 > Note: this repo is the receiver/framework. The `claude -p` agents it spawns run in a
 > *different* repo (`config.repoPath`) and read *that* repo's CLAUDE.md plus the step's
@@ -72,7 +74,8 @@ Boot flow (`engine.serve()`, server owns the ingress lifecycle):
 dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat →
 `forge?` (ephemeral → `forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort,
 never aborts boot) → `recoverInterrupted()` (resolve `running.json` survivors as failures — **local
-only, no board poll**) → on exit `ingress.down()`.
+only, no board poll**) → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots;
+**only** reads a step's opt-in queue stage, a no-op without one) → on exit `ingress.down()`.
 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
@@ -89,7 +92,9 @@ Key files:
   doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
   `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
   `fetchTask`, `advance`, `listResting`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
-  optional `wizardSteps` (powers `init` live discovery).
+  optional `wizardSteps` (powers `init` live discovery), optional `listQueued(stepId)` (refs in the
+  step's queue stage, board order, filtered like `listResting` — not `store.listQueued`, which is
+  the local `queue.json`).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
@@ -116,7 +121,13 @@ Key files:
   **receiver-owned** worktree (create on `createsWorktree`, `drainWorktree` to remove), keyed by task
   ref so all steps share one — no globbing. **No implicit polling**: forward motion is event-driven,
   crash recovery reads local `running.json` only, and the only board poll is the explicit
-  `agenthook reconcile` command.
+  `agenthook reconcile` command — with **one narrow exception**: a step that sets a queue-stage key
+  (`queueSectionGid` Asana / `queueStatus` Jira·github-projects·local / `queueLabel` GitHub) opts in
+  to reading **that one stage**, only on `run_end` (when a slot is free) and once on boot. It is
+  never timer-driven, and `listResting` is still never called on boot. `src/pull.js` pulls the top
+  `maxConcurrent − active − queued − pending` items via `enterStage(…, {assign:false})` (the same
+  move `ah run` makes — the webhook then fires the step). Order: Asana section order, Jira
+  `Rank ASC`, GH Projects board position, GitHub labels **oldest-created first** (labels have no order).
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook

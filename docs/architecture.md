@@ -45,6 +45,33 @@ agenthook catchup <ref> --force   # re-run even if already handled
 So the accurate tagline isn't "loops bad". It's: **push for the 99% hot path; a targeted
 replay for the gaps.** Event-first, poll only to reconcile.
 
+### The one exception: an opt-in queue stage
+
+Nothing refills a freed `maxConcurrent` slot on its own, so a step may opt in to a **queue
+stage** — a backlog lane on the board — by setting one key: `queueSectionGid` (Asana),
+`queueStatus` (Jira, GitHub Projects, local), or `queueLabel` (GitHub). A step that sets a
+queue-stage key opts in to reading **that one stage**, only on `run_end` (when a slot is free)
+and once on boot. It is **never timer-driven**, and `listResting` is still never called on boot.
+Without a queue key nothing changes: `listQueued` is never called.
+
+A pull moves the top `maxConcurrent − active − queued − pending` items into the step with
+`enterStage(…, {assign:false})` — the same move `agenthook run` makes — so the live webhook fires
+the step as usual (no direct enqueue). `pending` holds pulled refs whose webhook hasn't landed
+yet (expired lazily after 10 min), and passes are single-flight, so concurrent settles can't
+double-pull. Only items assigned to us (fail-closed), still open, and — on GitHub — not blocked
+are pulled. Priority is board order:
+
+| tracker | queue order |
+|---|---|
+| Asana | section order (`GET /sections/<gid>/tasks`) |
+| Jira | `ORDER BY Rank ASC` |
+| GitHub Projects | board position (`items(orderBy:{field:POSITION})`) |
+| GitHub (labels) | **oldest-created first** — labels have no order, so this is the fallback |
+
+On GitHub a pulled issue gains the source label and then loses its `queueLabel` (add-then-remove,
+the same crash-safe order as `advance`). Each pull emits a `pulled` event, and `agenthook status`
+shows each queue's depth as of the last pass (`backlog : code 7 waiting (as of 3m ago)`).
+
 A step's source stage is its **inbox**, and these replay paths are exactly that — *replay*.
 `catchup`/`reconcile` re-fire the step a resting item already maps to; they never **move** an item
 into a stage, so they can't *start* backlog work. To start a new item you fill the inbox (assign +

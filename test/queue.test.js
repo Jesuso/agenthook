@@ -98,3 +98,21 @@ test("a merge job does not coalesce the same ref's pipeline job for its complete
   assert.equal(q.enqueue({ kind: "merge", ref: "T1", stepId: "done", dedupKey: "merged:2" }), false, "a second merge for the same ref coalesces");
   await q.onIdle();
 });
+
+test("onSettle fires after each job settles with its slot already released; not once closed", async () => {
+  /** @type {any[]} */
+  const seen = [];
+  /** @type {any} */
+  let q;
+  const run = (j) => new Promise((resolve) => setTimeout(() => resolve(info(j)), 2));
+  q = createQueue(1, run, undefined, { onSettle: () => seen.push(q.state()) });
+  q.enqueue(job("A"));
+  q.enqueue(job("B"));
+  await q.onIdle();
+  // After A settles B has already started from the wait list; after B nothing is left.
+  assert.deepEqual(seen, [{ active: 1, queued: 0 }, { active: 0, queued: 0 }]);
+  q.enqueue(job("C"));
+  q.close();
+  await q.onIdle();
+  assert.equal(seen.length, 2, "no settle callback while draining");
+});

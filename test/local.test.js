@@ -103,3 +103,12 @@ test("concurrent advances on the board do not lose updates", async () => {
   assert.equal(board.B.stage, "code");
   assert.equal(board.C.stage, "code");
 });
+
+test("listQueued returns tasks in the step's queueStatus, board order; [] without the key", async () => {
+  const cfg = makeCfg();
+  cfg.pipeline = pipeline.map((s) => (s.id === "code" ? { ...s, queueStatus: "backlog" } : s));
+  const a = adapter(cfg);
+  seedBoard(cfg, [{ ref: "Q1", name: "one" }, { ref: "Q2", name: "two" }], "backlog");
+  assert.deepEqual(await a.listQueued("code"), ["Q1", "Q2"]);
+  assert.deepEqual(await a.listQueued("review"), []);
+});

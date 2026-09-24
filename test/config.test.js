@@ -31,3 +31,13 @@ test("more than one completeOnMerge step is rejected", () => {
 test("a forge block without a type is rejected", () => {
   assert.throws(load([{ id: "code" }], { forge: { repository: "o/r" } }), /forge\.type/);
 });
+
+test("a queue key equal to the step's own source is rejected (self-loop)", () => {
+  assert.throws(load([{ id: "code", sourceSectionGid: "S1", queueSectionGid: "S1" }]), /queueSectionGid must differ from its own sourceSectionGid/);
+  assert.throws(load([{ id: "code", sourceStatus: "In Progress", queueStatus: "in progress " }]), /queueStatus must differ/);
+  assert.throws(load([{ id: "code", sourceLabel: "agent:code", queueLabel: "Agent:Code" }]), /queueLabel must differ/);
+});
+
+test("a queue key on a manual step is rejected", () => {
+  assert.throws(load([{ id: "done", manual: true, queueLabel: "queue:done" }]), /queueLabel is not allowed on a manual step/);
+});

@@ -9,6 +9,8 @@
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
+//   listQueued(stepId)                 -> [ref] in the step's opt-in queue section, board order
+//                                         (optional; only on run_end + once on boot, never a timer)
 //   complete(ref)                      -> mark the task completed (optional; forge merge)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
@@ -317,6 +319,24 @@ export function createAsanaAdapter(cfg, store) {
         }
       }
       return jobs;
+    },
+
+    // Queue-stage source (the one narrow boot/run_end board read — see engine pullQueued):
+    // tasks resting in the step's opt-in queueSectionGid, in the API's section order (the
+    // board's top-to-bottom priority), filtered like listResting. [] without the key.
+    /** @param {string} stepId */
+    async listQueued(stepId) {
+      const step = stepById(stepId);
+      if (!step?.queueSectionGid || step.manual) return [];
+      const res = await api(`/sections/${step.queueSectionGid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
+      if (!res.ok) throw new Error(`section ${step.queueSectionGid} tasks ${res.status}`);
+      /** @type {string[]} */
+      const refs = [];
+      for (const t of (await json(res)).data || []) {
+        if (t.completed || !isOurs(t.assignee?.gid)) continue;
+        refs.push(t.gid);
+      }
+      return refs;
     },
 
     async registerWebhook(publicUrl) {

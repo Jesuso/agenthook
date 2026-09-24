@@ -37,14 +37,17 @@
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
  * @property {string} [holdSectionGid]         Asana: move here on `hold` (waiting on a human); absent → leave in place
+ * @property {string} [queueSectionGid]        Asana: opt-in queue stage (backlog section) this step pulls from, in section order, when a slot frees
  * @property {string} [sourceStatus]           Jira: entering this status fires the step (status name)
  * @property {string} [successStatus]          Jira: transition here on a clean finish (advance)
  * @property {string} [failureStatus]          Jira: transition here on a failed/interrupted run
  * @property {string} [holdStatus]             Jira: transition here on `hold`; absent → leave in place
+ * @property {string} [queueStatus]            Jira / github-projects / local: opt-in queue stage (backlog status) this step pulls from, in board order, when a slot frees
  * @property {string} [sourceLabel]            GitHub: an issue carrying this label fires the step
  * @property {string} [successLabel]           GitHub: swap to this label on a clean finish (advance)
  * @property {string} [failureLabel]           GitHub: swap to this label on a failed/interrupted run
  * @property {string} [holdLabel]              GitHub: swap to this label on `hold`; absent → leave in place
+ * @property {string} [queueLabel]             GitHub: opt-in queue stage (backlog label) this step pulls from, oldest-created first, when a slot frees
  * @property {boolean} [closeIssue]            GitHub: entering this (terminal) step CLOSES the issue — auto-releasing the dependents it was blocking
  */
 
@@ -170,6 +173,7 @@
  * @property {(ref: string, stepId: string, opts?: {assign?: boolean}) => Promise<{stage: string}>} [enterStage]  optional; `agenthook run` uses it. Assign the item to us (unless opts.assign===false), then move it INTO the step's source stage (add source label / addTask to source section / transition to source status) — the live webhook then fires the step. Returns the source stage entered
  * @property {(ref: string) => Promise<string|null>} [currentStage]  optional; `agenthook run`'s guard uses it. The pipeline stage (label / section gid / status) the item currently rests in among ANY step's source/success/failure/hold stage, or null. Read-only — refuses re-injecting an item already mid-flow (one ref = one in-flight flow)
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
+ * @property {(stepId: string) => Promise<string[]>} [listQueued]  optional; refs resting in the step's opt-in QUEUE stage (queueSectionGid/queueStatus/queueLabel), board priority order (top first), filtered exactly like listResting (ours, fail-closed; open; GitHub: not blocked). [] when the step has no queue key. The engine calls it only when a slot frees (run_end) and once on boot — never on a timer. Not the same as store.listQueued (the local queue.json)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => Promise<void>} [complete]  optional; mark the item completed/closed on the tracker (Asana: completed:true). Used by a forge `merge` job; absent = no-op
