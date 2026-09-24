@@ -277,6 +277,9 @@
  * @property {(ref: string, info: RunningInfo) => void} setRunning
  * @property {(ref: string) => void} clearRunning
  * @property {() => Record<string, RunningInfo>} listRunning
+ * @property {(job: Job) => void} addQueued
+ * @property {(job: Job) => void} removeQueued
+ * @property {() => Job[]} listQueued
  * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
  * @property {(ref: string, stepId: string) => number} bumpAttempt  increment and return the new count
  * @property {(ref: string) => void} clearAttempts                  drop all attempt counters for ref (it left the loop)

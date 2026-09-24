@@ -109,7 +109,7 @@ Key files:
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
   path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
-  recovery), and `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap).
+  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), and `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap).
   **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
   disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers

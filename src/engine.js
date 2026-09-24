@@ -14,7 +14,7 @@ import fs from "node:fs";
 import { createStore, isStateDedupKey } from "./store.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
-import { createQueue } from "./queue.js";
+import { createQueue, planRestore } from "./queue.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { createEmitter } from "./events.js";
@@ -51,6 +51,7 @@ export function createEngine(cfg) {
   const runClaude = createDispatcher(cfg, adapter, children, store, emit);
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
+    { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job) },
   );
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
@@ -79,8 +80,9 @@ export function createEngine(cfg) {
     }
   }
 
-  // Crash recovery from LOCAL state only — never a board poll. A restart kills the
-  // in-memory queue and orphans any in-flight `claude -p`; running.json is the record
+  // Crash recovery from LOCAL state only — never a board poll. A restart orphans any
+  // in-flight `claude -p` (queued-but-unstarted jobs survive in queue.json, see
+  // restoreQueued); running.json is the record
   // of what was mid-step. We resolve each as a failed run (implement isn't idempotent,
   // so re-running blind is unsafe) → the adapter moves it to its failure lane for a
   // human. Catching tasks that *arrived* during downtime is the explicit `reconcile`
@@ -101,6 +103,23 @@ export function createEngine(cfg) {
       store.clearRunning(ref);
       store.clearAttempts(ref);
       store.unmarkSeen(`step:${stepId}:${ref}`);
+    }
+  }
+
+  // Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
+  // intake: their `seen` key is already marked. Must run AFTER recoverInterrupted so
+  // refs that were in running.json at boot (`runningRefs`, captured before recovery
+  // clears them) went to the failure lane and are dropped. Entries stay in queue.json
+  // (addQueued dedups) until they start. Local reads only.
+  /** @param {string[]} runningRefs */
+  function restoreQueued(runningRefs) {
+    const { keep, drop } = planRestore(store.listQueued(), runningRefs, (cfg.pipeline || []).map((s) => s.id));
+    for (const j of drop) store.removeQueued(j);
+    if (!keep.length) return;
+    console.log(`[restore] ${keep.length} queued job(s) re-enqueued`);
+    for (const j of keep) {
+      emit("enqueued", j.ref, j.stepId, { restored: true });
+      queue.enqueue(j);
     }
   }
 
@@ -255,7 +274,9 @@ export function createEngine(cfg) {
       await adapter.registerWebhook(url);
 
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
+      const runningRefs = Object.keys(store.listRunning());
       await recoverInterrupted();
+      restoreQueued(runningRefs);
     } catch (e) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).
