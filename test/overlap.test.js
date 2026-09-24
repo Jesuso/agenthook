@@ -106,7 +106,7 @@ function harness(o = {}) {
   const emit = (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ extra) => events.push({ event, ref, step, ...extra });
   const intake = (/** @type {any[]} */ jobs, /** @type {any} */ opts) => intaken.push({ jobs, opts });
   const release = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
-  const run = createDispatcher(cfg, adapter, undefined, store, emit, release);
+  const run = createDispatcher(cfg, adapter, undefined, store, emit, undefined, release);
   const promptOut = path.join(dir, "prompt.txt");
   const locksAtSpawn = path.join(dir, "locks-at-spawn.json");
   /** @param {string} ref */

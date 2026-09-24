@@ -10,6 +10,8 @@
 //              cfg.overlapGuard is on.
 //   - refmeta: per-ref display metadata ({displayId,title,pr}) for the CLIs. Never
 //     cleared — unlike running, status/events need it after the run ends.
+//   - cired:   red-CI bounces parked while a step runs on the ref (dispatch applies
+//              them when that run exits).
 //   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
 //              keyed by `${ref}:${stepId}`), so a crash/force-kill doesn't lose them.
 //
@@ -35,10 +37,12 @@ export function isStateDedupKey(key) {
 
 /**
  * queue.json identity: kind + ref + stepId (entries written before `merge` jobs have no
- * kind → pipeline).
+ * kind → pipeline); a `ci` job is one per run+attempt, so its dedupKey too.
  * @param {import('./types.js').Job} a @param {import('./types.js').Job} b
  */
-const sameQueued = (a, b) => (a.kind ?? "pipeline") === (b.kind ?? "pipeline") && a.ref === b.ref && a.stepId === b.stepId;
+const sameQueued = (a, b) =>
+  (a.kind ?? "pipeline") === (b.kind ?? "pipeline") && a.ref === b.ref && a.stepId === b.stepId &&
+  (a.kind !== "ci" || a.dedupKey === b.dedupKey);
 
 /**
  * @param {string} dataDir
@@ -58,6 +62,7 @@ export function createStore(dataDir) {
   const pathsFile = path.join(dataDir, "paths.json");
   const locksFile = path.join(dataDir, "locks.json");
   const overlapFile = path.join(dataDir, "overlap.json");
+  const ciRedFile = path.join(dataDir, "cired.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -261,6 +266,22 @@ export function createStore(dataDir) {
         delete m[ref];
         fs.writeFileSync(findingsFile, JSON.stringify(m));
       }
+    },
+
+    // --- per-ref parked red-CI bounce (cired.json): set by a `ci` job, taken on run exit ---
+    setCiRed: (ref, b) => {
+      const m = readJson(ciRedFile, {});
+      m[ref] = b;
+      fs.writeFileSync(ciRedFile, JSON.stringify(m));
+    },
+    takeCiRed: (ref) => {
+      const m = readJson(ciRedFile, {});
+      const b = m[ref];
+      if (b) {
+        delete m[ref];
+        fs.writeFileSync(ciRedFile, JSON.stringify(m));
+      }
+      return b;
     },
 
     // --- per-run token/cost records (usage.jsonl): append-only, one JSON per line ---

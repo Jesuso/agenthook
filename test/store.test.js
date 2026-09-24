@@ -201,3 +201,26 @@ test("overlap guard: clearing an absent ref writes no file", () => {
   s.clearOverlap("X");
   for (const f of ["paths.json", "locks.json", "overlap.json"]) assert.equal(fs.existsSync(path.join(dir, f)), false);
 });
+
+test("ciRed: set parks one bounce per ref (latest wins); take reads and clears it", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.takeCiRed("7"), undefined);
+  s.setCiRed("7", { target: "code", text: "a" });
+  s.setCiRed("7", { target: "code", text: "b" });
+  s.setCiRed("8", { target: "code", text: "c" });
+  assert.deepEqual(createStore(dir).takeCiRed("7"), { target: "code", text: "b" }, "persisted");
+  assert.equal(s.takeCiRed("7"), undefined, "taken once");
+  assert.deepEqual(s.takeCiRed("8"), { target: "code", text: "c" });
+});
+
+test("queue.json keeps two ci jobs for one ref apart (keyed by dedupKey)", () => {
+  const s = createStore(tmpDir());
+  const ci = (/** @type {string} */ k) => ({ kind: /** @type {const} */ ("ci"), ref: "7", stepId: "", dedupKey: k });
+  s.addQueued(ci("ci:1:1"));
+  s.addQueued(ci("ci:2:1"));
+  s.addQueued(ci("ci:1:1"));
+  assert.deepEqual(s.listQueued().map((j) => j.dedupKey), ["ci:1:1", "ci:2:1"]);
+  s.removeQueued(ci("ci:1:1"));
+  assert.deepEqual(s.listQueued().map((j) => j.dedupKey), ["ci:2:1"]);
+});

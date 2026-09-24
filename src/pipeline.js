@@ -27,6 +27,19 @@ export function prevStep(cfg, stepId) {
   return i > 0 ? cfg.pipeline[i - 1] : null;
 }
 
+/** The step whose SOURCE stage is `stage` (what adapter.currentStage returns: a label,
+ * section gid or status), or null. Labels match case-insensitively, like the trackers.
+ * @param {import('./types.js').Config} cfg @param {string|null|undefined} stage */
+export function stepForStage(cfg, stage) {
+  if (!cfg.pipeline || !stage) return null;
+  const want = String(stage).toLowerCase();
+  return (
+    cfg.pipeline.find(
+      (s) => s.sourceLabel?.toLowerCase() === want || s.sourceSectionGid === stage || s.sourceStatus === stage,
+    ) || null
+  );
+}
+
 /** @param {import('./types.js').Config} cfg */
 export function isPipeline(cfg) {
   return Array.isArray(cfg.pipeline) && cfg.pipeline.length > 0;

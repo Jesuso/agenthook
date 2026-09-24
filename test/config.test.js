@@ -32,6 +32,15 @@ test("a forge block without a type is rejected", () => {
   assert.throws(load([{ id: "code" }], { forge: { repository: "o/r" } }), /forge\.type/);
 });
 
+test("forge.ciTarget naming an unknown step is rejected", () => {
+  assert.throws(load([{ id: "code" }], { forge: { type: "github", ciTarget: "nope" } }), /ciTarget "nope" is not a pipeline step/);
+});
+
+test("forge.ciTarget naming a manual step is rejected", () => {
+  const pl = [{ id: "code" }, { id: "done", manual: true }];
+  assert.throws(load(pl, { forge: { type: "github", ciTarget: "done" } }), /ciTarget "done" is a manual step/);
+});
+
 test("a queue key equal to the step's own source is rejected (self-loop)", () => {
   assert.throws(load([{ id: "code", sourceSectionGid: "S1", queueSectionGid: "S1" }]), /queueSectionGid must differ from its own sourceSectionGid/);
   assert.throws(load([{ id: "code", sourceStatus: "In Progress", queueStatus: "in progress " }]), /queueStatus must differ/);

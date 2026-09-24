@@ -117,7 +117,7 @@ export function createEngine(cfg) {
   const children = new Set();
   // overlapGuard only: undefined when off, so nothing downstream touches the overlap files.
   const releaseOverlap = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
-  const runClaude = createDispatcher(cfg, adapter, children, store, emit, releaseOverlap);
+  const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap);
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
     { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
