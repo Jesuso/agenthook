@@ -157,6 +157,7 @@
  * @property {boolean} completed
  * @property {boolean} assignedToUs
  * @property {string} [displayId]  the human-facing id operators use (Asana "ID-2738", GitHub "#94", Jira "CAHUI-7"); undefined when the tracker has none
+ * @property {string[]} [routeKeys]  raw, opaque route keys the engine maps to a repo via cfg.repos[].match (src/repos.js); absent/[] = unrouted (→ the default repo)
  */
 
 /**
@@ -247,6 +248,7 @@
  * @property {string} [assigneeLogin]      GitHub / github-projects: the bot's login — scope work to its issues (else derived from /user or GraphQL viewer)
  * @property {string} [project]            github-projects: the Projects v2 board as "owner/number" or its URL, whose Status field drives the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
+ * @property {string} [routeField]  name of the tracker field whose value(s) become Task.routeKeys (multi-repo routing; read by the adapter)
  */
 
 /**
@@ -341,7 +343,9 @@
  * @property {number} maxConcurrent
  * @property {boolean} [overlapGuard]  opt-in (default false); hold a createsWorktree step while its predicted paths overlap another in-flight ref's lock
  * @property {boolean} [fullAuto]   opt-in; adds --dangerously-skip-permissions (unsandboxed code exec from a webhook). Default false = agents prompt for permission.
- * @property {string} repoPath
+ * @property {string} repoPath     the default repo's path (else the first declared) — ops readers use it; dispatch goes through `repos`
+ * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath
+ * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]
  * @property {string} dataDir
@@ -350,6 +354,18 @@
  * @property {string} publicUrlFile
  * @property {string} pidFile
  * @property {string} heartbeatFile
+ */
+
+/**
+ * One checkout agents can work in (`repos[]` in agenthook.config.json). A task's
+ * Task.routeKeys select it via `match` (src/repos.js).
+ * @typedef {object} RepoConfig
+ * @property {string} id                 stable id ([A-Za-z0-9._-]+); keys the worktree subdir + the sticky store
+ * @property {string} path               absolute checkout root
+ * @property {string[]} match            route keys selecting this repo (trimmed + lowercased at load)
+ * @property {boolean} [default]         the repo an unrouted task (no route key) resolves to; at most one
+ * @property {string} [instructionsFile] absolute; repo context prepended to the step's standing instructions
+ * @property {string} [worktreePrefix]   per-repo override of the global worktreePrefix (resolved against `path`)
  */
 
 /**
@@ -376,6 +392,9 @@
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
  * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
+ * @property {(ref: string) => string|undefined} getRepo          the repo id ref is stuck to (multi-repo sticky routing; undefined = not routed yet)
+ * @property {(ref: string, repoId: string) => void} setRepo        persist ref's routed repo id
+ * @property {(ref: string) => void} clearRepo                      drop ref's sticky repo (terminal state)
  * @property {(ref: string) => HeldInfo|undefined} getHeld          the step ref is parked on by a `hold` verdict (undefined = not held)
  * @property {(ref: string, info: HeldInfo) => void} setHeld        record a `hold` verdict for ref
  * @property {(ref: string) => void} clearHeld                      drop the held record for ref (resumed / re-entered / terminal)

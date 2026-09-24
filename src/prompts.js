@@ -79,7 +79,8 @@ function pathsLines(overlapGuard, hasWorktree) {
  * @param {import('./types.js').Task} task
  * @param {import('./types.js').AdapterMeta} meta
  * @param {import('./types.js').Step} step
- * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string, overlapGuard?: boolean }} ctx
+ * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string, overlapGuard?: boolean, repo?: { id: string, path: string } }} ctx
+ *   `repo` is passed only for multi-repo profiles — it names the routed checkout so the agent can report a mis-route
  */
 export function stepPrompt(task, meta, step, ctx) {
   const N = meta.taskNoun;
@@ -91,6 +92,7 @@ export function stepPrompt(task, meta, step, ctx) {
     `URL: ${task.url}`,
     `Ref: ${task.ref}`,
   ];
+  if (ctx.repo) head.push(`Repo: ${ctx.repo.id} (${ctx.repo.path})`);
   if (ctx.worktree) head.push(`Worktree: ${ctx.worktree} (you are already in it; branch "${ctx.branch}")`);
   const resume = resumeSection(ctx.resumeComment, meta);
   const paths = pathsLines(ctx.overlapGuard, !!ctx.worktree);

@@ -102,6 +102,20 @@ test("held record set/get/clear per ref and persists to held.json", () => {
   assert.equal(s.getHeld("T2")?.stepId, "code", "clearing one ref leaves the others");
 });
 
+test("sticky repo set/get/clear per ref and persists to repo.json", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.getRepo("T1"), undefined);
+  s.setRepo("T1", "ios");
+  s.setRepo("T2", "mono");
+  assert.equal(s.getRepo("T1"), "ios");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "repo.json"), "utf8")).T1, "ios", "written to repo.json");
+  assert.equal(createStore(dir).getRepo("T1"), "ios", "a fresh store reads it back");
+  s.clearRepo("T1");
+  assert.equal(s.getRepo("T1"), undefined);
+  assert.equal(s.getRepo("T2"), "mono", "clearing one ref leaves the others");
+});
+
 test("refmeta set shallow-merges, lists, and persists across instances", () => {
   const dir = tmpDir();
   const s = createStore(dir);

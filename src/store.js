@@ -4,6 +4,8 @@
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
 //   - held:    refs parked by a `hold` verdict (ref -> {stepId,reason?,heldAt}), so an
 //              owner's `@agent` reply comment knows which step to resume.
+//   - repo:    per-ref sticky repo id (multi-repo routing), so a ref keeps the checkout
+//              its first step routed to even if its route keys change mid-flow.
 //   - paths / locks / overlap: the opt-in file-overlap guard (src/overlap.js) — predicted
 //              paths per ref, in-flight locks (ref -> {paths,stepId}), and refs waiting on
 //              another ref's lock (ref -> {stepId,blockedBy,heldAt}). Only written when
@@ -55,6 +57,7 @@ export function createStore(dataDir) {
   const queueFile = path.join(dataDir, "queue.json");
   const attemptsFile = path.join(dataDir, "attempts.json");
   const difficultyFile = path.join(dataDir, "difficulty.json");
+  const repoFile = path.join(dataDir, "repo.json");
   const heldFile = path.join(dataDir, "held.json");
   const findingsFile = path.join(dataDir, "findings.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
@@ -171,6 +174,25 @@ export function createStore(dataDir) {
       if (ref in m) {
         delete m[ref];
         fs.writeFileSync(difficultyFile, JSON.stringify(m));
+      }
+    },
+
+    // --- per-ref sticky repo id (repo.json): written when a multi-repo ref first routes ---
+    // Keyed by ref; cleared alongside difficulty when the task reaches a terminal state.
+    getRepo: (ref) => {
+      const m = readJson(repoFile, {});
+      return m[ref];
+    },
+    setRepo: (ref, repoId) => {
+      const m = readJson(repoFile, {});
+      m[ref] = repoId;
+      fs.writeFileSync(repoFile, JSON.stringify(m));
+    },
+    clearRepo: (ref) => {
+      const m = readJson(repoFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(repoFile, JSON.stringify(m));
       }
     },
 

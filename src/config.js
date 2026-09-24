@@ -80,6 +80,72 @@ function interpolate(node, missing, pathLabel = "") {
 }
 
 /**
+ * Resolve `repos` (multi-repo routing, src/repos.js) in place. No block → one synthesized
+ * `default` repo at repoPath (single-repo, unchanged). A declared block is validated up
+ * front — ids, paths and route keys must be unique, at most one default — and repoPath
+ * becomes the default repo's path (else the first repo's, for the ops readers only).
+ * @param {any} cfg @param {string} configDir
+ */
+function resolveRepos(cfg, configDir) {
+  if (cfg.repos == null) {
+    cfg.repos = [{ id: "default", path: cfg.repoPath, match: [], default: true }];
+    cfg.multiRepo = false;
+    return;
+  }
+  if (!Array.isArray(cfg.repos) || !cfg.repos.length) throw new Error(`config: "repos" must be a non-empty array.`);
+  const ids = new Set();
+  const paths = new Map();
+  /** @type {Map<string, string>} route key → repo id */
+  const keys = new Map();
+  cfg.repos = cfg.repos.map((/** @type {any} */ r, /** @type {number} */ i) => {
+    if (!r || typeof r !== "object") throw new Error(`config: repos[${i}] must be an object.`);
+    if (typeof r.id !== "string" || !/^[A-Za-z0-9._-]+$/.test(r.id)) {
+      throw new Error(`config: repos[${i}].id is required and must match [A-Za-z0-9._-]+ (got ${JSON.stringify(r.id)}).`);
+    }
+    if (ids.has(r.id)) throw new Error(`config: duplicate repos id "${r.id}".`);
+    ids.add(r.id);
+    if (typeof r.path !== "string" || !r.path) throw new Error(`config: repos "${r.id}" requires a "path".`);
+    const p = path.resolve(resolvePath(r.path, configDir));
+    if (paths.has(p)) throw new Error(`config: repos "${r.id}" and "${paths.get(p)}" share the path ${p}.`);
+    paths.set(p, r.id);
+    if (r.match != null && !Array.isArray(r.match)) throw new Error(`config: repos "${r.id}".match must be an array of strings.`);
+    /** @type {string[]} */
+    const match = [];
+    for (const m of r.match ?? []) {
+      if (typeof m !== "string" || !m.trim()) throw new Error(`config: repos "${r.id}".match entries must be non-empty strings (got ${JSON.stringify(m)}).`);
+      const k = m.trim().toLowerCase();
+      if (keys.has(k) && keys.get(k) !== r.id) throw new Error(`config: route key "${k}" is claimed by both repos "${keys.get(k)}" and "${r.id}".`);
+      keys.set(k, r.id);
+      if (!match.includes(k)) match.push(k);
+    }
+    if (r.default != null && typeof r.default !== "boolean") throw new Error(`config: repos "${r.id}".default must be a boolean.`);
+    if (r.instructionsFile != null && typeof r.instructionsFile !== "string") throw new Error(`config: repos "${r.id}".instructionsFile must be a string.`);
+    if (r.worktreePrefix != null && typeof r.worktreePrefix !== "string") throw new Error(`config: repos "${r.id}".worktreePrefix must be a string.`);
+    return {
+      id: r.id,
+      path: p,
+      match,
+      ...(r.default ? { default: true } : {}),
+      ...(r.instructionsFile ? { instructionsFile: resolvePath(r.instructionsFile, configDir) } : {}),
+      ...(r.worktreePrefix ? { worktreePrefix: r.worktreePrefix } : {}),
+    };
+  });
+  const defaults = cfg.repos.filter((/** @type {any} */ r) => r.default);
+  if (defaults.length > 1) throw new Error(`config: at most one repo may set default:true (found ${defaults.map((/** @type {any} */ r) => r.id).join(", ")}).`);
+  // A legacy repoPath alongside `repos` names the default when none is marked.
+  if (cfg.repoPath && !defaults.length) {
+    const hit = cfg.repos.find((/** @type {any} */ r) => r.path === path.resolve(cfg.repoPath));
+    if (!hit) {
+      throw new Error(`config: repoPath ${cfg.repoPath} is not one of the declared repos — mark one repo default:true, or point repoPath at a declared repo's path.`);
+    }
+    hit.default = true;
+    defaults.push(hit);
+  }
+  cfg.repoPath = (defaults[0] ?? cfg.repos[0]).path;
+  cfg.multiRepo = true;
+}
+
+/**
  * @param {{ configPath?: string }} [opts]
  * @returns {import('./types.js').Config}
  */
@@ -115,13 +181,16 @@ export function loadConfig(opts = {}) {
     throw new Error(`config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`);
   }
   if (!cfg.tracker?.type) throw new Error(`config: "tracker.type" is required (e.g. "asana").`);
-  if (!cfg.repoPath) throw new Error(`config: "repoPath" is required (the repo agents work in).`);
+  if (!cfg.repoPath && cfg.repos == null) {
+    throw new Error(`config: "repoPath" is required (the repo agents work in), unless a "repos" block declares them.`);
+  }
 
   // --- the four locations, kept distinct ---
   cfg.installDir = installDir;
   cfg.configPath = configPath;
   cfg.configDir = configDir;
-  cfg.repoPath = resolvePath(cfg.repoPath, configDir);
+  if (cfg.repoPath) cfg.repoPath = resolvePath(cfg.repoPath, configDir);
+  resolveRepos(cfg, configDir);
 
   const stateDir = path.join(registryDir, cfg.name);
   cfg.stateDir = stateDir;
