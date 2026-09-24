@@ -250,3 +250,53 @@ test("fetchTask leaves displayId undefined when the field is absent", async () =
   assert.equal((await fetchWith([{ name: "Priority", display_value: "High" }])).task.displayId, undefined);
   assert.equal((await fetchWith(/** @type {any} */ (undefined))).task.displayId, undefined);
 });
+
+// --- complete (forge merge) ---
+
+test("complete PUTs completed:true on the task", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  let body;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    if (init.body) body = JSON.parse(String(init.body));
+    return ok({ data: {} });
+  };
+  try {
+    await routed().complete?.("G1");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(calls, ["PUT https://app.asana.com/api/1.0/tasks/G1"]);
+  assert.deepEqual(body, { data: { completed: true } });
+});
+
+test("complete throws on a non-2xx", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
+  try {
+    await assert.rejects(() => /** @type {any} */ (routed()).complete("G1"), /complete 403/);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("complete refuses (no PUT) a task not assigned to us — fail-closed", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    return ok({ data: { assignee: { gid: "SOMEONE_ELSE" } } });
+  };
+  try {
+    await routed({ assigneeFilter: true, userGid: "ME" }).complete?.("G1");
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(!calls.some((c) => c.startsWith("PUT")), `unexpected write: ${calls.join("\n")}`);
+});

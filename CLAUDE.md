@@ -53,8 +53,9 @@ lint config.
 
 ## Architecture
 
-The whole point is the **blind engine + swappable adapters** split, now on **two axes**: the
-engine names neither the *tracker* (where work comes from) nor the *ingress* (how it's reachable).
+The whole point is the **blind engine + swappable adapters** split, now on **two axes** plus an
+optional third: the engine names neither the *tracker* (where work comes from) nor the *ingress*
+(how it's reachable), nor the optional *forge* (what happened to the code — e.g. a PR merged).
 Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for the full design.
 
 Request flow (`src/engine.js`):
@@ -69,8 +70,9 @@ source = the rework loop).
 Boot flow (`engine.serve()`, server owns the ingress lifecycle):
 `ingress.up(port)` → if `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub
 dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat →
-`recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
-→ on exit `ingress.down()`.
+`forge?` (ephemeral → `forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort,
+never aborts boot) → `recoverInterrupted()` (resolve `running.json` survivors as failures — **local
+only, no board poll**) → on exit `ingress.down()`.
 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
@@ -91,12 +93,22 @@ Key files:
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
+- `src/forges/*.js` + `index.js` — optional forge adapters (`github`). Registry `FORGES` keyed by
+  `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
+  `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The
+  engine routes POST `/forge[/]` to the forge (else the tracker). `github` turns a merged PR on an
+  `agent/<ref>` branch into a `{kind:'merge', ref, stepId:<completeOnMerge step|"">, dedupKey:'merged:<n>'}`
+  job; its hook path is `/forge` (**not** `/github`, which the github tracker's scrub deletes) and it
+  always verifies `x-hub-signature-256` via the shared `src/hmac.js` `verifyHubSignature`.
 - `src/dispatch.js` — builds the prompt (the step's standing instructions + `stepPrompt` base joined
   by the `=== TICKET ===` marker), injects `AGENTHOOK_VERDICT_FILE`, spawns `claude -p` (the
   receiver-owned worktree as `cwd` when the step has one), streams to a per-run log, then reads the
   verdict file and resolves the section via `adapter.advance` on exit. **Verdict**: non-zero exit →
   `fail`; clean exit + valid file → its outcome; clean exit + no file → `advance`. `changes` is
-  capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop.
+  capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A `merge` job
+  spawns no agent: fail-closed assignee check → `adapter.enterStage` into the `completeOnMerge`
+  (manual) step (its own webhook then drains + emits `pipeline_done`) → optional `adapter.complete`
+  (Asana: `completed:true`) → emit `merged`.
 - `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
   entering a step's `sourceSectionGid` fires that step; a clean exit advances to `successSectionGid`
   (= next step's source, so the move re-triggers the next step) unless the agent's verdict says
@@ -123,7 +135,7 @@ Key files:
   also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
   to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 
-The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline', ref, stepId, dedupKey }`.
+The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId, dedupKey }`.
 Adapters produce jobs; the engine only ever sees jobs. The execution model is the pipeline: a task
 moving between board sections drives it; there is no assignment/comment path.
 

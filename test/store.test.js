@@ -126,6 +126,22 @@ test("queue.json round-trips in insertion order and dedups by ref:stepId", () =>
   assert.deepEqual(s.listQueued().map((x) => `${x.ref}:${x.stepId}`), ["A:code", "A:review"]);
 });
 
+test("queue.json dedup includes kind: a merge job and its ref's pipeline job coexist", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  const pipe = { kind: "pipeline", ref: "A", stepId: "done", dedupKey: "step:done:A" };
+  const merge = { kind: "merge", ref: "A", stepId: "done", dedupKey: "merged:5" };
+  s.addQueued(merge);
+  s.addQueued(pipe);
+  s.addQueued({ ...merge, dedupKey: "merged:6" });
+  assert.deepEqual(s.listQueued().map((x) => x.kind), ["merge", "pipeline"]);
+  s.removeQueued(pipe);
+  assert.deepEqual(s.listQueued().map((x) => x.kind), ["merge"]);
+  s.addQueued(pipe);
+  s.removeQueued(merge);
+  assert.deepEqual(s.listQueued().map((x) => x.kind), ["pipeline"]);
+});
+
 test("isStateDedupKey: only step: keys are state-based", async () => {
   const { isStateDedupKey } = await import("../src/store.js");
   assert.equal(isStateDedupKey("step:code:88"), true);

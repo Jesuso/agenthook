@@ -1,10 +1,11 @@
 // `agenthook stop` — signal the running receiver to shut down (its handler tears
 // down the ingress tunnel and clears pid/heartbeat). Also deletes the tracker
-// webhooks unless --keep-hooks is given.
+// webhooks (and the forge's, when one is configured) unless --keep-hooks is given.
 import fs from "node:fs";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
+import { createForge } from "../forges/index.js";
 import { readProfile } from "../heartbeat.js";
 
 /** @param {any} args */
@@ -25,11 +26,17 @@ export async function stop(args) {
   }
 
   if (!args["keep-hooks"]) {
+    const store = createStore(cfg.dataDir);
     try {
-      const adapter = createAdapter(cfg, createStore(cfg.dataDir));
+      const adapter = createAdapter(cfg, store);
       await adapter.unregisterWebhooks();
     } catch (e) {
       console.error("[unregister] failed:", e.message);
+    }
+    try {
+      await createForge(cfg, store)?.unregisterWebhooks();
+    } catch (e) {
+      console.error("[unregister] forge failed:", e.message);
     }
   }
 }

@@ -11,7 +11,7 @@ import path from "node:path";
  *
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
- *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed
+ *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged
  *   ref   — task ref (provider-native id)
  *   step  — pipeline step id
  *

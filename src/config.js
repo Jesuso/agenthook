@@ -170,6 +170,14 @@ export function loadConfig(opts = {}) {
         throw new Error(`config: pipeline step "${step.id}" lite.descriptionHeadings must be a non-empty array of strings.`);
       }
     }
+    if (step.completeOnMerge && !step.manual) {
+      throw new Error(`config: pipeline step "${step.id}" completeOnMerge requires manual:true (no agent runs on a merge).`);
+    }
+  }
+
+  const onMerge = cfg.pipeline.filter((/** @type {import('./types.js').Step} */ s) => s.completeOnMerge);
+  if (onMerge.length > 1) {
+    throw new Error(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => s.id).join(", ")}).`);
   }
 
   if (cfg.sinks != null) {
@@ -188,6 +196,9 @@ export function loadConfig(opts = {}) {
       }
     });
   }
+
+  // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
+  if (cfg.forge && !cfg.forge.type) throw new Error(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   fs.mkdirSync(cfg.logDir, { recursive: true });
