@@ -223,6 +223,16 @@
  * @typedef {(cfg: Config) => Ingress} IngressFactory */
 
 /**
+ * An event sink (`sinks[]` in agenthook.config.json): forwards lifecycle events to a chat/webhook.
+ * @typedef {object} SinkConfig
+ * @property {"slack"|"telegram"|"webhook"} type
+ * @property {string} [url]        slack incoming-webhook / generic webhook URL
+ * @property {string} [botToken]   telegram bot token
+ * @property {string|number} [chatId]  telegram chat id
+ * @property {string[]} [events]   events to forward (default blocked, failed, pipeline_done)
+ */
+
+/**
  * Resolved runtime config. All paths are absolute. See config.js for the four
  * distinct location fields (install/config/state/repo).
  * @typedef {object} Config
@@ -236,6 +246,7 @@
  * @property {ProviderConfig} providerConfig  alias of tracker, for adapter back-compat
  * @property {Step[]|null} pipeline  resolved tracker.pipeline (null when not configured)
  * @property {IngressConfig} ingress
+ * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
