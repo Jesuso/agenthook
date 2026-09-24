@@ -65,3 +65,20 @@ test("stepPrompt names the routed repo only when ctx.repo is set (multi-repo)", 
     assert.equal(routed.replace("Repo: ios (/w/ios)\n", ""), plain, "the Repo line is the only difference");
   }
 });
+
+test("verdict schema mentions `paths` only when overlapGuard is on", () => {
+  for (const kind of ["triage", "implement", "review"]) {
+    assert.doesNotMatch(stepPrompt(task, meta, step(kind), ctx), /"paths"/, `${kind}: off by default`);
+    assert.doesNotMatch(stepPrompt(task, meta, step(kind), { ...ctx, overlapGuard: false }), /"paths"/);
+  }
+  const on = { ...ctx, overlapGuard: true };
+  // no worktree (triage) → a prediction; a worktree step → what it touched
+  const triage = stepPrompt(task, meta, step("triage"), { ...on, worktree: undefined });
+  assert.match(triage, /"paths": \["<repo-relative file>", "<dir\/>"\]/);
+  assert.match(triage, /PREDICT/);
+  for (const kind of ["implement", "review"]) {
+    const p = stepPrompt(task, meta, step(kind), on);
+    assert.match(p, /"paths": \[/);
+    assert.match(p, /TOUCHED/);
+  }
+});

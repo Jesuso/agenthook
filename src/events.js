@@ -12,6 +12,7 @@ import path from "node:path";
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
  *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red
+ *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *   ref   — task ref (provider-native id)
  *   step  — pipeline step id
  *

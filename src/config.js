@@ -208,6 +208,10 @@ export function loadConfig(opts = {}) {
   cfg.maxConcurrent = cfg.maxConcurrent || 1;
   cfg.port = cfg.port || 4123;
   cfg.claudeBin = cfg.claudeBin || "claude";
+  if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {
+    throw new Error(`config: "overlapGuard" must be true or false.`);
+  }
+  cfg.overlapGuard = cfg.overlapGuard === true;
   cfg.ingress = cfg.ingress || { type: "manual" };
   if (!cfg.ingress.type) cfg.ingress.type = "manual";
 

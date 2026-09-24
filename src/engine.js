@@ -44,6 +44,67 @@ export function releaseOnSettle(run, store) {
   };
 }
 
+/**
+ * The overlapGuard release (see src/overlap.js): `blocker` left the pipeline, so clear
+ * its lock and re-intake every ref waiting on it. The dedup key is `overlap:<blocker>:<ref>`;
+ * intake is forced because the overlap.json entry — cleared just before — is the one-shot
+ * guard (the same pair can wait again after a later lock). A released job re-runs the gate
+ * and may be re-held behind a different lock.
+ * @param {import('./types.js').Store} store
+ * @param {(jobs: import('./types.js').Job[], opts?: {force?: boolean}) => void} intake
+ * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]
+ * @returns {(blocker: string) => void}
+ */
+export function createOverlapReleaser(store, intake, emit) {
+  return (blocker) => {
+    store.clearLock(blocker);
+    const waiting = store.listOverlap();
+    for (const ref of Object.keys(waiting)) {
+      const { stepId, blockedBy } = waiting[ref];
+      if (blockedBy !== blocker) continue;
+      store.clearOverlap(ref);
+      console.log(`[overlap] ${blocker} released — re-offering ${ref} to step ${stepId}`);
+      emit?.("overlap_released", ref, stepId, { blockedBy: blocker });
+      intake([{ kind: "pipeline", ref, stepId, dedupKey: `overlap:${blocker}:${ref}` }], { force: true });
+    }
+  };
+}
+
+/**
+ * Crash recovery from LOCAL state only — never a board poll. A restart orphans any
+ * in-flight `claude -p` (queued-but-unstarted jobs survive in queue.json, see
+ * restoreQueued); running.json is the record of what was mid-step. We resolve each as
+ * a failed run (implement isn't idempotent, so re-running blind is unsafe) → the
+ * adapter moves it to its failure lane for a human. Catching tasks that *arrived*
+ * during downtime is the explicit `reconcile` command's job, not boot's.
+ * @param {import('./types.js').Store} store
+ * @param {import('./types.js').Adapter} adapter
+ * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} emit
+ * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: a fail frees the ref's lock
+ */
+export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
+  const running = store.listRunning();
+  const refs = Object.keys(running);
+  if (!refs.length) return;
+  console.log(`[recover] ${refs.length} step(s) interrupted by restart — moving to failure lane`);
+  for (const ref of refs) {
+    const { stepId } = running[ref];
+    emit("failed", ref, stepId, { reason: "interrupted by restart" });
+    try {
+      await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
+    } catch (e) {
+      console.error(`[recover] advance ${ref} (${stepId}) failed:`, e.message);
+    }
+    store.clearRunning(ref);
+    store.clearAttempts(ref);
+    store.unmarkSeen(`step:${stepId}:${ref}`);
+    if (releaseOverlap) {
+      store.clearPredictedPaths(ref);
+      releaseOverlap(ref);
+    }
+  }
+}
+
 /** @param {import('./types.js').Config} cfg */
 export function createEngine(cfg) {
   const store = createStore(cfg.dataDir);
@@ -54,7 +115,9 @@ export function createEngine(cfg) {
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
-  const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge);
+  // overlapGuard only: undefined when off, so nothing downstream touches the overlap files.
+  const releaseOverlap = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
+  const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap);
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
     { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
@@ -84,32 +147,6 @@ export function createEngine(cfg) {
       emit("enqueued", job.ref, job.stepId);
       // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
       if (!queue.enqueue(job) && isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
-    }
-  }
-
-  // Crash recovery from LOCAL state only — never a board poll. A restart orphans any
-  // in-flight `claude -p` (queued-but-unstarted jobs survive in queue.json, see
-  // restoreQueued); running.json is the record
-  // of what was mid-step. We resolve each as a failed run (implement isn't idempotent,
-  // so re-running blind is unsafe) → the adapter moves it to its failure lane for a
-  // human. Catching tasks that *arrived* during downtime is the explicit `reconcile`
-  // command's job, not boot's.
-  async function recoverInterrupted() {
-    const running = store.listRunning();
-    const refs = Object.keys(running);
-    if (!refs.length) return;
-    console.log(`[recover] ${refs.length} step(s) interrupted by restart — moving to failure lane`);
-    for (const ref of refs) {
-      const { stepId } = running[ref];
-      emit("failed", ref, stepId, { reason: "interrupted by restart" });
-      try {
-        await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
-      } catch (e) {
-        console.error(`[recover] advance ${ref} (${stepId}) failed:`, e.message);
-      }
-      store.clearRunning(ref);
-      store.clearAttempts(ref);
-      store.unmarkSeen(`step:${stepId}:${ref}`);
     }
   }
 
@@ -265,6 +302,16 @@ export function createEngine(cfg) {
       );
     }
 
+    if (cfg.overlapGuard && !(cfg.pipeline || []).some((s) => s.drainWorktree) && !forge) {
+      // Locks release on a drain, a fail, or a forge merge. Without a drain step or a
+      // forge, a ref that finishes cleanly keeps its lock and its waiters wait forever.
+      console.error(
+        "\n  ⚠  overlapGuard is ON but no step has drainWorktree and no forge is configured —\n" +
+          "     file-overlap locks never release on success (only on fail). Add a drain step\n" +
+          "     or a forge block, or turn overlapGuard off.\n",
+      );
+    }
+
     let ingressUp = false;
     try {
       const { url } = await ingress.up(cfg.port);
@@ -316,7 +363,7 @@ export function createEngine(cfg) {
 
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
       const runningRefs = Object.keys(store.listRunning());
-      await recoverInterrupted();
+      await recoverInterrupted(store, adapter, emit, releaseOverlap);
       restoreQueued(runningRefs);
       // Queue-stage pull into any free slots (opt-in; no-op without a queue key).
       await puller.pull();

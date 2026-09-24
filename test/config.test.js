@@ -133,3 +133,7 @@ test("invalid repos blocks are rejected at load", () => {
   assert.throws(bad([{ id: "a", path: "./a", match: [7] }]), /match entries must be non-empty strings/);
   assert.throws(bad([{ id: "a", path: "./a", match: "ios" }]), /match must be an array/);
 });
+
+test("a non-boolean overlapGuard is rejected", () => {
+  assert.throws(load([{ id: "code" }], { overlapGuard: "yes" }), /"overlapGuard" must be true or false/);
+});
