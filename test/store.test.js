@@ -99,3 +99,37 @@ test("refmeta set shallow-merges, lists, and persists across instances", () => {
   assert.deepEqual(Object.keys(createStore(dir).listRefMeta()).sort(), ["123", "456"]);
   assert.equal(createStore(dir).getRefMeta("123")?.pr, 42);
 });
+
+test("findings set/get/clear round-trip and persist across instances", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.getFindings("7"), undefined);
+  s.setFindings("7", { target: "code", fromStep: "review", text: "fix A" });
+  s.setFindings("7", { target: "code", fromStep: "review", text: "fix B" });
+  assert.equal(createStore(dir).getFindings("7").text, "fix B");
+  s.clearFindings("7");
+  assert.equal(createStore(dir).getFindings("7"), undefined);
+});
+
+test("queue.json round-trips in insertion order and dedups by ref:stepId", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  const j = (ref, stepId) => ({ kind: "pipeline", ref, stepId, dedupKey: `${ref}:${stepId}` });
+  assert.deepEqual(s.listQueued(), []);
+  s.addQueued(j("A", "code"));
+  s.addQueued(j("B", "code"));
+  s.addQueued(j("A", "code"));
+  s.addQueued(j("A", "review"));
+  assert.deepEqual(createStore(dir).listQueued().map((x) => `${x.ref}:${x.stepId}`), ["A:code", "B:code", "A:review"]);
+  s.removeQueued(j("B", "code"));
+  s.removeQueued(j("Z", "code"));
+  assert.deepEqual(s.listQueued().map((x) => `${x.ref}:${x.stepId}`), ["A:code", "A:review"]);
+});
+
+test("isStateDedupKey: only step: keys are state-based", async () => {
+  const { isStateDedupKey } = await import("../src/store.js");
+  assert.equal(isStateDedupKey("step:code:88"), true);
+  assert.equal(isStateDedupKey("secmove:123"), false);
+  assert.equal(isStateDedupKey("unblock:x"), false);
+  assert.equal(isStateDedupKey(undefined), false);
+});

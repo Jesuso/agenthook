@@ -97,6 +97,15 @@ billed `claude -p`). Raise `maxAttempts` on the step if you genuinely need more 
 then move/re-file the task into the step's source section again to re-dispatch — agenthook doesn't
 poll the hold lane.
 
+## The agent keeps holding on the same question
+
+Older builds gave a re-dispatched agent only the task body, so a human's answer posted as a tracker
+comment was never seen and the agent re-asked and held again. The step prompt now tells the agent to
+read the task's newest comments first and treat answers as decisions (via the adapter's
+`readCommentsHowTo`; the `local` tracker has no comment channel). If you use a custom
+`instructionsFile`, say the same there (see `examples/*/INSTRUCTIONS_*.md`). Workaround on an older
+build: put the answer in the task body/description.
+
 ## `agenthook start` refuses to boot
 
 - **"port … already listening" / `EADDRINUSE`**: another process (often a previous run) holds the

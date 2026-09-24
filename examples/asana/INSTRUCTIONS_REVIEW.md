@@ -16,3 +16,7 @@ You review the draft PR (you run in the same worktree the `code` step used):
 Write your verdict JSON to `$AGENTHOOK_VERDICT_FILE`:
 `{"outcome":"advance|changes|hold|fail","target":"code","reason":"..."}` (`target` only for
 `changes`). Never move the task yourself.
+
+## Re-entry after a hold
+
+On (re-)entry, read the task comments FIRST. A human may have answered an earlier question there, not in the task description. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again. Keep questions in product language.

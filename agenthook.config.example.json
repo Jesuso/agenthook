@@ -37,6 +37,8 @@
         "id": "triage",
         "kind": "triage",
         "instructionsFile": "./INSTRUCTIONS_TRIAGE.md",
+        "//lite": "optional: cheaper model/effort when the ticket already has a full spec — every heading must start a line of the description. Triage still runs. Rename to `lite` to enable.",
+        "//lite_example": { "descriptionHeadings": ["Technical Notes", "Acceptance Criteria"], "effort": "low" },
         "sourceSectionGid": "AWAITING_TRIAGE_GID",
         "successSectionGid": "AGENT_QUEUE_GID",
         "failureSectionGid": "BLOCKED_GID",

@@ -140,6 +140,7 @@ export function createAsanaAdapter(cfg, store) {
       taskNoun: "task",
       trigger: cfg.trigger,
       commentHowTo: `post via the Asana API (token in env ASANA_TOKEN) using POST /tasks/<gid>/stories`,
+      readCommentsHowTo: `GET /tasks/<gid>/stories via the Asana API (token in env ASANA_TOKEN); comments are stories with type "comment"`,
     }),
 
     authenticate({ pathname, headers, rawBody }) {

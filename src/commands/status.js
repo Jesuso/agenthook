@@ -46,7 +46,8 @@ export async function status(args) {
   }
 
   const p = readProfile(name);
-  if (!p.heartbeat && !p.pid) {
+  const persisted = createStore(p.dir).listQueued().length;
+  if (!p.heartbeat && !p.pid && !persisted) {
     console.log(`no such profile "${name}" (nothing under ~/.agenthook/${name}).`);
     return;
   }
@@ -60,7 +61,9 @@ export async function status(args) {
   console.log(`port    : ${hb.port || "?"}`);
   console.log(`repo    : ${hb.repoPath || "?"}`);
   console.log(`auto    : ${hb.fullAuto ? "fullAuto (--dangerously-skip-permissions)" : "permissioned"}`);
-  if (hb.queue) console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued`);
+  // Down: heartbeat may be stale (kill -9), so trust queue.json instead.
+  if (p.up && hb.queue) console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued`);
+  else if (!p.up && persisted) console.log(`queue   : ${persisted} queued (persisted — resumes on start)`);
   if (hb.seen != null) console.log(`seen    : ${hb.seen} item(s)`);
   if (hb.startedAt) console.log(`started : ${ago(hb.startedAt)}`);
   if (hb.lastEvent) {

@@ -132,6 +132,12 @@ Extra step fields you'll want to know:
   mechanical — escalate to `"high"` only for hard tickets via the `escalate` map), and `"medium"`
   for `review` (anchored on tests as the oracle). See [Token & cost tracking](usage.md) for
   per-step cost data. Omit it to use the CLI default; an invalid value is dropped with a warning.
+- `lite` — `{ "descriptionHeadings": ["Technical Notes", "Acceptance Criteria"], "model"?, "effort"? }`,
+  intended for `triage`. When **every** heading starts a line of the ticket description (case-insensitive;
+  leading `#`, `h2.`, `*`, `_`, `>` markers ignored), the step's base model/effort is replaced by
+  `lite.model`/`lite.effort` (each falls back to the step's own value). A stored-difficulty `escalate`
+  match still wins. Triage still runs and still emits `difficulty` — don't use `escalate` for this, as
+  nothing is stored yet when triage runs.
 
 Token usage and cost for each step run are captured automatically — see [Token & cost tracking](usage.md).
 - `kind` — a free label used in prompts/logs (`triage`, `implement`, `review`).

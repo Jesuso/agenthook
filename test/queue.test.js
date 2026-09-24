@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createQueue } from "../src/queue.js";
+import { createQueue, planRestore } from "../src/queue.js";
 
 /** @param {any} job */
 const info = (job) => ({ kind: job.kind, ref: job.ref, name: job.ref, url: "", code: 0 });
@@ -53,4 +53,31 @@ test("close() refuses new jobs", () => {
 test("onIdle resolves immediately when nothing is running", async () => {
   const q = createQueue(1, () => Promise.resolve(info({ kind: "x", ref: "r" })));
   await q.onIdle();
+});
+
+test("persist hooks: onAdd on accept, onRemove on start; not for coalesced/closed", async () => {
+  const adds = [];
+  const removes = [];
+  const q = createQueue(1, (j) => new Promise((r) => setTimeout(() => r(info(j)), 5)), undefined, {
+    onAdd: (j) => adds.push(j.ref),
+    onRemove: (j) => removes.push(j.ref),
+  });
+  q.enqueue(job("A"));
+  q.enqueue(job("B"));
+  q.enqueue(job("C"));
+  assert.equal(q.enqueue(job("B")), false, "coalesced");
+  assert.deepEqual(adds, ["A", "B", "C"]);
+  assert.deepEqual(removes, ["A"], "only A started so far");
+  q.close();
+  assert.equal(q.enqueue(job("D")), false);
+  assert.deepEqual(adds, ["A", "B", "C"]);
+  await q.onIdle();
+  assert.deepEqual(removes, ["A", "B", "C"]);
+});
+
+test("planRestore keeps order, drops running refs and unknown steps", () => {
+  const jobs = [job("A", "code"), job("B", "code"), job("C", "gone"), job("D", "review")];
+  const { keep, drop } = planRestore(jobs, ["B"], ["code", "review"]);
+  assert.deepEqual(keep.map((j) => j.ref), ["A", "D"]);
+  assert.deepEqual(drop.map((j) => j.ref), ["B", "C"]);
 });
