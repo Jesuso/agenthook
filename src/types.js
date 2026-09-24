@@ -44,6 +44,7 @@
  * @property {string} [failureLabel]           GitHub: swap to this label on a failed/interrupted run
  * @property {string} [holdLabel]              GitHub: swap to this label on `hold`; absent → leave in place
  * @property {boolean} [closeIssue]            GitHub: entering this (terminal) step CLOSES the issue — auto-releasing the dependents it was blocking
+ * @property {boolean} [completeTask]          Asana: entering this (terminal) step marks the task COMPLETED — auto-releasing the dependents it was blocking
  */
 
 /**

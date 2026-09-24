@@ -71,6 +71,7 @@ with these filters:
 |-------|-----|
 | `task` / `added` | a task created directly in a section → fire that section's step |
 | `story` / `section_changed` | a task **moved** between sections → fire the destination's step |
+| `task` / `changed` (`completed`) | a task **completed** → release the dependents it was blocking ([§6](#6-task-dependencies-are-respected)) |
 
 Both route off the task's **live** `memberships.section.gid`, so even rapid back-to-back moves
 resolve to where the task actually is now. Each Asana webhook carries its own `X-Hook-Secret`,
@@ -86,6 +87,35 @@ By default agenthook acts **only on tasks assigned to your `userGid`** and is fa
 `userGid` is unset it refuses everything rather than going project-wide. To process every task in
 the sections regardless of assignee, set `"assigneeFilter": false` in the `tracker` block —
 explicitly.
+
+## 6. Task dependencies are respected
+
+agenthook honours Asana's **native task dependencies** (a task's *blocked by* relationships). A task
+with an **incomplete** dependency won't fire its step — it rests in its source section (no move; the
+card already shows the dependency) until every blocker is completed, then the dependent fires
+automatically. Checked live per webhook event (no polling), so a re-opened blocker or a second
+blocker stays correct. This is a workflow gate, not a security one: if the dependencies API errors it
+fails **open** (treats the task as unblocked) so a hiccup can't freeze the pipeline.
+
+The release rides the `task` / `changed` (`completed`) webhook filter. An existing profile picks it up
+on its next `agenthook start` — registration re-creates the hook each boot.
+
+To let an agent-finished blocker auto-release its dependents, flag the **terminal** (manual) step with
+`"completeTask": true` — entering it marks the task **completed**, which fires the release for
+everything it was blocking:
+
+```jsonc
+{ "id": "done", "manual": true, "sourceSectionGid": "1200000000000005", "completeTask": true }
+```
+
+`completeTask` is **opt-in** — nothing in agenthook completes an Asana task otherwise, so without it a
+blocker is released only when a human completes it. Like every mutation it only touches tasks
+assigned to you (under assignee scoping).
+
+> **Cross-project blockers:** a blocker that lives in a **different project** doesn't deliver its
+> `completed` event to this project's webhook, so its dependents aren't released automatically. Run
+> `agenthook reconcile` to fire them once their blockers are complete (reconcile skips any task that
+> is still blocked).
 
 ## Verify
 
