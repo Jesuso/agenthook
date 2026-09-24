@@ -365,6 +365,111 @@ test("dispatch: the manual drain step clears the held record", async () => {
   assert.equal(store.getHeld("42"), undefined);
 });
 
+// --- multi-repo routing: resolve → sticky → hold on ambiguity (no spawn) ---
+// A fake `claude` records its cwd + prompt; steps create no worktree, so cwd = repo.path.
+
+function routeHarness() {
+  const dir = tmpDir();
+  const mono = path.join(dir, "mono");
+  const ios = path.join(dir, "ios");
+  const android = path.join(dir, "android");
+  for (const d of [mono, ios, android]) fs.mkdirSync(d);
+  const iosInstr = path.join(dir, "IOS.md");
+  fs.writeFileSync(iosInstr, "IOS REPO CONTEXT");
+  const bin = path.join(dir, "fake-claude.sh");
+  const out = path.join(dir, "out.txt");
+  fs.writeFileSync(bin, `#!/bin/sh\npwd > "${out}"\nprintf '%s' "$2" >> "${out}"\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code" }, { id: "review" }, { id: "done", manual: true, drainWorktree: true }],
+    claudeBin: bin,
+    repoPath: mono,
+    multiRepo: true,
+    repos: [
+      { id: "mono", path: mono, match: ["backend"] },
+      { id: "ios", path: ios, match: ["ios"], instructionsFile: iosInstr },
+      { id: "android", path: android, match: ["android"] },
+    ],
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  /** @type {{routeKeys?: string[]}} */
+  const task = {};
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment", usesPR: false }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true, routeKeys: task.routeKeys }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ extra) => events.push({ event, ref, step, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  /** @param {string} stepId @param {string[]|undefined} routeKeys */
+  const runStep = async (stepId, routeKeys) => {
+    task.routeKeys = routeKeys;
+    fs.rmSync(out, { force: true });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await run({ kind: "pipeline", ref: "42", stepId, dedupKey: `k:${stepId}` });
+    } finally {
+      console.log = log;
+    }
+    if (!fs.existsSync(out)) return null; // no agent spawned
+    const [cwd, ...prompt] = fs.readFileSync(out, "utf8").split("\n");
+    return { cwd, prompt: prompt.join("\n") };
+  };
+  return { store, advanced, events, runStep, ios, mono };
+}
+
+test("dispatch routing: a conflicting task holds (advance hold, blocked, setHeld) and never spawns", async () => {
+  const { store, advanced, events, runStep } = routeHarness();
+  const spawned = await runStep("code", ["iOS", "backend"]);
+  assert.equal(spawned, null, "no agent spawned");
+  assert.deepEqual(advanced, [["42", "code", "hold"]]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event, "blocked");
+  assert.match(events[0].reason, /more than one repo \(mono, ios\)/);
+  assert.equal(store.getHeld("42")?.stepId, "code", "held so an @agent reply re-runs the step");
+  assert.equal(store.getAttempt("42", "code"), 0, "no attempt counted");
+  assert.equal(store.getRepo("42"), undefined, "nothing stuck");
+});
+
+test("dispatch routing: an unroutable task (no key, no default) holds", async () => {
+  const { advanced, events, runStep } = routeHarness();
+  assert.equal(await runStep("code", undefined), null);
+  assert.deepEqual(advanced, [["42", "code", "hold"]]);
+  assert.match(events[0].reason, /match no repo and none is default/);
+});
+
+test("dispatch routing: a routed task sticks; a later step with changed routeKeys keeps the repo", async () => {
+  const { store, advanced, runStep, ios } = routeHarness();
+  const first = await runStep("code", ["iOS"]);
+  assert.equal(first?.cwd, fs.realpathSync(ios), "agent runs in the routed repo");
+  assert.equal(store.getRepo("42"), "ios", "sticky repo persisted");
+  assert.match(first?.prompt ?? "", /^IOS REPO CONTEXT\n\n[\s\S]*=== TICKET ===/, "repo instructions lead the prompt");
+  assert.match(first?.prompt ?? "", new RegExp(`Repo: ios \\(${ios.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+
+  const second = await runStep("review", ["android"]);
+  assert.equal(second?.cwd, fs.realpathSync(ios), "sticky repo wins over the new route keys");
+  assert.deepEqual(advanced, [["42", "code", "advance"], ["42", "review", "advance"]]);
+
+  // the drain step ends the flow and drops the sticky record
+  await runStep("done", ["android"]);
+  assert.equal(store.getRepo("42"), undefined);
+});
+
+test("dispatch routing: a sticky repo id no longer in config holds instead of guessing", async () => {
+  const { store, advanced, events, runStep } = routeHarness();
+  store.setRepo("42", "web");
+  assert.equal(await runStep("code", ["ios"]), null);
+  assert.deepEqual(advanced, [["42", "code", "hold"]]);
+  assert.match(events[0].reason, /sticky repo "web" is no longer configured/);
+});
+
 // --- lookupPr: best-effort `gh pr list --head agent/<ref>`; never throws ---
 
 test("lookupPr queries the ref's branch and parses the number", async () => {

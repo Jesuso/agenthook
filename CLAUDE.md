@@ -133,11 +133,19 @@ Key files:
   `maxConcurrent − active − queued − pending` items via `enterStage(…, {assign:false})` (the same
   move `ah run` makes — the webhook then fires the step). Order: Asana section order, Jira
   `Rank ASC`, GH Projects board position, GitHub labels **oldest-created first** (labels have no order).
+- `src/repos.js` — multi-repo routing (pure). `cfg.repos[]` (`{id, path, match, default?,
+  instructionsFile?, worktreePrefix?}`; no block → one synthesized `default` repo at `repoPath`,
+  `cfg.multiRepo=false`, nothing changes). `resolveRepo(cfg, task.routeKeys)` → exactly one repo;
+  no match → the `default` repo; two matches → `conflict`, none + no default → `unroutable` — both
+  **hold** the task in `runStep` (no spawn, no attempt, `setHeld` so `@agent` re-runs it). The first
+  routed step sticks the ref to its repo (`repo.json`, multi-repo only); worktrees then nest as
+  `<base>/<repo.id>/<ref>`. Adapters only supply opaque `Task.routeKeys`.
 - `src/queue.js` — bounded-concurrency queue (`maxConcurrent`); worktree isolation makes parallel
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
   path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
-  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), and
+  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), `repo.json`
+  (multi-repo sticky `ref → repoId`, cleared on terminal states), and
   `held.json` (`ref → {stepId, reason, heldAt}` written on a `hold` verdict; any later run of the
   ref, `fail`, or drain clears it — it names the step an `@agent` reply resumes).
   **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;

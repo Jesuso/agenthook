@@ -10,6 +10,7 @@ import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
 import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
+import { resolveRepo, repoById, primaryRepo } from "./repos.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
 // before a `changes` loop back into it is forced to fail. Caps an endless code↔review
@@ -267,12 +268,35 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
   /** Pipeline position of a step id (-1 if unknown). @param {string} id */
   const stepIndex = (id) => cfg.pipeline?.findIndex((s) => s.id === id) ?? -1;
 
+  /** The repo a ref is stuck to (store.getRepo), else the default repo. For paths that
+   * act on an already-routed ref (merge, PR lookup) — they never re-resolve or hold.
+   * @param {string} ref */
+  const stickyRepo = (ref) => repoById(cfg, store?.getRepo?.(ref)) ?? primaryRepo(cfg);
+
+  /**
+   * Route a ref to its repo: the sticky one if it has been routed before (route keys may
+   * change mid-flow; the worktree/branch must not), else resolve its route keys and stick
+   * it. Single-repo profiles never persist (every ref resolves to the one repo anyway).
+   * @param {string} ref @param {import('./types.js').Task} task
+   * @returns {{ repo: import('./types.js').RepoConfig } | { error: string, message: string }}
+   */
+  function resolveRoute(ref, task) {
+    const stuck = store?.getRepo(ref);
+    if (stuck != null) {
+      const repo = repoById(cfg, stuck);
+      return repo ? { repo } : { error: "unroutable", message: `sticky repo "${stuck}" is no longer configured` };
+    }
+    const routed = resolveRepo(cfg, task.routeKeys);
+    if ("repo" in routed && cfg.multiRepo) store?.setRepo(ref, routed.repo.id);
+    return routed;
+  }
+
   /** Cache the ref's PR number in refmeta once one exists. Receiver-side only (the CLIs
    * never write state); skipped for PR-less trackers and once a PR is known.
-   * @param {string} ref */
-  async function recordPr(ref) {
+   * @param {string} ref @param {import('./types.js').RepoConfig} [repo]  the checkout `gh` runs in */
+  async function recordPr(ref, repo = stickyRepo(ref)) {
     if (!store || meta.usesPR === false || store.getRefMeta(ref)?.pr) return;
-    const pr = await lookupPr(cfg.repoPath, ref);
+    const pr = await lookupPr(repo.path, ref);
     if (pr) store.setRefMeta(ref, { pr });
   }
 
@@ -415,13 +439,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     // or the move failed) → do it here, as the manual branch would.
     if (!moved) {
       try {
-        if (drainWorktree(cfg, job.ref)) console.log(`[worktree] drained ${job.ref} (merge)`);
+        if (drainWorktree(cfg, job.ref, stickyRepo(job.ref))) console.log(`[worktree] drained ${job.ref} (merge)`);
       } catch (e) {
         console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
       }
       store?.clearAttempts(job.ref);
       store?.clearFindings(job.ref);
       store?.clearDifficulty(job.ref);
+      store?.clearRepo?.(job.ref);
     }
 
     emit?.("merged", job.ref, job.stepId, { name: task.name, url: task.url });
@@ -498,6 +523,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       store?.clearAttempts(ref);
       store?.clearDifficulty(ref);
       store?.clearFindings(ref);
+      store?.clearRepo(ref);
     }
   }
 
@@ -603,17 +629,36 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     // Durable display metadata for `ah agents`/`status`/`events` (survives run exit).
     store?.setRefMeta(job.ref, { displayId: task.displayId, title: task.name });
 
+    // Which checkout this ref works in. Ambiguous or unmatched routing never guesses: park
+    // the task in the hold lane (no agent, no attempt) so a human fixes the routing field;
+    // the owner's `@agent` reply then re-runs the step. Before the manual branch — its
+    // drain needs the repo too.
+    const routed = resolveRoute(job.ref, task);
+    if (!("repo" in routed)) {
+      console.log(`[route] ${step.id} ${job.ref} -> hold (${routed.message})`);
+      emit?.("blocked", job.ref, step.id, { reason: routed.message, name: task.name, url: task.url });
+      if (!step.manual) store?.setHeld(job.ref, { stepId: step.id, reason: routed.message, heldAt: new Date().toISOString() });
+      try {
+        await adapter.advance(job.ref, step.id, { outcome: "hold", reason: routed.message });
+      } catch (e) {
+        console.error(`[advance] ${step.id} ${job.ref} (hold) failed:`, e.message);
+      }
+      return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
+    }
+    const repo = routed.repo;
+
     // Manual stage (e.g. "done"): no agent — entering it only runs system actions.
     if (step.manual) {
       if (step.drainWorktree) {
         try {
-          if (drainWorktree(cfg, job.ref)) console.log(`[worktree] drained ${job.ref} (${step.id})`);
+          if (drainWorktree(cfg, job.ref, repo)) console.log(`[worktree] drained ${job.ref} (${step.id})`);
         } catch (e) {
           console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
         }
         store?.clearAttempts(job.ref);
         store?.clearFindings(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
+        store?.clearRepo(job.ref);
         store?.clearHeld(job.ref);
         emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
@@ -628,16 +673,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
 
     // System-owned worktree: create it on the step that declares createsWorktree,
     // otherwise reuse the one an earlier step made (same deterministic path).
-    let worktree = worktreePath(cfg, job.ref);
+    let worktree = worktreePath(cfg, job.ref, repo);
     let branch;
     if (step.createsWorktree) {
-      const wt = ensureWorktree(cfg, job.ref);
+      const wt = ensureWorktree(cfg, job.ref, repo);
       worktree = wt.worktree;
       branch = wt.branch;
       console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch})`);
     }
     const hasWorktree = fs.existsSync(worktree);
-    const cwd = hasWorktree ? worktree : cfg.repoPath;
+    const cwd = hasWorktree ? worktree : repo.path;
 
     // One verdict file per run, under the state dir. Clear any stale one first so a
     // crashed prior run can't leave a verdict the agent didn't write this time.
@@ -648,10 +693,20 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       /* nothing to clear */
     }
 
-    const standing = readInstructions(step.instructionsFile || cfg.instructionsFile);
+    // Repo context (if the routed repo has an instructionsFile) goes ahead of the step's.
+    const standing = [repo.instructionsFile ? readInstructions(repo.instructionsFile) : "", readInstructions(step.instructionsFile || cfg.instructionsFile)]
+      .filter(Boolean)
+      .join("\n\n");
     const pending = store?.getFindings(job.ref);
     const findings = pending && pending.target === step.id ? pending : undefined;
-    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings, resumeComment: job.comment });
+    const base = stepPrompt(task, meta, step, {
+      worktree: hasWorktree ? worktree : undefined,
+      branch,
+      verdictFile,
+      findings,
+      resumeComment: job.comment,
+      ...(cfg.multiRepo ? { repo: { id: repo.id, path: repo.path } } : {}),
+    });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
     const logPath = logPathFor(step.id, job.ref);
@@ -663,7 +718,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       console.error(`[run] log header failed for ${job.ref}:`, e.message);
     }
     // A rework pass already has a branch (and maybe a PR): pick it up before spawning.
-    if (hasWorktree) await recordPr(job.ref);
+    if (hasWorktree) await recordPr(job.ref, repo);
 
     // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
     // tag and this step has a matching `escalate` key, override the base model/effort.
@@ -700,7 +755,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     });
     store?.clearRunning(job.ref);
     // The step may just have opened the PR.
-    await recordPr(job.ref);
+    await recordPr(job.ref, repo);
 
     // Persist the final per-run usage record from the captured `result` event (token
     // totals + cost). Append-only usage.jsonl, distinct from the rewritten state files.
@@ -756,7 +811,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     const drained = step.drainWorktree && verdict.outcome !== "changes";
     if (drained) {
       try {
-        if (drainWorktree(cfg, job.ref)) console.log(`[worktree] drained ${job.ref} (${step.id})`);
+        if (drainWorktree(cfg, job.ref, repo)) console.log(`[worktree] drained ${job.ref} (${step.id})`);
       } catch (e) {
         console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
       }
@@ -785,6 +840,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     if (verdict.outcome === "fail" || drained) {
       store?.clearAttempts(job.ref);
       store?.clearDifficulty(job.ref);
+      store?.clearRepo(job.ref);
       store?.clearHeld(job.ref);
       store?.clearFindings(job.ref);
     }

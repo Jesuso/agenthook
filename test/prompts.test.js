@@ -55,3 +55,13 @@ test("stepPrompt(triage) hold line says the owner's trigger reply resumes the st
   assert.match(p, /owner's "@agent …" reply comment resumes this stage/);
   assert.match(p, /Do NOT start the comment with "@agent"/);
 });
+
+test("stepPrompt names the routed repo only when ctx.repo is set (multi-repo)", () => {
+  for (const kind of ["triage", "implement", "review"]) {
+    const plain = stepPrompt(task, meta, step(kind), ctx);
+    assert.doesNotMatch(plain, /^Repo:/m, "single-repo head unchanged");
+    const routed = stepPrompt(task, meta, step(kind), { ...ctx, repo: { id: "ios", path: "/w/ios" } });
+    assert.match(routed, /^Ref: 1\nRepo: ios \(\/w\/ios\)$/m);
+    assert.equal(routed.replace("Repo: ios (/w/ios)\n", ""), plain, "the Repo line is the only difference");
+  }
+});
