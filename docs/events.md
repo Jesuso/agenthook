@@ -17,7 +17,7 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 
 | event | when | extra fields |
 |---|---|---|
-| `enqueued` | job enters the queue after dedup (engine `intake`) | — |
+| `enqueued` | job enters the queue after dedup (engine `intake`), or is re-enqueued from `queue.json` on boot | `restored?` (`true` on boot restore) |
 | `run_start` | `claude -p` spawns for a step | `model` (string \| null) |
 | `run_end` | step finishes (any outcome) | `outcome` (`advance`\|`hold`\|`changes`\|`fail`), `costUsd?` (number) |
 | `pipeline_done` | task advances into a terminal step (`manual + drainWorktree`, e.g. `done`) | — |

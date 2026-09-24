@@ -43,6 +43,10 @@ export async function status(args) {
   console.log(`repo    : ${hb.repoPath || "?"}`);
   console.log(`auto    : ${hb.fullAuto ? "fullAuto (--dangerously-skip-permissions)" : "permissioned"}`);
   if (hb.queue) console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued`);
+  else if (!p.up) {
+    const persisted = createStore(p.dir).listQueued().length;
+    if (persisted) console.log(`queue   : ${persisted} queued (persisted — resumes on start)`);
+  }
   if (hb.seen != null) console.log(`seen    : ${hb.seen} item(s)`);
   if (hb.startedAt) console.log(`started : ${ago(hb.startedAt)}`);
   if (hb.lastEvent) {
