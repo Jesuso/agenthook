@@ -59,7 +59,7 @@ trigger/run/reconcile/catchup table.
 | `src/engine.js`   | HTTP receiver + local crash recovery + heartbeat + shutdown. Verifies (via adapter), ACKs fast, dispatches async. |
 | `src/trackers/*`  | One tracker adapter per platform. Owns all platform specifics. |
 | `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
-| `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json` + `changes`-loop counters (`attempts.json`). |
+| `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json` + waiting-job `queue.json` + `changes`-loop counters (`attempts.json`). |
 | `src/queue.js`    | Bounded-concurrency job queue. |
 | `src/dispatch.js` | Spawns `claude -p` per step (receiver-owned worktree as `cwd`, `AGENTHOOK_VERDICT_FILE` injected), streams to a per-run log, then reads the agent's verdict and resolves the section via `adapter.advance` on exit. |
 | `src/pipeline.js` · `src/worktree.js` | `tracker.pipeline[]` (required): section-driven steps + receiver-owned shared worktree (create/`drainWorktree`), keyed by task ref. |

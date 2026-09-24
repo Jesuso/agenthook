@@ -395,6 +395,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       taskNoun: "issue",
       trigger: cfg.trigger,
       commentHowTo: `post a comment with: gh issue comment <number> --body "<text>" (run inside the repo; gh is authenticated via $GITHUB_TOKEN)`,
+      readCommentsHowTo: `gh issue view <number> --comments (run inside the repo)`,
     }),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):

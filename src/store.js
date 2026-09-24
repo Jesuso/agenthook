@@ -2,6 +2,8 @@
 //   - secrets: handshake secrets keyed by webhook path (Asana). Mode 0600.
 //   - seen:    dedup keys so one event triggers exactly one run.
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
+//   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
+//              keyed by `${ref}:${stepId}`), so a crash/force-kill doesn't lose them.
 //
 // seen is reloaded from disk on every read (reloadSeen) because external tools
 // (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
@@ -15,6 +17,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
+ * State-based dedup keys (`step:<id>:<ref>`) are released when the run ends;
+ * event-based ones (`secmove:`/`unblock:`/`reconcile:`/…) are unique per event and stay permanent.
+ * @param {string} key
+ */
+export function isStateDedupKey(key) {
+  return typeof key === "string" && key.startsWith("step:");
+}
+
+/**
  * @param {string} dataDir
  * @returns {import('./types.js').Store}
  */
@@ -22,6 +33,7 @@ export function createStore(dataDir) {
   const secretsFile = path.join(dataDir, "secrets.json");
   const seenFile = path.join(dataDir, "seen.json");
   const runningFile = path.join(dataDir, "running.json");
+  const queueFile = path.join(dataDir, "queue.json");
   const attemptsFile = path.join(dataDir, "attempts.json");
   const difficultyFile = path.join(dataDir, "difficulty.json");
   const findingsFile = path.join(dataDir, "findings.json");
@@ -78,6 +90,22 @@ export function createStore(dataDir) {
       }
     },
     listRunning: () => readJson(runningFile, {}),
+
+    // --- jobs waiting in the queue (queue.json), insertion-ordered, deduped by ref:stepId ---
+    addQueued: (job) => {
+      /** @type {import("./types.js").Job[]} */
+      const l = readJson(queueFile, []);
+      if (l.some((j) => j.ref === job.ref && j.stepId === job.stepId)) return;
+      l.push(job);
+      fs.writeFileSync(queueFile, JSON.stringify(l));
+    },
+    removeQueued: (job) => {
+      /** @type {import("./types.js").Job[]} */
+      const l = readJson(queueFile, []);
+      const n = l.filter((j) => !(j.ref === job.ref && j.stepId === job.stepId));
+      if (n.length !== l.length) fs.writeFileSync(queueFile, JSON.stringify(n));
+    },
+    listQueued: () => readJson(queueFile, []),
 
     // --- per-(ref,step) attempt counters: the changes-loop guard (attempts.json) ---
     // Bumped each dispatch; read before routing a `changes` back into a step so an

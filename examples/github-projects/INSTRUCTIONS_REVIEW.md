@@ -19,3 +19,7 @@ it; a human merges once the card reaches **Done**.
   reworks the **same** branch/PR from your review comments (capped by `maxAttempts`).
 - `hold` — a product/security question blocks the call. Post it as an issue comment, then hold.
 - `fail` — the PR is unworkable and needs a human. Say why.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the body. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.

@@ -31,6 +31,7 @@
  * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
+ * @property {{descriptionHeadings: string[], model?: string, effort?: 'low'|'medium'|'high'|'xhigh'|'max'}} [lite]  description-gated override (intended for triage): when every heading starts a line of the task description, use this model/effort as the base; `escalate` still wins on top
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
@@ -116,6 +117,7 @@
  * @property {string} taskNoun      e.g. "task", "issue"
  * @property {string} trigger       comment prefix that requests a change (default "@agent")
  * @property {string} commentHowTo  one line telling the agent how to comment back
+ * @property {string} [readCommentsHowTo] one line telling the agent how to read the task's existing comments (where a human's answer to a held question lands); omitted when the tracker has no comment channel
  * @property {boolean} [usesPR]     does this tracker's workflow revolve around a pull request? Default true. When false (e.g. the local/offline tracker) the prompt builders drop all PR language: the worktree DIFF is the deliverable and review reads it with `git diff`, never `gh pr`
  */
 
@@ -224,6 +226,16 @@
  * @typedef {(cfg: Config) => Ingress} IngressFactory */
 
 /**
+ * An event sink (`sinks[]` in agenthook.config.json): forwards lifecycle events to a chat/webhook.
+ * @typedef {object} SinkConfig
+ * @property {"slack"|"telegram"|"webhook"} type
+ * @property {string} [url]        slack incoming-webhook / generic webhook URL
+ * @property {string} [botToken]   telegram bot token
+ * @property {string|number} [chatId]  telegram chat id
+ * @property {string[]} [events]   events to forward (default blocked, failed, pipeline_done)
+ */
+
+/**
  * Resolved runtime config. All paths are absolute. See config.js for the four
  * distinct location fields (install/config/state/repo).
  * @typedef {object} Config
@@ -237,6 +249,7 @@
  * @property {ProviderConfig} providerConfig  alias of tracker, for adapter back-compat
  * @property {Step[]|null} pipeline  resolved tracker.pipeline (null when not configured)
  * @property {IngressConfig} ingress
+ * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
@@ -267,6 +280,9 @@
  * @property {(ref: string, info: RunningInfo) => void} setRunning
  * @property {(ref: string) => void} clearRunning
  * @property {() => Record<string, RunningInfo>} listRunning
+ * @property {(job: Job) => void} addQueued
+ * @property {(job: Job) => void} removeQueued
+ * @property {() => Job[]} listQueued
  * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
  * @property {(ref: string, stepId: string) => number} bumpAttempt  increment and return the new count
  * @property {(ref: string) => void} clearAttempts                  drop all attempt counters for ref (it left the loop)

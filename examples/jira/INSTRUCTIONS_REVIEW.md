@@ -29,3 +29,7 @@ Write JSON to `$AGENTHOOK_VERDICT_FILE`:
   `Agent Queue` (re-fires `code`). Capped by `maxAttempts`.
 - `{"outcome":"hold","reason":"<the specific question>"}` — needs a human call → `Needs Info`.
 - `{"outcome":"fail","reason":"<why>"}` — can't review → `Blocked`.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the description. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.

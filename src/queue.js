@@ -1,11 +1,29 @@
 // Bounded-concurrency job queue. Worktree isolation (see INSTRUCTIONS.md) lets
 // multiple agents run at once; MAX caps how many.
 /**
+ * Boot-restore plan for persisted queue entries: which to re-enqueue (in order) and
+ * which to drop (ref was mid-run at boot — recovery failed it — or step is gone).
+ * @param {import('./types.js').Job[]} queued
+ * @param {Iterable<string>} runningRefs
+ * @param {Iterable<string>} stepIds
+ */
+export function planRestore(queued, runningRefs, stepIds) {
+  const running = new Set(runningRefs);
+  const steps = new Set(stepIds);
+  /** @type {import('./types.js').Job[]} */ const keep = [];
+  /** @type {import('./types.js').Job[]} */ const drop = [];
+  for (const j of queued) (running.has(j.ref) || !steps.has(j.stepId) ? drop : keep).push(j);
+  return { keep, drop };
+}
+
+/**
  * @param {number} max
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
  * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
+ * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void}} [persist]
+ *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run
  */
-export function createQueue(max, run, onChange) {
+export function createQueue(max, run, onChange, persist) {
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -35,6 +53,7 @@ export function createQueue(max, run, onChange) {
     while (active < max && queue.length) {
       const job = queue.shift();
       if (!job) break;
+      persist?.onRemove?.(job);
       active++;
       report();
       console.log(`[start] ${job.kind} ${job.ref} (running ${active}/${max}, ${queue.length} queued)`);
@@ -75,6 +94,7 @@ export function createQueue(max, run, onChange) {
       }
       inflight.add(key);
       queue.push(job);
+      persist?.onAdd?.(job);
       report();
       pump();
       return true;

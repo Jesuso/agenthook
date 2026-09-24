@@ -32,3 +32,7 @@ Write JSON to `$AGENTHOOK_VERDICT_FILE`:
 - `{"outcome":"fail","reason":"<why>"}` — can't implement / gate fails → `Blocked`.
 
 When unsure, prefer `hold` over guessing.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the description. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.
