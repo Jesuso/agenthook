@@ -85,3 +85,19 @@ test("attempt counters bump/get/clear per (ref,step) — the changes-loop cap", 
   s.clearAttempts("T1");
   assert.equal(s.getAttempt("T1", "code"), 0);
 });
+
+test("held record set/get/clear per ref and persists to held.json", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.getHeld("T1"), undefined);
+  const info = { stepId: "triage", reason: "which DB?", heldAt: "2026-09-24T00:00:00.000Z" };
+  s.setHeld("T1", info);
+  s.setHeld("T2", { stepId: "code", heldAt: "2026-09-24T00:00:01.000Z" });
+  assert.deepEqual(s.getHeld("T1"), info);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "held.json"), "utf8")).T1, info, "written to held.json");
+  // a fresh store over the same dir reads what the first wrote
+  assert.deepEqual(createStore(dir).getHeld("T1"), info);
+  s.clearHeld("T1");
+  assert.equal(s.getHeld("T1"), undefined);
+  assert.equal(s.getHeld("T2")?.stepId, "code", "clearing one ref leaves the others");
+});

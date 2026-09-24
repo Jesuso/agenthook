@@ -13,6 +13,7 @@
  * @property {string} ref       provider-native item id (Asana gid, …)
  * @property {string} stepId    which Step in cfg.pipeline to run
  * @property {string} dedupKey  unique per source event; one key → at most one run
+ * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  */
 
 /**
@@ -78,6 +79,13 @@
  * @property {number} [output]      live output-token tally so far (estimate; final in UsageRecord)
  * @property {number} [cacheRead]   live cache-read token tally (estimate; final in UsageRecord)
  * @property {number} [cacheCreate] live cache-creation token tally (estimate; final in UsageRecord)
+ */
+
+/** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.
+ * @typedef {object} HeldInfo
+ * @property {string} stepId
+ * @property {string} [reason]   the agent's hold reason (its question, in short)
+ * @property {string} heldAt     ISO timestamp the hold verdict landed
  */
 
 /** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals
@@ -272,6 +280,9 @@
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
  * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
+ * @property {(ref: string) => HeldInfo|undefined} getHeld          the step ref is parked on by a `hold` verdict (undefined = not held)
+ * @property {(ref: string, info: HeldInfo) => void} setHeld        record a `hold` verdict for ref
+ * @property {(ref: string) => void} clearHeld                      drop the held record for ref (resumed / re-entered / terminal)
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
  */

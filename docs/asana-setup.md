@@ -71,11 +71,20 @@ with these filters:
 |-------|-----|
 | `task` / `added` | a task created directly in a section → fire that section's step |
 | `story` / `section_changed` | a task **moved** between sections → fire the destination's step |
+| `story` / `comment_added` | the **`@agent` resume**: the owner's `@agent …` reply on a held task re-runs the step that held |
 
-Both route off the task's **live** `memberships.section.gid`, so even rapid back-to-back moves
+The first two route off the task's **live** `memberships.section.gid`, so even rapid back-to-back moves
 resolve to where the task actually is now. Each Asana webhook carries its own `X-Hook-Secret`,
 established by a handshake that agenthook answers automatically and stores (0600) keyed by request
 path. Signatures are verified with constant-time HMAC-SHA256.
+
+For the resume: when a step ends with `hold` (the agent commented a question and the task moved to
+`holdSectionGid`), reply on the task with a comment starting with `@agent` (your `trigger`), **as
+the `userGid` user**. The held step re-runs with your reply in its prompt. Comments by anyone else
+are ignored, even with `assigneeFilter: false`, and so is everything when `userGid` is unset. Asana's
+`@` autocomplete may try to turn `@agent` into a mention; dismiss it so the text stays literal. See
+[architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply).
+(`comment_added` delivery on a *project* webhook hasn't been smoke-tested yet; `section_changed` has.)
 
 `agenthook stop` deletes the webhook; an ephemeral ingress URL (default ngrok) is scrubbed and
 re-registered on each `start`. Nothing to do by hand.

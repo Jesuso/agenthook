@@ -27,6 +27,8 @@ Write JSON to `$AGENTHOOK_VERDICT_FILE`:
 - `{"outcome":"advance","reason":"<spec posted>"}` — ready → moves the issue to `Agent Queue`
   (fires the `code` step).
 - `{"outcome":"hold","reason":"<the specific question>"}` — needs a human answer → `Needs Info`.
+  A human answers, then transitions the issue back to `Awaiting Triage` to re-run this step (an
+  `@agent` comment reply does not resume on Jira yet).
 - `{"outcome":"fail","reason":"<why>"}` — can't triage → `Blocked`.
 
 When unsure, prefer `hold` over guessing.

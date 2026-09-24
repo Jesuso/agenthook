@@ -215,3 +215,93 @@ test("init section discovery lists the chosen project's sections (name + gid)", 
     global.fetch = orig;
   }
 });
+
+// --- the `@agent` comment trigger (story comment_added → resume the held step) ---
+
+/** Adapter over a store stub whose held record / attempt count / seen set the test controls.
+ * @param {{pc?: object, held?: any, ran?: number, seen?: string[]}} [o] */
+function commentRouted({ pc = {}, held = { stepId: "code", heldAt: "2026-09-24T00:00:00.000Z" }, ran = 1, seen = [] } = {}) {
+  const store = { ...makeStore(), getHeld: () => held, getAttempt: () => ran, hasSeen: (/** @type {string} */ k) => seen.includes(k) };
+  const providerConfig = { type: "asana", token: "t", assigneeFilter: false, userGid: "U1", ...pc };
+  return createAsanaAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline, providerConfig }), /** @type {any} */ (store));
+}
+
+/** Run a comment_added story ST1 on task G1 through processEvents with stubbed fetches.
+ * @param {any} a @param {{text?: string, author?: string|null, assignee?: string}} [o] */
+async function runComment(a, { text = "@agent use Postgres", author = "U1", assignee = "U1" } = {}) {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (u.includes("/stories/ST1")) return ok({ data: { resource_subtype: "comment_added", text, created_by: author ? { gid: author } : null, target: { gid: "G1" } } });
+    if (u.includes("/tasks/G1")) return ok({ data: { assignee: { gid: assignee } } });
+    return ok({});
+  };
+  try {
+    const jobs = await a.processEvents(/** @type {any} */ ({ rawBody: JSON.stringify({ events: [{ action: "added", resource: { resource_type: "story", gid: "ST1" }, parent: { gid: "G1" } }] }) }));
+    return { jobs, urls };
+  } finally {
+    global.fetch = orig;
+  }
+}
+
+test("comment_added: the owner's @agent reply on a held task resumes the held step", async () => {
+  const { jobs, urls } = await runComment(commentRouted());
+  assert.deepEqual(jobs, [{ kind: "pipeline", ref: "G1", stepId: "code", dedupKey: "trigger:ST1", comment: "@agent use Postgres" }]);
+  assert.ok(urls.some((u) => u.includes("/stories/ST1") && u.includes("created_by.gid")), "fetchStory must request the author");
+});
+
+test("comment_added: resumes under assignee scoping when the task is ours", async () => {
+  assert.equal((await runComment(commentRouted({ pc: { assigneeFilter: true } }))).jobs.length, 1);
+});
+
+test("comment_added: assigneeFilter:false still rejects a foreign author", async () => {
+  assert.deepEqual((await runComment(commentRouted(), { author: "U2" })).jobs, []);
+});
+
+test("comment_added: an unset userGid rejects every author (fail-closed)", async () => {
+  assert.deepEqual((await runComment(commentRouted({ pc: { userGid: undefined } }))).jobs, []);
+});
+
+test("comment_added: a text not starting with the trigger yields no job", async () => {
+  assert.deepEqual((await runComment(commentRouted(), { text: "thanks, @agent" })).jobs, []);
+});
+
+test("comment_added: a task not assigned to us yields no job (assignee gate)", async () => {
+  assert.deepEqual((await runComment(commentRouted({ pc: { assigneeFilter: true } }), { assignee: "U9" })).jobs, []);
+});
+
+test("comment_added: no held record yields no job", async () => {
+  assert.deepEqual((await runComment(commentRouted({ held: null }))).jobs, []);
+});
+
+test("comment_added: the held step at its attempt cap yields no job", async () => {
+  assert.deepEqual((await runComment(commentRouted({ ran: 3 }))).jobs, []);
+});
+
+test("comment_added: an already-seen trigger:<storyGid> is skipped before any fetch", async () => {
+  const { jobs, urls } = await runComment(commentRouted({ seen: ["trigger:ST1"] }));
+  assert.deepEqual(jobs, []);
+  assert.deepEqual(urls, []);
+});
+
+test("registerWebhook's filters include story comment_added (and keep section_changed)", async () => {
+  /** @type {any} */
+  let posted;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/webhooks") && init.method === "POST") posted = JSON.parse(String(init.body));
+    return ok({ data: String(url).includes("/webhooks?") ? [] : { gid: "W1", active: true } });
+  };
+  try {
+    await routed({ projectGid: "P1", workspaceGid: "WS" }).registerWebhook("https://example.test");
+  } finally {
+    global.fetch = orig;
+  }
+  const subtypes = (posted?.data?.filters || []).map((/** @type {any} */ f) => f.resource_subtype).filter(Boolean);
+  assert.deepEqual(subtypes, ["section_changed", "comment_added"]);
+});

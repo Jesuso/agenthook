@@ -22,6 +22,8 @@ Write JSON to the file named by `$AGENTHOOK_VERDICT_FILE` before you exit:
 - Can't triage / not a real task:
   `{"outcome":"fail","reason":"<why>"}`
 
-Post questions as an issue comment (no `@agent` prefix — that marker is for humans). Do **not** move
+Post questions as an issue comment (no `@agent` prefix — that marker is for humans). On `hold`, the
+owner answers with an issue comment starting with `@agent`; that reply re-runs this step with the
+answer appended to your prompt (a `=== HUMAN REPLY (resume) ===` block). Do **not** move
 the `agent:*` labels yourself; the receiver swaps them based on your verdict. A clean exit with no
 verdict file is treated as `advance`, so always write the file.

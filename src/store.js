@@ -2,6 +2,8 @@
 //   - secrets: handshake secrets keyed by webhook path (Asana). Mode 0600.
 //   - seen:    dedup keys so one event triggers exactly one run.
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
+//   - held:    refs parked by a `hold` verdict (ref -> {stepId,reason?,heldAt}), so an
+//              owner's `@agent` reply comment knows which step to resume.
 //
 // seen is reloaded from disk on every read (reloadSeen) because external tools
 // (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
@@ -24,6 +26,7 @@ export function createStore(dataDir) {
   const runningFile = path.join(dataDir, "running.json");
   const attemptsFile = path.join(dataDir, "attempts.json");
   const difficultyFile = path.join(dataDir, "difficulty.json");
+  const heldFile = path.join(dataDir, "held.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
 
   /** @param {string} f @param {any} fallback */
@@ -116,6 +119,26 @@ export function createStore(dataDir) {
       if (ref in m) {
         delete m[ref];
         fs.writeFileSync(difficultyFile, JSON.stringify(m));
+      }
+    },
+
+    // --- per-ref held step (held.json): written on a `hold` verdict ---
+    // Names the step an owner's `@agent` reply resumes. Cleared when any step for the
+    // ref starts again (the resume, or a manual drag-back) and on a terminal state.
+    getHeld: (ref) => {
+      const m = readJson(heldFile, {});
+      return m[ref];
+    },
+    setHeld: (ref, info) => {
+      const m = readJson(heldFile, {});
+      m[ref] = info;
+      fs.writeFileSync(heldFile, JSON.stringify(m));
+    },
+    clearHeld: (ref) => {
+      const m = readJson(heldFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(heldFile, JSON.stringify(m));
       }
     },
 
