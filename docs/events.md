@@ -25,6 +25,8 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 | `blocked` | verdict is `hold` | `reason` (string \| null), `name`, `url` |
 | `failed` | verdict is `fail` (incl. a `changes` forced to fail by the loop cap) or a run interrupted by restart | `reason` (string \| null), `name`, `url` (no name/url for restart) |
 | `merged` | a [forge](asana-setup.md#completing-tasks-on-merge-forge) saw the task's `agent/<ref>` PR merge (after the task is moved + completed) | `name`, `url` (`step` = the `completeOnMerge` step, or `""`) |
+| `overlap_held` | [`overlapGuard`](architecture.md#file-overlap-guard-overlapguard-opt-in): the task's predicted paths overlap another in-flight task's lock, so its step waits in its source stage (no agent, no move) | `blockedBy` (the ref holding the lock) |
+| `overlap_released` | `overlapGuard`: the blocker left the pipeline and the waiting task is re-offered to its step | `blockedBy` |
 
 `pipeline_done` is the signal that a ticket is fully finished and its PR is ready for merge.
 `blocked` and `failed` are the needs-attention signals.

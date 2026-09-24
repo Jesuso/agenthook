@@ -165,3 +165,39 @@ test("isStateDedupKey: only step: keys are state-based", async () => {
   assert.equal(isStateDedupKey("unblock:x"), false);
   assert.equal(isStateDedupKey(undefined), false);
 });
+
+test("overlap guard: paths.json / locks.json / overlap.json round-trip and persist", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.getPredictedPaths("T1"), undefined);
+  assert.deepEqual(s.listLocks(), {});
+  assert.deepEqual(s.listOverlap(), {});
+
+  s.setPredictedPaths("T1", ["src/a.js", "lib/"]);
+  s.setLock("T1", { paths: ["src/a.js"], stepId: "code" });
+  s.setLock("T2", { paths: ["docs/"], stepId: "review" });
+  s.setOverlap("T3", { stepId: "code", blockedBy: "T1", heldAt: "2026-01-01T00:00:00.000Z" });
+
+  const s2 = createStore(dir); // a fresh store reads what the first wrote
+  assert.deepEqual(s2.getPredictedPaths("T1"), ["src/a.js", "lib/"]);
+  assert.deepEqual(s2.getLock("T1"), { paths: ["src/a.js"], stepId: "code" });
+  assert.deepEqual(Object.keys(s2.listLocks()), ["T1", "T2"]);
+  assert.deepEqual(s2.getOverlap("T3"), { stepId: "code", blockedBy: "T1", heldAt: "2026-01-01T00:00:00.000Z" });
+  assert.equal(fs.existsSync(path.join(dir, "held.json")), false, "overlap state never touches held.json");
+
+  s2.clearPredictedPaths("T1");
+  s2.clearLock("T1");
+  s2.clearOverlap("T3");
+  assert.equal(s2.getPredictedPaths("T1"), undefined);
+  assert.deepEqual(Object.keys(s2.listLocks()), ["T2"]);
+  assert.deepEqual(s2.listOverlap(), {});
+});
+
+test("overlap guard: clearing an absent ref writes no file", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  s.clearPredictedPaths("X");
+  s.clearLock("X");
+  s.clearOverlap("X");
+  for (const f of ["paths.json", "locks.json", "overlap.json"]) assert.equal(fs.existsSync(path.join(dir, f)), false);
+});

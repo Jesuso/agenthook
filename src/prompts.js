@@ -13,8 +13,9 @@
  * is always a failure regardless of the file; a clean exit with no file means advance.
  * @param {string|undefined} verdictFile
  * @param {string[]} outcomeLines  per-kind "<outcome>: when to use it" bullets
+ * @param {string[]} [pathsLines]  overlapGuard only: how to fill the optional `paths` field
  */
-function verdictFooter(verdictFile, outcomeLines) {
+function verdictFooter(verdictFile, outcomeLines, pathsLines = []) {
   if (!verdictFile) return "";
   return [
     ``,
@@ -23,6 +24,7 @@ function verdictFooter(verdictFile, outcomeLines) {
     `  ${verdictFile}`,
     `(also passed to you as the env var $AGENTHOOK_VERDICT_FILE). Schema:`,
     `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>", "findings": "<optional, changes only: full Markdown review findings>" }`,
+    ...pathsLines,
     `Valid outcomes for THIS stage:`,
     ...outcomeLines,
     `If you exit cleanly without writing the file, the receiver assumes "advance". A`,
@@ -51,6 +53,23 @@ function resumeSection(comment, meta) {
 }
 
 /**
+ * The overlapGuard `paths` field, documented only when the guard is on. A step with no
+ * worktree (triage) PREDICTS the files; a worktree step reports the files it TOUCHED.
+ * @param {boolean|undefined} overlapGuard @param {boolean} hasWorktree
+ * @returns {string[]}
+ */
+function pathsLines(overlapGuard, hasWorktree) {
+  if (!overlapGuard) return [];
+  return [
+    `Also add an optional "paths": ["<repo-relative file>", "<dir/>"] field (a trailing "/" marks a directory):`,
+    hasWorktree
+      ? `  list every file this change TOUCHED (e.g. \`git diff --name-only <base>...HEAD\`). The receiver holds sibling`
+      : `  list the files you PREDICT the change will touch. The receiver holds sibling`,
+    `  tasks whose files overlap until this one leaves the pipeline, so be specific and complete.`,
+  ];
+}
+
+/**
  * Base prompt for a pipeline step. The receiver has already created the shared
  * worktree (for createsWorktree steps) and launches the agent with cwd = that
  * worktree, so the agent never runs `git worktree add` itself — it works in the
@@ -60,7 +79,7 @@ function resumeSection(comment, meta) {
  * @param {import('./types.js').Task} task
  * @param {import('./types.js').AdapterMeta} meta
  * @param {import('./types.js').Step} step
- * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string }} ctx
+ * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string, overlapGuard?: boolean }} ctx
  */
 export function stepPrompt(task, meta, step, ctx) {
   const N = meta.taskNoun;
@@ -74,6 +93,7 @@ export function stepPrompt(task, meta, step, ctx) {
   ];
   if (ctx.worktree) head.push(`Worktree: ${ctx.worktree} (you are already in it; branch "${ctx.branch}")`);
   const resume = resumeSection(ctx.resumeComment, meta);
+  const paths = pathsLines(ctx.overlapGuard, !!ctx.worktree);
 
   // Held tasks re-enter with only the body; the human's answer lives in the comments.
   const readCommentsLine = meta.readCommentsHowTo
@@ -110,7 +130,7 @@ export function stepPrompt(task, meta, step, ctx) {
         `  parks in a holding lane; the owner's "${meta.trigger} …" reply comment resumes this stage`,
         `  with that reply in your prompt).`,
         `- "fail": not a code task, out of scope, or unspecifiable — route it out for a human.`,
-      ]),
+      ], paths),
     ].join("\n");
   }
 
@@ -140,7 +160,7 @@ export function stepPrompt(task, meta, step, ctx) {
         `- "advance": the diff is correct and safe — move it on for approval.`,
         changesLine,
         failLine,
-      ]),
+      ], paths),
     ].join("\n");
   }
 
@@ -181,6 +201,6 @@ export function stepPrompt(task, meta, step, ctx) {
       advanceLine,
       `- "hold": you are blocked on a human answer (the ${N} is ambiguous or unsafe to do unattended).`,
       `- "fail": you could not complete the work and it needs a human to step in.`,
-    ]),
+    ], paths),
   ].join("\n");
 }

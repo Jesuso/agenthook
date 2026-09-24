@@ -4,6 +4,10 @@
 //   - running: in-flight pipeline jobs (ref -> {stepId,pid,...}) for crash recovery.
 //   - held:    refs parked by a `hold` verdict (ref -> {stepId,reason?,heldAt}), so an
 //              owner's `@agent` reply comment knows which step to resume.
+//   - paths / locks / overlap: the opt-in file-overlap guard (src/overlap.js) — predicted
+//              paths per ref, in-flight locks (ref -> {paths,stepId}), and refs waiting on
+//              another ref's lock (ref -> {stepId,blockedBy,heldAt}). Only written when
+//              cfg.overlapGuard is on.
 //   - refmeta: per-ref display metadata ({displayId,title,pr}) for the CLIs. Never
 //     cleared — unlike running, status/events need it after the run ends.
 //   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
@@ -51,6 +55,9 @@ export function createStore(dataDir) {
   const findingsFile = path.join(dataDir, "findings.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
   const refmetaFile = path.join(dataDir, "refmeta.json");
+  const pathsFile = path.join(dataDir, "paths.json");
+  const locksFile = path.join(dataDir, "locks.json");
+  const overlapFile = path.join(dataDir, "overlap.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -181,6 +188,53 @@ export function createStore(dataDir) {
         fs.writeFileSync(heldFile, JSON.stringify(m));
       }
     },
+
+    // --- file-overlap guard (opt-in): predicted paths, locks, waiting refs ---
+    // paths.json: what a no-worktree step (triage) predicts the change will touch.
+    getPredictedPaths: (ref) => readJson(pathsFile, {})[ref],
+    setPredictedPaths: (ref, paths) => {
+      const m = readJson(pathsFile, {});
+      m[ref] = paths;
+      fs.writeFileSync(pathsFile, JSON.stringify(m));
+    },
+    clearPredictedPaths: (ref) => {
+      const m = readJson(pathsFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(pathsFile, JSON.stringify(m));
+      }
+    },
+    // locks.json: paths an in-flight ref holds; cleared when it leaves the pipeline.
+    getLock: (ref) => readJson(locksFile, {})[ref],
+    setLock: (ref, lock) => {
+      const m = readJson(locksFile, {});
+      m[ref] = lock;
+      fs.writeFileSync(locksFile, JSON.stringify(m));
+    },
+    clearLock: (ref) => {
+      const m = readJson(locksFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(locksFile, JSON.stringify(m));
+      }
+    },
+    listLocks: () => readJson(locksFile, {}),
+    // overlap.json: refs resting in their source stage behind another ref's lock.
+    // Separate from held.json (that one is the `@agent` resume).
+    getOverlap: (ref) => readJson(overlapFile, {})[ref],
+    setOverlap: (ref, info) => {
+      const m = readJson(overlapFile, {});
+      m[ref] = info;
+      fs.writeFileSync(overlapFile, JSON.stringify(m));
+    },
+    clearOverlap: (ref) => {
+      const m = readJson(overlapFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(overlapFile, JSON.stringify(m));
+      }
+    },
+    listOverlap: () => readJson(overlapFile, {}),
 
     // --- per-ref display metadata (refmeta.json): human id, title, PR number ---
     // Written by dispatch (receiver-side only); read by agents/status/events. Shallow

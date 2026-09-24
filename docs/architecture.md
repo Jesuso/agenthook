@@ -152,6 +152,42 @@ Any run of any step for the item consumes the held record, as do `fail` and the 
 on **Asana** (story `comment_added`) and **GitHub** labels (`issue_comment`). Not yet on Jira or
 GitHub Projects; there, resume by moving the item back to the step's source status.
 
+### File-overlap guard (`overlapGuard`, opt-in)
+
+Sibling tasks that edit the same files run their code steps in parallel, then conflict, and each
+needs a rebase plus a second review. Native dependencies (Asana/GitHub *blocked by*) help only when
+a human declares them up front. Set `"overlapGuard": true` at the top level of the config to have the
+receiver serialise them itself. It is off by default, and with it off nothing below runs and no
+extra state files are written.
+
+- **Paths come from verdicts.** With the guard on, the verdict schema gains an optional
+  `"paths": ["<repo-relative file>", "<dir/>"]` field (a trailing `/` marks a directory). A step
+  that runs **without** a worktree (triage) lists the files it *predicts* the change will touch,
+  stored in `paths.json`. A step that runs **in** the worktree (code, review, rework) lists the
+  files it *touched*, and those are unioned into the task's lock in `locks.json`. A lock only
+  grows while the task is in flight. Paths are sanitised: absolute paths, `..` segments and empty
+  strings are dropped, a leading `./` is stripped, and the list is capped at 200.
+- **The gate.** Before the `createsWorktree` step runs, the receiver checks the task's predicted
+  paths against every other task's lock. On an overlap the task **rests in its source stage**: no
+  agent, no tracker move, no attempt counted. The wait is recorded in `overlap.json`
+  (`ref → {stepId, blockedBy, heldAt}`) and an `overlap_held` event is emitted. Otherwise the task
+  takes a lock on its predicted paths *before* the agent spawns, so a sibling dispatched in
+  parallel (`maxConcurrent > 1`) sees it. A task that already holds a lock (a rework pass) is never
+  gated, and a task with no predicted paths passes ungated.
+- **Release.** The lock is freed when the task leaves the pipeline: the manual `drainWorktree`
+  step, a drained agent step, a terminal `fail`, a [forge](asana-setup.md#completing-tasks-on-merge-forge)
+  `merged` event, or a run interrupted by a restart. Each waiter is then re-offered to its step
+  (dedup `overlap:<blocker>:<ref>`, event `overlap_released`) and goes through the gate again, so it
+  may wait again behind a different lock. A released task that is no longer assigned to us, or is
+  already completed, is skipped (fail-closed).
+- **`reconcile`** drops `overlap.json` waits whose blocker holds no lock, then replays resting
+  tasks as usual. A waiting task rests in its source stage, so that replay re-offers it to the gate.
+
+Limits: matching is **structured only**. It compares exact paths, or a directory prefix when an
+entry ends in `/`, and never parses free text. A task whose triage predicted nothing is not
+guarded until its code verdict writes a lock. Without a drain step or a forge, a task that
+finishes cleanly never releases its lock, and the receiver warns about this at boot.
+
 ## Security posture
 
 **Default is locked down.** `fullAuto` defaults to `false`, so the receiver runs a
