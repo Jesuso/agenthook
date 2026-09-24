@@ -31,3 +31,12 @@ test("more than one completeOnMerge step is rejected", () => {
 test("a forge block without a type is rejected", () => {
   assert.throws(load([{ id: "code" }], { forge: { repository: "o/r" } }), /forge\.type/);
 });
+
+test("forge.ciTarget naming an unknown step is rejected", () => {
+  assert.throws(load([{ id: "code" }], { forge: { type: "github", ciTarget: "nope" } }), /ciTarget "nope" is not a pipeline step/);
+});
+
+test("forge.ciTarget naming a manual step is rejected", () => {
+  const pl = [{ id: "code" }, { id: "done", manual: true }];
+  assert.throws(load(pl, { forge: { type: "github", ciTarget: "done" } }), /ciTarget "done" is a manual step/);
+});

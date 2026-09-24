@@ -99,7 +99,12 @@ Key files:
   engine routes POST `/forge[/]` to the forge (else the tracker). `github` turns a merged PR on an
   `agent/<ref>` branch into a `{kind:'merge', ref, stepId:<completeOnMerge step|"">, dedupKey:'merged:<n>'}`
   job; its hook path is `/forge` (**not** `/github`, which the github tracker's scrub deletes) and it
-  always verifies `x-hub-signature-256` via the shared `src/hmac.js` `verifyHubSignature`.
+  always verifies `x-hub-signature-256` via the shared `src/hmac.js` `verifyHubSignature`. A red
+  `workflow_run` on a same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attempt>'}`
+  job (`forge.redCi:false` disables): dispatch's `runCi` re-runs failed jobs on attempt 1, else posts
+  the log tail as a **PR comment only** (never into findings/prompts — the PR head controls it) and
+  bounces `changes` → `forge.ciTarget` (default the `createsWorktree` step) through the shared
+  `guardChanges` cap, parking it (`store.setCiRed`) while a step runs on the ref.
 - `src/dispatch.js` — builds the prompt (the step's standing instructions + `stepPrompt` base joined
   by the `=== TICKET ===` marker), injects `AGENTHOOK_VERDICT_FILE`, spawns `claude -p` (the
   receiver-owned worktree as `cwd` when the step has one), streams to a per-run log, then reads the

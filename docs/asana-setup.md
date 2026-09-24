@@ -128,9 +128,12 @@ task into your `done` section and marks it `completed` in Asana. "Done" means **
 - **Events:** `merged` is appended to `events.jsonl` (plus `pipeline_done` from the `done` step).
 
 **Token scope.** The forge token must be allowed to manage repo webhooks: `admin:repo_hook`
-(classic) or **Webhooks: Read & write** (fine-grained) on the repository. It needs nothing else.
+(classic) or **Webhooks: Read & write** (fine-grained) on the repository. For
+[red CI](#red-ci-on-agent-prs) it also needs `repo` (classic) or **Actions: Read & write** +
+**Pull requests: Read & write** (fine-grained).
 
-**The webhook.** On `start` agenthook creates one repo webhook on the **Pull requests** event at
+**The webhook.** On `start` agenthook creates one repo webhook on the **Pull requests** and
+**Workflow runs** events at
 `<public-url>/forge`, signed with a secret it generates and stores (or `forge.webhookSecret` if you
 set one). Every delivery is verified; an unsigned or badly signed POST to `/forge` gets a `401`.
 `stop` (without `--keep-hooks`) and `unregister` delete it; an ephemeral ingress URL is scrubbed and
@@ -142,10 +145,36 @@ carries on — add it by hand under **Settings → Webhooks → Add webhook**:
 | Payload URL | `<public-url>/forge` |
 | Content type | `application/json` |
 | Secret | the one `start` printed |
-| Events | *Let me select individual events* → **Pull requests** |
+| Events | *Let me select individual events* → **Pull requests**, **Workflow runs** |
 
 A manual hook needs a **stable** ingress (reserved ngrok domain, or `hosted`), since its URL can't be
 re-registered for you.
+
+### Red CI on agent PRs
+
+With a forge configured, a **red GitHub Actions run** on an `agent/<ref>` PR is handled for you
+(on by default; `"redCi": false` in the `forge` block turns it off):
+
+1. **First red run** (`failure` or `timed_out`): agenthook re-runs the **failed jobs once**. Nothing
+   else happens, so a flaky job (e.g. a runner OOM) costs no agent run.
+2. **Red again:** agenthook posts the failing log tail as a **PR comment**, then bounces the task
+   with a `changes` verdict to the code step (the pipeline step with `createsWorktree`, or
+   `"ciTarget": "<step id>"`). This goes through the normal rework loop, so the target step's
+   `maxAttempts` caps it: at the cap the task goes to the failure lane instead.
+
+Safety rules:
+
+- **CI log text never reaches an agent prompt.** The PR head can shape CI output, so the log goes
+  only into the PR comment. The rework prompt gets a fixed receiver-written line (short sha, run
+  URL, attempt, PR number).
+- If a step is **running** on the task when the second red arrives (e.g. review), the bounce waits
+  for it. If that step exits with `advance`, the task goes back to code instead of moving on. A
+  `changes`/`fail`/`hold` verdict from that step stands.
+- A run on an **outdated commit** (the PR head moved on), a **closed** PR, a task **not assigned**
+  to you, a branch from a **fork**, or a task that is not past the code step is a logged no-op.
+  Each commit is bounced **at most once**, even if several workflows fail on it.
+- `cancelled` and green runs are ignored. Only GitHub Actions is supported (not other check
+  providers).
 
 ## Verify
 

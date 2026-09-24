@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
-import { findStep, prevStep } from "./pipeline.js";
+import { findStep, prevStep, stepForStage } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 
 // How many times one step may run for a single ref before a `changes` loop back
@@ -257,9 +257,16 @@ const readInstructions = (file) => {
  * @param {Set<import('node:child_process').ChildProcess>} [children]  live `claude -p` procs, for force-kill on shutdown
  * @param {import('./types.js').Store} [store]  for in-flight (crash-recovery) records
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
+ * @param {import('./types.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
  */
-export function createDispatcher(cfg, adapter, children, store, emit) {
+export function createDispatcher(cfg, adapter, children, store, emit, forge) {
   const meta = adapter.describe();
+  // Refs with a pipeline job in runClaude (spawn through advance). A red-CI bounce for a
+  // busy ref is parked (store.setCiRed) instead of racing that job's own advance.
+  /** @type {Set<string>} */
+  const busy = new Set();
+  /** Pipeline position of a step id (-1 if unknown). @param {string} id */
+  const stepIndex = (id) => cfg.pipeline?.findIndex((s) => s.id === id) ?? -1;
 
   /** Cache the ref's PR number in refmeta once one exists. Receiver-side only (the CLIs
    * never write state); skipped for PR-less trackers and once a PR is known.
@@ -422,9 +429,175 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
   }
 
+  /**
+   * Changes-loop guard: route a `changes` verdict back to its target step (verdict.target,
+   * else the step before `stepId`), but only while that step is under its attempt cap. At
+   * the cap, stop the ping-pong — force fail. Mutates `verdict` (target resolved to a
+   * concrete id for the adapter) and stores the findings for the target's next prompt.
+   * @param {string} ref
+   * @param {string} stepId  the step the verdict moves the task out of
+   * @param {import('./types.js').Verdict} verdict
+   * @param {string} fromStep  who the findings are attributed to in the rework prompt
+   */
+  function guardChanges(ref, stepId, verdict, fromStep) {
+    if (verdict.outcome !== "changes") return;
+    const target = verdict.target ? findStep(cfg, verdict.target) : prevStep(cfg, stepId);
+    if (!target) {
+      verdict.outcome = "fail";
+      verdict.reason = `changes had no resolvable target from "${stepId}"`;
+      return;
+    }
+    const ran = store?.getAttempt(ref, target.id) ?? 0;
+    const cap = target.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    if (ran >= cap) {
+      verdict.outcome = "fail";
+      verdict.reason = `changes loop hit cap (${cap}) on step "${target.id}"`;
+      return;
+    }
+    verdict.target = target.id;
+    const text = verdict.findings || verdict.reason;
+    if (text && store) store.setFindings(ref, { target: target.id, fromStep, text });
+  }
+
+  /**
+   * Bounce a task with a red PR back to `b.target` NOW, from the step it rests in —
+   * through the changes guard (so maxAttempts caps it). A task not downstream of the
+   * target (no stage, a manual stage, or at/before the target) is left alone.
+   * @param {string} ref
+   * @param {{target: string, text: string}} b  receiver-built text only (never CI output)
+   * @param {{name?: string, url?: string}} task
+   * @param {Record<string, any>} [extra]  event fields
+   */
+  async function bounceCi(ref, b, task, extra = {}) {
+    let stage = null;
+    try {
+      stage = (await adapter.currentStage?.(ref)) ?? null;
+    } catch (e) {
+      console.error(`[ci] currentStage ${ref} failed:`, e.message);
+    }
+    const cur = stepForStage(cfg, stage);
+    if (!cur || cur.manual || stepIndex(cur.id) <= stepIndex(b.target)) {
+      console.log(`[ci] ${ref} is not downstream of "${b.target}" (stage ${stage ?? "none"}) — PR comment only`);
+      emit?.("ci_red", ref, cur?.id ?? "", { action: "skipped", ...extra });
+      return;
+    }
+    /** @type {import('./types.js').Verdict} */
+    const verdict = { outcome: "changes", target: b.target, reason: b.text, findings: b.text };
+    guardChanges(ref, cur.id, verdict, "ci");
+    if (verdict.outcome === "fail") {
+      emit?.("failed", ref, cur.id, { reason: verdict.reason ?? null, name: task.name, url: task.url });
+    } else {
+      emit?.("ci_red", ref, cur.id, { action: "bounced", target: verdict.target, ...extra });
+    }
+    console.log(`[verdict] ci ${ref} (${cur.id}) -> ${verdict.outcome}${verdict.reason ? ` (${verdict.reason})` : ""}`);
+    try {
+      await adapter.advance(ref, cur.id, verdict);
+    } catch (e) {
+      console.error(`[advance] ci ${cur.id} ${ref} (${verdict.outcome}) failed:`, e.message);
+    }
+    if (verdict.outcome === "fail") {
+      store?.clearAttempts(ref);
+      store?.clearDifficulty(ref);
+      store?.clearFindings(ref);
+    }
+  }
+
+  /**
+   * The forge saw a red CI run on this task's `agent/<ref>` PR. No agent: the first red
+   * attempt re-runs the failed jobs once; a second (or a re-run that can't start) posts
+   * the failing log tail on the PR and bounces the task to the CI target with `changes`.
+   * The log goes ONLY to the PR comment — findings/reason are receiver-built text, since
+   * the PR head controls CI output and the rework prompt feeds a fullAuto agent.
+   * Fail-closed on the assignee, like runMerge.
+   * @param {import('./types.js').Job} job
+   */
+  async function runCi(job) {
+    /** @param {{name?: string, url?: string}} [t] */
+    const done = (t) => ({ kind: job.kind, ref: job.ref, name: t?.name ?? job.ref, url: t?.url ?? "", code: 0 });
+    const ci = job.ci;
+    if (!ci || !forge?.prHead || !forge.rerunFailedJobs) {
+      console.log(`[ci] skip ${job.ref} — no CI payload or forge support`);
+      return done();
+    }
+    let task;
+    try {
+      task = await adapter.fetchTask(job.ref);
+    } catch (e) {
+      console.log(`[assignee] skip ci ${job.ref} — fetch failed (${e.message})`);
+      return done();
+    }
+    if (!task.assignedToUs) {
+      console.log(`[assignee] skip ci ${job.ref}`);
+      return done();
+    }
+
+    let pr;
+    try {
+      pr = await forge.prHead(ci.prNumber, job.ref);
+    } catch (e) {
+      console.log(`[ci] skip ${job.ref} run ${ci.runId} — PR lookup failed (${e.message})`);
+      return done(task);
+    }
+    if (!pr || !pr.open || pr.sha !== ci.headSha) {
+      const why = !pr ? "no PR" : !pr.open ? `PR #${pr.number} is closed` : `stale run (PR head is now ${String(pr.sha).slice(0, 7)})`;
+      console.log(`[ci] skip ${job.ref} run ${ci.runId} — ${why}`);
+      return done(task);
+    }
+    const sha7 = ci.headSha.slice(0, 7);
+    const extra = { runId: ci.runId, attempt: ci.attempt, sha: ci.headSha, pr: pr.number };
+
+    if (ci.attempt === 1) {
+      try {
+        await forge.rerunFailedJobs(ci.runId);
+        console.log(`[ci] ${job.ref} run ${ci.runId} red on ${sha7} — re-running failed jobs once`);
+        emit?.("ci_red", job.ref, "", { action: "rerun", ...extra });
+        return done(task);
+      } catch (e) {
+        console.error(`[ci] re-run of ${ci.runId} failed — bouncing now:`, e.message);
+      }
+    }
+
+    // Red twice (or no re-run). The failing log tail goes to the PR and nowhere else.
+    if (forge.prComment) {
+      const log = forge.failedLogTail ? await forge.failedLogTail(ci.runId, ci.attempt) : "";
+      const body =
+        `**agenthook:** CI is red on \`${sha7}\` ([run ${ci.runId}](${ci.url}), attempt ${ci.attempt}).` +
+        (log ? ` Failing log tail:` : ` (no log tail available)`);
+      try {
+        await forge.prComment(pr.number, body, log);
+      } catch (e) {
+        console.error(`[ci] PR #${pr.number} comment failed:`, e.message);
+      }
+    }
+
+    const target = cfg.forge?.ciTarget ? findStep(cfg, cfg.forge.ciTarget) : cfg.pipeline?.find((s) => s.createsWorktree) ?? null;
+    if (!target) {
+      console.log(`[ci] ${job.ref}: no ciTarget / createsWorktree step to bounce to`);
+      return done(task);
+    }
+
+    // Once per sha (two red workflows on one commit bounce once), then park-or-bounce.
+    // Sync from the check through setCiRed: runClaude's busy flag + take can't interleave.
+    const key = `cibounce:${job.ref}:${ci.headSha}`;
+    store?.reloadSeen();
+    if (store?.hasSeen(key)) {
+      console.log(`[ci] ${job.ref} already bounced for ${sha7}`);
+      return done(task);
+    }
+    store?.markSeen(key);
+    const text = `CI failed${ci.attempt > 1 ? " twice" : ""} on ${sha7} (run ${ci.url}, attempt ${ci.attempt}). The failing log tail is posted on PR #${pr.number}.`;
+    if (busy.has(job.ref) || store?.listRunning()?.[job.ref]) {
+      store?.setCiRed(job.ref, { target: target.id, text });
+      console.log(`[ci] ${job.ref} has a run in flight — bounce to "${target.id}" parked until it exits`);
+      emit?.("ci_red", job.ref, "", { action: "deferred", target: target.id, ...extra });
+      return done(task);
+    }
+    await bounceCi(job.ref, { target: target.id, text }, task, extra);
+    return done(task);
+  }
+
   /** @param {import('./types.js').Job} job */
-  return async function runClaude(job) {
-    if (job.kind === "merge") return runMerge(job);
+  async function runStep(job) {
     const step = findStep(cfg, job.stepId);
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
     const task = await adapter.fetchTask(job.ref);
@@ -555,27 +728,20 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       console.log(`[dispatch] stored difficulty=${verdict.difficulty} for ref ${job.ref}`);
     }
 
-    // Changes-loop guard: route `changes` back to its target step (verdict.target, else
-    // the previous step), but only while that step is under its attempt cap. At the cap,
-    // stop the ping-pong — force fail. Resolve target to a concrete id for the adapter.
-    if (verdict.outcome === "changes") {
-      const target = verdict.target ? findStep(cfg, verdict.target) : prevStep(cfg, step.id);
-      if (!target) {
-        verdict.outcome = "fail";
-        verdict.reason = `changes had no resolvable target from "${step.id}"`;
-      } else {
-        const ran = store?.getAttempt(job.ref, target.id) ?? 0;
-        const cap = target.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-        if (ran >= cap) {
-          verdict.outcome = "fail";
-          verdict.reason = `changes loop hit cap (${cap}) on step "${target.id}"`;
-        } else {
-          verdict.target = target.id;
-          const text = verdict.findings || verdict.reason;
-          if (text && store) store.setFindings(job.ref, { target: target.id, fromStep: step.id, text });
-        }
-      }
+    // A red-CI bounce parked while this run was in flight: a downstream step's clean
+    // `advance` becomes `changes` → the CI target (the guard below still caps it). Any
+    // other case drops it — the target itself is reworking, or the verdict already takes
+    // the task off the happy path (changes/fail/hold stand).
+    const parked = store?.takeCiRed(job.ref);
+    const ciBounce = !!parked && verdict.outcome === "advance" && stepIndex(step.id) > stepIndex(parked.target);
+    if (parked && ciBounce) {
+      Object.assign(verdict, { outcome: "changes", target: parked.target, reason: parked.text, findings: parked.text });
+    } else if (parked) {
+      console.log(`[ci] drop parked bounce for ${job.ref} (${step.id} -> ${verdict.outcome})`);
     }
+
+    guardChanges(job.ref, step.id, verdict, ciBounce ? "ci" : step.id);
+    if (ciBounce && verdict.outcome === "changes") emit?.("ci_red", job.ref, step.id, { action: "bounced", target: verdict.target });
 
     // Drain before advancing, so the worktree is gone by the time the next stage looks.
     // A `changes` keeps the worktree (the re-fired step reworks the same branch/PR).
@@ -615,5 +781,25 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     }
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };
+  }
+
+  /** @param {import('./types.js').Job} job */
+  return async function runClaude(job) {
+    if (job.kind === "merge") return runMerge(job);
+    if (job.kind === "ci") return runCi(job);
+    busy.add(job.ref);
+    /** @type {{name?: string, url?: string}} */
+    let info = {};
+    try {
+      info = await runStep(job);
+      return info;
+    } finally {
+      // A red-CI bounce parked after this run's verdict was read: apply it now, from
+      // wherever the task landed. Sync with the delete, so a concurrent runCi either
+      // sees this ref busy (and parks) or finds this take already done (and bounces).
+      busy.delete(job.ref);
+      const late = store?.takeCiRed(job.ref);
+      if (late) await bounceCi(job.ref, late, info);
+    }
   };
 }

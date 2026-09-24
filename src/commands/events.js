@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config.js";
 
-const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged"]);
+const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "ci_red"]);
 
 /**
  * Parse an event line as JSON; return null on failure.

@@ -3,8 +3,8 @@
 /**
  * Boot-restore plan for persisted queue entries: which to re-enqueue (in order) and
  * which to drop (ref was mid-run at boot — recovery failed it — or step is gone). A
- * `merge` job is always kept: the PR merged regardless, its `merged:<n>` key is already
- * in `seen` (a redelivery won't re-fire it), and its stepId may be "".
+ * non-pipeline job (`merge`, `ci`) is always kept: the forge event happened regardless,
+ * its key is already in `seen` (a redelivery won't re-fire it), and its stepId may be "".
  * @param {import('./types.js').Job[]} queued
  * @param {Iterable<string>} runningRefs
  * @param {Iterable<string>} stepIds
@@ -15,7 +15,7 @@ export function planRestore(queued, runningRefs, stepIds) {
   /** @type {import('./types.js').Job[]} */ const keep = [];
   /** @type {import('./types.js').Job[]} */ const drop = [];
   for (const j of queued) {
-    const stale = j.kind !== "merge" && (running.has(j.ref) || !steps.has(j.stepId));
+    const stale = (j.kind ?? "pipeline") === "pipeline" && (running.has(j.ref) || !steps.has(j.stepId));
     (stale ? drop : keep).push(j);
   }
   return { keep, drop };
@@ -39,10 +39,12 @@ export function createQueue(max, run, onChange, persist) {
   // the second; a later legit re-entry (next step, or a `changes` rework) carries a
   // different stepId, or arrives after this key is cleared on completion. A `merge`
   // job is keyed apart from pipeline jobs: it moves the task into its completeOnMerge
-  // step, and that step's own pipeline job must not be coalesced away behind it.
+  // step, and that step's own pipeline job must not be coalesced away behind it. A `ci`
+  // job is keyed by its run+attempt: two red workflows on one ref each get handled.
   const inflight = new Set();
   /** @param {import('./types.js').Job} job */
-  const workKey = (job) => `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
+  const workKey = (job) =>
+    job.kind === "ci" ? job.dedupKey : `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
   /** @type {(() => void)[]} */
