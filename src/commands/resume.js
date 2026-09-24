@@ -15,8 +15,9 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { loadConfig } from "../config.js";
+import { createStore } from "../store.js";
 import { worktreePath } from "../worktree.js";
-import { sessionDir, listSessions, recentRuns } from "../sessions.js";
+import { sessionDir, listSessions, recentRuns, refRepo } from "../sessions.js";
 import { ago } from "./ls.js";
 
 /** @param {string|number} s @param {number} n */
@@ -53,6 +54,7 @@ function select(sessions, sel) {
 /** @param {any} args */
 export async function resume(args) {
   const cfg = loadConfig({ configPath: args.config });
+  const store = createStore(cfg.dataDir); // sticky ref → repo (multi-repo); refRepo falls back without it
   const ref = args._[0];
   const sel = args._[1];
 
@@ -65,19 +67,19 @@ export async function resume(args) {
     }
     console.log(`${pad("REF", 22)}${pad("LAST STEP", 12)}${pad("LAST RUN", 12)}${pad("WT", 10)}SESSIONS`);
     for (const r of runs) {
-      const present = fs.existsSync(worktreePath(cfg, r.ref));
+      const present = fs.existsSync(worktreePath(cfg, r.ref, refRepo(cfg, r.ref, store)));
       console.log(
         `${pad(r.ref, 22)}${pad(r.step, 12)}${pad(ago(iso(r.at)), 12)}` +
-          `${pad(present ? "present" : "drained", 10)}${sessionCount(sessionDir(cfg, r.ref))}`,
+          `${pad(present ? "present" : "drained", 10)}${sessionCount(sessionDir(cfg, r.ref, store))}`,
       );
     }
     console.log(`\nlist a ref's sessions:  agenthook resume <ref>`);
     return;
   }
 
-  const sessions = listSessions(cfg, ref);
-  if (!sessions.length) throw new Error(`no recorded agent session for ref ${ref} (looked in ${sessionDir(cfg, ref)})`);
-  const wt = worktreePath(cfg, ref);
+  const sessions = listSessions(cfg, ref, store);
+  if (!sessions.length) throw new Error(`no recorded agent session for ref ${ref} (looked in ${sessionDir(cfg, ref, store)})`);
+  const wt = worktreePath(cfg, ref, refRepo(cfg, ref, store));
   const present = fs.existsSync(wt);
 
   // ref only → list the ref's sessions and how to resume each.

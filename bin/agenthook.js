@@ -6,7 +6,7 @@
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
 //   agenthook ls                   table of all profiles + status
 //   agenthook status [name]        one profile in detail
-//   agenthook follow [session-id]  tail a live agent transcript (read-only)
+//   agenthook follow [session-id] [--repo <id>]  tail a live agent transcript (read-only)
 //   agenthook resume [ref]         print/run the claude --resume for a ref's agent
 //   agenthook agents [--all] [--verbose] [--json]  list running `claude -p` processes (this profile; --all = every profile)
 //   agenthook cleanup [--apply [--force]]   prune done agent worktrees
@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo"]);
 
 /** @param {string[]} argv */
 function parse(argv) {
@@ -83,7 +83,7 @@ usage: agenthook <command> [args] [--config <path>]
   stop [--keep-hooks]       stop the receiver
   ls                        all profiles + status
   status [name]             one profile in detail
-  follow [session-id]       tail a live agent (read-only)
+  follow [session-id] [--repo <id>]  tail a live agent (read-only; --repo = one repo only)
   resume [ref [session]]    list a ref's sessions / print|--exec claude --resume for one
   agents [--all] [--verbose] [--json]  running claude -p processes (--all = every profile; --verbose = +pid/ref)
   cleanup [--apply [--force]]   prune done worktrees

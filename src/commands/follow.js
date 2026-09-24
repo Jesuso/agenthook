@@ -3,10 +3,55 @@
 // `claude --resume`), so it can't interfere with the running agent. With no id,
 // auto-picks the newest dispatched transcript (its first turn carries the engine
 // marker "=== TICKET ===", which a hand-run session won't have).
+//
+// Transcripts live under the agent's launch-cwd mangle: the repo root for steps without
+// a worktree, the task's worktree for the rest. So it searches, per repo (or only the one
+// `--repo <id>` names), the repo mangle plus every worktree mangle under the repo's base.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../config.js";
-import { claudeProjectDir } from "../paths.js";
+import { claudeProjectDir, mangle, worktreeDir } from "../paths.js";
+import { reposOf } from "../repos.js";
+
+/** `.jsonl` names in a dir ([] if unreadable). @param {string} dir */
+const jsonls = (dir) => {
+  try {
+    return fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+    return [];
+  }
+};
+
+/** Transcript dirs that exist for the given repos: each repo's root mangle, plus every
+ * `~/.claude/projects` entry under its worktree-base mangle (`<base>/<ref>`, or
+ * `<base>/<repo.id>/<ref>` multi-repo). Deduped, in search order.
+ * @param {import('../types.js').Config} cfg @param {import('../types.js').RepoConfig[]} repos
+ * @returns {{ dirs: string[], searched: string[] }} existing dirs + every location looked at */
+export function transcriptDirs(cfg, repos) {
+  const projects = path.join(os.homedir(), ".claude", "projects");
+  /** @type {string[]} */
+  let entries = [];
+  try {
+    entries = fs.readdirSync(projects);
+  } catch {
+    /* no Claude projects dir yet */
+  }
+  /** @type {Set<string>} */
+  const dirs = new Set();
+  /** @type {string[]} */
+  const searched = [];
+  for (const repo of repos) {
+    const root = claudeProjectDir(repo.path);
+    searched.push(root);
+    if (fs.existsSync(root)) dirs.add(root);
+    const base = cfg.multiRepo ? path.join(worktreeDir(cfg, repo), repo.id) : worktreeDir(cfg, repo);
+    const prefix = mangle(base) + "-";
+    searched.push(path.join(projects, `${prefix}*`));
+    for (const e of entries) if (e.startsWith(prefix)) dirs.add(path.join(projects, e));
+  }
+  return { dirs: [...dirs], searched };
+}
 
 /** @param {string} s @param {number} [n] */
 const clip = (s, n = 200) => {
@@ -41,28 +86,31 @@ function render(line) {
 /** @param {any} args */
 export async function follow(args) {
   const cfg = loadConfig({ configPath: args.config });
-  const proj = claudeProjectDir(cfg.repoPath);
-  if (!fs.existsSync(proj)) throw new Error(`no transcript dir for ${cfg.repoPath}: ${proj}`);
+  let repos = reposOf(cfg);
+  if ("repo" in args) {
+    const hit = repos.find((r) => r.id === args.repo);
+    if (!hit) throw new Error(`unknown repo "${args.repo}" — valid ids: ${repos.map((r) => r.id).join(", ")}`);
+    repos = [hit];
+  }
+  const { dirs, searched } = transcriptDirs(cfg, repos);
 
   const id = args._[0];
   let file = "";
   if (id) {
-    file = path.join(proj, `${id}.jsonl`);
+    file = dirs.map((d) => path.join(d, `${id}.jsonl`)).find((f) => fs.existsSync(f)) || "";
   } else {
-    const files = fs
-      .readdirSync(proj)
-      .filter((f) => f.endsWith(".jsonl"))
-      .map((f) => ({ f, m: fs.statSync(path.join(proj, f)).mtimeMs }))
+    const files = dirs
+      .flatMap((d) => jsonls(d).map((f) => path.join(d, f)))
+      .map((full) => ({ full, m: fs.statSync(full).mtimeMs }))
       .sort((a, b) => b.m - a.m);
-    for (const { f } of files) {
-      const full = path.join(proj, f);
+    for (const { full } of files) {
       if (fs.readFileSync(full, "utf8").slice(0, 8000).includes("=== TICKET ===")) {
         file = full;
         break;
       }
     }
   }
-  if (!file || !fs.existsSync(file)) throw new Error(`session transcript not found: ${id || "<auto>"}`);
+  if (!file) throw new Error(`session transcript not found: ${id || "<auto>"} (searched ${searched.join(", ")})`);
 
   console.log(`following: ${path.basename(file)}  (Ctrl+C to stop — agent keeps running)`);
   console.log("────────────────────────────────────────────────────────");

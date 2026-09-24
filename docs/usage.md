@@ -12,7 +12,7 @@ emit one JSON object per line on stdout. agenthook parses that stream live:
 - **Per-run log rendering** — `assistant` events containing text content blocks are rendered as
   human-readable text in the per-run log (under `~/.agenthook/<name>/logs/`). The raw JSONL never
   appears in the log; only the extracted assistant text does. `ah follow` is unchanged — it still
-  tails the Claude transcript directory (derived from `repoPath`), not the per-run log.
+  tails the Claude transcript directory (the repo's and its worktrees'), not the per-run log.
 - **Token/cost tally** — on a clean exit, the stream emits a `result` event. agenthook reads its
   `usage` fields and `total_cost_usd`, then appends one `UsageRecord` to `usage.jsonl`.
 
@@ -106,10 +106,34 @@ Recent-run entries in `ah status` also show a per-run annotation:
 ### `ah ls`
 
 The profile list adds `TOKENS` and `COST` columns. Both are blank when `usage.jsonl` is absent or
-unreadable — the command never errors on a missing file.
+unreadable — the command never errors on a missing file. A `REPOS` column shows how many repos the
+profile routes to (`1` unless it declares a `repos` block).
 
 ## Log-format note
 
 Before token tracking, the per-run log contained raw `claude -p` output. It now contains rendered
 assistant text extracted from the `stream-json` stream. The format change is automatic; no config is
 needed. `ah follow` is unaffected — it tails the Claude transcript directory, which has not changed.
+
+## Multi-repo profiles
+
+A profile with a `repos` block routes each ticket to one of several checkouts. The ops commands
+cover every declared repo:
+
+- `ah cleanup` sweeps each repo's agent worktrees; every `REMOVE`/`KEEP` line is tagged `[<repo id>]`.
+- `ah resume <ref>` finds the ref's sessions in the repo it ran in (the sticky `repo.json` entry,
+  else whichever repo has its transcripts) and reports that repo's worktree as present or drained.
+- `ah follow` searches every repo's root and worktree transcripts. `ah follow --repo <id>` limits
+  the search to one repo (an unknown id lists the valid ones).
+- `ah status` prints one `repo` line per repo; `ah ls` shows the count under `REPOS`.
+- `ah doctor` checks each repo is a git repo, fails when 2+ repos have no `tracker.routeField`
+  (nothing can ever route), and warns (⚠, exit 0) when no repo is the default (every unrouted
+  ticket holds), when a non-manual step has no `hold*` binding (routing errors have nowhere to
+  park), or when legacy worktrees sit in the old layout.
+
+### Migrating a single-repo profile
+
+Declaring `repos` changes the worktree layout from `<base>/<ref>` to `<base>/<repo id>/<ref>`, so a
+task already in flight would lose its worktree mid-pipeline. Drain or finish in-flight tasks first,
+then add `repos` and `tracker.routeField`. `ah doctor` flags any leftover `<base>/<ref>` worktrees
+and `ah cleanup --apply` removes them once their PR is merged/closed or the item is completed.
