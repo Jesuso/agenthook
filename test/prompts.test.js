@@ -37,3 +37,21 @@ test("stepPrompt renders findings block only when ctx.findings set", () => {
   assert.doesNotMatch(without, /Review findings from/);
   assert.doesNotMatch(without, /gh pr review list/);
 });
+
+// --- the `@agent` resume section (ctx.resumeComment): appended, delimited, to every kind ---
+for (const kind of ["triage", "implement", "review"]) {
+  test(`stepPrompt(${kind}) appends the delimited human reply when resumeComment is set`, () => {
+    const plain = stepPrompt(task, meta, step(kind), ctx);
+    const resumed = stepPrompt(task, meta, step(kind), { ...ctx, resumeComment: "  @agent use Postgres 16  " });
+    assert.ok(!plain.includes("HUMAN REPLY"), "no reply section without resumeComment");
+    assert.match(resumed, /=== HUMAN REPLY \(resume\) ===\n[\s\S]*\n@agent use Postgres 16\n=== END HUMAN REPLY ===/);
+    assert.ok(resumed.indexOf("=== END HUMAN REPLY ===") < resumed.indexOf("=== VERDICT (required) ==="));
+    assert.equal(resumed.replace(/\n\n=== HUMAN REPLY \(resume\) ===[\s\S]*?=== END HUMAN REPLY ===/, ""), plain);
+  });
+}
+
+test("stepPrompt(triage) hold line says the owner's trigger reply resumes the stage", () => {
+  const p = stepPrompt(task, meta, step("triage"), { verdictFile: "/v.json" });
+  assert.match(p, /owner's "@agent …" reply comment resumes this stage/);
+  assert.match(p, /Do NOT start the comment with "@agent"/);
+});

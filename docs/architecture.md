@@ -115,7 +115,7 @@ exiting, and `dispatch.js` reads it after the process closes:
 | Outcome | Routes to | Used for |
 |---------|-----------|----------|
 | `advance` | success section (= next step's source) | normal forward motion |
-| `hold` | hold section (parked, out of the queue) | blocked on a human answer; they reply + re-file |
+| `hold` | hold section (parked, out of the queue) | blocked on a human answer; the owner's `@agent …` reply resumes it (below) |
 | `changes` | the target step's source (re-fires it) | review bounces work back to coding — the rework loop |
 | `fail` | failure section | needs a human; can't proceed unattended |
 
@@ -125,6 +125,32 @@ Trust rules: a **non-zero exit is always `fail`** (a crashed agent's verdict isn
 the review feedback off the PR) and is **capped**: `maxAttempts` (default 3) runs of a step per
 task, after which a further `changes` is forced to `fail` — bounding an endless code↔review
 ping-pong, which under `--dangerously-skip-permissions` would be unbounded code execution.
+
+### Resuming a held step (`@agent` reply)
+
+An agent may end a run with a question: it posts the question as a comment and writes `hold`. The
+receiver records the held step in `held.json` (`ref → {stepId, reason, heldAt}`) and the item parks in
+the hold lane. The **owner** answers with a comment that starts with `trigger` (default `@agent`),
+e.g. `@agent use Postgres 16`. That comment re-runs **the step that held**, in the same worktree,
+with the reply appended to its prompt as a delimited `=== HUMAN REPLY (resume) ===` block. No drag
+or relabel needed. (Moving the item back to the step's source stage by hand still works; the agent
+then runs without the reply.)
+
+A comment triggers a resume only when **all** of these hold. Anything uncertain means no run and a
+log line:
+
+- the author is **exactly the tracker identity** agenthook runs as (Asana `userGid`, GitHub the
+  token's login). This check is independent of `assigneeFilter`, and an unset/unresolvable identity
+  rejects every comment (fail-closed);
+- the body starts with `trigger` (agents are told never to start their own comments with it);
+- the item passes the normal assignee gate;
+- the item has a held record naming a non-manual step;
+- that step is under its `maxAttempts` cap. Agents post with the same token as the owner, so this
+  bounds a self-trigger loop.
+
+Any run of any step for the item consumes the held record, as do `fail` and the drain step. Supported
+on **Asana** (story `comment_added`) and **GitHub** labels (`issue_comment`). Not yet on Jira or
+GitHub Projects; there, resume by moving the item back to the step's source status.
 
 ## Security posture
 

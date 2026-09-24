@@ -117,6 +117,14 @@ agenthook acts only on cards whose **issue is assigned to the token owner** (res
 issue (`agenthook run` does this for you), or set `"assigneeFilter": false` to act on any assignee
 board-wide (deliberate, not a default).
 
+## 5. Resuming a held step
+
+The `@agent` reply resume ([architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply))
+is **not supported on GitHub Projects yet**: a comment does not re-run a held step. To resume,
+answer the agent's question, then set the card's Status from its `holdStatus` back to the step's
+`sourceStatus`. The step re-runs, but without your reply in its prompt. (A future adapter would need
+the `issue_comment` event on a repo or org hook; `projects_v2_item` does not carry comments.)
+
 ## Verify
 
 ```bash

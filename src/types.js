@@ -13,6 +13,7 @@
  * @property {string} ref       provider-native item id (Asana gid, …)
  * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
+ * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  */
 
 /**
@@ -49,6 +50,7 @@
  * @property {string} [holdLabel]              GitHub: swap to this label on `hold`; absent → leave in place
  * @property {string} [queueLabel]             GitHub: opt-in queue stage (backlog label) this step pulls from, oldest-created first, when a slot frees
  * @property {boolean} [closeIssue]            GitHub: entering this (terminal) step CLOSES the issue — auto-releasing the dependents it was blocking
+ * @property {boolean} [completeTask]          Asana: entering this (terminal) step marks the task COMPLETED — auto-releasing the dependents it was blocking
  */
 
 /**
@@ -93,6 +95,13 @@
  * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
  * @property {string} [title]      the task title
  * @property {number} [pr]         the PR number for the ref's branch, once one exists
+ */
+
+/** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.
+ * @typedef {object} HeldInfo
+ * @property {string} stepId
+ * @property {string} [reason]   the agent's hold reason (its question, in short)
+ * @property {string} heldAt     ISO timestamp the hold verdict landed
  */
 
 /** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals
@@ -332,6 +341,9 @@
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
  * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
+ * @property {(ref: string) => HeldInfo|undefined} getHeld          the step ref is parked on by a `hold` verdict (undefined = not held)
+ * @property {(ref: string, info: HeldInfo) => void} setHeld        record a `hold` verdict for ref
+ * @property {(ref: string) => void} clearHeld                      drop the held record for ref (resumed / re-entered / terminal)
  * @property {(ref: string) => {target: string, fromStep: string, text: string}|undefined} getFindings  review findings pending for ref's rework step
  * @property {(ref: string, f: {target: string, fromStep: string, text: string}) => void} setFindings  persist findings on a `changes` bounce (latest wins)
  * @property {(ref: string) => void} clearFindings                  drop pending findings for ref

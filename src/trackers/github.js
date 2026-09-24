@@ -14,10 +14,13 @@
 //     GENERATED secret like Jira (or an explicit tracker.webhookSecret; `false`
 //     disables verification). Verified via `x-hub-signature-256: sha256=<hex>`.
 //   - One repo webhook on the `issues` event delivers opened / reopened / labeled /
-//     assigned; all route to the step whose sourceLabel the issue now carries.
+//     assigned; all route to the step whose sourceLabel the issue now carries. The
+//     same hook's `issue_comment` event carries the `@agent` resume: an OWNER-authored
+//     comment starting with cfg.trigger on a held issue re-runs the step that held.
 //   - The assignee "us" is the token owner's login, read once from /user and cached
 //     (so no login is pasted). Scoping is FAIL CLOSED — see scopeToUser below.
 import crypto from "node:crypto";
+import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
 
 /** @type {import('../types.js').AdapterFactory} */
@@ -96,6 +99,19 @@ export function createGithubAdapter(cfg, store) {
     if (!scopeToUser) return true;
     try {
       return login != null && norm(login) === norm(await ourLogin());
+    } catch (e) {
+      console.error(`[user] could not resolve our login (failing closed):`, e instanceof Error ? e.message : e);
+      return false;
+    }
+  }
+  /** Is this comment author the token owner? STRICT and independent of assigneeFilter
+   * (unlike isOurs): an `@agent` resume only counts from our own identity. An
+   * unresolvable login fails closed. @param {string|null|undefined} login @returns {Promise<boolean>} */
+  async function isOwner(login) {
+    if (!login) return false;
+    try {
+      const me = await ourLogin();
+      return !!me && norm(login) === norm(me);
     } catch (e) {
       console.error(`[user] could not resolve our login (failing closed):`, e instanceof Error ? e.message : e);
       return false;
@@ -245,6 +261,29 @@ export function createGithubAdapter(cfg, store) {
     }
   }
 
+  /** The `@agent` comment trigger. Emits a resume job only when ALL hold (anything
+   * uncertain → no job): a newly created comment on an issue (not a PR), whose body
+   * starts with cfg.trigger, authored by the token owner (strict — assigneeFilter:false
+   * does NOT open this up), on an issue that passes the assignee gate, which is held on
+   * a runnable step still under its attempt cap (resumeJob).
+   * @param {any} ev @param {string} ref @returns {Promise<import('../types.js').Job[]>} */
+  async function resumeFromComment(ev, ref) {
+    if (ev.action !== "created") return [];
+    if (ev.issue.pull_request) return []; // issue_comment also fires for PR conversation comments
+    const c = ev.comment;
+    if (c?.id == null || !startsWithTrigger(cfg.trigger, c.body)) return [];
+    if (!(await isOwner(c.user?.login))) {
+      console.log(`[trigger] #${ref}: comment ${c.id} not by our login — ignoring`);
+      return [];
+    }
+    if (!(await issueIsOurs(ev.issue))) {
+      console.log(`[trigger] #${ref}: not assigned to us — ignoring`);
+      return [];
+    }
+    const job = resumeJob(cfg, store, ref, String(c.id), c.body);
+    return job ? [job] : [];
+  }
+
   return {
     describe: () => ({
       platform: "GitHub",
@@ -267,15 +306,18 @@ export function createGithubAdapter(cfg, store) {
     },
 
     // One GitHub delivery = one event object. The `X-GitHub-Event` header names the
-    // type (we only care about `issues`; `ping` on hook-create is ACKed and ignored).
-    // We route:
+    // type (we care about `issues` + `issue_comment`; `ping` on hook-create is ACKed and
+    // ignored). We route:
     //   opened/reopened/assigned → the step whose sourceLabel the issue carries
     //                              (state-based key `step:<id>:<ref>` — idempotent).
     //   labeled                  → the step whose sourceLabel was just added
     //                              (event-based key `secmove:<delivery>` — a later
     //                              re-add of the same label fires again; retries dedup).
+    //   issue_comment created    → the `@agent` resume of the issue's held step
+    //                              (key `trigger:<comment.id>`; see resumeFromComment).
     async processEvents({ headers, rawBody }) {
-      if (norm(Array.isArray(headers["x-github-event"]) ? headers["x-github-event"][0] : headers["x-github-event"]) !== "issues") return [];
+      const kind = norm(Array.isArray(headers["x-github-event"]) ? headers["x-github-event"][0] : headers["x-github-event"]);
+      if (kind !== "issues" && kind !== "issue_comment") return [];
       let ev;
       try {
         ev = JSON.parse(rawBody);
@@ -286,6 +328,8 @@ export function createGithubAdapter(cfg, store) {
       const issue = ev.issue;
       if (issue?.number == null) return [];
       const ref = String(issue.number);
+
+      if (kind === "issue_comment") return resumeFromComment(ev, ref);
 
       // Close-release: when an issue closes, fire any of OUR dependents it was blocking
       // that are now fully unblocked and resting in a step's source label. The closed
@@ -349,7 +393,8 @@ export function createGithubAdapter(cfg, store) {
     // to — and that label change is itself the trigger for whatever step sources it:
     //   advance → successLabel (the next step's source — drives forward)
     //   fail    → failureLabel (a human picks it up)
-    //   hold    → holdLabel    (parked; a human answers + relabels it back)
+    //   hold    → holdLabel    (parked; the owner's `@agent` reply resumes it, or a
+    //                           human relabels it back)
     //   changes → the target step's sourceLabel (re-fires it — the rework loop;
     //             dispatch already resolved verdict.target to a concrete stepId)
     // A missing target label is a no-op: the issue stays put, logged.
@@ -374,9 +419,11 @@ export function createGithubAdapter(cfg, store) {
       }
       // Leave the finished stage, enter the new one. Order: add first, then remove, so
       // a crash between the two leaves the issue in BOTH stages (re-fires, recoverable)
-      // rather than NEITHER (stuck, invisible to the pipeline).
+      // rather than NEITHER (stuck, invisible to the pipeline). A step resumed by an
+      // `@agent` reply still carries its holdLabel (not its sourceLabel), so drop that too.
       await addLabel(ref, label);
       if (step.sourceLabel && norm(step.sourceLabel) !== norm(label)) await removeLabel(ref, step.sourceLabel);
+      if (step.holdLabel && norm(step.holdLabel) !== norm(label) && norm(step.holdLabel) !== norm(step.sourceLabel)) await removeLabel(ref, step.holdLabel);
       console.log(`[label] moved #${ref} -> ${label} (${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""})`);
       // Entering a terminal step flagged closeIssue (e.g. the manual `done` step) CLOSES the
       // GitHub issue, so a blocker that finishes its own pipeline auto-releases its dependents
@@ -477,7 +524,7 @@ export function createGithubAdapter(cfg, store) {
 
     // Auto-create the repo webhook (GitHub, unlike Jira, allows it with a token). Scrub
     // our stale hooks first (the tunnel URL rotates each boot on an ephemeral ingress),
-    // then create one `issues` hook signed with the generated secret.
+    // then create one `issues` + `issue_comment` hook signed with the generated secret.
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/github/`;
       await deleteOurHooks();
@@ -487,7 +534,7 @@ export function createGithubAdapter(cfg, store) {
         body: JSON.stringify({
           name: "web",
           active: true,
-          events: ["issues"],
+          events: ["issues", "issue_comment"],
           config: { url: target, content_type: "json", insecure_ssl: "0", ...(secret ? { secret } : {}) },
         }),
       });
