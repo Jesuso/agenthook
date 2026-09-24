@@ -85,3 +85,14 @@ test("attempt counters bump/get/clear per (ref,step) — the changes-loop cap", 
   s.clearAttempts("T1");
   assert.equal(s.getAttempt("T1", "code"), 0);
 });
+
+test("findings set/get/clear round-trip and persist across instances", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.equal(s.getFindings("7"), undefined);
+  s.setFindings("7", { target: "code", fromStep: "review", text: "fix A" });
+  s.setFindings("7", { target: "code", fromStep: "review", text: "fix B" });
+  assert.equal(createStore(dir).getFindings("7").text, "fix B");
+  s.clearFindings("7");
+  assert.equal(createStore(dir).getFindings("7"), undefined);
+});

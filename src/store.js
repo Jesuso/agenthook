@@ -24,6 +24,7 @@ export function createStore(dataDir) {
   const runningFile = path.join(dataDir, "running.json");
   const attemptsFile = path.join(dataDir, "attempts.json");
   const difficultyFile = path.join(dataDir, "difficulty.json");
+  const findingsFile = path.join(dataDir, "findings.json");
   const usageFile = path.join(dataDir, "usage.jsonl");
 
   /** @param {string} f @param {any} fallback */
@@ -116,6 +117,21 @@ export function createStore(dataDir) {
       if (ref in m) {
         delete m[ref];
         fs.writeFileSync(difficultyFile, JSON.stringify(m));
+      }
+    },
+
+    // --- per-ref review findings (findings.json): set on a `changes` bounce, read by the target step ---
+    getFindings: (ref) => readJson(findingsFile, {})[ref],
+    setFindings: (ref, f) => {
+      const m = readJson(findingsFile, {});
+      m[ref] = f;
+      fs.writeFileSync(findingsFile, JSON.stringify(m));
+    },
+    clearFindings: (ref) => {
+      const m = readJson(findingsFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(findingsFile, JSON.stringify(m));
       }
     },
 

@@ -264,6 +264,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     return path.join(dir, `${safeRef}-${stepId}.json`);
   }
 
+  const MAX_FINDINGS = 20000;
+
   /**
    * Resolve the run's verdict from (exit code, verdict file). A non-zero exit is a
    * crashed/errored agent → fail, and its file is NOT trusted. A clean exit honors a
@@ -288,6 +290,9 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       target: typeof raw.target === "string" ? raw.target : undefined,
       reason: typeof raw.reason === "string" ? raw.reason : undefined,
       difficulty: DIFFICULTIES.includes(raw?.difficulty) ? raw.difficulty : undefined,
+      findings: typeof raw.findings === "string" && raw.findings.trim()
+        ? (raw.findings.length > MAX_FINDINGS ? `${raw.findings.slice(0, MAX_FINDINGS)}…(truncated)` : raw.findings)
+        : undefined,
     };
   }
 
@@ -306,6 +311,7 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
           console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
         }
         store?.clearAttempts(job.ref);
+        store?.clearFindings(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
         emit?.("pipeline_done", job.ref, step.id);
       }
@@ -338,7 +344,9 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     }
 
     const standing = readInstructions(step.instructionsFile || cfg.instructionsFile);
-    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile });
+    const pending = store?.getFindings(job.ref);
+    const findings = pending && pending.target === step.id ? pending : undefined;
+    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
     const logPath = logPathFor(step.id, job.ref);
@@ -396,6 +404,9 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     if (verdict.outcome === "hold") emit?.("blocked", job.ref, step.id, { reason: verdict.reason ?? null });
     if (verdict.outcome === "fail") emit?.("failed", job.ref, step.id, { reason: verdict.reason ?? null });
 
+    // Findings were delivered in this run's prompt — consume them whatever the outcome.
+    if (findings) store?.clearFindings(job.ref);
+
     // Persist a difficulty tag emitted by this step (typically triage) so later steps
     // (e.g. code) can gate their model/effort on it.
     if (verdict.difficulty && store) {
@@ -419,6 +430,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
           verdict.reason = `changes loop hit cap (${cap}) on step "${target.id}"`;
         } else {
           verdict.target = target.id;
+          const text = verdict.findings || verdict.reason;
+          if (text && store) store.setFindings(job.ref, { target: target.id, fromStep: step.id, text });
         }
       }
     }
@@ -448,6 +461,7 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     if (verdict.outcome === "fail" || drained) {
       store?.clearAttempts(job.ref);
       store?.clearDifficulty(job.ref);
+      store?.clearFindings(job.ref);
     }
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };

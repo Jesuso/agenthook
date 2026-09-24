@@ -63,6 +63,7 @@
  * @property {StepOutcome} outcome
  * @property {string} [target]     changes: the stepId to route back to (resolved to a concrete id by dispatch)
  * @property {string} [reason]     human-readable; logged, not posted
+ * @property {string} [findings]   changes: full Markdown review findings, handed verbatim to the target step's next prompt (falls back to `reason`)
  * @property {'easy'|'medium'|'hard'} [difficulty]  optional ticket difficulty emitted by triage; persisted per-ref to gate model/effort on subsequent steps
  */
 
@@ -272,6 +273,9 @@
  * @property {(ref: string) => 'easy'|'medium'|'hard'|undefined} getDifficulty  stored difficulty for ref (undefined = unknown)
  * @property {(ref: string, difficulty: 'easy'|'medium'|'hard') => void} setDifficulty  persist difficulty from triage verdict
  * @property {(ref: string) => void} clearDifficulty                drop stored difficulty for ref
+ * @property {(ref: string) => {target: string, fromStep: string, text: string}|undefined} getFindings  review findings pending for ref's rework step
+ * @property {(ref: string, f: {target: string, fromStep: string, text: string}) => void} setFindings  persist findings on a `changes` bounce (latest wins)
+ * @property {(ref: string) => void} clearFindings                  drop pending findings for ref
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
  */
