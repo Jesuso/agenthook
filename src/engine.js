@@ -54,7 +54,7 @@ export function createEngine(cfg) {
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
-  const runClaude = createDispatcher(cfg, adapter, children, store, emit);
+  const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge);
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
     { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },

@@ -9,11 +9,22 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'pipeline'|'merge'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task)
+ * @property {'pipeline'|'merge'|'ci'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces)
  * @property {string} ref       provider-native item id (Asana gid, …)
- * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or "")
+ * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or ""; ci: "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
  * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
+ * @property {CiRun} [ci]       ci jobs only: the red run
+ */
+
+/** A red CI run on a ref's agent branch (the `ci` job payload). Receiver-trusted
+ * fields only — no workflow/job names or log text (the PR head controls those).
+ * @typedef {object} CiRun
+ * @property {number} runId
+ * @property {number} attempt       the run's `run_attempt` (1 = first run, 2 = our re-run, …)
+ * @property {string} headSha       commit the run tested; a newer PR head makes the run stale
+ * @property {number|null} prNumber the PR the run belongs to, when the forge names one
+ * @property {string} url           the run's web URL
  */
 
 /**
@@ -271,16 +282,24 @@
  * @property {string} [owner]           GitHub: repo owner (alternative to repository)
  * @property {string} [repo]            GitHub: repo name (alternative to repository)
  * @property {string} [webhookSecret]   explicit signing secret; omit to let agenthook generate+store one (no opt-out — always verified)
+ * @property {boolean} [redCi]          react to red CI on agent PRs (re-run once, then bounce with `changes`). Default on; false disables
+ * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)
  */
 
 /** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
- * Serves the `/forge` path; turns a merged agent PR into a `merge` job.
+ * Serves the `/forge` path; turns a merged agent PR into a `merge` job and a red CI
+ * run on one into a `ci` job. The CI methods are optional (a forge without them
+ * never emits `ci` jobs); each throws on a non-2xx unless noted.
  * @typedef {object} Forge
  * @property {() => {name: string}} describe
  * @property {(ctx: EventCtx) => AuthResult} authenticate  sync, no network (same ACK window as the tracker)
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup
  * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
+ * @property {(prNumber: number|null, ref: string) => Promise<{number: number, sha: string, open: boolean}|null>} [prHead]  the ref's agent-branch PR (by number, else the open one), or null
+ * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
+ * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
+ * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
  */
 
 /** A factory `(cfg, store) => Forge`.
@@ -347,6 +366,8 @@
  * @property {(ref: string) => {target: string, fromStep: string, text: string}|undefined} getFindings  review findings pending for ref's rework step
  * @property {(ref: string, f: {target: string, fromStep: string, text: string}) => void} setFindings  persist findings on a `changes` bounce (latest wins)
  * @property {(ref: string) => void} clearFindings                  drop pending findings for ref
+ * @property {(ref: string, b: {target: string, text: string}) => void} setCiRed  park a red-CI bounce for ref while a step runs on it (latest wins)
+ * @property {(ref: string) => {target: string, text: string}|undefined} takeCiRed  read AND clear ref's parked red-CI bounce
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
  * @property {(ref: string) => RefMeta|undefined} getRefMeta        display metadata for ref (undefined = none recorded)

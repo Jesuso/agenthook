@@ -214,6 +214,11 @@ export function loadConfig(opts = {}) {
 
   // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
   if (cfg.forge && !cfg.forge.type) throw new Error(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
+  if (cfg.forge?.ciTarget != null) {
+    const t = cfg.pipeline.find((/** @type {import('./types.js').Step} */ s) => s.id === cfg.forge.ciTarget);
+    if (!t) throw new Error(`config: forge.ciTarget "${cfg.forge.ciTarget}" is not a pipeline step id.`);
+    if (t.manual) throw new Error(`config: forge.ciTarget "${t.id}" is a manual step (a red-CI bounce needs an agent step).`);
+  }
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   fs.mkdirSync(cfg.logDir, { recursive: true });

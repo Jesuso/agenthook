@@ -99,6 +99,24 @@ test("a merge job does not coalesce the same ref's pipeline job for its complete
   await q.onIdle();
 });
 
+test("planRestore keeps ci jobs (stepId \"\", running ref)", () => {
+  const c = { kind: "ci", ref: "B", stepId: "", dedupKey: "ci:9:1" };
+  const { keep, drop } = planRestore([job("A", "code"), c, job("B", "code")], ["B"], ["code"]);
+  assert.deepEqual(keep.map((j) => `${j.kind}:${j.ref}`), ["pipeline:A", "ci:B"]);
+  assert.deepEqual(drop.map((j) => j.ref), ["B"]);
+});
+
+test("two ci jobs for one ref don't coalesce; a redelivered one does", async () => {
+  const run = (j) => new Promise((resolve) => setTimeout(() => resolve(info(j)), 5));
+  const q = createQueue(1, run);
+  const ci = (k) => ({ kind: "ci", ref: "T1", stepId: "", dedupKey: k });
+  assert.equal(q.enqueue(ci("ci:1:1")), true);
+  assert.equal(q.enqueue(ci("ci:2:1")), true, "a second workflow's red run still gets handled");
+  assert.equal(q.enqueue(ci("ci:1:1")), false);
+  assert.equal(q.enqueue(job("T1", "review")), true, "and never blocks the ref's pipeline job");
+  await q.onIdle();
+});
+
 test("onSettle fires after each job settles with its slot already released; not once closed", async () => {
   /** @type {any[]} */
   const seen = [];
