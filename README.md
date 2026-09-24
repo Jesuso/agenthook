@@ -140,6 +140,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>
 | `port` | Local receiver port. Distinct per parallel profile. |
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
 | `maxConcurrent` | How many agents run at once (each in its own worktree). |
+| `overlapGuard` | **Off by default.** `true` holds a task's worktree step while the files its triage predicted overlap files another in-flight agent task has locked; it is released when that task drains, fails, or merges. See [File-overlap guard](docs/architecture.md#file-overlap-guard-overlapguard-opt-in). |
 | `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
 | `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), or `github-projects` (Projects v2 board columns); `pipeline` is the ordered steps (required). |
 | `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |

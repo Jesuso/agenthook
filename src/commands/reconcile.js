@@ -6,10 +6,15 @@
 //
 // Tasks currently mid-step (in the local running record) are skipped so a reconcile
 // never double-runs in-flight work.
+//
+// overlapGuard: a task waiting on a file-overlap lock rests in its source stage, so the
+// replay below already re-offers it to the gate. We only prune overlap.json waits whose
+// blocker no longer holds a lock (a release the receiver missed) first.
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { isPipeline } from "../pipeline.js";
+import { staleOverlaps } from "../overlap.js";
 
 /** @param {any} args */
 export async function reconcile(args) {
@@ -20,6 +25,14 @@ export async function reconcile(args) {
   if (!isPipeline(cfg)) die(`reconcile is for pipeline configs; "${cfg.name}" has no tracker.pipeline.`);
   if (typeof adapter.listResting !== "function" || typeof adapter.forgeCatchup !== "function") {
     die(`tracker "${cfg.provider}" does not support reconcile.`);
+  }
+
+  if (cfg.overlapGuard) {
+    const waiting = store.listOverlap();
+    for (const ref of staleOverlaps(waiting, store.listLocks())) {
+      store.clearOverlap(ref);
+      console.log(`[overlap] pruned ${ref} — its blocker ${waiting[ref].blockedBy} holds no lock`);
+    }
   }
 
   const resting = await adapter.listResting();

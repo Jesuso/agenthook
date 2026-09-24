@@ -50,3 +50,7 @@ test("a queue key equal to the step's own source is rejected (self-loop)", () =>
 test("a queue key on a manual step is rejected", () => {
   assert.throws(load([{ id: "done", manual: true, queueLabel: "queue:done" }]), /queueLabel is not allowed on a manual step/);
 });
+
+test("a non-boolean overlapGuard is rejected", () => {
+  assert.throws(load([{ id: "code" }], { overlapGuard: "yes" }), /"overlapGuard" must be true or false/);
+});

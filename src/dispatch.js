@@ -10,6 +10,7 @@ import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
 import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
+import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
 // before a `changes` loop back into it is forced to fail. Caps an endless code↔review
@@ -257,8 +258,9 @@ const readInstructions = (file) => {
  * @param {import('./types.js').Store} [store]  for in-flight (crash-recovery) records
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
  * @param {import('./types.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
+ * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
  */
-export function createDispatcher(cfg, adapter, children, store, emit, forge) {
+export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap) {
   const meta = adapter.describe();
   // Refs with a pipeline job in runClaude (spawn through advance). A red-CI bounce for a
   // busy ref is parked (store.setCiRed) instead of racing that job's own advance.
@@ -266,6 +268,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
   const busy = new Set();
   /** Pipeline position of a step id (-1 if unknown). @param {string} id */
   const stepIndex = (id) => cfg.pipeline?.findIndex((s) => s.id === id) ?? -1;
+
+  /** overlapGuard: the ref left the pipeline (drain / fail / merge) — drop its predicted
+   * paths and any stale wait, free its lock, wake whoever waited on it. No-op when off.
+   * @param {string} ref */
+  function leavePipeline(ref) {
+    if (!cfg.overlapGuard) return;
+    store?.clearPredictedPaths(ref);
+    store?.clearOverlap(ref);
+    releaseOverlap?.(ref);
+  }
 
   /** Cache the ref's PR number in refmeta once one exists. Receiver-side only (the CLIs
    * never write state); skipped for PR-less trackers and once a PR is known.
@@ -364,6 +376,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       findings: typeof raw.findings === "string" && raw.findings.trim()
         ? (raw.findings.length > MAX_FINDINGS ? `${raw.findings.slice(0, MAX_FINDINGS)}…(truncated)` : raw.findings)
         : undefined,
+      paths: sanitizePaths(raw.paths),
     };
   }
 
@@ -424,6 +437,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       store?.clearDifficulty(job.ref);
     }
 
+    // A merge is a release signal whether or not the move landed.
+    leavePipeline(job.ref);
     emit?.("merged", job.ref, job.stepId, { name: task.name, url: task.url });
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
   }
@@ -615,9 +630,41 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
         store?.clearFindings(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
         store?.clearHeld(job.ref);
+        leavePipeline(job.ref);
         emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
+    }
+
+    let tookLock = false;
+    if (cfg.overlapGuard && store) {
+      // A release re-enters here with no tracker event behind it: fail-closed on the
+      // assignee (a task reassigned — or finished — while it waited must never fire).
+      if (job.dedupKey?.startsWith("overlap:") && (!task.assignedToUs || task.completed)) {
+        console.log(`[assignee] skip overlap release ${job.ref}`);
+        return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
+      }
+      // Gate the worktree-creating step on the file-overlap locks. A ref that already
+      // holds a lock (a rework pass) is never gated — that would deadlock two refs.
+      if (step.createsWorktree && !store.getLock(job.ref)) {
+        const predicted = store.getPredictedPaths(job.ref) ?? [];
+        const blocker = findBlocker(job.ref, predicted, store.listLocks());
+        if (blocker) {
+          // Rest in the source stage: no agent, no advance, no attempt bump. The
+          // blocker leaving the pipeline re-intakes this step (engine releaseOverlap).
+          store.setOverlap(job.ref, { stepId: step.id, blockedBy: blocker, heldAt: new Date().toISOString() });
+          emit?.("overlap_held", job.ref, step.id, { blockedBy: blocker });
+          console.log(`[overlap] ${job.ref} (${step.id}) waits on ${blocker} — predicted paths overlap its lock`);
+          return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
+        }
+        store.clearOverlap(job.ref);
+        // Take the lock now, synchronously with the check, so a sibling dispatched
+        // concurrently (maxConcurrent > 1) already sees it.
+        if (predicted.length) {
+          store.setLock(job.ref, { paths: predicted, stepId: step.id });
+          tookLock = true;
+        }
+      }
     }
 
     // Count this run before it starts — the changes-loop guard reads it post-exit.
@@ -625,13 +672,21 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     // Any re-entry (an `@agent` resume, or a human dragging the item back) consumes a
     // pending hold: the ref is no longer parked, so a later reply must not resume it.
     store?.clearHeld(job.ref);
+    if (cfg.overlapGuard) store?.clearOverlap(job.ref);
 
     // System-owned worktree: create it on the step that declares createsWorktree,
     // otherwise reuse the one an earlier step made (same deterministic path).
     let worktree = worktreePath(cfg, job.ref);
     let branch;
     if (step.createsWorktree) {
-      const wt = ensureWorktree(cfg, job.ref);
+      let wt;
+      try {
+        wt = ensureWorktree(cfg, job.ref);
+      } catch (e) {
+        // No run will follow, so nothing would ever release the lock just taken.
+        if (tookLock) releaseOverlap?.(job.ref);
+        throw e;
+      }
       worktree = wt.worktree;
       branch = wt.branch;
       console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch})`);
@@ -651,7 +706,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
     const standing = readInstructions(step.instructionsFile || cfg.instructionsFile);
     const pending = store?.getFindings(job.ref);
     const findings = pending && pending.target === step.id ? pending : undefined;
-    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings, resumeComment: job.comment });
+    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings, resumeComment: job.comment, overlapGuard: cfg.overlapGuard });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
     const logPath = logPathFor(step.id, job.ref);
@@ -736,6 +791,17 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       console.log(`[dispatch] stored difficulty=${verdict.difficulty} for ref ${job.ref}`);
     }
 
+    // overlapGuard: a no-worktree step (triage) predicts paths; a worktree step's touched
+    // paths grow the ref's lock (union — never narrowed while its PR is unmerged).
+    if (cfg.overlapGuard && store && verdict.paths) {
+      if (!hasWorktree) {
+        store.setPredictedPaths(job.ref, verdict.paths);
+      } else {
+        const cur = store.getLock(job.ref);
+        store.setLock(job.ref, { paths: unionPaths(cur?.paths ?? [], verdict.paths), stepId: step.id });
+      }
+    }
+
     // A red-CI bounce parked while this run was in flight: a downstream step's clean
     // `advance` becomes `changes` → the CI target (the guard below still caps it). Any
     // other case drops it — the target itself is reworking, or the verdict already takes
@@ -787,6 +853,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge) {
       store?.clearDifficulty(job.ref);
       store?.clearHeld(job.ref);
       store?.clearFindings(job.ref);
+      leavePipeline(job.ref);
     }
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };

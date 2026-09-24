@@ -83,6 +83,7 @@
  * @property {string} [reason]     human-readable; logged, not posted
  * @property {string} [findings]   changes: full Markdown review findings, handed verbatim to the target step's next prompt (falls back to `reason`)
  * @property {'easy'|'medium'|'hard'} [difficulty]  optional ticket difficulty emitted by triage; persisted per-ref to gate model/effort on subsequent steps
+ * @property {string[]} [paths]    overlapGuard: repo-relative files (dir = trailing `/`) — predicted by a no-worktree step, touched by a worktree step (sanitised, ≤200)
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
@@ -113,6 +114,20 @@
  * @property {string} stepId
  * @property {string} [reason]   the agent's hold reason (its question, in short)
  * @property {string} heldAt     ISO timestamp the hold verdict landed
+ */
+
+/** Paths an in-flight ref holds under the file-overlap guard (store.locks). Only grows
+ * (predicted paths at gate time, then the union of every worktree step's verdict paths).
+ * @typedef {object} LockInfo
+ * @property {string[]} paths   repo-relative files; a trailing `/` marks a directory
+ * @property {string} stepId    the step that last wrote the lock
+ */
+
+/** A ref resting in its source stage behind another ref's lock (store.overlap).
+ * @typedef {object} OverlapInfo
+ * @property {string} stepId     the gated step, re-fired on release
+ * @property {string} blockedBy  the ref whose lock overlaps this ref's predicted paths
+ * @property {string} heldAt     ISO timestamp the gate held it
  */
 
 /** A finished run's token/cost record, appended to usage.jsonl (one per line). Totals
@@ -324,6 +339,7 @@
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent
+ * @property {boolean} [overlapGuard]  opt-in (default false); hold a createsWorktree step while its predicted paths overlap another in-flight ref's lock
  * @property {boolean} [fullAuto]   opt-in; adds --dangerously-skip-permissions (unsandboxed code exec from a webhook). Default false = agents prompt for permission.
  * @property {string} repoPath
  * @property {string} claudeBin
@@ -370,6 +386,17 @@
  * @property {(ref: string) => {target: string, text: string}|undefined} takeCiRed  read AND clear ref's parked red-CI bounce
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
+ * @property {(ref: string) => string[]|undefined} getPredictedPaths  overlapGuard: paths a no-worktree step predicted for ref
+ * @property {(ref: string, paths: string[]) => void} setPredictedPaths
+ * @property {(ref: string) => void} clearPredictedPaths
+ * @property {(ref: string) => LockInfo|undefined} getLock          overlapGuard: the paths ref holds while in flight
+ * @property {(ref: string, lock: LockInfo) => void} setLock
+ * @property {(ref: string) => void} clearLock
+ * @property {() => Record<string, LockInfo>} listLocks
+ * @property {(ref: string) => OverlapInfo|undefined} getOverlap    overlapGuard: the lock ref is waiting behind (undefined = not waiting)
+ * @property {(ref: string, info: OverlapInfo) => void} setOverlap
+ * @property {(ref: string) => void} clearOverlap
+ * @property {() => Record<string, OverlapInfo>} listOverlap
  * @property {(ref: string) => RefMeta|undefined} getRefMeta        display metadata for ref (undefined = none recorded)
  * @property {(ref: string, patch: RefMeta) => void} setRefMeta     shallow-merge patch into ref's record (undefined values skipped)
  * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
