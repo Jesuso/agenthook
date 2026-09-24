@@ -105,6 +105,14 @@ an ngrok reserved `domain`, or a `hosted` URL behind your own proxy — never an
 agenthook acts only on issues assigned to the token owner (resolved from `/myself`), fail-closed: if
 it can't resolve "us", it touches nothing. `"assigneeFilter": false` opts into project-wide.
 
+## 6. Resuming a held step
+
+The `@agent` reply resume ([architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply))
+is **not supported on Jira yet**: a comment does not re-run a held step. To resume, answer the
+agent's question, then transition the issue from its `holdStatus` back to the step's `sourceStatus`.
+The step re-runs, but without your reply in its prompt. (A future adapter would subscribe the
+webhook to `comment_created`.)
+
 ## Verify
 
 ```bash

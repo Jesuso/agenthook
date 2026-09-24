@@ -121,7 +121,9 @@ Key files:
   agents safe. Takes an `onChange` callback the engine wires to the heartbeat.
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
   path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
-  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), and `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap).
+  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), and
+  `held.json` (`ref → {stepId, reason, heldAt}` written on a `hold` verdict; any later run of the
+  ref, `fail`, or drain clears it — it names the step an `@agent` reply resumes).
   **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
   disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
@@ -135,9 +137,16 @@ Key files:
   also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
   to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 
-The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId, dedupKey }`.
+The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId, dedupKey, comment? }`.
 Adapters produce jobs; the engine only ever sees jobs. The execution model is the pipeline: a task
-moving between board sections drives it; there is no assignment/comment path.
+moving between board sections drives it. The one comment path is the **`@agent` resume**: an
+owner-authored comment starting with `cfg.trigger` on a **held** item re-runs the held step with
+the comment as `job.comment` (appended to the prompt). Gate (all required, fail-closed): author
+**strictly** = our tracker identity (independent of `assigneeFilter` — never reuse `isOurs`), body
+starts with the trigger, the item passes the assignee gate, `store.getHeld(ref)` names a non-manual
+step, and that step is under its `maxAttempts` cap (agent and owner share one token, so the cap
+bounds self-triggering). Adapter-neutral half: `resumeJob` in `src/pipeline.js`. Asana + GitHub
+labels only; Jira / Projects v2 not yet.
 
 ## Provider specifics that bite
 
@@ -146,7 +155,9 @@ moving between board sections drives it; there is no assignment/comment path.
   `task/added` + `story/section_changed` (verified to deliver on a project hook). Both route via the
   task's **live** `memberships.section.gid` → the step whose `sourceSectionGid` matches. Dedup:
   `step:<id>:<gid>` (created-in-section) and `secmove:<storyGid>` (moved). `advance` moves a task by
-  `POST /sections/<gid>/addTask`.
+  `POST /sections/<gid>/addTask`. A third filter, `story/comment_added`, carries the `@agent` resume
+  (author = `created_by.gid` must equal `userGid`; dedup `trigger:<storyGid>`; project-hook delivery
+  not yet smoke-tested).
 - **Jira** — Basic auth (`base64("<email>:<token>")`, REST v2). Steps bind `sourceStatus`; routing
   is on the issue's status. `advance` has no "set status" — it executes the **transition** whose
   `to` matches the target (an unreachable status is a logged no-op). Webhook is **by hand** (Jira
@@ -157,7 +168,9 @@ moving between board sections drives it; there is no assignment/comment path.
   between the two leaves the issue re-firing, not stuck). One repo webhook on the `issues` event,
   **auto-created via REST** (unlike Jira) and signed with an agenthook-generated secret →
   `x-hub-signature-256`. Routes `opened`/`reopened`/`assigned` by the issue's current labels
-  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). 'Us' = the token's login
+  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). The hook also takes
+  `issue_comment` (`created` only, PRs skipped) for the `@agent` resume (dedup `trigger:<comment.id>`);
+  since a resumed issue carries the step's `holdLabel`, `advance` removes that too. 'Us' = the token's login
   from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues + Webhooks RW (fine-grained).
 - **GitHub Projects v2** — the *other* GitHub tracker: steps bind a board's **Status single-select
   options** (`sourceStatus`/… — Jira's keys), not labels. API is **GraphQL** (`/graphql`, Bearer);

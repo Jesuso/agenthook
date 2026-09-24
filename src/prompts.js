@@ -31,6 +31,26 @@ function verdictFooter(verdictFile, outcomeLines) {
 }
 
 /**
+ * The owner's reply that resumed a held step (an `@agent …` comment on the item),
+ * as a delimited block. Empty when this run wasn't a resume, so the prompt is unchanged.
+ * @param {string|undefined} comment
+ * @param {import('./types.js').AdapterMeta} meta
+ * @returns {string[]}
+ */
+function resumeSection(comment, meta) {
+  if (!comment) return [];
+  return [
+    ``,
+    `=== HUMAN REPLY (resume) ===`,
+    `An earlier run of this stage ended with "hold" and asked the owner a question. This is the`,
+    `owner's answer (their "${meta.trigger}" comment on the ${meta.taskNoun}). Use it and carry on:`,
+    ``,
+    comment.trim(),
+    `=== END HUMAN REPLY ===`,
+  ];
+}
+
+/**
  * Base prompt for a pipeline step. The receiver has already created the shared
  * worktree (for createsWorktree steps) and launches the agent with cwd = that
  * worktree, so the agent never runs `git worktree add` itself — it works in the
@@ -40,7 +60,7 @@ function verdictFooter(verdictFile, outcomeLines) {
  * @param {import('./types.js').Task} task
  * @param {import('./types.js').AdapterMeta} meta
  * @param {import('./types.js').Step} step
- * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string } }} ctx
+ * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string }} ctx
  */
 export function stepPrompt(task, meta, step, ctx) {
   const N = meta.taskNoun;
@@ -53,6 +73,7 @@ export function stepPrompt(task, meta, step, ctx) {
     `Ref: ${task.ref}`,
   ];
   if (ctx.worktree) head.push(`Worktree: ${ctx.worktree} (you are already in it; branch "${ctx.branch}")`);
+  const resume = resumeSection(ctx.resumeComment, meta);
 
   // Held tasks re-enter with only the body; the human's answer lives in the comments.
   const readCommentsLine = meta.readCommentsHowTo
@@ -82,10 +103,12 @@ export function stepPrompt(task, meta, step, ctx) {
       `- If it is ready, optionally add a short comment enriching scope/acceptance so the coding`,
       `  stage has what it needs, then set outcome "advance".`,
       `- Do NOT move the ${N} between sections yourself — the receiver moves it per your verdict below.`,
+      ...resume,
       verdictFooter(ctx.verdictFile, [
         `- "advance": clear, in-scope, actionable — hand it to the coding queue.`,
         `- "hold": you posted a question and need a human answer before coding can start (the ${N}`,
-        `  parks in a holding lane until a human replies and re-files it).`,
+        `  parks in a holding lane; the owner's "${meta.trigger} …" reply comment resumes this stage`,
+        `  with that reply in your prompt).`,
         `- "fail": not a code task, out of scope, or unspecifiable — route it out for a human.`,
       ]),
     ].join("\n");
@@ -112,6 +135,7 @@ export function stepPrompt(task, meta, step, ctx) {
       ...head,
       ``,
       findDiff,
+      ...resume,
       verdictFooter(ctx.verdictFile, [
         `- "advance": the diff is correct and safe — move it on for approval.`,
         changesLine,
@@ -152,6 +176,7 @@ export function stepPrompt(task, meta, step, ctx) {
     deliverLine,
     commentLine,
     `- Do NOT move the ${N} between sections yourself — the receiver moves it per your verdict below.`,
+    ...resume,
     verdictFooter(ctx.verdictFile, [
       advanceLine,
       `- "hold": you are blocked on a human answer (the ${N} is ambiguous or unsafe to do unattended).`,
