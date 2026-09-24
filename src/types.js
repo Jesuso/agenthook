@@ -9,9 +9,9 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'pipeline'} kind  a step fired by a task entering its source section
+ * @property {'pipeline'|'merge'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task)
  * @property {string} ref       provider-native item id (Asana gid, …)
- * @property {string} stepId    which Step in cfg.pipeline to run
+ * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
  */
 
@@ -27,6 +27,7 @@
  * @property {boolean} [createsWorktree]       system creates the shared worktree before the agent runs
  * @property {boolean} [drainWorktree]         system removes the worktree after the step
  * @property {boolean} [manual]                no agent; entering the step only runs system actions
+ * @property {boolean} [completeOnMerge]       manual steps only, at most one: a forge merge event moves the task INTO this step (then marks it completed)
  * @property {string} [model]                  per-step `claude --model` override
  * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
@@ -171,6 +172,7 @@
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
+ * @property {(ref: string) => Promise<void>} [complete]  optional; mark the item completed/closed on the tracker (Asana: completed:true). Used by a forge `merge` job; absent = no-op
  * @property {() => Promise<void>} [ensureLabels]  optional; create any pipeline objects the API won't auto-add to a task (GitHub: the issue labels). Called on boot before registerWebhook
  * @property {(ref: string, stepId?: string) => Promise<ForgedEvent>} [forgeCatchup]  optional; catchup needs it. dedupKey matches the server-assigned key; pass stepId to skip the live-section lookup
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
@@ -247,6 +249,31 @@
  */
 
 /**
+ * The optional forge config block (`forge` in agenthook.config.json). `type` selects
+ * the adapter; values are already env-interpolated.
+ * @typedef {object} ForgeConfig
+ * @property {string} type              forge adapter key ("github")
+ * @property {string} [token]           API token (typically "${GITHUB_TOKEN}")
+ * @property {string} [repository]      GitHub: "owner/name" whose PRs complete tasks
+ * @property {string} [owner]           GitHub: repo owner (alternative to repository)
+ * @property {string} [repo]            GitHub: repo name (alternative to repository)
+ * @property {string} [webhookSecret]   explicit signing secret; omit to let agenthook generate+store one (no opt-out — always verified)
+ */
+
+/** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
+ * Serves the `/forge` path; turns a merged agent PR into a `merge` job.
+ * @typedef {object} Forge
+ * @property {() => {name: string}} describe
+ * @property {(ctx: EventCtx) => AuthResult} authenticate  sync, no network (same ACK window as the tracker)
+ * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
+ * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup
+ * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
+ */
+
+/** A factory `(cfg, store) => Forge`.
+ * @typedef {(cfg: Config, store: Store) => Forge} ForgeFactory */
+
+/**
  * Resolved runtime config. All paths are absolute. See config.js for the four
  * distinct location fields (install/config/state/repo).
  * @typedef {object} Config
@@ -261,6 +288,7 @@
  * @property {Step[]|null} pipeline  resolved tracker.pipeline (null when not configured)
  * @property {IngressConfig} ingress
  * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
+ * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent

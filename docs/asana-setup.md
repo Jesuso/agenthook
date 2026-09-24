@@ -93,6 +93,60 @@ By default agenthook acts **only on tasks assigned to your `userGid`** and is fa
 the sections regardless of assignee, set `"assigneeFilter": false` in the `tracker` block —
 explicitly.
 
+## Completing tasks on merge (forge)
+
+Once a PR is open, the Asana board alone can't tell that it merged. An optional **forge** block
+closes that loop: when a PR on a receiver-made `agent/<ref>` branch **merges**, agenthook moves the
+task into your `done` section and marks it `completed` in Asana. "Done" means **merged**.
+
+```json
+{
+  "forge": {
+    "type": "github",
+    "repository": "owner/name",
+    "token": "${GITHUB_TOKEN}"
+  },
+  "tracker": {
+    "type": "asana",
+    "pipeline": [
+      "… triage / code / review …",
+      { "id": "done", "manual": true, "completeOnMerge": true, "drainWorktree": true,
+        "sourceSectionGid": "DONE_GID" }
+    ]
+  }
+}
+```
+
+- **`completeOnMerge`** goes on **one** `manual` step (config load rejects it anywhere else, or on
+  two steps). On a merge the task is moved into that step's source section; Asana's own webhook then
+  fires the `done` step, which drains the worktree and emits `pipeline_done`. The task is then
+  marked `completed`. Without a `completeOnMerge` step the task is only marked completed and the
+  worktree is drained directly.
+- **Only merged PRs count.** A PR closed without merging, a branch that isn't `agent/*`, or a task
+  not assigned to your `userGid` is a logged no-op with no Asana writes. A redelivered event for the
+  same PR number is deduped (`merged:<number>`).
+- **Events:** `merged` is appended to `events.jsonl` (plus `pipeline_done` from the `done` step).
+
+**Token scope.** The forge token must be allowed to manage repo webhooks: `admin:repo_hook`
+(classic) or **Webhooks: Read & write** (fine-grained) on the repository. It needs nothing else.
+
+**The webhook.** On `start` agenthook creates one repo webhook on the **Pull requests** event at
+`<public-url>/forge`, signed with a secret it generates and stores (or `forge.webhookSecret` if you
+set one). Every delivery is verified; an unsigned or badly signed POST to `/forge` gets a `401`.
+`stop` (without `--keep-hooks`) and `unregister` delete it; an ephemeral ingress URL is scrubbed and
+re-registered on each `start`. If the token can't manage hooks, `start` prints the manual setup and
+carries on — add it by hand under **Settings → Webhooks → Add webhook**:
+
+| Field | Value |
+|-------|-------|
+| Payload URL | `<public-url>/forge` |
+| Content type | `application/json` |
+| Secret | the one `start` printed |
+| Events | *Let me select individual events* → **Pull requests** |
+
+A manual hook needs a **stable** ingress (reserved ngrok domain, or `hosted`), since its URL can't be
+re-registered for you.
+
 ## Verify
 
 ```bash

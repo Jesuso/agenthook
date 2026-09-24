@@ -28,6 +28,13 @@ export function isStateDedupKey(key) {
 }
 
 /**
+ * queue.json identity: kind + ref + stepId (entries written before `merge` jobs have no
+ * kind → pipeline).
+ * @param {import('./types.js').Job} a @param {import('./types.js').Job} b
+ */
+const sameQueued = (a, b) => (a.kind ?? "pipeline") === (b.kind ?? "pipeline") && a.ref === b.ref && a.stepId === b.stepId;
+
+/**
  * @param {string} dataDir
  * @returns {import('./types.js').Store}
  */
@@ -94,18 +101,19 @@ export function createStore(dataDir) {
     },
     listRunning: () => readJson(runningFile, {}),
 
-    // --- jobs waiting in the queue (queue.json), insertion-ordered, deduped by ref:stepId ---
+    // --- jobs waiting in the queue (queue.json), insertion-ordered, deduped by kind:ref:stepId ---
+    // (kind keeps a `merge` job and the pipeline job for its completeOnMerge step apart)
     addQueued: (job) => {
       /** @type {import("./types.js").Job[]} */
       const l = readJson(queueFile, []);
-      if (l.some((j) => j.ref === job.ref && j.stepId === job.stepId)) return;
+      if (l.some((j) => sameQueued(j, job))) return;
       l.push(job);
       fs.writeFileSync(queueFile, JSON.stringify(l));
     },
     removeQueued: (job) => {
       /** @type {import("./types.js").Job[]} */
       const l = readJson(queueFile, []);
-      const n = l.filter((j) => !(j.ref === job.ref && j.stepId === job.stepId));
+      const n = l.filter((j) => !sameQueued(j, job));
       if (n.length !== l.length) fs.writeFileSync(queueFile, JSON.stringify(n));
     },
     listQueued: () => readJson(queueFile, []),

@@ -72,6 +72,8 @@
     ]
   },
 
+  "//forge": "Optional: complete tasks when their agent/<ref> PR merges. { type:'github', repository:'owner/name', token: a GITHUB_TOKEN env ref } + one manual step with completeOnMerge:true. See docs/asana-setup.md#completing-tasks-on-merge-forge.",
+
   "ingress": {
     "//": "How the receiver is reachable. ngrok (managed tunnel) | manual/hosted (static URL).",
     "type": "ngrok",

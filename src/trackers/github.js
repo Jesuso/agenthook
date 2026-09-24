@@ -18,6 +18,7 @@
 //   - The assignee "us" is the token owner's login, read once from /user and cached
 //     (so no login is pasted). Scoping is FAIL CLOSED — see scopeToUser below.
 import crypto from "node:crypto";
+import { verifyHubSignature } from "../hmac.js";
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
@@ -45,18 +46,6 @@ export function createGithubAdapter(cfg, store) {
 
   /** @param {string|null|undefined} s */
   const norm = (s) => (s || "").trim().toLowerCase();
-
-  /** Verify GitHub's `x-hub-signature-256: sha256=<hex>` HMAC over the raw body.
-   * @param {string|undefined} secret @param {string} raw @param {string|string[]|undefined} sig */
-  const verify = (secret, raw, sig) => {
-    const sigStr = Array.isArray(sig) ? sig[0] : sig;
-    if (!secret || !sigStr) return false;
-    const hex = sigStr.startsWith("sha256=") ? sigStr.slice(7) : sigStr;
-    const computed = crypto.createHmac("sha256", secret).update(raw).digest("hex");
-    const a = Buffer.from(computed);
-    const b = Buffer.from(hex);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  };
 
   // Webhook secret: NEVER required of the user. An explicit tracker.webhookSecret wins
   // (and `false` disables verification — accept unsigned). Otherwise agenthook GENERATES
@@ -270,7 +259,7 @@ export function createGithubAdapter(cfg, store) {
     authenticate({ rawBody, headers }) {
       const secret = webhookSecret();
       if (!secret) return { type: "accept" };
-      if (!verify(secret, rawBody, headers["x-hub-signature-256"])) {
+      if (!verifyHubSignature(secret, rawBody, headers["x-hub-signature-256"])) {
         console.warn("[reject] bad/absent x-hub-signature-256");
         return { type: "reject" };
       }

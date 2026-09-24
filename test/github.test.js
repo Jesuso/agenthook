@@ -447,3 +447,27 @@ test("fetchTask returns #<n> as the displayId", async () => {
   assert.equal(task.displayId, "#94");
   assert.equal(task.name, "T");
 });
+
+test("unregisterWebhooks deletes /github hooks but never a forge /forge hook", async () => {
+  /** @type {string[]} */
+  const deletes = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    if ((init.method || "GET") === "DELETE") deletes.push(String(url));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: 1, config: { url: "https://x.example/github/" } },
+        { id: 2, config: { url: "https://x.example/forge" } },
+      ],
+    };
+  };
+  try {
+    await adapter().unregisterWebhooks();
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(deletes, ["https://api.github.com/repos/o/r/hooks/1"]);
+});

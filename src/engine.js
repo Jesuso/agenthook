@@ -4,16 +4,19 @@
 //   ingress.up(port) -> url
 //   if ingress.ephemeral: tracker.unregisterWebhooks()   # scrub dead-URL hooks
 //   tracker.registerWebhook(url)                          # idempotent if stable
+//   forge?: (ephemeral: scrub) + registerWebhook(url)     # optional; best-effort
 //   listen + write pidfile + heartbeat
 //   on exit: ingress.down(), clear pidfile/heartbeat
 //
 // The request path is the same fast-ACK-then-async shape as before: authenticate
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
+// `/forge` goes to the forge (when one is configured); everything else to the tracker.
 import http from "node:http";
 import fs from "node:fs";
 import { createStore, isStateDedupKey } from "./store.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
+import { createForge, isForgePath } from "./forges/index.js";
 import { createQueue, planRestore } from "./queue.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
@@ -43,6 +46,7 @@ export function releaseOnSettle(run, store) {
 export function createEngine(cfg) {
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
+  const forge = createForge(cfg, store);
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
@@ -136,9 +140,11 @@ export function createEngine(cfg) {
     req.on("end", () => {
       const rawBody = Buffer.concat(chunks).toString("utf8");
       const ctx = { pathname, headers: req.headers, rawBody };
+      // A forge owns `/forge`; without one, `/forge` falls through to the tracker.
+      const source = forge && isForgePath(pathname) ? forge : adapter;
       let auth;
       try {
-        auth = adapter.authenticate(ctx);
+        auth = source.authenticate(ctx);
       } catch (e) {
         console.error("[auth]", e.message);
         res.writeHead(500);
@@ -158,7 +164,7 @@ export function createEngine(cfg) {
       // accept: ACK immediately (providers expect a fast 2xx), then process async.
       res.writeHead(200);
       res.end();
-      Promise.resolve(adapter.processEvents(ctx)).then(intake).catch((e) => console.error("[events]", e.message));
+      Promise.resolve(source.processEvents(ctx)).then(intake).catch((e) => console.error("[events]", e.message));
     });
   });
 
@@ -226,7 +232,7 @@ export function createEngine(cfg) {
 
   async function serve() {
     const meta = ingress.describe();
-    console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}`);
+    console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}`);
 
     if (cfg.fullAuto) {
       // fullAuto runs agents with --dangerously-skip-permissions: a verified webhook
@@ -273,6 +279,23 @@ export function createEngine(cfg) {
       }
       await adapter.registerWebhook(url);
 
+      // Forge hook (PR merges). Best-effort: a forge failure never aborts boot — the
+      // tracker pipeline still works without it.
+      if (forge) {
+        if (meta.ephemeral) {
+          try {
+            await forge.unregisterWebhooks();
+          } catch (e) {
+            console.error("[boot] forge unregister failed (continuing):", e.message);
+          }
+        }
+        try {
+          await forge.registerWebhook(url);
+        } catch (e) {
+          console.error("[boot] forge webhook failed (continuing):", e.message);
+        }
+      }
+
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
       const runningRefs = Object.keys(store.listRunning());
       await recoverInterrupted();
@@ -289,5 +312,5 @@ export function createEngine(cfg) {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
   }
 
-  return { serve, shutdown, store, adapter, ingress };
+  return { serve, shutdown, store, adapter, forge, ingress };
 }
