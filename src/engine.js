@@ -18,6 +18,7 @@ import { createQueue } from "./queue.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { createEmitter } from "./events.js";
+import { createSinks } from "./sinks.js";
 
 /**
  * Wrap a job runner so a `step:` dedup key is released when the job settles
@@ -44,7 +45,7 @@ export function createEngine(cfg) {
   const adapter = createAdapter(cfg, store);
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
-  const emit = createEmitter(cfg.dataDir);
+  const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
   const runClaude = createDispatcher(cfg, adapter, children, store, emit);
@@ -91,6 +92,7 @@ export function createEngine(cfg) {
     console.log(`[recover] ${refs.length} step(s) interrupted by restart — moving to failure lane`);
     for (const ref of refs) {
       const { stepId } = running[ref];
+      emit("failed", ref, stepId, { reason: "interrupted by restart" });
       try {
         await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
       } catch (e) {
