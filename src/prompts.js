@@ -54,6 +54,15 @@ export function stepPrompt(task, meta, step, ctx) {
   ];
   if (ctx.worktree) head.push(`Worktree: ${ctx.worktree} (you are already in it; branch "${ctx.branch}")`);
 
+  // Held tasks re-enter with only the body; the human's answer lives in the comments.
+  const readCommentsLine = meta.readCommentsHowTo
+    ? [
+        `- This ${N} may have been held before. FIRST read its newest comments (${meta.readCommentsHowTo}) — a human's`,
+        `  answer to an earlier question lives there, not in the description. Treat those answers as decisions;`,
+        `  do not re-ask a question that has been answered, and do not hold again on it.`,
+      ]
+    : [];
+
   if (step.kind === "triage") {
     return [
       `You are triaging the "${step.id}" stage of a ${meta.platform} ${N} before any code is written.`,
@@ -66,6 +75,7 @@ export function stepPrompt(task, meta, step, ctx) {
       task.description?.trim() || "(no description provided)",
       ``,
       `Do:`,
+      ...readCommentsLine,
       `- Assess whether the ${N} is clear, in-scope, and actionable by an unattended agent.`,
       `- If something is missing or ambiguous, post a comment with the specific questions:`,
       `  ${meta.commentHowTo}. Do NOT start the comment with "${meta.trigger}". Then set outcome "hold".`,
@@ -133,6 +143,7 @@ export function stepPrompt(task, meta, step, ctx) {
     task.description?.trim() || "(no description provided)",
     ``,
     `Instructions:`,
+    ...readCommentsLine,
     `- Work in the existing worktree/branch you were given — do NOT create a new worktree or branch.`,
     reworkLine,
     deliverLine,
