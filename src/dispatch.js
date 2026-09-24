@@ -726,7 +726,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     if (step.createsWorktree) {
       let wt;
       try {
-        wt = ensureWorktree(cfg, job.ref, repo);
+        wt = await ensureWorktree(cfg, job.ref, repo);
       } catch (e) {
         // No run will follow, so nothing would ever release the lock just taken.
         if (tookLock) releaseOverlap?.(job.ref);
@@ -734,7 +734,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       }
       worktree = wt.worktree;
       branch = wt.branch;
-      console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch})`);
+      console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch}${wt.base ? `, base ${wt.base.ref}@${wt.base.sha}` : ""})`);
     }
     const hasWorktree = fs.existsSync(worktree);
     const cwd = hasWorktree ? worktree : repo.path;
