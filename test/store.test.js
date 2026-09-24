@@ -85,3 +85,11 @@ test("attempt counters bump/get/clear per (ref,step) — the changes-loop cap", 
   s.clearAttempts("T1");
   assert.equal(s.getAttempt("T1", "code"), 0);
 });
+
+test("isStateDedupKey: only step: keys are state-based", async () => {
+  const { isStateDedupKey } = await import("../src/store.js");
+  assert.equal(isStateDedupKey("step:code:88"), true);
+  assert.equal(isStateDedupKey("secmove:123"), false);
+  assert.equal(isStateDedupKey("unblock:x"), false);
+  assert.equal(isStateDedupKey(undefined), false);
+});
