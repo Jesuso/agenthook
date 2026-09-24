@@ -27,6 +27,12 @@ Write JSON to `$AGENTHOOK_VERDICT_FILE`:
 - `{"outcome":"advance","reason":"<spec posted>"}` — ready → moves the issue to `Agent Queue`
   (fires the `code` step).
 - `{"outcome":"hold","reason":"<the specific question>"}` — needs a human answer → `Needs Info`.
+  A human answers, then transitions the issue back to `Awaiting Triage` to re-run this step (an
+  `@agent` comment reply does not resume on Jira yet).
 - `{"outcome":"fail","reason":"<why>"}` — can't triage → `Blocked`.
 
 When unsure, prefer `hold` over guessing.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the description. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.

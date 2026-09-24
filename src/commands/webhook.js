@@ -6,22 +6,27 @@ import fs from "node:fs";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
+import { createForge } from "../forges/index.js";
 
 /** @param {any} args */
 export async function register(args) {
   const cfg = loadConfig({ configPath: args.config });
   const url = args._[0] || cfg.ingress?.url;
   if (!url) throw new Error("usage: agenthook register <https-public-url> (or set ingress.url for hosted)");
-  const adapter = createAdapter(cfg, createStore(cfg.dataDir));
+  const store = createStore(cfg.dataDir);
+  const adapter = createAdapter(cfg, store);
   const clean = String(url).replace(/\/$/, "");
   fs.writeFileSync(cfg.publicUrlFile, clean);
   await adapter.registerWebhook(clean);
+  await createForge(cfg, store)?.registerWebhook(clean);
 }
 
 /** @param {any} args */
 export async function unregister(args) {
   const cfg = loadConfig({ configPath: args.config });
-  const adapter = createAdapter(cfg, createStore(cfg.dataDir));
+  const store = createStore(cfg.dataDir);
+  const adapter = createAdapter(cfg, store);
   await adapter.unregisterWebhooks();
+  await createForge(cfg, store)?.unregisterWebhooks();
   console.log("done");
 }

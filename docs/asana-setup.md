@@ -29,9 +29,15 @@ fetches your **user gid** from `/users/me`. After `init`, the `tracker` block al
   "userGid": "1200xxxxxxxxxxxx",       // you — used for assignee scoping
   "workspaceGid": "1199xxxxxxxxxxxx",
   "projectGid": "1200xxxxxxxxxxxx",    // the project whose sections drive the pipeline
+  "displayIdField": "ID",              // optional — see below
   "pipeline": [ /* TODO section gids — see below */ ]
 }
 ```
+
+`displayIdField` (optional, default `"ID"`) names the custom field that holds the task's human id
+(e.g. `ID-2738`). `ah agents`, `ah status` and `ah events` show that id instead of the raw task
+gid, and `ah events --ref ID-2738` accepts it. Matching is case-insensitive; with no such field the
+raw gid is shown.
 
 ## 3. Section gids — the one thing you fill by hand
 
@@ -72,11 +78,20 @@ with these filters:
 | `task` / `added` | a task created directly in a section → fire that section's step |
 | `story` / `section_changed` | a task **moved** between sections → fire the destination's step |
 | `task` / `changed` (`completed`) | a task **completed** → release the dependents it was blocking ([§6](#6-task-dependencies-are-respected)) |
+| `story` / `comment_added` | the **`@agent` resume**: the owner's `@agent …` reply on a held task re-runs the step that held |
 
-Both route off the task's **live** `memberships.section.gid`, so even rapid back-to-back moves
+The first two route off the task's **live** `memberships.section.gid`, so even rapid back-to-back moves
 resolve to where the task actually is now. Each Asana webhook carries its own `X-Hook-Secret`,
 established by a handshake that agenthook answers automatically and stores (0600) keyed by request
 path. Signatures are verified with constant-time HMAC-SHA256.
+
+For the resume: when a step ends with `hold` (the agent commented a question and the task moved to
+`holdSectionGid`), reply on the task with a comment starting with `@agent` (your `trigger`), **as
+the `userGid` user**. The held step re-runs with your reply in its prompt. Comments by anyone else
+are ignored, even with `assigneeFilter: false`, and so is everything when `userGid` is unset. Asana's
+`@` autocomplete may try to turn `@agent` into a mention; dismiss it so the text stays literal. See
+[architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply).
+(`comment_added` delivery on a *project* webhook hasn't been smoke-tested yet; `section_changed` has.)
 
 `agenthook stop` deletes the webhook; an ephemeral ingress URL (default ngrok) is scrubbed and
 re-registered on each `start`. Nothing to do by hand.
@@ -116,6 +131,60 @@ assigned to you (under assignee scoping).
 > `completed` event to this project's webhook, so its dependents aren't released automatically. Run
 > `agenthook reconcile` to fire them once their blockers are complete (reconcile skips any task that
 > is still blocked).
+
+## Completing tasks on merge (forge)
+
+Once a PR is open, the Asana board alone can't tell that it merged. An optional **forge** block
+closes that loop: when a PR on a receiver-made `agent/<ref>` branch **merges**, agenthook moves the
+task into your `done` section and marks it `completed` in Asana. "Done" means **merged**.
+
+```json
+{
+  "forge": {
+    "type": "github",
+    "repository": "owner/name",
+    "token": "${GITHUB_TOKEN}"
+  },
+  "tracker": {
+    "type": "asana",
+    "pipeline": [
+      "… triage / code / review …",
+      { "id": "done", "manual": true, "completeOnMerge": true, "drainWorktree": true,
+        "sourceSectionGid": "DONE_GID" }
+    ]
+  }
+}
+```
+
+- **`completeOnMerge`** goes on **one** `manual` step (config load rejects it anywhere else, or on
+  two steps). On a merge the task is moved into that step's source section; Asana's own webhook then
+  fires the `done` step, which drains the worktree and emits `pipeline_done`. The task is then
+  marked `completed`. Without a `completeOnMerge` step the task is only marked completed and the
+  worktree is drained directly.
+- **Only merged PRs count.** A PR closed without merging, a branch that isn't `agent/*`, or a task
+  not assigned to your `userGid` is a logged no-op with no Asana writes. A redelivered event for the
+  same PR number is deduped (`merged:<number>`).
+- **Events:** `merged` is appended to `events.jsonl` (plus `pipeline_done` from the `done` step).
+
+**Token scope.** The forge token must be allowed to manage repo webhooks: `admin:repo_hook`
+(classic) or **Webhooks: Read & write** (fine-grained) on the repository. It needs nothing else.
+
+**The webhook.** On `start` agenthook creates one repo webhook on the **Pull requests** event at
+`<public-url>/forge`, signed with a secret it generates and stores (or `forge.webhookSecret` if you
+set one). Every delivery is verified; an unsigned or badly signed POST to `/forge` gets a `401`.
+`stop` (without `--keep-hooks`) and `unregister` delete it; an ephemeral ingress URL is scrubbed and
+re-registered on each `start`. If the token can't manage hooks, `start` prints the manual setup and
+carries on — add it by hand under **Settings → Webhooks → Add webhook**:
+
+| Field | Value |
+|-------|-------|
+| Payload URL | `<public-url>/forge` |
+| Content type | `application/json` |
+| Secret | the one `start` printed |
+| Events | *Let me select individual events* → **Pull requests** |
+
+A manual hook needs a **stable** ingress (reserved ngrok domain, or `hosted`), since its URL can't be
+re-registered for you.
 
 ## Verify
 

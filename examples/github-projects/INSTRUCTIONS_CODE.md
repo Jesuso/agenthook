@@ -21,3 +21,7 @@ are in a fresh git worktree on your own branch; do all work there.
 - `fail` — you couldn't implement it or can't make the gate pass. Say why.
 
 Do **not** push to the default branch and do **not** merge the PR yourself.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the body. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.

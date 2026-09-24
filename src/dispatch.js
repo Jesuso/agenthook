@@ -6,16 +6,48 @@
 // (shared by task ref across all its steps, cwd = it); drainWorktree removes it.
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
-import { findStep, prevStep } from "./pipeline.js";
-import { ensureWorktree, drainWorktree, worktreePath } from "./worktree.js";
+import { findStep, prevStep, DEFAULT_MAX_ATTEMPTS } from "./pipeline.js";
+import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 
-// How many times one step may run for a single ref before a `changes` loop back
-// into it is forced to fail. Caps an endless code↔review ping-pong (each loop is a
-// fresh `claude -p` under fullAuto = real money + code exec). Per-step `maxAttempts`
-// overrides. See store.bumpAttempt/getAttempt.
-const DEFAULT_MAX_ATTEMPTS = 3;
+// DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
+// before a `changes` loop back into it is forced to fail. Caps an endless code↔review
+// ping-pong (each loop is a fresh `claude -p` under fullAuto = real money + code exec).
+// Per-step `maxAttempts` overrides. See store.bumpAttempt/getAttempt.
+
+// Upper bound on the best-effort `gh pr list` lookup, so a slow/absent `gh` never
+// delays a run by more than this.
+const PR_LOOKUP_TIMEOUT_MS = 5000;
+
+/** @typedef {(cmd: string, args: string[], opts: {cwd: string, timeout: number}) => Promise<string>} ExecFn */
+
+/** @type {ExecFn} */
+const execOut = (cmd, args, opts) =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, { ...opts, encoding: "utf8" }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+
+/**
+ * Best-effort PR number for a ref's deterministic branch (`gh pr list --head`). Any
+ * error, timeout or empty result → undefined; never throws. Exported (with an
+ * injectable exec) for offline tests.
+ * @param {string} repoPath @param {string} ref @param {ExecFn} [exec]
+ * @returns {Promise<number|undefined>}
+ */
+export async function lookupPr(repoPath, ref, exec = execOut) {
+  try {
+    const out = await exec(
+      "gh",
+      ["pr", "list", "--head", branchName(ref), "--state", "all", "--json", "number", "-q", ".[0].number"],
+      { cwd: repoPath, timeout: PR_LOOKUP_TIMEOUT_MS },
+    );
+    const n = Number(String(out).trim());
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
  * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
@@ -169,14 +201,37 @@ export function buildUsageRecord({ ref, stepId, model, startedAt, endedAt, resul
 const DIFFICULTIES = /** @type {const} */ (["easy", "medium", "hard"]);
 
 /**
- * Resolve the effective model and effort for a step, applying any difficulty escalation.
+ * True iff every heading starts some line of `description`, case-insensitive, after
+ * trimming leading whitespace and stripping heading/emphasis markers (`#`, `h1.`–`h6.`,
+ * `*`, `_`, `>`). Empty/missing description → false. Pure. Exported for unit tests.
+ * @param {string|undefined} description
+ * @param {string[]} headings
+ * @returns {boolean}
+ */
+export function descriptionHasHeadings(description, headings) {
+  if (!description || !Array.isArray(headings) || !headings.length) return false;
+  const lines = description.split(/\r?\n/).map((l) =>
+    l.trim().replace(/^(?:h[1-6]\.|[#*_>])+\s*/i, "").toLowerCase());
+  return headings.every((h) => {
+    const want = String(h).trim().toLowerCase();
+    return want !== "" && lines.some((l) => l.startsWith(want));
+  });
+}
+
+/**
+ * Resolve the effective model and effort for a step: base, then `lite` (when the task
+ * description already carries the spec headings), then difficulty escalation on top.
  * Pure — no I/O. Exported for unit tests.
  * @param {import('./types.js').Step} step
  * @param {string|undefined} difficulty  the stored difficulty for this ref (may be absent)
+ * @param {string} [description]  the task description, for `lite` gating
  * @returns {{model?: string, effort?: string}}
  */
-export function resolveModelEffort(step, difficulty) {
-  const base = { model: step.model, effort: step.effort };
+export function resolveModelEffort(step, difficulty, description) {
+  let base = { model: step.model, effort: step.effort };
+  if (step.lite && descriptionHasHeadings(description, step.lite.descriptionHeadings)) {
+    base = { model: step.lite.model ?? step.model, effort: step.lite.effort ?? step.effort };
+  }
   if (!difficulty || !step.escalate?.[difficulty]) return base;
   const esc = step.escalate[difficulty];
   return {
@@ -204,6 +259,15 @@ const readInstructions = (file) => {
  */
 export function createDispatcher(cfg, adapter, children, store, emit) {
   const meta = adapter.describe();
+
+  /** Cache the ref's PR number in refmeta once one exists. Receiver-side only (the CLIs
+   * never write state); skipped for PR-less trackers and once a PR is known.
+   * @param {string} ref */
+  async function recordPr(ref) {
+    if (!store || meta.usesPR === false || store.getRefMeta(ref)?.pr) return;
+    const pr = await lookupPr(cfg.repoPath, ref);
+    if (pr) store.setRefMeta(ref, { pr });
+  }
 
   /**
    * Spawn `claude -p` with a prompt. stdout is stream-json: a line parser renders the
@@ -264,6 +328,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     return path.join(dir, `${safeRef}-${stepId}.json`);
   }
 
+  const MAX_FINDINGS = 20000;
+
   /**
    * Resolve the run's verdict from (exit code, verdict file). A non-zero exit is a
    * crashed/errored agent → fail, and its file is NOT trusted. A clean exit honors a
@@ -288,14 +354,81 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       target: typeof raw.target === "string" ? raw.target : undefined,
       reason: typeof raw.reason === "string" ? raw.reason : undefined,
       difficulty: DIFFICULTIES.includes(raw?.difficulty) ? raw.difficulty : undefined,
+      findings: typeof raw.findings === "string" && raw.findings.trim()
+        ? (raw.findings.length > MAX_FINDINGS ? `${raw.findings.slice(0, MAX_FINDINGS)}…(truncated)` : raw.findings)
+        : undefined,
     };
+  }
+
+  /**
+   * A forge saw this task's `agent/<ref>` PR merge. No agent: move the task into the
+   * completeOnMerge step (its own webhook then fires that manual step, which drains the
+   * worktree + emits pipeline_done), then mark it completed on the tracker. Fail-closed
+   * on the assignee: a task we can't confirm is ours is never touched.
+   * @param {import('./types.js').Job} job
+   */
+  async function runMerge(job) {
+    const skip = { kind: job.kind, ref: job.ref, name: job.ref, url: "", code: 0 };
+    let task;
+    try {
+      task = await adapter.fetchTask(job.ref);
+    } catch (e) {
+      console.log(`[assignee] skip merge ${job.ref} — fetch failed (${e.message})`);
+      return skip;
+    }
+    if (!task.assignedToUs) {
+      console.log(`[assignee] skip merge ${job.ref}`);
+      return skip;
+    }
+
+    // Move BEFORE completing, so the move event routes like any other section change.
+    const doneStep = cfg.pipeline?.find((s) => s.completeOnMerge);
+    let moved = false;
+    if (doneStep && adapter.enterStage) {
+      try {
+        await adapter.enterStage(job.ref, doneStep.id, { assign: false });
+        moved = true;
+        console.log(`[merge] ${job.ref} -> ${doneStep.id}`);
+      } catch (e) {
+        console.error(`[merge] move ${job.ref} -> ${doneStep.id} failed:`, e.message);
+      }
+    }
+
+    if (adapter.complete) {
+      try {
+        await adapter.complete(job.ref);
+      } catch (e) {
+        console.error(`[merge] complete ${job.ref} failed (task stays uncompleted):`, e.message);
+      }
+    } else {
+      console.log(`[merge] ${meta.platform} has no complete() — leaving ${job.ref} open`);
+    }
+
+    // No completeOnMerge step entered to do the cleanup (none configured, no enterStage,
+    // or the move failed) → do it here, as the manual branch would.
+    if (!moved) {
+      try {
+        if (drainWorktree(cfg, job.ref)) console.log(`[worktree] drained ${job.ref} (merge)`);
+      } catch (e) {
+        console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
+      }
+      store?.clearAttempts(job.ref);
+      store?.clearFindings(job.ref);
+      store?.clearDifficulty(job.ref);
+    }
+
+    emit?.("merged", job.ref, job.stepId, { name: task.name, url: task.url });
+    return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
   }
 
   /** @param {import('./types.js').Job} job */
   return async function runClaude(job) {
+    if (job.kind === "merge") return runMerge(job);
     const step = findStep(cfg, job.stepId);
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
     const task = await adapter.fetchTask(job.ref);
+    // Durable display metadata for `ah agents`/`status`/`events` (survives run exit).
+    store?.setRefMeta(job.ref, { displayId: task.displayId, title: task.name });
 
     // Manual stage (e.g. "done"): no agent — entering it only runs system actions.
     if (step.manual) {
@@ -306,14 +439,19 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
           console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
         }
         store?.clearAttempts(job.ref);
+        store?.clearFindings(job.ref);
         store?.clearDifficulty(job.ref); // task is done — reset its per-ref state
-        emit?.("pipeline_done", job.ref, step.id);
+        store?.clearHeld(job.ref);
+        emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
 
     // Count this run before it starts — the changes-loop guard reads it post-exit.
     store?.bumpAttempt(job.ref, step.id);
+    // Any re-entry (an `@agent` resume, or a human dragging the item back) consumes a
+    // pending hold: the ref is no longer parked, so a later reply must not resume it.
+    store?.clearHeld(job.ref);
 
     // System-owned worktree: create it on the step that declares createsWorktree,
     // otherwise reuse the one an earlier step made (same deterministic path).
@@ -338,16 +476,30 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     }
 
     const standing = readInstructions(step.instructionsFile || cfg.instructionsFile);
-    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile });
+    const pending = store?.getFindings(job.ref);
+    const findings = pending && pending.target === step.id ? pending : undefined;
+    const base = stepPrompt(task, meta, step, { worktree: hasWorktree ? worktree : undefined, branch, verdictFile, findings, resumeComment: job.comment });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
     const logPath = logPathFor(step.id, job.ref);
     console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
+    // Header line: the human id + title (filename stays keyed by the ref).
+    try {
+      fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
+    } catch (e) {
+      console.error(`[run] log header failed for ${job.ref}:`, e.message);
+    }
+    // A rework pass already has a branch (and maybe a PR): pick it up before spawning.
+    if (hasWorktree) await recordPr(job.ref);
 
     // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
     // tag and this step has a matching `escalate` key, override the base model/effort.
     const storedDifficulty = store?.getDifficulty(job.ref);
-    const { model, effort } = resolveModelEffort(step, storedDifficulty);
+    const { model, effort } = resolveModelEffort(step, storedDifficulty, task.description);
+    const liteApplied = !!step.lite && descriptionHasHeadings(task.description, step.lite.descriptionHeadings);
+    if (liteApplied) {
+      console.log(`[dispatch] lite step ${step.id} ref ${job.ref} (spec headings present): model=${model ?? "default"} effort=${effort ?? "default"}`);
+    }
     if (storedDifficulty && step.escalate?.[storedDifficulty]) {
       console.log(`[dispatch] escalating step ${step.id} ref ${job.ref} (difficulty=${storedDifficulty}): model=${model ?? "default"} effort=${effort ?? "default"}`);
     } else {
@@ -355,8 +507,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     }
 
     const startedAt = new Date().toISOString();
-    const baseRunning = { stepId: step.id, startedAt, worktree: cwd };
-    emit?.("run_start", job.ref, step.id, { model: model ?? null });
+    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null };
+    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;
     const { code, result } = await spawnClaude({
@@ -374,6 +526,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       onTally: (t) => store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate }),
     });
     store?.clearRunning(job.ref);
+    // The step may just have opened the PR.
+    await recordPr(job.ref);
 
     // Persist the final per-run usage record from the captured `result` event (token
     // totals + cost). Append-only usage.jsonl, distinct from the rewritten state files.
@@ -393,8 +547,14 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
 
     const costUsd = typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
     emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}) });
-    if (verdict.outcome === "hold") emit?.("blocked", job.ref, step.id, { reason: verdict.reason ?? null });
-    if (verdict.outcome === "fail") emit?.("failed", job.ref, step.id, { reason: verdict.reason ?? null });
+    if (verdict.outcome === "hold") {
+      // Park it: an owner's `@agent` reply on the item resumes THIS step (see the
+      // adapters' comment trigger), with the reply appended to the prompt.
+      store?.setHeld(job.ref, { stepId: step.id, ...(verdict.reason ? { reason: verdict.reason } : {}), heldAt: new Date().toISOString() });
+    }
+
+    // Findings were delivered in this run's prompt — consume them whatever the outcome.
+    if (findings) store?.clearFindings(job.ref);
 
     // Persist a difficulty tag emitted by this step (typically triage) so later steps
     // (e.g. code) can gate their model/effort on it.
@@ -419,6 +579,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
           verdict.reason = `changes loop hit cap (${cap}) on step "${target.id}"`;
         } else {
           verdict.target = target.id;
+          const text = verdict.findings || verdict.reason;
+          if (text && store) store.setFindings(job.ref, { target: target.id, fromStep: step.id, text });
         }
       }
     }
@@ -432,6 +594,15 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
       } catch (e) {
         console.error(`[worktree] drain failed for ${job.ref}:`, e.message);
       }
+    }
+
+    // Emitted after the changes guard so a forced fail (cap / no target) is reported too.
+    if (verdict.outcome === "hold" || verdict.outcome === "fail") {
+      emit?.(verdict.outcome === "hold" ? "blocked" : "failed", job.ref, step.id, {
+        reason: verdict.reason ?? null,
+        name: task.name,
+        url: task.url,
+      });
     }
 
     // The move to the next section is itself the event that fires the next step.
@@ -448,6 +619,8 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     if (verdict.outcome === "fail" || drained) {
       store?.clearAttempts(job.ref);
       store?.clearDifficulty(job.ref);
+      store?.clearHeld(job.ref);
+      store?.clearFindings(job.ref);
     }
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };

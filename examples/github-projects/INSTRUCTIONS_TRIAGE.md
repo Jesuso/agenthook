@@ -16,8 +16,14 @@ ready to build — do **not** write code or open a PR here.
 - `advance` — the issue is clear and specced. The receiver sets the card's Status to **In Progress**
   and the `code` stage picks it up.
 - `hold` — the issue is ambiguous or needs a product/security decision. Post the specific question as
-  an issue comment (no `@agent` prefix), then hold. A human answers and moves the card back.
+  an issue comment (no `@agent` prefix), then hold. A human answers on the issue, then sets the
+  card's Status back to **Triage** to re-run this stage (an `@agent` comment reply does not resume
+  on GitHub Projects yet).
 - `fail` — the issue is out of scope, a duplicate, or can't be done. Say why in a comment.
 
 Keep tracker comments in plain product language; leave the technical detail for the PR the `code`
 stage opens.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the body. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.

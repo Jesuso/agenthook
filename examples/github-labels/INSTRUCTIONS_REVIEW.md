@@ -22,7 +22,7 @@ Write JSON to the file named by `$AGENTHOOK_VERDICT_FILE` before you exit:
 - Approved — hand it on to **done**:
   `{"outcome":"advance","reason":"<one line: looks good>"}`
 - Needs rework — bounce back to **code** with specifics in the PR review:
-  `{"outcome":"changes","target":"code","reason":"<what to fix>"}`
+  `{"outcome":"changes","target":"code","reason":"<what to fix>","findings":"<full Markdown findings>"}` — put the full findings in `findings`; the receiver passes them verbatim to the code stage
 - Fundamentally wrong / can't review:
   `{"outcome":"fail","reason":"<why>"}`
 

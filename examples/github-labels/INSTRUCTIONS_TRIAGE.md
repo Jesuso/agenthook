@@ -22,6 +22,12 @@ Write JSON to the file named by `$AGENTHOOK_VERDICT_FILE` before you exit:
 - Can't triage / not a real task:
   `{"outcome":"fail","reason":"<why>"}`
 
-Post questions as an issue comment (no `@agent` prefix — that marker is for humans). Do **not** move
+Post questions as an issue comment (no `@agent` prefix — that marker is for humans). On `hold`, the
+owner answers with an issue comment starting with `@agent`; that reply re-runs this step with the
+answer appended to your prompt (a `=== HUMAN REPLY (resume) ===` block). Do **not** move
 the `agent:*` labels yourself; the receiver swaps them based on your verdict. A clean exit with no
 verdict file is treated as `advance`, so always write the file.
+
+## Re-entry after a hold
+
+On (re-)entry, read the issue comments FIRST. A human may have answered an earlier question there, not in the body. Treat those answers as decisions: do not re-ask a question that has been answered, and if the owner marks decisions as final, do not `hold` on the same questions again.

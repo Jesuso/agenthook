@@ -29,7 +29,7 @@ enqueues. `ref` is whatever opaque id your `fetchTask` understands; `stepId` sel
 ### Verdict contract (how a step decides where to go)
 
 The receiver injects `AGENTHOOK_VERDICT_FILE` (a path) into every agent. Before exiting the agent
-writes JSON there: `{ "outcome": "advance|hold|changes|fail", "target": "<stepId>", "reason": "…" }`.
+writes JSON there: `{ "outcome": "advance|hold|changes|fail", "target": "<stepId>", "reason": "…", "findings": "…" }` (`findings` optional, `changes` only: full Markdown review findings; the receiver stores them per ref and injects them into the target step's next prompt, falling back to `reason`).
 After the process exits, `dispatch.js` resolves a `Verdict` and hands it to `advance`:
 
 - **non-zero exit** → `fail` (a crashed agent's file is not trusted).

@@ -1,6 +1,8 @@
-// `agenthook agents` — list running headless `claude -p` agent processes (pid,
-// runtime, step, ref). These are plain OS processes the receiver spawns; no claude
+// `agenthook agents` — list running headless `claude -p` agent processes (human id,
+// step, PR, runtime, title). These are plain OS processes the receiver spawns; no claude
 // subcommand tracks them. Cross-platform via `ps` (-ww avoids arg truncation).
+// The id/title/PR come from the profile's refmeta.json (written by dispatch);
+// `--verbose` adds the raw pid + ref, `--json` prints machine-readable records.
 //
 // `ps` greps SYSTEM-WIDE, so co-running profiles' agents would otherwise show up
 // here too. We attribute each row to its owning profile by cross-referencing each
@@ -112,20 +114,73 @@ export function selectAgents(stdout, profiles, opts = {}) {
   return opts.all ? rows : rows.filter((r) => r.profile === opts.active);
 }
 
-/** Read a profile's running.json (ref -> {pid,…}); {} if absent/garbage. @param {string} dir */
-function readRunning(dir) {
+/** Read a JSON state file from a profile dir; {} if absent/garbage.
+ * @param {string} dir @param {string} file */
+function readState(dir, file) {
   try {
-    return JSON.parse(fs.readFileSync(path.join(dir, "running.json"), "utf8"));
+    return JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
   } catch {
     return {};
   }
 }
 
-/** Build a profile record with running + lastUsage for token display.
- * @param {string} name @param {string} dir
- * @returns {{ name: string, running: Record<string, any>, lastUsage: Record<string, any> }} */
+/** @typedef {{ name: string, running: Record<string, any>, lastUsage: Record<string, any>, refmeta: Record<string, import('../types.js').RefMeta> }} ProfileState */
+
+/** Build a profile record with running + lastUsage (token display) + refmeta (id/title/PR).
+ * @param {string} name @param {string} dir @returns {ProfileState} */
 function readProfile(name, dir) {
-  return { name, running: readRunning(dir), lastUsage: readLastUsage(dir) };
+  return { name, running: readState(dir, "running.json"), lastUsage: readLastUsage(dir), refmeta: readState(dir, "refmeta.json") };
+}
+
+/** Token figures for a row: the live tally if the stream has started producing tokens,
+ * else the ref's last completed run. @param {any} runInfo @param {any} last */
+function usageFor(runInfo, last) {
+  if (runInfo && typeof runInfo.input === "number") {
+    const { input, cacheRead, cacheCreate, output } = runInfo;
+    return { input, cacheRead, cacheCreate, output, costUsd: undefined };
+  }
+  return { input: last?.input, cacheRead: last?.cacheRead, cacheCreate: last?.cacheCreate, output: last?.output, costUsd: last?.costUsd };
+}
+
+const TITLE_MAX = 50;
+
+/** @param {string} s @param {number} n */
+const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** One human-readable `ah agents` line. Pure; exported for tests.
+ *  default: `<displayId ?? ref>  <step>  <#pr | —>  <etime>  <title>  <ctx…>`
+ * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta @param {string} tok  the fmtCtx column
+ * @param {{ verbose?: boolean, all?: boolean }} [opts]
+ * @returns {string} */
+export function formatAgentRow(row, meta, tok, opts = {}) {
+  const owner = opts.all ? `profile=${row.profile.padEnd(18)} ` : "";
+  const id = meta?.displayId ?? row.ref;
+  const pr = meta?.pr ? `#${meta.pr}` : "—";
+  const title = truncate(meta?.title ?? "", TITLE_MAX);
+  const extra = opts.verbose ? `  pid=${row.pid} ref=${row.ref}` : "";
+  return `${owner}${id.padEnd(12)} ${row.step.padEnd(10)} ${pr.padEnd(6)} ${row.etime.padEnd(11)} ${title.padEnd(TITLE_MAX)} ${tok}${extra}`;
+}
+
+/** One `ah agents --json` record. Pure; exported for tests.
+ * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta
+ * @param {any} runInfo  running.json[ref] (may be undefined) @param {any} last  last usage.jsonl record for ref */
+export function agentRecord(row, meta, runInfo, last) {
+  const u = usageFor(runInfo, last);
+  const known = u.input != null || u.cacheRead != null || u.cacheCreate != null;
+  return {
+    profile: row.profile,
+    pid: Number(row.pid),
+    ref: row.ref,
+    displayId: meta?.displayId ?? null,
+    title: meta?.title ?? null,
+    pr: meta?.pr ?? null,
+    step: row.step,
+    model: runInfo?.model ?? null,
+    startedAt: runInfo?.startedAt ?? null,
+    ctx: known ? (u.input || 0) + (u.cacheRead || 0) + (u.cacheCreate || 0) : null,
+    out: u.output ?? null,
+    etime: row.etime,
+  };
 }
 
 /** @param {any} [args] */
@@ -134,7 +189,7 @@ export async function agents(args = {}) {
   if (ps.status !== 0) throw new Error(`ps failed: ${ps.stderr || ps.error?.message || "unknown"}`);
 
   const all = !!args.all;
-  /** @type {{ name: string, running: Record<string, any>, lastUsage: Record<string, any> }[]} */
+  /** @type {ProfileState[]} */
   let profiles;
   /** @type {string|null} */
   let active = null;
@@ -150,21 +205,23 @@ export async function agents(args = {}) {
     scope = cfg.name;
   }
 
-  /** @type {Map<string, { name: string, running: Record<string, any>, lastUsage: Record<string, any> }>} */
+  /** @type {Map<string, ProfileState>} */
   const profileMap = new Map(profiles.map((p) => [p.name, p]));
 
   const rows = selectAgents(ps.stdout, profiles, { all, active });
+  if (args.json) {
+    const recs = rows.map((r) => {
+      const prof = profileMap.get(r.profile);
+      return agentRecord(r, prof?.refmeta?.[r.ref], prof?.running?.[r.ref], prof?.lastUsage?.[r.ref]);
+    });
+    console.log(JSON.stringify(recs, null, 2));
+    return;
+  }
   for (const r of rows) {
-    const owner = all ? `profile=${r.profile.padEnd(18)} ` : "";
     const prof = profileMap.get(r.profile);
-    const runInfo = prof?.running?.[r.ref];
-    const last = prof?.lastUsage?.[r.ref];
-    // Live tally if the stream has started producing tokens; fall back to last completed run.
-    const tok =
-      runInfo && typeof runInfo.input === "number"
-        ? fmtCtx(runInfo.input, runInfo.cacheRead, runInfo.cacheCreate, runInfo.output, undefined)
-        : fmtCtx(last?.input, last?.cacheRead, last?.cacheCreate, last?.output, last?.costUsd);
-    console.log(`pid=${r.pid.padEnd(7)} ${r.etime.padEnd(11)} ${owner}step=${r.step.padEnd(10)} ref=${r.ref.padEnd(12)} ${tok}`);
+    const u = usageFor(prof?.running?.[r.ref], prof?.lastUsage?.[r.ref]);
+    const tok = fmtCtx(u.input, u.cacheRead, u.cacheCreate, u.output, u.costUsd);
+    console.log(formatAgentRow(r, prof?.refmeta?.[r.ref], tok, { verbose: !!args.verbose, all }));
   }
   console.log(`── ${rows.length} agent(s) running ── (${scope})`);
 }

@@ -4,33 +4,58 @@
 //   ingress.up(port) -> url
 //   if ingress.ephemeral: tracker.unregisterWebhooks()   # scrub dead-URL hooks
 //   tracker.registerWebhook(url)                          # idempotent if stable
+//   forge?: (ephemeral: scrub) + registerWebhook(url)     # optional; best-effort
 //   listen + write pidfile + heartbeat
 //   on exit: ingress.down(), clear pidfile/heartbeat
 //
 // The request path is the same fast-ACK-then-async shape as before: authenticate
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
+// `/forge` goes to the forge (when one is configured); everything else to the tracker.
 import http from "node:http";
 import fs from "node:fs";
-import { createStore } from "./store.js";
+import { createStore, isStateDedupKey } from "./store.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
-import { createQueue } from "./queue.js";
+import { createForge, isForgePath } from "./forges/index.js";
+import { createQueue, planRestore } from "./queue.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { createEmitter } from "./events.js";
+import { createSinks } from "./sinks.js";
+
+/**
+ * Wrap a job runner so a `step:` dedup key is released when the job settles
+ * (resolve or reject). Other keys stay in `seen`.
+ * @param {(job: import('./types.js').Job) => Promise<any>} run
+ * @param {{reloadSeen: () => void, unmarkSeen: (key: string) => void}} store
+ */
+export function releaseOnSettle(run, store) {
+  return async (/** @type {import('./types.js').Job} */ job) => {
+    try {
+      return await run(job);
+    } finally {
+      if (isStateDedupKey(job.dedupKey)) {
+        store.reloadSeen(); // seen is edited out-of-band (catchup)
+        store.unmarkSeen(job.dedupKey);
+      }
+    }
+  };
+}
 
 /** @param {import('./types.js').Config} cfg */
 export function createEngine(cfg) {
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
+  const forge = createForge(cfg, store);
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
-  const emit = createEmitter(cfg.dataDir);
+  const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
   const runClaude = createDispatcher(cfg, adapter, children, store, emit);
-  const queue = createQueue(cfg.maxConcurrent, runClaude, (state) =>
+  const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
+    { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job) },
   );
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
@@ -54,12 +79,14 @@ export function createEngine(cfg) {
         seen: store.seenCount(),
       });
       emit("enqueued", job.ref, job.stepId);
-      queue.enqueue(job);
+      // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
+      if (!queue.enqueue(job) && isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
     }
   }
 
-  // Crash recovery from LOCAL state only — never a board poll. A restart kills the
-  // in-memory queue and orphans any in-flight `claude -p`; running.json is the record
+  // Crash recovery from LOCAL state only — never a board poll. A restart orphans any
+  // in-flight `claude -p` (queued-but-unstarted jobs survive in queue.json, see
+  // restoreQueued); running.json is the record
   // of what was mid-step. We resolve each as a failed run (implement isn't idempotent,
   // so re-running blind is unsafe) → the adapter moves it to its failure lane for a
   // human. Catching tasks that *arrived* during downtime is the explicit `reconcile`
@@ -71,6 +98,7 @@ export function createEngine(cfg) {
     console.log(`[recover] ${refs.length} step(s) interrupted by restart — moving to failure lane`);
     for (const ref of refs) {
       const { stepId } = running[ref];
+      emit("failed", ref, stepId, { reason: "interrupted by restart" });
       try {
         await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
       } catch (e) {
@@ -78,6 +106,24 @@ export function createEngine(cfg) {
       }
       store.clearRunning(ref);
       store.clearAttempts(ref);
+      store.unmarkSeen(`step:${stepId}:${ref}`);
+    }
+  }
+
+  // Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
+  // intake: their `seen` key is already marked. Must run AFTER recoverInterrupted so
+  // refs that were in running.json at boot (`runningRefs`, captured before recovery
+  // clears them) went to the failure lane and are dropped. Entries stay in queue.json
+  // (addQueued dedups) until they start. Local reads only.
+  /** @param {string[]} runningRefs */
+  function restoreQueued(runningRefs) {
+    const { keep, drop } = planRestore(store.listQueued(), runningRefs, (cfg.pipeline || []).map((s) => s.id));
+    for (const j of drop) store.removeQueued(j);
+    if (!keep.length) return;
+    console.log(`[restore] ${keep.length} queued job(s) re-enqueued`);
+    for (const j of keep) {
+      emit("enqueued", j.ref, j.stepId, { restored: true });
+      queue.enqueue(j);
     }
   }
 
@@ -94,9 +140,11 @@ export function createEngine(cfg) {
     req.on("end", () => {
       const rawBody = Buffer.concat(chunks).toString("utf8");
       const ctx = { pathname, headers: req.headers, rawBody };
+      // A forge owns `/forge`; without one, `/forge` falls through to the tracker.
+      const source = forge && isForgePath(pathname) ? forge : adapter;
       let auth;
       try {
-        auth = adapter.authenticate(ctx);
+        auth = source.authenticate(ctx);
       } catch (e) {
         console.error("[auth]", e.message);
         res.writeHead(500);
@@ -116,7 +164,7 @@ export function createEngine(cfg) {
       // accept: ACK immediately (providers expect a fast 2xx), then process async.
       res.writeHead(200);
       res.end();
-      Promise.resolve(adapter.processEvents(ctx)).then(intake).catch((e) => console.error("[events]", e.message));
+      Promise.resolve(source.processEvents(ctx)).then(intake).catch((e) => console.error("[events]", e.message));
     });
   });
 
@@ -184,7 +232,7 @@ export function createEngine(cfg) {
 
   async function serve() {
     const meta = ingress.describe();
-    console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}`);
+    console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}`);
 
     if (cfg.fullAuto) {
       // fullAuto runs agents with --dangerously-skip-permissions: a verified webhook
@@ -231,8 +279,27 @@ export function createEngine(cfg) {
       }
       await adapter.registerWebhook(url);
 
+      // Forge hook (PR merges). Best-effort: a forge failure never aborts boot — the
+      // tracker pipeline still works without it.
+      if (forge) {
+        if (meta.ephemeral) {
+          try {
+            await forge.unregisterWebhooks();
+          } catch (e) {
+            console.error("[boot] forge unregister failed (continuing):", e.message);
+          }
+        }
+        try {
+          await forge.registerWebhook(url);
+        } catch (e) {
+          console.error("[boot] forge webhook failed (continuing):", e.message);
+        }
+      }
+
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
+      const runningRefs = Object.keys(store.listRunning());
       await recoverInterrupted();
+      restoreQueued(runningRefs);
     } catch (e) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).
@@ -245,5 +312,5 @@ export function createEngine(cfg) {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
   }
 
-  return { serve, shutdown, store, adapter, ingress };
+  return { serve, shutdown, store, adapter, forge, ingress };
 }

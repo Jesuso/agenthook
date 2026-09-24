@@ -9,11 +9,12 @@
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
+//   complete(ref)                      -> mark the task completed (optional; forge merge)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
 //   forgeCatchup(ref)                  -> { path, body, sig } to replay a missed item (CLI)
 //
-// job: { kind:'pipeline', ref, stepId, dedupKey }
+// job: { kind:'pipeline', ref, stepId, dedupKey, comment? }
 //
 // Asana specifics: every webhook carries its OWN X-Hook-Secret, established by a
 // handshake POST, so secrets are keyed by request path. One project webhook on
@@ -22,7 +23,11 @@
 // sourceSectionGid the task now rests in — unless the task has an incomplete "blocked
 // by" dependency, in which case it rests there until its last blocker completes (task
 // changed `completed` → the unblock release fires it).
+// sourceSectionGid the task now rests in. The same hook's story comment_added carries
+// the `@agent` resume: an OWNER-authored (created_by = userGid) comment starting with
+// cfg.trigger on a held task re-runs the step that held, with the comment as `comment`.
 import crypto from "node:crypto";
+import { startsWithTrigger, resumeJob } from "../pipeline.js";
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createAsanaAdapter(cfg, store) {
@@ -75,7 +80,7 @@ export function createAsanaAdapter(cfg, store) {
 
   /** @param {string} storyGid */
   async function fetchStory(storyGid) {
-    const res = await api(`/stories/${storyGid}?opt_fields=text,type,resource_subtype,target.gid`);
+    const res = await api(`/stories/${storyGid}?opt_fields=text,type,resource_subtype,target.gid,created_by.gid`);
     if (!res.ok) throw new Error(`story fetch ${res.status}`);
     return (await json(res)).data;
   }
@@ -169,12 +174,34 @@ export function createAsanaAdapter(cfg, store) {
     }
   }
 
+  /** The `@agent` comment trigger for a comment_added story. Emits a resume job only
+   * when ALL hold (anything uncertain → no job): the text starts with cfg.trigger, the
+   * author is pc.userGid (strict — assigneeFilter:false does NOT open this up; an unset
+   * userGid rejects), the task passes the assignee gate, and it is held on a runnable
+   * step still under its attempt cap (resumeJob). Dedup: `trigger:<storyGid>`.
+   * @param {any} story @param {string} storyGid @param {string|undefined} taskGid
+   * @returns {Promise<import('../types.js').Job|null>} */
+  async function resumeFromComment(story, storyGid, taskGid) {
+    if (!taskGid || !startsWithTrigger(cfg.trigger, story.text)) return null;
+    const author = story.created_by?.gid;
+    if (!pc.userGid || !author || author !== pc.userGid) {
+      console.log(`[trigger] ${taskGid}: comment ${storyGid} not by our user — ignoring`);
+      return null;
+    }
+    if (!(await ownedByUs(taskGid))) {
+      console.log(`[trigger] ${taskGid}: not assigned to us — ignoring`);
+      return null;
+    }
+    return resumeJob(cfg, store, taskGid, storyGid, story.text);
+  }
+
   return {
     describe: () => ({
       platform: "Asana",
       taskNoun: "task",
       trigger: cfg.trigger,
       commentHowTo: `post via the Asana API (token in env ASANA_TOKEN) using POST /tasks/<gid>/stories`,
+      readCommentsHowTo: `GET /tasks/<gid>/stories via the Asana API (token in env ASANA_TOKEN); comments are stories with type "comment"`,
     }),
 
     authenticate({ pathname, headers, rawBody }) {
@@ -217,9 +244,10 @@ export function createAsanaAdapter(cfg, store) {
           }
         } else if (rt === "story" && ev.action === "added") {
           // Section move → fire the step the task now rests in. One story gid = one
-          // move, so the key dedups webhook retries yet allows a later re-entry.
+          // move, so the key dedups webhook retries yet allows a later re-entry. A
+          // comment story (the `@agent` resume) keys on the same gid as `trigger:`.
           const storyGid = ev.resource.gid;
-          if (!storyGid || store.hasSeen(`secmove:${storyGid}`)) continue;
+          if (!storyGid || store.hasSeen(`secmove:${storyGid}`) || store.hasSeen(`trigger:${storyGid}`)) continue;
           let story;
           try {
             story = await fetchStory(storyGid);
@@ -227,8 +255,13 @@ export function createAsanaAdapter(cfg, store) {
             console.error(`[story] fetch ${storyGid} failed:`, e.message);
             continue;
           }
-          if (story.resource_subtype !== "section_changed") continue;
           const taskGid = ev.parent?.gid || story.target?.gid;
+          if (story.resource_subtype === "comment_added") {
+            const job = await resumeFromComment(story, storyGid, taskGid);
+            if (job) jobs.push(job);
+            continue;
+          }
+          if (story.resource_subtype !== "section_changed") continue;
           try {
             const step = await stepForTask(taskGid);
             if (step && !(await restIfBlocked(taskGid))) jobs.push({ kind: "pipeline", ref: taskGid, stepId: step.id, dedupKey: `secmove:${storyGid}` });
@@ -265,9 +298,14 @@ export function createAsanaAdapter(cfg, store) {
     },
 
     async fetchTask(ref) {
-      const res = await api(`/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed`);
+      const res = await api(
+        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value`,
+      );
       if (!res.ok) throw new Error(`task fetch ${res.status}`);
       const t = (await json(res)).data;
+      // Human id (e.g. "ID-2738") lives in a custom field; name configurable, default "ID".
+      const idField = String(pc.displayIdField ?? "ID").toLowerCase();
+      const idCf = (t.custom_fields || []).find((/** @type {any} */ f) => String(f?.name ?? "").toLowerCase() === idField);
       return {
         ref,
         name: t.name,
@@ -275,6 +313,7 @@ export function createAsanaAdapter(cfg, store) {
         url: t.permalink_url,
         completed: t.completed === true,
         assignedToUs: t.assignee?.gid === pc.userGid,
+        displayId: idCf?.display_value ? String(idCf.display_value) : undefined,
       };
     },
 
@@ -282,7 +321,8 @@ export function createAsanaAdapter(cfg, store) {
     // maps to. Each move is itself the trigger for whatever step that section sources:
     //   advance → successSectionGid (the next step's source — drives forward)
     //   fail    → failureSectionGid (a human picks it up)
-    //   hold    → holdSectionGid    (parked out of the queue; a human answers + drags back)
+    //   hold    → holdSectionGid    (parked out of the queue; the owner's `@agent` reply
+    //                                  resumes it, or a human drags it back)
     //   changes → the target step's sourceSectionGid (re-fires it — the rework loop;
     //             dispatch already resolved verdict.target to a concrete stepId)
     // A missing target section is a no-op: the task stays put, logged.
@@ -328,6 +368,19 @@ export function createAsanaAdapter(cfg, store) {
       if (opts.assign !== false) await assignToUs(ref);
       await moveToSection(ref, step.sourceSectionGid, `${stepId}:enter`);
       return { stage: step.sourceSectionGid };
+    },
+
+    // Mark the task completed (a forge saw its agent PR merge). Same fail-closed
+    // mutation gate as advance: never complete a task that isn't ours.
+    /** @param {string} ref */
+    async complete(ref) {
+      if (scopeToUser && !(await ownedByUs(ref))) {
+        console.log(`[assignee] refuse to complete ${ref} — not assigned to us`);
+        return;
+      }
+      const res = await api(`/tasks/${ref}`, { method: "PUT", body: JSON.stringify({ data: { completed: true } }) });
+      if (!res.ok) throw new Error(`complete ${res.status}`);
+      console.log(`[complete] ${ref} marked completed`);
     },
 
     // The pipeline section a task currently rests in (any source/success/failure/hold
@@ -380,6 +433,9 @@ export function createAsanaAdapter(cfg, store) {
       // section_changed (moved between sections) — both route to a step — plus task
       // `completed` changes, which release the dependents a finished blocker was holding.
       // (The section_changed delivery on a project webhook is verified against Asana.)
+      // section_changed (moved between sections) — both route to a step — plus story
+      // comment_added (the `@agent` resume of a held step). (The section_changed
+      // delivery on a project webhook is verified against Asana.)
       const res = await api(`/webhooks`, {
         method: "POST",
         body: JSON.stringify({
@@ -390,6 +446,7 @@ export function createAsanaAdapter(cfg, store) {
               { resource_type: "task", action: "added" },
               { resource_type: "story", action: "added", resource_subtype: "section_changed" },
               { resource_type: "task", action: "changed", fields: ["completed"] },
+              { resource_type: "story", action: "added", resource_subtype: "comment_added" },
             ],
           },
         }),
