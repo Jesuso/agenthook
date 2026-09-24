@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -276,4 +276,23 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
   // fresh store instance reads the same file
   const s2 = createStore(dir);
   assert.equal(s2.getDifficulty("T1"), "hard");
+});
+
+test("descriptionHasHeadings: markers, case, whitespace", () => {
+  const d = "intro\n  ## technical notes\nh2. Acceptance Criteria\n**Extra**";
+  assert.equal(descriptionHasHeadings(d, ["Technical Notes", "ACCEPTANCE criteria", "extra"]), true);
+});
+
+test("descriptionHasHeadings: missing, mid-line, empty -> false", () => {
+  assert.equal(descriptionHasHeadings("## Technical Notes", ["Technical Notes", "Acceptance Criteria"]), false);
+  assert.equal(descriptionHasHeadings("see Technical Notes here", ["Technical Notes"]), false);
+  assert.equal(descriptionHasHeadings("", ["A"]), false);
+  assert.equal(descriptionHasHeadings(undefined, ["A"]), false);
+});
+
+test("resolveModelEffort: lite applies with fallback; escalate wins", () => {
+  const step = { id: "t", model: "m", effort: "high", lite: { descriptionHeadings: ["Spec"], effort: "low" }, escalate: { hard: { effort: "max" } } };
+  assert.deepEqual(resolveModelEffort(step, undefined, "## Spec"), { model: "m", effort: "low" });
+  assert.deepEqual(resolveModelEffort(step, undefined, "nothing"), { model: "m", effort: "high" });
+  assert.deepEqual(resolveModelEffort(step, "hard", "## Spec"), { model: "m", effort: "max" });
 });

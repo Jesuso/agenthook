@@ -164,6 +164,12 @@ export function loadConfig(opts = {}) {
     if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
       throw new Error(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
     }
+    if (step.lite != null) {
+      const h = step.lite.descriptionHeadings;
+      if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {
+        throw new Error(`config: pipeline step "${step.id}" lite.descriptionHeadings must be a non-empty array of strings.`);
+      }
+    }
   }
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });

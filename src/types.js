@@ -31,6 +31,7 @@
  * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
+ * @property {{descriptionHeadings: string[], model?: string, effort?: 'low'|'medium'|'high'|'xhigh'|'max'}} [lite]  description-gated override (intended for triage): when every heading starts a line of the task description, use this model/effort as the base; `escalate` still wins on top
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
  * @property {string} [successSectionGid]      Asana: move here on a clean finish (advance)
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run

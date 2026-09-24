@@ -169,14 +169,37 @@ export function buildUsageRecord({ ref, stepId, model, startedAt, endedAt, resul
 const DIFFICULTIES = /** @type {const} */ (["easy", "medium", "hard"]);
 
 /**
- * Resolve the effective model and effort for a step, applying any difficulty escalation.
+ * True iff every heading starts some line of `description`, case-insensitive, after
+ * trimming leading whitespace and stripping heading/emphasis markers (`#`, `h1.`–`h6.`,
+ * `*`, `_`, `>`). Empty/missing description → false. Pure. Exported for unit tests.
+ * @param {string|undefined} description
+ * @param {string[]} headings
+ * @returns {boolean}
+ */
+export function descriptionHasHeadings(description, headings) {
+  if (!description || !Array.isArray(headings) || !headings.length) return false;
+  const lines = description.split(/\r?\n/).map((l) =>
+    l.trim().replace(/^(?:h[1-6]\.|[#*_>])+\s*/i, "").toLowerCase());
+  return headings.every((h) => {
+    const want = String(h).trim().toLowerCase();
+    return want !== "" && lines.some((l) => l.startsWith(want));
+  });
+}
+
+/**
+ * Resolve the effective model and effort for a step: base, then `lite` (when the task
+ * description already carries the spec headings), then difficulty escalation on top.
  * Pure — no I/O. Exported for unit tests.
  * @param {import('./types.js').Step} step
  * @param {string|undefined} difficulty  the stored difficulty for this ref (may be absent)
+ * @param {string} [description]  the task description, for `lite` gating
  * @returns {{model?: string, effort?: string}}
  */
-export function resolveModelEffort(step, difficulty) {
-  const base = { model: step.model, effort: step.effort };
+export function resolveModelEffort(step, difficulty, description) {
+  let base = { model: step.model, effort: step.effort };
+  if (step.lite && descriptionHasHeadings(description, step.lite.descriptionHeadings)) {
+    base = { model: step.lite.model ?? step.model, effort: step.lite.effort ?? step.effort };
+  }
   if (!difficulty || !step.escalate?.[difficulty]) return base;
   const esc = step.escalate[difficulty];
   return {
@@ -347,7 +370,11 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
     // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
     // tag and this step has a matching `escalate` key, override the base model/effort.
     const storedDifficulty = store?.getDifficulty(job.ref);
-    const { model, effort } = resolveModelEffort(step, storedDifficulty);
+    const { model, effort } = resolveModelEffort(step, storedDifficulty, task.description);
+    const liteApplied = !!step.lite && descriptionHasHeadings(task.description, step.lite.descriptionHeadings);
+    if (liteApplied) {
+      console.log(`[dispatch] lite step ${step.id} ref ${job.ref} (spec headings present): model=${model ?? "default"} effort=${effort ?? "default"}`);
+    }
     if (storedDifficulty && step.escalate?.[storedDifficulty]) {
       console.log(`[dispatch] escalating step ${step.id} ref ${job.ref} (difficulty=${storedDifficulty}): model=${model ?? "default"} effort=${effort ?? "default"}`);
     } else {
@@ -356,7 +383,7 @@ export function createDispatcher(cfg, adapter, children, store, emit) {
 
     const startedAt = new Date().toISOString();
     const baseRunning = { stepId: step.id, startedAt, worktree: cwd };
-    emit?.("run_start", job.ref, step.id, { model: model ?? null });
+    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(liteApplied ? { lite: true } : {}) });
     /** @type {number|undefined} */
     let pid;
     const { code, result } = await spawnClaude({
