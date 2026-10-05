@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderEvent, resolveRefFilter } from "../src/commands/events.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { renderEvent, resolveRefFilter, tailFile } from "../src/commands/events.js";
 
 // Unit tests for the events command's pure helpers.
 // The read/filter path is exercised via renderEvent + the inline filter logic
@@ -85,3 +88,41 @@ test("resolveRefFilter: PR number (#N or N) against refmeta pr", () => {
 test("resolveRefFilter: no match falls back to the literal ref", () => {
   assert.deepEqual([...resolveRefFilter("nope", REFMETA)], ["nope"]);
 });
+
+// --- tailFile: follows a file that doesn't exist yet ---
+test("tailFile delivers lines appended after the file is created", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-tailfile-"));
+  const file = "events.jsonl";
+  const target = path.join(dir, file);
+  /** @type {string[]} */
+  const lines = [];
+  const handle = tailFile(dir, file, 0, (line) => lines.push(line));
+
+  try {
+    assert.deepEqual(lines, [], "nothing to deliver before the file exists");
+
+    fs.writeFileSync(target, "one\ntwo\n");
+    await waitFor(() => lines.length >= 2);
+    assert.deepEqual(lines, ["one", "two"]);
+
+    fs.appendFileSync(target, "three\n");
+    await waitFor(() => lines.length >= 3);
+    assert.deepEqual(lines, ["one", "two", "three"]);
+  } finally {
+    handle.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** Poll `check` until it returns true or time out. @param {() => boolean} check */
+function waitFor(check, timeoutMs = 2000) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      if (check()) return resolve(undefined);
+      if (Date.now() - start > timeoutMs) return reject(new Error("waitFor: timed out"));
+      setTimeout(tick, 20);
+    };
+    tick();
+  });
+}
