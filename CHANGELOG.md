@@ -8,6 +8,22 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **Forge hook cleanup is scoped to the profile's own hook** (#118). `deleteOurHooks()` in the
+  `github` forge deleted every repo hook whose URL ended in `/forge`, so two profiles with a
+  `forge` block on one repo removed each other's hook on boot/stop — the other profile silently
+  lost `pull_request`/`workflow_run` deliveries. A hook is now ours only when its id matches the
+  one persisted on create (`forge:github:hookId:<owner>/<repo>` in the profile's secrets KV), its
+  URL matches the profile's previous public URL (legacy hooks), or it sits at the exact target
+  being registered. `agenthook register` constructs the forge before overwriting `public_url.txt`
+  so it still sees the old URL.
+- `agenthook events --follow` no longer exits with `no events yet` when `events.jsonl` does not
+  exist (#119). It watches the data directory, starts at byte 0, prints `waiting for events...`
+  to stderr (stdout stays clean JSONL under `--json`), and drains once after the watcher attaches
+  to close the creation race. The tail loop is the exported `tailFile(dir, file, startPos, onLine)`.
+- The code-stage prompt no longer hardcodes "include the branch name and PR number" for the
+  tracker status comment (#120). Comment contents now follow the step's standing instructions,
+  falling back to "include the PR link" when they are silent — so an instructions-file rule like
+  "no branch names in tracker comments" is no longer overridden by the later harness line.
 - `ah agents` and bare `ah status` no longer need the config's secrets. Both only read
   `~/.agenthook/<name>`, but went through `loadConfig`, which interpolates every `${VAR}` and
   throws `unset environment variable(s)` when one is missing — so from a worktree without a
