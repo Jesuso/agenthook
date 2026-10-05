@@ -23,6 +23,24 @@ for (const kind of ["triage", "implement"]) {
   });
 }
 
+for (const kind of ["implement", "change"]) {
+  test(`${kind} prompt (usesPR) defers comment contents to standing instructions, not branch/PR hardcoding`, () => {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.doesNotMatch(p, /branch name/);
+    assert.doesNotMatch(p, /PR number/);
+    assert.match(p, /Post a brief status comment/);
+    assert.match(p, /Do NOT start the comment with "@agent"/);
+    assert.match(p, /standing instructions above/);
+    assert.match(p, /include the PR link/);
+  });
+
+  test(`${kind} prompt (usesPR: false) still says not to post comments anywhere`, () => {
+    const p = stepPrompt(task, { ...meta, usesPR: false }, step(kind), ctx);
+    assert.match(p, /Do NOT post comments anywhere/);
+    assert.doesNotMatch(p, /branch name/);
+  });
+}
+
 test("review prompt unchanged by readCommentsHowTo", () => {
   const a = stepPrompt(task, meta, step("review"), ctx);
   const b = stepPrompt(task, { ...meta, readCommentsHowTo: undefined }, step("review"), ctx);
