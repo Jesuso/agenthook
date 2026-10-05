@@ -129,15 +129,18 @@ export async function events(args) {
     }
   }
 
-  // Missing file → print nothing, exit 0.
-  if (!fs.existsSync(eventsFile)) {
+  const fileExists = fs.existsSync(eventsFile);
+
+  // Missing file, no --follow → print nothing, exit 0.
+  if (!fileExists && !followMode) {
     if (!jsonMode) console.log("no events yet");
     return;
   }
 
-  // Read and print existing lines.
-  const raw = fs.readFileSync(eventsFile, "utf8");
-  const existing = raw.split("\n").filter(Boolean).map(parseLine);
+  // Read and print existing lines (none if the file doesn't exist yet).
+  const existing = fileExists
+    ? fs.readFileSync(eventsFile, "utf8").split("\n").filter(Boolean).map(parseLine)
+    : [];
   /** @type {Set<string>|null} */
   const filterRefs =
     args.ref != null ? resolveRefFilter(String(args.ref), refmeta, existing.map((ev) => String(ev?.ref))) : null;
@@ -147,17 +150,43 @@ export async function events(args) {
 
   if (!followMode) return;
 
-  // --follow: tail new lines appended to the file.
-  let pos = fs.statSync(eventsFile).size;
+  if (!fileExists) process.stderr.write("waiting for events...\n");
+
+  // --follow: tail new lines appended to the file, from the directory (covers creation too).
+  const startPos = fileExists ? fs.statSync(eventsFile).size : 0;
+  tailFile(cfg.dataDir, "events.jsonl", startPos, (line) => {
+    refmeta = readRefMeta(cfg.dataDir); // dispatch may have recorded a new id/title/PR
+    const ev = parseLine(line);
+    if (ev && passes(ev)) print(ev);
+  });
+
+  // Keep alive until Ctrl+C.
+  await new Promise(() => {});
+}
+
+/**
+ * Tail `file` under `dir` from `startPos`, calling `onLine` for each complete line as it
+ * arrives. Watches the directory (not the file) so it tolerates the file not existing yet —
+ * creation, appends, and truncation/rotation (position resets to 0) are all handled. Drains
+ * once synchronously before returning, closing the race between an existence check and the
+ * watcher attaching.
+ * @param {string} dir
+ * @param {string} file
+ * @param {number} startPos
+ * @param {(line: string) => void} onLine
+ * @returns {{ close(): void }}
+ */
+export function tailFile(dir, file, startPos, onLine) {
+  const target = path.join(dir, file);
+  let pos = startPos;
   let buf = "";
 
   const drain = () => {
     let size;
-    try { size = fs.statSync(eventsFile).size; } catch { return; }
+    try { size = fs.statSync(target).size; } catch { return; }
     if (size < pos) pos = 0; // file rotated/truncated
     if (size === pos) return;
-    refmeta = readRefMeta(cfg.dataDir); // dispatch may have recorded a new id/title/PR
-    const fd = fs.openSync(eventsFile, "r");
+    const fd = fs.openSync(target, "r");
     const chunk = Buffer.alloc(size - pos);
     fs.readSync(fd, chunk, 0, chunk.length, pos);
     fs.closeSync(fd);
@@ -167,12 +196,14 @@ export async function events(args) {
     while ((nl = buf.indexOf("\n")) !== -1) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
-      const ev = parseLine(line);
-      if (ev && passes(ev)) print(ev);
+      onLine(line);
     }
   };
 
-  fs.watch(eventsFile, { persistent: true }, drain);
-  // Keep alive until Ctrl+C.
-  await new Promise(() => {});
+  const watcher = fs.watch(dir, { persistent: true }, (_ev, name) => {
+    if (!name || name === file) drain();
+  });
+  drain();
+
+  return { close: () => watcher.close() };
 }
