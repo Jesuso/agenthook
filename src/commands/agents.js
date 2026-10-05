@@ -9,10 +9,15 @@
 // profile's running.json (ref -> {pid,…}, our crash-recovery state) — no /proc, so
 // it stays cross-platform. Default: only THIS profile's agents. `--all`: every
 // profile's, each row labelled with its owner.
+//
+// Scope resolution never touches secrets: `agents <name>` reads that profile's state
+// dir directly; bare `agents` peeks the discovered config for its `name` only
+// (peekConfig, no `${VAR}` interpolation), so the listing works from any checkout —
+// a worktree without .env used to get "unset environment variable(s)" and no rows.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config.js";
+import { peekConfig, registryDir } from "../config.js";
 import { listProfiles } from "../heartbeat.js";
 
 /** @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
@@ -199,10 +204,10 @@ export async function agents(args = {}) {
     profiles = listProfiles().map((p) => readProfile(p.name, p.dir));
     scope = "all profiles";
   } else {
-    const cfg = loadConfig({ configPath: args.config });
-    active = cfg.name;
-    profiles = [readProfile(cfg.name, cfg.dataDir)];
-    scope = cfg.name;
+    const name = args._?.[0] ? String(args._[0]) : peekConfig({ configPath: args.config }).name;
+    active = name;
+    profiles = [readProfile(name, path.join(registryDir, name))];
+    scope = name;
   }
 
   /** @type {Map<string, ProfileState>} */

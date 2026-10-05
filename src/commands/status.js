@@ -2,7 +2,7 @@
 // profile discovered from the current dir's agenthook.config.json.
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config.js";
+import { peekConfig } from "../config.js";
 import { readProfile } from "../heartbeat.js";
 import { createStore } from "../store.js";
 import { ago } from "./ls.js";
@@ -40,9 +40,11 @@ export async function status(args) {
   let name = args._[0];
   let logDir = null;
   if (!name) {
-    const cfg = loadConfig({ configPath: args.config });
-    name = cfg.name;
-    logDir = cfg.logDir;
+    // Identity only — no secret interpolation, so `status` works from a checkout whose
+    // config ${VAR}s are unset (see peekConfig).
+    const peeked = peekConfig({ configPath: args.config });
+    name = peeked.name;
+    logDir = peeked.logDir;
   }
 
   const p = readProfile(name);

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, peekConfig, registryDir } from "../src/config.js";
 
 /** Write a config and load it. @param {any} over @param {any[]} pipeline */
 function load(pipeline, over = {}) {
@@ -136,4 +136,54 @@ test("invalid repos blocks are rejected at load", () => {
 
 test("a non-boolean overlapGuard is rejected", () => {
   assert.throws(load([{ id: "code" }], { overlapGuard: "yes" }), /"overlapGuard" must be true or false/);
+});
+
+// --- peekConfig: identity without secrets (read-only commands: `agents`, bare `status`) ---
+
+/** A config whose tokens reference a var that is certainly unset in the test shell. */
+function writeSecretConfig() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-peek-"));
+  const file = path.join(dir, "agenthook.config.json");
+  delete process.env.AH_TEST_UNSET_TOKEN;
+  fs.writeFileSync(file, JSON.stringify({
+    name: "ah-peek-test",
+    repoPath: dir,
+    forge: { type: "github", repository: "o/r", token: "${AH_TEST_UNSET_TOKEN}" },
+    tracker: { type: "asana", token: "${AH_TEST_UNSET_TOKEN}", pipeline: [{ id: "code" }] },
+  }));
+  return file;
+}
+
+test("peekConfig returns name + state paths where loadConfig throws on unset ${VAR}s", () => {
+  const file = writeSecretConfig();
+  assert.throws(() => loadConfig({ configPath: file }), /unset environment variable\(s\)[\s\S]*AH_TEST_UNSET_TOKEN/);
+  const peeked = peekConfig({ configPath: file });
+  assert.equal(peeked.name, "ah-peek-test");
+  assert.equal(peeked.configPath, file);
+  assert.equal(peeked.configDir, path.dirname(file));
+  assert.equal(peeked.stateDir, path.join(registryDir, "ah-peek-test"));
+  assert.equal(peeked.logDir, path.join(registryDir, "ah-peek-test", "logs"));
+  // peeking must not create the state dir — it is a read, not a boot
+  assert.equal(fs.existsSync(peeked.stateDir), false);
+});
+
+test("peekConfig still rejects a missing file, unparsable JSON, and a config without a name", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-peek-bad-"));
+  assert.throws(() => peekConfig({ configPath: path.join(dir, "nope.json") }), /no agenthook\.config\.json found/);
+  const garbage = path.join(dir, "garbage.json");
+  fs.writeFileSync(garbage, "{ not json");
+  assert.throws(() => peekConfig({ configPath: garbage }), /could not parse/);
+  const nameless = path.join(dir, "nameless.json");
+  fs.writeFileSync(nameless, JSON.stringify({ repoPath: dir, tracker: { type: "asana" } }));
+  assert.throws(() => peekConfig({ configPath: nameless }), /"name" is required/);
+});
+
+test("loadConfig resolves a ${VAR} that only the .env beside the config provides", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-dotenv-"));
+  const file = path.join(dir, "agenthook.config.json");
+  delete process.env.AH_TEST_DOTENV_TOKEN;
+  fs.writeFileSync(path.join(dir, ".env"), "AH_TEST_DOTENV_TOKEN=from-dotenv\n");
+  fs.writeFileSync(file, JSON.stringify({ name: "ah-dotenv-test", repoPath: dir, tracker: { type: "asana", token: "${AH_TEST_DOTENV_TOKEN}", pipeline: [{ id: "code" }] } }));
+  const cfg = loadConfig({ configPath: file });
+  assert.equal(cfg.tracker.token, "from-dotenv");
 });
