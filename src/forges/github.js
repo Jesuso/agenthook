@@ -10,7 +10,7 @@
 //   authenticate(ctx)          -> {type:'accept'} | {type:'reject'}   (sync, no network)
 //   processEvents(ctx)         -> [job]   (merge + ci jobs only; everything else is [])
 //   registerWebhook(publicUrl) -> create the repo `pull_request`+`workflow_run` hook (best-effort)
-//   unregisterWebhooks()       -> delete this forge's hooks only
+//   unregisterWebhooks()       -> delete this forge's own hook only (by stored id or its own URL)
 //   prHead / rerunFailedJobs / failedLogTail / prComment -> the red-CI calls dispatch makes
 //
 // GitHub specifics:
@@ -28,6 +28,7 @@
 //   - Token: `admin:repo_hook` (classic) or Webhooks: Read & write (fine-grained); red
 //     CI also needs `repo` (classic) or Actions + Pull requests: Read & write.
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { verifyHubSignature } from "../hmac.js";
 
 export const FORGE_PATH = "/forge";
@@ -81,6 +82,19 @@ export function createGithubForge(cfg, store) {
   const repoPath = () => `/repos/${owner}/${repo}`;
   /** @param {string|string[]|undefined} h */
   const header = (h) => (Array.isArray(h) ? h[0] : h) || "";
+  const HOOK_ID_KEY = `forge:github:hookId:${owner}/${repo}`;
+
+  // Snapshot the previous public URL at construction time — by the time registerWebhook
+  // runs, public_url.txt already holds the NEW url (engine.js/webhook.js write it first).
+  let prevTarget = "";
+  if (cfg.publicUrlFile) {
+    try {
+      const prevUrl = fs.readFileSync(cfg.publicUrlFile, "utf8").trim().replace(/\/$/, "");
+      if (prevUrl) prevTarget = `${prevUrl}${FORGE_PATH}`;
+    } catch {
+      // no previous URL on first boot — fine
+    }
+  }
 
   // Explicit forge.webhookSecret wins; otherwise generate one and persist it.
   function webhookSecret() {
@@ -106,19 +120,25 @@ export function createGithubForge(cfg, store) {
     );
   }
 
-  /** Delete every repo hook whose URL ends in `/forge` (ours). Never touches `/github`
-   * or any tracker hook. @returns {Promise<boolean>} false when listing isn't allowed */
-  async function deleteOurHooks() {
+  /** Delete only THIS profile's forge hook — never another profile's `/forge` hook on
+   * the same repo. A hook is ours when its id matches the one we persisted on create,
+   * or its URL matches our previous URL (pre-change legacy hooks), or (registerWebhook
+   * only) it matches the `target` about to be created (same-URL restart dedup).
+   * @param {string} [target] @returns {Promise<boolean>} false when listing isn't allowed */
+  async function deleteOurHooks(target) {
     const res = await api(`${repoPath()}/hooks?per_page=100`);
     if (res.status === 403 || res.status === 404) return false;
     if (!res.ok) throw new Error(`list hooks ${res.status}`);
+    const storedId = store.getSecret(HOOK_ID_KEY);
     for (const h of (await json(res)) || []) {
-      const url = h?.config?.url || "";
-      if (url.replace(/\/$/, "").endsWith(FORGE_PATH)) {
-        await api(`${repoPath()}/hooks/${h.id}`, { method: "DELETE" });
-        console.log(`  deleted forge webhook ${h.id} -> ${url}`);
-      }
+      const url = (h?.config?.url || "").replace(/\/$/, "");
+      if (!url.endsWith(FORGE_PATH)) continue;
+      const ours = String(h.id) === storedId || (!!prevTarget && url === prevTarget) || (!!target && url === target);
+      if (!ours) continue;
+      await api(`${repoPath()}/hooks/${h.id}`, { method: "DELETE" });
+      console.log(`  deleted forge webhook ${h.id} -> ${url}`);
     }
+    store.setSecret(HOOK_ID_KEY, "");
     return true;
   }
 
@@ -203,7 +223,7 @@ export function createGithubForge(cfg, store) {
     // hook scope) prints the manual setup instead of failing boot.
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}${FORGE_PATH}`;
-      if (!(await deleteOurHooks())) {
+      if (!(await deleteOurHooks(target))) {
         printManualSetup(target);
         return;
       }
@@ -222,6 +242,7 @@ export function createGithubForge(cfg, store) {
       }
       const body = await json(res);
       if (!res.ok) throw new Error(`GitHub create forge hook ${res.status}: ${JSON.stringify(body)}`);
+      store.setSecret(HOOK_ID_KEY, String(body.id));
       console.log(`Forge webhook created: id=${body.id} active=${body.active} -> ${target}`);
     },
 

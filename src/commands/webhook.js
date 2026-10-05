@@ -15,10 +15,11 @@ export async function register(args) {
   if (!url) throw new Error("usage: agenthook register <https-public-url> (or set ingress.url for hosted)");
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
+  const forge = createForge(cfg, store); // construct before overwriting public_url.txt — it snapshots the previous URL
   const clean = String(url).replace(/\/$/, "");
   fs.writeFileSync(cfg.publicUrlFile, clean);
   await adapter.registerWebhook(clean);
-  await createForge(cfg, store)?.registerWebhook(clean);
+  await forge?.registerWebhook(clean);
 }
 
 /** @param {any} args */

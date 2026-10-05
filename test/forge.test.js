@@ -4,6 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { verifyHubSignature } from "../src/hmac.js";
 import { createGithubForge, refFromBranch, isForgePath, fenceLog } from "../src/forges/github.js";
 import { createForge } from "../src/forges/index.js";
@@ -20,10 +23,19 @@ const pipeline = [
   { id: "done", manual: true, completeOnMerge: true, drainWorktree: true, sourceSectionGid: "S9" },
 ];
 
-/** @param {any} [fc] @param {any} [pl] */
-function forge(fc = {}, pl = pipeline) {
-  const cfg = { pipeline: pl, forge: { type: "github", token: "t", repository: "o/r", webhookSecret: SECRET, ...fc } };
-  return createGithubForge(/** @type {any} */ (cfg), /** @type {any} */ (makeStore()));
+/** @param {any} [fc] @param {any} [pl] @param {any} [store] @param {any} [cfgOver] */
+function forge(fc = {}, pl = pipeline, store = makeStore(), cfgOver = {}) {
+  const cfg = { pipeline: pl, forge: { type: "github", token: "t", repository: "o/r", webhookSecret: SECRET, ...fc }, ...cfgOver };
+  return createGithubForge(/** @type {any} */ (cfg), /** @type {any} */ (store));
+}
+
+/** Writes `publicUrlFile` with `url` so the forge snapshots it as its previous URL
+ * at construction time. @param {string} url */
+function publicUrlFile(url) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-forge-"));
+  const file = path.join(dir, "public_url.txt");
+  fs.writeFileSync(file, url);
+  return file;
 }
 
 /** @param {string} body @param {string} [secret] */
@@ -326,7 +338,8 @@ test("fenceLog outgrows any ~ run inside the log", () => {
 
 // --- hooks ---
 
-test("registerWebhook deletes only /forge hooks, then creates a pull_request+workflow_run hook at <url>/forge", async () => {
+/** @param {{id:number,url:string}[]} hooks @param {{id:number,active:boolean}} [createBody] */
+function stubHooks(hooks, createBody = { id: 9, active: true }) {
   /** @type {string[]} */
   const calls = [];
   let created;
@@ -335,31 +348,92 @@ test("registerWebhook deletes only /forge hooks, then creates a pull_request+wor
   global.fetch = async (url, init = {}) => {
     const method = init.method || "GET";
     calls.push(`${method} ${url}`);
-    if (method === "GET") {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => [
-          { id: 1, config: { url: "https://old.example/forge" } },
-          { id: 2, config: { url: "https://old.example/github/" } },
-          { id: 3, config: { url: "https://old.example/mytasks/" } },
-        ],
-      };
-    }
+    if (method === "GET") return { ok: true, status: 200, json: async () => hooks.map((h) => ({ id: h.id, config: { url: h.url } })) };
     if (method === "POST") created = JSON.parse(String(init.body));
-    return { ok: true, status: 201, json: async () => ({ id: 9, active: true }) };
+    return { ok: true, status: 201, json: async () => createBody };
   };
+  return {
+    calls,
+    get created() {
+      return created;
+    },
+    restore: () => {
+      global.fetch = orig;
+    },
+  };
+}
+
+test("registerWebhook deletes a legacy hook at the previous public URL, then creates+persists the new one", async () => {
+  const urlFile = publicUrlFile("https://old.example");
+  const store = makeStore();
+  const s = stubHooks([
+    { id: 1, url: "https://old.example/forge" },
+    { id: 2, url: "https://old.example/github/" },
+    { id: 3, url: "https://old.example/mytasks/" },
+  ]);
   try {
-    await forge().registerWebhook("https://new.example/");
+    await forge({}, pipeline, store, { publicUrlFile: urlFile }).registerWebhook("https://new.example/");
   } finally {
-    global.fetch = orig;
+    s.restore();
   }
-  const deletes = calls.filter((c) => c.startsWith("DELETE"));
+  const deletes = s.calls.filter((c) => c.startsWith("DELETE"));
   assert.deepEqual(deletes, ["DELETE https://api.github.com/repos/o/r/hooks/1"]);
-  assert.deepEqual(created.events, ["pull_request", "workflow_run"]);
-  assert.equal(created.config.url, "https://new.example/forge");
-  assert.equal(created.config.secret, SECRET);
-  assert.equal(created.config.content_type, "json");
+  assert.deepEqual(s.created.events, ["pull_request", "workflow_run"]);
+  assert.equal(s.created.config.url, "https://new.example/forge");
+  assert.equal(s.created.config.secret, SECRET);
+  assert.equal(s.created.config.content_type, "json");
+  assert.equal(store.getSecret("forge:github:hookId:o/r"), "9");
+});
+
+test("registerWebhook leaves another profile's /forge hook alone", async () => {
+  const store = makeStore();
+  store.setSecret("forge:github:hookId:o/r", "42"); // our previous hook, already gone
+  const s = stubHooks([{ id: 5, url: "https://other.example/forge" }]);
+  try {
+    await forge({}, pipeline, store).registerWebhook("https://new.example/");
+  } finally {
+    s.restore();
+  }
+  assert.deepEqual(s.calls.filter((c) => c.startsWith("DELETE")), []);
+  assert.equal(store.getSecret("forge:github:hookId:o/r"), "9");
+});
+
+test("registerWebhook deletes a hook matching the stored id even if its URL differs (ngrok rotation)", async () => {
+  const store = makeStore();
+  store.setSecret("forge:github:hookId:o/r", "7");
+  const s = stubHooks([{ id: 7, url: "https://ngrok-old.example/forge" }]);
+  try {
+    await forge({}, pipeline, store).registerWebhook("https://ngrok-new.example/");
+  } finally {
+    s.restore();
+  }
+  assert.deepEqual(s.calls.filter((c) => c.startsWith("DELETE")), ["DELETE https://api.github.com/repos/o/r/hooks/7"]);
+  assert.equal(store.getSecret("forge:github:hookId:o/r"), "9");
+});
+
+test("unregisterWebhooks deletes only the stored-id/previous-URL hook and clears the stored id", async () => {
+  const urlFile = publicUrlFile("https://old.example");
+  const store = makeStore();
+  const s = stubHooks([
+    { id: 1, url: "https://old.example/forge" },
+    { id: 5, url: "https://other.example/forge" },
+  ]);
+  try {
+    await forge({}, pipeline, store, { publicUrlFile: urlFile }).unregisterWebhooks();
+  } finally {
+    s.restore();
+  }
+  assert.deepEqual(s.calls.filter((c) => c.startsWith("DELETE")), ["DELETE https://api.github.com/repos/o/r/hooks/1"]);
+  assert.equal(store.getSecret("forge:github:hookId:o/r"), "");
+});
+
+test("a missing/unset publicUrlFile does not throw", async () => {
+  const s = stubHooks([{ id: 1, url: "https://old.example/forge" }]);
+  try {
+    await assert.doesNotReject(forge().unregisterWebhooks());
+  } finally {
+    s.restore();
+  }
 });
 
 test("registerWebhook on 403 prints manual setup instead of throwing", async () => {
