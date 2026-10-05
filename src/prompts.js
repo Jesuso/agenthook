@@ -174,7 +174,7 @@ export function stepPrompt(task, meta, step, ctx) {
     ? `- Implement the ${N}, run lint and the relevant tests, and open/update a draft PR.`
     : `- Implement the ${N} and run lint and the relevant tests. The worktree branch (its DIFF) IS the\n  deliverable — do NOT open a PR, push, or run any \`gh\` command; commit your work on the branch.`;
   const commentLine = usesPR
-    ? `- Post a brief status comment back on the ${N}: ${meta.commentHowTo}.\n  Include the branch name and PR number. Do NOT start the comment with "${meta.trigger}".`
+    ? `- Post a brief status comment back on the ${N}: ${meta.commentHowTo}.\n  What it says (audience, detail level) is set by the standing instructions above; if they don't say, include the PR link. Do NOT start the comment with "${meta.trigger}".`
     : `- Do NOT post comments anywhere — put any status note in the verdict \`reason\`.`;
   const advanceLine = usesPR
     ? `- "advance": the work is done and the draft PR is open and green — hand it to review.`
