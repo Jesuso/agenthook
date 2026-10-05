@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- `ah agents` and bare `ah status` no longer need the config's secrets. Both only read
+  `~/.agenthook/<name>`, but went through `loadConfig`, which interpolates every `${VAR}` and
+  throws `unset environment variable(s)` when one is missing — so from a worktree without a
+  `.env` (or any shell without the tokens) `ah agents` printed nothing and exited 1 while
+  `ah status <name>` still said UP, which scripts read as "daemon up, zero agents". They now
+  use `peekConfig` (name + state paths from the raw JSON, no interpolation), and `ah agents`
+  accepts an optional profile name like `ah status [name]`.
+
 ## [0.3.0] — 2026-09-25
 
 ### Added

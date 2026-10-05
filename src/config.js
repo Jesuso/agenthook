@@ -145,30 +145,64 @@ function resolveRepos(cfg, configDir) {
   cfg.multiRepo = true;
 }
 
-/**
- * @param {{ configPath?: string }} [opts]
- * @returns {import('./types.js').Config}
- */
-export function loadConfig(opts = {}) {
-  const configPath = opts.configPath ? path.resolve(opts.configPath) : discoverConfigPath();
+/** Locate the config (explicit path or cwd discovery) and parse its JSON as-is: no env
+ * interpolation, no validation beyond "it parses". Shared by loadConfig and peekConfig.
+ * @param {string|undefined} explicit @returns {{ configPath: string, configDir: string, raw: any }} */
+function readRawConfig(explicit) {
+  const configPath = explicit ? path.resolve(explicit) : discoverConfigPath();
   if (!configPath || !fs.existsSync(configPath)) {
     throw new Error(
       `no ${CONFIG_NAME} found (looked up from ${process.cwd()}). ` +
         `Run \`agenthook init\` to create one, or pass --config <path>.`,
     );
   }
-  const configDir = path.dirname(configPath);
-
-  // Env precedence: shell-exported wins, then .env beside the config, then cwd .env.
-  loadEnv(path.join(configDir, ".env"));
-  if (path.resolve(process.cwd()) !== configDir) loadEnv(path.join(process.cwd(), ".env"));
-
   let raw;
   try {
     raw = JSON.parse(fs.readFileSync(configPath, "utf8"));
   } catch (e) {
     throw new Error(`could not parse ${configPath}: ${e.message}`);
   }
+  return { configPath, configDir: path.dirname(configPath), raw };
+}
+
+/** @param {any} name */
+function assertName(name) {
+  if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) {
+    throw new Error(`config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`);
+  }
+}
+
+/**
+ * The profile's identity and state-dir paths WITHOUT resolving secrets. For read-only
+ * commands (`agents`, `status`) that only need to know which ~/.agenthook/<name> to read:
+ * they must work from any checkout, including one where the `${VAR}` refs in the config
+ * (forge/tracker tokens) are unset — a worktree without a .env, a CI box, a teammate's
+ * shell. loadConfig would throw "unset environment variable(s)" there, which read as a
+ * daemon outage with zero agents. Validates only that the file exists, parses, and names
+ * a profile; everything else stays loadConfig's job.
+ * @param {{ configPath?: string }} [opts]
+ * @returns {{ name: string, configPath: string, configDir: string, stateDir: string, logDir: string }}
+ */
+export function peekConfig(opts = {}) {
+  const { configPath, configDir, raw } = readRawConfig(opts.configPath);
+  const name = raw?.name;
+  assertName(name);
+  const stateDir = path.join(registryDir, name);
+  return { name, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs") };
+}
+
+/**
+ * @param {{ configPath?: string }} [opts]
+ * @returns {import('./types.js').Config}
+ */
+export function loadConfig(opts = {}) {
+  const { configPath, configDir } = readRawConfig(opts.configPath);
+
+  // Env precedence: shell-exported wins, then .env beside the config, then cwd .env.
+  // (Read the file again AFTER the .env load so a ${VAR} satisfied by that .env resolves.)
+  loadEnv(path.join(configDir, ".env"));
+  if (path.resolve(process.cwd()) !== configDir) loadEnv(path.join(process.cwd(), ".env"));
+  const { raw } = readRawConfig(configPath);
 
   /** @type {string[]} */
   const missing = [];
@@ -177,9 +211,7 @@ export function loadConfig(opts = {}) {
     throw new Error(`unset environment variable(s) referenced by ${configPath}:\n  - ` + missing.join("\n  - "));
   }
 
-  if (!cfg.name || !/^[A-Za-z0-9._-]+$/.test(cfg.name)) {
-    throw new Error(`config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`);
-  }
+  assertName(cfg.name);
   if (!cfg.tracker?.type) throw new Error(`config: "tracker.type" is required (e.g. "asana").`);
   if (!cfg.repoPath && cfg.repos == null) {
     throw new Error(`config: "repoPath" is required (the repo agents work in), unless a "repos" block declares them.`);
