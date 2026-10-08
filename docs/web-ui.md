@@ -216,7 +216,11 @@ A known secret field holding a literal instead of a `${VAR}` ref gets a **warnin
 **Stage pickers — via the receiver.** Listing an Asana project's sections / Jira statuses / labels
 / Projects Status options needs tracker credentials the UI never holds. Adapters gain an optional
 `listStages()` (extracted from their `init` wizard discovery); the receiver answers a read-only
-`discover` command on `control.sock`. Receiver down → free-text fields.
+`discover` command on `control.sock`. The UI server exposes this as `GET /api/discover?profile=`
+(cookie-auth, no write guards — it's a read) via `src/ui/control-client.js`'s `controlRequest`: one
+NDJSON request over the profile's `control.sock`, skipping the `hello` line. Unknown profile →
+`404` (socket never contacted); receiver down → `503`; no reply within 5 s → `504`; receiver
+`ok:false` → `502` with its error; else `200` + the `discover` result as is.
 
 **Applying changes — restart when idle.** The receiver reads config at boot. A `restart` command
 on `control.sock`: the receiver stops starting new runs (incoming jobs still queue to
@@ -225,6 +229,12 @@ same config, and the new process runs **one `reconcile`** to recover webhooks mi
 (an explicit, user-triggered poll — consistent with the no-polling rule). Hot-reload stays out of
 scope. The respawn is `start --detach --config <path> --reconcile-on-boot` (an
 internal flag: the new server runs that one reconcile after boot; a reconcile error doesn't abort it).
+The UI server exposes this as `POST /api/restart` with body `{profile}` — not a file write, so no
+`baseHash`/`text`, but the same guard chain (cookie, same-origin `Origin`, `X-AH-UI: 1`, JSON body
+≤ 256 KB) as the `PUT` editors. It always sends `{when:'idle'}` over `control.sock` (the browser
+never picks `when`); the status mapping is the same as `discover`'s. Either way, once the profile
+is known, the outcome is audited — `{ts, action:'restart', profile, status}` appended to that
+profile's `ui-audit.jsonl` via `save.js`'s `appendAudit`.
 
 **Control socket hardening (prerequisite).** Profile state dirs are created / tightened to `0700`
 and the socket is created under a `0o077` umask (no chmod race), before any command lands.
