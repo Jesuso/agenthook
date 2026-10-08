@@ -17,6 +17,11 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     active: 0,
     queued: 0,
     lastEvent: null,
+    configPath: null,
+    createdAt: null,
+    lastSeenAt: null,
+    ghost: false,
+    configMissing: false,
     ...overrides,
   };
 }

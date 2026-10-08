@@ -5,7 +5,7 @@ import path from "node:path";
 import { peekConfig } from "../config.js";
 import { readProfile, resolveProfile } from "../heartbeat.js";
 import { createStore } from "../store.js";
-import { ago } from "./ls.js";
+import { ago, day } from "./ls.js";
 
 /**
  * Format a token count as a human-readable string (e.g. "1.2M", "340K").
@@ -35,6 +35,26 @@ export function refForLog(file, refs) {
   return best;
 }
 
+/**
+ * The provenance lines: full config path (`(missing)` when gone), created date, last seen — or,
+ * for a ghost, one line saying no receiver ever ran there. Pure apart from `ago`'s clock.
+ * @param {{ stateKey: string, name: string, configPath: string|null, createdAt: string|null, lastSeenAt: string|null, ghost: boolean, configMissing: boolean }} p
+ * @returns {string[]}
+ */
+export function provenanceLines(p) {
+  if (p.ghost) {
+    return [
+      `config  : — never ran (created ${day(p.createdAt)}); created by a command that read a config named ${p.name}; ` +
+        `safe to remove (ah remove ${p.stateKey})`,
+    ];
+  }
+  return [
+    `config  : ${p.configPath ? `${p.configPath}${p.configMissing ? " (missing)" : ""}` : "?"}`,
+    `created : ${p.createdAt ? `${day(p.createdAt)} (${ago(p.createdAt)})` : "?"}`,
+    `last seen: ${ago(p.lastSeenAt)}`,
+  ];
+}
+
 /** @param {any} args */
 export async function status(args) {
   let name = args._[0];
@@ -59,16 +79,19 @@ export async function status(args) {
     p = readProfile(name);
   }
 
-  const persisted = p ? createStore(p.dir).listQueued().length : 0;
-  if (!p || (!p.heartbeat && !p.pid && !persisted)) {
+  // A stopped receiver deletes its heartbeat + pidfile, so the state dir itself is what exists.
+  if (!p || !fs.existsSync(p.dir)) {
     console.log(`no such profile "${name}" (nothing under ~/.agenthook/${name}).`);
     return;
   }
+  const persisted = createStore(p.dir).listQueued().length;
   const hb = p.heartbeat || {};
   logDir = logDir || path.join(p.dir, "logs");
 
   console.log(`profile : ${p.name}${p.name !== p.stateKey ? ` (state ${p.stateKey})` : ""}`);
   console.log(`status  : ${p.up ? `UP (pid ${p.pid})` : "down"}`);
+  for (const line of provenanceLines(p)) console.log(line);
+  if (p.ghost) return;
   console.log(`tracker : ${hb.tracker || "?"}`);
   console.log(`ingress : ${hb.ingress || "?"}${hb.url ? `  ${hb.url}` : ""}`);
   console.log(`port    : ${hb.port || "?"}`);

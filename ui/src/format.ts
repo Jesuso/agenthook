@@ -42,3 +42,24 @@ export function formatCost(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "—";
   return `$${n.toFixed(2)}`;
 }
+
+/** "2026-10-08" / "?" — the date part of an ISO timestamp. */
+export function formatDate(iso: string | null): string {
+  if (!iso || Number.isNaN(Date.parse(iso))) return "?";
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+/** The provenance badge under a profile's name: a ghost wins over a missing config; else none. */
+export function profileBadge(
+  p: Pick<ProfileView, "name" | "label" | "ghost" | "configMissing" | "configPath" | "createdAt">,
+): { kind: "ghost" | "missing"; text: string; title: string } | null {
+  if (p.ghost) {
+    return {
+      kind: "ghost",
+      text: "never ran",
+      title: `created ${formatDate(p.createdAt)} by a command that read a config named ${p.label || p.name}; safe to remove`,
+    };
+  }
+  if (p.configMissing) return { kind: "missing", text: "config missing", title: `${p.configPath ?? "the config file"} no longer exists` };
+  return null;
+}

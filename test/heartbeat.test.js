@@ -147,3 +147,77 @@ test("resolveProfile: a label shared by two profiles throws, listing both state 
   assert.throws(() => resolveProfile("Same", reg), /profile label "Same" is ambiguous — matches state keys k1, k2; pass the state key instead/);
   assert.equal(resolveProfile("k2", reg)?.stateKey, "k2");
 });
+
+// --- provenance: configPath / createdAt / lastSeenAt / ghost / configMissing (profileMeta) ---
+
+/** @param {string} reg @param {string} key @param {Record<string, any>} files */
+function writeDir(reg, key, files) {
+  const dir = path.join(reg, key);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [f, v] of Object.entries(files)) fs.writeFileSync(path.join(dir, f), typeof v === "string" ? v : JSON.stringify(v));
+  return dir;
+}
+
+test("listProfiles: a ghost (empty dir / only an empty logs/) → ghost, no configPath, createdAt from the dir", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-meta-"));
+  fs.mkdirSync(path.join(reg, "bare"));
+  fs.mkdirSync(path.join(reg, "logsonly", "logs"), { recursive: true });
+  for (const p of listProfiles(reg)) {
+    assert.equal(p.ghost, true, p.stateKey);
+    assert.equal(p.configPath, null);
+    assert.equal(p.configMissing, false);
+    assert.equal(p.lastSeenAt, null);
+    assert.ok(p.createdAt && Math.abs(Date.parse(p.createdAt) - Date.now()) < 60_000, `${p.stateKey} createdAt ${p.createdAt}`);
+  }
+});
+
+test("listProfiles: a stopped profile (marker only, config exists) → configPath from the marker, lastSeenAt = later of marker / events", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-meta-"));
+  const cfgFile = path.join(reg, "agenthook.config.json");
+  fs.writeFileSync(cfgFile, "{}");
+  const marker = { name: "S", stateKey: "s", configPath: cfgFile, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z" };
+  const dir = writeDir(reg, "s", { "profile.json": marker });
+  let [p] = listProfiles(reg).filter((x) => x.stateKey === "s");
+  assert.deepEqual(
+    [p.ghost, p.configMissing, p.configPath, p.createdAt, p.lastSeenAt],
+    [false, false, cfgFile, "2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"],
+  );
+  // events.jsonl written after the last boot → its mtime is the later sighting.
+  fs.writeFileSync(path.join(dir, "events.jsonl"), "{}\n");
+  const t = new Date("2026-05-05T00:00:00.000Z");
+  fs.utimesSync(path.join(dir, "events.jsonl"), t, t);
+  [p] = listProfiles(reg).filter((x) => x.stateKey === "s");
+  assert.equal(p.lastSeenAt, t.toISOString());
+});
+
+test("listProfiles: a marker pointing at a deleted config → configMissing", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-meta-"));
+  writeDir(reg, "m", { "profile.json": { name: "m", configPath: path.join(reg, "gone.json") } });
+  const [p] = listProfiles(reg);
+  assert.equal(p.configMissing, true);
+  assert.equal(p.configPath, path.join(reg, "gone.json"));
+  assert.equal(p.ghost, false);
+});
+
+test("listProfiles: a legacy pre-marker dir holding state is not a ghost", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-meta-"));
+  writeDir(reg, "legacy", { "seen.json": ["a"] });
+  const [p] = listProfiles(reg);
+  assert.equal(p.ghost, false);
+  assert.equal(p.configPath, null);
+  assert.equal(p.configMissing, false);
+});
+
+test("listProfiles: with a heartbeat, lastSeenAt is its updatedAt and configPath falls back to it", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-meta-"));
+  const updatedAt = "2026-07-07T07:07:07.000Z";
+  writeDir(reg, "h", {
+    "heartbeat.json": { name: "h", configPath: path.join(reg, "nope.json"), updatedAt },
+    "profile.json": { name: "h", updatedAt: "2026-01-01T00:00:00.000Z" },
+  });
+  const [p] = listProfiles(reg);
+  assert.equal(p.lastSeenAt, updatedAt);
+  assert.equal(p.configPath, path.join(reg, "nope.json"));
+  assert.equal(p.configMissing, true);
+  assert.equal(p.ghost, false);
+});

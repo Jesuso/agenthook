@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { registryDir } from "./config.js";
-import { readMarker } from "./profile.js";
+import { isFreshStateDir, readMarker } from "./profile.js";
 import { reposOf } from "./repos.js";
 
 /** @param {number} pid */
@@ -126,10 +126,66 @@ export function createHeartbeat(cfg) {
   };
 }
 
+/** @param {any} v */
+const isoOrNull = (v) => (typeof v === "string" && v && !Number.isNaN(Date.parse(v)) ? v : null);
+
+/** A file's mtime as ISO, or null when absent. @param {string} f */
+function mtimeIso(f) {
+  try {
+    return fs.statSync(f).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a profile comes from and when it was last alive, from its state dir alone (a stopped
+ * receiver deletes heartbeat.json, so profile.json is the main source). Shared by readProfile
+ * and the `ah ui` watcher.
+ * - `configPath`: profile.json's, else the heartbeat's, else null.
+ * - `createdAt`: profile.json's, else the dir's birthtime (mtime where birthtime is unsupported).
+ * - `lastSeenAt`: the heartbeat's `updatedAt`, else the later of profile.json's `updatedAt` (last
+ *   boot) and events.jsonl's mtime, else null.
+ * - `ghost`: no marker, no heartbeat, and nothing but an empty `logs/` — a dir some command made by
+ *   reading a config, where no receiver ever ran. A legacy pre-marker dir holding state is not one.
+ * - `configMissing`: `configPath` is set but the file is gone.
+ * @param {string} dir @param {any} heartbeat parsed heartbeat.json, or null
+ * @param {any} [marker] parsed profile.json (default: read it)
+ * @returns {{ configPath: string|null, createdAt: string|null, lastSeenAt: string|null, ghost: boolean, configMissing: boolean }}
+ */
+export function profileMeta(dir, heartbeat, marker = readMarker(dir)) {
+  const m = marker && typeof marker === "object" ? marker : null;
+  const hb = heartbeat && typeof heartbeat === "object" ? heartbeat : null;
+  const configPath = [m?.configPath, hb?.configPath].find((c) => typeof c === "string" && c) ?? null;
+  /** @type {fs.Stats|null} */
+  let st = null;
+  try {
+    st = fs.statSync(dir);
+  } catch {
+    /* no state dir */
+  }
+  const t = st && (st.birthtimeMs > 0 ? st.birthtime : st.mtime);
+  const born = t instanceof Date && !Number.isNaN(t.getTime()) ? t.toISOString() : null;
+  const createdAt = isoOrNull(m?.createdAt) ?? born;
+  let lastSeenAt = isoOrNull(hb?.updatedAt);
+  if (!lastSeenAt) {
+    const seen = [isoOrNull(m?.updatedAt), mtimeIso(path.join(dir, "events.jsonl"))].filter((t) => t !== null);
+    lastSeenAt = seen.sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1) ?? null;
+  }
+  return {
+    configPath,
+    createdAt,
+    lastSeenAt,
+    ghost: !!st && !m && !hb && isFreshStateDir(dir),
+    configMissing: configPath !== null && !fs.existsSync(configPath),
+  };
+}
+
 /**
  * Read one profile's heartbeat + liveness. `stateKey` is the state-dir name (the stable id);
  * `name` is the label — the heartbeat's `name`, else profile.json's, else the dir name (a
- * legacy/unmarked dir). `registry` is overridable for tests.
+ * legacy/unmarked dir). Also carries profileMeta's `configPath`/`createdAt`/`lastSeenAt`/`ghost`/
+ * `configMissing`. `registry` is overridable for tests.
  * @param {string} stateKey @param {string} [registry]
  */
 export function readProfile(stateKey, registry = registryDir) {
@@ -149,8 +205,9 @@ export function readProfile(stateKey, registry = registryDir) {
   } catch {
     /* no pidfile */
   }
-  const label = [hb?.name, readMarker(dir)?.name].find((n) => typeof n === "string" && n);
-  return { stateKey, name: label || stateKey, dir, pid, up: isAlive(pid), heartbeat: hb };
+  const marker = readMarker(dir);
+  const label = [hb?.name, marker?.name].find((n) => typeof n === "string" && n);
+  return { stateKey, name: label || stateKey, dir, pid, up: isAlive(pid), heartbeat: hb, ...profileMeta(dir, hb, marker) };
 }
 
 /** List every profile that has a state dir under ~/.agenthook, sorted by state key. @param {string} [registry] */

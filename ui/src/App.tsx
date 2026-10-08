@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import type { Snapshot, TicketStatus } from "./contract";
-import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel } from "./format";
+import type { ProfileView, Snapshot, TicketStatus } from "./contract";
+import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel, profileBadge, formatDate } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
@@ -234,7 +234,10 @@ export default function App() {
         <tbody>
           {state.snapshot.profiles.map((p) => (
             <tr key={p.name} className="border-b border-[var(--color-border)]">
-              <td className="px-2 py-1 font-mono">{profileLabel(p)}</td>
+              <td className="px-2 py-1">
+                <div className="font-mono">{profileLabel(p)}</div>
+                <ProfileOrigin p={p} />
+              </td>
               <td className="px-2 py-1" style={{ color: p.up ? "var(--color-ok)" : "var(--color-err)" }}>
                 {formatUp(p)}
               </td>
@@ -421,6 +424,53 @@ export default function App() {
         </div>
       )}
     </Shell>
+  );
+}
+
+/** Where a profile comes from: its (tildified) config path with a copy button, plus a "never ran" /
+ * "config missing" badge. The payload carries only the tildified path, so that's what's copied. */
+function ProfileOrigin({ p }: { p: ProfileView }) {
+  const [copied, setCopied] = useState(false);
+  const badge = profileBadge(p);
+  const copy = (path: string) =>
+    navigator.clipboard.writeText(path).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-muted)]">
+      {p.configPath && (
+        <>
+          <span className="font-mono" title={p.configPath}>
+            {p.configPath}
+          </span>
+          <button
+            className="rounded border border-[var(--color-border)] px-1 leading-4"
+            title="copy config path"
+            aria-label="copy config path"
+            onClick={() => copy(p.configPath!)}
+          >
+            {copied ? "copied" : "copy"}
+          </button>
+        </>
+      )}
+      {badge?.kind === "ghost" && (
+        <>
+          <span className="rounded border border-[var(--color-border)] px-1.5 py-0.5 font-semibold" title={badge.title}>
+            {badge.text}
+          </span>
+          <span title={badge.title}>created {formatDate(p.createdAt)}</span>
+        </>
+      )}
+      {badge?.kind === "missing" && (
+        <span className="rounded bg-[var(--color-warn)]/20 px-1.5 py-0.5 font-semibold text-[var(--color-warn)]" title={badge.title}>
+          {badge.text}
+        </span>
+      )}
+    </div>
   );
 }
 
