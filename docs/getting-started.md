@@ -125,6 +125,11 @@ Extra step fields you'll want to know:
   writes code.
 - `maxAttempts` (default 3) — caps how many times a `changes` verdict can bounce back into a step
   before it's forced to `fail`, bounding an endless code↔review loop.
+- `maxMinutes` (default 120, `0` = off) — wall-clock cap on one run of the step. Past it the agent
+  is killed and the run fails with a `timeout` reason, so a stuck agent can't hold a
+  `maxConcurrent` slot forever.
+- `idleMinutes` (default off) — also kill the agent after this many minutes with no output. Opt-in:
+  a long single tool call can legitimately be silent.
 - `model` — pin a step to a specific Claude model (e.g. `"claude-opus-4-8"` for review).
 - `effort` — per-step reasoning effort, passed to `claude -p --effort` (`low` | `medium` | `high`
   | `xhigh` | `max`). Front-load tokens where errors compound most: `"high"` for `triage` (a bad

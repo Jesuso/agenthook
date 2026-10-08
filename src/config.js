@@ -271,6 +271,12 @@ export function loadConfig(opts = {}) {
     if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
       throw new Error(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
     }
+    if (step.maxMinutes != null && (typeof step.maxMinutes !== "number" || !Number.isFinite(step.maxMinutes) || step.maxMinutes < 0)) {
+      throw new Error(`config: pipeline step "${step.id}" maxMinutes must be a number >= 0 (0 disables the cap).`);
+    }
+    if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
+      throw new Error(`config: pipeline step "${step.id}" idleMinutes must be a number > 0.`);
+    }
     if (step.lite != null) {
       const h = step.lite.descriptionHeadings;
       if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {

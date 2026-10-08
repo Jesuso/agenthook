@@ -47,6 +47,19 @@ test("a queue key equal to the step's own source is rejected (self-loop)", () =>
   assert.throws(load([{ id: "code", sourceLabel: "agent:code", queueLabel: "Agent:Code" }]), /queueLabel must differ/);
 });
 
+test("maxMinutes / idleMinutes: invalid values are rejected with the step named", () => {
+  assert.throws(load([{ id: "code", maxMinutes: -1 }]), /step "code" maxMinutes must be a number >= 0/);
+  assert.throws(load([{ id: "code", maxMinutes: "x" }]), /step "code" maxMinutes must be/);
+  assert.throws(load([{ id: "code", idleMinutes: 0 }]), /step "code" idleMinutes must be a number > 0/);
+  assert.throws(load([{ id: "code", idleMinutes: "5" }]), /step "code" idleMinutes must be/);
+});
+
+test("maxMinutes 0, fractional values, and omitted keys load", () => {
+  const cfg = load([{ id: "code", maxMinutes: 0, idleMinutes: 0.5 }, { id: "review", maxMinutes: 1.5 }, { id: "triage" }])();
+  assert.equal(cfg.pipeline?.[0].maxMinutes, 0);
+  assert.equal(cfg.pipeline?.[2].maxMinutes, undefined);
+});
+
 test("a queue key on a manual step is rejected", () => {
   assert.throws(load([{ id: "done", manual: true, queueLabel: "queue:done" }]), /queueLabel is not allowed on a manual step/);
 });
