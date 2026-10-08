@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Multi-repo routing — pure-unit coverage of resolveRepo (src/repos.js): route keys →
 // exactly one repo, the default on no match, and fail-closed errors on ambiguity.
 import test from "node:test";

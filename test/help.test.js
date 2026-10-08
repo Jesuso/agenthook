@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // CLI router — `<command> --help`/`-h` must resolve to usage, never run the
 // command (e.g. `start --help` must not boot the receiver). Pure arg-layer
 // check; importing the bin does not run `main()` (it's gated to direct invoke).

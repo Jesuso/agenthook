@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `agenthook run` guard — pure-unit coverage (no network/store): entryBlock refuses
 // to re-inject a ref that's already mid-flow (resting in a pipeline stage, or carrying
 // a running job), unless --force. One ref = one in-flight flow (the worktree + running.json

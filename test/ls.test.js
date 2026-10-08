@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `agenthook ls` formatting — pure unit coverage of formatLs: the NAME column shows the
 // label (`Label (stateKey)` when they differ) and a label shared by ≥2 profiles warns.
 import test from "node:test";

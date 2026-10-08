@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Local/offline tracker — pure-unit coverage (no network, no spawn): board seeding,
 // fetchTask, stage transitions in advance (advance/fail/hold/changes), listResting as
 // the driver's work source, and usesPR:false in describe().

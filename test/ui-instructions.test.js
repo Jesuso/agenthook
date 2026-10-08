@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` instructions editor, read side — the heartbeat allowlist listing, exact-path file
 // resolution, the last-prompt preview split, and the three routes behind the cookie.
 // Temp registry + temp instruction files; ephemeral 127.0.0.1 port.

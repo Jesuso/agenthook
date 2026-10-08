@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` config editor, server side — `GET /api/config` (view, validation errors, literal-secret
 // warnings, every 404) and `PUT /api/config` (each guard, 409, 422 writes nothing, the atomic
 // save with its `config-bak/` backup and `sensitive` audit line, SSE ui/disk events), plus the

@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // ensurePrivateDir — pure fs unit, tmpdir-based (never touches ~/.agenthook).
 import test from "node:test";
 import assert from "node:assert/strict";

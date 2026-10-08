@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // sessions — repo-aware transcript lookup (multi-repo, #82). HOME points at a tmp dir so
 // claudeProjectDir lands in a sandbox; no git, no network.
 import test from "node:test";

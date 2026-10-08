@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // File-overlap guard (#91): the pure matchers in src/overlap.js, then the gate + every
 // release point driven through the real dispatcher (a fake `claude` sh script, no
 // network) and the engine's releaser / crash recovery with an intake spy.

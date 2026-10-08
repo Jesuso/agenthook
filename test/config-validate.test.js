@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // validateRawConfig / literalSecrets — the pure, env-free config checks the v3 UI config editor
 // runs on raw JSON (docs/web-ui.md § v3). Neither may touch fs or process.env, so the env vars
 // the example config references are deleted up front: a `${VAR}` must stay an opaque value.

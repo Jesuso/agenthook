@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` run-log viewer — run listing, run-name validation, the byte-offset tail framing,
 // and the two routes behind the cookie. Temp registry; ephemeral 127.0.0.1 port.
 import test from "node:test";

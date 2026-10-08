@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Jira adapter — pure-unit coverage (no network): the adapter contract (x-hub-signature
 // verify, issue_created + issue_updated status-change routing, advance → transition lookup —
 // mirrors test/github.test.js) plus the `agenthook init` discovery. Note for the init test:

@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Pure-unit tests for usage aggregation helpers (no I/O, no network).
 import test from "node:test";
 import assert from "node:assert/strict";

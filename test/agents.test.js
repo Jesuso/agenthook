@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `agenthook agents` — pure-unit coverage (no `ps`, no config): parse `ps` stdout
 // and attribute each agent row to its owning profile via running.json fixtures,
 // asserting the default scope-to-active filter and the --all cross-profile view.

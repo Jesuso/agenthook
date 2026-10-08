@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Asana adapter — pure-unit coverage (no network): the adapter contract (X-Hook-Signature
 // verify, task-added + section_changed routing, advance → addTask — mirrors
 // test/github.test.js) plus the `agenthook init` discovery (live section listing and the

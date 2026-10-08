@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createQueue, planRestore } from "../src/queue.js";

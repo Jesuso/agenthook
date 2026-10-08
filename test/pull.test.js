@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Queue-stage pull — pure-unit coverage of the slot math, the pull planner, and the
 // single-flight puller (injected deps; no network, no engine).
 import { test } from "node:test";

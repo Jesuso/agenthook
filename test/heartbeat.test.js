@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // instructionTargets — pure unit coverage: which standing-instructions files the
 // pipeline actually reads, grouped by role (step/default/repo), with dedupe-by-path
 // and step > default > repo precedence when one file serves several roles.
