@@ -182,13 +182,17 @@ Key files:
   and `restart` audits its outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
+- `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
+  updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
+  `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config
+  already owns a marked sibling dir is removed and refused ("add `stateId`") instead of silently forking state.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).
 - `src/config.js` — discovers `agenthook.config.json` (cwd walk-up / `--config`), interpolates
   `${VAR}` refs from the environment (auto-loads `.env` beside the config and in cwd), and resolves
-  the **four distinct locations**: install dir, config dir, central state dir (`~/.agenthook/<name>`,
-  also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
+  the **four distinct locations**: install dir, config dir, central state dir (`~/.agenthook/<stateKey>`,
+  `stateKey = stateId ?? name`; also `dataDir`/`logDir`/pidfile/heartbeat), and `repoPath`. The active `tracker` block is mirrored
   to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 
 The normalized unit passed engine-wide is the **job**: `{ kind: 'pipeline'|'merge', ref, stepId, dedupKey, comment? }`.

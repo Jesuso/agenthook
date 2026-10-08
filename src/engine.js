@@ -29,6 +29,7 @@ import { createPuller } from "./pull.js";
 import { queueStageOf } from "./pipeline.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
+import { claimStateDir } from "./profile.js";
 import { startControl } from "./control.js";
 import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
@@ -176,6 +177,9 @@ export function createRestartRequester({ queue, isDraining, validateConfig, onPe
  * @param {{reconcileOnBoot?: boolean}} [opts]  reconcileOnBoot: run one reconcile after boot (set by a `restart` respawn)
  */
 export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
+  // Before anything below writes into the state dir (the heartbeat flushes on construction):
+  // refuse an unrecognised rename while the dir is still fresh, else stamp profile.json.
+  claimStateDir(cfg);
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
   const forge = createForge(cfg, store);

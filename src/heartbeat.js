@@ -80,6 +80,7 @@ export function createHeartbeat(cfg) {
   /** @type {Record<string, any>} */
   let state = {
     name: cfg.name,
+    stateKey: cfg.stateKey,
     pid: process.pid,
     port: cfg.port,
     url: null,

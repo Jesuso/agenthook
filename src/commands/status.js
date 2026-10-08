@@ -43,7 +43,7 @@ export async function status(args) {
     // Identity only — no secret interpolation, so `status` works from a checkout whose
     // config ${VAR}s are unset (see peekConfig).
     const peeked = peekConfig({ configPath: args.config });
-    name = peeked.name;
+    name = peeked.stateKey;
     logDir = peeked.logDir;
   }
 

@@ -11,7 +11,7 @@ import { readProfile } from "../heartbeat.js";
 /** @param {any} args */
 export async function stop(args) {
   const cfg = loadConfig({ configPath: args.config });
-  const { pid, up } = readProfile(cfg.name);
+  const { pid, up } = readProfile(cfg.stateKey);
 
   if (up) {
     process.kill(pid, "SIGTERM");

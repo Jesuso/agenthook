@@ -204,7 +204,7 @@ export async function agents(args = {}) {
     profiles = listProfiles().map((p) => readProfile(p.name, p.dir));
     scope = "all profiles";
   } else {
-    const name = args._?.[0] ? String(args._[0]) : peekConfig({ configPath: args.config }).name;
+    const name = args._?.[0] ? String(args._[0]) : peekConfig({ configPath: args.config }).stateKey;
     active = name;
     profiles = [readProfile(name, path.join(registryDir, name))];
     scope = name;

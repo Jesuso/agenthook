@@ -131,11 +131,12 @@ Set by `ingress.type` in the config; the server owns its lifecycle (brings the t
 ## Configuration
 
 `agenthook.config.json` holds non-secret wiring + `${ENV}` secret refs. State (dedup set,
-handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<name>/`.
+handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<stateId ?? name>/`.
 
 | Field | Meaning |
 |-------|---------|
-| `name` | Profile name; keys the state dir. Must be unique across running profiles. |
+| `name` | Profile name; keys the state dir unless `stateId` is set. Must be unique across running profiles. |
+| `stateId` | Optional stable state key (`[A-Za-z0-9._-]+`): the state dir is `~/.agenthook/<stateId>`, so `name` can be relabelled without moving state. Renaming a profile *without* it makes `start` refuse (its config already owns another state dir — see `profile.json` there) rather than silently start on an empty dir. |
 | `repoPath` | The repo agents work in (worktrees are siblings). Relative paths resolve against the config. |
 | `port` | Local receiver port. Distinct per parallel profile. |
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
