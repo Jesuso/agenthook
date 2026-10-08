@@ -3,8 +3,8 @@
 // reads one of them, and splits a step's last real prompt (the `<log>.prompt.md` sidecar
 // dispatch.js writes) into its standing and ticket halves. Blind reader: no config load,
 // never builds a path from a request param. The one exception is writeInstructionFile — the
-// only code in src/ui that writes: an allowlisted instruction file (atomically, with a `.bak`)
-// and the profile's `ui-audit.jsonl`.
+// only code in src/ui that writes: an allowlisted instruction file (atomically), its backup
+// under the profile's `instructions-bak/`, and the profile's `ui-audit.jsonl`.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -97,13 +97,23 @@ export function readInstructionFile(registry, profile, p) {
 }
 
 /**
+ * Where the one-generation backup of an instruction file lives: the profile's state dir, never
+ * beside the file. Instruction files usually sit in the user's repo, and a `<file>.bak` there
+ * escapes `INSTRUCTIONS*.md`-style ignore rules — private instructions one `git add -A` from a
+ * commit. Keyed by basename + a hash of the absolute path, so same-named files don't collide.
+ * @param {string} stateDir @param {string} file
+ */
+export const backupPathFor = (stateDir, file) =>
+  path.join(stateDir, "instructions-bak", `${path.basename(file)}.${sha256(file).slice(0, 12)}.bak`);
+
+/**
  * Save one allowlisted instruction file (`PUT /api/instructions/file`). Fully synchronous on
  * purpose: Node's single thread serialises concurrent saves, so two with the same `baseHash`
  * get exactly one 200 and one 409 with no lock. Sequence: resolve (as readInstructionFile) →
  * size cap → `baseHash` must equal the current sha256 (else 409 with the current file) → temp
- * file in the same dir with the exact original mode → fsync → old content to `<file>.bak`
- * (same mode; a symlink / non-regular `.bak` is an error, never followed) → rename over the
- * file. Then one `{ ts, path, oldHash, newHash, bytes }` line is appended to the profile's
+ * file in the same dir with the exact original mode → fsync → old content to backupPathFor
+ * (state dir, 0600 in a 0700 dir; a symlinked dir or non-regular backup is an error, never
+ * followed) → rename over the file. Then one `{ ts, path, oldHash, newHash, bytes }` line is appended to the profile's
  * `ui-audit.jsonl` (0600); an audit failure doesn't undo the save.
  * @param {string} registry @param {string} profile @param {string} p
  * @param {string} baseHash @param {string} content
@@ -134,14 +144,20 @@ export function writeInstructionFile(registry, profile, p, baseHash, content) {
     const fd = fs.openSync(tmp, "wx", mode);
     made = true;
     writeAll(fd, next, mode);
-    const bak = `${file}.bak`;
+    const bak = backupPathFor(dir, file);
+    try {
+      if (!fs.lstatSync(path.dirname(bak)).isDirectory()) return fail(); // a symlinked dir is never followed
+    } catch (e) {
+      if (e.code !== "ENOENT") return fail();
+      fs.mkdirSync(path.dirname(bak), { mode: 0o700 });
+    }
     try {
       if (!fs.lstatSync(bak).isFile()) return fail();
     } catch (e) {
       if (e.code !== "ENOENT") return fail();
     }
     const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = fs.constants;
-    writeAll(fs.openSync(bak, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, mode), cur, mode);
+    writeAll(fs.openSync(bak, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600), cur, 0o600);
     fs.renameSync(tmp, file);
   } catch {
     return fail();

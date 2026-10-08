@@ -170,7 +170,9 @@ write allowlist.
 - Optimistic concurrency: the request carries `baseHash` (sha256 of the content the editor
   loaded); a mismatch returns `409` with the current content + hash. No blind overwrite.
 - Atomic write: temp file in the same dir with the original mode → fsync → rename. The previous
-  content is kept as `<file>.bak` (one generation).
+  content is kept as a one-generation backup in the profile's state dir
+  (`~/.agenthook/<profile>/instructions-bak/`, 0600) — never beside the file, where a `.bak` would
+  escape the repo's `INSTRUCTIONS*.md` ignore rules.
 - Every save is appended to a UI-owned `~/.agenthook/<profile>/ui-audit.jsonl`
   (`{ts, path, oldHash, newHash, bytes}`) — the only state-dir file the UI writes.
 - External edits (your `$EDITOR`) reach open tabs as SSE `instructions` events (dir watch +

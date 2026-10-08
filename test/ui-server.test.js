@@ -131,7 +131,7 @@ test("static: traversal and NUL paths never escape distDir", async () => {
 
 /** The one writer in src/ui (writeInstructionFile) and the write-ish fs calls it needs. */
 const WRITER = "instructions.js";
-const WRITER_CALLS = new Set(["fchmodSync", "writeSync", "renameSync", "unlinkSync", "appendFileSync"]);
+const WRITER_CALLS = new Set(["fchmodSync", "writeSync", "renameSync", "unlinkSync", "appendFileSync", "mkdirSync"]); // mkdirSync: the 0700 instructions-bak/ dir
 const WRITES = /^[fl]?(write|writev|append|mkdir|mkdtemp|rm|rmdir|unlink|rename|copyFile|cp|truncate|symlink|link|chmod|chown|utimes|createWriteStream)(File)?(Sync)?$/;
 
 /** Write-ish fs usage in one src/ui file that its role doesn't allow. @param {string} name @param {string} src */
