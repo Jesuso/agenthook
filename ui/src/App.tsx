@@ -9,6 +9,9 @@ type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error
 export default function App() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [connected, setConnected] = useState(false);
+  // CLOSED means the EventSource gave up for good (e.g. a 401) — the browser
+  // will not retry it, so the "reconnecting…" banner would be a lie.
+  const [closed, setClosed] = useState(false);
   // Buffers deltas that arrive while a snapshot re-fetch (triggered on open/reconnect)
   // is still in flight, so they replay in order once it resolves.
   const pending = useRef<UiEvent[] | null>(null);
@@ -29,12 +32,21 @@ export default function App() {
         .catch(() => setState({ kind: "error", status: 0 }));
     };
 
+    // First paint never depends on the stream connecting.
+    fetchSnapshot();
+
     const unsubscribe = subscribe({
       onOpen: () => {
         setConnected(true);
+        setClosed(false);
         fetchSnapshot();
       },
       onError: () => setConnected(false),
+      onClosed: () => {
+        setConnected(false);
+        setClosed(true);
+        fetchSnapshot();
+      },
       onEvent: (ev) => {
         if (pending.current) {
           pending.current.push(ev);
@@ -53,7 +65,7 @@ export default function App() {
 
   return (
     <Shell>
-      {!connected && (
+      {!connected && !closed && (
         <div className="mb-3 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-1.5 text-sm text-[var(--color-err)]">
           disconnected — reconnecting…
         </div>
