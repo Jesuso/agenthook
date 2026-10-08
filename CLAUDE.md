@@ -27,6 +27,8 @@ from cwd); `--config <path>` selects one explicitly.
 node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd)
 node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress)
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
+node bin/agenthook.js rename <newName>   # relabel this profile (state key kept; inserts stateId)
+node bin/agenthook.js restart            # restart the running receiver once idle
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
 node bin/agenthook.js follow [session]   # tail a live agent transcript read-only

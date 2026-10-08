@@ -4,6 +4,8 @@
 //   agenthook init                 scaffold agenthook.config.json in the current dir
 //   agenthook start [--detach]     boot this profile (ingress up → register → serve)
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
+//   agenthook rename <newName>     relabel this profile (state key kept)
+//   agenthook restart              restart the running receiver once idle
 //   agenthook ls                   table of all profiles + status
 //   agenthook status [name]        one profile in detail
 //   agenthook follow [session-id] [--repo <id>]  tail a live agent transcript (read-only)
@@ -24,6 +26,8 @@
 import { init } from "../src/commands/init.js";
 import { start } from "../src/commands/start.js";
 import { stop } from "../src/commands/stop.js";
+import { rename } from "../src/commands/rename.js";
+import { restart } from "../src/commands/restart.js";
 import { ls } from "../src/commands/ls.js";
 import { status } from "../src/commands/status.js";
 import { follow } from "../src/commands/follow.js";
@@ -74,7 +78,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui, rename, restart };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -83,6 +87,8 @@ usage: agenthook <command> [args] [--config <path>]
   init                      scaffold agenthook.config.json (interactive)
   start [--detach]          boot this profile
   stop [--keep-hooks]       stop the receiver
+  rename <newName>          relabel this profile (state key kept; inserts stateId)
+  restart                   restart the running receiver once idle
   ls                        all profiles + status
   status [name]             one profile in detail
   follow [session-id] [--repo <id>]  tail a live agent (read-only; --repo = one repo only)
