@@ -216,6 +216,38 @@ test("init section discovery lists the chosen project's sections (name + gid)", 
   }
 });
 
+test("describe().stageKeys names the section-gid binding family", () => {
+  assert.deepEqual(adapter().describe().stageKeys, {
+    source: "sourceSectionGid",
+    success: "successSectionGid",
+    failure: "failureSectionGid",
+    hold: "holdSectionGid",
+    queue: "queueSectionGid",
+  });
+});
+
+test("listStages fetches the configured project's sections", async () => {
+  const orig = global.fetch;
+  /** @type {string[]} */
+  const urls = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ data: [{ gid: "10", name: "Backlog" }, { gid: "20", name: "In review" }] }) });
+  };
+  try {
+    const a = routed({ projectGid: "777" });
+    const stages = await a.listStages?.();
+    assert.deepEqual(stages, [
+      { id: "10", label: "Backlog" },
+      { id: "20", label: "In review" },
+    ]);
+    assert.ok(urls.some((u) => u.includes("/projects/777/sections")), `expected a sections fetch for the configured project; got:\n${urls.join("\n")}`);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 // --- native task dependencies (the block gate; mirrors github.test.js): a task with an
 // incomplete "blocked by" dependency rests in its source section; a blocker completing
 // releases each eligible dependent; completeTask on a terminal step completes the task.

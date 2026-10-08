@@ -201,6 +201,22 @@ export function createJiraAdapter(cfg, store) {
     }
   }
 
+  // The project's workflow statuses — live. Flattens issue-type groups and dedups by
+  // name (the binding key). Shared by the init wizard's stage picks and listStages.
+  /** @param {string} base @param {string} auth @param {string|undefined} projectKey @returns {Promise<import('../types.js').StageOption[]>} */
+  const fetchStatuses = async (base, auth, projectKey) => {
+    if (!projectKey) throw new Error("jira: no projectKey configured");
+    const res = await fetch(`${base}/rest/api/2/project/${encodeURIComponent(projectKey)}/statuses`, {
+      headers: { Authorization: auth, Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`Jira project statuses ${res.status}`);
+    /** @type {Map<string, import('../types.js').StageOption>} */
+    const byName = new Map();
+    for (const type of (await json(res)) || [])
+      for (const s of type.statuses || []) byName.set(s.name, { id: s.name, label: s.name });
+    return [...byName.values()];
+  };
+
   return {
     describe: () => ({
       platform: "Jira",
@@ -208,7 +224,10 @@ export function createJiraAdapter(cfg, store) {
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s -u "${pc.email}:$JIRA_API_TOKEN" -X POST ${baseUrl}/rest/api/2/issue/<key>/comment -H "Content-Type: application/json" -d '{"body":"<text>"}' (your token is in the env as $JIRA_API_TOKEN)`,
       readCommentsHowTo: `curl -s -u "${pc.email}:$JIRA_API_TOKEN" ${baseUrl}/rest/api/2/issue/<key>/comment`,
+      stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
+
+    listStages: () => fetchStatuses(baseUrl, authHeader, pc.projectKey),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
     // accept. Sync + no network so the receiver ACKs inside Jira's retry window.
@@ -461,23 +480,14 @@ export function createJiraAdapter(cfg, store) {
     // the assignee accountId is derived from /myself, so neither is asked. The project's
     // statuses are then discovered live and bound to the code step (no TODO_* editing).
     wizardSteps: () => {
-      // The project's workflow statuses — live, so the stage picks below are real names.
       // site/email aren't on `pc` yet at init (they're being collected by THIS wizard),
       // so this rebuilds base+auth from the answers rather than the factory's cached pair.
       /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
       const statuses = async (a) => {
         const base = (a.baseUrl || `https://${a.site}.atlassian.net`).replace(/\/$/, "");
         const auth = "Basic " + Buffer.from(`${a.email}:${pc.token}`).toString("base64");
-        const res = await fetch(`${base}/rest/api/2/project/${encodeURIComponent(a.projectKey)}/statuses`, {
-          headers: { Authorization: auth, Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`Jira project statuses ${res.status}`);
-        // The endpoint groups statuses by issue type; flatten + dedup by name (the binding key).
-        /** @type {Map<string, {title:string,value:string}>} */
-        const byName = new Map();
-        for (const type of (await json(res)) || [])
-          for (const s of type.statuses || []) byName.set(s.name, { title: s.name, value: s.name });
-        return [...byName.values()];
+        const opts = await fetchStatuses(base, auth, a.projectKey);
+        return opts.map((o) => ({ title: o.label, value: o.id }));
       };
       return [
         { key: "site", message: 'Jira site shortname (the "<X>" in <X>.atlassian.net)' },

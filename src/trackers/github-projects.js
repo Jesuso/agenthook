@@ -402,6 +402,33 @@ export function createGithubProjectsAdapter(cfg, store) {
     }
   }
 
+  // The Status single-select options of a project ("owner/number"). Shared by the init
+  // wizard's stage picks and listStages.
+  /** @param {string|undefined} projectRef @returns {Promise<import('../types.js').StageOption[]>} */
+  const fetchStatusOptions = async (projectRef) => {
+    if (!projectRef) throw new Error("github-projects: no project configured");
+    const { owner, number } = parseProject(projectRef);
+    if (!owner || !number) throw new Error(`pick a project first`);
+    const probe = await gql(
+      `query($owner:String!,$number:Int!){
+         organization(login:$owner){ projectV2(number:$number){ id } }
+         user(login:$owner){ projectV2(number:$number){ id } }
+       }`,
+      { owner, number },
+    );
+    const id = probe.data?.organization?.projectV2?.id || probe.data?.user?.projectV2?.id;
+    if (!id) throw new Error(`project "${projectRef}" not found (or token lacks access)`);
+    const body = await gql(
+      `query($id:ID!){ node(id:$id){ ... on ProjectV2 {
+         field(name:"Status"){ ... on ProjectV2SingleSelectField { options{ name } } }
+       } } }`,
+      { id },
+    );
+    const opts = body.data?.node?.field?.options;
+    if (!opts?.length) throw new Error(`project "${projectRef}" has no Status single-select field options`);
+    return opts.map((/** @type {any} */ o) => ({ id: o.name, label: o.name }));
+  };
+
   return {
     describe: () => ({
       platform: "GitHub Projects",
@@ -409,7 +436,10 @@ export function createGithubProjectsAdapter(cfg, store) {
       trigger: cfg.trigger,
       commentHowTo: `post a comment with: gh issue comment <number> --body "<text>" (run inside the repo; gh is authenticated via $GITHUB_TOKEN)`,
       readCommentsHowTo: `gh issue view <number> --comments (run inside the repo)`,
+      stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
+
+    listStages: () => fetchStatusOptions(pc.project),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
     // accept. Sync + no network so the receiver ACKs inside GitHub's 10s window.
@@ -739,26 +769,8 @@ export function createGithubProjectsAdapter(cfg, store) {
       // answer rather than the factory's cached owner/number (like github reads a.repository).
       /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
       const statusOptions = async (a) => {
-        const { owner, number } = parseProject(a.project);
-        if (!owner || !number) throw new Error(`pick a project first`);
-        const probe = await gql(
-          `query($owner:String!,$number:Int!){
-             organization(login:$owner){ projectV2(number:$number){ id } }
-             user(login:$owner){ projectV2(number:$number){ id } }
-           }`,
-          { owner, number },
-        );
-        const id = probe.data?.organization?.projectV2?.id || probe.data?.user?.projectV2?.id;
-        if (!id) throw new Error(`project "${a.project}" not found (or token lacks access)`);
-        const body = await gql(
-          `query($id:ID!){ node(id:$id){ ... on ProjectV2 {
-             field(name:"Status"){ ... on ProjectV2SingleSelectField { options{ name } } }
-           } } }`,
-          { id },
-        );
-        const opts = body.data?.node?.field?.options;
-        if (!opts?.length) throw new Error(`project "${a.project}" has no Status single-select field options`);
-        return opts.map((/** @type {any} */ o) => ({ title: o.name, value: o.name }));
+        const opts = await fetchStatusOptions(a.project);
+        return opts.map((o) => ({ title: o.label, value: o.id }));
       };
       return [
         {

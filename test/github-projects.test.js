@@ -488,6 +488,31 @@ test("wizardSteps Status-option discovery parses the picked project's single-sel
   );
 });
 
+test("describe().stageKeys names the status binding family", () => {
+  assert.deepEqual(adapter().describe().stageKeys, {
+    source: "sourceStatus",
+    success: "successStatus",
+    failure: "failureStatus",
+    hold: "holdStatus",
+    queue: "queueStatus",
+  });
+});
+
+test("listStages parses the configured project's Status single-select options", async () => {
+  const { restore } = stubGraphql();
+  let stages;
+  try {
+    stages = await adapter().listStages?.();
+  } finally {
+    restore();
+  }
+  assert.deepEqual(stages, [
+    { id: "In Progress", label: "In Progress" },
+    { id: "In Review", label: "In Review" },
+    { id: "Blocked", label: "Blocked" },
+  ]);
+});
+
 test("pipelineBindings maps the wizard Status picks to step fields", () => {
   const b = adapter().pipelineBindings?.({ _sourceStage: "In Progress", _successStage: "In Review", _failureStage: "Blocked" });
   assert.deepEqual(b, { sourceStatus: "In Progress", successStatus: "In Review", failureStatus: "Blocked" });

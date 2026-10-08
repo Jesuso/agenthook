@@ -114,6 +114,31 @@ test("listQueued returns tasks in the step's queueStatus, board order; [] withou
   assert.deepEqual(await a.listQueued("review"), []);
 });
 
+test("describe().stageKeys names the status binding family", () => {
+  const m = adapter(makeCfg()).describe();
+  assert.deepEqual(m.stageKeys, {
+    source: "sourceStatus",
+    success: "successStatus",
+    failure: "failureStatus",
+    hold: "holdStatus",
+    queue: "queueStatus",
+  });
+});
+
+test("listStages unions every pipeline-bound status with stages sitting on the board", async () => {
+  const cfg = makeCfg();
+  // "parking-lot" is a board-only stage, not bound to any step's …Status key — it must
+  // still show up because listStages also reads the board file.
+  seedBoard(cfg, [{ ref: "E1", name: "x" }, { ref: "E2", name: "y" }], "triage");
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  board.E2.stage = "parking-lot";
+  fs.writeFileSync(localBoardPath(cfg), JSON.stringify(board, null, 2) + "\n");
+  const stages = await adapter(cfg).listStages();
+  const ids = stages.map((s) => s.id).sort();
+  assert.deepEqual(ids, ["blocked", "code", "done", "held", "parking-lot", "review", "triage"]);
+  for (const s of stages) assert.equal(s.id, s.label);
+});
+
 test("extractRouteKeys: string, array, absent, unset", () => {
   assert.deepEqual(extractRouteKeys({ platform: "ios" }, "platform"), ["ios"]);
   assert.deepEqual(extractRouteKeys({ platform: ["ios", "", 3, "web"] }, "platform"), ["ios", "web"]);

@@ -146,6 +146,37 @@ test("init label discovery offers the agenthook defaults first, then the repo's 
   }
 });
 
+test("describe().stageKeys names the label binding family", () => {
+  assert.deepEqual(adapter().describe().stageKeys, {
+    source: "sourceLabel",
+    success: "successLabel",
+    failure: "failureLabel",
+    hold: "holdLabel",
+    queue: "queueLabel",
+  });
+});
+
+test("listStages returns only the repo's existing labels, excluding the synthetic defaults", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    if (String(url).includes("/labels")) {
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ name: "bug" }, { name: "agent:code" }, { name: "enhancement" }] });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => [] });
+  };
+  try {
+    const stages = await adapter().listStages?.();
+    assert.deepEqual(stages, [
+      { id: "bug", label: "bug" },
+      { id: "agent:code", label: "agent:code" },
+      { id: "enhancement", label: "enhancement" },
+    ]);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 test("enterStage assigns to us then adds the step's source label (run command)", async () => {
   /** @type {string[]} */
   const calls = [];
