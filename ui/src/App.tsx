@@ -12,9 +12,12 @@ import { RunPanel } from "./RunPanel";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
+import { CONFIG_DISCARD_PROMPT } from "./config";
+import type { ConfigSinkEvent } from "./config";
 
-// CodeMirror + react-markdown load only when the Instructions tab is opened.
+// CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
+const ConfigView = lazy(() => import("./ConfigView"));
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
@@ -35,11 +38,13 @@ export default function App() {
   const openRef = useRef(open);
   openRef.current = open;
   const [runsNonce, setRunsNonce] = useState(0);
-  // Plain tab state, no router. The Instructions view reports its dirty buffer here so a tab
-  // switch can confirm before discarding it, and receives `instructions` events via the sink.
-  const [tab, setTab] = useState<"dashboard" | "instructions">("dashboard");
+  // Plain tab state, no router. The Instructions / Config views report their dirty buffer here so
+  // a tab switch can confirm before discarding it, and receive their SSE events via the sinks.
+  const [tab, setTab] = useState<"dashboard" | "instructions" | "config">("dashboard");
   const instructionsDirty = useRef(false);
   const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
+  const configDirty = useRef(false);
+  const configSink = useRef<((ev: ConfigSinkEvent) => void) | null>(null);
 
   useEffect(() => {
     const fetchSnapshot = () => {
@@ -90,7 +95,13 @@ export default function App() {
           instructionsSink.current?.(ev);
           return;
         }
+        // Config edits likewise; feed events also reach the Config view (its restart banner).
+        if (ev.type === "config") {
+          configSink.current?.(ev);
+          return;
+        }
         if (ev.type === "event") {
+          configSink.current?.(ev);
           setFeed((f) => appendFeed(f, ev));
           const o = openRef.current;
           if (o && affectsRuns(ev, o.profile, o.ref)) setRunsNonce((n) => n + 1);
@@ -113,7 +124,9 @@ export default function App() {
   if (state.kind === "error") return <Shell>Failed to load snapshot (status {state.status}).</Shell>;
 
   const switchTab = (next: typeof tab) => {
-    if (next === tab || (instructionsDirty.current && !window.confirm(DISCARD_PROMPT))) return;
+    if (next === tab) return;
+    if (tab === "instructions" && instructionsDirty.current && !window.confirm(DISCARD_PROMPT)) return;
+    if (tab === "config" && configDirty.current && !window.confirm(CONFIG_DISCARD_PROMPT)) return;
     setTab(next);
   };
   const header = (
@@ -124,7 +137,7 @@ export default function App() {
         </div>
       )}
       <nav className="mb-4 flex gap-1 border-b border-[var(--color-border)] text-sm">
-        {(["dashboard", "instructions"] as const).map((t) => (
+        {(["dashboard", "instructions", "config"] as const).map((t) => (
           <button
             key={t}
             className={`-mb-px border-b-2 px-3 py-1 capitalize ${t === tab ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
@@ -147,6 +160,16 @@ export default function App() {
             eventSink={instructionsSink}
             onDirtyChange={(d) => (instructionsDirty.current = d)}
           />
+        </Suspense>
+      </Shell>
+    );
+
+  if (tab === "config")
+    return (
+      <Shell>
+        {header}
+        <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
+          <ConfigView profiles={state.snapshot.profiles} eventSink={configSink} onDirtyChange={(d) => (configDirty.current = d)} />
         </Suspense>
       </Shell>
     );

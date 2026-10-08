@@ -17,7 +17,7 @@
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook doctor               preflight checks for this profile
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
-//   agenthook ui [--port <n>] [--no-open]  local read-only web dashboard (127.0.0.1 only)
+//   agenthook ui [--port <n>] [--no-open]  local web dashboard + editors (127.0.0.1 only)
 //
 // Global flag: --config <path> selects a config explicitly (default: discover
 // agenthook.config.json from the current dir upward).
@@ -98,7 +98,7 @@ usage: agenthook <command> [args] [--config <path>]
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
-  ui [--port <n>] [--no-open]  local read-only web dashboard, all profiles (127.0.0.1; default port 4180)
+  ui [--port <n>] [--no-open]  local web dashboard + editors, all profiles (127.0.0.1; default port 4180)
   --version, -v             print the installed version
 `;
 

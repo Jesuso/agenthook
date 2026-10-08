@@ -8,10 +8,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { literalSecrets, validateRawConfig } from "../config.js";
-import { SENSITIVE_FIELDS } from "./contract.js";
 import { profileDir } from "./logs.js";
 import { isObj, readJson, sha256 } from "./rows.js";
 import { UI_MAX_BYTES, atomicSave, readCurrent } from "./save.js";
+import { sensitiveChanges } from "./sensitive.js";
+
+// Re-exported so existing importers keep working; the implementation lives in sensitive.js.
+export { sensitiveChanges };
 
 /**
  * The profile's config file, or null unless: the profile is known, its heartbeat publishes a
@@ -74,41 +77,6 @@ export function readConfigFile(registry, profile) {
   const text = buf.toString("utf8");
   const r = parse(text);
   return { path: file, text, hash: sha256(buf), errors: errorsOf(r), literalSecrets: "raw" in r ? literalSecrets(r.raw) : [] };
-}
-
-/**
- * The concrete SENSITIVE_FIELDS paths (e.g. "fullAuto", "sinks[1].botToken") whose value differs
- * between two raw configs, compared by JSON.stringify. `[*]` expands across the union of both
- * arrays' indices. Pass `undefined` for an old config that didn't parse: every sensitive path
- * present in the new one is then reported.
- * @param {any} oldRaw @param {any} newRaw @returns {string[]}
- */
-export function sensitiveChanges(oldRaw, newRaw) {
-  /** @type {string[]} */
-  const out = [];
-  /** @param {any} node @param {string} key */
-  const child = (node, key) => (node && typeof node === "object" && Object.hasOwn(node, key) ? node[key] : undefined);
-  /** @param {any} a @param {any} b @param {string[]} segs @param {string} at */
-  const walk = (a, b, segs, at) => {
-    if (!segs.length) {
-      if (JSON.stringify(a) !== JSON.stringify(b)) out.push(at);
-      return;
-    }
-    const [seg, ...rest] = segs;
-    if (seg.endsWith("[*]")) {
-      const key = seg.slice(0, -3);
-      const x = child(a, key);
-      const y = child(b, key);
-      const n = Math.max(Array.isArray(x) ? x.length : 0, Array.isArray(y) ? y.length : 0);
-      for (let i = 0; i < n; i++) {
-        walk(Array.isArray(x) ? x[i] : undefined, Array.isArray(y) ? y[i] : undefined, rest, `${at ? `${at}.` : ""}${key}[${i}]`);
-      }
-      return;
-    }
-    walk(child(a, seg), child(b, seg), rest, at ? `${at}.${seg}` : seg);
-  };
-  for (const field of SENSITIVE_FIELDS) walk(oldRaw, newRaw, field.split("."), "");
-  return out;
 }
 
 /**

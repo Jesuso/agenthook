@@ -114,9 +114,13 @@ export function saveRequest(open: OpenFile, buffer: string): { url: string; init
   };
 }
 
-/** 200 → ok, 409 → conflict, anything else (incl. network `0`) → error. Nothing retries. */
-export function classifySaveResponse(status: number): "ok" | "conflict" | "error" {
-  return status === 200 ? "ok" : status === 409 ? "conflict" : "error";
+/**
+ * 200 → ok, 409 → conflict, 422 → invalid (config only: the server rejected the text, nothing
+ * written — the view dispatches `failed` and shows the errors), anything else (incl. network `0`)
+ * → error. Nothing retries.
+ */
+export function classifySaveResponse(status: number): "ok" | "conflict" | "invalid" | "error" {
+  return status === 200 ? "ok" : status === 409 ? "conflict" : status === 422 ? "invalid" : "error";
 }
 
 export function saveErrorText(status: number): string {

@@ -170,7 +170,8 @@ Key files:
   the server `noteWrite`s the watcher and broadcasts `source:'ui'`), and `config.js` (v3 config
   editor: `GET /api/config` = the raw file at `heartbeat.configPath` + `validateRawConfig` errors +
   `literalSecrets`; `PUT /api/config` = same guards, 422 on invalid (nothing written), backup in
-  `config-bak/`, audit `sensitive` = changed `contract.js` `SENSITIVE_FIELDS`; SSE `config`) are the
+  `config-bak/`, audit `sensitive` = changed `contract.js` `SENSITIVE_FIELDS` via the import-free `sensitive.js` the browser
+  also bundles; SSE `config`) are the
   **only** UI file writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
   confines write calls to it. `control-client.js` (`controlRequest` — one NDJSON request over a
   profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
