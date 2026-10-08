@@ -4,7 +4,7 @@ This walks you from `npm i` to your first agent run, end to end. It does **not**
 parts (finding section gids, wiring the pipeline, the webhook) — those are exactly where setups
 stall, so they're spelled out.
 
-Budget ~15 minutes. You need: Node ≥ 20, the [`claude` CLI](https://claude.com/claude-code)
+Budget ~15 minutes. You need: Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code)
 (logged in), `git`, a tracker account (Asana or Jira) with an API token, and — for the `ngrok`
 ingress — an [ngrok](https://ngrok.com) account.
 

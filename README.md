@@ -41,7 +41,7 @@ file ([docs/providers.md](docs/providers.md)).
 
 ## Install
 
-Requires Node ≥ 20, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
+Requires Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
 ngrok ingress — [`ngrok`](https://ngrok.com). Plus a tracker API token.
 
 ```bash

@@ -45,12 +45,12 @@ npm test                                  # node:test suites in test/ (pure unit
 node --check bin/agenthook.js src/**/*.js # syntax check
 ```
 
-No build step, no bundler — plain Node ESM (`"type": "module"`, Node ≥ 20). The code ships as JS
+No build step, no bundler — plain Node ESM (`"type": "module"`, Node ≥ 22). The code ships as JS
 and runs unbuilt; TypeScript is used **only as a checker** via JSDoc + `checkJs` (`tsconfig.json`,
 `noEmit`). Tests use the built-in `node:test` runner (zero deps) and cover the pure units —
 `paths`, `pipeline`, `queue` (concurrency + coalescing), `store` (persistence); engine/adapter
 paths that need network or `claude -p` are still validated by manual smoke tests. CI
-(`.github/workflows/ci.yml`) runs typecheck + tests + `node --check` on Node 20 & 22. There is no
+(`.github/workflows/ci.yml`) runs typecheck + tests + `node --check` on Node 22 & 24. There is no
 lint config.
 
 ## Architecture
