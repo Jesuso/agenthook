@@ -40,3 +40,8 @@ export function filterTickets(rows: TicketRow[], filter: TicketFilter): TicketRo
     return true;
   });
 }
+
+/** "230" from ".../pull/230" — the PR number of a `TicketRow.prUrl`; null when it isn't one. */
+export function prNumber(prUrl: string | null): string | null {
+  return (prUrl && /\/pull\/(\d+)\/?$/.exec(prUrl)?.[1]) || null;
+}

@@ -111,6 +111,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} run                 log basename — the `run` param of /api/log/stream
  * @property {string} step
  * @property {string} startedAt           ISO, from the log's filename stamp
+ * @property {string|null} endedAt        run_end.ts; null while it runs or once run_end left the tail
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
  * @property {number|null} costUsd
  * @property {boolean} running            no outcome yet, newest run, and running.json has it

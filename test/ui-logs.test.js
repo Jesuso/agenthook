@@ -114,6 +114,10 @@ test("listRuns: step with '-', safeRef mapping, repeated step, other refs + non-
     ],
   );
   assert.equal(runs[0].bytes, names[3].length);
+  assert.deepEqual(
+    runs.map((r) => r.endedAt),
+    [null, "2026-10-08T10:15:00.000Z", "2026-10-08T10:06:00.000Z", "2026-10-08T10:04:00.000Z"],
+  );
   assert.deepEqual(listRuns(reg, "nope", ref, events), []);
   assert.deepEqual(listRuns(reg, "q", "missing", events), []);
 });
