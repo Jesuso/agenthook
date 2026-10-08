@@ -340,7 +340,22 @@ export default function App() {
               <td className="px-2 py-1">{t.title ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{t.profile}</td>
               <td className="px-2 py-1">{t.step ?? "—"}</td>
-              <td className="px-2 py-1">{t.status}</td>
+              <td className="px-2 py-1">
+                {t.status === "interrupted" || t.status === "stalled" ? (
+                  <span
+                    className="rounded bg-[var(--color-warn)]/20 px-1.5 py-0.5 font-semibold text-[var(--color-warn)]"
+                    title={
+                      t.status === "interrupted"
+                        ? "receiver is down — this run was interrupted"
+                        : "receiver is down — will resume when it restarts"
+                    }
+                  >
+                    {t.status}
+                  </span>
+                ) : (
+                  t.status
+                )}
+              </td>
               <td className="px-2 py-1">{t.model ?? "—"}</td>
               <td className="px-2 py-1">{formatRelative(t.startedAt, now)}</td>
               <td className="px-2 py-1">{formatCost(t.costUsd)}</td>

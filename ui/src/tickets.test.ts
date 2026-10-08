@@ -41,6 +41,12 @@ describe("isStale", () => {
   it("treats an unparsable startedAt as stale", () => {
     expect(isStale(ticket({ profile: "a", ref: "1", status: "done", startedAt: "not-a-date" }), NOW)).toBe(true);
   });
+
+  it("is never stale for interrupted/stalled", () => {
+    for (const status of ["interrupted", "stalled"] as const) {
+      expect(isStale(ticket({ profile: "a", ref: "1", status, startedAt: null }), NOW)).toBe(false);
+    }
+  });
 });
 
 describe("sortTickets", () => {
@@ -52,6 +58,8 @@ describe("sortTickets", () => {
       ticket({ profile: "a", ref: "4", status: "held" }),
       ticket({ profile: "a", ref: "5", status: "done" }),
       ticket({ profile: "a", ref: "6", status: "queued" }),
+      ticket({ profile: "a", ref: "7", status: "interrupted" }),
+      ticket({ profile: "a", ref: "8", status: "stalled" }),
     ];
     const sorted = sortTickets(rows).map((r) => r.status);
     expect(sorted).toEqual(STATUS_ORDER);

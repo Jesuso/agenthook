@@ -113,7 +113,7 @@ export function createWatcher(registry, onEvent) {
 
   /** @param {Prof} p */
   const rowsOf = (p) =>
-    buildRows(p.name, p.state, { repository: isObj(p.heartbeat) ? p.heartbeat.repository : null });
+    buildRows(p.name, p.state, { repository: isObj(p.heartbeat) ? p.heartbeat.repository : null, up: up(p) });
 
   /** Re-derive the profile's view + rows and emit what changed. @param {Prof} p @param {boolean} [silent] */
   function recompute(p, silent = false) {

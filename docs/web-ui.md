@@ -107,7 +107,7 @@ type TicketRow = {
   displayId: string;          // refmeta.displayId, else ref
   title: string | null;
   step: string | null;        // current / last step id
-  status: 'running' | 'queued' | 'held' | 'failed' | 'done' | 'idle';
+  status: 'running' | 'queued' | 'held' | 'failed' | 'done' | 'idle' | 'interrupted' | 'stalled';
   model: string | null;       // from run_start
   startedAt: string | null;
   costUsd: number;            // sum of run_end.costUsd
@@ -116,6 +116,10 @@ type TicketRow = {
   heldReason: string | null;
 };
 ```
+
+When the owning profile is down, `running` reads as `interrupted` and `queued` reads as
+`stalled` — the receiver isn't live to finish or drain those jobs (it resolves them on its next
+boot: `recoverInterrupted()` / `restoreQueued()`).
 
 ## Stack
 
