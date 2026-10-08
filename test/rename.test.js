@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { registryDir } from "../src/config.js";
-import { renameProfile } from "../src/commands/rename.js";
+import { renameProfile, assertSafeRename } from "../src/commands/rename.js";
 
 // peekConfig (inside renameProfile) derives a profile's stateDir from config.js's module-scoped
 // registryDir (AGENTHOOK_HOME, set once by _setup.js) — not a passable param — so this test's
@@ -98,4 +98,12 @@ test("receiver down: reports running:false", () => {
   const p = profile({ name: "quiet" });
   const res = renameProfile({ configPath: p.configPath, newName: "quieter", registry });
   assert.equal(res.running, false);
+});
+
+test("assertSafeRename: rejects invalid JSON, a changed state key, and a wrong name", () => {
+  const ok = JSON.stringify({ name: "new", stateId: "old", repoPath: "/r", tracker: { type: "github", pipeline: [{ id: "code" }] } });
+  assert.doesNotThrow(() => assertSafeRename(ok, "new", "old"));
+  assert.throws(() => assertSafeRename("{", "new", "old"), /not valid JSON/);
+  assert.throws(() => assertSafeRename(ok.replace('"stateId":"old",', ""), "new", "old"), /state key/);
+  assert.throws(() => assertSafeRename(ok, "other", "old"), /name is not/);
 });
