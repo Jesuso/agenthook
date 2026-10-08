@@ -56,6 +56,11 @@
   --color-status-queued-bg: #1b2330;
   --color-status-held: #e3b341;
   --color-status-held-bg: #2e2410;
+  /* interrupted/stalled: a down profile's leftover running/queued jobs (#222) — same warn tone as held. */
+  --color-status-interrupted: #e3b341;
+  --color-status-interrupted-bg: #2e2410;
+  --color-status-stalled: #e3b341;
+  --color-status-stalled-bg: #2e2410;
   --color-status-failed: #ff7b72;
   --color-status-failed-bg: #351616;
   --color-status-done: #7fc79a;
@@ -96,6 +101,10 @@
     --color-status-queued-bg: #e9edf2;
     --color-status-held: #8a5a00;
     --color-status-held-bg: #fff3cf;
+    --color-status-interrupted: #8a5a00;
+    --color-status-interrupted-bg: #fff3cf;
+    --color-status-stalled: #8a5a00;
+    --color-status-stalled-bg: #fff3cf;
     --color-status-failed: #c4202b;
     --color-status-failed-bg: #ffe9e7;
     --color-status-done: #187a33;

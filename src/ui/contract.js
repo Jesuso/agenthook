@@ -56,7 +56,9 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
 
 /** @typedef {{ at: string|null, kind: string|null, ref: string|null, step: string|null }} LastEvent */
 
-/** @typedef {'running'|'queued'|'held'|'failed'|'done'|'idle'} TicketStatus */
+/** @typedef {'running'|'queued'|'held'|'failed'|'done'|'idle'|'interrupted'|'stalled'} TicketStatus */
+/* `interrupted` (was `running`) / `stalled` (was `queued`) replace those statuses when the
+ * owning profile is down: the receiver that would finish or drain the job isn't running. */
 
 /**
  * One merged record per (profile, ref): running ∪ queue ∪ held ∪ refmeta ∪ recent events.

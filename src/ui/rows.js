@@ -208,12 +208,15 @@ const str = (v) => (typeof v === "string" && v ? v : null);
  * event in the tail (pipeline_done/merged → done, failed → failed) > idle. A terminal event
  * followed by a later `enqueued`/`run_start` for the ref no longer counts (it was re-run).
  * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs.
+ * `up` (default true) names whether the owning profile's receiver is live: when it's not,
+ * `running` reads as `interrupted` and `queued` reads as `stalled` — the receiver that would
+ * resolve those jobs isn't the one that wrote them; recovery happens on its next boot.
  * @param {string} profile
  * @param {ProfileState} state
- * @param {{ repository?: string|null }} [opts]
+ * @param {{ repository?: string|null, up?: boolean }} [opts]
  * @returns {import('./contract.js').TicketRow[]}
  */
-export function buildRows(profile, state, { repository = null } = {}) {
+export function buildRows(profile, state, { repository = null, up = true } = {}) {
   const repo = typeof repository === "string" && REPOSITORY_RE.test(repository) ? repository : null;
   /** @type {Map<string, Record<string, any>[]>} */
   const eventsByRef = new Map();
@@ -262,7 +265,7 @@ export function buildRows(profile, state, { repository = null } = {}) {
     }
 
     /** @type {import('./contract.js').TicketStatus} */
-    const status = run ? "running" : queued ? "queued" : held ? "held" : terminal ?? "idle";
+    const status = run ? (up ? "running" : "interrupted") : queued ? (up ? "queued" : "stalled") : held ? "held" : terminal ?? "idle";
     const pr = meta.pr;
     const trackerUrl = str(meta.url);
     rows.push({
@@ -334,7 +337,7 @@ export function buildSnapshot(registry = registryDir) {
   for (const p of listProfiles(registry)) {
     snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name }));
     const repository = isObj(p.heartbeat) ? p.heartbeat.repository : null;
-    snap.tickets.push(...buildRows(p.stateKey, readProfileState(p.dir), { repository }));
+    snap.tickets.push(...buildRows(p.stateKey, readProfileState(p.dir), { repository, up: p.up }));
   }
   return snap;
 }

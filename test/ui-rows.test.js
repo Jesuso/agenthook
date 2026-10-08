@@ -74,6 +74,28 @@ test("buildRows: one status per source, with precedence running > queued > held 
   assert.equal(rows.length, 8);
 });
 
+test("buildRows: up:false reads running as interrupted and queued as stalled; held/terminal/idle unchanged", () => {
+  const s = state({
+    running: { r1: { stepId: "code", startedAt: "t" } },
+    queue: [{ kind: "pipeline", ref: "r2", stepId: "review", dedupKey: "k" }],
+    held: { r3: { stepId: "triage", reason: "?", heldAt: "t" } },
+    events: [{ ts: "a", event: "pipeline_done", ref: "r5", step: "done", name: "Five" }],
+  });
+  const down = buildRows("p", s, { up: false });
+  assert.equal(row(down, "r1").status, "interrupted");
+  assert.equal(row(down, "r2").status, "stalled");
+  assert.equal(row(down, "r3").status, "held");
+  assert.equal(row(down, "r5").status, "done");
+
+  const explicitUp = buildRows("p", s, { up: true });
+  assert.equal(row(explicitUp, "r1").status, "running");
+  assert.equal(row(explicitUp, "r2").status, "queued");
+
+  const defaulted = buildRows("p", s);
+  assert.equal(row(defaulted, "r1").status, "running");
+  assert.equal(row(defaulted, "r2").status, "queued");
+});
+
 test("buildRows: a terminal event followed by a re-run no longer counts", () => {
   const rows = buildRows(
     "p",
@@ -224,6 +246,28 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
   assert.equal(row(snap.tickets, "x").status, "held");
   assert.equal(row(snap.tickets, "x").profile, "down");
   assert.deepEqual(buildSnapshot(path.join(reg, "missing")), { profiles: [], tickets: [] });
+});
+
+test("buildSnapshot: a down profile's running/queued refs read interrupted/stalled; an up profile's read running/queued", () => {
+  const reg = tmp();
+  writeState(path.join(reg, "up"), {
+    "heartbeat.json": { name: "up" },
+    "server.pid": String(process.pid),
+    "running.json": { r1: { stepId: "code", startedAt: "t" } },
+    "queue.json": [{ kind: "pipeline", ref: "r2", stepId: "review", dedupKey: "k" }],
+  });
+  writeState(path.join(reg, "down"), {
+    "heartbeat.json": { name: "down" },
+    "server.pid": "999999999",
+    "running.json": { r3: { stepId: "code", startedAt: "t" } },
+    "queue.json": [{ kind: "pipeline", ref: "r4", stepId: "review", dedupKey: "k" }],
+  });
+
+  const snap = buildSnapshot(reg);
+  assert.equal(row(snap.tickets, "r1").status, "running");
+  assert.equal(row(snap.tickets, "r2").status, "queued");
+  assert.equal(row(snap.tickets, "r3").status, "interrupted");
+  assert.equal(row(snap.tickets, "r4").status, "stalled");
 });
 
 test("buildSnapshot/profileView: a down profile blanks active/queued even with a stale heartbeat.queue", () => {

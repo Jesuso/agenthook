@@ -328,7 +328,16 @@ export default function App() {
               <td className="px-2 py-1">{t.title ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{t.profile}</td>
               <td className="px-2 py-1">{t.step ?? "—"}</td>
-              <td className="px-2 py-1">
+              <td
+                className="px-2 py-1"
+                title={
+                  t.status === "interrupted"
+                    ? "receiver is down — this run was interrupted"
+                    : t.status === "stalled"
+                      ? "receiver is down — will resume when it restarts"
+                      : undefined
+                }
+              >
                 <StatusBadge status={t.status} />
               </td>
               <td className="px-2 py-1">{t.model ?? "—"}</td>
