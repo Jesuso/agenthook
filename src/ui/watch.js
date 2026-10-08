@@ -3,8 +3,9 @@
 // over them), debounces ~50 ms per profile, re-reads only the changed files, and emits a
 // typed UiEvent only when a ProfileView / TicketRow hash actually changed. events.jsonl is
 // tailed by byte offset; liveness rides the receiver's control socket. The parent dirs of
-// each profile's allowlisted instruction files (heartbeat.instructions) are watched too, and
-// a content change (sha256) emits an `instructions` event. No polling: the only timers are
+// each profile's allowlisted instruction files (heartbeat.instructions) and its config file
+// (heartbeat.configPath) are watched too, and a content change (sha256) emits an
+// `instructions` / `config` event. No polling: the only timers are
 // the one-shot debounces. Blind reader — writes nothing.
 import fs from "node:fs";
 import net from "node:net";
@@ -58,8 +59,9 @@ const hash = (v) => JSON.stringify(v);
  * @property {boolean} retry                  a socket change arrived mid-connection: reconnect once it settles
  * @property {string} viewHash
  * @property {Map<string, { hash: string, row: import('./contract.js').TicketRow }>} rows
- * @property {Map<string, fs.FSWatcher>} instrDirs   parent dir of an allowlisted file → its watcher
- * @property {Map<string, string|null>} instrHashes  allowlisted path → last seen content hash
+ * @property {string|null} configPath              heartbeat.configPath
+ * @property {Map<string, fs.FSWatcher>} instrDirs   parent dir of an allowlisted file (or the config) → its watcher
+ * @property {Map<string, string|null>} instrHashes  allowlisted path (and configPath) → last seen content hash
  * @property {Set<string>} instrDirty                paths touched since the last instructions flush
  * @property {NodeJS.Timeout|null} instrTimer
  */
@@ -282,16 +284,21 @@ export function createWatcher(registry, onEvent) {
       const h = hashFile(f);
       if (h === p.instrHashes.get(f)) continue;
       p.instrHashes.set(f, h);
-      emit({ type: "instructions", profile: p.name, path: f, hash: h, source: "disk" });
+      if (f === p.configPath) emit({ type: "config", profile: p.name, hash: h, source: "disk" });
+      else emit({ type: "instructions", profile: p.name, path: f, hash: h, source: "disk" });
     }
   }
 
-  /** Reconcile the instruction dir watchers with the heartbeat's allowlist: watch new parent
-   * dirs (a missing one is skipped), close dropped ones, and seed new paths' hashes silently.
+  /** Reconcile the instruction dir watchers with the heartbeat's allowlist + configPath: watch
+   * new parent dirs (a missing one is skipped), close dropped ones, and seed new paths' hashes
+   * silently.
    * @param {Prof} p */
   function syncInstr(p) {
     if (closed || p.removed) return;
     const paths = new Set(instructionEntries(p.heartbeat).map((e) => e.path));
+    const cp = isObj(p.heartbeat) && typeof p.heartbeat.configPath === "string" && p.heartbeat.configPath ? p.heartbeat.configPath : null;
+    p.configPath = cp;
+    if (cp) paths.add(cp);
     for (const f of [...p.instrHashes.keys()]) if (!paths.has(f)) p.instrHashes.delete(f);
     for (const f of paths) if (!p.instrHashes.has(f)) p.instrHashes.set(f, hashFile(f));
     const dirs = new Set([...paths].map((f) => path.dirname(f)));
@@ -374,6 +381,7 @@ export function createWatcher(registry, onEvent) {
       retry: false,
       viewHash: "",
       rows: new Map(),
+      configPath: null,
       instrDirs: new Map(),
       instrHashes: new Map(),
       instrDirty: new Set(),
@@ -499,8 +507,9 @@ export function createWatcher(registry, onEvent) {
       }
       return snap;
     },
-    /** The server just saved `file` (now `hash`): record it so the dir watch that follows
-     * sees no change and doesn't re-broadcast the save as an external edit.
+    /** The server just saved `file` (now `hash`) — an instruction file or the config: record
+     * it so the dir watch that follows sees no change and doesn't re-broadcast the save as an
+     * external edit.
      * @param {string} profile @param {string} file @param {string} hash */
     noteWrite(profile, file, hash) {
       const p = profiles.get(profile);

@@ -1,3 +1,5 @@
 // Re-export of the server ↔ browser contract (src/ui/contract.js). No duplicated
-// shapes — the frontend types against the same JSDoc typedefs the server returns.
-export type { ProfileView, LastEvent, TicketStatus, TicketRow, Snapshot, UiEvent, RunView, LogFrame, InstructionFileView, InstructionsView, PromptPreview } from "../../src/ui/contract.js";
+// shapes — the frontend types against the same JSDoc typedefs the server returns (plus the
+// one shared runtime constant, SENSITIVE_FIELDS).
+export type { ProfileView, LastEvent, TicketStatus, TicketRow, Snapshot, UiEvent, RunView, LogFrame, InstructionFileView, InstructionsView, PromptPreview, ConfigView } from "../../src/ui/contract.js";
+export { SENSITIVE_FIELDS } from "../../src/ui/contract.js";

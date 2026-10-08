@@ -129,9 +129,9 @@ test("static: traversal and NUL paths never escape distDir", async () => {
   }
 });
 
-/** The one writer in src/ui (writeInstructionFile) and the write-ish fs calls it needs. */
-const WRITER = "instructions.js";
-const WRITER_CALLS = new Set(["fchmodSync", "writeSync", "renameSync", "unlinkSync", "appendFileSync", "mkdirSync"]); // mkdirSync: the 0700 instructions-bak/ dir
+/** The one writer in src/ui (save.js atomicSave, behind both editors) and the write-ish fs calls it needs. */
+const WRITER = "save.js";
+const WRITER_CALLS = new Set(["fchmodSync", "writeSync", "renameSync", "unlinkSync", "appendFileSync", "mkdirSync"]); // mkdirSync: the 0700 instructions-bak/ / config-bak/ dir
 const WRITES = /^[fl]?(write|writev|append|mkdir|mkdtemp|rm|rmdir|unlink|rename|copyFile|cp|truncate|symlink|link|chmod|chown|utimes|createWriteStream)(File)?(Sync)?$/;
 
 /** Write-ish fs usage in one src/ui file that its role doesn't allow. @param {string} name @param {string} src */
@@ -149,10 +149,10 @@ function uiWrites(name, src) {
   return bad;
 }
 
-test("src/ui never writes files — except the instructions writer, and only its calls", () => {
+test("src/ui never writes files — except the save.js writer, and only its calls", () => {
   const dir = fileURLToPath(new URL("../src/ui/", import.meta.url));
   for (const f of fs.readdirSync(dir)) assert.deepEqual(uiWrites(f, fs.readFileSync(path.join(dir, f), "utf8")), [], f);
-  // The rule bites: any write outside instructions.js, or an unlisted one inside it.
+  // The rule bites: any write outside save.js, or an unlisted one inside it.
   for (const [f, src] of [
     ["server.js", "fs.writeFileSync(p, x)"],
     ["server.js", "fs.appendFileSync(p, x)"],
@@ -161,10 +161,12 @@ test("src/ui never writes files — except the instructions writer, and only its
     ["logs.js", 'fs.openSync(p, "w")'],
     ["logs.js", "fs.openSync(p, fs.constants.O_WRONLY)"],
     ["logs.js", 'import { writeFileSync } from "node:fs"'],
-    ["instructions.js", "fs.writeFileSync(p, x)"],
-    ["instructions.js", "fs.rmSync(p)"],
-    ["instructions.js", "fs.chmodSync(p, 0o777)"],
-    ["instructions.js", "fs.promises.writeFile(p, x)"],
+    ["instructions.js", "fs.renameSync(a, b)"],
+    ["config.js", 'fs.openSync(p, "w")'],
+    ["save.js", "fs.writeFileSync(p, x)"],
+    ["save.js", "fs.rmSync(p)"],
+    ["save.js", "fs.chmodSync(p, 0o777)"],
+    ["save.js", "fs.promises.writeFile(p, x)"],
   ]) {
     assert.notDeepEqual(uiWrites(f, src), [], `${f}: ${src}`);
   }

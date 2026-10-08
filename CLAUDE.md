@@ -167,9 +167,13 @@ Key files:
   allowlisted files' parent dirs and emits SSE `instructions` on a sha256 change, `source:'disk'`).
   Its write side, `writeInstructionFile` ← `PUT /api/instructions/file` (Origin + `X-AH-UI` +
   JSON + 256 KB guards, `baseHash` → 409, sync temp→fsync→backup (state dir `instructions-bak/`, never beside the file)→rename, `ui-audit.jsonl` 0600;
-  the server `noteWrite`s the watcher and broadcasts `source:'ui'`), is the **only** UI write —
-  `test/ui-server.test.js` confines write calls to it. Otherwise a blind **reader**: never writes
-  any state dir, never loads a config; PR links come from the heartbeat's `repository`.
+  the server `noteWrite`s the watcher and broadcasts `source:'ui'`), and `config.js` (v3 config
+  editor: `GET /api/config` = the raw file at `heartbeat.configPath` + `validateRawConfig` errors +
+  `literalSecrets`; `PUT /api/config` = same guards, 422 on invalid (nothing written), backup in
+  `config-bak/`, audit `sensitive` = changed `contract.js` `SENSITIVE_FIELDS`; SSE `config`) are the
+  **only** UI writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
+  confines write calls to it. Otherwise a blind **reader**: never writes any state dir, never
+  loads a config; PR links come from the heartbeat's `repository`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).
