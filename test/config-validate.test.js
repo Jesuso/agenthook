@@ -145,6 +145,20 @@ test("garbage inputs fail closed without throwing", () => {
     assert.equal(got.ok, false, JSON.stringify(g));
     assert.ok(!got.ok && got.errors.length && got.errors.every((e) => typeof e === "string"));
   }
+  // Values whose String() throws (toString not callable) must not escape as a TypeError.
+  const bad = { toString: 1 };
+  for (const g of [
+    raw({}, [{ id: bad, maxAttempts: 0 }]),
+    raw({ forge: { type: "github", ciTarget: bad } }, [{ id: "a" }]),
+    raw({}, [{ id: "a", completeOnMerge: true, manual: true }, { id: bad, completeOnMerge: true, manual: true }]),
+    raw({}, [{ id: "a", sourceLabel: bad, queueLabel: bad }]),
+  ]) {
+    const got = validateRawConfig(g);
+    assert.equal(got.ok, false, JSON.stringify(g));
+    assert.ok(!got.ok && got.errors.every((e) => typeof e === "string"));
+  }
+  const badId = validateRawConfig(raw({}, [{ id: bad, maxAttempts: 0 }]));
+  assert.deepEqual(!badId.ok && badId.errors, [`config: pipeline step "{"toString":1}" maxAttempts must be a positive integer.`]);
   const nullStep = validateRawConfig(raw({}, [null, { id: "code" }]));
   assert.deepEqual(!nullStep.ok && nullStep.errors, [`config: tracker.pipeline[0] must be an object.`]);
 });

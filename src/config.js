@@ -258,6 +258,20 @@ const QUEUE_KEYS = /** @type {const} */ ([
 ]);
 
 /**
+ * `${v}` for a user-supplied value rendered into a message — but an object whose toString is
+ * not callable (e.g. `{"toString":1}`) makes String() throw, so fall back to its JSON (a JSON
+ * value always stringifies). Identical to `${v}` for every value that doesn't throw.
+ * @param {any} v
+ */
+function label(v) {
+  try {
+    return String(v);
+  } catch {
+    return JSON.stringify(v);
+  }
+}
+
+/**
  * Structural validation of a config object WITHOUT resolving it: pure (no fs, no env, no
  * path resolution), never throws for any JSON value, and collects every error in check
  * order rather than stopping at the first. `${VAR}` strings are opaque values. loadConfig
@@ -333,42 +347,43 @@ export function validateRawConfig(raw) {
   const ids = new Set();
   (pipeline ?? []).forEach((/** @type {any} */ step, /** @type {number} */ i) => {
     if (!step || typeof step !== "object") return void errors.push(`config: tracker.pipeline[${i}] must be an object.`);
+    const sid = label(step.id);
     if (!step.id) errors.push(`config: every pipeline step needs an "id".`);
-    else if (ids.has(step.id)) errors.push(`config: duplicate pipeline step id "${step.id}".`);
+    else if (ids.has(step.id)) errors.push(`config: duplicate pipeline step id "${sid}".`);
     ids.add(step.id);
     if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
-      errors.push(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
+      errors.push(`config: pipeline step "${sid}" maxAttempts must be a positive integer.`);
     }
     if (step.maxMinutes != null && (typeof step.maxMinutes !== "number" || !Number.isFinite(step.maxMinutes) || step.maxMinutes < 0)) {
-      errors.push(`config: pipeline step "${step.id}" maxMinutes must be a number >= 0 (0 disables the cap).`);
+      errors.push(`config: pipeline step "${sid}" maxMinutes must be a number >= 0 (0 disables the cap).`);
     }
     if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
-      errors.push(`config: pipeline step "${step.id}" idleMinutes must be a number > 0.`);
+      errors.push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
     }
     if (step.lite != null) {
       const h = step.lite.descriptionHeadings;
       if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {
-        errors.push(`config: pipeline step "${step.id}" lite.descriptionHeadings must be a non-empty array of strings.`);
+        errors.push(`config: pipeline step "${sid}" lite.descriptionHeadings must be a non-empty array of strings.`);
       }
     }
     if (step.completeOnMerge && !step.manual) {
-      errors.push(`config: pipeline step "${step.id}" completeOnMerge requires manual:true (no agent runs on a merge).`);
+      errors.push(`config: pipeline step "${sid}" completeOnMerge requires manual:true (no agent runs on a merge).`);
     }
     // Queue stage (opt-in backlog lane the engine pulls from when a slot frees). A manual
     // step runs no agent, so it has nothing to pull into; a queue equal to the step's own
     // source would pull an item into the stage it already rests in (a self-loop).
     for (const [qk, sk] of QUEUE_KEYS) {
       if (step[qk] == null) continue;
-      if (step.manual) errors.push(`config: pipeline step "${step.id}" ${qk} is not allowed on a manual step (no agent to pull into).`);
-      else if (step[sk] != null && String(step[qk]).trim().toLowerCase() === String(step[sk]).trim().toLowerCase()) {
-        errors.push(`config: pipeline step "${step.id}" ${qk} must differ from its own ${sk} (it would self-loop).`);
+      if (step.manual) errors.push(`config: pipeline step "${sid}" ${qk} is not allowed on a manual step (no agent to pull into).`);
+      else if (step[sk] != null && label(step[qk]).trim().toLowerCase() === label(step[sk]).trim().toLowerCase()) {
+        errors.push(`config: pipeline step "${sid}" ${qk} must differ from its own ${sk} (it would self-loop).`);
       }
     }
   });
 
   const onMerge = (pipeline ?? []).filter((/** @type {any} */ s) => s && typeof s === "object" && s.completeOnMerge);
   if (onMerge.length > 1) {
-    errors.push(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => s.id).join(", ")}).`);
+    errors.push(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => label(s.id)).join(", ")}).`);
   }
 
   if (cfg.sinks != null) {
@@ -395,8 +410,8 @@ export function validateRawConfig(raw) {
   // No ciTarget lookup against a missing pipeline: that would only add a spurious "not a step id".
   if (cfg.forge?.ciTarget != null && pipeline) {
     const t = pipeline.find((/** @type {any} */ s) => s && typeof s === "object" && s.id === cfg.forge.ciTarget);
-    if (!t) errors.push(`config: forge.ciTarget "${cfg.forge.ciTarget}" is not a pipeline step id.`);
-    else if (t.manual) errors.push(`config: forge.ciTarget "${t.id}" is a manual step (a red-CI bounce needs an agent step).`);
+    if (!t) errors.push(`config: forge.ciTarget "${label(cfg.forge.ciTarget)}" is not a pipeline step id.`);
+    else if (t.manual) errors.push(`config: forge.ciTarget "${label(t.id)}" is a manual step (a red-CI bounce needs an agent step).`);
   }
 
   return errors.length ? { ok: false, errors } : { ok: true };
