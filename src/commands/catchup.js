@@ -5,12 +5,14 @@
 // live section and routes it to the matching step. Reuses the whole dispatch path
 // (dedup, worktree, PR). See docs/architecture.md. (`reconcile` does this in bulk.)
 import { loadConfig } from "../config.js";
+import { requireStarted } from "../profile.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 
 /** @param {any} args */
 export async function catchup(args) {
   const cfg = loadConfig({ configPath: args.config });
+  requireStarted(cfg);
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
 

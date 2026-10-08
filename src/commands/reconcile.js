@@ -11,6 +11,7 @@
 // replay below already re-offers it to the gate. We only prune overlap.json waits whose
 // blocker no longer holds a lock (a release the receiver missed) first.
 import { loadConfig } from "../config.js";
+import { requireStarted } from "../profile.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { isPipeline } from "../pipeline.js";
@@ -19,6 +20,7 @@ import { staleOverlaps } from "../overlap.js";
 /** @param {any} args */
 export async function reconcile(args) {
   const cfg = loadConfig({ configPath: args.config });
+  requireStarted(cfg);
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
   try {

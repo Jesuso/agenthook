@@ -86,16 +86,19 @@ export function repoLints(cfg) {
 
 /** @param {any} args */
 export async function doctor(args) {
-  /** @type {{ok:boolean, warn?:boolean, label:string, note?:string}[]} */
+  /** @type {{ok:boolean, warn?:boolean, info?:boolean, label:string, note?:string}[]} */
   const checks = [];
   /** @param {boolean} ok @param {string} label @param {string} [note] */
   const add = (ok, label, note) => checks.push({ ok, label, note });
   /** A ⚠ line: shown, but not counted as a problem. @param {string} label @param {string} [note] */
   const warn = (label, note) => checks.push({ ok: true, warn: true, label, note });
+  /** An ℹ line: informational only. @param {string} label @param {string} [note] */
+  const info = (label, note) => checks.push({ ok: true, info: true, label, note });
 
   const cfg = loadConfig({ configPath: args.config }); // throws (and surfaces unset ${VARs}) if broken
   add(true, `config loaded: ${cfg.configPath}`);
-  add(true, `profile "${cfg.name}" — state ${cfg.stateDir}`);
+  if (fs.existsSync(cfg.stateDir)) add(true, `profile "${cfg.name}" — state ${cfg.stateDir}`);
+  else info(`profile "${cfg.name}" — state dir not created yet (profile never started)`, cfg.stateDir);
 
   add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref");
 
@@ -139,7 +142,7 @@ export async function doctor(args) {
   let bad = 0;
   let warned = 0;
   for (const c of checks) {
-    console.log(`${c.warn ? "⚠" : c.ok ? "✓" : "✗"} ${c.label}${c.note ? `  — ${c.note}` : ""}`);
+    console.log(`${c.info ? "ℹ" : c.warn ? "⚠" : c.ok ? "✓" : "✗"} ${c.label}${c.note ? `  — ${c.note}` : ""}`);
     if (!c.ok) bad++;
     if (c.warn) warned++;
   }

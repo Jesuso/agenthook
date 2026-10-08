@@ -4,6 +4,7 @@
 // hook once against a stable URL without running the receiver.
 import fs from "node:fs";
 import { loadConfig } from "../config.js";
+import { requireStarted } from "../profile.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { createForge } from "../forges/index.js";
@@ -11,6 +12,7 @@ import { createForge } from "../forges/index.js";
 /** @param {any} args */
 export async function register(args) {
   const cfg = loadConfig({ configPath: args.config });
+  requireStarted(cfg);
   const url = args._[0] || cfg.ingress?.url;
   if (!url) throw new Error("usage: agenthook register <https-public-url> (or set ingress.url for hosted)");
   const store = createStore(cfg.dataDir);
@@ -25,6 +27,7 @@ export async function register(args) {
 /** @param {any} args */
 export async function unregister(args) {
   const cfg = loadConfig({ configPath: args.config });
+  requireStarted(cfg);
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
   await adapter.unregisterWebhooks();

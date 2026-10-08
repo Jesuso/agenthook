@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config.js";
+import { neverStarted } from "../profile.js";
 
 const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red"]);
 
@@ -127,6 +128,13 @@ export async function events(args) {
     } else {
       console.log(renderEvent(ev, refmeta[ev.ref]));
     }
+  }
+
+  // Never started: no state dir to read or watch — and never create one.
+  if (!fs.existsSync(cfg.dataDir)) {
+    if (followMode) process.stderr.write(neverStarted(cfg) + "\n");
+    else if (!jsonMode) console.log(neverStarted(cfg));
+    return;
   }
 
   const fileExists = fs.existsSync(eventsFile);

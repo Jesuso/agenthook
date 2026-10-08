@@ -4,7 +4,7 @@
 // the control socket (it unregisters its webhooks, exits and archives in teardown); the CLI just
 // watches the registry for the dir to go. A stopped one is archived here directly. `--purge`
 // (stopped only) then deletes the archived copy. Never touches the config file and never calls
-// loadConfig (it would recreate the state dir as a ghost profile).
+// loadConfig (the config may be gone or broken; the registry is the source of truth here).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -85,8 +85,9 @@ export async function removeProfile({
   log(`archived ${p.dir} → ${archivedTo}`);
   if (!keepHooks) {
     log(
-      `${unregisterHint(configPath, "now")} — note this recreates an empty ${path.join(registry, p.stateKey)}${path.sep} ` +
-        `(\`agenthook ls\` shows it; \`agenthook remove ${p.stateKey} --yes\` archives it again) and may miss the forge hook, whose id now sits in the archive`,
+      `${unregisterHint(configPath, "after moving the archive back")} — unregister needs the state dir (it refuses a ` +
+        `never-started profile), so move ${archivedTo} back to ${path.join(registry, p.stateKey)}${path.sep} first, then ` +
+        `\`agenthook remove ${p.stateKey} --yes\` again; or delete the hooks by hand`,
     );
   }
   if (!purge) return { archivedTo, purged: false, state: "archived" };
@@ -109,7 +110,7 @@ function unregisterHint(configPath, when) {
 
 /**
  * `{path}` repos from the raw config file — JSON.parse only (no env interpolation, no
- * loadConfig, which would recreate the state dir). Best-effort: [] on any error.
+ * loadConfig). Best-effort: [] on any error.
  * @param {string|null} configPath @returns {{ path: string }[]}
  */
 function reposFromConfig(configPath) {
