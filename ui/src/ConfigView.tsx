@@ -24,6 +24,7 @@ import {
   restartRequest,
   restartText,
   sensitiveDiff,
+  sensitiveLabel,
 } from "./config";
 import type { ConfigSinkEvent, SensitiveChange } from "./config";
 
@@ -247,7 +248,7 @@ export default function ConfigView(props: {
   const overwrite = () => {
     if (doc?.phase.kind !== "conflict") return;
     const changes = sensitiveDiff(doc.phase.content ?? doc.open.content, doc.buffer);
-    const note = changes.length ? `\n\nSensitive fields change:\n${changes.map((c) => `  ${c.path}: ${c.from} → ${c.to}`).join("\n")}` : "";
+    const note = changes.length ? `\n\nSensitive fields change:\n${changes.map((c) => `  ${sensitiveLabel(c.path)}: ${c.from} → ${c.to}`).join("\n")}` : "";
     if (window.confirm(OVERWRITE_PROMPT + note)) put("overwrite");
   };
 
@@ -485,7 +486,7 @@ export default function ConfigView(props: {
                   onSave={requestSave}
                 />
               ) : pane === "basics" ? (
-                <BasicsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                <BasicsForm text={doc.buffer} raw={parsed.raw} stateKey={profile} onEdit={(buffer) => act({ type: "edit", buffer })} />
               ) : (
                 <PipelineForm
                   text={doc.buffer}
@@ -540,7 +541,7 @@ export default function ConfigView(props: {
               <ul className="mb-2 font-mono text-xs">
                 {sensitive.map((c) => (
                   <li key={c.path}>
-                    {c.path}: {c.from} → {c.to}
+                    {sensitiveLabel(c.path)}: {c.from} → {c.to}
                   </li>
                 ))}
               </ul>

@@ -195,10 +195,7 @@ Edits `agenthook.config.json` — the one file at the receiver-published `heartb
 
 **Shipped so far:** the **Config** tab's raw JSON editor (live parse check, server errors and
 literal-secret warnings, diff → confirm with a second ack for changed sensitive fields — secret
-values masked — guarded `PUT /api/config`, reload/diff/overwrite banner; a changed top-level `name`
-is rejected with a 422 before anything is written — renaming a profile forks its state dir
-(`~/.agenthook/<name>/`) and loses history, so it's blocked rather than migrated; the Basics
-form's `name` field is read-only for the same reason) and **Restart when idle**
+values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and **Restart when idle**
 after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid), and the
 **Basics** / **Pipeline** form tabs beside Raw (one shared buffer; every change a `jsonc-parser`
 edit, reorder swaps the steps' exact text) with **stage pickers** fed by `GET /api/discover` on
@@ -225,6 +222,17 @@ atomic temp+rename keeping mode, backup in the state dir, audit line. The audit 
 **sensitive fields** that changed (`fullAuto`, `claudeBin`, tracker/forge/ingress tokens, user
 scoping like `userGid`/`assigneeFilter`), and the UI asks for a second confirmation for them.
 A known secret field holding a literal instead of a `${VAR}` ref gets a **warning** (save allowed).
+
+**Renaming a profile.** The Basics form's `name` field is editable: typing a new label inserts
+`"stateId": "<current state key>"` right after `"name"` (unless `stateId` is already set), so the
+save keeps the profile's state dir — `~/.agenthook/<stateKey>/` — in place. The server guards
+this: a save whose effective state key (`stateId ?? name`) no longer matches the profile's actual
+state-dir name is a `422` (covers a raw-tab rename with no `stateId`, or editing/removing one), and
+a new label that collides with another profile's label or state key is also a `422` (checked only
+when the label is actually changing, so an unrelated save isn't blocked by a pre-existing
+collision). `name` stays a **sensitive field** — the confirm dialog and audit line show it as
+`label (name)` — and, like any other config change, the new label takes effect on **Restart when
+idle**.
 
 **Stage pickers — via the receiver.** Listing an Asana project's sections / Jira statuses / labels
 / Projects Status options needs tracker credentials the UI never holds. Adapters gain an optional

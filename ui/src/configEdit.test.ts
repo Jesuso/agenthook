@@ -10,6 +10,7 @@ import {
   readBasics,
   readSteps,
   removeStep,
+  renameEdit,
   setPath,
   stageKeysFor,
   stageSource,
@@ -72,6 +73,34 @@ describe("basics edits change only that value", () => {
   it("fullAuto unchecked writes an explicit false", () => {
     const on = boolEdit(example, ["fullAuto"], true, false, true);
     expect(boolEdit(on, ["fullAuto"], false, true, true)).toBe(example);
+  });
+});
+
+describe("renameEdit", () => {
+  it("sets name and inserts stateId immediately after it, preserving comments/indentation/key order", () => {
+    const out = renameEdit(example, "renamed", "myproject");
+    expect(raw()["stateId"]).toBeUndefined(); // not present in the fixture before the edit
+    const parsed = JSON.parse(out);
+    expect(parsed.name).toBe("renamed");
+    expect(parsed.stateId).toBe("myproject");
+    expect(Object.keys(parsed).indexOf("stateId")).toBe(Object.keys(parsed).indexOf("name") + 1);
+    expect(commentKeys(out)).toEqual(commentKeys(example));
+    const lines = out.split("\n");
+    const nameLine = lines.findIndex((l) => /^\s*"name": /.test(l));
+    expect(lines[nameLine + 1]).toMatch(/^\s*"stateId": "myproject",$/);
+  });
+
+  it("is a no-op insert when stateId is already present", () => {
+    const withId = setPath(example, ["stateId"], "myproject");
+    const out = renameEdit(withId, "renamed", "myproject");
+    const parsed = JSON.parse(out);
+    expect(parsed.name).toBe("renamed");
+    expect(parsed.stateId).toBe("myproject");
+    expect(commentKeys(out)).toEqual(commentKeys(withId));
+    // Only the name line changed — stateId was already there, so no second insertion.
+    const d = lineDiff(withId, out);
+    expect(d.added).toEqual(['  "name": "renamed",']);
+    expect(d.removed).toEqual(['  "name": "myproject",']);
   });
 });
 

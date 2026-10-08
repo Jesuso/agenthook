@@ -12,6 +12,7 @@ import {
   readBasics,
   readSteps,
   removeStep,
+  renameEdit,
   stageKeysFor,
   stepPath,
   textEdit,
@@ -138,19 +139,18 @@ function StageField(props: EditProps & { label: string; stageKey: string; path: 
   );
 }
 
-export function BasicsForm(props: EditProps & { raw: unknown }) {
+export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }) {
   const b = readBasics(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
   return (
     <div className="grid max-w-xl grid-cols-2 gap-3">
-      <TextField
-        {...edit}
-        label="name"
-        path={["name"]}
-        value={b.name}
-        readOnly
-        hint="renaming moves ~/.agenthook/<name>/ and loses history — edit the file by hand"
-      />
+      <Field label="name" hint={`label — state stays in ~/.agenthook/${props.stateKey}/`}>
+        <input
+          className={INPUT}
+          value={fieldText(b.name)}
+          onChange={(e) => props.onEdit(renameEdit(props.text, e.target.value, props.stateKey))}
+        />
+      </Field>
       <TextField {...edit} label="trigger" path={["trigger"]} value={b.trigger} />
       <NumberField {...edit} label="maxConcurrent" path={["maxConcurrent"]} value={b.maxConcurrent} />
       <NumberField {...edit} label="port" path={["port"]} value={b.port} />
