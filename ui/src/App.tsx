@@ -8,7 +8,7 @@ import { appendFeed, formatEventDetail } from "./feed";
 import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
-import { RunPanel } from "./RunPanel";
+import { TicketDrawer } from "./TicketDrawer";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
@@ -309,6 +309,7 @@ export default function App() {
           {tickets.map((t) => (
             <tr
               key={`${t.profile}\u0000${t.ref}`}
+              data-ticket-row={t.ref}
               className={`cursor-pointer border-b border-[var(--color-border)] ${open?.profile === t.profile && open.ref === t.ref ? "bg-[var(--color-border)]" : ""}`}
               onClick={(e) => {
                 // Links in the row (tracker, PR) keep their own behavior.
@@ -328,7 +329,16 @@ export default function App() {
               <td className="px-2 py-1">{t.title ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{t.profile}</td>
               <td className="px-2 py-1">{t.step ?? "—"}</td>
-              <td className="px-2 py-1">
+              <td
+                className="px-2 py-1"
+                title={
+                  t.status === "interrupted"
+                    ? "receiver is down — this run was interrupted"
+                    : t.status === "stalled"
+                      ? "receiver is down — will resume when it restarts"
+                      : undefined
+                }
+              >
                 <StatusBadge status={t.status} />
               </td>
               <td className="px-2 py-1">{t.model ?? "—"}</td>
@@ -375,10 +385,11 @@ export default function App() {
         </tbody>
       </table>
       {open && (
-        <RunPanel
+        <TicketDrawer
+          key={`${open.profile}\u0000${open.ref}`}
           profile={open.profile}
           ticketRef={open.ref}
-          label={state.snapshot.tickets.find((t) => t.profile === open.profile && t.ref === open.ref)?.displayId ?? open.ref}
+          ticket={state.snapshot.tickets.find((t) => t.profile === open.profile && t.ref === open.ref)}
           runsNonce={runsNonce}
           onClose={() => setOpen(null)}
         />

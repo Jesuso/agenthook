@@ -20,11 +20,10 @@ headless Chrome follows it:
 node test/fixtures/ui/shoot.js '<printed ?token= URL>' out-dark.png  --scheme dark
 node test/fixtures/ui/shoot.js '<printed ?token= URL>' out-light.png --scheme light
 # options: --size 1440x900 (default) · --wait '<css selector>' (default: a table row) · --chrome <bin>
-#          --click '<css selector>' — clicked after load, before --wait (e.g. to open a tab)
+#          --click '<css selector>' (wait for it, click it, then wait for --wait)
 
-# the Instructions tab (nav[aria-label=views]'s 2nd button), waiting on its file list once open:
-node test/fixtures/ui/shoot.js '<printed ?token= URL>' instr-dark.png --scheme dark \
-  --click 'nav[aria-label=views] button:nth-child(2)' --wait 'nav button[title]'
+# the ticket drawer, open on the running ticket (fixture ref 221 has a live run + log):
+node test/fixtures/ui/shoot.js '<printed ?token= URL>' drawer.png --click '[data-ticket-row="221"]' --wait '[data-drawer] pre'
 ```
 
 `shoot.js` drives `google-chrome --headless` over the DevTools protocol (Node 22's built-in
@@ -45,8 +44,4 @@ Notes:
 - Each profile's stub `agenthook.config.json` sits inside its state dir, because any other
   directory under `AGENTHOOK_HOME` would be listed as a profile.
 - The events table stays empty: it shows live SSE events only, and the fixture is static.
-- `agenthook`'s heartbeat publishes `instructions` (real `.md` files under its state dir's `instr/`):
-  step files for `triage`/`code`/`review` (pipeline order; alphabetical would read `code`, `review`,
-  `triage` instead), one `default` and one `repo` entry. `acme-web` and `billing-jira` publish none,
-  showing the Instructions tab's empty state.
 - PNGs for a PR go under `docs/ui-screens/<issue>-{before,after}-{dark,light}.png`.

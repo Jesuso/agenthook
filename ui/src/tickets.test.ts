@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortTickets, filterTickets, isStale, STATUS_ORDER } from "./tickets";
+import { sortTickets, filterTickets, isStale, prNumber, STATUS_ORDER } from "./tickets";
 import type { TicketRow } from "./contract";
 
 function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; status: TicketRow["status"] }): TicketRow {
@@ -41,6 +41,12 @@ describe("isStale", () => {
   it("treats an unparsable startedAt as stale", () => {
     expect(isStale(ticket({ profile: "a", ref: "1", status: "done", startedAt: "not-a-date" }), NOW)).toBe(true);
   });
+
+  it("is never stale for interrupted/stalled", () => {
+    for (const status of ["interrupted", "stalled"] as const) {
+      expect(isStale(ticket({ profile: "a", ref: "1", status, startedAt: null }), NOW)).toBe(false);
+    }
+  });
 });
 
 describe("sortTickets", () => {
@@ -52,6 +58,8 @@ describe("sortTickets", () => {
       ticket({ profile: "a", ref: "4", status: "held" }),
       ticket({ profile: "a", ref: "5", status: "done" }),
       ticket({ profile: "a", ref: "6", status: "queued" }),
+      ticket({ profile: "a", ref: "7", status: "interrupted" }),
+      ticket({ profile: "a", ref: "8", status: "stalled" }),
     ];
     const sorted = sortTickets(rows).map((r) => r.status);
     expect(sorted).toEqual(STATUS_ORDER);
@@ -101,5 +109,18 @@ describe("filterTickets", () => {
   it("hides stale rows by default, shows them with showAll", () => {
     expect(filterTickets(rows, { profile: null, status: null, showAll: false, now: NOW }).map((r) => r.ref)).toEqual(["1", "3"]);
     expect(filterTickets(rows, { profile: null, status: null, showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["1", "2", "3"]);
+  });
+});
+
+describe("prNumber", () => {
+  it("takes the number off a /pull/<n> URL", () => {
+    expect(prNumber("https://github.com/Jesuso/agenthook/pull/230")).toBe("230");
+    expect(prNumber("https://github.com/Jesuso/agenthook/pull/230/")).toBe("230");
+  });
+  it("null for no URL or a non-PR URL", () => {
+    expect(prNumber(null)).toBeNull();
+    expect(prNumber("")).toBeNull();
+    expect(prNumber("https://github.com/Jesuso/agenthook/issues/230")).toBeNull();
+    expect(prNumber("https://github.com/Jesuso/agenthook/pull/230/files")).toBeNull();
   });
 });

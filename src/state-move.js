@@ -45,7 +45,7 @@ export function checkMove({ configPath, from, to, registry = registryDir }) {
  * from, to}`). The edited text is computed and checked before anything moves; a failed save
  * renames the dir back and rethrows.
  * @param {{ configPath: string, from: string, to: string, registry?: string, source?: string, save?: typeof atomicSave }} o
- * @returns {{ stateDir: string }}
+ * @returns {{ stateDir: string, stateKey: string }}
  */
 export function moveStateDir({ configPath, from, to, registry = registryDir, source = "cli", save = atomicSave }) {
   checkMove({ configPath, from, to, registry });
@@ -83,7 +83,7 @@ export function moveStateDir({ configPath, from, to, registry = registryDir, sou
   } catch {
     /* best effort */
   }
-  return { stateDir: toDir };
+  return { stateDir: toDir, stateKey: to };
 }
 
 /**

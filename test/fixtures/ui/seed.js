@@ -106,13 +106,18 @@ const fixtures = [
     key: "billing-jira",
     name: "billing",
     up: false,
-    heartbeat: { tracker: "jira", ingress: "manual", fullAuto: false, maxConcurrent: 1, port: 8791, queue: { active: 0, queued: 0 } },
-    running: {},
-    queue: [],
+    heartbeat: { tracker: "jira", ingress: "manual", fullAuto: false, maxConcurrent: 1, port: 8791, queue: { active: 1, queued: 1 } },
+    // Leftover from before the receiver died: a down profile's in-flight run reads as
+    // `interrupted` and its queued job as `stalled` (#222) — the receiver resolves both on its
+    // next boot (recoverInterrupted/restoreQueued), not live.
+    running: { "BILL-229": { stepId: "code", startedAt: ago(60 * 24 * 14), model: "sonnet" } },
+    queue: [{ kind: "pipeline", ref: "BILL-232", stepId: "review", dedupKey: "k-bill-232" }],
     held: { "BILL-88": { stepId: "code", reason: "Which currency rounding mode — banker's or half-up?", heldAt: ago(30) } },
     refmeta: {
       "BILL-88": { displayId: "BILL-88", title: "Prorate mid-cycle plan changes" },
       "BILL-91": { displayId: "BILL-91", title: "Invoice PDF footer overflow" },
+      "BILL-229": { displayId: "BILL-229", title: "Flaky retry on 502 from tracker" },
+      "BILL-232": { displayId: "BILL-232", title: "Dedup key collision on re-enqueue" },
     },
     events: [
       { ts: ago(45), event: "run_start", ref: "BILL-88", step: "code", model: "opus" },
@@ -120,6 +125,7 @@ const fixtures = [
       { ts: ago(20), event: "run_start", ref: "BILL-91", step: "code", model: "sonnet" },
       { ts: ago(15), event: "run_end", ref: "BILL-91", step: "code", outcome: "fail", costUsd: 0.5 },
       { ts: ago(15), event: "failed", ref: "BILL-91", step: "code", reason: "claude -p exited 1" },
+      { ts: ago(60 * 24 * 14), event: "run_start", ref: "BILL-229", step: "code", model: "sonnet" },
     ],
   },
 ];

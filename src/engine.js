@@ -321,7 +321,7 @@ export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
   if (respawn) {
     // A pending move happens here, once nothing holds the state dir, and the successor logs
     // into the new dir (it resolves the new key from the rewritten config).
-    /** @type {{stateDir: string}} */
+    /** @type {{stateDir: string, stateKey: string}} */
     let spawnCfg = cfg;
     if (moveTo) {
       try {

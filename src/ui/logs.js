@@ -120,6 +120,7 @@ export function listRuns(registry, profile, ref, events) {
       startedAt: r.startedAt,
       outcome,
       costUsd: end && typeof end.costUsd === "number" && Number.isFinite(end.costUsd) ? end.costUsd : null,
+      endedAt: end && typeof end.ts === "string" ? end.ts : null,
       running: !end && i === found.length - 1 && !!cur && cur.stepId === r.step,
       bytes: r.bytes,
     });

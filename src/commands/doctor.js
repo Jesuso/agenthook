@@ -11,6 +11,8 @@ import { loadConfig } from "../config.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo } from "../repos.js";
 import { listWorktrees } from "../worktree.js";
+import { readProfile } from "../heartbeat.js";
+import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 
 /** Is a TCP port already bound on 127.0.0.1? @param {number} port */
 function portInUse(port) {
@@ -138,6 +140,23 @@ export async function doctor(args) {
 
   const unfilled = unfilledBindings(cfg.pipeline);
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "");
+
+  if (process.platform === "linux") {
+    const scopeOn = systemdScopeAvailable();
+    info(`start --detach will use a systemd user scope: ${scopeOn}`, process.env.AGENTHOOK_NO_SYSTEMD_SCOPE === "1" ? "AGENTHOOK_NO_SYSTEMD_SCOPE=1 disables it" : "");
+    const profile = readProfile(cfg.stateKey);
+    if (profile.up) {
+      try {
+        const { scope, terminal } = classifyCgroup(fs.readFileSync(`/proc/${profile.pid}/cgroup`, "utf8"));
+        if (scope) {
+          info(`scope: ${scope}`);
+          if (terminal) warn("receiver scope", "will die with this terminal — restart it with `agenthook restart` or `start --detach` (now scope-escaping)");
+        }
+      } catch {
+        /* /proc unreadable — not fatal */
+      }
+    }
+  }
 
   let bad = 0;
   let warned = 0;
