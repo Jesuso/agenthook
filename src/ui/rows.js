@@ -12,19 +12,43 @@ export const EVENTS_TAIL_BYTES = 256 * 1024;
 const REPOSITORY_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /** @param {any} v */
-const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+export const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 
 /** Own-property lookup: refs are arbitrary strings ("constructor" must not hit the prototype).
  * @param {Record<string, any>} o @param {string} k */
 const own = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 
-/** @param {string} f @param {any} fallback @param {(v: any) => boolean} ok */
-function readJson(f, fallback, ok) {
+/**
+ * Missing file → `fallback`. Present but unreadable / unparsable / wrong shape → `prev`
+ * (default `fallback`): state files are rewritten non-atomically, so a live reader that
+ * passes its last good value never sees a torn write as "empty".
+ * @param {string} f @param {any} fallback @param {(v: any) => boolean} ok @param {any} [prev]
+ */
+export function readJson(f, fallback, ok, prev = fallback) {
+  /** @type {string} */
+  let text;
   try {
-    const v = JSON.parse(fs.readFileSync(f, "utf8"));
-    return ok(v) ? v : fallback;
+    text = fs.readFileSync(f, "utf8");
+  } catch (e) {
+    return e.code === "ENOENT" ? fallback : prev;
+  }
+  try {
+    const v = JSON.parse(text);
+    return ok(v) ? v : prev;
   } catch {
-    return fallback;
+    return prev;
+  }
+}
+
+/** One events.jsonl line → the event, or null for garbage / a line without a ref.
+ * @param {string} line @returns {Record<string, any>|null} */
+export function parseEventLine(line) {
+  if (!line.trim()) return null;
+  try {
+    const e = JSON.parse(line);
+    return isObj(e) && typeof e.ref === "string" && e.ref ? e : null;
+  } catch {
+    return null; /* torn / garbage line */
   }
 }
 
@@ -35,13 +59,30 @@ function readJson(f, fallback, ok) {
  * @returns {Record<string, any>[]}
  */
 export function readEventsTail(file, maxBytes = EVENTS_TAIL_BYTES) {
+  return tail(file, maxBytes, false).events;
+}
+
+/**
+ * readEventsTail for a live tailer: parses complete lines only and returns `end`, the byte
+ * offset just past the last "\n" — where the next incremental read starts, so a line still
+ * being appended is picked up whole later.
+ * @param {string} file @param {number} [maxBytes]
+ * @returns {{ events: Record<string, any>[], end: number }}
+ */
+export function seedEventsTail(file, maxBytes = EVENTS_TAIL_BYTES) {
+  return tail(file, maxBytes, true);
+}
+
+/** @param {string} file @param {number} maxBytes @param {boolean} wholeLines */
+function tail(file, maxBytes, wholeLines) {
   let fd;
   try {
     fd = fs.openSync(file, "r");
   } catch {
-    return [];
+    return { events: [], end: 0 };
   }
   let text = "";
+  let end = 0;
   try {
     const size = fs.fstatSync(fd).size;
     const start = Math.max(0, size - maxBytes);
@@ -55,28 +96,30 @@ export function readEventsTail(file, maxBytes = EVENTS_TAIL_BYTES) {
       if (n <= 0) break;
       off += n;
     }
-    text = buf.subarray(0, off).toString("utf8");
+    let bytes = buf.subarray(0, off);
+    end = from + off;
+    if (wholeLines) {
+      const last = bytes.lastIndexOf(0x0a);
+      bytes = bytes.subarray(0, last + 1);
+      end = from + last + 1;
+    }
+    text = bytes.toString("utf8");
     if (start > 0) {
       const nl = text.indexOf("\n");
       text = nl === -1 ? "" : text.slice(nl + 1);
     }
   } catch {
-    return [];
+    return { events: [], end: 0 };
   } finally {
     fs.closeSync(fd);
   }
   /** @type {Record<string, any>[]} */
-  const out = [];
+  const events = [];
   for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const e = JSON.parse(line);
-      if (isObj(e) && typeof e.ref === "string" && e.ref) out.push(e);
-    } catch {
-      /* torn / garbage line */
-    }
+    const e = parseEventLine(line);
+    if (e) events.push(e);
   }
-  return out;
+  return { events, end };
 }
 
 /**
@@ -88,17 +131,36 @@ export function readEventsTail(file, maxBytes = EVENTS_TAIL_BYTES) {
  * @property {Record<string, any>[]} events   events.jsonl tail, oldest first
  */
 
-/** Read a profile's state dir; missing or garbage files read as empty. @param {string} dir
+/** @typedef {'running'|'queue'|'held'|'refmeta'} StateKey */
+
+/** @type {Record<StateKey, [file: string, empty: () => any, ok: (v: any) => boolean]>} */
+export const STATE_FILES = {
+  running: ["running.json", () => ({}), isObj],
+  queue: ["queue.json", () => [], Array.isArray],
+  held: ["held.json", () => ({}), isObj],
+  refmeta: ["refmeta.json", () => ({}), isObj],
+};
+
+/** Read one state file (see readJson for the `prev` torn-read rule).
+ * @param {string} dir @param {StateKey} key @param {any} [prev] */
+export function readStateFile(dir, key, prev) {
+  const [file, empty, ok] = STATE_FILES[key];
+  const fallback = empty();
+  const v = readJson(path.join(dir, file), fallback, ok, prev ?? fallback);
+  return key === "queue" ? v.filter((/** @type {any} */ j) => isObj(j) && typeof j.ref === "string" && j.ref) : v;
+}
+
+/** Read a profile's state dir; missing or garbage files read as empty. `events` (the live
+ * watcher's in-memory tail) replaces the events.jsonl read when given.
+ * @param {string} dir @param {Record<string, any>[]} [events]
  * @returns {ProfileState} */
-export function readProfileState(dir) {
+export function readProfileState(dir, events) {
   return {
-    running: readJson(path.join(dir, "running.json"), {}, isObj),
-    queue: readJson(path.join(dir, "queue.json"), [], Array.isArray).filter(
-      (/** @type {any} */ j) => isObj(j) && typeof j.ref === "string" && j.ref,
-    ),
-    held: readJson(path.join(dir, "held.json"), {}, isObj),
-    refmeta: readJson(path.join(dir, "refmeta.json"), {}, isObj),
-    events: readEventsTail(path.join(dir, "events.jsonl")),
+    running: readStateFile(dir, "running"),
+    queue: readStateFile(dir, "queue"),
+    held: readStateFile(dir, "held"),
+    refmeta: readStateFile(dir, "refmeta"),
+    events: events ?? readEventsTail(path.join(dir, "events.jsonl")),
   };
 }
 

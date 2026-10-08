@@ -138,3 +138,60 @@ test("src/ui never writes files", () => {
     assert.ok(!/["']w[+x]?["']|["']a\+?["']/.test(src.match(/openSync\([^)]*\)/g)?.join("") || ""), `${f} opens for write`);
   }
 });
+
+/**
+ * Open `/api/stream` and collect raw SSE text until `until(text)` holds.
+ * @param {(text: string) => boolean} until
+ * @returns {Promise<{ status: number, headers: http.IncomingHttpHeaders, done: Promise<string>, abort(): void }>}
+ */
+function stream(until) {
+  return new Promise((resolve, reject) => {
+    const r = http.request(
+      { host: "127.0.0.1", port, path: "/api/stream", headers: { host: `127.0.0.1:${port}`, cookie: good() } },
+      (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        const done = new Promise((r2) => {
+          res.on("data", (c) => {
+            text += c;
+            if (until(text)) r2(text);
+          });
+        });
+        resolve({ status: res.statusCode || 0, headers: res.headers, done, abort: () => r.destroy() });
+      },
+    );
+    r.on("error", (e) => (e.message === "socket hang up" ? undefined : reject(e)));
+    r.end();
+  });
+}
+
+test("/api/stream: same auth + Host guards as /api/snapshot", async () => {
+  assert.equal((await req("/api/stream")).status, 401);
+  assert.equal((await req("/api/stream", { cookie: "ah_ui=wrong" })).status, 401);
+  assert.equal((await req("/api/stream", { host: "evil.com", cookie: good() })).status, 403);
+});
+
+test("/api/stream: 200 text/event-stream; a state change arrives as `event: <type>\\ndata: <json>\\n\\n`", async () => {
+  const s = await stream((t) => /event: ticket\n/.test(t) && t.endsWith("\n\n"));
+  try {
+    assert.equal(s.status, 200);
+    assert.equal(s.headers["content-type"], "text/event-stream; charset=utf-8");
+    assert.equal(s.headers["cache-control"], "no-store");
+    assert.equal(s.headers["x-accel-buffering"], "no");
+    await new Promise((r) => setTimeout(r, 100)); // watcher's initial scan is synchronous; let fs.watch arm
+    fs.writeFileSync(path.join(registry, "p", "held.json"), JSON.stringify({ 7: { stepId: "code", reason: "why?" } }));
+    const text = await s.done;
+    const frame = /(?:^|\n\n)event: ticket\ndata: (.*)\n\n/.exec(text);
+    assert.ok(frame, text);
+    const ev = JSON.parse(frame[1]);
+    assert.equal(ev.type, "ticket");
+    assert.equal(ev.ticket.ref, "7");
+    assert.equal(ev.ticket.status, "held");
+    assert.equal(ev.ticket.heldReason, "why?");
+    // Once streaming, the snapshot comes from the same watcher state.
+    const snap = JSON.parse((await req("/api/snapshot", { cookie: good() })).body);
+    assert.equal(snap.tickets.find((/** @type {any} */ t) => t.ref === "7").status, "held");
+  } finally {
+    s.abort();
+  }
+});
