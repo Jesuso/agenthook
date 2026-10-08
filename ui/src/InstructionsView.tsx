@@ -5,6 +5,7 @@ import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, instructionFileUrl, 
 import type { InstructionsEvent } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
+import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
 
@@ -32,6 +33,7 @@ export default function InstructionsView(props: {
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
   const [preview, setPreview] = useState(false);
+  const [agentView, setAgentView] = useState(false);
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // Only the latest file load may land. `fileRef` is written with every update (not at render),
@@ -54,7 +56,8 @@ export default function InstructionsView(props: {
   const open = doc?.open ?? null;
   const phase = doc?.phase.kind ?? null;
   const dirty = doc ? isDirty(doc.buffer, doc.open) : false;
-  const agentsRunning = (open && list.kind === "ok" && list.body.files.find((f) => f.path === open.path)?.agentsRunning) || 0;
+  const openFileView = open && list.kind === "ok" ? list.body.files.find((f) => f.path === open.path) : undefined;
+  const agentsRunning = openFileView?.agentsRunning || 0;
 
   useEffect(() => {
     if (!profile) return;
@@ -293,7 +296,13 @@ export default function InstructionsView(props: {
                 ) : (
                   dirty && <span className="shrink-0 text-[var(--color-warn)]">● modified</span>
                 )}
-                <button className="ml-auto shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5" onClick={() => setPreview((v) => !v)}>
+                <button
+                  className="ml-auto shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5"
+                  onClick={() => setAgentView((v) => !v)}
+                >
+                  {agentView ? "hide what the agent sees" : "what the agent sees"}
+                </button>
+                <button className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5" onClick={() => setPreview((v) => !v)}>
                   {preview ? "hide preview" : "preview"}
                 </button>
                 <button
@@ -334,6 +343,9 @@ export default function InstructionsView(props: {
                   <div className="md-preview min-w-0 flex-1 overflow-auto rounded border border-[var(--color-border)] px-4 py-2 text-sm">
                     <Markdown>{doc.buffer}</Markdown>
                   </div>
+                )}
+                {agentView && doc && list.kind === "ok" && openFileView && (
+                  <PromptPreview profile={profile} files={list.body.files} openScope={openFileView.scope} buffer={doc.buffer} />
                 )}
               </div>
             </>
