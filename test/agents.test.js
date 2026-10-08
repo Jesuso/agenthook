@@ -14,8 +14,8 @@ const PS = [
   `  22222 00:10 /usr/lib/firefox/firefox -contentproc`,
 ].join("\n");
 
-const DOGFOOD = { name: "agenthook-dogfood", running: { "6": { stepId: "code", pid: 12345 } } };
-const ALEPH = { name: "alephbeta", running: { "1199887766": { stepId: "code", pid: 67890 } } };
+const DOGFOOD = { stateKey: "agenthook-dogfood", running: { "6": { stepId: "code", pid: 12345 } } };
+const ALEPH = { stateKey: "alephbeta", running: { "1199887766": { stepId: "code", pid: 67890 } } };
 
 // A shell that merely MENTIONS the string (claude isn't its binary) and a user's own
 // manual `claude -p` (real bin, but no agenthook step/ref markers) — neither is a
@@ -63,7 +63,7 @@ test("--all: every agent row, each labelled with its owning profile", () => {
 
 test("attribution prefers pid over ref when a ref collides across profiles", () => {
   // Both profiles claim ref "6", but pid disambiguates: pid 12345 is dogfood's.
-  const other = { name: "other", running: { "6": { stepId: "code", pid: 55555 } } };
+  const other = { stateKey: "other", running: { "6": { stepId: "code", pid: 55555 } } };
   const rows = selectAgents(PS, [other, DOGFOOD], { all: true });
   assert.equal(rows.find((r) => r.pid === "12345")?.profile, "agenthook-dogfood");
 });
@@ -139,6 +139,18 @@ test("formatAgentRow --verbose appends pid + ref; --all keeps the profile label"
   assert.ok(line.endsWith(`pid=1293223 ref=${ROW.ref}`));
 });
 
+test("formatAgentRow --all shows the owner's label (state key stays on the row)", () => {
+  const line = formatAgentRow(ROW, META, "-", { all: true, label: "Aleph (alephbeta)" });
+  assert.ok(line.startsWith("profile=Aleph (alephbeta)"));
+  assert.equal(ROW.profile, "alephbeta");
+});
+
+test("agentRecord --json: profile = state key, label alongside", () => {
+  const rec = agentRecord(ROW, META, undefined, undefined, "Aleph (alephbeta)");
+  assert.equal(rec.profile, "alephbeta");
+  assert.equal(rec.label, "Aleph (alephbeta)");
+});
+
 test("formatAgentRow falls back to the ref and a — placeholder when nothing is known", () => {
   const line = formatAgentRow(ROW, undefined, "-");
   assert.match(line, new RegExp(`^${ROW.ref}\\s+review\\s+—\\s+00:51`));
@@ -148,7 +160,7 @@ test("formatAgentRow falls back to the ref and a — placeholder when nothing is
 test("agentRecord --json shape: live tally + running model/startedAt", () => {
   const run = { stepId: "review", pid: 1293223, startedAt: "2026-09-24T10:00:00Z", model: "claude-opus-5-5", input: 5, cacheRead: 79000, cacheCreate: 495, output: 188 };
   assert.deepEqual(agentRecord(ROW, META, run, undefined), {
-    profile: "alephbeta", pid: 1293223, ref: ROW.ref, displayId: "ID-2738", title: META.title, pr: 94,
+    profile: "alephbeta", label: "alephbeta", pid: 1293223, ref: ROW.ref, displayId: "ID-2738", title: META.title, pr: 94,
     step: "review", model: "claude-opus-5-5", startedAt: "2026-09-24T10:00:00Z", ctx: 79500, out: 188, etime: "00:51",
   });
 });

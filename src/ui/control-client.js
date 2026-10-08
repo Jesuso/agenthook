@@ -64,13 +64,13 @@ export function controlRequest(sockPath, cmd, args, { timeoutMs = 5000 } = {}) {
   });
 }
 
-/** A known profile's state dir + control socket path, or null. Only names `listProfiles` returns
- * are accepted — mirrors src/ui/logs.js's `profileDir`.
+/** A known profile's state dir + control socket path, or null. Only state keys `listProfiles`
+ * returns are accepted — mirrors src/ui/logs.js's `profileDir`.
  * @param {string} registry @param {string} profile
  * @returns {{ dir: string, sockPath: string } | null}
  */
 export function resolveProfileSock(registry, profile) {
-  if (!profile || !listProfiles(registry).some((p) => p.name === profile)) return null;
+  if (!profile || !listProfiles(registry).some((p) => p.stateKey === profile)) return null;
   const dir = path.join(registry, profile);
   return { dir, sockPath: controlSockPath(dir, profile) };
 }

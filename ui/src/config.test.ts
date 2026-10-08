@@ -142,6 +142,7 @@ describe("save flow through the config adapter", () => {
 
 const prof = (over: Partial<ProfileView>): ProfileView => ({
   name: "p",
+  label: "p",
   up: true,
   pid: 100,
   port: null,

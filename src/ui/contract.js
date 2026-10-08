@@ -29,9 +29,11 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
 
 /**
  * One profile under ~/.agenthook. With no heartbeat (profile down, or never started)
- * only `name`/`up`/`pid` are set; every other field is null.
+ * only `name`/`label`/`up`/`pid` are set; every other field is null.
  * @typedef {object} ProfileView
- * @property {string} name
+ * @property {string} name                the state key (state-dir name) — the stable id every
+ *                                        API `profile` param and SSE `profile` field carries
+ * @property {string} label               display name: heartbeat.name, else profile.json's, else `name`
  * @property {boolean} up                 pidfile pid is alive
  * @property {number|null} pid
  * @property {number|null} port

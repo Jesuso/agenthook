@@ -152,7 +152,10 @@ Key files:
   **`seen` is reloaded from disk on every batch** because `catchup` edits it out-of-band;
   disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
-  (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`.
+  (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`. Entries are
+  `{stateKey, name, …}`: `stateKey` = dir name (the id the UI API uses), `name` = label
+  (heartbeat → `profile.json` → dir). `resolveProfile(arg)` backs `status <x>`/`agents <x>`:
+  state key wins, else a unique label; a shared label throws.
 - `src/ui/*.js` — `ah ui` server (docs/web-ui.md): `contract.js` (JSDoc view-model typedefs),
   `rows.js` (pure `buildRows`/`buildSnapshot` over state dirs; events tail-read, last 256 KB),
   `server.js` (Host guard → token/cookie auth → `/api/snapshot` + `/api/stream` SSE + traversal-safe

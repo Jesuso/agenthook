@@ -4,6 +4,7 @@ import type { ProfileView, Snapshot, UiEvent } from "./contract";
 
 function profile(overrides: Partial<ProfileView> & { name: string }): ProfileView {
   return {
+    label: overrides.name,
     up: true,
     pid: 1,
     port: 8787,

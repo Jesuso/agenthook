@@ -27,8 +27,8 @@ function tildify(p) {
   return p === home || p.startsWith(home + path.sep) ? "~" + p.slice(home.length) : p;
 }
 
-/** @param {string} dir */
-function readMarker(dir) {
+/** A state dir's parsed `profile.json`, or null. @param {string} dir */
+export function readMarker(dir) {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, MARKER), "utf8"));
   } catch {

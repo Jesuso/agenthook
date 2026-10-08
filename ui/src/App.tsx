@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { Snapshot, TicketStatus } from "./contract";
-import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost } from "./format";
+import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent } from "./state";
 import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
@@ -203,7 +203,7 @@ export default function App() {
         <tbody>
           {state.snapshot.profiles.map((p) => (
             <tr key={p.name} className="border-b border-[var(--color-border)]">
-              <td className="px-2 py-1 font-mono">{p.name}</td>
+              <td className="px-2 py-1 font-mono">{profileLabel(p)}</td>
               <td className="px-2 py-1" style={{ color: p.up ? "var(--color-ok)" : "var(--color-err)" }}>
                 {formatUp(p)}
               </td>
@@ -235,7 +235,7 @@ export default function App() {
           <option value="">all profiles</option>
           {state.snapshot.profiles.map((p) => (
             <option key={p.name} value={p.name}>
-              {p.name}
+              {profileLabel(p)}
             </option>
           ))}
         </select>
