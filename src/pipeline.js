@@ -12,6 +12,11 @@
 // agents and the owner share one tracker identity, so this bounds a self-trigger loop.
 export const DEFAULT_MAX_ATTEMPTS = 3;
 
+// Wall-clock cap on one step run, in minutes (per-step `maxMinutes` overrides; 0 = off).
+// An agent idling on something that will never happen (e.g. CI on a conflicting PR)
+// would otherwise hold a maxConcurrent slot forever.
+export const DEFAULT_MAX_MINUTES = 120;
+
 /** @param {import('./types.js').Config} cfg @param {string} [stepId] */
 export function findStep(cfg, stepId) {
   if (!cfg.pipeline || !stepId) return null;

@@ -95,6 +95,18 @@ real re-entry (next step, or a `changes` rework) carries a different key and run
 `changes` is forced to `fail` to bound an endless code↔review ping-pong (each loop is a fresh,
 billed `claude -p`). Raise `maxAttempts` on the step if you genuinely need more rounds.
 
+## A step failed with `timeout`
+
+The run's reason reads `timeout: exceeded maxMinutes=<n>` or `timeout: no output for
+idleMinutes=<n>`. Each step run is capped at `maxMinutes` of wall clock (default 120). An
+opt-in `idleMinutes` also kills an agent that has printed nothing for that long. On expiry the
+receiver sends SIGTERM, then SIGKILL after ~10 s, and fails the run the normal way: a `failed`
+event, the failure lane, and the slot freed. Any verdict file the agent wrote first is ignored.
+The run log ends with `[agenthook] killed: <reason>`. Look there for what the agent was waiting
+on (often CI on a PR that can't merge). If the step really needs longer, raise `maxMinutes`
+(`0` turns the cap off). Only the `claude -p` process is killed; a tool subprocess it started
+may outlive it.
+
 ## A task is stuck in the hold lane
 
 `hold` parks a task waiting on a human answer (the agent posted a question). Reply on the tracker,

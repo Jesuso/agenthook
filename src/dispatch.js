@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { stepPrompt } from "./prompts.js";
-import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS } from "./pipeline.js";
+import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_MINUTES } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 import { resolveRepo, repoById, primaryRepo } from "./repos.js";
 import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
@@ -21,6 +21,17 @@ import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
 // Upper bound on the best-effort `gh pr list` lookup, so a slow/absent `gh` never
 // delays a run by more than this.
 const PR_LOOKUP_TIMEOUT_MS = 5000;
+
+// How long a timed-out agent gets between SIGTERM and SIGKILL.
+const KILL_GRACE_MS = 10000;
+
+// setTimeout fires immediately past this (~24.8 days), so clamp a huge cap to it.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** The fail reason for a killed run. @param {"max"|"idle"} kind @param {number} minutes */
+export function timeoutReason(kind, minutes) {
+  return kind === "max" ? `timeout: exceeded maxMinutes=${minutes}` : `timeout: no output for idleMinutes=${minutes}`;
+}
 
 /** @typedef {(cmd: string, args: string[], opts: {cwd: string, timeout: number}) => Promise<string>} ExecFn */
 
@@ -268,8 +279,10 @@ const readInstructions = (file) => {
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
  * @param {import('./types.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
+ * @param {{killGraceMs?: number}} [opts]  test hook: SIGTERM→SIGKILL grace for a timed-out agent
  */
-export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap) {
+export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, opts = {}) {
+  const killGraceMs = opts.killGraceMs ?? KILL_GRACE_MS;
   const meta = adapter.describe();
   // Refs with a pipeline job in runClaude (spawn through advance). A red-CI bounce for a
   // busy ref is parked (store.setCiRed) instead of racing that job's own advance.
@@ -325,10 +338,12 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
    * assistant text to the log and accumulates the token tally + final `result` event;
    * stderr is piped raw. `onTally` fires when the running token count changes (i.e. per
    * assistant/result event, NOT per token) so the live record isn't rewritten per token.
-   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, verdictFile?: string, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
-   * @returns {Promise<{code: number, result: any}>}
+   * `maxMs` caps the run's wall clock; `idleMs` caps the gap between stdout chunks. Past
+   * either the child gets SIGTERM, then SIGKILL after the grace, and `timedOut` says which.
+   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, verdictFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
    */
-  function spawnClaude({ prompt, cwd, logPath, model, effort, verdictFile, onPid, onTally }) {
+  function spawnClaude({ prompt, cwd, logPath, model, effort, verdictFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     const args = buildClaudeArgs({ prompt, model, effort, fullAuto: cfg.fullAuto });
     const parser = createStreamParser();
@@ -342,9 +357,42 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       });
       children?.add(child);
       onPid?.(child.pid);
+
+      /** @type {"max"|"idle"|undefined} */
+      let timedOut;
+      /** @type {NodeJS.Timeout|undefined} */ let maxTimer;
+      /** @type {NodeJS.Timeout|undefined} */ let idleTimer;
+      /** @type {NodeJS.Timeout|undefined} */ let killTimer;
+      /** @param {"max"|"idle"} kind */
+      const expire = (kind) => {
+        if (timedOut) return;
+        timedOut = kind;
+        clearTimeout(maxTimer);
+        clearTimeout(idleTimer);
+        const minutes = ((kind === "max" ? maxMs : idleMs) ?? 0) / 60000;
+        logStream.write(`\n[agenthook] killed: ${timeoutReason(kind, minutes)}\n`);
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
+      };
+      if (maxMs) maxTimer = setTimeout(() => expire("max"), Math.min(maxMs, MAX_TIMER_MS));
+      const armIdle = () => {
+        if (!idleMs || timedOut) return;
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => expire("idle"), Math.min(idleMs, MAX_TIMER_MS));
+      };
+      armIdle();
+      // A killed child's grandchildren (tool subprocesses) can keep its stdio open, which
+      // would delay `close` (and the slot) indefinitely — drop our ends once it's gone.
+      child.on("exit", () => {
+        if (!timedOut) return;
+        child.stdout.destroy();
+        child.stderr.destroy();
+      });
+
       let lastOut = -1;
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk) => {
+        armIdle();
         const text = parser.push(chunk);
         if (text) logStream.write(text);
         if (onTally && parser.tally.output !== lastOut) {
@@ -354,11 +402,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       });
       child.stderr.pipe(logStream);
       child.on("close", (c) => {
+        clearTimeout(maxTimer);
+        clearTimeout(idleTimer);
+        clearTimeout(killTimer);
         const tail = parser.flush();
         if (tail) logStream.write(tail);
         children?.delete(child);
         logStream.end();
-        resolve({ code: c ?? 1, result: parser.result });
+        resolve({ code: c ?? 1, result: parser.result, ...(timedOut ? { timedOut } : {}) });
       });
     });
   }
@@ -811,13 +862,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;
-    const { code, result } = await spawnClaude({
+    const maxMinutes = step.maxMinutes ?? DEFAULT_MAX_MINUTES;
+    const { code, result, timedOut } = await spawnClaude({
       prompt,
       cwd,
       logPath,
       model,
       effort,
       verdictFile,
+      maxMs: maxMinutes * 60000,
+      ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
       onPid: (p) => {
         pid = p;
         try {
@@ -847,8 +901,12 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       );
     }
 
-    // Resolve the verdict from the exit code + the file the agent wrote.
-    const verdict = readVerdict(code, verdictFile);
+    // Resolve the verdict from the exit code + the file the agent wrote. A killed run
+    // always fails — a verdict file it half-wrote before the kill is not trusted.
+    /** @type {import('./types.js').Verdict} */
+    const verdict = timedOut
+      ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
+      : readVerdict(code, verdictFile);
     try {
       fs.rmSync(verdictFile, { force: true });
     } catch {

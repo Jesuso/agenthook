@@ -51,6 +51,8 @@
         "createsWorktree": true,
         "//maxAttempts": "optional: cap on runs per task before a `changes` loop into this step fails (default 3)",
         "maxAttempts": 3,
+        "//maxMinutes": "optional: wall-clock cap on one run; past it the agent is killed and the run fails with `timeout` (default 120, 0 = off)",
+        "//idleMinutes": "optional, default off: also kill the agent after this many minutes with no output",
         "instructionsFile": "./INSTRUCTIONS_CODE.md",
         "sourceSectionGid": "AGENT_QUEUE_GID",
         "successSectionGid": "AWAITING_REVIEW_GID",

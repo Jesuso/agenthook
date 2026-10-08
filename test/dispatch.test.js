@@ -252,6 +252,7 @@ test("resolveModelEffort: escalate can override only effort, keeping base model"
 // full dispatch pipeline in a unit style using the store's difficulty helpers.
 
 import { createStore } from "../src/store.js";
+import { DEFAULT_MAX_MINUTES } from "../src/pipeline.js";
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-dispatch-"));
 
@@ -775,4 +776,91 @@ test("ci: a parked bounce yields to review's own changes/hold/fail verdict", asy
     assert.equal(h.advances[0].reason, verdict.reason);
     assert.equal(h.store.takeCiRed("7"), undefined);
   }
+});
+
+// --- step timeouts (maxMinutes / idleMinutes) through the real dispatcher ---
+// Fractional minutes keep the windows tiny (0.001 min = 60 ms); killGraceMs is injected.
+
+/** @param {string} script  fake `claude` body (sh) @param {any} step @param {number} [killGraceMs] */
+async function timeoutRun(script, step, killGraceMs = 2000) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(bin, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", ...step }, { id: "done", manual: true }],
+    claudeBin: bin,
+    repoPath: dir,
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ _ref, /** @type {string} */ _stepId, /** @type {any} */ verdict) => advanced.push(verdict),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const children = new Set();
+  const run = createDispatcher(cfg, adapter, children, createStore(dir), emit, null, undefined, { killGraceMs });
+  const log = console.log;
+  console.log = () => {};
+  const t0 = Date.now();
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = log;
+  }
+  const logText = fs.readdirSync(dir).filter((f) => f.endsWith(".log")).map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("");
+  return { advanced, events, children, elapsed: Date.now() - t0, logText, verdictLeft: fs.existsSync(path.join(dir, "verdicts", "42-code.json")) };
+}
+
+test("timeout: a run past maxMinutes is killed and fails with `timeout`; a pre-kill verdict file is ignored", async () => {
+  const r = await timeoutRun(`printf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\nexec sleep 5`, { maxMinutes: 0.001 });
+  assert.ok(r.elapsed < 4000, `killed early (${r.elapsed} ms)`);
+  assert.equal(r.advanced.length, 1);
+  assert.equal(r.advanced[0].outcome, "fail");
+  assert.equal(r.advanced[0].reason, "timeout: exceeded maxMinutes=0.001");
+  const failed = r.events.find((e) => e.event === "failed");
+  assert.match(failed?.reason, /^timeout/);
+  assert.equal(r.events.find((e) => e.event === "run_end")?.outcome, "fail");
+  assert.match(r.logText, /\[agenthook\] killed: timeout: exceeded maxMinutes=0\.001/);
+  assert.equal(r.verdictLeft, false, "verdict file still removed");
+  assert.equal(r.children.size, 0);
+});
+
+test("timeout: idleMinutes kills a silent agent", async () => {
+  const r = await timeoutRun("exec sleep 5", { maxMinutes: 0, idleMinutes: 0.001 });
+  assert.ok(r.elapsed < 4000);
+  assert.equal(r.advanced[0].outcome, "fail");
+  assert.equal(r.advanced[0].reason, "timeout: no output for idleMinutes=0.001");
+});
+
+test("timeout: an agent that keeps printing past idleMinutes is not killed", async () => {
+  // a line every 30 ms for ~300 ms, idle window 120 ms
+  const r = await timeoutRun(
+    `i=0; while [ $i -lt 10 ]; do echo '{"type":"system"}'; sleep 0.03; i=$((i+1)); done\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"`,
+    { idleMinutes: 0.002 },
+  );
+  assert.equal(r.advanced[0].outcome, "advance");
+  assert.doesNotMatch(r.logText, /killed/);
+});
+
+test("timeout: a child ignoring SIGTERM is SIGKILLed after the grace and the slot frees", async () => {
+  const r = await timeoutRun(`trap '' TERM\nwhile :; do sleep 0.05; done`, { maxMinutes: 0.001 }, 100);
+  assert.ok(r.elapsed < 3000, `freed after grace (${r.elapsed} ms)`);
+  assert.equal(r.advanced[0].outcome, "fail");
+  assert.match(r.advanced[0].reason, /^timeout/);
+  assert.equal(r.children.size, 0);
+});
+
+test("timeout: maxMinutes 0 sets no wall-clock cap; a default run behaves as before", async () => {
+  const off = await timeoutRun(`sleep 0.2\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"`, { maxMinutes: 0 });
+  assert.equal(off.advanced[0].outcome, "advance");
+  const dflt = await timeoutRun(`printf '%s' '{"outcome":"hold","reason":"q"}' > "$AGENTHOOK_VERDICT_FILE"`, {});
+  assert.deepEqual([dflt.advanced[0].outcome, dflt.advanced[0].reason], ["hold", "q"]);
+  assert.equal(DEFAULT_MAX_MINUTES, 120);
 });
