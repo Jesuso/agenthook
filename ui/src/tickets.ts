@@ -1,4 +1,5 @@
 import type { TicketRow, TicketStatus } from "./contract";
+import { NEEDS_YOU } from "./summary";
 
 export const STATUS_ORDER: TicketStatus[] = ["running", "queued", "held", "interrupted", "stalled", "failed", "done", "idle"];
 
@@ -31,12 +32,15 @@ export function sortTickets(rows: TicketRow[]): TicketRow[] {
   });
 }
 
-export type TicketFilter = { profile: string | null; status: TicketStatus | null; showAll: boolean; now: number };
+/** One status, `"needs-you"` (any of NEEDS_YOU: held + failed), or null for all. */
+export type StatusFilter = TicketStatus | "needs-you";
+
+export type TicketFilter = { profile: string | null; status: StatusFilter | null; showAll: boolean; now: number };
 
 export function filterTickets(rows: TicketRow[], filter: TicketFilter): TicketRow[] {
   return rows.filter((r) => {
     if (filter.profile && r.profile !== filter.profile) return false;
-    if (filter.status && r.status !== filter.status) return false;
+    if (filter.status === "needs-you" ? !NEEDS_YOU.includes(r.status) : filter.status && r.status !== filter.status) return false;
     if (!filter.showAll && isStale(r, filter.now)) return false;
     return true;
   });

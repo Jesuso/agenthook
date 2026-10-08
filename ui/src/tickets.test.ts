@@ -106,6 +106,13 @@ describe("filterTickets", () => {
     expect(filterTickets(rows, { profile: null, status: "failed", showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["3"]);
   });
 
+  it("needs-you matches held + failed only", () => {
+    const more = [...rows, ticket({ profile: "b", ref: "4", status: "held" }), ticket({ profile: "b", ref: "5", status: "queued" })];
+    expect(filterTickets(more, { profile: null, status: "needs-you", showAll: false, now: NOW }).map((r) => r.ref)).toEqual(["3", "4"]);
+    expect(filterTickets(more, { profile: "b", status: "needs-you", showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["3", "4"]);
+    expect(filterTickets(more, { profile: "a", status: "needs-you", showAll: true, now: NOW })).toEqual([]);
+  });
+
   it("hides stale rows by default, shows them with showAll", () => {
     expect(filterTickets(rows, { profile: null, status: null, showAll: false, now: NOW }).map((r) => r.ref)).toEqual(["1", "3"]);
     expect(filterTickets(rows, { profile: null, status: null, showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["1", "2", "3"]);

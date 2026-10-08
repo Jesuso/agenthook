@@ -22,6 +22,7 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     lastSeenAt: null,
     ghost: false,
     configMissing: false,
+    recentCosts: [],
     ...overrides,
   };
 }

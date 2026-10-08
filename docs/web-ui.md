@@ -80,6 +80,10 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
 
 - `GET /api/snapshot` → full state on connect. `GET /api/stream` (SSE) → typed deltas. The browser
   `EventSource` reconnects by itself and re-fetches the snapshot on reconnect.
+- `ProfileView.recentCosts` → `{at, costUsd}[]`: the `run_end` events with a finite `costUsd` from
+  the last 48 h of the profile's events tail, oldest first. The dashboard's "cost today (approx.)"
+  tile buckets them by the browser's local midnight — approximate because the tail is
+  byte-bounded (256 KB). A new `run_end` re-emits the profile over SSE.
 - Run-log viewer: `GET /api/runs?profile=&ref=` → `{ runs: RunView[] }` listed straight from the
   profile's `logs/` (outcome/cost/`endedAt` joined from `run_end`; `endedAt` = its `ts`, `null`
   while running or once it aged out of the events tail). `GET /api/log/stream?profile=&run=` (SSE)

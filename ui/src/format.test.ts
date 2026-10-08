@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration } from "./format";
 
 describe("formatUp", () => {
-  it("shows the pid when up", () => {
-    expect(formatUp({ up: true, pid: 1234 })).toBe("up (pid 1234)");
+  it("reads up, with pid and port only in the tooltip", () => {
+    expect(formatUp({ up: true, pid: 1234, port: 8787 })).toEqual({ text: "up", title: "pid 1234 · port 8787" });
+    expect(formatUp({ up: true, pid: 1234, port: null })).toEqual({ text: "up", title: "pid 1234" });
   });
-  it("shows down otherwise", () => {
-    expect(formatUp({ up: false, pid: null })).toBe("down");
+  it("reads down otherwise; a down profile's stale pid isn't shown", () => {
+    expect(formatUp({ up: false, pid: null, port: null })).toEqual({ text: "down", title: undefined });
+    expect(formatUp({ up: false, pid: 99, port: 8787 })).toEqual({ text: "down", title: "port 8787" });
   });
 });
 
