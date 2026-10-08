@@ -5,6 +5,7 @@ import path from "node:path";
 import { peekConfig } from "../config.js";
 import { readProfile, resolveProfile } from "../heartbeat.js";
 import { createStore } from "../store.js";
+import { classifyCgroup } from "../respawn.js";
 import { ago, day } from "./ls.js";
 
 /**
@@ -90,6 +91,19 @@ export async function status(args) {
 
   console.log(`profile : ${p.name}${p.name !== p.stateKey ? ` (state ${p.stateKey})` : ""}`);
   console.log(`status  : ${p.up ? `UP (pid ${p.pid})` : "down"}`);
+  if (p.up && process.platform === "linux") {
+    try {
+      const { scope, terminal } = classifyCgroup(fs.readFileSync(`/proc/${p.pid}/cgroup`, "utf8"));
+      if (scope) {
+        console.log(`scope   : ${scope}`);
+        if (terminal) {
+          console.log(`⚠ receiver will die with this terminal — restart it with \`agenthook restart\` or \`start --detach\` (now scope-escaping)`);
+        }
+      }
+    } catch {
+      /* /proc unreadable — not fatal */
+    }
+  }
   for (const line of provenanceLines(p)) console.log(line);
   if (p.ghost) return;
   console.log(`tracker : ${hb.tracker || "?"}`);
