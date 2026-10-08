@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { Snapshot } from "./contract";
-import { formatUp, formatLastEvent, formatAgents } from "./format";
+import type { Snapshot, TicketStatus } from "./contract";
+import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent } from "./state";
+import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
+import { appendFeed, formatEventDetail } from "./feed";
+import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
 
@@ -16,6 +19,10 @@ export default function App() {
   const [closed, setClosed] = useState(false);
   // Only the latest fetch's response may land — see snapshotFetch.ts.
   const fetchState = useRef<FetchState>(initFetchState());
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [profileFilter, setProfileFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     const fetchSnapshot = () => {
@@ -59,6 +66,12 @@ export default function App() {
         fetchSnapshot();
       },
       onEvent: (ev) => {
+        // The feed is not part of Snapshot, so it bypasses the fetch-in-flight
+        // buffer entirely — a re-fetch or reconnect can never drop or clear it.
+        if (ev.type === "event") {
+          setFeed((f) => appendFeed(f, ev));
+          return;
+        }
         if (isBuffering(fetchState.current)) {
           fetchState.current = bufferEvent(fetchState.current, ev);
           return;
@@ -75,6 +88,15 @@ export default function App() {
     return <Shell>Unauthorized — open the URL printed by <code className="font-mono">ah ui</code> to exchange its token.</Shell>;
   if (state.kind === "error") return <Shell>Failed to load snapshot (status {state.status}).</Shell>;
 
+  const now = Date.now();
+  const filtered = filterTickets(state.snapshot.tickets, {
+    profile: profileFilter || null,
+    status: (statusFilter || null) as TicketStatus | null,
+    showAll,
+    now,
+  });
+  const tickets = sortTickets(filtered);
+
   return (
     <Shell>
       {!connected && !closed && (
@@ -82,7 +104,7 @@ export default function App() {
           disconnected — reconnecting…
         </div>
       )}
-      <table className="w-full border-collapse text-sm">
+      <table className="w-full border-collapse text-sm mb-6">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
             <th className="px-2 py-1">profile</th>
@@ -116,6 +138,115 @@ export default function App() {
               <td className="px-2 py-1 font-mono">{formatAgents(p)}</td>
               <td className="px-2 py-1">{p.queued ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{formatLastEvent(p.lastEvent)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h2 className="text-base font-semibold mb-2">tickets</h2>
+      <div className="flex items-center gap-3 mb-2 text-sm">
+        <select
+          className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
+          value={profileFilter}
+          onChange={(e) => setProfileFilter(e.target.value)}
+        >
+          <option value="">all profiles</option>
+          {state.snapshot.profiles.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">all statuses</option>
+          {STATUS_ORDER.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+          show all
+        </label>
+        <span className="text-[var(--color-muted)]">
+          {tickets.length} shown / {state.snapshot.tickets.length} total
+        </span>
+      </div>
+      <table className="w-full border-collapse text-sm mb-6">
+        <thead>
+          <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
+            <th className="px-2 py-1">id</th>
+            <th className="px-2 py-1">title</th>
+            <th className="px-2 py-1">profile</th>
+            <th className="px-2 py-1">step</th>
+            <th className="px-2 py-1">status</th>
+            <th className="px-2 py-1">model</th>
+            <th className="px-2 py-1">started</th>
+            <th className="px-2 py-1">cost</th>
+            <th className="px-2 py-1">held reason</th>
+            <th className="px-2 py-1">PR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tickets.map((t) => (
+            <tr key={`${t.profile}\u0000${t.ref}`} className="border-b border-[var(--color-border)]">
+              <td className="px-2 py-1 font-mono">
+                {t.trackerUrl ? (
+                  <a href={t.trackerUrl} target="_blank" rel="noopener noreferrer">
+                    {t.displayId}
+                  </a>
+                ) : (
+                  t.displayId
+                )}
+              </td>
+              <td className="px-2 py-1">{t.title ?? "—"}</td>
+              <td className="px-2 py-1 font-mono">{t.profile}</td>
+              <td className="px-2 py-1">{t.step ?? "—"}</td>
+              <td className="px-2 py-1">{t.status}</td>
+              <td className="px-2 py-1">{t.model ?? "—"}</td>
+              <td className="px-2 py-1">{formatRelative(t.startedAt, now)}</td>
+              <td className="px-2 py-1">{formatCost(t.costUsd)}</td>
+              <td className="px-2 py-1">{t.heldReason ?? "—"}</td>
+              <td className="px-2 py-1">
+                {t.prUrl ? (
+                  <a href={t.prUrl} target="_blank" rel="noopener noreferrer">
+                    PR
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h2 className="text-base font-semibold mb-2">events</h2>
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
+            <th className="px-2 py-1">ts</th>
+            <th className="px-2 py-1">profile</th>
+            <th className="px-2 py-1">ref</th>
+            <th className="px-2 py-1">step</th>
+            <th className="px-2 py-1">event</th>
+            <th className="px-2 py-1">detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {feed.map((f, i) => (
+            <tr key={i} className="border-b border-[var(--color-border)]">
+              <td className="px-2 py-1 font-mono">{String(f.event.ts ?? "—")}</td>
+              <td className="px-2 py-1 font-mono">{f.profile}</td>
+              <td className="px-2 py-1 font-mono">{String(f.event.ref ?? "—")}</td>
+              <td className="px-2 py-1">{String(f.event.step ?? "—")}</td>
+              <td className="px-2 py-1">{String(f.event.event ?? "—")}</td>
+              <td className="px-2 py-1">{formatEventDetail(f.event)}</td>
             </tr>
           ))}
         </tbody>
