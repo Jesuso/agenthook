@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { Snapshot, TicketStatus } from "./contract";
 import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost } from "./format";
 import { subscribe } from "./stream";
@@ -10,6 +10,11 @@ import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuf
 import type { FetchState } from "./snapshotFetch";
 import { RunPanel } from "./RunPanel";
 import { affectsRuns } from "./logview";
+import { DISCARD_PROMPT } from "./instructions";
+import type { InstructionsEvent } from "./instructions";
+
+// CodeMirror + react-markdown load only when the Instructions tab is opened.
+const InstructionsView = lazy(() => import("./InstructionsView"));
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
@@ -30,6 +35,11 @@ export default function App() {
   const openRef = useRef(open);
   openRef.current = open;
   const [runsNonce, setRunsNonce] = useState(0);
+  // Plain tab state, no router. The Instructions view reports its dirty buffer here so a tab
+  // switch can confirm before discarding it, and receives `instructions` events via the sink.
+  const [tab, setTab] = useState<"dashboard" | "instructions">("dashboard");
+  const instructionsDirty = useRef(false);
+  const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
 
   useEffect(() => {
     const fetchSnapshot = () => {
@@ -75,6 +85,11 @@ export default function App() {
       onEvent: (ev) => {
         // The feed is not part of Snapshot, so it bypasses the fetch-in-flight
         // buffer entirely — a re-fetch or reconnect can never drop or clear it.
+        // Instruction edits aren't part of Snapshot either — straight to the open view, if any.
+        if (ev.type === "instructions") {
+          instructionsSink.current?.(ev);
+          return;
+        }
         if (ev.type === "event") {
           setFeed((f) => appendFeed(f, ev));
           const o = openRef.current;
@@ -97,6 +112,45 @@ export default function App() {
     return <Shell>Unauthorized — open the URL printed by <code className="font-mono">ah ui</code> to exchange its token.</Shell>;
   if (state.kind === "error") return <Shell>Failed to load snapshot (status {state.status}).</Shell>;
 
+  const switchTab = (next: typeof tab) => {
+    if (next === tab || (instructionsDirty.current && !window.confirm(DISCARD_PROMPT))) return;
+    setTab(next);
+  };
+  const header = (
+    <>
+      {!connected && !closed && (
+        <div className="mb-3 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-1.5 text-sm text-[var(--color-err)]">
+          disconnected — reconnecting…
+        </div>
+      )}
+      <nav className="mb-4 flex gap-1 border-b border-[var(--color-border)] text-sm">
+        {(["dashboard", "instructions"] as const).map((t) => (
+          <button
+            key={t}
+            className={`-mb-px border-b-2 px-3 py-1 capitalize ${t === tab ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
+            onClick={() => switchTab(t)}
+          >
+            {t}
+          </button>
+        ))}
+      </nav>
+    </>
+  );
+
+  if (tab === "instructions")
+    return (
+      <Shell>
+        {header}
+        <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
+          <InstructionsView
+            profiles={state.snapshot.profiles}
+            eventSink={instructionsSink}
+            onDirtyChange={(d) => (instructionsDirty.current = d)}
+          />
+        </Suspense>
+      </Shell>
+    );
+
   const now = Date.now();
   const filtered = filterTickets(state.snapshot.tickets, {
     profile: profileFilter || null,
@@ -108,11 +162,7 @@ export default function App() {
 
   return (
     <Shell>
-      {!connected && !closed && (
-        <div className="mb-3 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-1.5 text-sm text-[var(--color-err)]">
-          disconnected — reconnecting…
-        </div>
-      )}
+      {header}
       <table className="w-full border-collapse text-sm mb-6">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">

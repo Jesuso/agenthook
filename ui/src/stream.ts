@@ -1,6 +1,6 @@
 import type { UiEvent } from "./contract";
 
-const EVENT_TYPES: UiEvent["type"][] = ["profile", "profile_removed", "ticket", "ticket_removed", "event"];
+const EVENT_TYPES: UiEvent["type"][] = ["profile", "profile_removed", "ticket", "ticket_removed", "event", "instructions"];
 
 /**
  * Realtime SSE feed off `GET /api/stream` (same-origin, so the auth cookie rides
