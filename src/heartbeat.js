@@ -49,6 +49,7 @@ export function createHeartbeat(cfg) {
     tracker: cfg.provider,
     ingress: cfg.ingress?.type || "manual",
     fullAuto: !!cfg.fullAuto,
+    maxConcurrent: cfg.maxConcurrent,
     repoPath: cfg.repoPath,
     repos: reposOf(cfg).map((r) => ({ id: r.id, path: r.path })),
     repository: repositoryOf(cfg),

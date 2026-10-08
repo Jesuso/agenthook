@@ -195,6 +195,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     tracker: "github",
     ingress: "ngrok",
     fullAuto: true,
+    maxConcurrent: null,
     startedAt: "s",
     updatedAt: "u",
     active: 2,
@@ -215,6 +216,38 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
   assert.equal(row(snap.tickets, "x").profile, "down");
   assert.deepEqual(buildSnapshot(path.join(reg, "missing")), { profiles: [], tickets: [] });
 });
+
+test("buildSnapshot/profileView: a down profile blanks active/queued even with a stale heartbeat.queue", () => {
+  const reg = tmp();
+  writeState(path.join(reg, "stale"), {
+    "heartbeat.json": {
+      name: "stale",
+      pid: 999999999,
+      port: 8787,
+      tracker: "github",
+      ingress: "ngrok",
+      fullAuto: false,
+      maxConcurrent: 3,
+      startedAt: "s",
+      updatedAt: "u",
+      queue: { active: 2, queued: 1 },
+      lastEvent: null,
+    },
+  });
+  const snap = buildSnapshot(reg);
+  const p = row2(snap.profiles, "stale");
+  assert.equal(p.up, false);
+  assert.equal(p.active, null);
+  assert.equal(p.queued, null);
+  assert.equal(p.maxConcurrent, 3);
+});
+
+/** @param {any[]} profiles @param {string} name */
+function row2(profiles, name) {
+  const p = profiles.find((x) => x.name === name);
+  assert.ok(p, `profile ${name}`);
+  return p;
+}
 
 test("repositoryOf: forge first, else a github/github-projects tracker, else null", () => {
   /** @param {any} c */

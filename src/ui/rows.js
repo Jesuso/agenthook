@@ -249,6 +249,10 @@ export function buildRows(profile, state, { repository = null } = {}) {
 
 /**
  * Whitelisted heartbeat projection: no ingress URL, no paths, nothing beyond ProfileView.
+ * `active`/`queued` are blanked to null when the profile is down — a dead profile's
+ * heartbeat.json keeps the last counts it wrote, which would otherwise read as stale
+ * live state. `maxConcurrent`, `lastEvent`, `startedAt`, `updatedAt` are history/config,
+ * not live counts, so they survive.
  * @param {{ name: string, pid: number, up: boolean, heartbeat: any }} p
  * @returns {import('./contract.js').ProfileView}
  */
@@ -264,10 +268,11 @@ export function profileView(p) {
     tracker: str(hb?.tracker),
     ingress: str(hb?.ingress),
     fullAuto: typeof hb?.fullAuto === "boolean" ? hb.fullAuto : null,
+    maxConcurrent: num(hb?.maxConcurrent),
     startedAt: str(hb?.startedAt),
     updatedAt: str(hb?.updatedAt),
-    active: num(hb?.queue?.active),
-    queued: num(hb?.queue?.queued),
+    active: p.up ? num(hb?.queue?.active) : null,
+    queued: p.up ? num(hb?.queue?.queued) : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
       : null,

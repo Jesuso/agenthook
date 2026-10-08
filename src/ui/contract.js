@@ -14,10 +14,11 @@
  * @property {string|null} tracker
  * @property {string|null} ingress
  * @property {boolean|null} fullAuto
+ * @property {number|null} maxConcurrent  configured agent slots (heartbeat.maxConcurrent)
  * @property {string|null} startedAt
  * @property {string|null} updatedAt
- * @property {number|null} active         agents running (heartbeat.queue.active)
- * @property {number|null} queued         jobs waiting behind maxConcurrent
+ * @property {number|null} active         agents running (heartbeat.queue.active); null when down
+ * @property {number|null} queued         jobs waiting behind maxConcurrent; null when down
  * @property {LastEvent|null} lastEvent  the last job the receiver took in
  */
 

@@ -1,25 +1,49 @@
-import { useEffect, useState } from "react";
-import type { Snapshot } from "./contract";
-import { formatUp, formatLastEvent } from "./format";
+import { useEffect, useRef, useState } from "react";
+import type { Snapshot, UiEvent } from "./contract";
+import { formatUp, formatLastEvent, formatAgents } from "./format";
+import { subscribe } from "./stream";
+import { applyEvent } from "./state";
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
 export default function App() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [connected, setConnected] = useState(false);
+  // Buffers deltas that arrive while a snapshot re-fetch (triggered on open/reconnect)
+  // is still in flight, so they replay in order once it resolves.
+  const pending = useRef<UiEvent[] | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/snapshot")
-      .then((res) => {
-        if (cancelled) return;
-        if (res.status === 401) return setState({ kind: "unauthorized" });
-        if (!res.ok) return setState({ kind: "error", status: res.status });
-        return res.json().then((snapshot: Snapshot) => !cancelled && setState({ kind: "ok", snapshot }));
-      })
-      .catch(() => !cancelled && setState({ kind: "error", status: 0 }));
-    return () => {
-      cancelled = true;
+    const fetchSnapshot = () => {
+      pending.current = [];
+      fetch("/api/snapshot")
+        .then((res) => {
+          if (res.status === 401) return setState({ kind: "unauthorized" });
+          if (!res.ok) return setState({ kind: "error", status: res.status });
+          return res.json().then((snapshot: Snapshot) => {
+            const buffered = pending.current ?? [];
+            pending.current = null;
+            setState({ kind: "ok", snapshot: buffered.reduce(applyEvent, snapshot) });
+          });
+        })
+        .catch(() => setState({ kind: "error", status: 0 }));
     };
+
+    const unsubscribe = subscribe({
+      onOpen: () => {
+        setConnected(true);
+        fetchSnapshot();
+      },
+      onError: () => setConnected(false),
+      onEvent: (ev) => {
+        if (pending.current) {
+          pending.current.push(ev);
+          return;
+        }
+        setState((s) => (s.kind === "ok" ? { kind: "ok", snapshot: applyEvent(s.snapshot, ev) } : s));
+      },
+    });
+    return unsubscribe;
   }, []);
 
   if (state.kind === "loading") return <Shell>Loading…</Shell>;
@@ -29,16 +53,21 @@ export default function App() {
 
   return (
     <Shell>
+      {!connected && (
+        <div className="mb-3 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-1.5 text-sm text-[var(--color-err)]">
+          disconnected — reconnecting…
+        </div>
+      )}
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
             <th className="px-2 py-1">profile</th>
             <th className="px-2 py-1">status</th>
-            <th className="px-2 py-1">pid</th>
             <th className="px-2 py-1">tracker</th>
             <th className="px-2 py-1">ingress</th>
+            <th className="px-2 py-1">port</th>
             <th className="px-2 py-1">fullAuto</th>
-            <th className="px-2 py-1">active</th>
+            <th className="px-2 py-1">agents</th>
             <th className="px-2 py-1">queued</th>
             <th className="px-2 py-1">last event</th>
           </tr>
@@ -50,11 +79,17 @@ export default function App() {
               <td className="px-2 py-1" style={{ color: p.up ? "var(--color-ok)" : "var(--color-err)" }}>
                 {formatUp(p)}
               </td>
-              <td className="px-2 py-1 font-mono">{p.pid ?? "—"}</td>
               <td className="px-2 py-1">{p.tracker ?? "—"}</td>
               <td className="px-2 py-1">{p.ingress ?? "—"}</td>
-              <td className="px-2 py-1">{p.fullAuto ? "yes" : "no"}</td>
-              <td className="px-2 py-1">{p.active ?? "—"}</td>
+              <td className="px-2 py-1 font-mono">{p.port ?? "—"}</td>
+              <td className="px-2 py-1">
+                {p.fullAuto ? (
+                  <span className="rounded bg-[var(--color-err)]/20 px-1.5 py-0.5 text-xs font-semibold text-[var(--color-err)]">fullAuto</span>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="px-2 py-1 font-mono">{formatAgents(p)}</td>
               <td className="px-2 py-1">{p.queued ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{formatLastEvent(p.lastEvent)}</td>
             </tr>
