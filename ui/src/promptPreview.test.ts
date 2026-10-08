@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { InstructionFileView } from "./contract";
-import { composePrompt, promptPreviewUrl, repoFiles, runStartedAt, stepFileFor, stepIds } from "./promptPreview";
+import { composePrompt, pickerSteps, promptPreviewUrl, repoFiles, runStartedAt, stepFileFor, stepIds } from "./promptPreview";
 
 function file(path: string, scope: InstructionFileView["scope"], ids: string[]): InstructionFileView {
   return { path, scope, ids, hash: "h", bytes: 1, mtime: null, exists: true, agentsRunning: 0 };
@@ -87,5 +87,26 @@ describe("stepIds", () => {
   it("dedupes and sorts", () => {
     const files = [file("/a.md", "step", ["b", "a"]), file("/b.md", "default", ["a"])];
     expect(stepIds(files)).toEqual(["a", "b"]);
+  });
+});
+
+describe("pickerSteps", () => {
+  const files = [
+    file("/d.md", "default", ["triage"]),
+    file("/s/code.md", "step", ["code"]),
+    file("/s/review.md", "step", ["review"]),
+    file("/r/repo.md", "repo", ["web"]),
+  ];
+
+  it("step-scoped open file: only its own ids", () => {
+    expect(pickerSteps(files, files[1])).toEqual(["code"]);
+  });
+
+  it("default-scoped open file: only its own ids", () => {
+    expect(pickerSteps(files, files[0])).toEqual(["triage"]);
+  });
+
+  it("repo-scoped open file: every step id in the profile", () => {
+    expect(pickerSteps(files, files[3])).toEqual(["code", "review", "triage"]);
   });
 });

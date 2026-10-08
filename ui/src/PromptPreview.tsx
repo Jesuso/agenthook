@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { InstructionFileView, PromptPreview as PromptPreviewBody } from "./contract";
 import { formatRelative } from "./format";
 import { instructionFileUrl } from "./instructions";
-import { TICKET_MARKER, composePrompt, promptPreviewUrl, repoFiles, runStartedAt, stepFileFor, stepIds } from "./promptPreview";
+import { TICKET_MARKER, composePrompt, pickerSteps, promptPreviewUrl, repoFiles, runStartedAt, stepFileFor } from "./promptPreview";
 
 type DiskState = { kind: "none" } | { kind: "loading" } | { kind: "ok"; content: string } | { kind: "error" };
 type PreviewState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: PromptPreviewBody };
@@ -15,11 +15,12 @@ type PreviewState = { kind: "loading" } | { kind: "error"; status: number } | { 
 export function PromptPreview(props: {
   profile: string;
   files: InstructionFileView[];
-  openScope: InstructionFileView["scope"];
+  openFile: InstructionFileView;
   buffer: string;
 }) {
-  const { profile, files, openScope, buffer } = props;
-  const steps = stepIds(files);
+  const { profile, files, openFile, buffer } = props;
+  const openScope = openFile.scope;
+  const steps = pickerSteps(files, openFile);
   const repos = repoFiles(files);
 
   const [stepId, setStepId] = useState(steps[0] ?? "");

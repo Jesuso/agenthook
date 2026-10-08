@@ -42,3 +42,13 @@ export function stepIds(files: InstructionFileView[]): string[] {
   for (const f of files) if (f.scope !== "repo") for (const id of f.ids) ids.add(id);
   return [...ids].sort();
 }
+
+/**
+ * The step picker's option list for the file currently open: a repo-scoped file can stand in for
+ * any step (dispatch joins it against every step's own file), so it offers every known step id;
+ * a step/default-scoped file only ever supplies *its own* ids, so the picker is scoped to those
+ * (otherwise the panel composes a prompt no agent ever gets — see dispatch.js:823-825).
+ */
+export function pickerSteps(files: InstructionFileView[], openFile: InstructionFileView): string[] {
+  return openFile.scope === "repo" ? stepIds(files) : [...openFile.ids].sort();
+}

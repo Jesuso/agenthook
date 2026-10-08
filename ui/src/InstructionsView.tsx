@@ -345,7 +345,7 @@ export default function InstructionsView(props: {
                   </div>
                 )}
                 {agentView && doc && list.kind === "ok" && openFileView && (
-                  <PromptPreview profile={profile} files={list.body.files} openScope={openFileView.scope} buffer={doc.buffer} />
+                  <PromptPreview profile={profile} files={list.body.files} openFile={openFileView} buffer={doc.buffer} />
                 )}
               </div>
             </>
