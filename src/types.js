@@ -351,11 +351,13 @@
  * Resolved runtime config. All paths are absolute. See config.js for the four
  * distinct location fields (install/config/state/repo).
  * @typedef {object} Config
- * @property {string} name           profile name; keys the central state dir
+ * @property {string} name           profile label (display, sinks); keys the state dir only when stateId is unset
+ * @property {string} [stateId]      optional stable state key, so `name` can change without moving state
+ * @property {string} stateKey       stateId ?? name; keys the central state dir
  * @property {string} installDir     read-only package root
  * @property {string} configPath     absolute path to the loaded agenthook.config.json
  * @property {string} configDir      dir holding the config
- * @property {string} stateDir       ~/.agenthook/<name>
+ * @property {string} stateDir       ~/.agenthook/<stateKey>
  * @property {string} provider       active tracker key (= tracker.type)
  * @property {ProviderConfig} tracker
  * @property {ProviderConfig} providerConfig  alias of tracker, for adapter back-compat

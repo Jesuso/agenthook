@@ -78,7 +78,7 @@ export async function run(args) {
   }
 
   console.log(`${ref} -> step "${step.id}" (entered stage "${stage}"${assign ? ", assigned to us" : ""}).`);
-  const profile = readProfile(cfg.name);
+  const profile = readProfile(cfg.stateKey);
   if (profile.up) {
     console.log(`The running receiver picks it up from the webhook. If it doesn't fire, run \`agenthook reconcile\`.`);
   } else {

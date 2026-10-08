@@ -8,8 +8,8 @@
 //     `${VAR}` refs that resolve from the environment (a `.env` beside the config
 //     and one in cwd are auto-loaded first; shell-exported vars win).
 //   - Four distinct locations, never conflated: the install dir (read-only package),
-//     the config dir, the central state dir (~/.agenthook/<name>), and the target repo.
-//   - Runtime state is central and keyed by the profile `name`, so a global
+//     the config dir, the central state dir (~/.agenthook/<stateKey>), and the target repo.
+//   - Runtime state is central and keyed by the profile's state key (`stateId`, else `name`), so a global
 //     `agenthook ls` can see every profile without spelunking project dirs.
 import fs from "node:fs";
 import os from "node:os";
@@ -164,6 +164,8 @@ function assertName(name) {
   if (!validName(name)) throw new Error(NAME_ERROR);
 }
 
+const STATE_ID_ERROR = `config: "stateId" must match [A-Za-z0-9._-]+ (it keys the state dir; omit it to key by "name").`;
+
 /**
  * The profile's identity and state-dir paths WITHOUT resolving secrets. For read-only
  * commands (`agents`, `status`) that only need to know which ~/.agenthook/<name> to read:
@@ -173,14 +175,16 @@ function assertName(name) {
  * daemon outage with zero agents. Validates only that the file exists, parses, and names
  * a profile; everything else stays loadConfig's job.
  * @param {{ configPath?: string }} [opts]
- * @returns {{ name: string, configPath: string, configDir: string, stateDir: string, logDir: string }}
+ * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string }}
  */
 export function peekConfig(opts = {}) {
   const { configPath, configDir, raw } = readRawConfig(opts.configPath);
   const name = raw?.name;
   assertName(name);
-  const stateDir = path.join(registryDir, name);
-  return { name, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs") };
+  if (raw.stateId !== undefined && !validName(raw.stateId)) throw new Error(STATE_ID_ERROR);
+  const stateKey = raw.stateId ?? name;
+  const stateDir = path.join(registryDir, stateKey);
+  return { name, stateKey, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs") };
 }
 
 /**
@@ -213,14 +217,16 @@ export function loadConfig(opts = {}) {
   if (cfg.repoPath) cfg.repoPath = resolvePath(cfg.repoPath, configDir);
   resolveRepos(cfg, configDir);
 
-  const stateDir = path.join(registryDir, cfg.name);
+  // stateId (optional) keys the state dir so `name` can be relabelled without moving state.
+  cfg.stateKey = cfg.stateId ?? cfg.name;
+  const stateDir = path.join(registryDir, cfg.stateKey);
   cfg.stateDir = stateDir;
   cfg.dataDir = stateDir;
   cfg.logDir = path.join(stateDir, "logs");
   cfg.publicUrlFile = path.join(stateDir, "public_url.txt");
   cfg.pidFile = path.join(stateDir, "server.pid");
   cfg.heartbeatFile = path.join(stateDir, "heartbeat.json");
-  cfg.controlSock = controlSockPath(stateDir, cfg.name);
+  cfg.controlSock = controlSockPath(stateDir, cfg.stateKey);
 
   // instructionsFile defaults to one beside the config; resolve relative to it.
   cfg.instructionsFile = resolvePath(cfg.instructionsFile || "./INSTRUCTIONS.md", configDir);
@@ -320,6 +326,7 @@ export function validateRawConfig(raw) {
   const cfg = raw;
 
   if (!validName(cfg.name)) errors.push(NAME_ERROR);
+  if (cfg.stateId !== undefined && !validName(cfg.stateId)) errors.push(STATE_ID_ERROR);
   const tracker = cfg.tracker;
   if (!tracker?.type) errors.push(`config: "tracker.type" is required (e.g. "asana").`);
   if (!cfg.repoPath && cfg.repos == null) {
