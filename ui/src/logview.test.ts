@@ -3,14 +3,21 @@ import {
   affectsRuns,
   appendText,
   applyFrame,
+  chunkRanges,
   emptyLog,
   formatOutcome,
   isAtBottom,
   lineAt,
   lineCount,
+  liveIndicator,
   logStreamUrl,
+  logText,
+  outcomeTone,
+  readWrap,
+  runDurationMs,
   runsUrl,
   visibleRange,
+  writeWrap,
 } from "./logview";
 
 const all = (b: ReturnType<typeof emptyLog>) => Array.from({ length: lineCount(b) }, (_, i) => lineAt(b, i));
@@ -98,5 +105,99 @@ describe("urls + formatOutcome", () => {
     expect(formatOutcome({ outcome: "advance", running: false })).toBe("advance");
     expect(formatOutcome({ outcome: null, running: true })).toBe("running");
     expect(formatOutcome({ outcome: null, running: false })).toBe("—");
+  });
+});
+
+describe("outcomeTone", () => {
+  it("maps outcomes onto the status colours", () => {
+    expect(outcomeTone({ outcome: null, running: true })).toBe("running");
+    expect(outcomeTone({ outcome: "advance", running: false })).toBe("done");
+    expect(outcomeTone({ outcome: "fail", running: false })).toBe("failed");
+    expect(outcomeTone({ outcome: "hold", running: false })).toBe("held");
+    expect(outcomeTone({ outcome: "changes", running: false })).toBe("held");
+    expect(outcomeTone({ outcome: "something-new", running: false })).toBe("idle");
+    expect(outcomeTone({ outcome: null, running: false })).toBe("idle");
+  });
+});
+
+describe("runDurationMs", () => {
+  const startedAt = "2026-10-08T10:00:00.000Z";
+  const now = Date.parse("2026-10-08T10:05:00.000Z");
+  it("ended: endedAt − startedAt", () => {
+    expect(runDurationMs({ startedAt, endedAt: "2026-10-08T10:03:12.000Z", running: false }, now)).toBe(192_000);
+  });
+  it("running: now − startedAt", () => {
+    expect(runDurationMs({ startedAt, endedAt: null, running: true }, now)).toBe(300_000);
+  });
+  it("null when neither ended nor running, or unparseable", () => {
+    expect(runDurationMs({ startedAt, endedAt: null, running: false }, now)).toBeNull();
+    expect(runDurationMs({ startedAt: "bad", endedAt: null, running: true }, now)).toBeNull();
+  });
+});
+
+describe("chunkRanges", () => {
+  it("covers [0,total) in size-line chunks", () => {
+    expect(chunkRanges(0, 3)).toEqual([]);
+    expect(chunkRanges(7, 3)).toEqual([
+      { key: 0, start: 0, end: 3 },
+      { key: 3, start: 3, end: 6 },
+      { key: 6, start: 6, end: 7 },
+    ]);
+  });
+  it("aligns to absolute lines past dropped ones, so later keys stay put", () => {
+    expect(chunkRanges(6, 3, 2)).toEqual([
+      { key: 0, start: 0, end: 1 },
+      { key: 3, start: 1, end: 4 },
+      { key: 6, start: 4, end: 6 },
+    ]);
+  });
+});
+
+describe("logText", () => {
+  it("joins complete lines and the partial", () => {
+    const b = emptyLog();
+    appendText(b, "one\ntwo\nthr");
+    expect(logText(b)).toBe("one\ntwo\nthr");
+    appendText(b, "ee\n");
+    expect(logText(b)).toBe("one\ntwo\nthree\n");
+    expect(logText(emptyLog())).toBe("");
+  });
+});
+
+describe("liveIndicator", () => {
+  it("pulses only while open on a running run", () => {
+    expect(liveIndicator("live", true, true)).toEqual({ label: "live", tone: "running", pulse: true });
+    expect(liveIndicator("live", false, true)).toEqual({ label: "ended", tone: "idle", pulse: false });
+    expect(liveIndicator("connecting", true, false)).toEqual({ label: "connecting…", tone: "held", pulse: false });
+    expect(liveIndicator("connecting", true, true)).toEqual({ label: "reconnecting…", tone: "held", pulse: false });
+    expect(liveIndicator("closed", true, true)).toEqual({ label: "disconnected", tone: "failed", pulse: false });
+  });
+});
+
+describe("readWrap / writeWrap", () => {
+  const mem = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  };
+  it("defaults on and round-trips", () => {
+    const s = mem();
+    expect(readWrap(s)).toBe(true);
+    writeWrap(false, s);
+    expect(readWrap(s)).toBe(false);
+    writeWrap(true, s);
+    expect(readWrap(s)).toBe(true);
+  });
+  it("survives a throwing or absent storage", () => {
+    const bad = {
+      getItem: () => {
+        throw new Error("denied");
+      },
+      setItem: () => {
+        throw new Error("denied");
+      },
+    };
+    expect(readWrap(bad)).toBe(true);
+    expect(() => writeWrap(false, bad)).not.toThrow();
+    expect(readWrap(undefined)).toBe(true);
   });
 });

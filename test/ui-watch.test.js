@@ -48,16 +48,16 @@ const RUN = JSON.stringify({ a: { stepId: "code", startedAt: "2026-01-01T00:00:0
 
 test("one write → exactly one ticket event; identical rewrite → nothing", async () => {
   const { dir, events } = setup();
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid)); // "up" so running reads as running, not interrupted
+  await sleep(SETTLE);
+  events.length = 0;
   fs.writeFileSync(path.join(dir, "running.json"), RUN);
   fs.writeFileSync(path.join(dir, "running.json"), RUN); // several fs.watch events, one debounce
   await sleep(SETTLE);
   const tickets = events.filter((e) => e.type === "ticket");
   assert.equal(tickets.length, 1);
   assert.equal(tickets[0].type === "ticket" && tickets[0].ticket.status, "running");
-  // The empty dir was a ghost; its first state file flips that (one profile event, no more).
-  const profs = events.filter((e) => e.type === "profile");
-  assert.deepEqual(profs.map((e) => e.type === "profile" && e.profile.ghost), [false]);
-  assert.equal(events.length, 2);
+  assert.equal(events.length, 1);
 
   events.length = 0;
   fs.writeFileSync(path.join(dir, "running.json"), RUN);
@@ -67,6 +67,7 @@ test("one write → exactly one ticket event; identical rewrite → nothing", as
 
 test("torn / unparsable state file keeps the last good value; only ENOENT empties it", async () => {
   const { dir, events, w, waitFor } = setup();
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid)); // "up" so running reads as running, not interrupted
   fs.writeFileSync(path.join(dir, "running.json"), RUN);
   await waitFor((e) => e.type === "ticket");
   events.length = 0;
@@ -224,6 +225,33 @@ test("liveness: hello → up; socket close → up:false at once; a re-created so
   srv.close();
   for (const s of conns) s.destroy();
   await waitFor((e) => e.type === "profile" && !e.profile.up);
+});
+
+test("liveness: a profile going down re-emits its running ticket as interrupted", { skip: process.platform === "win32" }, async () => {
+  const { dir, events, waitFor, w } = setup(["p"]);
+  fs.writeFileSync(path.join(dir, "running.json"), RUN);
+  const sockPath = path.join(dir, "control.sock");
+  /** @type {Set<net.Socket>} */
+  const conns = new Set();
+  const srv = net.createServer((s) => {
+    conns.add(s);
+    s.on("close", () => conns.delete(s));
+    s.write(JSON.stringify({ type: "hello", name: "p", pid: 4242, startedAt: "x" }) + "\n");
+  });
+  await new Promise((resolve) => srv.listen(sockPath, resolve));
+  cleanups.push(() => srv.close());
+
+  await waitFor((e) => e.type === "profile" && e.profile.up);
+  const on = await waitFor((e) => e.type === "ticket" && e.ticket.ref === "a" && e.ticket.status === "running");
+  assert.equal(on.ticket.status, "running");
+  assert.equal(w.snapshot().tickets.find((t) => t.ref === "a").status, "running");
+
+  events.length = 0;
+  srv.close();
+  for (const s of conns) s.destroy();
+  const off = await waitFor((e) => e.type === "ticket" && e.ticket.ref === "a" && e.ticket.status === "interrupted");
+  assert.equal(off.ticket.status, "interrupted");
+  assert.equal(w.snapshot().tickets.find((t) => t.ref === "a").status, "interrupted");
 });
 
 test("liveness without a socket falls back to the pidfile", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, formatRelative, formatCost, profileLabel, profileBadge, formatDate } from "./format";
+import { formatUp, formatLastEvent, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration } from "./format";
 
 describe("formatUp", () => {
   it("shows the pid when up", () => {
@@ -77,5 +77,22 @@ describe("formatDate", () => {
     expect(formatDate("2026-04-05T12:00:00.000Z")).toBe("2026-04-05");
     expect(formatDate(null)).toBe("?");
     expect(formatDate("nope")).toBe("?");
+  });
+});
+
+describe("formatDuration", () => {
+  it("seconds, minutes + padded seconds, hours + padded minutes", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(45_900)).toBe("45s");
+    expect(formatDuration(60_000)).toBe("1m 00s");
+    expect(formatDuration(192_000)).toBe("3m 12s");
+    expect(formatDuration(3_840_000)).toBe("1h 04m");
+    expect(formatDuration(26 * 3_600_000)).toBe("26h 00m");
+  });
+  it("— for null, negative, non-finite", () => {
+    expect(formatDuration(null)).toBe("—");
+    expect(formatDuration(-1)).toBe("—");
+    expect(formatDuration(NaN)).toBe("—");
+    expect(formatDuration(Infinity)).toBe("—");
   });
 });

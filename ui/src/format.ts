@@ -63,3 +63,13 @@ export function profileBadge(
   if (p.configMissing) return { kind: "missing", text: "config missing", title: `${p.configPath ?? "the config file"} no longer exists` };
   return null;
 }
+
+/** "45s" / "3m 12s" / "1h 04m" / "—" for null, negative, or non-finite. */
+export function formatDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ${String(secs % 60).padStart(2, "0")}s`;
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+}

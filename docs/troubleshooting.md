@@ -19,6 +19,20 @@ engine decided.
 If a detached receiver died outright, check `~/.agenthook/<profile>/crash.json` — written by the
 uncaught-exception/rejection handler with the error, stack, and any refs that were mid-step.
 
+## receiver died with no `crash.json`
+
+On Linux, `start --detach` (and the respawn after a control-socket `restart`) runs the receiver
+inside a `systemd-run --user --scope` unit so it survives the launching terminal or session. If
+that scope support wasn't available when the receiver started (opted out, no `systemd-run`, no
+reachable user manager), the receiver instead stays in the **caller's cgroup scope** — closing the
+terminal tab, or the launcher getting OOM-killed and its scope reaped, kills the receiver (and any
+in-flight `claude -p` agents) with no log line at all.
+
+Check `agenthook status <profile>`'s `scope` line: a `vte-spawn-*`/`tmux-spawn-*`/`*-terminal-*`
+scope means it's tied to that session. Restart it with `agenthook restart` or `start --detach` to
+pick up the systemd scope. Opt out with `AGENTHOOK_NO_SYSTEMD_SCOPE=1` if you'd rather manage the
+process lifetime yourself (e.g. under your own service manager).
+
 ## "doctor is green but nothing happens when I move a task"
 
 The single most common cause. `doctor` validates the token, git repo, binaries, and port — **not**

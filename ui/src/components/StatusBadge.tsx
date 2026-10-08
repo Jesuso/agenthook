@@ -5,6 +5,8 @@ export const STATUS_CLASS: Record<TicketStatus, string> = {
   running: "text-status-running bg-status-running-bg",
   queued: "text-status-queued bg-status-queued-bg",
   held: "text-status-held bg-status-held-bg",
+  interrupted: "text-status-interrupted bg-status-interrupted-bg",
+  stalled: "text-status-stalled bg-status-stalled-bg",
   failed: "text-status-failed bg-status-failed-bg",
   done: "text-status-done bg-status-done-bg",
   idle: "text-status-idle bg-status-idle-bg",
