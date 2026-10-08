@@ -333,7 +333,34 @@ export function loadConfig(opts = {}) {
     if (t.manual) throw new Error(`config: forge.ciTarget "${t.id}" is a manual step (a red-CI bounce needs an agent step).`);
   }
 
-  fs.mkdirSync(cfg.stateDir, { recursive: true });
-  fs.mkdirSync(cfg.logDir, { recursive: true });
+  ensurePrivateDir(cfg.stateDir);
+  ensurePrivateDir(cfg.logDir);
   return cfg;
+}
+
+/**
+ * Ensure `dir` exists, private. A newly created dir is always born 0700 (POSIX);
+ * the parent is created first, without a mode, so `recursive` mkdir doesn't also
+ * stamp 0700 onto a freshly created `~/.agenthook` or other ancestor.
+ *
+ * An already-existing dir's mode is only checked/tightened when `tighten` is set
+ * (the boot path, which runs once) — loadConfig runs on *every* command, so it
+ * calls this create-only and never flips perms on an existing dir, silently or not.
+ * @param {string} dir
+ * @param {{tighten?: boolean}} [opts]
+ * @returns {{tightened: true, from: number} | {tightened: false}}
+ */
+export function ensurePrivateDir(dir, { tighten = false } = {}) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    fs.mkdirSync(dir, process.platform === "win32" ? undefined : { mode: 0o700 });
+    return { tightened: false };
+  }
+  if (process.platform === "win32" || !tighten) return { tightened: false };
+  const from = fs.statSync(dir).mode & 0o777;
+  if ((from & 0o077) !== 0) {
+    fs.chmodSync(dir, 0o700);
+    return { tightened: true, from };
+  }
+  return { tightened: false };
 }

@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { loadConfig } from "../config.js";
+import { loadConfig, ensurePrivateDir } from "../config.js";
 import { createEngine } from "../engine.js";
 import { readProfile } from "../heartbeat.js";
 
@@ -17,7 +17,7 @@ export async function start(args) {
   }
 
   if (args.detach) {
-    fs.mkdirSync(cfg.stateDir, { recursive: true });
+    ensurePrivateDir(cfg.stateDir);
     const logPath = path.join(cfg.stateDir, "receiver.log");
     const fd = fs.openSync(logPath, "a");
     const bin = path.join(cfg.installDir, "bin", "agenthook.js");

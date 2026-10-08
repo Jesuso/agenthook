@@ -41,10 +41,7 @@ export async function startControl(cfg, { startedAt }) {
   server.on("error", (e) => console.error(`[control] ${e.message}`));
 
   try {
-    await new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(sockPath, () => resolve(undefined));
-    });
+    await listenPrivate(server, sockPath);
   } catch (e) {
     console.error(`[control] failed to listen on ${sockPath}: ${e.message}`);
     return null;
@@ -71,6 +68,30 @@ export async function startControl(cfg, { startedAt }) {
       }
     },
   };
+}
+
+/**
+ * Listen on `sockPath` born private: on POSIX, the process umask is tightened for
+ * the brief listen() window so the socket file comes out 0600 the instant it's
+ * created, closing the race where a default-umask socket is briefly connectable
+ * by another local user before a later chmod. umask is process-global but is
+ * always restored, on success or failure — anything else created in that window
+ * just comes out stricter, which is harmless.
+ * @param {import('node:net').Server} server
+ * @param {string} sockPath
+ * @returns {Promise<void>}
+ */
+export async function listenPrivate(server, sockPath) {
+  const posix = process.platform !== "win32";
+  const prev = posix ? process.umask(0o077) : null;
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(sockPath, () => resolve(undefined));
+    });
+  } finally {
+    if (posix) process.umask(/** @type {number} */ (prev));
+  }
 }
 
 /** @param {string} pidFile */
