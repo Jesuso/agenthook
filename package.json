@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --import ./test/_setup.js test/*.test.js",
     "agenthook": "node bin/agenthook.js",
     "build:ui": "vite build ui",
     "typecheck:ui": "tsc -p ui --noEmit",

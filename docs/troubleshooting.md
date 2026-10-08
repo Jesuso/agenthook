@@ -139,6 +139,15 @@ Commands discover the config by walking up from the cwd. Run from inside the pro
 A `${ENV}` ref in the config didn't resolve. Export the var, or put it in a `.env` beside the config
 (auto-loaded). `agenthook doctor` surfaces an empty token specifically.
 
+## Overriding the state/registry root (`AGENTHOOK_HOME`)
+
+`~/.agenthook` is where every profile's runtime state lives (`registryDir` in `src/config.js`).
+Set `AGENTHOOK_HOME=/some/dir` to point the whole CLI at a different root instead — useful for an
+isolated or throwaway profile, or test runs that shouldn't touch your real `~/.agenthook`. `ah ls`
+and `ah ui` only see profiles under whichever root is active, so a profile created under an
+`AGENTHOOK_HOME` override won't show up without it set the same way. Unset, it defaults to
+`~/.agenthook` as before.
+
 ## Recovering missed events
 
 Webhooks fire on a *transition*, not a state, so a delivery missed during downtime can't be

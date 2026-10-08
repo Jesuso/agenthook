@@ -68,7 +68,7 @@ test("a queue key on a manual step is rejected", () => {
 // Successful loads create ~/.agenthook/<name>; these use their own name and remove it.
 
 const REPOS_NAME = "ah-cfg-test-repos";
-test.after(() => fs.rmSync(path.join(os.homedir(), ".agenthook", REPOS_NAME), { recursive: true, force: true }));
+test.after(() => fs.rmSync(path.join(registryDir, REPOS_NAME), { recursive: true, force: true }));
 
 /** A config dir with sibling checkouts `mono/` + `ios/`; `over` replaces top-level keys.
  * @param {any} over */
