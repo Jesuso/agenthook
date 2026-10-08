@@ -4,7 +4,7 @@
 //   agenthook init                 scaffold agenthook.config.json in the current dir
 //   agenthook start [--detach]     boot this profile (ingress up → register → serve)
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
-//   agenthook rename <newName>     relabel this profile (state key kept)
+//   agenthook rename <newName> [--move]  relabel this profile (--move: state dir follows)
 //   agenthook restart              restart the running receiver once idle
 //   agenthook ls                   table of all profiles + status
 //   agenthook status [name]        one profile in detail
@@ -87,7 +87,8 @@ usage: agenthook <command> [args] [--config <path>]
   init                      scaffold agenthook.config.json (interactive)
   start [--detach]          boot this profile
   stop [--keep-hooks]       stop the receiver
-  rename <newName>          relabel this profile (state key kept; inserts stateId)
+  rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
+                            --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
   restart                   restart the running receiver once idle
   ls                        all profiles + status
   status [name]             one profile in detail

@@ -205,20 +205,23 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
   };
 
   /**
-   * `POST /api/restart` — readGuardedJson, then `{profile}` a string → else 400; unknown profile
-   * → 404 (socket never contacted); else sends `{cmd:'restart', args:{when:'idle'}}` and maps the
-   * reply via `callControl`. Always audits the outcome (`{ts, action:'restart', profile, status}`)
-   * once the profile is known, via save.js's `appendAudit`.
+   * `POST /api/restart` — readGuardedJson, then `{profile}` a string (and `moveTo`, when present,
+   * a string) → else 400; unknown profile → 404 (socket never contacted); else sends
+   * `{cmd:'restart', args:{when:'idle'[, moveTo]}}` — `moveTo` = `rename --move`, the receiver
+   * validates it — and maps the reply via `callControl`. Always audits the outcome (`{ts,
+   * action:'restart', profile, status[, moveTo]}`) once the profile is known, via save.js's `appendAudit`.
    * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
    */
   const postRestart = (req, res, host) =>
     readGuardedJson(req, res, host, (body) => {
-      const { profile } = body;
+      const { profile, moveTo } = body;
       if (typeof profile !== "string") return send(res, 400);
+      if (moveTo !== undefined && typeof moveTo !== "string") return send(res, 400);
       const sock = resolveProfileSock(registry, profile);
       if (!sock) return send(res, 404);
-      callControl(sock.sockPath, "restart", { when: "idle" }, restartTimeoutMs).then(({ status, body: result }) => {
-        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "restart", profile, status });
+      const move = moveTo !== undefined ? { moveTo } : {};
+      callControl(sock.sockPath, "restart", { when: "idle", ...move }, restartTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "restart", profile, status, ...move });
         sendStatusJson(res, status, result);
       });
     });

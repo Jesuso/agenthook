@@ -19,6 +19,7 @@ import {
   configEventAsFile,
   configSaveRequest,
   configUrl,
+  moveTarget,
   parseCheck,
   restartReducer,
   restartRequest,
@@ -46,6 +47,8 @@ const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: 
  * (external edits) and feed `event`s (the restart lifecycle) from the parent's /api/stream.
  * Basics / Pipeline form tabs edit the same buffer through `configEdit.ts` text edits; their stage
  * pickers fetch `GET /api/discover` on first open per profile and on Refresh only (no polling).
+ * When the loaded label differs from the state key, "Move state dir to match name" sends the same
+ * restart with `moveTo` (`rename --move`); once the snapshot lists the new key, the view follows it.
  */
 export default function ConfigView(props: {
   profiles: ProfileView[];
@@ -53,7 +56,13 @@ export default function ConfigView(props: {
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const [picked, setPicked] = useState(props.profiles[0]?.name ?? "");
-  const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
+  // A requested state-dir move (old key → label). The old key vanishes from the snapshot when the
+  // dir moves, so follow to the new one instead of falling back to the first profile.
+  const [moving, setMoving] = useState<{ from: string; to: string } | null>(null);
+  const [moveConfirm, setMoveConfirm] = useState(false);
+  const listed = (n: string) => props.profiles.some((p) => p.name === n);
+  const current = moving && picked === moving.from && !listed(moving.from) && listed(moving.to) ? moving.to : picked;
+  const profile = listed(current) ? current : (props.profiles[0]?.name ?? "");
   const profileView = props.profiles.find((p) => p.name === profile) ?? null;
   const [file, setFileState] = useState<FileState>({ kind: "loading" });
   // Remounts the editor on every load: fresh document, fresh undo history.
@@ -166,6 +175,10 @@ export default function ConfigView(props: {
   }, [profile]);
 
   useEffect(() => {
+    if (current !== picked) setPicked(current);
+  }, [current]);
+
+  useEffect(() => {
     props.eventSink.current = (ev) => {
       if (ev.type === "event") {
         if (ev.profile === profileRef.current) dispatchRestart({ type: "event", event: ev.event });
@@ -270,10 +283,12 @@ export default function ConfigView(props: {
       .catch(() => setToast("Couldn't load the on-disk config (network error)"));
   };
 
-  const requestRestart = () => {
+  /** "Restart when idle"; `moveTo` also moves the state dir to that key (the move confirm). */
+  const requestRestart = (moveTo?: string) => {
     const prof = profile;
     dispatchRestart({ type: "request", pid: profileView?.pid ?? null });
-    const { url, init } = restartRequest(prof);
+    if (moveTo !== undefined) setMoving({ from: prof, to: moveTo });
+    const { url, init } = restartRequest(prof, moveTo);
     const settle = (status: number, body: any) => {
       if (profileRef.current === prof) dispatchRestart({ type: "response", status, body });
     };
@@ -328,6 +343,7 @@ export default function ConfigView(props: {
     loadSeq.current++;
     setPicked(name);
     setSavedNote(false);
+    setMoving(null);
     dispatchRestart({ type: "reset" });
   };
 
@@ -337,6 +353,8 @@ export default function ConfigView(props: {
   const receiverUp = profileView?.up ?? false;
   const restartBusy = restart.kind === "requesting" || restart.kind === "pending" || restart.kind === "restarting";
   const restartLine = restartText(restart);
+  const loadedRaw = open ? parseCheck(open.content) : null;
+  const moveTo = loadedRaw?.ok ? moveTarget(loadedRaw.raw, profile) : null;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
@@ -400,7 +418,7 @@ export default function ConfigView(props: {
                 <button
                   className="rounded border border-[var(--color-accent)] px-2 py-0.5 text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!receiverUp || restartBusy}
-                  onClick={requestRestart}
+                  onClick={() => requestRestart()}
                 >
                   Restart when idle
                 </button>
@@ -409,6 +427,50 @@ export default function ConfigView(props: {
                 </button>
               </span>
             </div>
+          )}
+          {moving ? (
+            <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm">
+              <span>
+                {restart.kind !== "up" ? "Moving" : profile === moving.to ? "Moved" : "Move failed (see receiver.log):"} state dir{" "}
+                <span className="font-mono">~/.agenthook/{moving.from}/</span> → <span className="font-mono">~/.agenthook/{moving.to}/</span>
+              </span>
+              {restartLine && (
+                <span
+                  className={
+                    restart.kind === "error" ? "text-[var(--color-err)]" : restart.kind === "up" ? "text-[var(--color-ok)]" : "text-[var(--color-muted)]"
+                  }
+                >
+                  {restartLine}
+                </span>
+              )}
+              {!restartBusy && (
+                <button className="ml-auto" aria-label="dismiss" onClick={() => setMoving(null)}>
+                  ×
+                </button>
+              )}
+            </div>
+          ) : (
+            moveTo &&
+            !dirty && (
+              <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-border)] px-3 py-1.5 text-sm">
+                <span>
+                  Label <span className="font-mono">{moveTo}</span> differs from the state key <span className="font-mono">{profile}</span>.
+                </span>
+                {receiverUp ? (
+                  <button
+                    className="ml-auto shrink-0 rounded border border-[var(--color-accent)] px-2 py-0.5 text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={restartBusy}
+                    onClick={() => setMoveConfirm(true)}
+                  >
+                    Move state dir to match name
+                  </button>
+                ) : (
+                  <span className="text-[var(--color-muted)]">
+                    receiver not running — run <span className="font-mono">ah rename {moveTo} --move</span> to move it
+                  </span>
+                )}
+              </div>
+            )
           )}
           {(phase === "conflict" || phase === "deleted") && (
             <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-3 py-1.5 text-sm text-[var(--color-warn)]">
@@ -562,6 +624,35 @@ export default function ConfigView(props: {
               onClick={() => put("confirm")}
             >
               Save
+            </button>
+          </div>
+        </Modal>
+      )}
+      {moveConfirm && moveTo && (
+        <Modal title="Move the state dir to match the name?" onClose={() => setMoveConfirm(false)}>
+          <div className="space-y-2 text-sm">
+            <p>
+              Moves <span className="font-mono">~/.agenthook/{profile}/</span> → <span className="font-mono">~/.agenthook/{moveTo}/</span> with all its
+              history (dedup, queue, held items, logs).
+            </p>
+            <p>
+              Applied when the receiver is idle: new runs pause, running agents finish, then the dir moves, <span className="font-mono">stateId</span> is
+              removed from the config, and the receiver restarts on <span className="font-mono">{moveTo}</span>. If the move fails, it restarts on{" "}
+              <span className="font-mono">{profile}</span> instead.
+            </p>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setMoveConfirm(false)}>
+              Cancel
+            </button>
+            <button
+              className="rounded border border-[var(--color-accent)] px-3 py-1 text-[var(--color-accent)]"
+              onClick={() => {
+                setMoveConfirm(false);
+                requestRestart(moveTo);
+              }}
+            >
+              Move when idle
             </button>
           </div>
         </Modal>

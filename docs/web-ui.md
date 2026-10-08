@@ -234,6 +234,16 @@ collision). `name` stays a **sensitive field** — the confirm dialog and audit 
 `label (name)` — and, like any other config change, the new label takes effect on **Restart when
 idle**.
 
+**Moving the state dir to match.** When the loaded config's label differs from the state key and
+the buffer is clean, the Config view shows **Move state dir to match name** (receiver up) or a
+hint to run `ah rename <name> --move` (receiver stopped). The confirm explains the move
+(`~/.agenthook/<key>/` → `~/.agenthook/<name>/`, at idle, `stateId` removed, restart on the new
+key); confirming sends `POST /api/restart` with `{profile, moveTo: <name>}` (same guard chain; a
+non-string `moveTo` is a `400`; the audit line records `moveTo`), which the receiver validates
+before pausing anything (a `502` names the refusal). The move can't be a config save — the PUT
+guard requires the effective key to equal the open profile. The restart banner tracks it, and once
+the snapshot lists the new key (the old one vanishes with the dir) the view follows to it.
+
 **Stage pickers — via the receiver.** Listing an Asana project's sections / Jira statuses / labels
 / Projects Status options needs tracker credentials the UI never holds. Adapters gain an optional
 `listStages()` (extracted from their `init` wizard discovery); the receiver answers a read-only

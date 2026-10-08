@@ -27,7 +27,7 @@ from cwd); `--config <path>` selects one explicitly.
 node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd)
 node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress)
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
-node bin/agenthook.js rename <newName>   # relabel this profile (state key kept; inserts stateId)
+node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --move also moves the state dir (at idle if running)
 node bin/agenthook.js restart            # restart the running receiver once idle
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
@@ -187,6 +187,12 @@ Key files:
   and `restart` audits its outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
+- `src/state-move.js` — `rename --move`'s core, shared by the engine and the CLI: `checkMove`
+  (valid/free/non-colliding target, config still keys `from`, same filesystem) and
+  `moveStateDir` (rename the dir, then rewrite/drop `stateId` via `json-edit.js`
+  `setStateIdInConfigText` + `atomicSave`; a failed write renames the dir back). A running
+  receiver moves in `teardown()` of a `restart {when:'idle', moveTo}` (after the pidfile is gone,
+  before `spawnDetached`, which then logs into the new dir); a failed move restarts on the old key.
 - `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
   updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
   `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config

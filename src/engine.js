@@ -11,7 +11,9 @@
 // A control-socket `restart {when:'idle'}` pauses the queue (jobs still persist to
 // queue.json), waits for 0 active agents, exits through the graceful path and respawns
 // detached with --reconcile-on-boot; the new process restores the queue and runs one
-// reconcile to recover webhooks missed in the gap.
+// reconcile to recover webhooks missed in the gap. With `moveTo` (`rename --move`), teardown
+// also moves the state dir to ~/.agenthook/<moveTo>/ and rewrites the config's stateId
+// before the respawn (src/state-move.js); a failed move restarts on the old key.
 //
 // The request path is the same fast-ACK-then-async shape as before: authenticate
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
@@ -35,6 +37,7 @@ import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
 import { loadConfig } from "./config.js";
 import { restartSpawnArgs, spawnDetached } from "./respawn.js";
+import { checkMove, moveStateDir } from "./state-move.js";
 import { runReconcile } from "./commands/reconcile.js";
 
 /**
@@ -137,35 +140,53 @@ export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
 
 /**
  * The control-socket `restart` request: validate, then pause the queue and fire once
- * active agents reach 0. Returns immediately; the fire runs in the background.
+ * active agents reach 0. Returns immediately; the fire runs in the background. An optional
+ * `moveTo` (a state key) is validated up front too and handed to `fire`; while one restart is
+ * pending, a request naming a different `moveTo` is rejected (a plain one is alreadyPending).
  * @param {{
  *   queue: {pause(): void, state(): {active:number, queued:number}, onActiveIdle(): Promise<void>},
  *   isDraining: () => boolean,
  *   validateConfig: () => void,
- *   onPending: (state: {active:number, queued:number}) => void,
- *   fire: () => void | Promise<void>,
- * }} deps  validateConfig throws on a config that would brick the respawn; onPending
- *   does the heartbeat + event; fire runs the graceful shutdown-with-respawn
+ *   validateMove?: (moveTo: string) => void,
+ *   onPending: (state: {active:number, queued:number, moveTo?: string}) => void,
+ *   fire: (moveTo?: string) => void | Promise<void>,
+ * }} deps  validateConfig throws on a config that would brick the respawn; validateMove throws
+ *   on a move that can't happen; onPending does the heartbeat + event; fire runs the graceful
+ *   shutdown-with-respawn
  * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number}>, isPending(): boolean}}
  */
-export function createRestartRequester({ queue, isDraining, validateConfig, onPending, fire }) {
+export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, onPending, fire }) {
   let pending = false;
+  /** @type {string|undefined} */
+  let pendingMove;
   return {
     isPending: () => pending,
     async request(args) {
       if (args?.when !== "idle") throw new Error(`restart: unsupported when ${JSON.stringify(args?.when)} (only "idle")`);
+      const moveTo = args.moveTo;
+      if (moveTo !== undefined && typeof moveTo !== "string") throw new Error("restart: moveTo must be a string");
       if (isDraining()) throw new Error("restart: shutdown already in progress");
       const { active, queued } = queue.state();
-      if (pending) return { accepted: true, alreadyPending: true, active, queued };
+      if (pending) {
+        if (moveTo !== undefined && moveTo !== pendingMove) {
+          throw new Error(`restart: a restart ${pendingMove ? `moving to "${pendingMove}"` : "without a move"} is already pending`);
+        }
+        return { accepted: true, alreadyPending: true, active, queued };
+      }
       validateConfig(); // a bad config on disk rejects the restart — nothing changes
+      if (moveTo !== undefined) {
+        if (!validateMove) throw new Error("restart: moveTo is not supported");
+        validateMove(moveTo); // a bad target rejects the restart — nothing paused
+      }
       pending = true;
+      pendingMove = moveTo;
       queue.pause();
-      onPending({ active, queued });
+      onPending({ active, queued, ...(moveTo !== undefined && { moveTo }) });
       queue
         .onActiveIdle()
         // setImmediate: let the control reply flush before teardown closes the socket.
         .then(() => new Promise((resolve) => setImmediate(resolve)))
-        .then(() => (isDraining() ? undefined : fire())) // a signal took over: no respawn
+        .then(() => (isDraining() ? undefined : fire(moveTo))) // a signal took over: no respawn
         .catch((e) => console.error(`[restart] failed: ${e.message}`));
       return { accepted: true, active, queued };
     },
@@ -301,19 +322,23 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
 
   let draining = false;
   let respawnOnExit = false; // set by a firing restart; any signal clears it
+  /** @type {string|undefined} */
+  let moveOnExit; // the restart's state-dir move target, if any
   let respawned = false;
   const restarter = createRestartRequester({
     queue,
     isDraining: () => draining,
     validateConfig: () => void loadConfig({ configPath: cfg.configPath }),
-    onPending: ({ active, queued }) => {
-      console.log(`[restart] requested — pausing new runs; restarting once ${active} running agent(s) finish (${queued} queued)`);
+    validateMove: (moveTo) => checkMove({ configPath: cfg.configPath, from: cfg.stateKey, to: moveTo }),
+    onPending: ({ active, queued, moveTo }) => {
+      const move = moveTo ? ` and moving the state dir to "${moveTo}"` : "";
+      console.log(`[restart] requested — pausing new runs; restarting${move} once ${active} running agent(s) finish (${queued} queued)`);
       heartbeat.update({ restartPending: true });
-      emit("restart_requested", "", "", { active, queued });
+      emit("restart_requested", "", "", { active, queued, ...(moveTo && { moveTo }) });
     },
-    fire: () => {
-      emit("restarting", "", "", { queued: queue.state().queued });
-      return shutdown("restart", { respawn: true });
+    fire: (moveTo) => {
+      emit("restarting", "", "", { queued: queue.state().queued, ...(moveTo && { moveTo }) });
+      return shutdown("restart", { respawn: true, moveTo });
     },
   });
 
@@ -331,8 +356,21 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     // either exit path below.
     if (respawnOnExit && !respawned) {
       respawned = true;
+      // A pending move happens here, once nothing holds the state dir, and the successor logs
+      // into the new dir (it resolves the new key from the rewritten config). No events/heartbeat
+      // after this point: they'd write into — or recreate — the old dir.
+      /** @type {{stateDir: string}} */
+      let spawnCfg = cfg;
+      if (moveOnExit) {
+        try {
+          spawnCfg = moveStateDir({ configPath: cfg.configPath, from: cfg.stateKey, to: moveOnExit, source: "restart" });
+          console.log(`[restart] moved state dir ${cfg.stateDir} → ${spawnCfg.stateDir}`);
+        } catch (e) {
+          console.error(`[restart] move failed: ${e.message} — restarting on "${cfg.stateKey}"`);
+        }
+      }
       try {
-        const { pid, logPath } = spawnDetached(cfg, restartSpawnArgs(cfg));
+        const { pid, logPath } = spawnDetached(spawnCfg, restartSpawnArgs(cfg));
         console.log(`[restart] respawned "${cfg.name}" (pid ${pid}). Log: ${logPath}`);
       } catch (e) {
         console.error(`[restart] respawn failed: ${e.message}`);
@@ -360,15 +398,21 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // A restart (respawn) shuts down the same way but never waits on the paused queue:
   // queued jobs stay in queue.json for the successor's restoreQueued. A signal while a
   // restart is pending cancels the respawn and exits once active agents reach 0.
-  /** @param {string} [signal] @param {{respawn?: boolean}} [opts] */
-  async function shutdown(signal, { respawn = false } = {}) {
-    if (!respawn) respawnOnExit = false;
+  /** @param {string} [signal] @param {{respawn?: boolean, moveTo?: string}} [opts] */
+  async function shutdown(signal, { respawn = false, moveTo } = {}) {
+    if (!respawn) {
+      respawnOnExit = false;
+      moveOnExit = undefined;
+    }
     if (draining) {
       forceExit(`${signal || "signal"} during drain`);
       return;
     }
     draining = true;
-    if (respawn) respawnOnExit = true;
+    if (respawn) {
+      respawnOnExit = true;
+      moveOnExit = moveTo;
+    }
 
     // Stop new work reaching the queue, then close the front door so no fresh
     // events arrive. In-flight `claude -p` children keep running untouched.

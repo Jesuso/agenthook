@@ -209,6 +209,22 @@ test("POST /api/restart: sends exactly {cmd:'restart', args:{when:'idle'}} and r
   assert.equal(last.profile, "restarted");
 });
 
+test("POST /api/restart: non-string moveTo → 400, socket never contacted", async () => {
+  const n = calls.restart.length;
+  for (const moveTo of [5, null, {}, ["x"]]) assert.equal((await postRestart({ profile: "restarted", moveTo })).status, 400);
+  assert.equal(calls.restart.length, n);
+});
+
+test("POST /api/restart: forwards moveTo as {when:'idle', moveTo} and audits it", async () => {
+  const res = await postRestart({ profile: "restarted", moveTo: "new-key" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(calls.restart.at(-1).args, { when: "idle", moveTo: "new-key" });
+  const lines = fs.readFileSync(path.join(RESTARTED.dir, "ui-audit.jsonl"), "utf8").trim().split("\n");
+  const last = JSON.parse(lines[lines.length - 1]);
+  assert.equal(last.action, "restart");
+  assert.equal(last.moveTo, "new-key");
+});
+
 test("resolveProfileSock: only names listProfiles returns resolve, to the right control.sock path", () => {
   assert.deepEqual(resolveProfileSock(registry, "nope"), null);
   const r = resolveProfileSock(registry, "ok");

@@ -2,7 +2,7 @@
 // receiver is gone the moment the connection closes — no polling. Beyond that
 // hello, the socket carries allowlisted NDJSON commands (request/response):
 //   discover            tracker + stage keys + live stage list (cached 60s)
-//   restart {when:'idle'}  only when the engine passes `restart`: pause new runs,
+//   restart {when:'idle', moveTo?}  only when the engine passes `restart`: pause new runs,
 //                       restart once active agents reach 0 (see engine.js)
 // See docs/web-ui.md.
 import net from "node:net";

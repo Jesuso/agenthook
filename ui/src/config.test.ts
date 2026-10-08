@@ -5,6 +5,7 @@ import {
   configEventAsFile,
   configSaveRequest,
   configUrl,
+  moveTarget,
   parseCheck,
   restartErrorText,
   restartReducer,
@@ -43,6 +44,25 @@ describe("requests", () => {
     expect(init.method).toBe("POST");
     expect(init.headers).toEqual({ "Content-Type": "application/json", "X-AH-UI": "1" });
     expect(JSON.parse(String(init.body))).toEqual({ profile: "p" });
+  });
+
+  it("POST /api/restart with {profile, moveTo} for a state-dir move", () => {
+    const { init } = restartRequest("old", "new");
+    expect(JSON.parse(String(init.body))).toEqual({ profile: "old", moveTo: "new" });
+  });
+});
+
+describe("moveTarget", () => {
+  it("is the label when it differs from the state key", () => {
+    expect(moveTarget({ name: "new", stateId: "old" }, "old")).toBe("new");
+  });
+
+  it("is null when the label already is the state key, or there's no usable label", () => {
+    expect(moveTarget({ name: "same" }, "same")).toBeNull();
+    expect(moveTarget({ name: 5 }, "k")).toBeNull();
+    expect(moveTarget({ name: "" }, "k")).toBeNull();
+    expect(moveTarget(null, "k")).toBeNull();
+    expect(moveTarget("x", "k")).toBeNull();
   });
 });
 
