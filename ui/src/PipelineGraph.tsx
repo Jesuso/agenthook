@@ -11,9 +11,14 @@ const EDGE_STYLE: Record<GraphEdge["type"], { stroke: string; dash?: string }> =
   advance: { stroke: "var(--color-accent)" },
   fail: { stroke: "var(--color-err)" },
   hold: { stroke: "var(--color-warn)" },
-  changes: { stroke: "var(--color-accent)", dash: "5 4" },
+  changes: { stroke: "var(--color-ok)", dash: "5 4" },
   queue: { stroke: "var(--color-muted)", dash: "2 3" },
 };
+
+/** Gap kept between a clipped edge endpoint and the node border, so arrowheads never sit under it. */
+const END_GAP = 5;
+/** How far above the step row's top edge a `changes` arc peaks (always, regardless of endpoint y). */
+const CHANGES_ARC_RISE = 40;
 
 const EDGE_LABEL: Record<GraphEdge["type"], string> = {
   advance: "advance",
@@ -26,19 +31,45 @@ const EDGE_LABEL: Record<GraphEdge["type"], string> = {
 const isStep = (n: GraphNode): n is StepNode => n.kind === "step";
 const isStage = (n: GraphNode): n is StageNode => n.kind === "stage";
 
+function dims(n: GraphNode): [number, number] {
+  return isStep(n) ? [STEP_W, STEP_H] : [STAGE_W, STAGE_H];
+}
+
 function center(n: GraphNode): { x: number; y: number } {
-  const [w, h] = isStep(n) ? [STEP_W, STEP_H] : [STAGE_W, STAGE_H];
+  const [w, h] = dims(n);
   return { x: n.x + w / 2, y: n.y + h / 2 };
 }
 
-function EdgePath(props: { edge: GraphEdge; from: GraphNode; to: GraphNode; sameRow: boolean }) {
-  const { edge, from, to, sameRow } = props;
-  const a = center(from);
-  const b = center(to);
+/** Point on `n`'s border facing `towards`, nudged out by `END_GAP` so an arrowhead never sits under the node. */
+function borderPoint(n: GraphNode, towards: { x: number; y: number }): { x: number; y: number } {
+  const c = center(n);
+  const [w, h] = dims(n);
+  const dx = towards.x - c.x;
+  const dy = towards.y - c.y;
+  if (dx === 0 && dy === 0) return c;
+  const hw = w / 2;
+  const hh = h / 2;
+  let scale = Infinity;
+  if (dx !== 0) scale = Math.min(scale, hw / Math.abs(dx));
+  if (dy !== 0) scale = Math.min(scale, hh / Math.abs(dy));
+  const len = Math.hypot(dx, dy);
+  const gapScale = scale + END_GAP / len;
+  return { x: c.x + dx * gapScale, y: c.y + dy * gapScale };
+}
+
+function EdgePath(props: { edge: GraphEdge; from: GraphNode; to: GraphNode }) {
+  const { edge, from, to } = props;
+  const toC = center(to);
+  const fromC = center(from);
+  const a = borderPoint(from, toC);
+  const b = borderPoint(to, fromC);
   const style = EDGE_STYLE[edge.type];
-  // `changes` arcs above the row (toward smaller y); everything else is a straight line.
-  const d = sameRow ? `M${a.x},${a.y} Q${(a.x + b.x) / 2},${Math.min(a.y, b.y) - 46} ${b.x},${b.y}` : `M${a.x},${a.y} L${b.x},${b.y}`;
-  const mid = sameRow ? { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - 46 } : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  // `changes` always arcs above the step row (clear of every card, not just its own endpoints);
+  // every other edge — including step→step `advance` — is a straight line.
+  const isChanges = edge.type === "changes";
+  const peakY = Math.min(from.y, to.y) - CHANGES_ARC_RISE;
+  const d = isChanges ? `M${a.x},${a.y} Q${(a.x + b.x) / 2},${peakY} ${b.x},${b.y}` : `M${a.x},${a.y} L${b.x},${b.y}`;
+  const mid = isChanges ? { x: (a.x + b.x) / 2, y: peakY } : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   return (
     <g>
       <path d={d} fill="none" stroke={style.stroke} strokeWidth={1.5} strokeDasharray={style.dash} markerEnd={`url(#ah-arrow-${edge.type})`} />
@@ -113,7 +144,6 @@ function Legend() {
 export function PipelineGraph(props: { layout: PipelineLayout }) {
   const { layout } = props;
   const byId = new Map(layout.nodes.map((n) => [n.id, n]));
-  const stepIds = new Set(layout.nodes.filter(isStep).map((n) => n.id));
   return (
     <div className="flex flex-col gap-2">
       {layout.unknownStageKeys && (
@@ -132,7 +162,7 @@ export function PipelineGraph(props: { layout: PipelineLayout }) {
             const from = byId.get(e.from);
             const to = byId.get(e.to);
             if (!from || !to) return null;
-            return <EdgePath key={i} edge={e} from={from} to={to} sameRow={stepIds.has(e.from) && stepIds.has(e.to)} />;
+            return <EdgePath key={i} edge={e} from={from} to={to} />;
           })}
           {layout.nodes.map((n) => (isStep(n) ? <StepCard key={`s:${n.id}`} node={n} /> : <StagePill key={`g:${n.id}`} node={n as StageNode} />))}
         </svg>
