@@ -33,6 +33,7 @@ const logName = (ts, step, ref) => `${ts.replace(/[:.]/g, "-")}-step-${step}-${r
  * @property {Record<string, any>} held
  * @property {Record<string, any>} refmeta
  * @property {Record<string, any>[]} events
+ * @property {{ file: string, scope: 'step'|'default'|'repo', ids: string[] }[]} [instructions]
  */
 
 /** @type {Fixture[]} */
@@ -42,6 +43,15 @@ const fixtures = [
     name: "agenthook",
     up: true,
     heartbeat: { tracker: "github", ingress: "ngrok", fullAuto: true, maxConcurrent: 3, port: 8787, repository: "Jesuso/agenthook", queue: { active: 2, queued: 1 } },
+    // Pipeline order (triage, code, review) sorts differently than alphabetical (code, review, triage) —
+    // exercises the step → default → repo, no-resort ordering the Instructions view must preserve.
+    instructions: [
+      { file: "triage.md", scope: "step", ids: ["triage"] },
+      { file: "code.md", scope: "step", ids: ["code"] },
+      { file: "review.md", scope: "step", ids: ["review"] },
+      { file: "default.md", scope: "default", ids: ["merge"] },
+      { file: "repo.md", scope: "repo", ids: ["agenthook"] },
+    ],
     running: {
       221: { stepId: "code", startedAt: ago(4), model: "opus" },
       218: { stepId: "review", startedAt: ago(12), model: "sonnet" },
@@ -123,6 +133,12 @@ for (const f of fixtures) {
   const configPath = path.join(path.resolve(dir), "agenthook.config.json");
   fs.writeFileSync(configPath, "{}\n");
   const last = f.events.at(-1);
+  /** @type {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[] | undefined} */
+  const instructions = f.instructions?.map((i) => ({ ...i, path: path.join(path.resolve(dir), "instr", i.file) }));
+  if (instructions) {
+    fs.mkdirSync(path.join(dir, "instr"), { recursive: true });
+    for (const i of instructions) fs.writeFileSync(i.path, `# ${i.scope} — ${i.ids.join(", ")}\n\nStanding instructions for ${f.name}.\n`);
+  }
   write("heartbeat.json", {
     name: f.name,
     stateKey: f.key,
@@ -132,6 +148,7 @@ for (const f of fixtures) {
     startedAt: ago(600),
     updatedAt: ago(f.up ? 0 : 15),
     lastEvent: last ? { at: last.ts, kind: last.event, ref: last.ref, step: last.step } : null,
+    ...(instructions ? { instructions: instructions.map(({ file, ...i }) => i) } : {}),
     ...f.heartbeat,
   });
   write("profile.json", { configPath, stateKey: f.key, name: f.name, createdAt: ago(60 * 24 * 7), updatedAt: ago(600) });

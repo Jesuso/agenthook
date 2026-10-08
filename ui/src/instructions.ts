@@ -10,21 +10,36 @@ export const DISCARD_PROMPT = "Discard unsaved changes to the open instructions 
 export type FileGroup = { scope: InstructionFileView["scope"]; label: string; files: InstructionFileView[] };
 
 const GROUPS: { scope: InstructionFileView["scope"]; label: string }[] = [
-  { scope: "default", label: "profile default" },
   { scope: "step", label: "steps" },
+  { scope: "default", label: "profile default" },
   { scope: "repo", label: "repos" },
 ];
 
-/** Files grouped default → step → repo, each sorted by first id then path. Empty groups are omitted. */
+/**
+ * Files grouped step → default → repo — the order the pipeline actually runs them in
+ * (`src/heartbeat.js`'s `instructionTargets`). Within a group the server's order is kept as-is
+ * (no re-sort); empty groups are omitted.
+ */
 export function groupFiles(files: InstructionFileView[]): FileGroup[] {
   const out: FileGroup[] = [];
   for (const g of GROUPS) {
-    const members = files
-      .filter((f) => f.scope === g.scope)
-      .sort((a, b) => (a.ids[0] ?? "").localeCompare(b.ids[0] ?? "") || a.path.localeCompare(b.path));
+    const members = files.filter((f) => f.scope === g.scope);
     if (members.length) out.push({ ...g, files: members });
   }
   return out;
+}
+
+/**
+ * Which file to auto-open when a profile's list first lands: `remembered` if it's still in the
+ * list and exists, else the first existing file in `groupFiles` order, else null.
+ */
+export function initialFile(files: InstructionFileView[], remembered: string | null): string | null {
+  if (remembered && files.some((f) => f.path === remembered && f.exists)) return remembered;
+  for (const g of groupFiles(files)) {
+    const first = g.files.find((f) => f.exists);
+    if (first) return first.path;
+  }
+  return null;
 }
 
 /** Derived, never sticky: undoing back to the loaded content makes the buffer clean again. */
