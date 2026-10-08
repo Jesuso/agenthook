@@ -82,9 +82,11 @@ function interpolate(node, missing, pathLabel = "") {
 
 /**
  * Resolve `repos` (multi-repo routing, src/repos.js) in place. No block → one synthesized
- * `default` repo at repoPath (single-repo, unchanged). A declared block is validated up
- * front — ids, paths and route keys must be unique, at most one default — and repoPath
- * becomes the default repo's path (else the first repo's, for the ops readers only).
+ * `default` repo at repoPath (single-repo, unchanged). A declared block has already passed
+ * validateRawConfig's structural checks; this normalises it and runs the two checks that need
+ * resolved paths — no two repos may share a path, and a legacy repoPath must name a declared
+ * repo — then repoPath becomes the default repo's path (else the first repo's, for the ops
+ * readers only).
  * @param {any} cfg @param {string} configDir
  */
 function resolveRepos(cfg, configDir) {
@@ -93,35 +95,17 @@ function resolveRepos(cfg, configDir) {
     cfg.multiRepo = false;
     return;
   }
-  if (!Array.isArray(cfg.repos) || !cfg.repos.length) throw new Error(`config: "repos" must be a non-empty array.`);
-  const ids = new Set();
   const paths = new Map();
-  /** @type {Map<string, string>} route key → repo id */
-  const keys = new Map();
-  cfg.repos = cfg.repos.map((/** @type {any} */ r, /** @type {number} */ i) => {
-    if (!r || typeof r !== "object") throw new Error(`config: repos[${i}] must be an object.`);
-    if (typeof r.id !== "string" || !/^[A-Za-z0-9._-]+$/.test(r.id)) {
-      throw new Error(`config: repos[${i}].id is required and must match [A-Za-z0-9._-]+ (got ${JSON.stringify(r.id)}).`);
-    }
-    if (ids.has(r.id)) throw new Error(`config: duplicate repos id "${r.id}".`);
-    ids.add(r.id);
-    if (typeof r.path !== "string" || !r.path) throw new Error(`config: repos "${r.id}" requires a "path".`);
+  cfg.repos = cfg.repos.map((/** @type {any} */ r) => {
     const p = path.resolve(resolvePath(r.path, configDir));
     if (paths.has(p)) throw new Error(`config: repos "${r.id}" and "${paths.get(p)}" share the path ${p}.`);
     paths.set(p, r.id);
-    if (r.match != null && !Array.isArray(r.match)) throw new Error(`config: repos "${r.id}".match must be an array of strings.`);
     /** @type {string[]} */
     const match = [];
     for (const m of r.match ?? []) {
-      if (typeof m !== "string" || !m.trim()) throw new Error(`config: repos "${r.id}".match entries must be non-empty strings (got ${JSON.stringify(m)}).`);
       const k = m.trim().toLowerCase();
-      if (keys.has(k) && keys.get(k) !== r.id) throw new Error(`config: route key "${k}" is claimed by both repos "${keys.get(k)}" and "${r.id}".`);
-      keys.set(k, r.id);
       if (!match.includes(k)) match.push(k);
     }
-    if (r.default != null && typeof r.default !== "boolean") throw new Error(`config: repos "${r.id}".default must be a boolean.`);
-    if (r.instructionsFile != null && typeof r.instructionsFile !== "string") throw new Error(`config: repos "${r.id}".instructionsFile must be a string.`);
-    if (r.worktreePrefix != null && typeof r.worktreePrefix !== "string") throw new Error(`config: repos "${r.id}".worktreePrefix must be a string.`);
     return {
       id: r.id,
       path: p,
@@ -132,7 +116,6 @@ function resolveRepos(cfg, configDir) {
     };
   });
   const defaults = cfg.repos.filter((/** @type {any} */ r) => r.default);
-  if (defaults.length > 1) throw new Error(`config: at most one repo may set default:true (found ${defaults.map((/** @type {any} */ r) => r.id).join(", ")}).`);
   // A legacy repoPath alongside `repos` names the default when none is marked.
   if (cfg.repoPath && !defaults.length) {
     const hit = cfg.repos.find((/** @type {any} */ r) => r.path === path.resolve(cfg.repoPath));
@@ -166,11 +149,16 @@ function readRawConfig(explicit) {
   return { configPath, configDir: path.dirname(configPath), raw };
 }
 
+const NAME_ERROR = `config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`;
+
+/** @param {any} name */
+function validName(name) {
+  return !!name && typeof name === "string" && /^[A-Za-z0-9._-]+$/.test(name);
+}
+
 /** @param {any} name */
 function assertName(name) {
-  if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) {
-    throw new Error(`config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`);
-  }
+  if (!validName(name)) throw new Error(NAME_ERROR);
 }
 
 /**
@@ -212,11 +200,8 @@ export function loadConfig(opts = {}) {
     throw new Error(`unset environment variable(s) referenced by ${configPath}:\n  - ` + missing.join("\n  - "));
   }
 
-  assertName(cfg.name);
-  if (!cfg.tracker?.type) throw new Error(`config: "tracker.type" is required (e.g. "asana").`);
-  if (!cfg.repoPath && cfg.repos == null) {
-    throw new Error(`config: "repoPath" is required (the repo agents work in), unless a "repos" block declares them.`);
-  }
+  const v = validateRawConfig(cfg);
+  if (!v.ok) throw new Error(v.errors[0]);
 
   // --- the four locations, kept distinct ---
   cfg.installDir = installDir;
@@ -242,9 +227,6 @@ export function loadConfig(opts = {}) {
   cfg.maxConcurrent = cfg.maxConcurrent || 1;
   cfg.port = cfg.port || 4123;
   cfg.claudeBin = cfg.claudeBin || "claude";
-  if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {
-    throw new Error(`config: "overlapGuard" must be true or false.`);
-  }
   cfg.overlapGuard = cfg.overlapGuard === true;
   cfg.ingress = cfg.ingress || { type: "manual" };
   if (!cfg.ingress.type) cfg.ingress.type = "manual";
@@ -256,84 +238,207 @@ export function loadConfig(opts = {}) {
   cfg.providerConfig = cfg.tracker;
 
   // The pipeline is the execution model: an ordered list of steps, each bound to a
-  // source section. Required. Resolve each step's instructionsFile against the config
-  // dir and validate ids up front so a typo fails loud at load, not mid-dispatch.
-  cfg.pipeline = Array.isArray(cfg.tracker.pipeline) && cfg.tracker.pipeline.length ? cfg.tracker.pipeline : null;
-  if (!cfg.pipeline) {
-    throw new Error(`config: "tracker.pipeline" is required (a non-empty array of steps).`);
-  }
-  const ids = new Set();
+  // source section (validated above). Resolve each step's instructionsFile against the
+  // config dir.
+  cfg.pipeline = cfg.tracker.pipeline;
   for (const step of cfg.pipeline) {
-    if (!step.id) throw new Error(`config: every pipeline step needs an "id".`);
-    if (ids.has(step.id)) throw new Error(`config: duplicate pipeline step id "${step.id}".`);
-    ids.add(step.id);
     if (step.instructionsFile) step.instructionsFile = resolvePath(step.instructionsFile, configDir);
-    if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
-      throw new Error(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
-    }
-    if (step.maxMinutes != null && (typeof step.maxMinutes !== "number" || !Number.isFinite(step.maxMinutes) || step.maxMinutes < 0)) {
-      throw new Error(`config: pipeline step "${step.id}" maxMinutes must be a number >= 0 (0 disables the cap).`);
-    }
-    if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
-      throw new Error(`config: pipeline step "${step.id}" idleMinutes must be a number > 0.`);
-    }
-    if (step.lite != null) {
-      const h = step.lite.descriptionHeadings;
-      if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {
-        throw new Error(`config: pipeline step "${step.id}" lite.descriptionHeadings must be a non-empty array of strings.`);
-      }
-    }
-    if (step.completeOnMerge && !step.manual) {
-      throw new Error(`config: pipeline step "${step.id}" completeOnMerge requires manual:true (no agent runs on a merge).`);
-    }
-    // Queue stage (opt-in backlog lane the engine pulls from when a slot frees). A manual
-    // step runs no agent, so it has nothing to pull into; a queue equal to the step's own
-    // source would pull an item into the stage it already rests in (a self-loop).
-    const queueKeys = /** @type {const} */ ([
-      ["queueSectionGid", "sourceSectionGid"],
-      ["queueStatus", "sourceStatus"],
-      ["queueLabel", "sourceLabel"],
-    ]);
-    for (const [qk, sk] of queueKeys) {
-      if (step[qk] == null) continue;
-      if (step.manual) throw new Error(`config: pipeline step "${step.id}" ${qk} is not allowed on a manual step (no agent to pull into).`);
-      if (step[sk] != null && String(step[qk]).trim().toLowerCase() === String(step[sk]).trim().toLowerCase()) {
-        throw new Error(`config: pipeline step "${step.id}" ${qk} must differ from its own ${sk} (it would self-loop).`);
-      }
-    }
-  }
-
-  const onMerge = cfg.pipeline.filter((/** @type {import('./types.js').Step} */ s) => s.completeOnMerge);
-  if (onMerge.length > 1) {
-    throw new Error(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => s.id).join(", ")}).`);
-  }
-
-  if (cfg.sinks != null) {
-    if (!Array.isArray(cfg.sinks)) throw new Error(`config: sinks must be an array.`);
-    /** @type {Record<string, string[]>} */
-    const need = { slack: ["url"], webhook: ["url"], telegram: ["botToken", "chatId"] };
-    cfg.sinks.forEach((/** @type {any} */ s, /** @type {number} */ i) => {
-      if (!s || !need[s.type]) {
-        throw new Error(`config: sinks[${i}].type must be one of slack, telegram, webhook (got ${JSON.stringify(s?.type)}).`);
-      }
-      for (const f of need[s.type]) {
-        if (s[f] == null || s[f] === "") throw new Error(`config: sinks[${i}] (${s.type}) requires "${f}".`);
-      }
-      if (s.events != null && (!Array.isArray(s.events) || s.events.some((/** @type {any} */ e) => typeof e !== "string"))) {
-        throw new Error(`config: sinks[${i}].events must be an array of strings.`);
-      }
-    });
-  }
-
-  // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
-  if (cfg.forge && !cfg.forge.type) throw new Error(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
-  if (cfg.forge?.ciTarget != null) {
-    const t = cfg.pipeline.find((/** @type {import('./types.js').Step} */ s) => s.id === cfg.forge.ciTarget);
-    if (!t) throw new Error(`config: forge.ciTarget "${cfg.forge.ciTarget}" is not a pipeline step id.`);
-    if (t.manual) throw new Error(`config: forge.ciTarget "${t.id}" is a manual step (a red-CI bounce needs an agent step).`);
   }
 
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   fs.mkdirSync(cfg.logDir, { recursive: true });
   return cfg;
+}
+
+/** Per-step queue-stage keys, each paired with the source key it must not equal. */
+const QUEUE_KEYS = /** @type {const} */ ([
+  ["queueSectionGid", "sourceSectionGid"],
+  ["queueStatus", "sourceStatus"],
+  ["queueLabel", "sourceLabel"],
+]);
+
+/**
+ * Structural validation of a config object WITHOUT resolving it: pure (no fs, no env, no
+ * path resolution), never throws for any JSON value, and collects every error in check
+ * order rather than stopping at the first. `${VAR}` strings are opaque values. loadConfig
+ * runs it on the interpolated config and throws `errors[0]`; the UI config editor runs it
+ * on the raw file (secrets never leave the env). The two checks that need resolved paths —
+ * repos sharing a path, a repoPath matching no declared repo — stay in resolveRepos.
+ * @param {any} raw
+ * @returns {{ ok: true } | { ok: false, errors: string[] }}
+ */
+export function validateRawConfig(raw) {
+  /** @type {string[]} */
+  const errors = [];
+  // Only a null/undefined root would crash the property reads below; any other non-object
+  // simply fails the named-key checks (as loadConfig always has).
+  if (raw == null) return { ok: false, errors: [`config: the config must be a JSON object.`] };
+  const cfg = raw;
+
+  if (!validName(cfg.name)) errors.push(NAME_ERROR);
+  const tracker = cfg.tracker;
+  if (!tracker?.type) errors.push(`config: "tracker.type" is required (e.g. "asana").`);
+  if (!cfg.repoPath && cfg.repos == null) {
+    errors.push(`config: "repoPath" is required (the repo agents work in), unless a "repos" block declares them.`);
+  }
+
+  if (cfg.repos != null) {
+    if (!Array.isArray(cfg.repos) || !cfg.repos.length) {
+      errors.push(`config: "repos" must be a non-empty array.`);
+    } else {
+      const ids = new Set();
+      /** @type {Map<string, string>} route key → repo id */
+      const keys = new Map();
+      /** @type {string[]} */
+      const defaults = [];
+      cfg.repos.forEach((/** @type {any} */ r, /** @type {number} */ i) => {
+        if (!r || typeof r !== "object") return void errors.push(`config: repos[${i}] must be an object.`);
+        if (typeof r.id !== "string" || !/^[A-Za-z0-9._-]+$/.test(r.id)) {
+          // Later messages name the repo by id; without a usable one, stop at this repo.
+          return void errors.push(`config: repos[${i}].id is required and must match [A-Za-z0-9._-]+ (got ${JSON.stringify(r.id)}).`);
+        }
+        if (ids.has(r.id)) errors.push(`config: duplicate repos id "${r.id}".`);
+        ids.add(r.id);
+        if (typeof r.path !== "string" || !r.path) errors.push(`config: repos "${r.id}" requires a "path".`);
+        if (r.match != null && !Array.isArray(r.match)) {
+          errors.push(`config: repos "${r.id}".match must be an array of strings.`);
+        } else {
+          for (const m of r.match ?? []) {
+            if (typeof m !== "string" || !m.trim()) {
+              errors.push(`config: repos "${r.id}".match entries must be non-empty strings (got ${JSON.stringify(m)}).`);
+              continue;
+            }
+            const k = m.trim().toLowerCase();
+            if (keys.has(k) && keys.get(k) !== r.id) errors.push(`config: route key "${k}" is claimed by both repos "${keys.get(k)}" and "${r.id}".`);
+            else keys.set(k, r.id);
+          }
+        }
+        if (r.default != null && typeof r.default !== "boolean") errors.push(`config: repos "${r.id}".default must be a boolean.`);
+        if (r.instructionsFile != null && typeof r.instructionsFile !== "string") errors.push(`config: repos "${r.id}".instructionsFile must be a string.`);
+        if (r.worktreePrefix != null && typeof r.worktreePrefix !== "string") errors.push(`config: repos "${r.id}".worktreePrefix must be a string.`);
+        if (r.default === true) defaults.push(r.id);
+      });
+      if (defaults.length > 1) errors.push(`config: at most one repo may set default:true (found ${defaults.join(", ")}).`);
+    }
+  }
+
+  if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {
+    errors.push(`config: "overlapGuard" must be true or false.`);
+  }
+
+  const pipeline = Array.isArray(tracker?.pipeline) && tracker.pipeline.length ? tracker.pipeline : null;
+  if (!pipeline) {
+    errors.push(`config: "tracker.pipeline" is required (a non-empty array of steps).`);
+  }
+  const ids = new Set();
+  (pipeline ?? []).forEach((/** @type {any} */ step, /** @type {number} */ i) => {
+    if (!step || typeof step !== "object") return void errors.push(`config: tracker.pipeline[${i}] must be an object.`);
+    if (!step.id) errors.push(`config: every pipeline step needs an "id".`);
+    else if (ids.has(step.id)) errors.push(`config: duplicate pipeline step id "${step.id}".`);
+    ids.add(step.id);
+    if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
+      errors.push(`config: pipeline step "${step.id}" maxAttempts must be a positive integer.`);
+    }
+    if (step.maxMinutes != null && (typeof step.maxMinutes !== "number" || !Number.isFinite(step.maxMinutes) || step.maxMinutes < 0)) {
+      errors.push(`config: pipeline step "${step.id}" maxMinutes must be a number >= 0 (0 disables the cap).`);
+    }
+    if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
+      errors.push(`config: pipeline step "${step.id}" idleMinutes must be a number > 0.`);
+    }
+    if (step.lite != null) {
+      const h = step.lite.descriptionHeadings;
+      if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {
+        errors.push(`config: pipeline step "${step.id}" lite.descriptionHeadings must be a non-empty array of strings.`);
+      }
+    }
+    if (step.completeOnMerge && !step.manual) {
+      errors.push(`config: pipeline step "${step.id}" completeOnMerge requires manual:true (no agent runs on a merge).`);
+    }
+    // Queue stage (opt-in backlog lane the engine pulls from when a slot frees). A manual
+    // step runs no agent, so it has nothing to pull into; a queue equal to the step's own
+    // source would pull an item into the stage it already rests in (a self-loop).
+    for (const [qk, sk] of QUEUE_KEYS) {
+      if (step[qk] == null) continue;
+      if (step.manual) errors.push(`config: pipeline step "${step.id}" ${qk} is not allowed on a manual step (no agent to pull into).`);
+      else if (step[sk] != null && String(step[qk]).trim().toLowerCase() === String(step[sk]).trim().toLowerCase()) {
+        errors.push(`config: pipeline step "${step.id}" ${qk} must differ from its own ${sk} (it would self-loop).`);
+      }
+    }
+  });
+
+  const onMerge = (pipeline ?? []).filter((/** @type {any} */ s) => s && typeof s === "object" && s.completeOnMerge);
+  if (onMerge.length > 1) {
+    errors.push(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => s.id).join(", ")}).`);
+  }
+
+  if (cfg.sinks != null) {
+    if (!Array.isArray(cfg.sinks)) errors.push(`config: sinks must be an array.`);
+    else {
+      /** @type {Record<string, string[]>} */
+      const need = { slack: ["url"], webhook: ["url"], telegram: ["botToken", "chatId"] };
+      cfg.sinks.forEach((/** @type {any} */ s, /** @type {number} */ i) => {
+        if (!s || typeof s.type !== "string" || !Object.hasOwn(need, s.type)) {
+          return void errors.push(`config: sinks[${i}].type must be one of slack, telegram, webhook (got ${JSON.stringify(s?.type)}).`);
+        }
+        for (const f of need[s.type]) {
+          if (s[f] == null || s[f] === "") errors.push(`config: sinks[${i}] (${s.type}) requires "${f}".`);
+        }
+        if (s.events != null && (!Array.isArray(s.events) || s.events.some((/** @type {any} */ e) => typeof e !== "string"))) {
+          errors.push(`config: sinks[${i}].events must be an array of strings.`);
+        }
+      });
+    }
+  }
+
+  // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
+  if (cfg.forge && !cfg.forge.type) errors.push(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
+  // No ciTarget lookup against a missing pipeline: that would only add a spurious "not a step id".
+  if (cfg.forge?.ciTarget != null && pipeline) {
+    const t = pipeline.find((/** @type {any} */ s) => s && typeof s === "object" && s.id === cfg.forge.ciTarget);
+    if (!t) errors.push(`config: forge.ciTarget "${cfg.forge.ciTarget}" is not a pipeline step id.`);
+    else if (t.manual) errors.push(`config: forge.ciTarget "${t.id}" is a manual step (a red-CI bounce needs an agent step).`);
+  }
+
+  return errors.length ? { ok: false, errors } : { ok: true };
+}
+
+/** Config paths whose value is a secret — each should be a `${VAR}` ref, never a literal.
+ * `[*]` expands every element of an array. */
+export const SECRET_FIELDS = /** @type {const} */ ([
+  "tracker.token",
+  "tracker.webhookSecret",
+  "forge.token",
+  "forge.webhookSecret",
+  "ingress.authtoken",
+  "sinks[*].url",
+  "sinks[*].botToken",
+]);
+
+/**
+ * The concrete paths (e.g. "tracker.token", "sinks[1].botToken") of SECRET_FIELDS holding a
+ * literal: a non-empty string that is not exactly one `${VAR}` ref. Pure — never reads env.
+ * Non-strings (`webhookSecret: false` opt-out, null), "" and missing fields are not reported.
+ * @param {any} raw @returns {string[]}
+ */
+export function literalSecrets(raw) {
+  /** @type {string[]} */
+  const out = [];
+  /** @param {any} node @param {string[]} segs @param {string} at */
+  const walk = (node, segs, at) => {
+    if (!segs.length) {
+      if (typeof node === "string" && node !== "" && !/^\$\{[A-Z0-9_]+\}$/.test(node)) out.push(at);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const [seg, ...rest] = segs;
+    if (seg.endsWith("[*]")) {
+      const key = seg.slice(0, -3);
+      const arr = node[key];
+      if (Array.isArray(arr)) arr.forEach((el, i) => walk(el, rest, `${at ? `${at}.` : ""}${key}[${i}]`));
+      return;
+    }
+    if (Object.hasOwn(node, seg)) walk(node[seg], rest, at ? `${at}.${seg}` : seg);
+  };
+  for (const field of SECRET_FIELDS) walk(raw, field.split("."), "");
+  return out;
 }
