@@ -3,7 +3,7 @@
 // one isn't already set), so the state dir (~/.agenthook/<stateKey>/) never moves. A running
 // receiver keeps its old label until `agenthook restart` (or the UI's "Restart when idle")
 // re-reads the config.
-import { ensurePrivateDir, peekConfig, validName } from "../config.js";
+import { ensurePrivateDir, peekConfig, validName, validateRawConfig } from "../config.js";
 import { listProfiles, readProfile } from "../heartbeat.js";
 import { renameInConfigText } from "../json-edit.js";
 import { atomicSave, readCurrent } from "../ui/save.js";
@@ -29,7 +29,9 @@ export function renameProfile({ configPath, newName, registry }) {
 
   const cur = readCurrent(configPath);
   if (!cur) throw new Error(`rename: could not read ${configPath}.`);
-  const next = Buffer.from(renameInConfigText(cur.cur.toString("utf8"), newName, stateKey), "utf8");
+  const nextText = renameInConfigText(cur.cur.toString("utf8"), newName, stateKey);
+  assertSafeRename(nextText, newName, stateKey);
+  const next = Buffer.from(nextText, "utf8");
 
   ensurePrivateDir(stateDir);
   const saved = atomicSave({
@@ -44,6 +46,27 @@ export function renameProfile({ configPath, newName, registry }) {
   if (saved.status !== 200) throw new Error(`rename: failed to save ${configPath}.`);
 
   return { changed: true, running: readProfile(stateKey, registry).up, from: name, to: newName, stateKey };
+}
+
+/**
+ * Backstop before anything is written: the edited text must still be valid JSON, pass
+ * validateRawConfig, carry the new label, and keep the same state key (`stateId ?? name`) —
+ * otherwise the rename would fork the profile's state. Throws on any mismatch.
+ * @param {string} text @param {string} newName @param {string} stateKey
+ */
+export function assertSafeRename(text, newName, stateKey) {
+  /** @type {any} */
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`rename: the edited config is not valid JSON (${e.message}) — nothing written.`);
+  }
+  const v = validateRawConfig(raw);
+  if (!v.ok) throw new Error(`rename: the edited config fails validation (${v.errors[0]}) — nothing written.`);
+  if (raw.name !== newName) throw new Error(`rename: the edited config's name is not "${newName}" — nothing written.`);
+  const key = raw.stateId ?? raw.name;
+  if (key !== stateKey) throw new Error(`rename: the edit would change the state key ("${stateKey}" → "${key}") — nothing written.`);
 }
 
 /** @param {any} args */
