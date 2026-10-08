@@ -75,7 +75,9 @@ export default function ConfigView(props: {
   restartRef.current = restart;
   const [toast, setToast] = useState<string | null>(null);
   const [pane, setPane] = useState<Pane>("raw");
-  const [graphOpen, setGraphOpen] = useState(true);
+  // The graph panel follows the pane — expanded on Pipeline, collapsed elsewhere — reset on every
+  // pane switch; the ▾/▸ toggle holds until the next one.
+  const [graphOpen, setGraphOpen] = useState(false);
   // Discover for `profile` (null = not fetched yet for the open profile); only the latest fetch lands.
   const [stages, setStages] = useState<(StagesState & { profile: string }) | null>(null);
   const discoverSeq = useRef(0);
@@ -140,6 +142,7 @@ export default function ConfigView(props: {
     // The raw editor is uncontrolled: remount it so it seeds from the buffer the forms edited.
     if (next === "raw") setEditorKey((k) => k + 1);
     setPane(next);
+    setGraphOpen(next === "pipeline");
   };
 
   /** Load the profile's config. `silent` (an external edit on a clean buffer — the `stale` phase)

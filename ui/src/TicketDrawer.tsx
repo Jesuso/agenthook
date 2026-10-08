@@ -34,6 +34,8 @@ const DOT_TEXT: Record<TicketStatus, string> = {
   failed: "text-status-failed",
   done: "text-status-done",
   idle: "text-status-idle",
+  interrupted: "text-status-interrupted",
+  stalled: "text-status-stalled",
 };
 
 type RunsState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; runs: RunView[] };

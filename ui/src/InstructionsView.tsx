@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { InstructionsView as InstructionsBody, ProfileView } from "./contract";
-import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -10,9 +10,14 @@ import { DiffLegend, Modal } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
+import { EmptyState, Pill, Segmented } from "./components";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
 type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
+type Side = "none" | "preview" | "agent";
+
+/** `localStorage` key for the last file opened in a profile, so re-opening the tab lands there. */
+const lastFileKey = (profile: string) => `ah.instructions.last:${profile}`;
 
 const OVERWRITE_PROMPT = "Overwrite the on-disk version with your buffer? The on-disk changes will be replaced (the previous content is kept as .bak).";
 
@@ -34,8 +39,7 @@ export default function InstructionsView(props: {
   const [file, setFileState] = useState<FileState>({ kind: "none" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
-  const [preview, setPreview] = useState(false);
-  const [agentView, setAgentView] = useState(false);
+  const [side, setSide] = useState<Side>("none");
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // Only the latest file load may land. `fileRef` is written with every update (not at render),
@@ -94,12 +98,32 @@ export default function InstructionsView(props: {
           if (!landable()) return;
           setFile({ kind: "ok", doc: freshSave({ profile: prof, path, content: b.content, baseHash: b.hash }) });
           setEditorKey((k) => k + 1);
+          try {
+            localStorage.setItem(lastFileKey(prof), path);
+          } catch {
+            /* unavailable (private mode, quota) — just skip remembering */
+          }
         });
       })
       .catch(() => {
         if (landable()) setFile({ kind: "error", path, status: 0 });
       });
   };
+
+  /** Auto-open once a profile's list first lands. Guarded on `fileRef` (not `file`) so an
+   *  SSE-driven re-fetch (same list, new object, bumped `listNonce`) never re-triggers this once
+   *  a file is already open. */
+  useEffect(() => {
+    if (list.kind !== "ok" || fileRef.current.kind !== "none") return;
+    let remembered: string | null = null;
+    try {
+      remembered = localStorage.getItem(lastFileKey(profile));
+    } catch {
+      /* unavailable — fall through to the first-existing-file default */
+    }
+    const path = initialFile(list.body.files, remembered);
+    if (path) load(profile, path);
+  }, [list, profile]);
 
   useEffect(() => {
     props.eventSink.current = (ev) => {
@@ -241,34 +265,25 @@ export default function InstructionsView(props: {
       </div>
       <div className="flex min-h-0 flex-1 gap-4">
         <nav className="w-72 shrink-0 overflow-auto text-sm">
-          {list.kind === "loading" && <p>Loading files…</p>}
-          {list.kind === "error" && <p>Failed to load instruction files (status {list.status}).</p>}
-          {list.kind === "ok" && list.body.files.length === 0 && (
-            <p className="text-[var(--color-muted)]">No instruction files published — the receiver is down or predates the editor.</p>
-          )}
+          {list.kind === "loading" && <p className="text-muted">Loading files…</p>}
           {list.kind === "ok" &&
             groupFiles(list.body.files).map((g) => (
               <section key={g.scope} className="mb-3">
-                <h3 className="mb-1 text-xs uppercase tracking-wide text-[var(--color-muted)]">{g.label}</h3>
+                <h3 className="mb-1 text-xs uppercase tracking-wide text-muted">{g.label}</h3>
                 <ul>
                   {g.files.map((f) => (
                     <li key={f.path}>
                       <button
-                        className={`w-full rounded px-2 py-1 text-left disabled:cursor-not-allowed disabled:opacity-60 ${open?.path === f.path ? "bg-[var(--color-border)]" : ""}`}
+                        className={`w-full rounded px-2 py-1 text-left disabled:cursor-not-allowed disabled:opacity-60 ${open?.path === f.path ? "bg-surface-raised" : ""}`}
                         disabled={!f.exists}
                         title={f.path}
                         onClick={() => pickFile(f.path)}
                       >
                         <div className="truncate font-mono">{baseName(f.path)}</div>
-                        <div className="text-xs text-[var(--color-muted)]">
-                          {f.ids.join(", ") || "—"} ·{" "}
-                          {f.exists ? formatBytes(f.bytes) : <span className="text-[var(--color-err)]">missing</span>}
-                          {f.agentsRunning > 0 && (
-                            <>
-                              {" · "}
-                              <span className="text-[var(--color-warn)]">{f.agentsRunning} running</span>
-                            </>
-                          )}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted">
+                          {f.ids.length ? f.ids.map((id) => <Pill key={id}>{id}</Pill>) : <span>—</span>}
+                          <span>· {f.exists ? formatBytes(f.bytes) : <span className="text-status-failed">missing</span>}</span>
+                          {f.agentsRunning > 0 && <span className="text-status-held">· {f.agentsRunning} running</span>}
                         </div>
                       </button>
                     </li>
@@ -278,10 +293,21 @@ export default function InstructionsView(props: {
             ))}
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
-          {file.kind === "none" && <p className="text-sm text-[var(--color-muted)]">Select a file.</p>}
+          {list.kind === "error" && (
+            <EmptyState title="Couldn't load instruction files" hint={`Request failed (status ${list.status}).`} />
+          )}
+          {list.kind === "ok" && list.body.files.length === 0 && (
+            <EmptyState
+              title="No instruction files"
+              hint="…the receiver publishes them in its heartbeat; this profile is down or predates the editor."
+            />
+          )}
+          {file.kind === "none" && list.kind === "ok" && list.body.files.length > 0 && (
+            <EmptyState title="Select a file" hint="Pick a file from the list to open it." />
+          )}
           {file.kind === "loading" && <p className="text-sm">Loading {baseName(file.path)}…</p>}
           {file.kind === "error" && (
-            <p className="text-sm text-[var(--color-err)]">
+            <p className="text-sm text-status-failed">
               {file.status === 404
                 ? `Can't open ${file.path}: it's gone, no longer allowlisted, a symlink, or over 256 KB.`
                 : `Failed to load ${file.path} (status ${file.status}).`}
@@ -294,41 +320,45 @@ export default function InstructionsView(props: {
                   {open.path}
                 </span>
                 {phase === "saving" ? (
-                  <span className="shrink-0 text-[var(--color-muted)]">saving…</span>
+                  <span className="shrink-0 text-muted">saving…</span>
                 ) : (
-                  dirty && <span className="shrink-0 text-[var(--color-warn)]">● modified</span>
+                  dirty && <span className="shrink-0 text-status-held">● modified</span>
                 )}
-                <button
-                  className="ml-auto shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5"
-                  onClick={() => setAgentView((v) => !v)}
-                >
-                  {agentView ? "hide what the agent sees" : "what the agent sees"}
-                </button>
-                <button className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5" onClick={() => setPreview((v) => !v)}>
-                  {preview ? "hide preview" : "preview"}
-                </button>
-                <button
-                  className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!dirty || phase !== "editing"}
-                  title="Save (Ctrl/Cmd-S)"
-                  onClick={requestSave}
-                >
-                  Save
-                </button>
+                <Segmented
+                  value={side}
+                  options={[
+                    { value: "none", label: "Editor" },
+                    { value: "preview", label: "Preview" },
+                    { value: "agent", label: "What the agent sees" },
+                  ]}
+                  onChange={setSide}
+                />
+                <span className="ml-auto flex shrink-0 items-center gap-2">
+                  <InlineLiveEffect agentsRunning={agentsRunning} />
+                  {!dirty && phase === "editing" && <span className="text-label text-muted">No changes</span>}
+                  <button
+                    className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!dirty || phase !== "editing"}
+                    title="Save (Ctrl/Cmd-S)"
+                    onClick={requestSave}
+                  >
+                    Save
+                  </button>
+                </span>
               </div>
               {(phase === "conflict" || phase === "deleted") && (
-                <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-3 py-1.5 text-sm text-[var(--color-warn)]">
+                <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
                   {phase === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
                   <span className="ml-auto flex gap-2">
-                    <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
+                    <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
                       Reload
                     </button>
                     {phase === "conflict" && (
                       <>
-                        <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={showDiff}>
+                        <button className="rounded border border-status-held px-2 py-0.5" onClick={showDiff}>
                           Diff
                         </button>
-                        <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={overwrite}>
+                        <button className="rounded border border-status-held px-2 py-0.5" onClick={overwrite}>
                           Overwrite
                         </button>
                       </>
@@ -340,13 +370,13 @@ export default function InstructionsView(props: {
                 <div className="min-w-0 flex-1">
                   <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
                 </div>
-                {preview && doc && (
+                {side === "preview" && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.
-                  <div className="md-preview min-w-0 flex-1 overflow-auto rounded border border-[var(--color-border)] px-4 py-2 text-sm">
+                  <div className="md-preview min-w-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm">
                     <Markdown>{doc.buffer}</Markdown>
                   </div>
                 )}
-                {agentView && doc && list.kind === "ok" && openFileView && (
+                {side === "agent" && doc && list.kind === "ok" && openFileView && (
                   <PromptPreview profile={profile} files={list.body.files} openFile={openFileView} buffer={doc.buffer} />
                 )}
               </div>
@@ -398,4 +428,10 @@ export default function InstructionsView(props: {
 function LiveEffect(props: { agentsRunning: number }) {
   const note = liveEffectNote(props.agentsRunning);
   return <p className={`mb-2 text-sm ${note.warn ? "text-[var(--color-warn)]" : "text-[var(--color-muted)]"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</p>;
+}
+
+/** The same note, inline beside Save rather than inside the confirm modal. */
+function InlineLiveEffect(props: { agentsRunning: number }) {
+  const note = liveEffectNote(props.agentsRunning);
+  return <span className={`text-label ${note.warn ? "text-status-held" : "text-muted"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</span>;
 }
