@@ -191,7 +191,9 @@ agenthook start          # ingress up → register/instruct webhook → serve
   creation) — paste the printed URL + secret into Jira admin once. See [jira-setup.md](jira-setup.md).
 
 Leave it running. (Add `--detach` to background it — stdout/stderr go to
-`~/.agenthook/<profile>/receiver.log`; `agenthook stop` to stop and remove its webhooks.)
+`~/.agenthook/<profile>/receiver.log`; `agenthook stop` to stop and remove its webhooks. On Linux
+this also runs it under a `systemd-run --user --scope` so it survives the launching terminal;
+opt out with `AGENTHOOK_NO_SYSTEMD_SCOPE=1`, see [troubleshooting.md](troubleshooting.md).)
 
 ## 8. Trigger your first run
 
