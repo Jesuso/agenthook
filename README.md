@@ -141,7 +141,20 @@ renamed, the config rewritten, and it comes back up on the new key with all its 
 
 ### Removing a profile
 
-The web UI (`agenthook ui`) has a **Remove…** action on each dashboard profile row. It never
+```bash
+agenthook remove proj-b           # archive ~/.agenthook/proj-b/ → ~/.agenthook-archive/proj-b-<stamp>/
+agenthook remove proj-b --purge   # stopped only: archive, then permanently delete the archived copy
+```
+
+`remove` takes a label or state key (never the cwd config) and asks you to type the profile name
+(`--yes` skips the prompt; required on a non-interactive stdin). A **running** receiver does it
+itself: it finishes its running agents, unregisters its webhooks (`--keep-hooks` keeps them),
+exits and archives its own state dir. A **stopped** one is archived directly, but its webhooks
+can't be unregistered without it — run `agenthook unregister --config <path>` **before**
+removing. The config file and agent worktrees are never touched (`agenthook cleanup` prunes the
+latter); undo an archive by moving the dir back.
+
+From the web UI: the web UI (`agenthook ui`) has a **Remove…** action on each dashboard profile row. It never
 hard-deletes: the state dir moves to `~/.agenthook-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/`
 (`$AGENTHOOK_HOME-archive/…` under a custom `AGENTHOOK_HOME`), keeping history, dedup, logs and
 webhook secrets — **reversible** by moving the dir back. Confirm by typing the profile's label.

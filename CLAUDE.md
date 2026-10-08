@@ -29,6 +29,7 @@ node bin/agenthook.js start [--detach]   # ingress up → register webhook → s
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
 node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --move also moves the state dir (at idle if running)
 node bin/agenthook.js restart            # restart the running receiver once idle
+node bin/agenthook.js remove <name|key> [--purge] [--yes] [--keep-hooks]  # retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
 node bin/agenthook.js follow [session]   # tail a live agent transcript read-only
