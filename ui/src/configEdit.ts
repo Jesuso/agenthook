@@ -16,6 +16,7 @@ export type Discover = { tracker: string; stageKeys: StageKeys | null; stages: S
 export const STAGE_ROLES = ["source", "success", "failure", "hold", "queue"] as const;
 export const STEP_KINDS = ["implement", "change", "review", "triage"] as const;
 export const STEP_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const KNOWN_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5"] as const;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const PIPELINE: JSONPath = ["tracker", "pipeline"];
