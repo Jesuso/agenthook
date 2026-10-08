@@ -53,6 +53,6 @@ describe("TicketDrawer", () => {
     const html = render({ ...row, prUrl: null, trackerUrl: null, title: null });
     expect(html).not.toContain("PR #");
     expect(html).toContain('<span class="shrink-0 font-mono">#221</span>');
-    expect(html).toContain('<span class="text-muted">—</span>');
+    expect(html).toContain('<span class="text-muted">(title unknown — appears after its next run)</span>');
   });
 });

@@ -77,19 +77,26 @@ const fixtures = [
     key: "acme-web",
     name: "acme-web",
     up: true,
-    heartbeat: { tracker: "asana", ingress: "hosted", fullAuto: false, maxConcurrent: 2, port: 8790, queue: { active: 1, queued: 0 } },
-    running: { 1209876543210: { stepId: "spec", startedAt: ago(2), model: "sonnet" } },
+    heartbeat: { tracker: "asana", ingress: "hosted", fullAuto: false, maxConcurrent: 2, port: 8790, queue: { active: 2, queued: 0 } },
+    // 1209876543210987 has a refmeta displayId (ID-2872, per issue #223's example); 1209876543210988
+    // has none — its ticket falls back to the bare ref as displayId and a null title, exercising
+    // the "no cached title yet" / "no matching displayId" fallbacks in the dashboard.
+    running: {
+      1209876543210987: { stepId: "review", startedAt: ago(12), model: "sonnet" },
+      1209876543210988: { stepId: "spec", startedAt: ago(2), model: "sonnet" },
+    },
     queue: [],
     held: {},
     refmeta: {
-      1209876543210: { displayId: "1209876543210", title: "Checkout: Apple Pay button misaligned", url: "https://app.asana.com/0/1/1209876543210" },
-      1209876543199: { displayId: "1209876543199", title: "Add CSV export to reports", url: "https://app.asana.com/0/1/1209876543199" },
+      1209876543210987: { displayId: "ID-2872", title: "Checkout: Apple Pay button misaligned", url: "https://app.asana.com/0/1/1209876543210987" },
+      1209876543199: { displayId: "ID-2871", title: "Add CSV export to reports", url: "https://app.asana.com/0/1/1209876543199" },
     },
     events: [
       { ts: ago(300), event: "run_start", ref: "1209876543199", step: "code", model: "opus" },
       { ts: ago(260), event: "run_end", ref: "1209876543199", step: "code", outcome: "advance", costUsd: 3.12 },
       { ts: ago(255), event: "pipeline_done", ref: "1209876543199", step: "done" },
-      { ts: ago(2), event: "run_start", ref: "1209876543210", step: "spec", model: "sonnet" },
+      { ts: ago(12), event: "run_start", ref: "1209876543210987", step: "review", model: "sonnet" },
+      { ts: ago(2), event: "run_start", ref: "1209876543210988", step: "spec", model: "sonnet" },
     ],
   },
   {
@@ -137,7 +144,9 @@ for (const f of fixtures) {
     configPath,
     startedAt: ago(600),
     updatedAt: ago(f.up ? 0 : 15),
-    lastEvent: last ? { at: last.ts, kind: last.event, ref: last.ref, step: last.step } : null,
+    // lastEvent.kind is the job kind (`pipeline`/`merge`/`ci`) written at intake — not the
+    // events.jsonl event name (src/engine.js intake()).
+    lastEvent: last ? { at: last.ts, kind: "pipeline", ref: last.ref, step: last.step } : null,
     ...f.heartbeat,
   });
   write("profile.json", { configPath, stateKey: f.key, name: f.name, createdAt: ago(60 * 24 * 7), updatedAt: ago(600) });
