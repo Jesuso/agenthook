@@ -107,6 +107,7 @@
  * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
  * @property {string} [title]      the task title
  * @property {number} [pr]         the PR number for the ref's branch, once one exists
+ * @property {string} [url]        the item's tracker web URL (Task.url)
  */
 
 /** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.
