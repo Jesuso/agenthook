@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `agenthook status` — pure-unit coverage for mapping a run-log filename back to its
 // ref (so the recent-runs list can show the human id / PR / title from refmeta).
 import test from "node:test";

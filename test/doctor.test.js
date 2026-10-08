@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // doctor — pure-unit coverage (no network): the pipeline-binding scan that flags
 // `init` TODO_* placeholders and empty bindings before they silently no-op a run,
 // plus the multi-repo routing lints.

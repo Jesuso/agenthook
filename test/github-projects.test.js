@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // GitHub Projects v2 adapter — pure-unit coverage (no network): HMAC authenticate,
 // Status-driven processEvents routing (created + edited, with the non-Status guards),
 // and advance setting the Status single-select option per outcome. The adapter is

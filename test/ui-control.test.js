@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` control-socket actions — `GET /api/discover` + `POST /api/restart` (src/ui/control-
 // client.js, src/control.js protocol). A fake control socket per profile stands in for the
 // receiver: it sends the v1 `hello` line, then replies to one request per test scenario (ok,

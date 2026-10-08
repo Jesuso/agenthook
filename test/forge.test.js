@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // GitHub forge — pure-unit coverage (no network): the shared x-hub-signature-256
 // verifier, branch → ref mapping, authenticate reject/accept, merged-PR + red-CI routing
 // in processEvents, the `/forge`-only hook scrub, and the red-CI REST calls.

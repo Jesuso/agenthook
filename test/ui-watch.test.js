@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` realtime watcher — dir-watch debounce + hash dedupe, the torn-read rule,
 // events.jsonl offset tailing, registry add/remove, and control-socket liveness.
 // Temp dirs + a local unix socket only; every watcher/socket is closed in `after`.

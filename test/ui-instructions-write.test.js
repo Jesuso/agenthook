@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` instructions editor, write side — `PUT /api/instructions/file`: every guard's failure
 // code in order, the 409 optimistic-concurrency check, the atomic write (mode, `.bak`, no temp
 // left), the audit line, the one-200/one-409 race, and SSE echo suppression.

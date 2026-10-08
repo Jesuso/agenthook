@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` server — Host guard, token→cookie auth, snapshot, traversal-safe static files,
 // and the "writes nothing" rule. Binds an ephemeral 127.0.0.1 port over a temp registry.
 import test from "node:test";

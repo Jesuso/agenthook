@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Dispatch argv builder — pure-unit coverage (no real `claude` spawn): the per-step
 // --model / --effort passthrough and the invalid-effort fallback (warn + omit). The
 // held-state tests at the bottom drive runClaude with a fake `claude` sh script.

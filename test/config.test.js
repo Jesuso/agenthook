@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Config load — pure-unit coverage of the completeOnMerge / forge validation. Each case
 // writes a throwaway config to a temp dir and expects loadConfig to REJECT it; rejection
 // happens before any state dir is created, so nothing lands in ~/.agenthook.

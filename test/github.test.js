@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // GitHub adapter — pure-unit coverage (no network): HMAC authenticate, label-driven
 // processEvents routing, and the crash-safe add-before-remove ordering in advance.
 import test from "node:test";

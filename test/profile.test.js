@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // stateId state key + profile.json marker + the boot-time rename refusal (src/profile.js).
 // Config cases load real files under the test AGENTHOOK_HOME; rename cases run on a per-test
 // temp registry so they never see each other's dirs.

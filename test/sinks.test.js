@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createSinks } from "../src/sinks.js";

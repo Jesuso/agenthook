@@ -1,3 +1,4 @@
+import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` view model — buildRows / readProfileState / buildSnapshot over fixture state
 // dirs in a temp registry (never ~/.agenthook), plus the heartbeat `repository` derivation.
 import test from "node:test";
