@@ -6,6 +6,7 @@
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
 //   agenthook rename <newName> [--move]  relabel this profile (--move: state dir follows)
 //   agenthook restart              restart the running receiver once idle
+//   agenthook remove <name|key> [--purge] [--yes] [--keep-hooks]  retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
 //   agenthook ls                   table of all profiles + status
 //   agenthook status [name]        one profile in detail
 //   agenthook follow [session-id] [--repo <id>]  tail a live agent transcript (read-only)
@@ -28,6 +29,7 @@ import { start } from "../src/commands/start.js";
 import { stop } from "../src/commands/stop.js";
 import { rename } from "../src/commands/rename.js";
 import { restart } from "../src/commands/restart.js";
+import { remove } from "../src/commands/remove.js";
 import { ls } from "../src/commands/ls.js";
 import { status } from "../src/commands/status.js";
 import { follow } from "../src/commands/follow.js";
@@ -78,7 +80,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui, rename, restart };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui, rename, restart, remove };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -90,6 +92,7 @@ usage: agenthook <command> [args] [--config <path>]
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
                             --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
   restart                   restart the running receiver once idle
+  remove <name|key> [--purge] [--yes] [--keep-hooks]  retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
   ls                        all profiles + status
   status [name]             one profile in detail
   follow [session-id] [--repo <id>]  tail a live agent (read-only; --repo = one repo only)
