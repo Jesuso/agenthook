@@ -217,12 +217,15 @@ function req(p, { host, cookie = COOKIE, method = "GET" } = {}) {
 const q = encodeURIComponent;
 const ROUTES = ["/api/instructions?profile=p", `/api/instructions/file?profile=p&path=${q(CODE)}`, "/api/prompt-preview?profile=p&step=code"];
 
-test("routes: cookie, Host guard, GET-only", async () => {
+test("routes: cookie, Host guard, GET-only (the file route also takes PUT — test/ui-instructions-write)", async () => {
   for (const p of ROUTES) {
     assert.equal((await req(p, { cookie: null })).status, 401, p);
     assert.equal((await req(p, { cookie: "ah_ui=wrong" })).status, 401, p);
     assert.equal((await req(p, { host: "evil.com" })).status, 403, p);
-    for (const method of ["POST", "PUT", "DELETE"]) assert.equal((await req(p, { method })).status, 405, p);
+    for (const method of ["POST", "PUT", "DELETE"]) {
+      if (method === "PUT" && p.startsWith("/api/instructions/file?")) continue;
+      assert.equal((await req(p, { method })).status, 405, p);
+    }
   }
 });
 
@@ -296,7 +299,7 @@ test("/api/stream: an external edit of an allowlisted file arrives as `event: in
     await new Promise((r) => setTimeout(r, 100)); // let the watcher seed + arm
     fs.writeFileSync(CODE, "# code v2\n");
     const text = await s.until((/** @type {string} */ t) => t.includes("event: instructions"));
-    const frame = { type: "instructions", profile: "p", path: CODE, hash: sha("# code v2\n") };
+    const frame = { type: "instructions", profile: "p", path: CODE, hash: sha("# code v2\n"), source: "disk" };
     assert.ok(text.includes(`event: instructions\ndata: ${JSON.stringify(frame)}\n\n`), text);
   } finally {
     s.abort();

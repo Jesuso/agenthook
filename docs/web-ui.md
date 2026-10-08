@@ -161,7 +161,7 @@ receiver publishes what it already resolved at boot: `configPath` and an `instru
 `{ path, scope: 'step'|'default'|'repo', ids[] }` (absolute paths). That list is the **only**
 write allowlist.
 
-**Write guards** (`PUT /api/instructions`):
+**Write guards** (`PUT /api/instructions/file`):
 - Cookie auth + `Host` check (as v1) + **`Origin` must equal the server origin** + required
   custom header `X-AH-UI: 1` + `Content-Type: application/json` (forces a CORS preflight that
   no other origin passes). Body capped at 256 KB.

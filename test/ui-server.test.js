@@ -129,13 +129,44 @@ test("static: traversal and NUL paths never escape distDir", async () => {
   }
 });
 
-test("src/ui never writes files", () => {
+/** The one writer in src/ui (writeInstructionFile) and the write-ish fs calls it needs. */
+const WRITER = "instructions.js";
+const WRITER_CALLS = new Set(["fchmodSync", "writeSync", "renameSync", "unlinkSync", "appendFileSync"]);
+const WRITES = /^[fl]?(write|writev|append|mkdir|mkdtemp|rm|rmdir|unlink|rename|copyFile|cp|truncate|symlink|link|chmod|chown|utimes|createWriteStream)(File)?(Sync)?$/;
+
+/** Write-ish fs usage in one src/ui file that its role doesn't allow. @param {string} name @param {string} src */
+function uiWrites(name, src) {
+  const writer = name === WRITER;
+  /** @type {string[]} */
+  const bad = [];
+  for (const m of src.matchAll(/\bfs\.(\w+)/g)) if (WRITES.test(m[1]) && !(writer && WRITER_CALLS.has(m[1]))) bad.push(`fs.${m[1]}`);
+  if (/fs\.promises|["'](node:)?fs\/promises["']|import\s*\{[^}]*\}\s*from\s*["'](node:)?fs["']|require\(/.test(src)) bad.push("fs import");
+  if (!writer) {
+    // Only `fs.openSync(<file>, "r")`; no write flag constants anywhere.
+    for (const line of src.split("\n")) if (/openSync\(/.test(line) && !/openSync\(.*,\s*["']r["']\)/.test(line)) bad.push(`opens for write: ${line.trim()}`);
+    if (/\bO_(WRONLY|RDWR|CREAT|APPEND|TRUNC)\b/.test(src)) bad.push("O_* write flag");
+  }
+  return bad;
+}
+
+test("src/ui never writes files — except the instructions writer, and only its calls", () => {
   const dir = fileURLToPath(new URL("../src/ui/", import.meta.url));
-  const writes = /\b(write|append|mkdir|rm|rmdir|unlink|rename|copyFile|cp|truncate|symlink|chmod|utimes|createWriteStream)(File)?(Sync)?\s*\(/;
-  for (const f of fs.readdirSync(dir)) {
-    const src = fs.readFileSync(path.join(dir, f), "utf8");
-    for (const m of src.matchAll(/fs\.(\w+)/g)) assert.ok(!writes.test(m[1] + "("), `${f} calls fs.${m[1]}`);
-    assert.ok(!/["']w[+x]?["']|["']a\+?["']/.test(src.match(/openSync\([^)]*\)/g)?.join("") || ""), `${f} opens for write`);
+  for (const f of fs.readdirSync(dir)) assert.deepEqual(uiWrites(f, fs.readFileSync(path.join(dir, f), "utf8")), [], f);
+  // The rule bites: any write outside instructions.js, or an unlisted one inside it.
+  for (const [f, src] of [
+    ["server.js", "fs.writeFileSync(p, x)"],
+    ["server.js", "fs.appendFileSync(p, x)"],
+    ["watch.js", "fs.renameSync(a, b)"],
+    ["rows.js", "fs.fchmodSync(fd, 0o600)"],
+    ["logs.js", 'fs.openSync(p, "w")'],
+    ["logs.js", "fs.openSync(p, fs.constants.O_WRONLY)"],
+    ["logs.js", 'import { writeFileSync } from "node:fs"'],
+    ["instructions.js", "fs.writeFileSync(p, x)"],
+    ["instructions.js", "fs.rmSync(p)"],
+    ["instructions.js", "fs.chmodSync(p, 0o777)"],
+    ["instructions.js", "fs.promises.writeFile(p, x)"],
+  ]) {
+    assert.notDeepEqual(uiWrites(f, src), [], `${f}: ${src}`);
   }
 });
 
