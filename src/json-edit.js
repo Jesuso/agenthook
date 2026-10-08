@@ -27,7 +27,7 @@ function scanTopLevelMembers(text) {
       if (c === "\\") {
         const next = text[i + 1];
         if (next === "u") {
-          out += JSON.parse(text.slice(i, i + 6));
+          out += JSON.parse(`"${text.slice(i, i + 6)}"`);
           i += 6;
         } else {
           out += JSON.parse(`"\\${next}"`);

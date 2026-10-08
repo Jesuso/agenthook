@@ -61,6 +61,13 @@ test("nested name keys are ignored", () => {
   assert.equal(out, '{\n  "name": "new",\n  "stateId": "old",\n  "tracker": {\n    "name": "nested"\n  }\n}\n');
 });
 
+test("\\u escapes in a nested string and a top-level key don't trip the scanner", () => {
+  const text = '{\n  "name": "old",\n  "caf\\u00e9": "x",\n  "tracker": {\n    "x": "caf\\u00e9"\n  }\n}\n';
+  const out = renameInConfigText(text, "new", "old");
+  assert.equal(out, '{\n  "name": "new",\n  "stateId": "old",\n  "caf\\u00e9": "x",\n  "tracker": {\n    "x": "caf\\u00e9"\n  }\n}\n');
+  assert.deepEqual(JSON.parse(out), { ...JSON.parse(text), name: "new", stateId: "old" });
+});
+
 test("missing top-level name throws", () => {
   assert.throws(() => renameInConfigText('{\n  "other": 1\n}\n', "new", "x"), /no top-level "name"/);
 });
