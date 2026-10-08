@@ -387,7 +387,7 @@ export function createEngine(cfg) {
       // POST a handshake/ping to the public URL, which must reach a live server (Asana
       // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
       await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
-      control = await startControl(cfg, { startedAt }); // owner check reads the OLD pidfile — must run before the write below
+      control = await startControl(cfg, { startedAt, adapter }); // owner check reads the OLD pidfile — must run before the write below
       fs.writeFileSync(cfg.pidFile, String(process.pid));
       console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
 
