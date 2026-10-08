@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { literalSecrets, validateRawConfig } from "../config.js";
+import { listProfiles } from "../heartbeat.js";
 import { profileDir } from "./logs.js";
 import { isObj, readJson, sha256 } from "./rows.js";
 import { UI_MAX_BYTES, atomicSave, readCurrent } from "./save.js";
@@ -82,14 +83,16 @@ export function readConfigFile(registry, profile) {
 /**
  * Save the profile's config (`PUT /api/config`). Sequence: resolve (as readConfigFile) → 404;
  * size cap → 413; `baseHash` must equal the current sha256 → else 409 with the current text;
- * the new text must parse and pass validateRawConfig → else 422 `{ errors }`; a changed top-level
- * `name` → else 422 `{ errors }` (renaming forks the state dir — `~/.agenthook/<name>/` — so it's
- * blocked here; the old config is parsed first so this check runs before anything is written; an
- * unparsable current file falls back to comparing against `profile`, the state-dir name, so a
- * broken file can't be "fixed" into a rename); any 422 writes nothing (no temp, no backup, no
- * audit); then save.js atomicSave with the backup under `config-bak/` and the audit line's
- * `sensitive` = sensitiveChanges(old, new). Fully synchronous, so concurrent saves with one
- * `baseHash` get exactly one 200 and one 409.
+ * the new text must parse and pass validateRawConfig → else 422 `{ errors }`; a **state-key
+ * guard**: the effective new state key (`raw.stateId ?? raw.name`) must still equal `profile`
+ * (the state-dir name — authoritative, so no old-file parse is needed for this check) → else
+ * 422 (covers a raw rename with no `stateId`, and editing/removing an existing `stateId`); a
+ * **label collision**: only when the new `name` actually differs from the old parsed file's
+ * `name` (so a pre-existing collision doesn't block an unrelated save), the new name must not
+ * equal another registry profile's label or state key → else 422; any 422 writes nothing (no
+ * temp, no backup, no audit); then save.js atomicSave with the backup under `config-bak/` and
+ * the audit line's `sensitive` = sensitiveChanges(old, new). Fully synchronous, so concurrent
+ * saves with one `baseHash` get exactly one 200 and one 409.
  * @param {string} registry @param {string} profile @param {string} baseHash @param {string} text
  * @returns {{ status: 200, path: string, hash: string, restartNeeded: true } | { status: 409, text: string, hash: string }
  *   | { status: 422, errors: string[] } | { status: 404|413|500 }}
@@ -106,16 +109,28 @@ export function writeConfigFile(registry, profile, baseHash, text) {
   const r = parse(text);
   const errors = errorsOf(r);
   if (errors.length || !("raw" in r)) return { status: 422, errors };
+  const newKey = isObj(r.raw) && typeof r.raw.stateId === "string" ? r.raw.stateId : r.raw.name;
+  if (newKey !== profile) {
+    return {
+      status: 422,
+      errors: [
+        `config: this save would change the profile's state key ("${profile}" → "${newKey}") and fork its state dir — keep "stateId": "${profile}" to rename only the label.`,
+      ],
+    };
+  }
   const old = parse(cur.cur.toString("utf8"));
   const oldName = "raw" in old && isObj(old.raw) && typeof old.raw.name === "string" ? old.raw.name : profile;
   const newName = isObj(r.raw) && typeof r.raw.name === "string" ? r.raw.name : undefined;
   if (newName !== undefined && newName !== oldName) {
-    return {
-      status: 422,
-      errors: [
-        `config: renaming a profile ("${oldName}" → "${newName}") moves its state directory and loses its history — not supported from the UI; edit the file by hand and migrate ~/.agenthook/${oldName}/ if you really mean it.`,
-      ],
-    };
+    const collision = listProfiles(registry).find(
+      (p) => p.stateKey !== profile && (p.name === newName || p.stateKey === newName),
+    );
+    if (collision) {
+      return {
+        status: 422,
+        errors: [`config: name "${newName}" is already used by profile "${collision.stateKey}" (label or state key) — pick another.`],
+      };
+    }
   }
   const sensitive = sensitiveChanges("raw" in old ? old.raw : undefined, r.raw);
   const saved = atomicSave({ stateDir: dir, file, cur: cur.cur, mode: cur.mode, next, bakSubdir: "config-bak", audit: { sensitive } });

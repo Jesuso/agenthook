@@ -64,8 +64,8 @@ const P = profile("p");
 const BAD = profile("bad", json({ name: "bad", tracker: { type: "github", token: "ghp_literal" } }));
 const UNPARSE = profile("unparse", '{ "name": "u", ');
 const LIVE = profile("live", json(valid({ name: "live" })));
-const RACE = profile("race");
-const BAKLINK = profile("baklink");
+const RACE = profile("race", json(valid({ name: "race" })));
+const BAKLINK = profile("baklink", json(valid({ name: "baklink" })));
 profile("nocfg", null, null);
 const LINKED = profile("linked", null, path.join(root, "cfg", "linked", "agenthook.config.json"));
 fs.mkdirSync(path.dirname(LINKED.file), { recursive: true });
@@ -151,7 +151,7 @@ test("sensitiveChanges: concrete changed paths, [*] over the union of both array
   assert.deepEqual(sensitiveChanges(a, b), ["sinks[1].botToken"]);
   // Non-sensitive edits are not reported; a key-order change is not a value change.
   assert.deepEqual(sensitiveChanges(a, valid({ maxConcurrent: 3 })), []);
-  // `name` is sensitive too (a rename forks the state dir — writeConfigFile blocks it outright).
+  // `name` is sensitive too (it's the profile's label; writeConfigFile separately guards the state key).
   assert.deepEqual(sensitiveChanges(a, valid({ name: "q" })), ["name"]);
   // Added / removed fields and array elements.
   assert.deepEqual(sensitiveChanges(a, valid({ claudeBin: "/bin/claude" })), ["claudeBin"]);
@@ -259,18 +259,59 @@ test("PUT invalid text → 422 {errors}; file, backup dir and audit untouched", 
   assert.deepEqual(footprint(P), before);
 });
 
-test("PUT changed top-level name → 422 (renaming forks the state dir); nothing written", async () => {
+test("PUT renamed name with no stateId → 422 (would fork the state dir); nothing written", async () => {
   const before = footprint(P);
   const res = await put(save(P, json(valid({ name: "renamed" }))));
   assert.equal(res.status, 422);
   const errs = JSON.parse(res.body).errors;
   assert.equal(errs.length, 1);
-  assert.match(errs[0], /renaming a profile \("p" → "renamed"\)/);
+  assert.match(errs[0], /state key \("p" → "renamed"\)/);
   assert.deepEqual(footprint(P), before);
+});
+
+test('PUT stateId that differs from the profile\'s state key → 422, even with "name" unchanged', async () => {
+  const before = footprint(P);
+  const res = await put(save(P, json(valid({ stateId: "q" }))));
+  assert.equal(res.status, 422);
+  assert.match(JSON.parse(res.body).errors[0], /state key \("p" → "q"\)/);
+  assert.deepEqual(footprint(P), before);
+});
+
+test("PUT renamed name with a matching stateId → 200: rename only the label, state key stays put", async () => {
+  const res = await put(save(P, json(valid({ name: "renamed", stateId: "p" }))));
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(fs.readFileSync(P.file, "utf8")).name, "renamed");
+  // Restore so later tests' baseline (`valid()`, name "p") still matches the on-disk file.
+  const undo = await put(save(P, json(valid())));
+  assert.equal(undo.status, 200);
+});
+
+test("PUT new name colliding with another profile's label or state key → 422; nothing written", async () => {
+  const before = footprint(P);
+  const res = await put(save(P, json(valid({ name: "live", stateId: "p" }))));
+  assert.equal(res.status, 422);
+  assert.match(JSON.parse(res.body).errors[0], /name "live" is already used by profile "live"/);
+  assert.deepEqual(footprint(P), before);
+});
+
+test("PUT unchanged name saves even though its label already collides with another profile's", async () => {
+  // A throwaway profile whose label duplicates P's current name "p" — a pre-existing collision
+  // the save of P must ignore because P's own name isn't changing.
+  const dup = profile("dup-collide", json(valid({ name: "dup-collide" })));
+  fs.writeFileSync(path.join(dup.dir, "heartbeat.json"), JSON.stringify({ name: "p", configPath: dup.file }));
+  try {
+    const res = await put(save(P, json(valid({ fullAuto: true }))));
+    assert.equal(res.status, 200);
+    const undo = await put(save(P, json(valid())));
+    assert.equal(undo.status, 200);
+  } finally {
+    fs.rmSync(dup.dir, { recursive: true, force: true });
+  }
 });
 
 test("PUT save: 200 {hash, restartNeeded}, atomic replace keeps mode, config-bak/ backup, audit names sensitive changes", async () => {
   const AUDIT = path.join(P.dir, "ui-audit.jsonl");
+  fs.rmSync(AUDIT, { force: true }); // isolate from the earlier rename tests' own audit lines on P
   const v1 = fs.readFileSync(P.file, "utf8");
   fs.chmodSync(P.file, 0o640);
   const beside = fs.readdirSync(path.dirname(P.file)).sort();
@@ -316,14 +357,14 @@ test("PUT over an unparseable config → audit names every sensitive path in the
 
 test("PUT: a symlinked config-bak backup is never followed → 500, config unchanged, nothing left beside it", async () => {
   const before = footprint(BAKLINK);
-  assert.equal((await put(save(BAKLINK, json(valid({ fullAuto: true }))))).status, 500);
+  assert.equal((await put(save(BAKLINK, json(valid({ name: "baklink", fullAuto: true }))))).status, 500);
   assert.deepEqual(footprint(BAKLINK), before);
   assert.equal(fs.readFileSync(path.join(root, "bak-target"), "utf8"), "untouched\n");
 });
 
 test("two concurrent PUTs with the same baseHash → exactly one 200, one 409", async () => {
-  const one = json(valid({ trigger: "one" }));
-  const two = json(valid({ trigger: "two" }));
+  const one = json(valid({ name: "race", trigger: "one" }));
+  const two = json(valid({ name: "race", trigger: "two" }));
   const [a, b] = await Promise.all([put(save(RACE, one)), put(save(RACE, two))]);
   assert.deepEqual([a.status, b.status].sort(), [200, 409]);
   const won = a.status === 200 ? one : two;

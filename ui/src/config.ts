@@ -79,6 +79,9 @@ export function sensitiveDiff(oldText: string, newText: string): SensitiveChange
 
 const shown = (v: unknown) => (v === undefined ? "(unset)" : JSON.stringify(v));
 
+/** `name`'s confirm-dialog path reads as "label" (the UI's term for it), not the raw JSON key. */
+export const sensitiveLabel = (path: string): string => (path === "name" ? "label (name)" : path);
+
 /** An SSE `config` event as the `instructions` shape `saveReducer` keys on (`path` = the open config's). */
 export function configEventAsFile(ev: ConfigEvent, path: string): InstructionsEvent {
   return { type: "instructions", profile: ev.profile, path, hash: ev.hash, source: ev.source };

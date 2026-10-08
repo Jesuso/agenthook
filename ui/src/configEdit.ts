@@ -33,6 +33,27 @@ export function setPath(text: string, path: JSONPath, value: unknown): string {
   return applyEdits(text, modify(text, path, value, { formattingOptions: formattingFor(text) }));
 }
 
+/**
+ * The `name` field's edit: sets the label and, unless `stateId` is already present, inserts
+ * `"stateId": stateKey` right after `"name"` so the save keeps the profile's state dir in place
+ * (the server rejects a save whose effective state key — `stateId ?? name` — no longer matches
+ * the profile). No-op insert when `stateId` is already set (reverting the name then leaves a
+ * harmless `stateId` equal to the state key).
+ */
+export function renameEdit(text: string, input: string, stateKey: string): string {
+  const next = textEdit(text, ["name"], input);
+  const raw = JSON.parse(next);
+  if (isObj(raw) && raw.stateId !== undefined) return next;
+  const edits = modify(next, ["stateId"], stateKey, {
+    getInsertionIndex: (properties) => {
+      const i = properties.indexOf("name");
+      return i === -1 ? properties.length : i + 1;
+    },
+    formattingOptions: formattingFor(next),
+  });
+  return applyEdits(next, edits);
+}
+
 export type Basics = { name?: unknown; maxConcurrent?: unknown; fullAuto?: unknown; port?: unknown; trigger?: unknown };
 
 export function readBasics(raw: unknown): Basics {
