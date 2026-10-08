@@ -139,6 +139,21 @@ renamed, the config rewritten, and it comes back up on the new key with all its 
   open on the dir can make the rename fail (`EPERM`/`EBUSY`); the receiver then restarts on the
   old key unchanged — retry later.
 
+### Removing a profile
+
+```bash
+agenthook remove proj-b           # archive ~/.agenthook/proj-b/ → ~/.agenthook-archive/proj-b-<stamp>/
+agenthook remove proj-b --purge   # stopped only: archive, then permanently delete the archived copy
+```
+
+`remove` takes a label or state key (never the cwd config) and asks you to type the profile name
+(`--yes` skips the prompt; required on a non-interactive stdin). A **running** receiver does it
+itself: it finishes its running agents, unregisters its webhooks (`--keep-hooks` keeps them),
+exits and archives its own state dir. A **stopped** one is archived directly, but its webhooks
+can't be unregistered without it — run `agenthook unregister --config <path>` **before**
+removing. The config file and agent worktrees are never touched (`agenthook cleanup` prunes the
+latter); undo an archive by moving the dir back.
+
 ## Ingress (how the webhook reaches you)
 
 Set by `ingress.type` in the config; the server owns its lifecycle (brings the tunnel up on
