@@ -21,8 +21,18 @@ export function configSaveRequest(profile: string, baseHash: string, text: strin
   return { url: "/api/config", init: guarded("PUT", { profile, baseHash, text }) };
 }
 
-export function restartRequest(profile: string): { url: string; init: RequestInit } {
-  return { url: "/api/restart", init: guarded("POST", { profile }) };
+/** `moveTo` = `rename --move`: the receiver also moves its state dir to that key at idle. */
+export function restartRequest(profile: string, moveTo?: string): { url: string; init: RequestInit } {
+  return { url: "/api/restart", init: guarded("POST", moveTo === undefined ? { profile } : { profile, moveTo }) };
+}
+
+/**
+ * The state key a "Move state dir to match name" would move to: the loaded config's label when it
+ * differs from the open profile's state key, else null (nothing to move; unparseable config too).
+ */
+export function moveTarget(raw: unknown, stateKey: string): string | null {
+  const name = raw && typeof raw === "object" ? (raw as { name?: unknown }).name : undefined;
+  return typeof name === "string" && name !== "" && name !== stateKey ? name : null;
 }
 
 /** The browser's own JSON.parse — the only check Save waits on; the server stays the authority for the rest. */

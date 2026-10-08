@@ -3,10 +3,19 @@
 // one isn't already set), so the state dir (~/.agenthook/<stateKey>/) never moves. A running
 // receiver keeps its old label until `agenthook restart` (or the UI's "Restart when idle")
 // re-reads the config.
-import { ensurePrivateDir, peekConfig, validName, validateRawConfig } from "../config.js";
+//
+// `--move` (decision A) also moves the state dir to ~/.agenthook/<newName>/ and drops
+// "stateId" (src/state-move.js): a running receiver does it itself in a restart-when-idle
+// (`restart {moveTo}` over the control socket); a stopped one has it done here directly.
+import path from "node:path";
+import { ensurePrivateDir, peekConfig, registryDir, validName, validateRawConfig } from "../config.js";
 import { listProfiles, readProfile } from "../heartbeat.js";
 import { renameInConfigText } from "../json-edit.js";
+import { controlSockPath } from "../paths.js";
+import { tildify } from "../profile.js";
+import { checkMove, moveStateDir } from "../state-move.js";
 import { atomicSave, readCurrent } from "../ui/save.js";
+import { sendRestart } from "./restart.js";
 
 /**
  * The testable core: validates, checks for collisions, rewrites the config text, and saves it.
@@ -73,24 +82,59 @@ export function assertSafeRename(text, newName, stateKey) {
 export async function rename(args) {
   const newName = args._[0];
   if (!newName) {
-    console.error("usage: agenthook rename <newName>");
+    console.error("usage: agenthook rename <newName> [--move]");
     process.exitCode = 1;
     return;
   }
+  const move = !!args.move;
   let result;
+  /** @type {ReturnType<typeof peekConfig>} */
+  let peek;
   try {
-    result = renameProfile({ configPath: args.config, newName: String(newName) });
+    peek = peekConfig({ configPath: args.config });
+    // --move: refuse up front (before relabelling) when the dir can't follow the name.
+    if (move && peek.stateKey !== newName) checkMove({ configPath: peek.configPath, from: peek.stateKey, to: String(newName) });
+    result = renameProfile({ configPath: peek.configPath, newName: String(newName) });
   } catch (e) {
     console.error(e.message);
     process.exitCode = 1;
     return;
   }
-  if (!result.changed) {
-    console.log(`already named "${result.from}".`);
+  if (!move) {
+    if (!result.changed) {
+      console.log(`already named "${result.from}".`);
+      return;
+    }
+    console.log(`renamed "${result.from}" → "${result.to}" (state key "${result.stateKey}" unchanged)`);
+    if (result.running) {
+      console.log("renamed — run `agenthook restart` or use \"Restart when idle\" to apply the new label");
+    }
     return;
   }
-  console.log(`renamed "${result.from}" → "${result.to}" (state key "${result.stateKey}" unchanged)`);
-  if (result.running) {
-    console.log("renamed — run `agenthook restart` or use \"Restart when idle\" to apply the new label");
+
+  if (result.changed) console.log(`renamed "${result.from}" → "${result.to}"`);
+  const from = result.stateKey;
+  const to = result.to;
+  const fromDir = tildify(path.join(registryDir, from)) + path.sep;
+  const toDir = tildify(path.join(registryDir, to)) + path.sep;
+  if (from === to) {
+    console.log(`already named "${to}" and the state dir already matches.`);
+    return;
   }
+  if (result.running) {
+    if (await sendRestart(controlSockPath(peek.stateDir, from), { when: "idle", moveTo: to })) {
+      console.log(`the receiver moves ${fromDir} → ${toDir} when idle, then restarts on "${to}"`);
+    } else {
+      console.error(`state dir not moved — once the receiver is stopped, re-run \`agenthook rename ${to} --move --config ${peek.configPath}\``);
+    }
+    return;
+  }
+  try {
+    moveStateDir({ configPath: peek.configPath, from, to });
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`moved ${fromDir} → ${toDir}`);
 }

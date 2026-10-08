@@ -21,8 +21,8 @@ function canonical(p) {
   }
 }
 
-/** @param {string} p */
-function tildify(p) {
+/** `p` with the home dir shown as `~`. @param {string} p */
+export function tildify(p) {
   const home = os.homedir();
   return p === home || p.startsWith(home + path.sep) ? "~" + p.slice(home.length) : p;
 }

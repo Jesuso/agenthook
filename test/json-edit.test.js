@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { renameInConfigText } from "../src/json-edit.js";
+import { renameInConfigText, setStateIdInConfigText } from "../src/json-edit.js";
 
 const EXAMPLE = fs.readFileSync(fileURLToPath(new URL("../agenthook.config.example.json", import.meta.url)), "utf8");
 
@@ -78,4 +78,59 @@ test("duplicate top-level name throws", () => {
 
 test("non-string top-level name throws", () => {
   assert.throws(() => renameInConfigText('{\n  "name": 7\n}\n', "new", "x"), /not a string/);
+});
+
+// setStateIdInConfigText — `rename --move`'s editor: set, replace or drop the top-level stateId.
+
+test("setStateId: replaces an existing value in place", () => {
+  const text = '{\n  "name": "new",\n  "stateId": "old",\n  "other": 1\n}\n';
+  assert.equal(setStateIdInConfigText(text, "moved"), '{\n  "name": "new",\n  "stateId": "moved",\n  "other": 1\n}\n');
+});
+
+test("setStateId null: removes the member and its line (multi-line, middle and last)", () => {
+  assert.equal(
+    setStateIdInConfigText('{\n  "name": "new",\n  "stateId": "old",\n  "other": 1\n}\n', null),
+    '{\n  "name": "new",\n  "other": 1\n}\n',
+  );
+  assert.equal(setStateIdInConfigText('{\n  "name": "new",\n  "stateId": "old"\n}\n', null), '{\n  "name": "new"\n}\n');
+  assert.equal(setStateIdInConfigText('{\n  "stateId": "old",\n  "name": "new"\n}\n', null), '{\n  "name": "new"\n}\n');
+});
+
+test("setStateId null: compact JSON (middle and last)", () => {
+  assert.equal(setStateIdInConfigText('{"name": "new", "stateId": "old", "x": 1}', null), '{"name": "new", "x": 1}');
+  assert.equal(setStateIdInConfigText('{"name":"new","stateId":"old"}', null), '{"name":"new"}');
+});
+
+test("setStateId null with no stateId: unchanged", () => {
+  const text = '{\n  "name": "n"\n}\n';
+  assert.equal(setStateIdInConfigText(text, null), text);
+});
+
+test("setStateId: inserts after name when absent (multi-line + compact)", () => {
+  assert.equal(setStateIdInConfigText('{\n  "name": "n",\n  "x": 1\n}\n', "k"), '{\n  "name": "n",\n  "stateId": "k",\n  "x": 1\n}\n');
+  assert.equal(setStateIdInConfigText('{"name": "n", "x": 1}', "k"), '{"name": "n", "stateId": "k", "x": 1}');
+});
+
+test("setStateId: preserves CRLF, tab indent and key order", () => {
+  const text = '{\r\n\t"a": 1,\r\n\t"name": "n",\r\n\t"stateId": "old",\r\n\t"z": [1, 2]\r\n}\r\n';
+  assert.equal(setStateIdInConfigText(text, null), '{\r\n\t"a": 1,\r\n\t"name": "n",\r\n\t"z": [1, 2]\r\n}\r\n');
+  assert.equal(setStateIdInConfigText('{\r\n\t"name": "n",\r\n\t"z": 1\r\n}\r\n', "k"), '{\r\n\t"name": "n",\r\n\t"stateId": "k",\r\n\t"z": 1\r\n}\r\n');
+});
+
+test("setStateId on the example config: drop round-trips", () => {
+  const withId = setStateIdInConfigText(EXAMPLE, "keyed");
+  assert.equal(JSON.parse(withId).stateId, "keyed");
+  assert.equal(setStateIdInConfigText(withId, null), EXAMPLE);
+});
+
+test("setStateId: throws on a duplicate or non-string stateId", () => {
+  assert.throws(() => setStateIdInConfigText('{"name":"n","stateId":"a","stateId":"b"}', null), /duplicate/);
+  assert.throws(() => setStateIdInConfigText('{"name":"n","stateId":5}', "k"), /not a string/);
+  assert.throws(() => setStateIdInConfigText('{"name":"n","stateId":null}', null), /not a string/);
+});
+
+test("setStateId: a nested stateId is never touched", () => {
+  const text = '{\n  "name": "n",\n  "tracker": { "stateId": "inner" }\n}\n';
+  const out = setStateIdInConfigText(text, "k");
+  assert.deepEqual(JSON.parse(out), { name: "n", stateId: "k", tracker: { stateId: "inner" } });
 });

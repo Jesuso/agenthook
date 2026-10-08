@@ -117,6 +117,28 @@ agenthook status proj-a   # one profile in detail (url, queue, recent runs)
 Each command auto-discovers `./agenthook.config.json` (walking up from the cwd); `--config`
 selects one explicitly.
 
+### Renaming a profile
+
+```bash
+agenthook rename proj-b2          # relabel only: inserts "stateId": "proj-b", state dir stays put
+agenthook rename proj-b2 --move   # relabel AND move ~/.agenthook/proj-b/ → ~/.agenthook/proj-b2/
+```
+
+`--move` drops `stateId` from the config once the dir follows the name. A **running** receiver
+does the move itself on a restart-when-idle (new runs pause, running agents finish, the dir is
+renamed, the config rewritten, and it comes back up on the new key with all its history); a
+**stopped** one has it moved directly by the CLI. The web UI's Config view offers the same as
+"Move state dir to match name" whenever the label and the state key differ.
+
+- **Crash safety:** the dir is moved first, then the config written (a failed write moves the dir
+  back). If the process dies between the two, the next `start` is refused with the exact
+  `"stateId": "<new>"` to add — or move the dir back by hand.
+- **Same filesystem only:** a state dir on a different filesystem than `~/.agenthook` is refused
+  ("move by hand") — the move is always a plain rename, never a copy.
+- **Windows:** the control pipe is keyed by the state key, so it follows the move. A handle still
+  open on the dir can make the rename fail (`EPERM`/`EBUSY`); the receiver then restarts on the
+  old key unchanged — retry later.
+
 ## Ingress (how the webhook reaches you)
 
 Set by `ingress.type` in the config; the server owns its lifecycle (brings the tunnel up on
@@ -136,7 +158,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | Field | Meaning |
 |-------|---------|
 | `name` | Profile name; keys the state dir unless `stateId` is set. Must be unique across running profiles. |
-| `stateId` | Optional stable state key (`[A-Za-z0-9._-]+`): the state dir is `~/.agenthook/<stateId>`, so `name` can be relabelled without moving state. Renaming a profile *without* it makes `start` refuse (its config already owns another state dir — see `profile.json` there) rather than silently start on an empty dir. |
+| `stateId` | Optional stable state key (`[A-Za-z0-9._-]+`): the state dir is `~/.agenthook/<stateId>`, so `name` can be relabelled without moving state (`agenthook rename <new>`; `--move` moves the dir too and drops it). Renaming a profile *without* it makes `start` refuse (its config already owns another state dir — see `profile.json` there) rather than silently start on an empty dir. |
 | `repoPath` | The repo agents work in (worktrees are siblings). Relative paths resolve against the config. |
 | `port` | Local receiver port. Distinct per parallel profile. |
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |

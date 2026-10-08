@@ -4,10 +4,12 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { registryDir } from "../src/config.js";
-import { renameProfile, assertSafeRename } from "../src/commands/rename.js";
+import { controlSockPath } from "../src/paths.js";
+import { rename, renameProfile, assertSafeRename } from "../src/commands/rename.js";
 
 // peekConfig (inside renameProfile) derives a profile's stateDir from config.js's module-scoped
 // registryDir (AGENTHOOK_HOME, set once by _setup.js) — not a passable param — so this test's
@@ -106,4 +108,103 @@ test("assertSafeRename: rejects invalid JSON, a changed state key, and a wrong n
   assert.throws(() => assertSafeRename("{", "new", "old"), /not valid JSON/);
   assert.throws(() => assertSafeRename(ok.replace('"stateId":"old",', ""), "new", "old"), /state key/);
   assert.throws(() => assertSafeRename(ok, "other", "old"), /name is not/);
+});
+
+// --- `rename --move` (the CLI wrapper) ---
+
+/** Capture console output + exitCode across one `rename(args)` call. */
+async function runRename(args) {
+  const logs = [];
+  const errs = [];
+  const origLog = console.log;
+  const origErr = console.error;
+  console.log = (...a) => logs.push(a.join(" "));
+  console.error = (...a) => errs.push(a.join(" "));
+  const before = process.exitCode;
+  process.exitCode = undefined;
+  try {
+    await rename(args);
+  } finally {
+    console.log = origLog;
+    console.error = origErr;
+  }
+  const exitCode = process.exitCode;
+  process.exitCode = before;
+  return { logs: logs.join("\n"), errs: errs.join("\n"), exitCode };
+}
+
+test("--move, stopped: relabels and moves the state dir in one go, stateId dropped", async () => {
+  const p = profile({ name: "mvcli-old" });
+  fs.writeFileSync(path.join(p.stateDir, "seen.json"), "[]");
+  const res = await runRename({ _: ["mvcli-new"], config: p.configPath, move: true });
+  assert.equal(res.exitCode, undefined, res.errs);
+  assert.match(res.logs, /moved .*mvcli-old.* → .*mvcli-new/);
+  const raw = JSON.parse(fs.readFileSync(p.configPath, "utf8"));
+  assert.equal(raw.name, "mvcli-new");
+  assert.equal(raw.stateId, undefined);
+  assert.equal(fs.existsSync(p.stateDir), false);
+  assert.ok(fs.existsSync(path.join(registry, "mvcli-new", "seen.json")));
+});
+
+test("--move with the name unchanged but a different state key: moves only", async () => {
+  const p = profile({ name: "mvcli-same", stateId: "mvcli-same-old" });
+  const res = await runRename({ _: ["mvcli-same"], config: p.configPath, move: true });
+  assert.equal(res.exitCode, undefined, res.errs);
+  assert.match(res.logs, /moved/);
+  assert.equal(JSON.parse(fs.readFileSync(p.configPath, "utf8")).stateId, undefined);
+  assert.ok(fs.existsSync(path.join(registry, "mvcli-same")));
+});
+
+test("--move refused up front (target dir exists): nothing relabelled, nothing moved", async () => {
+  const p = profile({ name: "mvcli-blocked" });
+  fs.mkdirSync(path.join(registry, "mvcli-blocked-new"));
+  const before = fs.readFileSync(p.configPath, "utf8");
+  const res = await runRename({ _: ["mvcli-blocked-new"], config: p.configPath, move: true });
+  assert.equal(res.exitCode, 1);
+  assert.match(res.errs, /already exists/);
+  assert.equal(fs.readFileSync(p.configPath, "utf8"), before);
+  assert.ok(fs.existsSync(p.stateDir));
+});
+
+test("--move, running: relabels and sends restart {when:'idle', moveTo} over the old key's socket", async () => {
+  const p = profile({ name: "mvcli-live", running: true });
+  /** @type {any[]} */
+  const reqs = [];
+  const server = net.createServer((socket) => {
+    socket.write(JSON.stringify({ type: "hello", name: "mvcli-live", pid: 1, startedAt: "t" }) + "\n");
+    let buf = "";
+    socket.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const req = JSON.parse(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        reqs.push(req);
+        socket.write(JSON.stringify({ id: req.id, ok: true, result: { accepted: true, active: 1, queued: 0 } }) + "\n");
+      }
+    });
+    socket.on("error", () => {});
+  });
+  await new Promise((r) => server.listen(controlSockPath(p.stateDir, p.stateKey), () => r(undefined)));
+  try {
+    const res = await runRename({ _: ["mvcli-live2"], config: p.configPath, move: true });
+    assert.equal(res.exitCode, undefined, res.errs);
+    assert.equal(reqs.length, 1);
+    assert.equal(reqs[0].cmd, "restart");
+    assert.deepEqual(reqs[0].args, { when: "idle", moveTo: "mvcli-live2" });
+    assert.match(res.logs, /moves .* when idle/);
+    const raw = JSON.parse(fs.readFileSync(p.configPath, "utf8"));
+    assert.deepEqual([raw.name, raw.stateId], ["mvcli-live2", "mvcli-live"], "label now, dir at idle");
+    assert.ok(fs.existsSync(p.stateDir), "the CLI never moves a running receiver's dir");
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("without --move: unchanged label-only rename, dir stays", async () => {
+  const p = profile({ name: "mvcli-plain" });
+  const res = await runRename({ _: ["mvcli-plain2"], config: p.configPath });
+  assert.match(res.logs, /state key "mvcli-plain" unchanged/);
+  assert.equal(JSON.parse(fs.readFileSync(p.configPath, "utf8")).stateId, "mvcli-plain");
+  assert.ok(fs.existsSync(p.stateDir));
 });

@@ -16,19 +16,28 @@ export async function restart(args) {
     return;
   }
 
+  await sendRestart(controlSockPath(stateDir, stateKey), { when: "idle" });
+}
+
+/**
+ * Send one `restart` request over `sockPath` and print the outcome (exit code 1 on any
+ * failure). Shared with `rename --move`, which adds `moveTo`. Returns whether it was accepted.
+ * @param {string} sockPath @param {{when: "idle", moveTo?: string}} req @returns {Promise<boolean>}
+ */
+export async function sendRestart(sockPath, req) {
   let reply;
   try {
-    reply = await controlRequest(controlSockPath(stateDir, stateKey), "restart", { when: "idle" }, { timeoutMs: 5000 });
+    reply = await controlRequest(sockPath, "restart", req, { timeoutMs: 5000 });
   } catch (e) {
     console.error(`restart: ${e.code === "timeout" ? "timed out waiting for the receiver" : "receiver is down"}`);
     process.exitCode = 1;
-    return;
+    return false;
   }
 
   if (!reply.ok) {
     console.error(`restart: ${reply.error}`);
     process.exitCode = 1;
-    return;
+    return false;
   }
 
   const { alreadyPending, active, queued } = reply.result;
@@ -40,4 +49,5 @@ export async function restart(args) {
     console.log(`restart requested — restarting once ${active} running agent(s) finish (${queued} queued)`);
   }
   console.log("watch with `agenthook status` or `agenthook events --follow`");
+  return true;
 }
