@@ -11,6 +11,11 @@ import { readProfile } from "../heartbeat.js";
 /** @param {any} args */
 export async function stop(args) {
   const cfg = loadConfig({ configPath: args.config });
+  // Never started: no pidfile, and nothing was ever registered from this profile — don't touch hooks.
+  if (!fs.existsSync(cfg.stateDir)) {
+    console.log(`"${cfg.name}" not running (never started)`);
+    return;
+  }
   const { pid, up } = readProfile(cfg.stateKey);
 
   if (up) {

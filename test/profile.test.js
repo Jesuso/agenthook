@@ -89,11 +89,11 @@ const tmpRegistry = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-registry-"))
 /** A cfg stub keyed into `registry`. @param {string} registry @param {string} key @param {string} configPath */
 function stub(registry, key, configPath) {
   /** @type {any} */
-  const cfg = { name: key, stateKey: key, configPath, stateDir: path.join(registry, key) };
+  const cfg = { name: key, stateKey: key, configPath, stateDir: path.join(registry, key), logDir: path.join(registry, key, "logs") };
   return cfg;
 }
 
-/** Create a state dir as loadConfig would (dir + empty logs/). @param {string} dir */
+/** Create a ghost state dir as older builds' loadConfig did (dir + empty logs/). @param {string} dir */
 const mkState = (dir) => fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
 
 /** A booted state dir `key` owned by `configPath`. @param {string} registry @param {string} key @param {string} configPath */
@@ -208,11 +208,28 @@ test("createEngine refuses a renamed profile before writing anything (no heartbe
   own(registryDir, "ah-prof-original", configPath);
   made.add("ah-prof-original");
   made.add("ah-prof-renamed");
-  const cfg = loadConfig({ configPath }); // creates the empty state dir, as every command does
-  assert.ok(fs.existsSync(cfg.stateDir));
+  const cfg = loadConfig({ configPath }); // creates nothing
+  assert.ok(!fs.existsSync(cfg.stateDir));
   assert.throws(() => createEngine(cfg), /already lives in .*ah-prof-original\/ — looks like a rename\. Add "stateId": "ah-prof-original"/);
-  assert.ok(!fs.existsSync(cfg.stateDir), "fresh state dir removed");
+  assert.ok(!fs.existsSync(cfg.stateDir), "refused rename creates no state dir");
   assert.ok(!fs.existsSync(cfg.pidFile));
+
+  // A ghost dir left by an older build (dir + empty logs/) is still removed on refusal.
+  fs.mkdirSync(cfg.logDir, { recursive: true });
+  assert.throws(() => createEngine(cfg), /looks like a rename/);
+  assert.ok(!fs.existsSync(cfg.stateDir), "ghost state dir removed");
+});
+
+test("createEngine on a never-started profile creates the state dir (0700), logs/ and profile.json", () => {
+  const configPath = writeConfig({ name: "ah-prof-first-boot" });
+  made.add("ah-prof-first-boot");
+  const cfg = loadConfig({ configPath });
+  assert.ok(!fs.existsSync(cfg.stateDir), "loadConfig creates nothing");
+  createEngine(cfg);
+  assert.ok(fs.statSync(cfg.stateDir).isDirectory());
+  if (process.platform !== "win32") assert.equal(fs.statSync(cfg.stateDir).mode & 0o777, 0o700);
+  assert.ok(fs.statSync(cfg.logDir).isDirectory());
+  assert.equal(JSON.parse(fs.readFileSync(path.join(cfg.stateDir, "profile.json"), "utf8")).stateKey, "ah-prof-first-boot");
 });
 
 test("no-arg status reads the state dir keyed by stateId, not by name", async () => {

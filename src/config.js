@@ -254,8 +254,6 @@ export function loadConfig(opts = {}) {
     if (step.instructionsFile) step.instructionsFile = resolvePath(step.instructionsFile, configDir);
   }
 
-  ensurePrivateDir(cfg.stateDir);
-  ensurePrivateDir(cfg.logDir);
   return cfg;
 }
 
@@ -265,8 +263,8 @@ export function loadConfig(opts = {}) {
  * stamp 0700 onto a freshly created `~/.agenthook` or other ancestor.
  *
  * An already-existing dir's mode is only checked/tightened when `tighten` is set
- * (the boot path, which runs once) — loadConfig runs on *every* command, so it
- * calls this create-only and never flips perms on an existing dir, silently or not.
+ * (the boot path, which runs once). loadConfig creates nothing — only real writers
+ * (claimStateDir on boot, spawnDetached, rename, …) call this, create-only unless booting.
  * @param {string} dir
  * @param {{tighten?: boolean}} [opts]
  * @returns {{tightened: true, from: number} | {tightened: false}}
