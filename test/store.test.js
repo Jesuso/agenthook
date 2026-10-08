@@ -121,13 +121,16 @@ test("refmeta set shallow-merges, lists, and persists across instances", () => {
   const s = createStore(dir);
   assert.equal(s.getRefMeta("123"), undefined);
   assert.deepEqual(s.listRefMeta(), {});
-  s.setRefMeta("123", { displayId: "ID-1", title: "First" });
-  s.setRefMeta("123", { pr: 42 }); // later PR lookup keeps id/title
+  s.setRefMeta("123", { displayId: "ID-1", title: "First", url: "https://example.com/123" });
+  s.setRefMeta("123", { pr: 42 }); // later PR lookup keeps id/title/url
   s.setRefMeta("123", { displayId: undefined, title: "Renamed" }); // undefined never erases
-  assert.deepEqual(s.getRefMeta("123"), { displayId: "ID-1", title: "Renamed", pr: 42 });
+  assert.deepEqual(s.getRefMeta("123"), { displayId: "ID-1", title: "Renamed", pr: 42, url: "https://example.com/123" });
+  s.setRefMeta("123", { url: "https://example.com/123-moved", title: "Renamed Again" }); // later url/title patch keeps pr
+  assert.deepEqual(s.getRefMeta("123"), { displayId: "ID-1", title: "Renamed Again", pr: 42, url: "https://example.com/123-moved" });
   s.setRefMeta("456", { title: "Other" });
   assert.deepEqual(Object.keys(createStore(dir).listRefMeta()).sort(), ["123", "456"]);
   assert.equal(createStore(dir).getRefMeta("123")?.pr, 42);
+  assert.equal(createStore(dir).getRefMeta("123")?.url, "https://example.com/123-moved", "a fresh store reads url back");
 });
 
 test("findings set/get/clear round-trip and persist across instances", () => {

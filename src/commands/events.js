@@ -20,7 +20,7 @@ function parseLine(line) {
   try { return JSON.parse(line); } catch { return null; }
 }
 
-/** Read the profile's refmeta.json (ref -> {displayId,title,pr}); {} if absent/garbage.
+/** Read the profile's refmeta.json (ref -> {displayId,title,pr,url}); {} if absent/garbage.
  * @param {string} dataDir @returns {Record<string, import('../types.js').RefMeta>} */
 function readRefMeta(dataDir) {
   try {
