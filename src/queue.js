@@ -48,8 +48,11 @@ export function createQueue(max, run, onChange, persist) {
     job.kind === "ci" ? job.dedupKey : `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
+  let paused = false; // restart pending: accept + persist new work, but start nothing
   /** @type {(() => void)[]} */
   let idleWaiters = [];
+  /** @type {(() => void)[]} */
+  let activeIdleWaiters = [];
   const report = () => onChange?.({ active, queued: queue.length });
   const resolveIdle = () => {
     if (active === 0 && queue.length === 0 && idleWaiters.length) {
@@ -58,9 +61,16 @@ export function createQueue(max, run, onChange, persist) {
       for (const w of waiters) w();
     }
   };
+  const resolveActiveIdle = () => {
+    if (active === 0 && activeIdleWaiters.length) {
+      const waiters = activeIdleWaiters;
+      activeIdleWaiters = [];
+      for (const w of waiters) w();
+    }
+  };
 
   function pump() {
-    while (active < max && queue.length) {
+    while (!paused && active < max && queue.length) {
       const job = queue.shift();
       if (!job) break;
       persist?.onRemove?.(job);
@@ -86,6 +96,7 @@ export function createQueue(max, run, onChange, persist) {
           report();
           pump();
           resolveIdle();
+          resolveActiveIdle();
           if (!closed) persist?.onSettle?.();
         });
     }
@@ -114,6 +125,15 @@ export function createQueue(max, run, onChange, persist) {
     close() {
       closed = true;
     },
+    /** Stop starting jobs; enqueue still accepts + persists (onAdd). Running jobs finish. */
+    pause() {
+      paused = true;
+    },
+    /** Start pumping again (drains whatever queued up while paused). */
+    resume() {
+      paused = false;
+      pump();
+    },
     /** {active, queued} snapshot. */
     state: () => ({ active, queued: queue.length }),
     /** Resolves once nothing is running and the queue is empty. Immediate if idle now. */
@@ -121,6 +141,13 @@ export function createQueue(max, run, onChange, persist) {
       if (active === 0 && queue.length === 0) return Promise.resolve();
       return /** @type {Promise<void>} */ (
         new Promise((resolve) => idleWaiters.push(() => resolve(undefined)))
+      );
+    },
+    /** Resolves once nothing is running, ignoring queued jobs (a paused queue's wait). Immediate if 0 now. */
+    onActiveIdle() {
+      if (active === 0) return Promise.resolve();
+      return /** @type {Promise<void>} */ (
+        new Promise((resolve) => activeIdleWaiters.push(() => resolve(undefined)))
       );
     },
   };

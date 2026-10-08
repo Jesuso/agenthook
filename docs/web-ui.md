@@ -223,7 +223,8 @@ on `control.sock`: the receiver stops starting new runs (incoming jobs still que
 `queue.json`), waits for 0 active agents, shuts down gracefully, re-spawns itself detached on the
 same config, and the new process runs **one `reconcile`** to recover webhooks missed in the gap
 (an explicit, user-triggered poll — consistent with the no-polling rule). Hot-reload stays out of
-scope.
+scope. The respawn is `start --detach --config <path> --reconcile-on-boot` (an
+internal flag: the new server runs that one reconcile after boot; a reconcile error doesn't abort it).
 
 **Control socket hardening (prerequisite).** Profile state dirs are created / tightened to `0700`
 and the socket is created under a `0o077` umask (no chmod race), before any command lands.
