@@ -4,7 +4,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { startControl } from "../src/control.js";
+import { startControl, listenPrivate } from "../src/control.js";
 
 /** @param {string} dir */
 function cfgIn(dir) {
@@ -75,6 +75,45 @@ test("startControl: a live foreign pid owning the socket disables it", async (t)
   const control = await startControl(cfg, { startedAt: "x" });
   assert.equal(control, null);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("listenPrivate: socket carries no group/other bits immediately on resolve, before any chmod", { skip: process.platform === "win32" }, async () => {
+  // Node creates the socket file at the OS default (0777), so umask(0o077) brings it
+  // out at 0700 — already unreachable by another local user; startControl's belt-and-
+  // braces chmodSync afterward narrows that further to the canonical 0600.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const sockPath = path.join(dir, "control.sock");
+  const server = net.createServer();
+  try {
+    await listenPrivate(server, sockPath);
+    const mode = fs.statSync(sockPath).mode & 0o777;
+    assert.equal(mode & 0o077, 0);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("listenPrivate: umask is restored after a successful listen", { skip: process.platform === "win32" }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const sockPath = path.join(dir, "control.sock");
+  const before = process.umask();
+  const server = net.createServer();
+  try {
+    await listenPrivate(server, sockPath);
+    assert.equal(process.umask(), before);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("listenPrivate: umask is restored after a failed listen", { skip: process.platform === "win32" }, async () => {
+  const before = process.umask();
+  const server = net.createServer();
+  await assert.rejects(listenPrivate(server, "/nonexistent-dir/control.sock"));
+  assert.equal(process.umask(), before);
+  server.close();
 });
 
 test("startControl: close() unlinks the socket file", async (t) => {

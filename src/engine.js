@@ -15,6 +15,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { createStore, isStateDedupKey } from "./store.js";
+import { ensurePrivateDir } from "./config.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
 import { createForge, isForgePath } from "./forges/index.js";
@@ -346,6 +347,11 @@ export function createEngine(cfg) {
   async function serve() {
     const meta = ingress.describe();
     console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}`);
+
+    for (const dir of [cfg.stateDir, cfg.logDir]) {
+      const result = ensurePrivateDir(dir, { tighten: true });
+      if (result.tightened) console.error(`[boot] tightened ${dir} permissions 0${result.from.toString(8)} → 0700`);
+    }
 
     if (cfg.fullAuto) {
       // fullAuto runs agents with --dangerously-skip-permissions: a verified webhook
