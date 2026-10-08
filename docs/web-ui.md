@@ -195,7 +195,10 @@ Edits `agenthook.config.json` — the one file at the receiver-published `heartb
 
 **Shipped so far:** the **Config** tab's raw JSON editor (live parse check, server errors and
 literal-secret warnings, diff → confirm with a second ack for changed sensitive fields — secret
-values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and **Restart when idle**
+values masked — guarded `PUT /api/config`, reload/diff/overwrite banner; a changed top-level `name`
+is rejected with a 422 before anything is written — renaming a profile forks its state dir
+(`~/.agenthook/<name>/`) and loses history, so it's blocked rather than migrated; the Basics
+form's `name` field is read-only for the same reason) and **Restart when idle**
 after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid), and the
 **Basics** / **Pipeline** form tabs beside Raw (one shared buffer; every change a `jsonc-parser`
 edit, reorder swaps the steps' exact text) with **stage pickers** fed by `GET /api/discover` on

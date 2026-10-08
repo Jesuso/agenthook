@@ -57,7 +57,11 @@ describe("parseCheck", () => {
 
 describe("sensitiveDiff", () => {
   it("no sensitive change → []", () => {
-    expect(sensitiveDiff(cfg(), cfg({ name: "q", maxConcurrent: 3 }))).toEqual([]);
+    expect(sensitiveDiff(cfg(), cfg({ maxConcurrent: 3 }))).toEqual([]);
+  });
+
+  it("a renamed profile is shown in clear (the server blocks the save outright)", () => {
+    expect(sensitiveDiff(cfg(), cfg({ name: "q" }))).toEqual([{ path: "name", from: '"p"', to: '"q"' }]);
   });
 
   it("a non-secret scalar is shown in clear", () => {
@@ -94,7 +98,7 @@ describe("sensitiveDiff", () => {
   });
 
   it("an unparseable old text reports every sensitive path present in the new one", () => {
-    expect(sensitiveDiff("{", cfg()).map((c) => c.path)).toEqual(["fullAuto", "tracker.userGid", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
+    expect(sensitiveDiff("{", cfg()).map((c) => c.path)).toEqual(["name", "fullAuto", "tracker.userGid", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
   });
 
   it("an unparseable new text reports nothing", () => {

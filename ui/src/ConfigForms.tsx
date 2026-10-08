@@ -39,10 +39,15 @@ function Field(props: { label: string; hint?: string; error?: string | null; chi
   );
 }
 
-function TextField(props: EditProps & { label: string; path: JSONPath; value: unknown }) {
+function TextField(props: EditProps & { label: string; path: JSONPath; value: unknown; readOnly?: boolean; hint?: string }) {
   return (
-    <Field label={props.label}>
-      <input className={INPUT} value={fieldText(props.value)} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))} />
+    <Field label={props.label} hint={props.hint}>
+      <input
+        className={props.readOnly ? `${INPUT} cursor-not-allowed opacity-60` : INPUT}
+        value={fieldText(props.value)}
+        readOnly={props.readOnly}
+        onChange={(e) => !props.readOnly && props.onEdit(textEdit(props.text, props.path, e.target.value))}
+      />
     </Field>
   );
 }
@@ -138,7 +143,14 @@ export function BasicsForm(props: EditProps & { raw: unknown }) {
   const edit = { text: props.text, onEdit: props.onEdit };
   return (
     <div className="grid max-w-xl grid-cols-2 gap-3">
-      <TextField {...edit} label="name" path={["name"]} value={b.name} />
+      <TextField
+        {...edit}
+        label="name"
+        path={["name"]}
+        value={b.name}
+        readOnly
+        hint="renaming moves ~/.agenthook/<name>/ and loses history — edit the file by hand"
+      />
       <TextField {...edit} label="trigger" path={["trigger"]} value={b.trigger} />
       <NumberField {...edit} label="maxConcurrent" path={["maxConcurrent"]} value={b.maxConcurrent} />
       <NumberField {...edit} label="port" path={["port"]} value={b.port} />
