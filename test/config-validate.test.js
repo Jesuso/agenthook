@@ -6,11 +6,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, validateRawConfig, literalSecrets, SECRET_FIELDS } from "../src/config.js";
+import { loadConfig, validateRawConfig, literalSecrets, SECRET_FIELDS, registryDir } from "../src/config.js";
 
 for (const v of ["ASANA_TOKEN", "GITHUB_TOKEN", "NGROK_AUTHTOKEN", "AH_UNSET_VAR"]) delete process.env[v];
 // A case loadConfig wrongly accepts would create this state dir; never leave it behind.
-test.after(() => fs.rmSync(path.join(os.homedir(), ".agenthook", "ah-validate-test"), { recursive: true, force: true }));
+test.after(() => fs.rmSync(path.join(registryDir, "ah-validate-test"), { recursive: true, force: true }));
 
 /** Minimal valid raw config; `over` replaces top-level keys (undefined deletes).
  * @param {any} [over] @param {any[]} [pipeline] @returns {any} */

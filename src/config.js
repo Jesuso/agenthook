@@ -22,7 +22,10 @@ import { controlSockPath } from "./paths.js";
 export const installDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Where all profiles keep their runtime state, one subdir per profile name.
-export const registryDir = path.join(os.homedir(), ".agenthook");
+// AGENTHOOK_HOME overrides the root (tests use it to stay out of the real ~/.agenthook).
+export const registryDir = process.env.AGENTHOOK_HOME
+  ? path.resolve(process.env.AGENTHOOK_HOME)
+  : path.join(os.homedir(), ".agenthook");
 
 const CONFIG_NAME = "agenthook.config.json";
 
