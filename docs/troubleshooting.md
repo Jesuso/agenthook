@@ -11,9 +11,13 @@ agenthook follow [session]     # tail an agent transcript read-only
 tail -f ~/.agenthook/<profile>/logs/*.log    # per-run agent output
 ```
 
-The server's own stdout (where you ran `agenthook start`, or the detach log) carries the routing
-lines quoted below — `[section]`, `[transition]`, `[assignee]`, `[reject]`, `[advance]`,
-`[coalesce]`. Grep those first; they say exactly what the engine decided.
+The server's own stdout (where you ran `agenthook start`, or `~/.agenthook/<profile>/receiver.log`
+when run with `--detach`) carries the routing lines quoted below — `[section]`, `[transition]`,
+`[assignee]`, `[reject]`, `[advance]`, `[coalesce]`. Grep those first; they say exactly what the
+engine decided.
+
+If a detached receiver died outright, check `~/.agenthook/<profile>/crash.json` — written by the
+uncaught-exception/rejection handler with the error, stack, and any refs that were mid-step.
 
 ## "doctor is green but nothing happens when I move a task"
 
