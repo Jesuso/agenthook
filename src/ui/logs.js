@@ -14,7 +14,7 @@ import { isObj, readStateFile } from "./rows.js";
 export const LOG_TAIL_BYTES = 64 * 1024;
 
 /** `<ISO stamp with [:.]→->-step-` — the prefix dispatch.js gives every run log. */
-const RUN_PREFIX_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-step-/;
+export const RUN_PREFIX_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-step-/;
 const RUN_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-step-.+\.log$/;
 
 /** dispatch.js's filename mapping of a ref. @param {string} ref */

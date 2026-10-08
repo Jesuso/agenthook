@@ -161,7 +161,10 @@ Key files:
   `control.sock` liveness with pidfile fallback — no polling; the 25 s SSE ping is the only interval).
   `logs.js` (run-log viewer: `listRuns` from the profile's `logs/` dir, `resolveRunLog` name +
   realpath validation, `createLogTail` byte-offset tail off a `logs/` dir watch → `/api/runs` +
-  `/api/log/stream`). Blind **reader**: never writes any state dir, never loads a config; PR links
+  `/api/log/stream`). `instructions.js` (v2 editor read side: `listInstructions` /
+  `readInstructionFile` / `promptPreview` over the heartbeat's `instructions` allowlist + the
+  `.prompt.md` sidecars → `/api/instructions[/file]` + `/api/prompt-preview`; `watch.js` watches the
+  allowlisted files' parent dirs and emits SSE `instructions` on a sha256 change). Blind **reader**: never writes any state dir, never loads a config; PR links
   come from the heartbeat's `repository`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.

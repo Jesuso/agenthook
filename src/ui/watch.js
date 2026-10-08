@@ -2,8 +2,10 @@
 // profile's state dir with fs.watch (directories, never files — writers truncate or rename
 // over them), debounces ~50 ms per profile, re-reads only the changed files, and emits a
 // typed UiEvent only when a ProfileView / TicketRow hash actually changed. events.jsonl is
-// tailed by byte offset; liveness rides the receiver's control socket. No polling: the
-// only timers are the one-shot debounces. Blind reader — writes nothing.
+// tailed by byte offset; liveness rides the receiver's control socket. The parent dirs of
+// each profile's allowlisted instruction files (heartbeat.instructions) are watched too, and
+// a content change (sha256) emits an `instructions` event. No polling: the only timers are
+// the one-shot debounces. Blind reader — writes nothing.
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -13,6 +15,8 @@ import {
   EVENTS_TAIL_BYTES,
   STATE_FILES,
   buildRows,
+  hashFile,
+  instructionEntries,
   isObj,
   parseEventLine,
   profileView,
@@ -54,6 +58,10 @@ const hash = (v) => JSON.stringify(v);
  * @property {boolean} retry                  a socket change arrived mid-connection: reconnect once it settles
  * @property {string} viewHash
  * @property {Map<string, { hash: string, row: import('./contract.js').TicketRow }>} rows
+ * @property {Map<string, fs.FSWatcher>} instrDirs   parent dir of an allowlisted file → its watcher
+ * @property {Map<string, string|null>} instrHashes  allowlisted path → last seen content hash
+ * @property {Set<string>} instrDirty                paths touched since the last instructions flush
+ * @property {NodeJS.Timeout|null} instrTimer
  */
 
 /**
@@ -249,6 +257,72 @@ export function createWatcher(registry, onEvent) {
     });
   }
 
+  /** Mark changed allowlisted files in `dir` (all of them for a nameless event) and debounce.
+   * @param {Prof} p @param {string} dir @param {string|null} file */
+  function touchInstr(p, dir, file) {
+    if (closed || p.removed) return;
+    if (file === null) {
+      for (const f of p.instrHashes.keys()) if (path.dirname(f) === dir) p.instrDirty.add(f);
+    } else {
+      const f = path.join(dir, file);
+      if (!p.instrHashes.has(f)) return;
+      p.instrDirty.add(f);
+    }
+    if (!p.instrTimer) p.instrTimer = setTimeout(() => flushInstr(p), DEBOUNCE_MS);
+  }
+
+  /** Re-hash the touched files; emit only a real content change (a touch is no change). @param {Prof} p */
+  function flushInstr(p) {
+    p.instrTimer = null;
+    if (closed || p.removed) return;
+    const dirty = p.instrDirty;
+    p.instrDirty = new Set();
+    for (const f of dirty) {
+      if (!p.instrHashes.has(f)) continue; // dropped from the allowlist meanwhile
+      const h = hashFile(f);
+      if (h === p.instrHashes.get(f)) continue;
+      p.instrHashes.set(f, h);
+      emit({ type: "instructions", profile: p.name, path: f, hash: h });
+    }
+  }
+
+  /** Reconcile the instruction dir watchers with the heartbeat's allowlist: watch new parent
+   * dirs (a missing one is skipped), close dropped ones, and seed new paths' hashes silently.
+   * @param {Prof} p */
+  function syncInstr(p) {
+    if (closed || p.removed) return;
+    const paths = new Set(instructionEntries(p.heartbeat).map((e) => e.path));
+    for (const f of [...p.instrHashes.keys()]) if (!paths.has(f)) p.instrHashes.delete(f);
+    for (const f of paths) if (!p.instrHashes.has(f)) p.instrHashes.set(f, hashFile(f));
+    const dirs = new Set([...paths].map((f) => path.dirname(f)));
+    for (const [d, w] of [...p.instrDirs]) {
+      if (dirs.has(d)) continue;
+      w.close();
+      p.instrDirs.delete(d);
+    }
+    for (const d of dirs) {
+      if (p.instrDirs.has(d)) continue;
+      try {
+        const w = fs.watch(d, (_ev, f) => touchInstr(p, d, f == null ? null : String(f)));
+        w.on("error", () => {
+          w.close();
+          if (p.instrDirs.get(d) === w) p.instrDirs.delete(d);
+        });
+        p.instrDirs.set(d, w);
+      } catch {
+        /* dir doesn't exist (yet) — picked up on a later heartbeat change */
+      }
+    }
+  }
+
+  /** @param {Prof} p */
+  function closeInstr(p) {
+    for (const w of p.instrDirs.values()) w.close();
+    p.instrDirs.clear();
+    if (p.instrTimer) clearTimeout(p.instrTimer);
+    p.instrTimer = null;
+  }
+
   /** @param {Prof} p */
   function flush(p) {
     p.timer = null;
@@ -256,6 +330,7 @@ export function createWatcher(registry, onEvent) {
     const names = p.dirty;
     p.dirty = new Set();
     readFiles(p, names);
+    if (names === null || names.has("heartbeat.json")) syncInstr(p);
     if (names === null || names.has("events.jsonl")) tailEvents(p);
     recompute(p);
     // Reconnect only on a socket-file change; win32's named pipe has no file, so a
@@ -299,6 +374,10 @@ export function createWatcher(registry, onEvent) {
       retry: false,
       viewHash: "",
       rows: new Map(),
+      instrDirs: new Map(),
+      instrHashes: new Map(),
+      instrDirty: new Set(),
+      instrTimer: null,
     };
     profiles.set(name, p);
     try {
@@ -311,6 +390,7 @@ export function createWatcher(registry, onEvent) {
       /* dir vanished already — the registry watch will remove it */
     }
     readFiles(p, null);
+    syncInstr(p);
     // Seed the events buffer once from the tail; from here on only appended bytes are read.
     const eventsFile = path.join(dir, "events.jsonl");
     const seed = seedEventsTail(eventsFile);
@@ -331,6 +411,7 @@ export function createWatcher(registry, onEvent) {
     profiles.delete(p.name);
     p.fsw?.close();
     if (p.timer) clearTimeout(p.timer);
+    closeInstr(p);
     p.sock?.destroy();
     for (const ref of p.rows.keys()) emit({ type: "ticket_removed", profile: p.name, ref });
     emit({ type: "profile_removed", name: p.name });
@@ -427,6 +508,7 @@ export function createWatcher(registry, onEvent) {
         p.removed = true;
         p.fsw?.close();
         if (p.timer) clearTimeout(p.timer);
+        closeInstr(p);
         p.sock?.destroy();
       }
       profiles.clear();

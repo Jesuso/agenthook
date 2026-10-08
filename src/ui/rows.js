@@ -1,6 +1,7 @@
 // `ah ui` view-model builders (pure over a state dir, so tests point them at fixtures).
 // Blind reader: opens the profile's state files read-only and never writes anything.
 // One TicketRow per ref merges running ∪ queue ∪ held ∪ refmeta ∪ the events tail.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { registryDir } from "../config.js";
@@ -120,6 +121,40 @@ function tail(file, maxBytes, wholeLines) {
     if (e) events.push(e);
   }
   return { events, end };
+}
+
+/**
+ * A heartbeat's instruction-file allowlist (`heartbeat.instructions`, src/heartbeat.js
+ * `instructionTargets`): well-formed entries with an absolute path only. No heartbeat / no
+ * list → []. Shared by the `/api/instructions*` routes and the watcher's dir set.
+ * @param {any} heartbeat
+ * @returns {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[]}
+ */
+export function instructionEntries(heartbeat) {
+  if (!isObj(heartbeat) || !Array.isArray(heartbeat.instructions)) return [];
+  /** @type {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[]} */
+  const out = [];
+  for (const e of heartbeat.instructions) {
+    if (!isObj(e) || typeof e.path !== "string" || !path.isAbsolute(e.path)) continue;
+    if (e.scope !== "step" && e.scope !== "default" && e.scope !== "repo") continue;
+    const ids = Array.isArray(e.ids) ? e.ids.filter((/** @type {any} */ i) => typeof i === "string") : [];
+    out.push({ path: e.path, scope: e.scope, ids });
+  }
+  return out;
+}
+
+/** sha256 hex of `buf`. @param {Buffer|string} buf */
+export const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+
+/** sha256 hex of a regular file's content, or null (missing, not a file, unreadable).
+ * @param {string} file @returns {string|null} */
+export function hashFile(file) {
+  try {
+    if (!fs.statSync(file).isFile()) return null;
+    return sha256(fs.readFileSync(file));
+  } catch {
+    return null;
+  }
 }
 
 /**
