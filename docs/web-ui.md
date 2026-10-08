@@ -196,8 +196,10 @@ Edits `agenthook.config.json` — the one file at the receiver-published `heartb
 **Shipped so far:** the **Config** tab's raw JSON editor (live parse check, server errors and
 literal-secret warnings, diff → confirm with a second ack for changed sensitive fields — secret
 values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and **Restart when idle**
-after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid). The
-forms, stage pickers and pipeline graph below are still to come.
+after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid), and the
+**Basics** / **Pipeline** form tabs beside Raw (one shared buffer; every change a `jsonc-parser`
+edit, reorder swaps the steps' exact text) with **stage pickers** fed by `GET /api/discover` on
+first form-tab open and on Refresh. The pipeline graph below is still to come (#181).
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
