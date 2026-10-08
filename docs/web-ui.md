@@ -148,9 +148,44 @@ tracker and PR links; event feed and log viewer work; a state-file change reache
 
 ### v2 — instructions editor
 
-- CodeMirror editor for each step's `instructionsFile`, `baseHash` conflict handling, diff before save.
-- **"What the agent sees" preview**: the prompt assembled exactly as `dispatch.js` builds it
-  (standing instructions + `=== TICKET ===` + step prompt) against a real ticket.
+The first phase that **writes**. Scope: the markdown files the pipeline uses as standing
+instructions — each step's `instructionsFile`, the profile default `instructionsFile`, and each
+repo's `instructionsFile`. Nothing else is writable.
+
+**Edits are live.** `dispatch.js` re-reads instructions at every spawn, so a save takes effect on
+the next agent run with no restart — including later steps of tickets already in flight. The
+save flow says so and shows how many agents are running on steps that use the file.
+
+**Which files (receiver → heartbeat).** `ah ui` loads no config and never resolves `${ENV}`, so the
+receiver publishes what it already resolved at boot: `configPath` and an `instructions` list of
+`{ path, scope: 'step'|'default'|'repo', ids[] }` (absolute paths). That list is the **only**
+write allowlist.
+
+**Write guards** (`PUT /api/instructions`):
+- Cookie auth + `Host` check (as v1) + **`Origin` must equal the server origin** + required
+  custom header `X-AH-UI: 1` + `Content-Type: application/json` (forces a CORS preflight that
+  no other origin passes). Body capped at 256 KB.
+- Target must match an allowlisted path exactly, exist, be a regular file (no symlink — `lstat`),
+  end in `.md`, and realpath to itself.
+- Optimistic concurrency: the request carries `baseHash` (sha256 of the content the editor
+  loaded); a mismatch returns `409` with the current content + hash. No blind overwrite.
+- Atomic write: temp file in the same dir with the original mode → fsync → rename. The previous
+  content is kept as `<file>.bak` (one generation).
+- Every save is appended to a UI-owned `~/.agenthook/<profile>/ui-audit.jsonl`
+  (`{ts, path, oldHash, newHash, bytes}`) — the only state-dir file the UI writes.
+- External edits (your `$EDITOR`) reach open tabs as SSE `instructions` events (dir watch +
+  hash), and the server suppresses the echo of its own write.
+
+**"What the agent sees" preview — from the last real prompt.** An exact preview needs the ticket,
+and fetching it needs tracker credentials the UI must not hold. Instead the receiver saves every
+run's assembled prompt beside its log (`<log>.prompt.md`, mode 0600). The preview takes the step's
+most recent prompt, splits it at `=== TICKET ===`, and substitutes the editor's live buffer for
+the standing part (repo instructions + step instructions, in dispatch order). Exact, credential-free,
+no control-socket commands. A step that never ran previews the standing part only.
+
+**Editor UX.** CodeMirror 6 (markdown), rendered preview via `react-markdown` (no raw HTML),
+`@codemirror/merge` diff shown before every save, unsaved-changes guard, "changed on disk —
+reload / diff / overwrite" banner on 409 or an external edit.
 
 ### v3 — config editor
 
