@@ -109,6 +109,13 @@ The profile list adds `TOKENS` and `COST` columns. Both are blank when `usage.js
 unreadable — the command never errors on a missing file. A `REPOS` column shows how many repos the
 profile routes to (`1` unless it declares a `repos` block).
 
+The last column, `CONFIG`, names the config file that owns the profile (from the state dir's
+`profile.json`; a long path is cut from the left as `…<tail>`). `(missing)` means that file has
+been deleted or moved. `— never ran (created <date>)` marks a **ghost**: a state dir some command
+created by reading a config, where no receiver ever ran. It is safe to `ah remove`. `?` is a legacy
+profile from before `profile.json` existed. `ah status <name>` shows the same for a stopped profile:
+the full config path, its created date and when it was last seen.
+
 ## Log-format note
 
 Before token tracking, the per-run log contained raw `claude -p` output. It now contains rendered

@@ -189,6 +189,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
   const snap = buildSnapshot(reg);
   assert.deepEqual(snap.profiles.map((p) => p.name), ["down", "live"]);
   const live = snap.profiles[1];
+  assert.match(String(live.createdAt), /^\d{4}-\d\d-\d\dT/); // the dir's birth time (no profile.json)
   assert.deepEqual(live, {
     name: "live",
     label: "live",
@@ -204,6 +205,11 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     active: 2,
     queued: 1,
     lastEvent: { at: "t", kind: "pipeline", ref: "9", step: "code" },
+    configPath: null,
+    createdAt: live.createdAt,
+    lastSeenAt: null, // heartbeat.updatedAt "u" isn't a timestamp
+    ghost: false,
+    configMissing: false,
   });
   const down = snap.profiles[0];
   assert.equal(down.up, false);
@@ -291,4 +297,31 @@ test("checkBundle: missing index.html names the build command", () => {
   assert.throws(() => checkBundle(dir), { message: "UI bundle not built — run `npm run build:ui`" });
   fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html>");
   assert.doesNotThrow(() => checkBundle(dir));
+});
+
+test("buildSnapshot: provenance — tildified configPath, created/last-seen from profile.json, ghost and config-missing", () => {
+  const reg = tmp();
+  const cfgFile = path.join(os.homedir(), `.ah-ui-rows-${process.pid}-absent.json`); // never created
+  const real = path.join(tmp(), "agenthook.config.json");
+  fs.writeFileSync(real, "{}");
+  writeState(path.join(reg, "stopped"), {
+    "profile.json": { name: "Stopped", stateKey: "stopped", configPath: real, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-03-04T00:00:00.000Z" },
+  });
+  writeState(path.join(reg, "moved"), { "profile.json": { name: "moved", configPath: cfgFile, createdAt: "2026-01-02T00:00:00.000Z" } });
+  fs.mkdirSync(path.join(reg, "ghost", "logs"), { recursive: true });
+  const snap = buildSnapshot(reg);
+  const stopped = profileNamed(snap.profiles, "stopped");
+  assert.equal(stopped.configPath, real);
+  assert.equal(stopped.createdAt, "2026-01-02T00:00:00.000Z");
+  assert.equal(stopped.lastSeenAt, "2026-03-04T00:00:00.000Z");
+  assert.equal(stopped.ghost, false);
+  assert.equal(stopped.configMissing, false);
+  const moved = profileNamed(snap.profiles, "moved");
+  assert.equal(moved.configPath, "~" + cfgFile.slice(os.homedir().length));
+  assert.equal(moved.configMissing, true);
+  const ghost = profileNamed(snap.profiles, "ghost");
+  assert.equal(ghost.ghost, true);
+  assert.equal(ghost.configPath, null);
+  assert.match(String(ghost.createdAt), /^\d{4}-/);
+  assert.ok(!JSON.stringify(snap).includes(os.homedir() + path.sep + ".ah-ui-rows"), "configPath is tildified");
 });

@@ -54,7 +54,10 @@ test("one write → exactly one ticket event; identical rewrite → nothing", as
   const tickets = events.filter((e) => e.type === "ticket");
   assert.equal(tickets.length, 1);
   assert.equal(tickets[0].type === "ticket" && tickets[0].ticket.status, "running");
-  assert.equal(events.length, 1);
+  // The empty dir was a ghost; its first state file flips that (one profile event, no more).
+  const profs = events.filter((e) => e.type === "profile");
+  assert.deepEqual(profs.map((e) => e.type === "profile" && e.profile.ghost), [false]);
+  assert.equal(events.length, 2);
 
   events.length = 0;
   fs.writeFileSync(path.join(dir, "running.json"), RUN);
@@ -150,6 +153,24 @@ test("registry: a new profile dir → profile (+ its tickets); removing it → t
   await waitFor((e) => e.type === "profile_removed" && e.name === "q");
   assert.ok(events.some((e) => e.type === "ticket_removed" && e.ref === "7"));
   assert.deepEqual(w.snapshot(), { profiles: [], tickets: [] });
+});
+
+test("provenance: a ghost dir → ghost; a first boot's profile.json clears it and sets label + tildified configPath", async () => {
+  const { dir, events, w, waitFor } = setup();
+  fs.mkdirSync(path.join(dir, "logs"));
+  await sleep(SETTLE);
+  const g = w.snapshot().profiles[0];
+  assert.deepEqual([g.ghost, g.configPath, g.configMissing, g.lastSeenAt], [true, null, false, null]);
+  assert.match(String(g.createdAt), /^\d{4}-/);
+  events.length = 0;
+  const cfgFile = path.join(os.homedir(), `.ah-ui-watch-${process.pid}-absent.json`); // never created
+  const marker = { name: "Booted", stateKey: "p", configPath: cfgFile, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-02-02T00:00:00.000Z" };
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify(marker));
+  const ev = await waitFor((e) => e.type === "profile" && !e.profile.ghost);
+  assert.deepEqual(
+    [ev.profile.label, ev.profile.configPath, ev.profile.configMissing, ev.profile.createdAt, ev.profile.lastSeenAt],
+    ["Booted", "~" + cfgFile.slice(os.homedir().length), true, marker.createdAt, marker.updatedAt],
+  );
 });
 
 test("registry that doesn't exist yet is picked up once created", async () => {

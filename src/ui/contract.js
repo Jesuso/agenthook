@@ -29,7 +29,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
 
 /**
  * One profile under ~/.agenthook. With no heartbeat (profile down, or never started)
- * only `name`/`label`/`up`/`pid` are set; every other field is null.
+ * only `name`/`label`/`up`/`pid` and the provenance fields (`configPath` … `configMissing`, from
+ * the state dir's profile.json) are set; every other field is null.
  * @typedef {object} ProfileView
  * @property {string} name                the state key (state-dir name) — the stable id every
  *                                        API `profile` param and SSE `profile` field carries
@@ -46,6 +47,11 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {number|null} active         agents running (heartbeat.queue.active); null when down
  * @property {number|null} queued         jobs waiting behind maxConcurrent; null when down
  * @property {LastEvent|null} lastEvent  the last job the receiver took in
+ * @property {string|null} configPath     the owning config file, tildified (profile.json, else heartbeat)
+ * @property {string|null} createdAt      profile.json createdAt, else the state dir's birth time
+ * @property {string|null} lastSeenAt     heartbeat.updatedAt, else the later of profile.json updatedAt / events.jsonl mtime
+ * @property {boolean} ghost              no receiver ever ran here: no marker, no heartbeat, nothing but an empty logs/
+ * @property {boolean} configMissing      configPath is set but the file no longer exists
  */
 
 /** @typedef {{ at: string|null, kind: string|null, ref: string|null, step: string|null }} LastEvent */

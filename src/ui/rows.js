@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { registryDir } from "../config.js";
 import { listProfiles } from "../heartbeat.js";
+import { tildify } from "../profile.js";
 
 /** Only the last N bytes of events.jsonl are read — the file is append-only and unbounded. */
 export const EVENTS_TAIL_BYTES = 256 * 1024;
@@ -283,13 +284,16 @@ export function buildRows(profile, state, { repository = null } = {}) {
 }
 
 /**
- * Whitelisted heartbeat projection: no ingress URL, no paths, nothing beyond ProfileView.
+ * Whitelisted heartbeat projection: no ingress URL, only the tildified config path, nothing
+ * beyond ProfileView.
  * `active`/`queued` are blanked to null when the profile is down — a dead profile's
  * heartbeat.json keeps the last counts it wrote, which would otherwise read as stale
  * live state. `maxConcurrent`, `lastEvent`, `startedAt`, `updatedAt` are history/config,
  * not live counts, so they survive.
  * `name` is the state key; `label` is the heartbeat's name, else the passed-in label (profile.json's).
- * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any }} p
+ * The provenance fields come from the optional heartbeat.js `profileMeta` inputs (default null/false).
+ * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any,
+ *   configPath?: string|null, createdAt?: string|null, lastSeenAt?: string|null, ghost?: boolean, configMissing?: boolean }} p
  * @returns {import('./contract.js').ProfileView}
  */
 export function profileView(p) {
@@ -313,6 +317,11 @@ export function profileView(p) {
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
       : null,
+    configPath: typeof p.configPath === "string" && p.configPath ? tildify(p.configPath) : null,
+    createdAt: str(p.createdAt),
+    lastSeenAt: str(p.lastSeenAt),
+    ghost: p.ghost === true,
+    configMissing: p.configMissing === true,
   };
 }
 
@@ -323,7 +332,7 @@ export function buildSnapshot(registry = registryDir) {
   /** @type {import('./contract.js').Snapshot} */
   const snap = { profiles: [], tickets: [] };
   for (const p of listProfiles(registry)) {
-    snap.profiles.push(profileView({ name: p.stateKey, label: p.name, pid: p.pid, up: p.up, heartbeat: p.heartbeat }));
+    snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name }));
     const repository = isObj(p.heartbeat) ? p.heartbeat.repository : null;
     snap.tickets.push(...buildRows(p.stateKey, readProfileState(p.dir), { repository }));
   }

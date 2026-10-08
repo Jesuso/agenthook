@@ -1,6 +1,7 @@
 // `agenthook ls` — table of every profile under ~/.agenthook and its live status.
 // Reads each profile's heartbeat + pidfile; never touches the running process.
 import { listProfiles } from "../heartbeat.js";
+import { tildify } from "../profile.js";
 import { createStore } from "../store.js";
 
 /** Humanize an ISO timestamp as a relative age. @param {string|null} iso */
@@ -15,6 +16,28 @@ export function ago(iso) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+/** `s` cut to its last `n` chars, led by `…` when cut. Pure. @param {string} s @param {number} n */
+export function truncLeft(s, n) {
+  return s.length <= n ? s : `…${s.slice(s.length - (n - 1))}`;
+}
+
+/** Budget for the CONFIG column, so a typical row stays under ~140 cols. */
+export const CONFIG_WIDTH = 40;
+
+/** An ISO timestamp's date part (YYYY-MM-DD), or "?". @param {string|null|undefined} iso */
+export const day = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? new Date(iso).toISOString().slice(0, 10) : "?");
+
+/**
+ * The CONFIG cell: the tildified, left-truncated config path (`(missing)` when the file is gone),
+ * `— never ran (created <date>)` for a ghost, `?` when unknown (a legacy pre-marker dir). Pure.
+ * @param {{ configPath?: string|null, createdAt?: string|null, ghost?: boolean, configMissing?: boolean }} p
+ */
+export function configCell(p) {
+  if (p.ghost) return `— never ran (created ${day(p.createdAt)})`;
+  if (!p.configPath) return "?";
+  return truncLeft(tildify(p.configPath), CONFIG_WIDTH) + (p.configMissing ? " (missing)" : "");
 }
 
 /** @param {string} s @param {number} n */
@@ -47,8 +70,8 @@ function usageOf(dir) {
 
 /**
  * The `ls` table + duplicate-label warnings as lines. NAME is the label, `Label (stateKey)`
- * when they differ; the column widens to fit (min 16). Pure; exported for tests.
- * @param {{ stateKey: string, name: string, up: boolean, heartbeat: any }[]} profiles listProfiles() entries
+ * when they differ; the column widens to fit (min 16). CONFIG (last) is configCell. Pure; exported for tests.
+ * @param {{ stateKey: string, name: string, up: boolean, heartbeat: any, configPath?: string|null, createdAt?: string|null, ghost?: boolean, configMissing?: boolean }[]} profiles listProfiles() entries
  * @param {(p: any) => { tokens: string, cost: string }} [usage]
  * @returns {string[]}
  */
@@ -66,17 +89,18 @@ export function formatLs(profiles, usage = () => ({ tokens: "", cost: "" })) {
       queue: hb.queue ? hb.queue.queued : 0,
       ...usage(p),
       last: ago(hb.lastEvent?.at),
+      config: configCell(p),
     };
   });
   const w = Math.max(16, ...rows.map((r) => r.name.length + 2));
   const lines = [
     `${pad("NAME", w)}${pad("UP", 4)}${pad("PORT", 7)}${pad("TRACKER", 9)}${pad("INGRESS", 9)}${pad("REPOS", 7)}` +
-      `${pad("AGENTS", 8)}${pad("QUEUE", 7)}${pad("TOKENS", 9)}${pad("COST", 9)}LAST EVENT`,
+      `${pad("AGENTS", 8)}${pad("QUEUE", 7)}${pad("TOKENS", 9)}${pad("COST", 9)}${pad("LAST EVENT", 12)}CONFIG`,
   ];
   for (const r of rows) {
     lines.push(
       `${pad(r.name, w)}${pad(r.up, 4)}${pad(r.port, 7)}${pad(r.tracker, 9)}${pad(r.ingress, 9)}${pad(r.repos, 7)}` +
-        `${pad(r.agents, 8)}${pad(r.queue, 7)}${pad(r.tokens, 9)}${pad(r.cost, 9)}${r.last}`,
+        `${pad(r.agents, 8)}${pad(r.queue, 7)}${pad(r.tokens, 9)}${pad(r.cost, 9)}${pad(r.last, 12)}${r.config}`,
     );
   }
   /** @type {Map<string, string[]>} */

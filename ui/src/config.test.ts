@@ -175,6 +175,11 @@ const prof = (over: Partial<ProfileView>): ProfileView => ({
   active: 0,
   queued: 0,
   lastEvent: null,
+  configPath: null,
+  createdAt: null,
+  lastSeenAt: null,
+  ghost: false,
+  configMissing: false,
   ...over,
 });
 const runR = (s: RestartState, ...a: RestartAction[]) => a.reduce(restartReducer, s);
