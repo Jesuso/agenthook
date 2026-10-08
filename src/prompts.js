@@ -171,13 +171,13 @@ export function stepPrompt(task, meta, step, ctx) {
     ? `- If a draft PR already exists for this branch, this is a REWORK pass: read the review feedback\n  first (findings passed in this ticket come first; else \`gh pr view <branch> --json reviews,comments\`\n  and \`gh api repos/{owner}/{repo}/pulls/<pr>/comments\` for inline comments) and address it, rather than starting over.`
     : `- If this branch already has commits from an earlier pass, this is a REWORK pass: read the review\n  findings (passed in this ticket / prior verdict) and address them, rather than starting over.`;
   const deliverLine = usesPR
-    ? `- Implement the ${N}, run lint and the relevant tests, and open/update a draft PR.`
+    ? `- Implement the ${N}, run lint and the relevant tests, and open/update a draft PR. After pushing, check\n  \`gh pr view ${ctx.branch || "<branch>"} --json mergeable,mergeStateStatus\` BEFORE waiting on CI: GitHub runs no checks on a PR\n  it can't compute a merge for, so a "CONFLICTING" PR will never go green and you'd wait forever. On\n  "CONFLICTING", fetch and merge the default base branch into yours, resolve the conflicts, re-run lint\n  and tests, and push again. "UNKNOWN" means GitHub is still computing — re-check shortly.`
     : `- Implement the ${N} and run lint and the relevant tests. The worktree branch (its DIFF) IS the\n  deliverable — do NOT open a PR, push, or run any \`gh\` command; commit your work on the branch.`;
   const commentLine = usesPR
     ? `- Post a brief status comment back on the ${N}: ${meta.commentHowTo}.\n  What it says (audience, detail level) is set by the standing instructions above; if they don't say, include the PR link. Do NOT start the comment with "${meta.trigger}".`
     : `- Do NOT post comments anywhere — put any status note in the verdict \`reason\`.`;
   const advanceLine = usesPR
-    ? `- "advance": the work is done and the draft PR is open and green — hand it to review.`
+    ? `- "advance": the work is done, the draft PR is open, mergeable with base (not "CONFLICTING"), and green — hand it to review.`
     : `- "advance": the work is done, committed on the branch, and the relevant tests pass — hand it to review.`;
   return [
     `You are working the "${step.id}" stage of a ${meta.platform} ${N}. Do the work autonomously`,
@@ -201,8 +201,12 @@ export function stepPrompt(task, meta, step, ctx) {
     ...resume,
     verdictFooter(ctx.verdictFile, [
       advanceLine,
-      `- "hold": you are blocked on a human answer (the ${N} is ambiguous or unsafe to do unattended).`,
-      `- "fail": you could not complete the work and it needs a human to step in.`,
+      `- "hold": you are blocked on a human answer (the ${N} is ambiguous or unsafe to do unattended)${
+        usesPR ? `, including a base-branch merge conflict you can't resolve safely (list the conflicted files in\n  \`reason\`)` : ""
+      }.`,
+      `- "fail": you could not complete the work and it needs a human to step in${
+        usesPR ? ` — this also covers an unresolvable merge conflict if you'd rather route it out than hold` : ""
+      }.`,
     ], paths),
   ].join("\n");
 }

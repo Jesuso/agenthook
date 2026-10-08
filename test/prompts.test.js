@@ -84,6 +84,31 @@ test("stepPrompt names the routed repo only when ctx.repo is set (multi-repo)", 
   }
 });
 
+for (const kind of ["implement", "change"]) {
+  test(`${kind} prompt (usesPR) tells agent to check mergeable and merge base on CONFLICTING before waiting on CI`, () => {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.match(p, /gh pr view b --json mergeable,mergeStateStatus/);
+    assert.match(p, /CONFLICTING/);
+    assert.match(p, /GitHub runs no checks on a PR\s*\n?\s*it can't compute a merge for/);
+    assert.match(p, /mergeable with base \(not "CONFLICTING"\), and green/);
+    assert.match(p, /conflicted files in\s*\n?\s*`reason`/);
+  });
+
+  test(`${kind} prompt (usesPR: false) has no mergeability text`, () => {
+    const p = stepPrompt(task, { ...meta, usesPR: false }, step(kind), ctx);
+    assert.doesNotMatch(p, /mergeable/);
+    assert.doesNotMatch(p, /CONFLICTING/);
+  });
+}
+
+test("review and triage prompts have no mergeability text", () => {
+  for (const kind of ["triage", "review"]) {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.doesNotMatch(p, /mergeable/);
+    assert.doesNotMatch(p, /CONFLICTING/);
+  }
+});
+
 test("verdict schema mentions `paths` only when overlapGuard is on", () => {
   for (const kind of ["triage", "implement", "review"]) {
     assert.doesNotMatch(stepPrompt(task, meta, step(kind), ctx), /"paths"/, `${kind}: off by default`);
