@@ -5,6 +5,9 @@ import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
+import { BasicsForm, PipelineForm } from "./ConfigForms";
+import type { StagesState } from "./ConfigForms";
+import { clientErrors, discoverUrl, stageSource } from "./configEdit";
 import { classifySaveResponse, freshSave, saveErrorText, saveReducer } from "./save";
 import type { SaveAction, SaveState } from "./save";
 import {
@@ -25,6 +28,7 @@ import type { ConfigSinkEvent, SensitiveChange } from "./config";
 // is live, this is not.
 type Meta = { errors: string[]; literalSecrets: string[]; as: "load" | "save" | "rejected" };
 type FileState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; doc: SaveState; meta: Meta };
+type Pane = "raw" | "basics" | "pipeline";
 
 const JSON_LANG = json();
 const OVERWRITE_PROMPT = "Overwrite the on-disk config with your buffer? The on-disk changes will be replaced (the previous content is kept as a backup).";
@@ -36,6 +40,8 @@ const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: 
  * change) → guarded `PUT /api/config`. A 200 offers "Restart when idle" (`POST /api/restart`),
  * whose banner follows `restartReducer` off SSE only. `eventSink` carries `config` events
  * (external edits) and feed `event`s (the restart lifecycle) from the parent's /api/stream.
+ * Basics / Pipeline form tabs edit the same buffer through `configEdit.ts` text edits; their stage
+ * pickers fetch `GET /api/discover` on first open per profile and on Refresh only (no polling).
  */
 export default function ConfigView(props: {
   profiles: ProfileView[];
@@ -55,6 +61,10 @@ export default function ConfigView(props: {
   const restartRef = useRef(restart);
   restartRef.current = restart;
   const [toast, setToast] = useState<string | null>(null);
+  const [pane, setPane] = useState<Pane>("raw");
+  // Discover for `profile` (null = not fetched yet for the open profile); only the latest fetch lands.
+  const [stages, setStages] = useState<(StagesState & { profile: string }) | null>(null);
+  const discoverSeq = useRef(0);
   // Only the latest load may land. `fileRef`/`profileRef` are written with every update (not at
   // render), so async callbacks always see the newest state.
   const loadSeq = useRef(0);
@@ -83,6 +93,40 @@ export default function ConfigView(props: {
   const phase = doc?.phase.kind ?? null;
   const dirty = doc ? isDirty(doc.buffer, doc.open) : false;
   const parsed = doc ? parseCheck(doc.buffer) : null;
+  const checks = parsed?.ok ? clientErrors(parsed.raw) : [];
+
+  const fetchStages = (prof: string) => {
+    const seq = ++discoverSeq.current;
+    setStages({ profile: prof, source: { kind: "loading" }, body: null });
+    const land = (status: number, body: any) => {
+      if (seq === discoverSeq.current) setStages({ profile: prof, source: stageSource(status, body), body: status === 200 ? body : null });
+    };
+    fetch(discoverUrl(prof))
+      .then((res) =>
+        res
+          .json()
+          .catch(() => null)
+          .then((body) => land(res.status, body)),
+      )
+      .catch(() => land(0, null));
+  };
+
+  // A form tab's first open for a profile fetches its stages once; Refresh re-fetches.
+  useEffect(() => {
+    if (pane !== "raw" && profile && stages?.profile !== profile) fetchStages(profile);
+  }, [pane, profile]);
+
+  // Forms need a parsed buffer: an unparseable one (e.g. reloaded from disk) falls back to Raw.
+  useEffect(() => {
+    if (parsed && !parsed.ok && pane !== "raw") setPane("raw");
+  }, [parsed?.ok]);
+
+  const switchPane = (next: Pane) => {
+    if (next === pane) return;
+    // The raw editor is uncontrolled: remount it so it seeds from the buffer the forms edited.
+    if (next === "raw") setEditorKey((k) => k + 1);
+    setPane(next);
+  };
 
   /** Load the profile's config. `silent` (an external edit on a clean buffer — the `stale` phase)
    *  keeps the current view while fetching, and lands only if still stale. */
@@ -388,15 +432,41 @@ export default function ConfigView(props: {
               (saving is still allowed).
             </div>
           )}
+          <div className="mb-2 flex gap-1 border-b border-[var(--color-border)] text-sm">
+            {(["raw", "basics", "pipeline"] as const).map((t) => (
+              <button
+                key={t}
+                className={`-mb-px border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${t === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
+                disabled={t !== "raw" && !parsed?.ok}
+                title={t !== "raw" && !parsed?.ok ? "fix the JSON in Raw first" : undefined}
+                onClick={() => switchPane(t)}
+              >
+                {t}
+              </button>
+            ))}
+            {!parsed?.ok && <span className="self-center px-2 text-xs text-[var(--color-muted)]">fix the JSON in Raw first</span>}
+          </div>
           <div className="flex min-h-0 flex-1 gap-3">
-            <div className="min-w-0 flex-1">
-              <MarkdownEditor
-                key={editorKey}
-                initial={open.content}
-                language={JSON_LANG}
-                onChange={(buffer) => act({ type: "edit", buffer })}
-                onSave={requestSave}
-              />
+            <div className="min-w-0 flex-1 overflow-auto">
+              {pane === "raw" || !parsed?.ok ? (
+                <MarkdownEditor
+                  key={editorKey}
+                  initial={doc.buffer}
+                  language={JSON_LANG}
+                  onChange={(buffer) => act({ type: "edit", buffer })}
+                  onSave={requestSave}
+                />
+              ) : pane === "basics" ? (
+                <BasicsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+              ) : (
+                <PipelineForm
+                  text={doc.buffer}
+                  raw={parsed.raw}
+                  stages={stages?.profile === profile ? stages : null}
+                  onRefresh={() => fetchStages(profile)}
+                  onEdit={(buffer) => act({ type: "edit", buffer })}
+                />
+              )}
             </div>
             <aside className="w-80 shrink-0 overflow-auto text-sm">
               <h3 className="mb-1 text-xs uppercase tracking-wide text-[var(--color-muted)]">validation</h3>
@@ -404,6 +474,18 @@ export default function ConfigView(props: {
                 <p className="mb-2 text-[var(--color-ok)]">JSON parses.</p>
               ) : (
                 <p className="mb-2 break-words font-mono text-xs text-[var(--color-err)]">{parsed?.error}</p>
+              )}
+              {checks.length > 0 && (
+                <>
+                  <h4 className="mb-1 text-xs text-[var(--color-muted)]">pipeline checks (the server decides on save)</h4>
+                  <ul className="mb-2 list-disc space-y-1 pl-4 text-[var(--color-warn)]">
+                    {checks.map((e, i) => (
+                      <li key={i} className="break-words">
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
               <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
               {file.meta.errors.length === 0 ? (
