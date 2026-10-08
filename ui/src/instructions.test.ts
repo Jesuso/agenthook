@@ -8,7 +8,7 @@ function file(path: string, scope: InstructionFileView["scope"], ids: string[]):
 }
 
 const open: OpenFile = { profile: "p", path: "/a/code.md", content: "hello", baseHash: "h1" };
-const ev = (over: Partial<InstructionsEvent>): InstructionsEvent => ({ type: "instructions", profile: "p", path: "/a/code.md", hash: "h2", ...over });
+const ev = (over: Partial<InstructionsEvent>): InstructionsEvent => ({ type: "instructions", profile: "p", path: "/a/code.md", hash: "h2", source: "disk", ...over });
 
 describe("groupFiles", () => {
   it("orders default → step → repo, sorting by first id then path", () => {
