@@ -164,6 +164,26 @@
  */
 
 /**
+ * A tracker's available stage, as picked for a pipeline step binding. `id` is written
+ * verbatim into the binding key (Asana section gid, Jira/github-projects/local status
+ * name, GitHub label name).
+ * @typedef {object} StageOption
+ * @property {string} id
+ * @property {string} label
+ */
+
+/**
+ * Names the Step binding-key family a tracker uses for source/success/failure/hold/queue,
+ * e.g. asana's {source:"sourceSectionGid", …}. Each value is a key on Step.
+ * @typedef {object} StageKeys
+ * @property {string} source
+ * @property {string} success
+ * @property {string} failure
+ * @property {string} hold
+ * @property {string} queue
+ */
+
+/**
  * Platform words injected into the prompt builders (src/prompts.js).
  * @typedef {object} AdapterMeta
  * @property {string} platform      e.g. "Asana", "GitHub"
@@ -172,6 +192,7 @@
  * @property {string} commentHowTo  one line telling the agent how to comment back
  * @property {string} [readCommentsHowTo] one line telling the agent how to read the task's existing comments (where a human's answer to a held question lands); omitted when the tracker has no comment channel
  * @property {boolean} [usesPR]     does this tracker's workflow revolve around a pull request? Default true. When false (e.g. the local/offline tracker) the prompt builders drop all PR language: the worktree DIFF is the deliverable and review reads it with `git diff`, never `gh pr`
+ * @property {StageKeys} [stageKeys]  the Step binding-key family this tracker uses (source/success/failure/hold/queue)
  */
 
 /**
@@ -220,6 +241,7 @@
  * @property {(ref: string, stepId?: string) => Promise<ForgedEvent>} [forgeCatchup]  optional; catchup needs it. dedupKey matches the server-assigned key; pass stepId to skip the live-section lookup
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(answers: Record<string, any>) => (Partial<Step>|null)} [pipelineBindings]  optional; `agenthook init` turns the wizard's live stage picks (the `_*Stage` answers) into the code step's tracker bindings (real source/success/failure), so no TODO_* editing is needed. Null ⇒ init keeps the placeholder skeleton
+ * @property {() => Promise<StageOption[]>} [listStages]  optional; the tracker's available stages (Asana sections, Jira statuses, GitHub labels, Projects Status options) for the UI's stage pickers, read off the adapter's own configured board — no credentials leave the receiver
  */
 
 /**
