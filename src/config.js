@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { controlSockPath } from "./paths.js";
 
 // The installed package root (this file is src/config.js). Used only to read
 // bundled templates — never for runtime state.
@@ -231,6 +232,7 @@ export function loadConfig(opts = {}) {
   cfg.publicUrlFile = path.join(stateDir, "public_url.txt");
   cfg.pidFile = path.join(stateDir, "server.pid");
   cfg.heartbeatFile = path.join(stateDir, "heartbeat.json");
+  cfg.controlSock = controlSockPath(stateDir, cfg.name);
 
   // instructionsFile defaults to one beside the config; resolve relative to it.
   cfg.instructionsFile = resolvePath(cfg.instructionsFile || "./INSTRUCTIONS.md", configDir);

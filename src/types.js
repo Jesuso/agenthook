@@ -355,6 +355,7 @@
  * @property {string} publicUrlFile
  * @property {string} pidFile
  * @property {string} heartbeatFile
+ * @property {string} controlSock
  */
 
 /**

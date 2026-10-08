@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mangle, claudeProjectDir, worktreeDir } from "../src/paths.js";
+import { mangle, claudeProjectDir, worktreeDir, controlSockPath } from "../src/paths.js";
 import { worktreePath } from "../src/worktree.js";
 
 test("mangle replaces every non-alphanumeric char with a dash", () => {
@@ -21,6 +21,14 @@ test("worktreeDir defaults to a sibling of the repo", () => {
 
 test("worktreeDir honors an absolute worktreePrefix (sandbox container path)", () => {
   assert.equal(worktreeDir(/** @type {any} */ ({ repoPath: "/work/repo", worktreePrefix: "/work/worktrees" })), "/work/worktrees");
+});
+
+test("controlSockPath: posix is a socket file under stateDir", () => {
+  assert.equal(controlSockPath("/home/me/.agenthook/foo", "foo", "linux"), path.join("/home/me/.agenthook/foo", "control.sock"));
+});
+
+test("controlSockPath: win32 is a named pipe keyed by profile name", () => {
+  assert.equal(controlSockPath("/home/me/.agenthook/foo", "foo", "win32"), "\\\\.\\pipe\\agenthook-foo");
 });
 
 // --- multi-repo worktree layout ---

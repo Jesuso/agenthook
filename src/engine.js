@@ -22,6 +22,7 @@ import { createPuller } from "./pull.js";
 import { queueStageOf } from "./pipeline.js";
 import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
+import { startControl } from "./control.js";
 import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
 
@@ -112,6 +113,9 @@ export function createEngine(cfg) {
   const forge = createForge(cfg, store);
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
+  const startedAt = new Date().toISOString();
+  /** @type {{close(): void} | null} */
+  let control = null;
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
   /** @type {Set<import('node:child_process').ChildProcess>} */
   const children = new Set();
@@ -227,6 +231,7 @@ export function createEngine(cfg) {
   /** Final teardown shared by graceful + forced exit. */
   function teardown() {
     heartbeat.clear();
+    control?.close();
     try {
       fs.rmSync(cfg.pidFile, { force: true });
     } catch {
@@ -323,6 +328,7 @@ export function createEngine(cfg) {
       // POST a handshake/ping to the public URL, which must reach a live server (Asana
       // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
       await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
+      control = await startControl(cfg, { startedAt }); // owner check reads the OLD pidfile — must run before the write below
       fs.writeFileSync(cfg.pidFile, String(process.pid));
       console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
 
@@ -371,6 +377,7 @@ export function createEngine(cfg) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).
       if (ingressUp) await ingress.down().catch(() => {});
+      control?.close();
       throw e;
     }
 
