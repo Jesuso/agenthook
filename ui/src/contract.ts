@@ -1,3 +1,3 @@
 // Re-export of the server ↔ browser contract (src/ui/contract.js). No duplicated
 // shapes — the frontend types against the same JSDoc typedefs the server returns.
-export type { ProfileView, LastEvent, TicketStatus, TicketRow, Snapshot, UiEvent, RunView, LogFrame } from "../../src/ui/contract.js";
+export type { ProfileView, LastEvent, TicketStatus, TicketRow, Snapshot, UiEvent, RunView, LogFrame, InstructionFileView, InstructionsView } from "../../src/ui/contract.js";
