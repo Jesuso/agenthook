@@ -171,9 +171,16 @@ Key files:
   editor: `GET /api/config` = the raw file at `heartbeat.configPath` + `validateRawConfig` errors +
   `literalSecrets`; `PUT /api/config` = same guards, 422 on invalid (nothing written), backup in
   `config-bak/`, audit `sensitive` = changed `contract.js` `SENSITIVE_FIELDS`; SSE `config`) are the
-  **only** UI writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
-  confines write calls to it. Otherwise a blind **reader**: never writes any state dir, never
-  loads a config; PR links come from the heartbeat's `repository`.
+  **only** UI file writes — both go through `save.js` (`atomicSave`), and `test/ui-server.test.js`
+  confines write calls to it. `control-client.js` (`controlRequest` — one NDJSON request over a
+  profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
+  `down`/`timeout`; `resolveProfileSock` gates by `listProfiles` like `logs.js`'s `profileDir`)
+  backs two more endpoints that are **not** file writes: `GET /api/discover` (cookie only; 5 s
+  timeout) and `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
+  timeout) — both map the receiver's reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200,
+  and `restart` audits its outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
+  Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
+  from the heartbeat's `repository`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).

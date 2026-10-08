@@ -1,7 +1,9 @@
 // `ah ui` shared save path (docs/web-ui.md § v2, § v3) — the only code in src/ui that writes.
 // Both editors (instructions.js writeInstructionFile, config.js writeConfigFile) resolve and
 // validate their own target, then hand the bytes here: an atomic replace of the file, a
-// one-generation backup under the profile's state dir, and a line in its `ui-audit.jsonl`.
+// one-generation backup under the profile's state dir, and a line in its `ui-audit.jsonl` via
+// `appendAudit`. `POST /api/restart` (server.js, no file write) uses `appendAudit` directly to
+// log its outcome.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +21,19 @@ export const UI_MAX_BYTES = 256 * 1024;
  */
 export const backupPathFor = (stateDir, file, subdir = "instructions-bak") =>
   path.join(stateDir, subdir, `${path.basename(file)}.${sha256(file).slice(0, 12)}.bak`);
+
+/**
+ * Append one audit line to a profile's `ui-audit.jsonl` (0600), swallowing write failures — an
+ * audit line is best-effort and never blocks the action it describes.
+ * @param {string} stateDir @param {Record<string, any>} entry
+ */
+export function appendAudit(stateDir, entry) {
+  try {
+    fs.appendFileSync(path.join(stateDir, "ui-audit.jsonl"), JSON.stringify(entry) + "\n", { mode: 0o600 });
+  } catch {
+    /* best effort */
+  }
+}
 
 /**
  * The current bytes, exact mode and sha256 of a file about to be saved; null if unreadable.
@@ -71,12 +86,7 @@ export function atomicSave({ stateDir, file, cur, mode, next, bakSubdir, audit }
     return fail();
   }
   const hash = sha256(next);
-  try {
-    const line = JSON.stringify({ ts: new Date().toISOString(), path: file, oldHash: sha256(cur), newHash: hash, bytes: next.length, ...audit });
-    fs.appendFileSync(path.join(stateDir, "ui-audit.jsonl"), line + "\n", { mode: 0o600 });
-  } catch {
-    /* the save happened; a missing audit line doesn't undo it */
-  }
+  appendAudit(stateDir, { ts: new Date().toISOString(), path: file, oldHash: sha256(cur), newHash: hash, bytes: next.length, ...audit });
   return { status: 200, hash };
 
   /** @returns {{ status: 500 }} */

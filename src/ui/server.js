@@ -1,26 +1,31 @@
-// `ah ui` HTTP server (docs/web-ui.md). Localhost-only, read-only. Every request passes
-// the DNS-rebinding Host guard first; `/api/*` additionally needs the per-launch token,
-// exchanged once via `/?token=` for an HttpOnly SameSite=Strict cookie. Static assets
-// (the public frontend bundle) need no cookie — only `/api/*` exposes state.
+// `ah ui` HTTP server (docs/web-ui.md). Localhost-only, read-only except two guarded write
+// actions. Every request passes the DNS-rebinding Host guard first; `/api/*` additionally needs
+// the per-launch token, exchanged once via `/?token=` for an HttpOnly SameSite=Strict cookie.
+// Static assets (the public frontend bundle) need no cookie — only `/api/*` exposes state.
 // `/api/stream` pushes UiEvent deltas over SSE from a dir watcher started on the first
 // stream connection. `/api/runs` + `/api/log/stream` back the run-log viewer (src/ui/logs.js).
 // `/api/instructions*` + `/api/prompt-preview` are the instructions editor's read side
 // (src/ui/instructions.js); `PUT /api/instructions/file` is its write side — an allowlisted
 // instruction file. `GET /api/config` reads the profile's config (src/ui/config.js) and `PUT
-// /api/config` saves it — the second and only other write. Both writes go through save.js (the
+// /api/config` saves it — the second file write. Both file writes go through save.js (the
 // file, its backup in the state dir, a line in the profile's `ui-audit.jsonl`) and both
 // additionally require a same-origin `Origin`, `X-AH-UI: 1` and a JSON body ≤ 256 KB.
-// Nothing else in any state dir is ever written.
+// `GET /api/discover` and `POST /api/restart` are v3's control-socket actions (src/ui/control-
+// client.js, src/control.js): no file write, just a request over the profile's control.sock,
+// mapped to 503/504/502 when the receiver is down, times out, or answers `ok:false`. `restart`
+// reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`. Nothing else in
+// any state dir is ever written.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { registryDir } from "../config.js";
 import { readConfigFile, writeConfigFile } from "./config.js";
+import { controlRequest, resolveProfileSock } from "./control-client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
 import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
 import { buildSnapshot, readEventsTail } from "./rows.js";
-import { UI_MAX_BYTES } from "./save.js";
+import { appendAudit, UI_MAX_BYTES } from "./save.js";
 import { createWatcher } from "./watch.js";
 
 export const COOKIE = "ah_ui";
@@ -48,6 +53,9 @@ const INSTR_FILE = "/api/instructions/file";
 const CONFIG = "/api/config";
 const WRITABLE = new Set([INSTR_FILE, CONFIG]);
 
+/** The control-socket action path (POST only). */
+const RESTART = "/api/restart";
+
 /** Constant-time string compare; a length mismatch is a mismatch. @param {string} a @param {string} b */
 export function safeEqual(a, b) {
   const x = Buffer.from(a, "utf8");
@@ -65,10 +73,11 @@ export function cookieToken(header) {
 }
 
 /**
- * @param {{ port: number, token: string, distDir: string, registry?: string }} opts
+ * @param {{ port: number, token: string, distDir: string, registry?: string,
+ *   discoverTimeoutMs?: number, restartTimeoutMs?: number }} opts
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir }) {
+export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000 }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -129,7 +138,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
   };
 
   /**
-   * The guard prelude shared by both PUTs, in order: cookie (Host already checked) → 401;
+   * The guard prelude shared by the two PUTs and `POST /api/restart`, in order: cookie (Host
+   * already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -171,6 +181,47 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
       cb(body && typeof body === "object" ? body : {});
     });
   };
+
+  /** Write `code` + JSON `body`, no-store. @param {http.ServerResponse} res @param {number} code @param {any} body */
+  const sendStatusJson = (res, code, body) => {
+    res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(JSON.stringify(body));
+  };
+
+  /**
+   * One control-socket request, mapped to an HTTP status: the receiver's `{ok:true, result}` →
+   * 200 + result; `{ok:false, error}` → 502 + `{error}`; down (no socket / refused / closed
+   * early) → 503; no reply inside `timeoutMs` → 504.
+   * @param {string} sockPath @param {string} cmd @param {any} args @param {number} timeoutMs
+   * @returns {Promise<{ status: number, body: any }>}
+   */
+  const callControl = async (sockPath, cmd, args, timeoutMs) => {
+    try {
+      const r = await controlRequest(sockPath, cmd, args, { timeoutMs });
+      return r.ok ? { status: 200, body: r.result } : { status: 502, body: { error: r.error } };
+    } catch (e) {
+      return e?.code === "timeout" ? { status: 504, body: { error: "receiver timed out" } } : { status: 503, body: { error: "receiver not running" } };
+    }
+  };
+
+  /**
+   * `POST /api/restart` — readGuardedJson, then `{profile}` a string → else 400; unknown profile
+   * → 404 (socket never contacted); else sends `{cmd:'restart', args:{when:'idle'}}` and maps the
+   * reply via `callControl`. Always audits the outcome (`{ts, action:'restart', profile, status}`)
+   * once the profile is known, via save.js's `appendAudit`.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postRestart = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile } = body;
+      if (typeof profile !== "string") return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "restart", { when: "idle" }, restartTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "restart", profile, status });
+        sendStatusJson(res, status, result);
+      });
+    });
 
   /**
    * `PUT /api/instructions/file` — readGuardedJson, then `{profile, path, baseHash, content}`
@@ -233,6 +284,11 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
       return send(res, 405);
     }
 
+    if (req.method === "POST" && p === RESTART) return postRestart(req, res, host);
+    if (p === RESTART) {
+      res.setHeader("Allow", "POST");
+      return send(res, 405);
+    }
     if (req.method === "PUT" && p === INSTR_FILE) return putInstructions(req, res, host);
     if (req.method === "PUT" && p === CONFIG) return putConfig(req, res, host);
     if (req.method !== "GET") {
@@ -289,6 +345,12 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
         }
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
         return res.end(body);
+      }
+      if (p === "/api/discover") {
+        const sock = resolveProfileSock(registry, params.get("profile") || "");
+        if (!sock) return send(res, 404);
+        callControl(sock.sockPath, "discover", {}, discoverTimeoutMs).then(({ status, body }) => sendStatusJson(res, status, body));
+        return;
       }
       if (p === "/api/instructions") return sendJson(res, () => listInstructions(registry, params.get("profile") || ""));
       if (p === "/api/instructions/file") {
