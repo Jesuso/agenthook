@@ -191,15 +191,47 @@ reload / diff / overwrite" banner on 409 or an external edit.
 
 ### v3 — config editor
 
-- A JSON Schema for `agenthook.config.json` (`src/config.schema.json`), shared by `doctor`
-  validation and the UI form; raw-JSON fallback editor.
-- Stage pickers powered by the adapters' existing `wizardSteps`/`pipelineBindings` discovery
-  (pick an Asana section / Jira status / label instead of pasting ids).
-- Pipeline graph: step cards with source → success / fail / hold / changes edges.
-- Saves preserve `//` comment keys and key order (structural edit, never blind re-serialize),
-  atomic write + `.bak`.
-- The receiver reads config at boot, so pipeline edits apply on restart: a **restart-when-idle**
-  action (waits for 0 running agents) over `control.sock`.
+Edits `agenthook.config.json` — the one file at the receiver-published `heartbeat.configPath`.
+
+**Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
+model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
+`manual`, `instructionsFile`; the tracker's stage bindings) and the **top-level basics** (`name`,
+`maxConcurrent`, `fullAuto`, `port`, `trigger`). Everything else (`repos`, `forge`, `ingress`,
+`sinks`, tracker credentials) through a **raw JSON editor** with the same validation and diff.
+
+**Formatting-preserving edits, zero-dep server.** The browser turns form changes into minimal text
+edits with `jsonc-parser` (`modify` + `applyEdits`, MIT) so `//` comment keys, key order and the
+file's formatting survive; the raw editor sends text directly. The server stays dependency-free:
+it `JSON.parse`s the proposed text and runs **`validateRawConfig`** — the validation extracted from
+`loadConfig` into a pure function that treats `${VAR}` strings as opaque and never resolves env.
+Invalid → `422` with the errors; nothing written.
+
+**Save guards** reuse v2's: cookie + Host + exact Origin + `X-AH-UI: 1` + JSON, size cap, path must
+equal `heartbeat.configPath` exactly (regular file, no symlink, realpath), `baseHash` → `409`,
+atomic temp+rename keeping mode, backup in the state dir, audit line. The audit line also names
+**sensitive fields** that changed (`fullAuto`, `claudeBin`, tracker/forge/ingress tokens, user
+scoping like `userGid`/`assigneeFilter`), and the UI asks for a second confirmation for them.
+A known secret field holding a literal instead of a `${VAR}` ref gets a **warning** (save allowed).
+
+**Stage pickers — via the receiver.** Listing an Asana project's sections / Jira statuses / labels
+/ Projects Status options needs tracker credentials the UI never holds. Adapters gain an optional
+`listStages()` (extracted from their `init` wizard discovery); the receiver answers a read-only
+`discover` command on `control.sock`. Receiver down → free-text fields.
+
+**Applying changes — restart when idle.** The receiver reads config at boot. A `restart` command
+on `control.sock`: the receiver stops starting new runs (incoming jobs still queue to
+`queue.json`), waits for 0 active agents, shuts down gracefully, re-spawns itself detached on the
+same config, and the new process runs **one `reconcile`** to recover webhooks missed in the gap
+(an explicit, user-triggered poll — consistent with the no-polling rule). Hot-reload stays out of
+scope.
+
+**Control socket hardening (prerequisite).** Profile state dirs are created / tightened to `0700`
+and the socket is created under a `0o077` umask (no chmod race), before any command lands.
+Protocol: NDJSON `{id, cmd, args}` → `{id, ok, result|error}`, allowlisted commands only
+(`discover`, `restart`); the v1 `hello` line is unchanged.
+
+**Pipeline graph.** SVG step cards with advance / fail / hold / changes edges, derived from the
+stage bindings (sources, successes, failures, holds, and each step's `changes` target).
 
 ### Later
 
