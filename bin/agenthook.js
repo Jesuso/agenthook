@@ -47,7 +47,7 @@ const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port"]);
 
 /** @param {string[]} argv */
-function parse(argv) {
+export function parse(argv) {
   /** @type {{_: string[], [k: string]: any}} */
   const args = { _: [] };
   for (let i = 0; i < argv.length; i++) {

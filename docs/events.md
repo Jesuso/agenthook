@@ -28,6 +28,8 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 | `ci_red` | a [forge](asana-setup.md#red-ci-on-agent-prs) saw a red CI run on the task's `agent/<ref>` PR and acted | `action` (`rerun`\|`deferred`\|`bounced`\|`skipped`), `runId`, `attempt`, `sha`, `pr`, `target?` (`step` = the step it bounced from, or `""`; a bounce forced to `fail` by the loop cap emits `failed` instead) |
 | `overlap_held` | [`overlapGuard`](architecture.md#file-overlap-guard-overlapguard-opt-in): the task's predicted paths overlap another in-flight task's lock, so its step waits in its source stage (no agent, no move) | `blockedBy` (the ref holding the lock) |
 | `overlap_released` | `overlapGuard`: the blocker left the pipeline and the waiting task is re-offered to its step | `blockedBy` |
+| `restart_requested` | a control-socket `restart {when:"idle"}` was accepted: new runs pause (jobs still queue to `queue.json`) until active agents reach 0 (`ref`/`step` = `""`) | `active`, `queued` |
+| `restarting` | active agents reached 0 — the receiver exits gracefully and respawns detached on the same config, then runs one reconcile (`ref`/`step` = `""`) | `queued` (jobs left in `queue.json` for the new process) |
 
 `pipeline_done` is the signal that a ticket is fully finished and its PR is ready for merge.
 `blocked` and `failed` are the needs-attention signals.

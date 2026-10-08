@@ -1,15 +1,17 @@
 // `agenthook start` — boot a profile's receiver. Server owns the ingress lifecycle
 // (see engine.js). Refuses to start if the profile is already running (pid alive).
-import fs from "node:fs";
-import path from "node:path";
-import { spawn } from "node:child_process";
-import { loadConfig, ensurePrivateDir } from "../config.js";
+//
+// `--reconcile-on-boot` is internal: a control-socket `restart` respawns with it so the
+// new server runs one reconcile after boot. `--detach` forwards it to the child.
+import { loadConfig } from "../config.js";
 import { createEngine } from "../engine.js";
 import { readProfile } from "../heartbeat.js";
+import { startArgv, spawnDetached } from "../respawn.js";
 
 /** @param {any} args */
 export async function start(args) {
   const cfg = loadConfig({ configPath: args.config });
+  const reconcileOnBoot = !!args["reconcile-on-boot"];
 
   const existing = readProfile(cfg.name);
   if (existing.up) {
@@ -17,20 +19,11 @@ export async function start(args) {
   }
 
   if (args.detach) {
-    ensurePrivateDir(cfg.stateDir);
-    const logPath = path.join(cfg.stateDir, "receiver.log");
-    const fd = fs.openSync(logPath, "a");
-    const bin = path.join(cfg.installDir, "bin", "agenthook.js");
-    const child = spawn(process.execPath, [bin, "start", "--config", cfg.configPath], {
-      detached: true,
-      stdio: ["ignore", fd, fd],
-    });
-    fs.closeSync(fd);
-    child.unref();
-    console.log(`started "${cfg.name}" in background (pid ${child.pid}). Log: ${logPath}`);
+    const { pid, logPath } = spawnDetached(cfg, { command: process.execPath, args: startArgv(cfg, { reconcileOnBoot }) });
+    console.log(`started "${cfg.name}" in background (pid ${pid}). Log: ${logPath}`);
     return;
   }
 
-  await createEngine(cfg).serve();
+  await createEngine(cfg, { reconcileOnBoot }).serve();
   // serve() keeps the process alive via the open server + signal handlers.
 }

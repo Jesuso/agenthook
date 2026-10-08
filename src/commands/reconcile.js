@@ -21,24 +21,40 @@ export async function reconcile(args) {
   const cfg = loadConfig({ configPath: args.config });
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
+  try {
+    await runReconcile(cfg, { store, adapter });
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
+}
 
-  if (!isPipeline(cfg)) die(`reconcile is for pipeline configs; "${cfg.name}" has no tracker.pipeline.`);
+/**
+ * The reconcile body, callable in-process (the engine runs it once on a
+ * `--reconcile-on-boot` restart). Throws instead of exiting; replays through the
+ * live server on 127.0.0.1:<port>.
+ * @param {import('../types.js').Config} cfg
+ * @param {{store: import('../types.js').Store, adapter: import('../types.js').Adapter, log?: (msg: string) => void}} deps
+ * @returns {Promise<{replayed: number, skipped: number}>}
+ */
+export async function runReconcile(cfg, { store, adapter, log = console.log }) {
+  if (!isPipeline(cfg)) throw new Error(`reconcile is for pipeline configs; "${cfg.name}" has no tracker.pipeline.`);
   if (typeof adapter.listResting !== "function" || typeof adapter.forgeCatchup !== "function") {
-    die(`tracker "${cfg.provider}" does not support reconcile.`);
+    throw new Error(`tracker "${cfg.provider}" does not support reconcile.`);
   }
 
   if (cfg.overlapGuard) {
     const waiting = store.listOverlap();
     for (const ref of staleOverlaps(waiting, store.listLocks())) {
       store.clearOverlap(ref);
-      console.log(`[overlap] pruned ${ref} — its blocker ${waiting[ref].blockedBy} holds no lock`);
+      log(`[overlap] pruned ${ref} — its blocker ${waiting[ref].blockedBy} holds no lock`);
     }
   }
 
   const resting = await adapter.listResting();
   if (!resting.length) {
-    console.log("board clean — no resting tasks to reconcile.");
-    return;
+    log("board clean — no resting tasks to reconcile.");
+    return { replayed: 0, skipped: 0 };
   }
   const running = store.listRunning();
   store.reloadSeen();
@@ -46,7 +62,7 @@ export async function reconcile(args) {
   let dispatched = 0;
   for (const job of resting) {
     if (job.ref in running) {
-      console.log(`[skip] ${job.ref} is mid-step (${running[job.ref].stepId}) — not replaying`);
+      log(`[skip] ${job.ref} is mid-step (${running[job.ref].stepId}) — not replaying`);
       continue;
     }
     const forged = await adapter.forgeCatchup(job.ref, job.stepId);
@@ -60,17 +76,12 @@ export async function reconcile(args) {
         body: forged.body,
       });
       if (res.status !== 200) throw new Error(`server returned ${res.status}`);
-      console.log(`[reconcile] replayed ${job.ref} -> step ${job.stepId}`);
+      log(`[reconcile] replayed ${job.ref} -> step ${job.stepId}`);
       dispatched++;
     } catch (e) {
-      die(`could not reach server on 127.0.0.1:${cfg.port} (${e.message}). Is "${cfg.name}" running?`);
+      throw new Error(`could not reach server on 127.0.0.1:${cfg.port} (${e.message}). Is "${cfg.name}" running?`);
     }
   }
-  console.log(`reconcile done — ${dispatched} task(s) replayed, ${resting.length - dispatched} skipped.`);
-}
-
-/** @param {string} msg @returns {never} */
-function die(msg) {
-  console.error(msg);
-  process.exit(1);
+  log(`reconcile done — ${dispatched} task(s) replayed, ${resting.length - dispatched} skipped.`);
+  return { replayed: dispatched, skipped: resting.length - dispatched };
 }

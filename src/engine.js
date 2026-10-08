@@ -8,6 +8,11 @@
 //   listen + write pidfile + heartbeat
 //   on exit: ingress.down(), clear pidfile/heartbeat
 //
+// A control-socket `restart {when:'idle'}` pauses the queue (jobs still persist to
+// queue.json), waits for 0 active agents, exits through the graceful path and respawns
+// detached with --reconcile-on-boot; the new process restores the queue and runs one
+// reconcile to recover webhooks missed in the gap.
+//
 // The request path is the same fast-ACK-then-async shape as before: authenticate
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
 // `/forge` goes to the forge (when one is configured); everything else to the tracker.
@@ -27,6 +32,9 @@ import { createHeartbeat } from "./heartbeat.js";
 import { startControl } from "./control.js";
 import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
+import { loadConfig } from "./config.js";
+import { restartSpawnArgs, spawnDetached } from "./respawn.js";
+import { runReconcile } from "./commands/reconcile.js";
 
 /**
  * Pure record builder for a fatal crash — unit-testable without touching disk/process.
@@ -126,8 +134,48 @@ export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
   }
 }
 
-/** @param {import('./types.js').Config} cfg */
-export function createEngine(cfg) {
+/**
+ * The control-socket `restart` request: validate, then pause the queue and fire once
+ * active agents reach 0. Returns immediately; the fire runs in the background.
+ * @param {{
+ *   queue: {pause(): void, state(): {active:number, queued:number}, onActiveIdle(): Promise<void>},
+ *   isDraining: () => boolean,
+ *   validateConfig: () => void,
+ *   onPending: (state: {active:number, queued:number}) => void,
+ *   fire: () => void | Promise<void>,
+ * }} deps  validateConfig throws on a config that would brick the respawn; onPending
+ *   does the heartbeat + event; fire runs the graceful shutdown-with-respawn
+ * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number}>, isPending(): boolean}}
+ */
+export function createRestartRequester({ queue, isDraining, validateConfig, onPending, fire }) {
+  let pending = false;
+  return {
+    isPending: () => pending,
+    async request(args) {
+      if (args?.when !== "idle") throw new Error(`restart: unsupported when ${JSON.stringify(args?.when)} (only "idle")`);
+      if (isDraining()) throw new Error("restart: shutdown already in progress");
+      const { active, queued } = queue.state();
+      if (pending) return { accepted: true, alreadyPending: true, active, queued };
+      validateConfig(); // a bad config on disk rejects the restart — nothing changes
+      pending = true;
+      queue.pause();
+      onPending({ active, queued });
+      queue
+        .onActiveIdle()
+        // setImmediate: let the control reply flush before teardown closes the socket.
+        .then(() => new Promise((resolve) => setImmediate(resolve)))
+        .then(() => (isDraining() ? undefined : fire())) // a signal took over: no respawn
+        .catch((e) => console.error(`[restart] failed: ${e.message}`));
+      return { accepted: true, active, queued };
+    },
+  };
+}
+
+/**
+ * @param {import('./types.js').Config} cfg
+ * @param {{reconcileOnBoot?: boolean}} [opts]  reconcileOnBoot: run one reconcile after boot (set by a `restart` respawn)
+ */
+export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
   const forge = createForge(cfg, store);
@@ -201,7 +249,7 @@ export function createEngine(cfg) {
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
     enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),
     stageOf: queueStageOf,
-    isDraining: () => draining,
+    isDraining: () => draining || restarter.isPending(),
     emit,
     onDepth: (queueStage) => heartbeat.update({ queueStage }),
   });
@@ -248,6 +296,23 @@ export function createEngine(cfg) {
   });
 
   let draining = false;
+  let respawnOnExit = false; // set by a firing restart; any signal clears it
+  let respawned = false;
+  const restarter = createRestartRequester({
+    queue,
+    isDraining: () => draining,
+    validateConfig: () => void loadConfig({ configPath: cfg.configPath }),
+    onPending: ({ active, queued }) => {
+      console.log(`[restart] requested — pausing new runs; restarting once ${active} running agent(s) finish (${queued} queued)`);
+      heartbeat.update({ restartPending: true });
+      emit("restart_requested", "", "", { active, queued });
+    },
+    fire: () => {
+      emit("restarting", "", "", { queued: queue.state().queued });
+      return shutdown("restart", { respawn: true });
+    },
+  });
+
   /** Final teardown shared by graceful + forced exit. */
   function teardown() {
     heartbeat.clear();
@@ -256,6 +321,18 @@ export function createEngine(cfg) {
       fs.rmSync(cfg.pidFile, { force: true });
     } catch {
       /* ignore */
+    }
+    // Restart: spawn the successor exactly once, after the pidfile, control socket and
+    // listener are released (its already-running + socket-owner checks pass) and before
+    // either exit path below.
+    if (respawnOnExit && !respawned) {
+      respawned = true;
+      try {
+        const { pid, logPath } = spawnDetached(cfg, restartSpawnArgs(cfg));
+        console.log(`[restart] respawned "${cfg.name}" (pid ${pid}). Log: ${logPath}`);
+      } catch (e) {
+        console.error(`[restart] respawn failed: ${e.message}`);
+      }
     }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 1500).unref(); // don't hang on lingering sockets
@@ -276,13 +353,18 @@ export function createEngine(cfg) {
 
   // First signal drains: stop taking new work, let running + queued agents finish,
   // then exit. A second signal during the drain force-kills the agents immediately.
-  /** @param {string} [signal] */
-  async function shutdown(signal) {
+  // A restart (respawn) shuts down the same way but never waits on the paused queue:
+  // queued jobs stay in queue.json for the successor's restoreQueued. A signal while a
+  // restart is pending cancels the respawn and exits once active agents reach 0.
+  /** @param {string} [signal] @param {{respawn?: boolean}} [opts] */
+  async function shutdown(signal, { respawn = false } = {}) {
+    if (!respawn) respawnOnExit = false;
     if (draining) {
       forceExit(`${signal || "signal"} during drain`);
       return;
     }
     draining = true;
+    if (respawn) respawnOnExit = true;
 
     // Stop new work reaching the queue, then close the front door so no fresh
     // events arrive. In-flight `claude -p` children keep running untouched.
@@ -295,6 +377,16 @@ export function createEngine(cfg) {
     server.close(); // stop accepting new connections; in-flight handlers finish
 
     const { active, queued } = queue.state();
+    if (restarter.isPending()) {
+      if (active > 0) {
+        console.log(`\n[shutdown] ${signal || ""} — restart cancelled; waiting for ${active} running agent(s); send the signal again to force-kill`);
+        heartbeat.update({ draining: true, queue: queue.state() });
+        await queue.onActiveIdle();
+      }
+      console.log(`[shutdown] ${respawnOnExit ? "restarting" : "exiting"} — ${queued} queued job(s) kept in queue.json`);
+      teardown();
+      return;
+    }
     if (active === 0 && queued === 0) {
       console.log(`\n[shutdown] ${signal || ""} — nothing running, exiting`);
       teardown();
@@ -387,7 +479,7 @@ export function createEngine(cfg) {
       // POST a handshake/ping to the public URL, which must reach a live server (Asana
       // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
       await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
-      control = await startControl(cfg, { startedAt, adapter }); // owner check reads the OLD pidfile — must run before the write below
+      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request }); // owner check reads the OLD pidfile — must run before the write below
       fs.writeFileSync(cfg.pidFile, String(process.pid));
       console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
 
@@ -432,6 +524,19 @@ export function createEngine(cfg) {
       restoreQueued(runningRefs);
       // Queue-stage pull into any free slots (opt-in; no-op without a queue key).
       await puller.pull();
+
+      // An explicit one-shot requested by a control-socket `restart` (the old process
+      // respawns us with --reconcile-on-boot): replay tasks whose webhook landed in the
+      // restart gap. Not polling — it runs once, here, and is never re-armed.
+      // Best-effort: a reconcile failure must not abort boot.
+      if (reconcileOnBoot) {
+        try {
+          const { replayed, skipped } = await runReconcile(cfg, { store, adapter });
+          console.log(`[boot] post-restart reconcile — ${replayed} replayed, ${skipped} skipped`);
+        } catch (e) {
+          console.error("[boot] post-restart reconcile failed (continuing):", e.message);
+        }
+      }
     } catch (e) {
       // Boot failed after the tunnel came up — tear it down so it doesn't orphan
       // (an orphaned ngrok endpoint causes ERR_NGROK_334 on the next start).
@@ -445,5 +550,5 @@ export function createEngine(cfg) {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
   }
 
-  return { serve, shutdown, store, adapter, forge, ingress };
+  return { serve, shutdown, requestRestart: restarter.request, store, adapter, forge, ingress };
 }

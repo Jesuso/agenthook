@@ -134,3 +134,51 @@ test("onSettle fires after each job settles with its slot already released; not 
   await q.onIdle();
   assert.equal(seen.length, 2, "no settle callback while draining");
 });
+
+test("pause blocks the pump but not enqueue/onAdd; resume drains", async () => {
+  /** @type {string[]} */
+  const started = [];
+  /** @type {string[]} */
+  const added = [];
+  const run = (j) => {
+    started.push(j.ref);
+    return new Promise((resolve) => setTimeout(() => resolve(info(j)), 2));
+  };
+  const q = createQueue(2, run, undefined, { onAdd: (j) => added.push(j.ref) });
+  q.pause();
+  assert.equal(q.enqueue(job("A")), true);
+  assert.equal(q.enqueue(job("B")), true);
+  assert.equal(q.enqueue(job("A")), false, "coalescing unchanged while paused");
+  assert.deepEqual(added, ["A", "B"], "accepted jobs still persist");
+  assert.deepEqual(started, [], "nothing starts while paused");
+  assert.deepEqual(q.state(), { active: 0, queued: 2 });
+  q.resume();
+  assert.deepEqual(started, ["A", "B"]);
+  await q.onIdle();
+});
+
+test("pause lets running jobs finish but starts no queued ones on settle", async () => {
+  /** @type {string[]} */
+  const started = [];
+  const run = (j) => {
+    started.push(j.ref);
+    return new Promise((resolve) => setTimeout(() => resolve(info(j)), 2));
+  };
+  const q = createQueue(1, run);
+  q.enqueue(job("A"));
+  q.enqueue(job("B"));
+  q.pause();
+  await q.onActiveIdle();
+  assert.deepEqual(started, ["A"]);
+  assert.deepEqual(q.state(), { active: 0, queued: 1 }, "B left queued");
+});
+
+test("onActiveIdle resolves immediately at 0 active even with jobs queued", async () => {
+  const q = createQueue(1, (j) => Promise.resolve(info(j)));
+  q.pause();
+  q.enqueue(job("A"));
+  let resolved = false;
+  await q.onActiveIdle().then(() => (resolved = true));
+  assert.equal(resolved, true);
+  assert.deepEqual(q.state(), { active: 0, queued: 1 });
+});

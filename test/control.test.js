@@ -441,3 +441,51 @@ test("control protocol: a rejected listStages is not cached, reply hides the mes
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("control protocol: restart is unknown unless the engine injects it", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const cfg = cfgIn(dir);
+  const control = await startControl(cfg, { startedAt: "x" });
+  try {
+    const { socket, rest } = await connectAfterHello(cfg.controlSock);
+    const reader = replyReader(socket, rest);
+    socket.write(JSON.stringify({ id: 1, cmd: "restart", args: { when: "idle" } }) + "\n");
+    assert.deepEqual(await reader.waitFor(1), { id: 1, ok: false, error: "unknown command" });
+    socket.end();
+  } finally {
+    control?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("control protocol: injected restart gets args; result -> ok, throw -> ok:false", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const cfg = cfgIn(dir);
+  /** @type {any[]} */
+  const calls = [];
+  let pending = false;
+  const restart = async (/** @type {any} */ args) => {
+    calls.push(args);
+    if (args?.when !== "idle") throw new Error("unsupported when");
+    const res = pending ? { accepted: true, alreadyPending: true, active: 1, queued: 0 } : { accepted: true, active: 1, queued: 0 };
+    pending = true;
+    return res;
+  };
+  const control = await startControl(cfg, { startedAt: "x", restart });
+  try {
+    const { socket, rest } = await connectAfterHello(cfg.controlSock);
+    const reader = replyReader(socket, rest);
+    socket.write(JSON.stringify({ id: 1, cmd: "restart", args: { when: "now" } }) + "\n");
+    assert.deepEqual(await reader.waitFor(1), { id: 1, ok: false, error: "restart failed" });
+    socket.write(JSON.stringify({ id: 2, cmd: "restart", args: { when: "idle" } }) + "\n");
+    assert.deepEqual(await reader.waitFor(2), { id: 2, ok: true, result: { accepted: true, active: 1, queued: 0 } });
+    socket.write(JSON.stringify({ id: 3, cmd: "restart", args: { when: "idle" } }) + "\n");
+    const r3 = await reader.waitFor(3);
+    assert.equal(r3.result.alreadyPending, true);
+    assert.deepEqual(calls, [{ when: "now" }, { when: "idle" }, { when: "idle" }]);
+    socket.end();
+  } finally {
+    control?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

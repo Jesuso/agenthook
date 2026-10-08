@@ -1,7 +1,10 @@
 // Control socket: a UI client connects, gets one "hello" line, and learns the
 // receiver is gone the moment the connection closes — no polling. Beyond that
-// hello, the socket carries allowlisted NDJSON commands (request/response, see
-// COMMANDS below). See docs/web-ui.md.
+// hello, the socket carries allowlisted NDJSON commands (request/response):
+//   discover            tracker + stage keys + live stage list (cached 60s)
+//   restart {when:'idle'}  only when the engine passes `restart`: pause new runs,
+//                       restart once active agents reach 0 (see engine.js)
+// See docs/web-ui.md.
 import net from "node:net";
 import fs from "node:fs";
 import { isAlive } from "./heartbeat.js";
@@ -95,10 +98,11 @@ function reply(socket, msg) {
 
 /**
  * @param {import('./types.js').Config} cfg
- * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number}} opts
+ * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>}} opts
+ *   restart: the engine's restart requester; the `restart` command exists only when given
  * @returns {Promise<{close(): void} | null>}
  */
-export async function startControl(cfg, { startedAt, adapter, now = Date.now }) {
+export async function startControl(cfg, { startedAt, adapter, now = Date.now, restart }) {
   const sockPath = cfg.controlSock;
   const posix = process.platform !== "win32";
 
@@ -116,7 +120,9 @@ export async function startControl(cfg, { startedAt, adapter, now = Date.now }) 
   }
 
   const ctx = { cfg, adapter };
+  /** @type {Record<string, (args: any) => Promise<any>>} */
   const commands = { discover: makeCachedDiscover(ctx, now) };
+  if (restart) commands.restart = restart;
 
   /** @type {Set<import('node:net').Socket>} */
   const sockets = new Set();
