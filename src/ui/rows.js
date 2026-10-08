@@ -288,7 +288,8 @@ export function buildRows(profile, state, { repository = null } = {}) {
  * heartbeat.json keeps the last counts it wrote, which would otherwise read as stale
  * live state. `maxConcurrent`, `lastEvent`, `startedAt`, `updatedAt` are history/config,
  * not live counts, so they survive.
- * @param {{ name: string, pid: number, up: boolean, heartbeat: any }} p
+ * `name` is the state key; `label` is the heartbeat's name, else the passed-in label (profile.json's).
+ * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any }} p
  * @returns {import('./contract.js').ProfileView}
  */
 export function profileView(p) {
@@ -297,6 +298,7 @@ export function profileView(p) {
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   return {
     name: p.name,
+    label: str(hb?.name) || p.label || p.name,
     up: p.up,
     pid: p.pid || null,
     port: num(hb?.port),
@@ -321,9 +323,9 @@ export function buildSnapshot(registry = registryDir) {
   /** @type {import('./contract.js').Snapshot} */
   const snap = { profiles: [], tickets: [] };
   for (const p of listProfiles(registry)) {
-    snap.profiles.push(profileView(p));
+    snap.profiles.push(profileView({ name: p.stateKey, label: p.name, pid: p.pid, up: p.up, heartbeat: p.heartbeat }));
     const repository = isObj(p.heartbeat) ? p.heartbeat.repository : null;
-    snap.tickets.push(...buildRows(p.name, readProfileState(p.dir), { repository }));
+    snap.tickets.push(...buildRows(p.stateKey, readProfileState(p.dir), { repository }));
   }
   return snap;
 }

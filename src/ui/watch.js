@@ -11,6 +11,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { isAlive } from "../heartbeat.js";
+import { readMarker } from "../profile.js";
 import { controlSockPath } from "../paths.js";
 import {
   EVENTS_TAIL_BYTES,
@@ -38,7 +39,8 @@ const hash = (v) => JSON.stringify(v);
 
 /**
  * @typedef {object} Prof
- * @property {string} name
+ * @property {string} name                    the state key (dir name)
+ * @property {string|undefined} label         profile.json's name, read once on discovery (heartbeat.name wins)
  * @property {string} dir
  * @property {string} sockPath
  * @property {fs.FSWatcher|null} fsw
@@ -97,7 +99,7 @@ export function createWatcher(registry, onEvent) {
   const up = (p) => !!p.hello || (!!p.pid && p.pid !== p.deadPid && isAlive(p.pid));
 
   /** @param {Prof} p */
-  const view = (p) => profileView({ name: p.name, pid: p.pid || p.hello?.pid || 0, up: up(p), heartbeat: p.heartbeat });
+  const view = (p) => profileView({ name: p.name, label: p.label, pid: p.pid || p.hello?.pid || 0, up: up(p), heartbeat: p.heartbeat });
 
   /** @param {Prof} p */
   const rowsOf = (p) =>
@@ -358,9 +360,11 @@ export function createWatcher(registry, onEvent) {
   /** Start tracking a profile dir. @param {string} name @param {boolean} silent */
   function addProfile(name, silent) {
     const dir = path.join(registry, name);
+    const marker = readMarker(dir);
     /** @type {Prof} */
     const p = {
       name,
+      label: typeof marker?.name === "string" ? marker.name : undefined,
       dir,
       sockPath: controlSockPath(dir, name),
       fsw: null,

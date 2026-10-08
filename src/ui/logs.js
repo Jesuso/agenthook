@@ -20,10 +20,11 @@ const RUN_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-step-.+\.log$/;
 /** dispatch.js's filename mapping of a ref. @param {string} ref */
 export const safeRef = (ref) => String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
 
-/** A known profile's state dir, or null. Only names `listProfiles` returns are accepted.
+/** A known profile's state dir, or null. Only state keys `listProfiles` returns are accepted
+ * (never a label — the UI API addresses profiles by state key).
  * @param {string} registry @param {string} profile */
 export function profileDir(registry, profile) {
-  if (!profile || !listProfiles(registry).some((p) => p.name === profile)) return null;
+  if (!profile || !listProfiles(registry).some((p) => p.stateKey === profile)) return null;
   return path.join(registry, profile);
 }
 

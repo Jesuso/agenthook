@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildRows, buildSnapshot, readEventsTail, readProfileState } from "../src/ui/rows.js";
+import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
 import { uiPort, checkBundle, DEFAULT_PORT } from "../src/commands/ui.js";
 
@@ -189,6 +190,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
   const live = snap.profiles[1];
   assert.deepEqual(live, {
     name: "live",
+    label: "live",
     up: true,
     pid: process.pid,
     port: 8787,
@@ -240,6 +242,21 @@ test("buildSnapshot/profileView: a down profile blanks active/queued even with a
   assert.equal(p.active, null);
   assert.equal(p.queued, null);
   assert.equal(p.maxConcurrent, 3);
+});
+
+test("buildSnapshot: name = state key, label = heartbeat name, else profile.json name; API resolves by key only", () => {
+  const reg = tmp();
+  writeState(path.join(reg, "Old"), { "heartbeat.json": { name: "New", pid: 999999999 }, "refmeta.json": { 7: { title: "Seven" } } });
+  writeState(path.join(reg, "parked"), { "profile.json": { name: "Parked Label", stateKey: "parked" } });
+  writeState(path.join(reg, "bare"), { "held.json": {} });
+  const snap = buildSnapshot(reg);
+  assert.deepEqual(
+    snap.profiles.map((p) => [p.name, p.label]),
+    [["Old", "New"], ["bare", "bare"], ["parked", "Parked Label"]],
+  );
+  assert.equal(row(snap.tickets, "7").profile, "Old");
+  assert.equal(profileDir(reg, "Old"), path.join(reg, "Old"));
+  assert.equal(profileDir(reg, "New"), null);
 });
 
 /** @param {any[]} profiles @param {string} name */

@@ -27,34 +27,36 @@ function fmtTokens(n) {
   return String(n);
 }
 
-export async function ls() {
-  const profiles = listProfiles();
-  if (!profiles.length) {
-    console.log("no profiles yet. Run `agenthook init` in a project dir to create one.");
-    return;
+/** Total tokens + cost from a profile's usage.jsonl; blanks when absent/unreadable. @param {string} dir */
+function usageOf(dir) {
+  try {
+    const records = createStore(dir).readUsage();
+    if (!records.length) return { tokens: "", cost: "" };
+    let totalTokens = 0;
+    let totalCost = 0;
+    let hasCost = false;
+    for (const r of records) {
+      totalTokens += (r.input || 0) + (r.output || 0);
+      if (r.costUsd != null) { totalCost += r.costUsd; hasCost = true; }
+    }
+    return { tokens: fmtTokens(totalTokens), cost: hasCost ? `$${totalCost.toFixed(2)}` : "" };
+  } catch {
+    return { tokens: "", cost: "" }; // usage.jsonl absent or unreadable — leave blank
   }
+}
+
+/**
+ * The `ls` table + duplicate-label warnings as lines. NAME is the label, `Label (stateKey)`
+ * when they differ; the column widens to fit (min 16). Pure; exported for tests.
+ * @param {{ stateKey: string, name: string, up: boolean, heartbeat: any }[]} profiles listProfiles() entries
+ * @param {(p: any) => { tokens: string, cost: string }} [usage]
+ * @returns {string[]}
+ */
+export function formatLs(profiles, usage = () => ({ tokens: "", cost: "" })) {
   const rows = profiles.map((p) => {
     const hb = p.heartbeat || {};
-    let tokens = "";
-    let cost = "";
-    try {
-      const records = createStore(p.dir).readUsage();
-      if (records.length) {
-        let totalTokens = 0;
-        let totalCost = 0;
-        let hasCost = false;
-        for (const r of records) {
-          totalTokens += (r.input || 0) + (r.output || 0);
-          if (r.costUsd != null) { totalCost += r.costUsd; hasCost = true; }
-        }
-        tokens = fmtTokens(totalTokens);
-        cost = hasCost ? `$${totalCost.toFixed(2)}` : "";
-      }
-    } catch {
-      /* usage.jsonl absent or unreadable — leave blank */
-    }
     return {
-      name: p.name,
+      name: p.name === p.stateKey ? p.name : `${p.name} (${p.stateKey})`,
       up: p.up ? "*" : " ",
       port: hb.port || "?",
       tracker: hb.tracker || "?",
@@ -62,19 +64,35 @@ export async function ls() {
       repos: hb.repos?.length ?? 1,
       agents: hb.queue ? hb.queue.active : 0,
       queue: hb.queue ? hb.queue.queued : 0,
-      tokens,
-      cost,
+      ...usage(p),
       last: ago(hb.lastEvent?.at),
     };
   });
-  console.log(
-    `${pad("NAME", 16)}${pad("UP", 4)}${pad("PORT", 7)}${pad("TRACKER", 9)}${pad("INGRESS", 9)}${pad("REPOS", 7)}` +
+  const w = Math.max(16, ...rows.map((r) => r.name.length + 2));
+  const lines = [
+    `${pad("NAME", w)}${pad("UP", 4)}${pad("PORT", 7)}${pad("TRACKER", 9)}${pad("INGRESS", 9)}${pad("REPOS", 7)}` +
       `${pad("AGENTS", 8)}${pad("QUEUE", 7)}${pad("TOKENS", 9)}${pad("COST", 9)}LAST EVENT`,
-  );
+  ];
   for (const r of rows) {
-    console.log(
-      `${pad(r.name, 16)}${pad(r.up, 4)}${pad(r.port, 7)}${pad(r.tracker, 9)}${pad(r.ingress, 9)}${pad(r.repos, 7)}` +
+    lines.push(
+      `${pad(r.name, w)}${pad(r.up, 4)}${pad(r.port, 7)}${pad(r.tracker, 9)}${pad(r.ingress, 9)}${pad(r.repos, 7)}` +
         `${pad(r.agents, 8)}${pad(r.queue, 7)}${pad(r.tokens, 9)}${pad(r.cost, 9)}${r.last}`,
     );
   }
+  /** @type {Map<string, string[]>} */
+  const byLabel = new Map();
+  for (const p of profiles) byLabel.set(p.name, [...(byLabel.get(p.name) || []), p.stateKey]);
+  for (const [label, keys] of byLabel) {
+    if (keys.length > 1) lines.push(`warning: label "${label}" is shared by ${keys.join(", ")} — address them by state key`);
+  }
+  return lines;
+}
+
+export async function ls() {
+  const profiles = listProfiles();
+  if (!profiles.length) {
+    console.log("no profiles yet. Run `agenthook init` in a project dir to create one.");
+    return;
+  }
+  for (const line of formatLs(profiles, (p) => usageOf(p.dir))) console.log(line);
 }

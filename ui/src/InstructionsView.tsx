@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import type { InstructionsView as InstructionsBody, ProfileView } from "./contract";
 import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
+import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
@@ -228,7 +229,7 @@ export default function InstructionsView(props: {
         >
           {props.profiles.map((p) => (
             <option key={p.name} value={p.name}>
-              {p.name}
+              {profileLabel(p)}
             </option>
           ))}
         </select>

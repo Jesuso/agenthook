@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { json } from "@codemirror/lang-json";
 import type { ConfigView as ConfigBody, ProfileView } from "./contract";
+import { profileLabel } from "./format";
 import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
@@ -346,7 +347,7 @@ export default function ConfigView(props: {
         >
           {props.profiles.map((p) => (
             <option key={p.name} value={p.name}>
-              {p.name}
+              {profileLabel(p)}
             </option>
           ))}
         </select>

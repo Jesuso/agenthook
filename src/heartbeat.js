@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { registryDir } from "./config.js";
+import { readMarker } from "./profile.js";
 import { reposOf } from "./repos.js";
 
 /** @param {number} pid */
@@ -125,10 +126,14 @@ export function createHeartbeat(cfg) {
   };
 }
 
-/** Read one profile's heartbeat + liveness. `registry` is overridable for tests.
- * @param {string} name @param {string} [registry] */
-export function readProfile(name, registry = registryDir) {
-  const dir = path.join(registry, name);
+/**
+ * Read one profile's heartbeat + liveness. `stateKey` is the state-dir name (the stable id);
+ * `name` is the label — the heartbeat's `name`, else profile.json's, else the dir name (a
+ * legacy/unmarked dir). `registry` is overridable for tests.
+ * @param {string} stateKey @param {string} [registry]
+ */
+export function readProfile(stateKey, registry = registryDir) {
+  const dir = path.join(registry, stateKey);
   const hbFile = path.join(dir, "heartbeat.json");
   const pidFile = path.join(dir, "server.pid");
   /** @type {any} */
@@ -144,10 +149,11 @@ export function readProfile(name, registry = registryDir) {
   } catch {
     /* no pidfile */
   }
-  return { name, dir, pid, up: isAlive(pid), heartbeat: hb };
+  const label = [hb?.name, readMarker(dir)?.name].find((n) => typeof n === "string" && n);
+  return { stateKey, name: label || stateKey, dir, pid, up: isAlive(pid), heartbeat: hb };
 }
 
-/** List every profile that has a state dir under ~/.agenthook. @param {string} [registry] */
+/** List every profile that has a state dir under ~/.agenthook, sorted by state key. @param {string} [registry] */
 export function listProfiles(registry = registryDir) {
   /** @type {string[]} */
   let names = [];
@@ -160,4 +166,22 @@ export function listProfiles(registry = registryDir) {
     /* registry not created yet */
   }
   return names.sort().map((n) => readProfile(n, registry));
+}
+
+/**
+ * Look a profile up by state key or label. A state key match wins (keys are unique and
+ * stable); else a unique label match; a label shared by ≥2 profiles throws; none → null.
+ * @param {string} nameOrKey @param {string} [registry]
+ */
+export function resolveProfile(nameOrKey, registry = registryDir) {
+  const all = listProfiles(registry);
+  const byKey = all.find((p) => p.stateKey === nameOrKey);
+  if (byKey) return byKey;
+  const byLabel = all.filter((p) => p.name === nameOrKey);
+  if (byLabel.length > 1) {
+    throw new Error(
+      `profile label "${nameOrKey}" is ambiguous — matches state keys ${byLabel.map((p) => p.stateKey).join(", ")}; pass the state key instead`,
+    );
+  }
+  return byLabel[0] ?? null;
 }

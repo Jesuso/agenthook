@@ -5,6 +5,11 @@ export function formatUp(p: Pick<ProfileView, "up" | "pid">): string {
   return p.up ? `up (pid ${p.pid})` : "down";
 }
 
+/** The profile's display name: its label, "label (stateKey)" when they differ. `name` stays the key. */
+export function profileLabel(p: Pick<ProfileView, "name" | "label">): string {
+  return p.label && p.label !== p.name ? `${p.label} (${p.name})` : p.name;
+}
+
 /** "kind ref/step" / "—" — the profile row's last-event cell. */
 export function formatLastEvent(e: ProfileView["lastEvent"]): string {
   if (!e) return "—";

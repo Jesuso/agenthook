@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { peekConfig } from "../config.js";
-import { readProfile } from "../heartbeat.js";
+import { readProfile, resolveProfile } from "../heartbeat.js";
 import { createStore } from "../store.js";
 import { ago } from "./ls.js";
 
@@ -39,24 +39,35 @@ export function refForLog(file, refs) {
 export async function status(args) {
   let name = args._[0];
   let logDir = null;
-  if (!name) {
+  /** @type {ReturnType<typeof readProfile>|null} */
+  let p;
+  if (name) {
+    // A label or a state key; a label shared by two profiles is an error, not a guess.
+    try {
+      p = resolveProfile(String(name));
+    } catch (e) {
+      console.error(e.message);
+      process.exitCode = 1;
+      return;
+    }
+  } else {
     // Identity only — no secret interpolation, so `status` works from a checkout whose
     // config ${VAR}s are unset (see peekConfig).
     const peeked = peekConfig({ configPath: args.config });
     name = peeked.stateKey;
     logDir = peeked.logDir;
+    p = readProfile(name);
   }
 
-  const p = readProfile(name);
-  const persisted = createStore(p.dir).listQueued().length;
-  if (!p.heartbeat && !p.pid && !persisted) {
+  const persisted = p ? createStore(p.dir).listQueued().length : 0;
+  if (!p || (!p.heartbeat && !p.pid && !persisted)) {
     console.log(`no such profile "${name}" (nothing under ~/.agenthook/${name}).`);
     return;
   }
   const hb = p.heartbeat || {};
   logDir = logDir || path.join(p.dir, "logs");
 
-  console.log(`profile : ${name}`);
+  console.log(`profile : ${p.name}${p.name !== p.stateKey ? ` (state ${p.stateKey})` : ""}`);
   console.log(`status  : ${p.up ? `UP (pid ${p.pid})` : "down"}`);
   console.log(`tracker : ${hb.tracker || "?"}`);
   console.log(`ingress : ${hb.ingress || "?"}${hb.url ? `  ${hb.url}` : ""}`);

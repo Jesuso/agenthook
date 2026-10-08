@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, formatRelative, formatCost } from "./format";
+import { formatUp, formatLastEvent, formatRelative, formatCost, profileLabel } from "./format";
 
 describe("formatUp", () => {
   it("shows the pid when up", () => {
@@ -7,6 +7,15 @@ describe("formatUp", () => {
   });
   it("shows down otherwise", () => {
     expect(formatUp({ up: false, pid: null })).toBe("down");
+  });
+});
+
+describe("profileLabel", () => {
+  it("shows the bare name when the label is the state key", () => {
+    expect(profileLabel({ name: "dogfood", label: "dogfood" })).toBe("dogfood");
+  });
+  it("shows label (state key) when they differ", () => {
+    expect(profileLabel({ name: "Old", label: "New" })).toBe("New (Old)");
   });
 });
 

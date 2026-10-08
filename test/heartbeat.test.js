@@ -3,8 +3,10 @@
 // and step > default > repo precedence when one file serves several roles.
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { instructionTargets } from "../src/heartbeat.js";
+import { instructionTargets, listProfiles, resolveProfile } from "../src/heartbeat.js";
 
 /** @param {object} overrides */
 function baseCfg(overrides = {}) {
@@ -101,4 +103,46 @@ test("all paths come out absolute even from relative fixtures", () => {
   for (const t of instructionTargets(cfg)) {
     assert.equal(t.path, path.resolve(t.path));
   }
+});
+
+// --- listProfiles / resolveProfile: state key (dir) vs label (heartbeat → profile.json → dir) ---
+
+/** A temp registry with one dir per entry: { hb?: heartbeat name, marker?: profile.json name }.
+ * @param {Record<string, { hb?: string, marker?: string }>} dirs */
+function registry(dirs) {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-resolve-"));
+  for (const [key, { hb, marker }] of Object.entries(dirs)) {
+    const dir = path.join(reg, key);
+    fs.mkdirSync(dir);
+    if (hb) fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: hb, stateKey: key }));
+    if (marker) fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: marker, stateKey: key }));
+  }
+  return reg;
+}
+
+test("listProfiles: stateKey = dir, name = heartbeat name → profile.json name → dir name", () => {
+  const reg = registry({ a: { hb: "Alpha", marker: "stale" }, b: { marker: "Beta" }, c: {} });
+  assert.deepEqual(
+    listProfiles(reg).map((p) => [p.stateKey, p.name, p.dir]),
+    [["a", "Alpha", path.join(reg, "a")], ["b", "Beta", path.join(reg, "b")], ["c", "c", path.join(reg, "c")]],
+  );
+});
+
+test("resolveProfile: by state key, by heartbeat label, by profile.json label; unknown → null", () => {
+  const reg = registry({ Old: { hb: "New" }, parked: { marker: "Parked" } });
+  assert.equal(resolveProfile("Old", reg)?.stateKey, "Old");
+  assert.equal(resolveProfile("New", reg)?.stateKey, "Old");
+  assert.equal(resolveProfile("Parked", reg)?.stateKey, "parked");
+  assert.equal(resolveProfile("nope", reg), null);
+});
+
+test("resolveProfile: a state key wins over another profile's equal label", () => {
+  const reg = registry({ x: { hb: "y" }, y: { hb: "Why" } });
+  assert.equal(resolveProfile("y", reg)?.stateKey, "y");
+});
+
+test("resolveProfile: a label shared by two profiles throws, listing both state keys", () => {
+  const reg = registry({ k1: { hb: "Same" }, k2: { marker: "Same" } });
+  assert.throws(() => resolveProfile("Same", reg), /profile label "Same" is ambiguous — matches state keys k1, k2; pass the state key instead/);
+  assert.equal(resolveProfile("k2", reg)?.stateKey, "k2");
 });

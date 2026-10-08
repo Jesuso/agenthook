@@ -10,17 +10,19 @@
 // it stays cross-platform. Default: only THIS profile's agents. `--all`: every
 // profile's, each row labelled with its owner.
 //
-// Scope resolution never touches secrets: `agents <name>` reads that profile's state
-// dir directly; bare `agents` peeks the discovered config for its `name` only
+// Scope resolution never touches secrets: `agents <name>` resolves a label or state key
+// to that profile's state dir directly; bare `agents` peeks the discovered config for its
+// state key only
 // (peekConfig, no `${VAR}` interpolation), so the listing works from any checkout —
 // a worktree without .env used to get "unset environment variable(s)" and no rows.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { peekConfig, registryDir } from "../config.js";
-import { listProfiles } from "../heartbeat.js";
+import { listProfiles, readProfile as readHeartbeat, resolveProfile } from "../heartbeat.js";
 
-/** @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
+/** `profile` is the owning profile's state key (the stable id), "?" when unattributed.
+ * @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
 
 /** Read a profile's usage.jsonl; return last record per ref (keyed by ref string).
  * @param {string} dir @returns {Record<string, {input:number, output:number, cacheRead?:number, cacheCreate?:number, costUsd?:number}>} */
@@ -100,8 +102,8 @@ export function parsePsAgents(stdout) {
 /** Attribute each agent row to its owning profile (pid is the strong signal, ref the
  * fallback) and select which to show. Pure for offline testing.
  * @param {string} stdout raw `ps` output
- * @param {{ name: string, running: Record<string, any> }[]} profiles each profile's running.json
- * @param {{ all?: boolean, active?: string|null }} [opts] active = the profile to scope to when !all
+ * @param {{ stateKey: string, running: Record<string, any> }[]} profiles each profile's running.json
+ * @param {{ all?: boolean, active?: string|null }} [opts] active = the state key to scope to when !all
  * @returns {AgentRow[]} */
 export function selectAgents(stdout, profiles, opts = {}) {
   const rows = parsePsAgents(stdout);
@@ -111,8 +113,8 @@ export function selectAgents(stdout, profiles, opts = {}) {
   const byRef = new Map();
   for (const p of profiles) {
     for (const [ref, info] of Object.entries(p.running || {})) {
-      if (info && info.pid != null) byPid.set(String(info.pid), p.name);
-      byRef.set(String(ref), p.name);
+      if (info && info.pid != null) byPid.set(String(info.pid), p.stateKey);
+      byRef.set(String(ref), p.stateKey);
     }
   }
   for (const r of rows) r.profile = byPid.get(r.pid) ?? byRef.get(r.ref) ?? "?";
@@ -129,12 +131,14 @@ function readState(dir, file) {
   }
 }
 
-/** @typedef {{ name: string, running: Record<string, any>, lastUsage: Record<string, any>, refmeta: Record<string, import('../types.js').RefMeta> }} ProfileState */
+/** `label` is the display name: the profile's label, `Label (stateKey)` when they differ.
+ * @typedef {{ stateKey: string, label: string, running: Record<string, any>, lastUsage: Record<string, any>, refmeta: Record<string, import('../types.js').RefMeta> }} ProfileState */
 
 /** Build a profile record with running + lastUsage (token display) + refmeta (id/title/PR).
- * @param {string} name @param {string} dir @returns {ProfileState} */
-function readProfile(name, dir) {
-  return { name, running: readState(dir, "running.json"), lastUsage: readLastUsage(dir), refmeta: readState(dir, "refmeta.json") };
+ * @param {{ stateKey: string, name: string, dir: string }} p a heartbeat.js profile entry @returns {ProfileState} */
+function readProfile({ stateKey, name, dir }) {
+  const label = name === stateKey ? name : `${name} (${stateKey})`;
+  return { stateKey, label, running: readState(dir, "running.json"), lastUsage: readLastUsage(dir), refmeta: readState(dir, "refmeta.json") };
 }
 
 /** Token figures for a row: the live tally if the stream has started producing tokens,
@@ -155,10 +159,10 @@ const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 /** One human-readable `ah agents` line. Pure; exported for tests.
  *  default: `<displayId ?? ref>  <step>  <#pr | —>  <etime>  <title>  <ctx…>`
  * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta @param {string} tok  the fmtCtx column
- * @param {{ verbose?: boolean, all?: boolean }} [opts]
+ * @param {{ verbose?: boolean, all?: boolean, label?: string }} [opts] label = the owner's display name (default the state key)
  * @returns {string} */
 export function formatAgentRow(row, meta, tok, opts = {}) {
-  const owner = opts.all ? `profile=${row.profile.padEnd(18)} ` : "";
+  const owner = opts.all ? `profile=${(opts.label ?? row.profile).padEnd(18)} ` : "";
   const id = meta?.displayId ?? row.ref;
   const pr = meta?.pr ? `#${meta.pr}` : "—";
   const title = truncate(meta?.title ?? "", TITLE_MAX);
@@ -168,12 +172,14 @@ export function formatAgentRow(row, meta, tok, opts = {}) {
 
 /** One `ah agents --json` record. Pure; exported for tests.
  * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta
- * @param {any} runInfo  running.json[ref] (may be undefined) @param {any} last  last usage.jsonl record for ref */
-export function agentRecord(row, meta, runInfo, last) {
+ * @param {any} runInfo  running.json[ref] (may be undefined) @param {any} last  last usage.jsonl record for ref
+ * @param {string} [label] the owner's display name (default the state key) */
+export function agentRecord(row, meta, runInfo, last, label = row.profile) {
   const u = usageFor(runInfo, last);
   const known = u.input != null || u.cacheRead != null || u.cacheCreate != null;
   return {
     profile: row.profile,
+    label,
     pid: Number(row.pid),
     ref: row.ref,
     displayId: meta?.displayId ?? null,
@@ -201,23 +207,38 @@ export async function agents(args = {}) {
   let scope;
   if (all) {
     // Global view needs no config: read every profile's state dir directly.
-    profiles = listProfiles().map((p) => readProfile(p.name, p.dir));
+    profiles = listProfiles().map(readProfile);
     scope = "all profiles";
+  } else if (args._?.[0]) {
+    // A label or a state key; a label shared by two profiles is an error, not a guess.
+    const arg = String(args._[0]);
+    let found;
+    try {
+      found = resolveProfile(arg);
+    } catch (e) {
+      console.error(e.message);
+      process.exitCode = 1;
+      return;
+    }
+    const prof = readProfile(found ?? { stateKey: arg, name: arg, dir: path.join(registryDir, arg) });
+    active = prof.stateKey;
+    profiles = [prof];
+    scope = prof.label;
   } else {
-    const name = args._?.[0] ? String(args._[0]) : peekConfig({ configPath: args.config }).stateKey;
-    active = name;
-    profiles = [readProfile(name, path.join(registryDir, name))];
-    scope = name;
+    const prof = readProfile(readHeartbeat(peekConfig({ configPath: args.config }).stateKey));
+    active = prof.stateKey;
+    profiles = [prof];
+    scope = prof.label;
   }
 
   /** @type {Map<string, ProfileState>} */
-  const profileMap = new Map(profiles.map((p) => [p.name, p]));
+  const profileMap = new Map(profiles.map((p) => [p.stateKey, p]));
 
   const rows = selectAgents(ps.stdout, profiles, { all, active });
   if (args.json) {
     const recs = rows.map((r) => {
       const prof = profileMap.get(r.profile);
-      return agentRecord(r, prof?.refmeta?.[r.ref], prof?.running?.[r.ref], prof?.lastUsage?.[r.ref]);
+      return agentRecord(r, prof?.refmeta?.[r.ref], prof?.running?.[r.ref], prof?.lastUsage?.[r.ref], prof?.label);
     });
     console.log(JSON.stringify(recs, null, 2));
     return;
@@ -226,7 +247,7 @@ export async function agents(args = {}) {
     const prof = profileMap.get(r.profile);
     const u = usageFor(prof?.running?.[r.ref], prof?.lastUsage?.[r.ref]);
     const tok = fmtCtx(u.input, u.cacheRead, u.cacheCreate, u.output, u.costUsd);
-    console.log(formatAgentRow(r, prof?.refmeta?.[r.ref], tok, { verbose: !!args.verbose, all }));
+    console.log(formatAgentRow(r, prof?.refmeta?.[r.ref], tok, { verbose: !!args.verbose, all, label: prof?.label }));
   }
   console.log(`── ${rows.length} agent(s) running ── (${scope})`);
 }
