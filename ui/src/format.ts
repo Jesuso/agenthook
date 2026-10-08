@@ -15,3 +15,25 @@ export function formatLastEvent(e: ProfileView["lastEvent"]): string {
 export function formatAgents(p: Pick<ProfileView, "active" | "maxConcurrent">): string {
   return `${p.active ?? "—"} / ${p.maxConcurrent ?? "—"}`;
 }
+
+/** "5m ago" / "3h ago" / "2d ago" / "—" for null, invalid, or future-skewed timestamps. */
+export function formatRelative(iso: string | null, now: number): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "—";
+  const diffMs = now - t;
+  if (diffMs < 0) return "—";
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/** "$0.57" / "—" for zero or non-finite. */
+export function formatCost(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return "—";
+  return `$${n.toFixed(2)}`;
+}

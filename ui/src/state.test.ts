@@ -60,4 +60,42 @@ describe("applyEvent", () => {
     applyEvent(state, { type: "profile", profile: profile({ name: "b" }) });
     expect(state.profiles).toEqual(frozenProfiles);
   });
+
+  function ticket(overrides: Partial<Snapshot["tickets"][number]> & { profile: string; ref: string }): Snapshot["tickets"][number] {
+    return {
+      displayId: overrides.ref,
+      title: null,
+      step: null,
+      status: "idle",
+      model: null,
+      startedAt: null,
+      costUsd: 0,
+      trackerUrl: null,
+      prUrl: null,
+      heldReason: null,
+      ...overrides,
+    };
+  }
+
+  it("ticket upserts by (profile, ref)", () => {
+    const state: Snapshot = { profiles: [], tickets: [ticket({ profile: "a", ref: "1", status: "running" })] };
+    const next = applyEvent(state, { type: "ticket", ticket: ticket({ profile: "a", ref: "1", status: "done" }) });
+    expect(next.tickets.length).toBe(1);
+    expect(next.tickets[0].status).toBe("done");
+  });
+
+  it("ticket appends a new (profile, ref)", () => {
+    const state: Snapshot = { profiles: [], tickets: [ticket({ profile: "a", ref: "1" })] };
+    const next = applyEvent(state, { type: "ticket", ticket: ticket({ profile: "a", ref: "2" }) });
+    expect(next.tickets.map((t) => t.ref)).toEqual(["1", "2"]);
+  });
+
+  it("ticket_removed drops only the matching (profile, ref)", () => {
+    const state: Snapshot = {
+      profiles: [],
+      tickets: [ticket({ profile: "a", ref: "1" }), ticket({ profile: "b", ref: "1" })],
+    };
+    const next = applyEvent(state, { type: "ticket_removed", profile: "a", ref: "1" });
+    expect(next.tickets).toEqual([ticket({ profile: "b", ref: "1" })]);
+  });
 });
