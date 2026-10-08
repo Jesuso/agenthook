@@ -155,7 +155,7 @@ function readRawConfig(explicit) {
 const NAME_ERROR = `config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`;
 
 /** @param {any} name */
-function validName(name) {
+export function validName(name) {
   return !!name && typeof name === "string" && /^[A-Za-z0-9._-]+$/.test(name);
 }
 
