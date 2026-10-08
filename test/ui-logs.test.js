@@ -117,6 +117,20 @@ test("listRuns: step with '-', safeRef mapping, repeated step, other refs + non-
   assert.deepEqual(listRuns(reg, "q", "missing", events), []);
 });
 
+test("listRuns / resolveRunLog: a .prompt.md sidecar beside a run log is ignored", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-prompt-"));
+  const dir = path.join(reg, "r", "logs");
+  fs.mkdirSync(dir, { recursive: true });
+  const ref = "7";
+  const run = "2026-10-08T10-00-00-000Z-step-code-7.log";
+  const sidecar = "2026-10-08T10-00-00-000Z-step-code-7.prompt.md";
+  fs.writeFileSync(path.join(dir, run), "hello\n");
+  fs.writeFileSync(path.join(dir, sidecar), "the prompt\n");
+  const runs = listRuns(reg, "r", ref, []);
+  assert.deepEqual(runs.map((r) => r.run), [run]);
+  assert.equal(resolveRunLog(reg, "r", sidecar), null);
+});
+
 test("readAppended: appended bytes advance the offset; shrink / replace → reset", () => {
   const f = path.join(root, "ra.log");
   fs.writeFileSync(f, "abc");

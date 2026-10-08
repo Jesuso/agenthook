@@ -242,6 +242,14 @@ export function resolveModelEffort(step, difficulty, description) {
   };
 }
 
+/** The prompt sidecar path beside a run log (trailing `.log` → `.prompt.md`). Its
+ * filename and the `=== TICKET ===` marker joining standing instructions to the base
+ * prompt are a contract with `src/ui` (the v2 "what the agent sees" preview splits on
+ * the marker) — changing either requires updating the UI. @param {string} logPath */
+export function promptPathFor(logPath) {
+  return logPath.replace(/\.log$/, ".prompt.md");
+}
+
 /** @param {string} file */
 const readInstructions = (file) => {
   // Read fresh each run so edits to a step's standing instructions need no restart.
@@ -361,6 +369,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
     return path.join(cfg.logDir, `${stamp}-step-${stepId}-${safeRef}.log`);
   }
+
 
   /** The path the agent writes its verdict to (one per run, under the state dir so a
    * worktree drain can't take it). @param {string} stepId @param {string} ref */
@@ -772,6 +781,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       fs.writeFileSync(logPath, `# ${task.displayId ?? job.ref}  ${task.name ?? ""}\n`);
     } catch (e) {
       console.error(`[run] log header failed for ${job.ref}:`, e.message);
+    }
+    // Sidecar for the UI's "what the agent sees" preview (src/ui) — exact prompt bytes,
+    // no front-matter; contract: filename + the `=== TICKET ===` marker above.
+    try {
+      fs.writeFileSync(promptPathFor(logPath), prompt, { mode: 0o600 });
+    } catch (e) {
+      console.error(`[run] prompt sidecar failed for ${job.ref}:`, e.message);
     }
     // A rework pass already has a branch (and maybe a PR): pick it up before spawning.
     if (hasWorktree) await recordPr(job.ref, repo);

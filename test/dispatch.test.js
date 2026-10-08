@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -502,6 +502,17 @@ test("descriptionHasHeadings: missing, mid-line, empty -> false", () => {
   assert.equal(descriptionHasHeadings("see Technical Notes here", ["Technical Notes"]), false);
   assert.equal(descriptionHasHeadings("", ["A"]), false);
   assert.equal(descriptionHasHeadings(undefined, ["A"]), false);
+});
+
+test("promptPathFor: trailing .log -> .prompt.md; mid-name .log untouched", () => {
+  assert.equal(
+    promptPathFor("/x/logs/2026-10-08T15-31-28-123Z-step-code-152.log"),
+    "/x/logs/2026-10-08T15-31-28-123Z-step-code-152.prompt.md",
+  );
+  assert.equal(
+    promptPathFor("/x/logs/2026-10-08T15-31-28-123Z-step-code-my.log.ref.log"),
+    "/x/logs/2026-10-08T15-31-28-123Z-step-code-my.log.ref.prompt.md",
+  );
 });
 
 test("resolveModelEffort: lite applies with fallback; escalate wins", () => {
