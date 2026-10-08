@@ -7,7 +7,9 @@ import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
 import { BasicsForm, PipelineForm } from "./ConfigForms";
 import type { StagesState } from "./ConfigForms";
-import { clientErrors, discoverUrl, stageSource } from "./configEdit";
+import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource } from "./configEdit";
+import { layoutPipeline } from "./pipelineGraph";
+import { PipelineGraph } from "./PipelineGraph";
 import { classifySaveResponse, freshSave, saveErrorText, saveReducer } from "./save";
 import type { SaveAction, SaveState } from "./save";
 import {
@@ -62,6 +64,7 @@ export default function ConfigView(props: {
   restartRef.current = restart;
   const [toast, setToast] = useState<string | null>(null);
   const [pane, setPane] = useState<Pane>("raw");
+  const [graphOpen, setGraphOpen] = useState(true);
   // Discover for `profile` (null = not fetched yet for the open profile); only the latest fetch lands.
   const [stages, setStages] = useState<(StagesState & { profile: string }) | null>(null);
   const discoverSeq = useRef(0);
@@ -445,6 +448,30 @@ export default function ConfigView(props: {
               </button>
             ))}
             {!parsed?.ok && <span className="self-center px-2 text-xs text-[var(--color-muted)]">fix the JSON in Raw first</span>}
+          </div>
+          <div className="mb-2 rounded border border-[var(--color-border)]">
+            <button
+              className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs uppercase tracking-wide text-[var(--color-muted)]"
+              onClick={() => setGraphOpen((o) => !o)}
+            >
+              <span>{graphOpen ? "▾" : "▸"}</span>
+              Pipeline graph
+            </button>
+            {graphOpen && (
+              <div className="border-t border-[var(--color-border)] p-2">
+                {parsed?.ok ? (
+                  <PipelineGraph
+                    layout={layoutPipeline(
+                      readSteps(parsed.raw),
+                      stageKeysFor(stages?.profile === profile ? stages.body : null, (parsed.raw as any)?.tracker?.type),
+                      stages?.profile === profile ? stages.body?.stages : null,
+                    )}
+                  />
+                ) : (
+                  <p className="text-sm text-[var(--color-muted)]">fix the JSON to see the graph</p>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex min-h-0 flex-1 gap-3">
             <div className="min-w-0 flex-1 overflow-auto">
