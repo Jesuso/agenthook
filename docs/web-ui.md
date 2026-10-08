@@ -199,7 +199,9 @@ values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and *
 after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid), and the
 **Basics** / **Pipeline** form tabs beside Raw (one shared buffer; every change a `jsonc-parser`
 edit, reorder swaps the steps' exact text) with **stage pickers** fed by `GET /api/discover` on
-first form-tab open and on Refresh. The pipeline graph below is still to come (#181).
+first form-tab open and on Refresh, and a collapsible **pipeline graph** panel above every pane
+(raw/basics/pipeline), re-deriving from the live buffer on every edit — form or raw text — without
+a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
@@ -249,8 +251,12 @@ and the socket is created under a `0o077` umask (no chmod race), before any comm
 Protocol: NDJSON `{id, cmd, args}` → `{id, ok, result|error}`, allowlisted commands only
 (`discover`, `restart`); the v1 `hello` line is unchanged.
 
-**Pipeline graph.** SVG step cards with advance / fail / hold / changes edges, derived from the
-stage bindings (sources, successes, failures, holds, and each step's `changes` target).
+**Pipeline graph.** Pure `ui/src/pipelineGraph.ts` (`layoutPipeline`, Vitest-covered) derives SVG
+step cards with advance / fail / hold / changes / queue edges from the buffer's stage bindings —
+`ui/src/PipelineGraph.tsx` renders it, panel above the pane (not a fourth tab, so it stays visible
+while editing). A step's `changes` target has no static binding — it's a runtime verdict — so the
+graph draws `review → previous step` (`prevStep`, the engine's default) labelled "changes (default
+target)". An unknown tracker (no `stageKeys`) draws step nodes and `changes` edges only.
 
 ### Later
 
