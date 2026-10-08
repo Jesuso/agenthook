@@ -49,7 +49,18 @@
  * @property {TicketRow[]} tickets
  */
 
-/** SSE delta (`GET /api/stream`) — placeholder, filled in by the realtime ticket.
- * @typedef {{ type: string }} UiEvent */
+/**
+ * SSE delta (`GET /api/stream`), framed as `event: <type>` + `data: <this, as JSON>`. Sent only
+ * on a real change; the client re-fetches `/api/snapshot` on every (re)connect (no replay).
+ * - `profile` — a profile appeared or its view changed (incl. `up` flipping on socket close)
+ * - `profile_removed` — its state dir is gone (its tickets get `ticket_removed` first)
+ * - `ticket` — a row is new or changed; `ticket_removed` — the ref left every state source
+ * - `event` — one new events.jsonl line, parsed, tagged with its profile
+ * @typedef {{ type: 'profile', profile: ProfileView }
+ *   | { type: 'profile_removed', name: string }
+ *   | { type: 'ticket', ticket: TicketRow }
+ *   | { type: 'ticket_removed', profile: string, ref: string }
+ *   | { type: 'event', profile: string, event: Record<string, any> }} UiEvent
+ */
 
 export {};

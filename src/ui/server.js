@@ -2,15 +2,20 @@
 // the DNS-rebinding Host guard first; `/api/*` additionally needs the per-launch token,
 // exchanged once via `/?token=` for an HttpOnly SameSite=Strict cookie. Static assets
 // (the public frontend bundle) need no cookie — only `/api/*` exposes state.
-// The server writes nothing to any state dir.
+// `/api/stream` pushes UiEvent deltas over SSE from a dir watcher started on the first
+// stream connection. The server writes nothing to any state dir.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { registryDir } from "../config.js";
 import { buildSnapshot } from "./rows.js";
+import { createWatcher } from "./watch.js";
 
 export const COOKIE = "ah_ui";
+
+/** SSE keepalive comment interval — the only interval in `ah ui`. */
+export const PING_MS = 25_000;
 
 /** @type {Record<string, string>} */
 const TYPES = {
@@ -49,6 +54,16 @@ export function cookieToken(header) {
  */
 export function createUiServer({ port, token, distDir, registry = registryDir }) {
   const root = path.resolve(distDir);
+  /** @type {ReturnType<typeof createWatcher>|null} */
+  let watcher = null;
+  /** @type {Set<http.ServerResponse>} */
+  const streams = new Set();
+
+  /** @param {import('./contract.js').UiEvent} ev */
+  const broadcast = (ev) => {
+    const frame = `event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`;
+    for (const res of streams) res.write(frame);
+  };
 
   /** @param {http.ServerResponse} res @param {number} code @param {string} [body] */
   const send = (res, code, body = http.STATUS_CODES[code] || "") => {
@@ -103,12 +118,30 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
         /** @type {string} */
         let body;
         try {
-          body = JSON.stringify(buildSnapshot(registry));
+          body = JSON.stringify(watcher ? watcher.snapshot() : buildSnapshot(registry));
         } catch {
           return send(res, 500);
         }
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
         return res.end(body);
+      }
+      if (p === "/api/stream") {
+        if (!watcher) watcher = createWatcher(registry, broadcast);
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Accel-Buffering": "no",
+        });
+        res.flushHeaders();
+        streams.add(res);
+        const ping = setInterval(() => res.write(": ping\n\n"), PING_MS);
+        const done = () => {
+          clearInterval(ping);
+          streams.delete(res);
+        };
+        req.on("close", done);
+        res.on("close", done);
+        return;
       }
       return send(res, 404);
     }
@@ -129,5 +162,15 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
     res.writeHead(200, { "Content-Type": TYPES[path.extname(file).toLowerCase()] || "application/octet-stream" });
     res.end(data);
   });
+
+  // Open SSE responses would hold server.close() forever: end them and stop the watcher first.
+  const close = server.close.bind(server);
+  server.close = (cb) => {
+    watcher?.close();
+    watcher = null;
+    for (const res of streams) res.end();
+    streams.clear();
+    return close(cb);
+  };
   return server;
 }
