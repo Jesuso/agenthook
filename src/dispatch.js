@@ -820,10 +820,20 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       verdictFile,
       onPid: (p) => {
         pid = p;
-        store?.setRunning(job.ref, { ...baseRunning, pid });
+        try {
+          store?.setRunning(job.ref, { ...baseRunning, pid });
+        } catch (e) {
+          console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
+        }
       },
       // Live token tally onto the running record (throttled — per assistant/result event).
-      onTally: (t) => store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate }),
+      onTally: (t) => {
+        try {
+          store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate });
+        } catch (e) {
+          console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
+        }
+      },
     });
     store?.clearRunning(job.ref);
     // The step may just have opened the PR.

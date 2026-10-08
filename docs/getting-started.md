@@ -185,8 +185,8 @@ agenthook start          # ingress up → register/instruct webhook → serve
 - **Jira** prints **one-time** by-hand webhook instructions (Jira Cloud blocks token-based webhook
   creation) — paste the printed URL + secret into Jira admin once. See [jira-setup.md](jira-setup.md).
 
-Leave it running. (Add `--detach` to background it; `agenthook stop` to stop and remove its
-webhooks.)
+Leave it running. (Add `--detach` to background it — stdout/stderr go to
+`~/.agenthook/<profile>/receiver.log`; `agenthook stop` to stop and remove its webhooks.)
 
 ## 8. Trigger your first run
 

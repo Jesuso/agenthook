@@ -13,6 +13,7 @@
 // `/forge` goes to the forge (when one is configured); everything else to the tracker.
 import http from "node:http";
 import fs from "node:fs";
+import path from "node:path";
 import { createStore, isStateDedupKey } from "./store.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
@@ -25,6 +26,24 @@ import { createHeartbeat } from "./heartbeat.js";
 import { startControl } from "./control.js";
 import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
+
+/**
+ * Pure record builder for a fatal crash — unit-testable without touching disk/process.
+ * @param {string} kind  "uncaughtException" | "unhandledRejection"
+ * @param {unknown} err
+ * @param {string[]} runningRefs  refs mid-step at the moment of the crash (store.listRunning() keys)
+ */
+export function crashRecord(kind, err, runningRefs) {
+  const e = err instanceof Error ? err : new Error(String(err));
+  return {
+    at: new Date().toISOString(),
+    pid: process.pid,
+    kind,
+    message: e.message,
+    stack: e.stack,
+    running: runningRefs,
+  };
+}
 
 /**
  * Wrap a job runner so a `step:` dedup key is released when the job settles
@@ -289,6 +308,40 @@ export function createEngine(cfg) {
     console.log(`[shutdown] drain complete — exiting`);
     teardown();
   }
+
+  /**
+   * Last resort: an uncaught throw/rejection means engine state is unknown — log,
+   * best-effort record + kill children, then exit. Never swallow-and-continue.
+   * @param {string} kind
+   * @param {unknown} err
+   */
+  function onFatal(kind, err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    console.error(`[fatal] ${kind}: ${e.stack}`);
+    try {
+      fs.writeFileSync(
+        path.join(cfg.stateDir, "crash.json"),
+        JSON.stringify(crashRecord(kind, err, Object.keys(store.listRunning())), null, 2),
+      );
+    } catch (writeErr) {
+      console.error(`[fatal] crash.json write failed (continuing): ${/** @type {Error} */ (writeErr).message}`);
+    }
+    for (const child of children) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+    try {
+      fs.rmSync(cfg.pidFile, { force: true });
+    } catch {
+      /* ignore */
+    }
+    process.exit(1);
+  }
+  process.on("uncaughtException", (err) => onFatal("uncaughtException", err));
+  process.on("unhandledRejection", (err) => onFatal("unhandledRejection", err));
 
   async function serve() {
     const meta = ingress.describe();

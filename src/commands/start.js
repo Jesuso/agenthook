@@ -1,5 +1,6 @@
 // `agenthook start` — boot a profile's receiver. Server owns the ingress lifecycle
 // (see engine.js). Refuses to start if the profile is already running (pid alive).
+import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { loadConfig } from "../config.js";
@@ -16,13 +17,17 @@ export async function start(args) {
   }
 
   if (args.detach) {
+    fs.mkdirSync(cfg.stateDir, { recursive: true });
+    const logPath = path.join(cfg.stateDir, "receiver.log");
+    const fd = fs.openSync(logPath, "a");
     const bin = path.join(cfg.installDir, "bin", "agenthook.js");
     const child = spawn(process.execPath, [bin, "start", "--config", cfg.configPath], {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", fd, fd],
     });
+    fs.closeSync(fd);
     child.unref();
-    console.log(`started "${cfg.name}" in background (pid ${child.pid}). Tail: agenthook status ${cfg.name}`);
+    console.log(`started "${cfg.name}" in background (pid ${child.pid}). Log: ${logPath}`);
     return;
   }
 
