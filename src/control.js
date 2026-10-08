@@ -1,16 +1,104 @@
-// Liveness-only control socket: a UI client connects, gets one "hello" line, and
-// learns the receiver is gone the moment the connection closes — no polling. v1
-// implements no commands; client input is ignored. See docs/web-ui.md.
+// Control socket: a UI client connects, gets one "hello" line, and learns the
+// receiver is gone the moment the connection closes — no polling. Beyond that
+// hello, the socket carries allowlisted NDJSON commands (request/response, see
+// COMMANDS below). See docs/web-ui.md.
 import net from "node:net";
 import fs from "node:fs";
 import { isAlive } from "./heartbeat.js";
 
+const MAX_LINE_BYTES = 64 * 1024;
+const DISCOVER_CACHE_MS = 60 * 1000;
+
+/**
+ * @param {{cfg: import('./types.js').Config, adapter?: import('./types.js').Adapter}} ctx
+ * @returns {Promise<{tracker: string, stageKeys: import('./types.js').StageKeys|null, stages: Array<{id:string,label:string}>|null}>}
+ */
+async function discover(ctx) {
+  const { cfg, adapter } = ctx;
+  const stageKeys = adapter?.describe().stageKeys ?? null;
+  if (!adapter?.listStages) {
+    return { tracker: cfg.provider, stageKeys, stages: null };
+  }
+  const stages = (await adapter.listStages()).map(({ id, label }) => ({ id, label }));
+  return { tracker: cfg.provider, stageKeys, stages };
+}
+
+/**
+ * Wraps discover with a per-instance 60s cache (injectable clock). Only successful
+ * results are cached; concurrent calls while a fetch is in flight share one promise.
+ * @param {{cfg: import('./types.js').Config, adapter?: import('./types.js').Adapter}} ctx
+ * @param {() => number} now
+ */
+function makeCachedDiscover(ctx, now) {
+  /** @type {{value: any, expiresAt: number} | null} */
+  let cached = null;
+  /** @type {Promise<any> | null} */
+  let pending = null;
+  return async function cachedDiscover() {
+    if (cached && now() < cached.expiresAt) return cached.value;
+    if (pending) return pending;
+    pending = discover(ctx).then(
+      (value) => {
+        cached = { value, expiresAt: now() + DISCOVER_CACHE_MS };
+        pending = null;
+        return value;
+      },
+      (e) => {
+        pending = null;
+        throw e;
+      },
+    );
+    return pending;
+  };
+}
+
+/**
+ * Parses and dispatches one NDJSON request line, replying asynchronously on `socket`.
+ * Replies may land out of order across concurrent lines — clients match by `id`.
+ * @param {import('node:net').Socket} socket
+ * @param {string} line
+ * @param {Record<string, (ctx: any) => Promise<any>>} commands
+ */
+function handleLine(socket, line, commands) {
+  /** @type {any} */
+  let req = null;
+  try {
+    req = JSON.parse(line);
+  } catch {
+    /* handled below */
+  }
+  const id = req && typeof req === "object" && !Array.isArray(req) ? req.id ?? null : null;
+  if (!req || typeof req !== "object" || Array.isArray(req) || typeof req.cmd !== "string") {
+    reply(socket, { id, ok: false, error: "bad request" });
+    return;
+  }
+  if (!Object.hasOwn(commands, req.cmd)) {
+    reply(socket, { id, ok: false, error: "unknown command" });
+    return;
+  }
+  commands[req.cmd](req.args)
+    .then((result) => reply(socket, { id, ok: true, result }))
+    .catch((e) => {
+      console.error(`[control] ${req.cmd} failed: ${e.message}`);
+      reply(socket, { id, ok: false, error: `${req.cmd} failed` });
+    });
+}
+
+/**
+ * @param {import('node:net').Socket} socket
+ * @param {object} msg
+ */
+function reply(socket, msg) {
+  if (socket.destroyed) return;
+  socket.write(JSON.stringify(msg) + "\n");
+}
+
 /**
  * @param {import('./types.js').Config} cfg
- * @param {{startedAt: string}} opts
+ * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number}} opts
  * @returns {Promise<{close(): void} | null>}
  */
-export async function startControl(cfg, { startedAt }) {
+export async function startControl(cfg, { startedAt, adapter, now = Date.now }) {
   const sockPath = cfg.controlSock;
   const posix = process.platform !== "win32";
 
@@ -27,6 +115,9 @@ export async function startControl(cfg, { startedAt }) {
     }
   }
 
+  const ctx = { cfg, adapter };
+  const commands = { discover: makeCachedDiscover(ctx, now) };
+
   /** @type {Set<import('node:net').Socket>} */
   const sockets = new Set();
   const server = net.createServer((socket) => {
@@ -35,7 +126,20 @@ export async function startControl(cfg, { startedAt }) {
     socket.on("error", () => {
       /* client hangup must not crash the receiver */
     });
-    socket.resume(); // discard any client input — v1 is liveness only
+
+    let buf = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (/** @type {string} */ chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (line.trim() !== "") handleLine(socket, line, commands);
+      }
+      if (Buffer.byteLength(buf, "utf8") > MAX_LINE_BYTES) socket.destroy();
+    });
+
     socket.write(JSON.stringify({ type: "hello", name: cfg.name, pid: process.pid, startedAt }) + "\n");
   });
   server.on("error", (e) => console.error(`[control] ${e.message}`));
