@@ -14,6 +14,9 @@
 // reconcile to recover webhooks missed in the gap. With `moveTo` (`rename --move`), teardown
 // also moves the state dir to ~/.agenthook/<moveTo>/ and rewrites the config's stateId
 // before the respawn (src/state-move.js); a failed move restarts on the old key.
+// A control-socket `decommission {when:'idle'}` pauses the same way, then unregisters the
+// webhooks (best-effort), exits gracefully WITHOUT a respawn and archives its own state dir
+// to ~/.agenthook-archive/<key>-<stamp>/ once nothing holds it (src/archive.js).
 //
 // The request path is the same fast-ACK-then-async shape as before: authenticate
 // (sync, no network) -> ACK 200 -> processEvents off the response path -> intake.
@@ -38,6 +41,7 @@ import { createSinks } from "./sinks.js";
 import { loadConfig } from "./config.js";
 import { restartSpawnArgs, spawnDetached } from "./respawn.js";
 import { checkMove, moveStateDir } from "./state-move.js";
+import { archiveStateDir } from "./archive.js";
 import { runReconcile } from "./commands/reconcile.js";
 
 /**
@@ -148,14 +152,15 @@ export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
  *   isDraining: () => boolean,
  *   validateConfig: () => void,
  *   validateMove?: (moveTo: string) => void,
+ *   isDecommissionPending?: () => boolean,
  *   onPending: (state: {active:number, queued:number, moveTo?: string}) => void,
  *   fire: (moveTo?: string) => void | Promise<void>,
  * }} deps  validateConfig throws on a config that would brick the respawn; validateMove throws
- *   on a move that can't happen; onPending does the heartbeat + event; fire runs the graceful
- *   shutdown-with-respawn
+ *   on a move that can't happen; isDecommissionPending rejects a restart while a decommission
+ *   waits; onPending does the heartbeat + event; fire runs the graceful shutdown-with-respawn
  * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number}>, isPending(): boolean}}
  */
-export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, onPending, fire }) {
+export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, isDecommissionPending, onPending, fire }) {
   let pending = false;
   /** @type {string|undefined} */
   let pendingMove;
@@ -166,6 +171,7 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
       const moveTo = args.moveTo;
       if (moveTo !== undefined && typeof moveTo !== "string") throw new Error("restart: moveTo must be a string");
       if (isDraining()) throw new Error("restart: shutdown already in progress");
+      if (isDecommissionPending?.()) throw new Error("restart: a decommission is pending");
       const { active, queued } = queue.state();
       if (pending) {
         if (moveTo !== undefined && moveTo !== pendingMove) {
@@ -191,6 +197,157 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
       return { accepted: true, active, queued };
     },
   };
+}
+
+/**
+ * The control-socket `decommission` request: validate, then pause the queue and fire once
+ * active agents reach 0 (the restart requester's shape). Returns immediately; the fire runs in
+ * the background. `unregister` (default true) is handed to `fire`. Mutually exclusive with a
+ * pending restart.
+ * @param {{
+ *   queue: {pause(): void, state(): {active:number, queued:number}, onActiveIdle(): Promise<void>},
+ *   isDraining: () => boolean,
+ *   isRestartPending: () => boolean,
+ *   onPending: (state: {active:number, queued:number, unregister: boolean}) => void,
+ *   fire: (opts: {unregister: boolean}) => void | Promise<void>,
+ * }} deps  onPending does the log + heartbeat + event; fire unregisters the webhooks and runs the
+ *   graceful shutdown-with-archive
+ * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number}>, isPending(): boolean}}
+ */
+export function createDecommissionRequester({ queue, isDraining, isRestartPending, onPending, fire }) {
+  let pending = false;
+  return {
+    isPending: () => pending,
+    async request(args) {
+      if (args?.when !== "idle") throw new Error(`decommission: unsupported when ${JSON.stringify(args?.when)} (only "idle")`);
+      const unregister = args.unregister === undefined ? true : args.unregister;
+      if (typeof unregister !== "boolean") throw new Error("decommission: unregister must be a boolean");
+      if (isDraining()) throw new Error("decommission: shutdown already in progress");
+      if (isRestartPending()) throw new Error("decommission: a restart is pending");
+      const { active, queued } = queue.state();
+      if (pending) return { accepted: true, alreadyPending: true, active, queued };
+      pending = true;
+      queue.pause();
+      onPending({ active, queued, unregister });
+      queue
+        .onActiveIdle()
+        // setImmediate: let the control reply flush before teardown closes the socket.
+        .then(() => new Promise((resolve) => setImmediate(resolve)))
+        .then(() => (isDraining() ? undefined : fire({ unregister }))) // a signal took over: no unregister, no archive
+        .catch((e) => console.error(`[decommission] failed: ${e.message}`));
+      return { accepted: true, active, queued };
+    },
+  };
+}
+
+/**
+ * Delete the tracker's and the forge's webhooks, each side best-effort in its own try/catch.
+ * Never throws.
+ * @param {{unregisterWebhooks(): Promise<any>}} adapter
+ * @param {{unregisterWebhooks(): Promise<any>} | null | undefined} forge
+ * @returns {Promise<{tracker: 'ok'|'failed', forge: 'ok'|'failed'|'none', errors?: {tracker?: string, forge?: string}}>}
+ */
+export async function unregisterAll(adapter, forge) {
+  /** @type {{tracker?: string, forge?: string}} */
+  const errors = {};
+  /** @type {'ok'|'failed'} */
+  let tracker = "ok";
+  try {
+    await adapter.unregisterWebhooks();
+  } catch (e) {
+    tracker = "failed";
+    errors.tracker = e?.message ?? String(e);
+  }
+  /** @type {'ok'|'failed'|'none'} */
+  let forgeResult = "none";
+  if (forge) {
+    forgeResult = "ok";
+    try {
+      await forge.unregisterWebhooks();
+    } catch (e) {
+      forgeResult = "failed";
+      errors.forge = e?.message ?? String(e);
+    }
+  }
+  return { tracker, forge: forgeResult, ...(Object.keys(errors).length && { errors }) };
+}
+
+/**
+ * A firing decommission: unregister the webhooks (when asked; failures are logged, never block),
+ * emit `decommissioning`, then the graceful shutdown-with-archive. A signal that arrived during
+ * the unregister owns the exit — no event, no archive.
+ * @param {{unregister: boolean}} opts
+ * @param {{
+ *   adapter: {unregisterWebhooks(): Promise<any>},
+ *   forge: {unregisterWebhooks(): Promise<any>} | null | undefined,
+ *   isDraining: () => boolean,
+ *   queued: () => number,
+ *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
+ *   shutdown: (signal: string, opts: {archive: boolean}) => void | Promise<void>,
+ * }} deps
+ */
+export async function runDecommission({ unregister }, { adapter, forge, isDraining, queued, emit, shutdown }) {
+  /** @type {Record<string, any>} */
+  const result = unregister ? await unregisterAll(adapter, forge) : { tracker: "skipped", forge: "skipped" };
+  const errs = result.errors ? ` (${Object.entries(result.errors).map(([k, m]) => `${k}: ${m}`).join("; ")})` : "";
+  console.log(`[decommission] webhooks — tracker ${result.tracker}, forge ${result.forge}${errs}`);
+  if (isDraining()) return;
+  emit("decommissioning", "", "", { queued: queued(), unregister: result });
+  return shutdown("decommission", { archive: true });
+}
+
+/**
+ * What a graceful shutdown waits on before teardown. `keepQueued` (a pending restart or
+ * decommission paused the queue): only the active agents — queue.onIdle() would never resolve
+ * on a paused queue with jobs, and those jobs stay in queue.json. Otherwise running + queued.
+ * @param {{onIdle(): Promise<void>, onActiveIdle(): Promise<void>}} queue
+ * @param {boolean} keepQueued
+ */
+export function waitForExit(queue, keepQueued) {
+  return keepQueued ? queue.onActiveIdle() : queue.onIdle();
+}
+
+/**
+ * Teardown's tail, run once the heartbeat, control socket and pidfile are released (so a
+ * successor's already-running / socket-owner checks pass and archiveStateDir sees no live pid).
+ * `respawn` (restart): optionally move the state dir, then spawn the successor. `archive`
+ * (decommission, mutually exclusive): archive the state dir, never respawn. No events/heartbeat
+ * after either: they'd write into — or recreate — the old dir.
+ * @param {{cfg: {configPath: string, stateKey: string, stateDir: string, name: string, installDir: string}, respawn?: boolean, moveTo?: string, archive?: boolean}} plan
+ * @param {{moveStateDir?: typeof moveStateDir, spawnDetached?: typeof spawnDetached, archiveStateDir?: typeof archiveStateDir}} [deps]
+ */
+export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
+  const { moveStateDir: move = moveStateDir, spawnDetached: spawn = spawnDetached, archiveStateDir: archiveDir = archiveStateDir } = deps;
+  if (respawn) {
+    // A pending move happens here, once nothing holds the state dir, and the successor logs
+    // into the new dir (it resolves the new key from the rewritten config).
+    /** @type {{stateDir: string}} */
+    let spawnCfg = cfg;
+    if (moveTo) {
+      try {
+        spawnCfg = move({ configPath: cfg.configPath, from: cfg.stateKey, to: moveTo, source: "restart" });
+        console.log(`[restart] moved state dir ${cfg.stateDir} → ${spawnCfg.stateDir}`);
+      } catch (e) {
+        console.error(`[restart] move failed: ${e.message} — restarting on "${cfg.stateKey}"`);
+      }
+    }
+    try {
+      const { pid, logPath } = spawn(spawnCfg, restartSpawnArgs(cfg));
+      console.log(`[restart] respawned "${cfg.name}" (pid ${pid}). Log: ${logPath}`);
+    } catch (e) {
+      console.error(`[restart] respawn failed: ${e.message}`);
+    }
+    return;
+  }
+  if (archive) {
+    // receiver.log is held open by fd: lines logged after the rename land in the archived copy.
+    try {
+      const { archivedTo } = archiveDir({ stateKey: cfg.stateKey, reason: "decommission", source: "decommission" });
+      console.log(`[decommission] archived ${cfg.stateDir} → ${archivedTo}`);
+    } catch (e) {
+      console.error(`[decommission] archive failed: ${e.message} — state dir left at ${cfg.stateDir}`);
+    }
+  }
 }
 
 /**
@@ -274,7 +431,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
     enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),
     stageOf: queueStageOf,
-    isDraining: () => draining || restarter.isPending(),
+    isDraining: () => draining || restarter.isPending() || decommissioner.isPending(),
     emit,
     onDepth: (queueStage) => heartbeat.update({ queueStage }),
   });
@@ -324,12 +481,14 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   let respawnOnExit = false; // set by a firing restart; any signal clears it
   /** @type {string|undefined} */
   let moveOnExit; // the restart's state-dir move target, if any
-  let respawned = false;
+  let archiveOnExit = false; // set by a firing decommission; any signal clears it
+  let finished = false; // teardown's respawn/archive tail runs once
   const restarter = createRestartRequester({
     queue,
     isDraining: () => draining,
     validateConfig: () => void loadConfig({ configPath: cfg.configPath }),
     validateMove: (moveTo) => checkMove({ configPath: cfg.configPath, from: cfg.stateKey, to: moveTo }),
+    isDecommissionPending: () => decommissioner.isPending(),
     onPending: ({ active, queued, moveTo }) => {
       const move = moveTo ? ` and moving the state dir to "${moveTo}"` : "";
       console.log(`[restart] requested — pausing new runs; restarting${move} once ${active} running agent(s) finish (${queued} queued)`);
@@ -341,6 +500,19 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       return shutdown("restart", { respawn: true, moveTo });
     },
   });
+  const decommissioner = createDecommissionRequester({
+    queue,
+    isDraining: () => draining,
+    isRestartPending: () => restarter.isPending(),
+    onPending: ({ active, queued, unregister }) => {
+      const hooks = unregister ? "unregistering webhooks, " : "";
+      console.log(`[decommission] requested — pausing new runs; ${hooks}exiting and archiving the state dir once ${active} running agent(s) finish (${queued} queued)`);
+      heartbeat.update({ decommissionPending: true });
+      emit("decommission_requested", "", "", { active, queued, unregister });
+    },
+    fire: ({ unregister }) =>
+      runDecommission({ unregister }, { adapter, forge, isDraining: () => draining, queued: () => queue.state().queued, emit, shutdown }),
+  });
 
   /** Final teardown shared by graceful + forced exit. */
   function teardown() {
@@ -351,30 +523,12 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     } catch {
       /* ignore */
     }
-    // Restart: spawn the successor exactly once, after the pidfile, control socket and
-    // listener are released (its already-running + socket-owner checks pass) and before
-    // either exit path below.
-    if (respawnOnExit && !respawned) {
-      respawned = true;
-      // A pending move happens here, once nothing holds the state dir, and the successor logs
-      // into the new dir (it resolves the new key from the rewritten config). No events/heartbeat
-      // after this point: they'd write into — or recreate — the old dir.
-      /** @type {{stateDir: string}} */
-      let spawnCfg = cfg;
-      if (moveOnExit) {
-        try {
-          spawnCfg = moveStateDir({ configPath: cfg.configPath, from: cfg.stateKey, to: moveOnExit, source: "restart" });
-          console.log(`[restart] moved state dir ${cfg.stateDir} → ${spawnCfg.stateDir}`);
-        } catch (e) {
-          console.error(`[restart] move failed: ${e.message} — restarting on "${cfg.stateKey}"`);
-        }
-      }
-      try {
-        const { pid, logPath } = spawnDetached(spawnCfg, restartSpawnArgs(cfg));
-        console.log(`[restart] respawned "${cfg.name}" (pid ${pid}). Log: ${logPath}`);
-      } catch (e) {
-        console.error(`[restart] respawn failed: ${e.message}`);
-      }
+    // Restart: spawn the successor (after an optional move); decommission: archive the state
+    // dir. Exactly once, after the pidfile, control socket and listener are released and before
+    // either exit path below. No events/heartbeat after this point.
+    if ((respawnOnExit || archiveOnExit) && !finished) {
+      finished = true;
+      finishTeardown({ cfg, respawn: respawnOnExit, moveTo: moveOnExit, archive: archiveOnExit });
     }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 1500).unref(); // don't hang on lingering sockets
@@ -395,15 +549,17 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
 
   // First signal drains: stop taking new work, let running + queued agents finish,
   // then exit. A second signal during the drain force-kills the agents immediately.
-  // A restart (respawn) shuts down the same way but never waits on the paused queue:
-  // queued jobs stay in queue.json for the successor's restoreQueued. A signal while a
-  // restart is pending cancels the respawn and exits once active agents reach 0.
-  /** @param {string} [signal] @param {{respawn?: boolean, moveTo?: string}} [opts] */
-  async function shutdown(signal, { respawn = false, moveTo } = {}) {
+  // A restart (respawn) or decommission (archive) shuts down the same way but never waits on
+  // the paused queue: queued jobs stay in queue.json (for the successor's restoreQueued, or in
+  // the archived dir). A signal while either is pending cancels it (no respawn; no unregister,
+  // no archive) and exits once active agents reach 0.
+  /** @param {string} [signal] @param {{respawn?: boolean, moveTo?: string, archive?: boolean}} [opts] */
+  async function shutdown(signal, { respawn = false, moveTo, archive = false } = {}) {
     if (!respawn) {
       respawnOnExit = false;
       moveOnExit = undefined;
     }
+    if (!archive) archiveOnExit = false;
     if (draining) {
       forceExit(`${signal || "signal"} during drain`);
       return;
@@ -413,6 +569,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       respawnOnExit = true;
       moveOnExit = moveTo;
     }
+    if (archive) archiveOnExit = true;
 
     // Stop new work reaching the queue, then close the front door so no fresh
     // events arrive. In-flight `claude -p` children keep running untouched.
@@ -425,13 +582,15 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     server.close(); // stop accepting new connections; in-flight handlers finish
 
     const { active, queued } = queue.state();
-    if (restarter.isPending()) {
+    if (restarter.isPending() || decommissioner.isPending()) {
+      const what = restarter.isPending() ? "restart" : "decommission";
       if (active > 0) {
-        console.log(`\n[shutdown] ${signal || ""} — restart cancelled; waiting for ${active} running agent(s); send the signal again to force-kill`);
+        console.log(`\n[shutdown] ${signal || ""} — ${what} cancelled; waiting for ${active} running agent(s); send the signal again to force-kill`);
         heartbeat.update({ draining: true, queue: queue.state() });
-        await queue.onActiveIdle();
       }
-      console.log(`[shutdown] ${respawnOnExit ? "restarting" : "exiting"} — ${queued} queued job(s) kept in queue.json`);
+      await waitForExit(queue, true);
+      const how = respawnOnExit ? "restarting" : archiveOnExit ? "archiving" : "exiting";
+      console.log(`[shutdown] ${how} — ${queued} queued job(s) kept in queue.json`);
       teardown();
       return;
     }
@@ -445,7 +604,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
         `send the signal again to force-kill`,
     );
     heartbeat.update({ draining: true, queue: queue.state() });
-    await queue.onIdle();
+    await waitForExit(queue, false);
     console.log(`[shutdown] drain complete — exiting`);
     teardown();
   }
@@ -527,7 +686,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       // POST a handshake/ping to the public URL, which must reach a live server (Asana
       // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
       await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
-      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request }); // owner check reads the OLD pidfile — must run before the write below
+      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request, decommission: decommissioner.request }); // owner check reads the OLD pidfile — must run before the write below
       fs.writeFileSync(cfg.pidFile, String(process.pid));
       console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
 
@@ -598,5 +757,5 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
   }
 
-  return { serve, shutdown, requestRestart: restarter.request, store, adapter, forge, ingress };
+  return { serve, shutdown, requestRestart: restarter.request, requestDecommission: decommissioner.request, store, adapter, forge, ingress };
 }

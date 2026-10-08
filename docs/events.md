@@ -30,6 +30,10 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 | `overlap_released` | `overlapGuard`: the blocker left the pipeline and the waiting task is re-offered to its step | `blockedBy` |
 | `restart_requested` | a control-socket `restart {when:"idle"}` was accepted: new runs pause (jobs still queue to `queue.json`) until active agents reach 0 (`ref`/`step` = `""`) | `active`, `queued` |
 | `restarting` | active agents reached 0 — the receiver exits gracefully and respawns detached on the same config, then runs one reconcile (`ref`/`step` = `""`) | `queued` (jobs left in `queue.json` for the new process) |
+| `decommission_requested` | a control-socket `decommission {when:"idle"}` was accepted: new runs pause (jobs still queue to `queue.json`) until active agents reach 0 (`ref`/`step` = `""`) | `active`, `queued`, `unregister` (boolean) |
+| `decommissioning` | active agents reached 0 and the webhooks were unregistered (best-effort) — the receiver exits gracefully without a respawn and archives its state dir to `~/.agenthook-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/` (`ref`/`step` = `""`) | `queued` (jobs left in the archived `queue.json`), `unregister` (`{tracker, forge, errors?}`: `ok`\|`failed`\|`none`, or `skipped` for both when not requested) |
+
+Both decommission events land in the **archived** `events.jsonl` (the state dir moves after them).
 
 `pipeline_done` is the signal that a ticket is fully finished and its PR is ready for merge.
 `blocked` and `failed` are the needs-attention signals.

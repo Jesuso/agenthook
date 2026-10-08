@@ -193,6 +193,10 @@ Key files:
   `setStateIdInConfigText` + `atomicSave`; a failed write renames the dir back). A running
   receiver moves in `teardown()` of a `restart {when:'idle', moveTo}` (after the pidfile is gone,
   before `spawnDetached`, which then logs into the new dir); a failed move restarts on the old key.
+- `src/archive.js` — `archiveStateDir` (epic #209): rename a **stopped** profile's state dir to
+  `<registry>-archive/<key>-<UTC stamp>/` (refuses `.`/`..`, a live pid, an existing target, cross-fs)
+  + audit line. The engine's control-socket `decommission {when:'idle'}` pauses like `restart`,
+  unregisters webhooks (best-effort), exits with no respawn and archives in teardown's tail.
 - `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
   updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
   `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config
