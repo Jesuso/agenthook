@@ -81,7 +81,8 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
 - `GET /api/snapshot` → full state on connect. `GET /api/stream` (SSE) → typed deltas. The browser
   `EventSource` reconnects by itself and re-fetches the snapshot on reconnect.
 - Run-log viewer: `GET /api/runs?profile=&ref=` → `{ runs: RunView[] }` listed straight from the
-  profile's `logs/` (outcome/cost joined from `run_end`). `GET /api/log/stream?profile=&run=` (SSE)
+  profile's `logs/` (outcome/cost/`endedAt` joined from `run_end`; `endedAt` = its `ts`, `null`
+  while running or once it aged out of the events tail). `GET /api/log/stream?profile=&run=` (SSE)
   → `init` (last ≤ 64 KB from a line boundary), `append`, `reset` — a per-connection `fs.watch` on
   the `logs/` dir, closed with the connection. `run` must be a run-log basename actually listed in
   `logs/` whose realpath stays there; anything else is `404`.

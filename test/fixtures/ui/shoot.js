@@ -5,7 +5,10 @@
 // races the snapshot fetch — so this waits for a selector before capturing.
 //
 //   node test/fixtures/ui/shoot.js '<?token= URL>' <out.png> [--scheme dark|light]
-//     [--size 1440x900] [--wait <css selector>] [--chrome <bin>]
+//     [--size 1440x900] [--wait <css selector>] [--click <css selector>] [--chrome <bin>]
+//
+// `--click` waits for its selector, clicks the first match, then waits for `--wait` (e.g. open the
+// ticket drawer: `--click '[data-ticket-row="221"]' --wait '[data-drawer] pre'`).
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,10 +26,11 @@ const opt = (name, def) => {
 const scheme = opt("scheme", "dark");
 const [width, height] = opt("size", "1440x900").split("x").map(Number);
 const waitFor = opt("wait", "table tbody tr");
+const click = opt("click", "");
 const chrome = opt("chrome", "google-chrome");
 const [url, out] = argv;
 if (!url || !out) {
-  console.error("usage: node test/fixtures/ui/shoot.js '<url>' <out.png> [--scheme dark|light] [--size WxH] [--wait <selector>]");
+  console.error("usage: node test/fixtures/ui/shoot.js '<url>' <out.png> [--scheme dark|light] [--size WxH] [--wait <selector>] [--click <selector>]");
   process.exit(2);
 }
 
@@ -90,13 +94,21 @@ try {
   await s("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
   await s("Page.enable");
   await s("Page.navigate", { url });
-  const deadline = Date.now() + 15_000;
-  for (;;) {
-    const { result } = await s("Runtime.evaluate", { expression: `!!document.querySelector(${JSON.stringify(waitFor)})`, returnByValue: true });
-    if (result.value) break;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${waitFor}`);
-    await new Promise((r) => setTimeout(r, 100));
+  /** Poll until `sel` matches (15 s). @param {string} sel */
+  const waitSel = async (sel) => {
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const { result } = await s("Runtime.evaluate", { expression: `!!document.querySelector(${JSON.stringify(sel)})`, returnByValue: true });
+      if (result.value) return;
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${sel}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+  if (click) {
+    await waitSel(click);
+    await s("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(click)}).click()` });
   }
+  await waitSel(waitFor);
   await new Promise((r) => setTimeout(r, 500)); // fonts + SSE open → the connection dot settles
   const { data } = await s("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(out, Buffer.from(data, "base64"));

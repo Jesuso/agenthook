@@ -8,7 +8,7 @@ import { appendFeed, formatEventDetail } from "./feed";
 import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
-import { RunPanel } from "./RunPanel";
+import { TicketDrawer } from "./TicketDrawer";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
@@ -309,6 +309,7 @@ export default function App() {
           {tickets.map((t) => (
             <tr
               key={`${t.profile}\u0000${t.ref}`}
+              data-ticket-row={t.ref}
               className={`cursor-pointer border-b border-[var(--color-border)] ${open?.profile === t.profile && open.ref === t.ref ? "bg-[var(--color-border)]" : ""}`}
               onClick={(e) => {
                 // Links in the row (tracker, PR) keep their own behavior.
@@ -384,10 +385,11 @@ export default function App() {
         </tbody>
       </table>
       {open && (
-        <RunPanel
+        <TicketDrawer
+          key={`${open.profile}\u0000${open.ref}`}
           profile={open.profile}
           ticketRef={open.ref}
-          label={state.snapshot.tickets.find((t) => t.profile === open.profile && t.ref === open.ref)?.displayId ?? open.ref}
+          ticket={state.snapshot.tickets.find((t) => t.profile === open.profile && t.ref === open.ref)}
           runsNonce={runsNonce}
           onClose={() => setOpen(null)}
         />
