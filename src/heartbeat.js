@@ -18,6 +18,22 @@ export function isAlive(pid) {
   }
 }
 
+/** "owner/name" from a block's `repository`, else `owner` + `repo`. @param {any} b */
+const repoOf = (b) => (b?.repository ? String(b.repository) : b?.owner && b?.repo ? `${b.owner}/${b.repo}` : null);
+
+/**
+ * The GitHub repository a profile's PRs live in — the forge's, else a github /
+ * github-projects tracker's — so a config-less reader (`ah ui`) can build PR links.
+ * @param {import('./types.js').Config} cfg
+ * @returns {string|null}
+ */
+export function repositoryOf(cfg) {
+  const fromForge = repoOf(cfg.forge);
+  if (fromForge) return fromForge;
+  if (cfg.provider === "github" || cfg.provider === "github-projects") return repoOf(cfg.providerConfig);
+  return null;
+}
+
 /**
  * A heartbeat writer bound to one config. Holds the merged record in memory and
  * flushes the whole thing on every update.
@@ -35,6 +51,7 @@ export function createHeartbeat(cfg) {
     fullAuto: !!cfg.fullAuto,
     repoPath: cfg.repoPath,
     repos: reposOf(cfg).map((r) => ({ id: r.id, path: r.path })),
+    repository: repositoryOf(cfg),
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     queue: { active: 0, queued: 0 },
@@ -67,9 +84,10 @@ export function createHeartbeat(cfg) {
   };
 }
 
-/** Read one profile's heartbeat + liveness. @param {string} name */
-export function readProfile(name) {
-  const dir = path.join(registryDir, name);
+/** Read one profile's heartbeat + liveness. `registry` is overridable for tests.
+ * @param {string} name @param {string} [registry] */
+export function readProfile(name, registry = registryDir) {
+  const dir = path.join(registry, name);
   const hbFile = path.join(dir, "heartbeat.json");
   const pidFile = path.join(dir, "server.pid");
   /** @type {any} */
@@ -88,17 +106,17 @@ export function readProfile(name) {
   return { name, dir, pid, up: isAlive(pid), heartbeat: hb };
 }
 
-/** List every profile that has a state dir under ~/.agenthook. */
-export function listProfiles() {
+/** List every profile that has a state dir under ~/.agenthook. @param {string} [registry] */
+export function listProfiles(registry = registryDir) {
   /** @type {string[]} */
   let names = [];
   try {
     names = fs
-      .readdirSync(registryDir, { withFileTypes: true })
+      .readdirSync(registry, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
   } catch {
     /* registry not created yet */
   }
-  return names.sort().map(readProfile);
+  return names.sort().map((n) => readProfile(n, registry));
 }

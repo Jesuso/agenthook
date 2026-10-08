@@ -1,0 +1,55 @@
+// Shared server ↔ browser contract for `ah ui` (docs/web-ui.md). JSDoc typedefs only,
+// no runtime code — the frontend `import type`s these so the two sides can't drift.
+// Everything here is what the UI server is willing to expose: no ingress URL, no
+// paths, no secrets, no config values beyond these fields.
+
+/**
+ * One profile under ~/.agenthook. With no heartbeat (profile down, or never started)
+ * only `name`/`up`/`pid` are set; every other field is null.
+ * @typedef {object} ProfileView
+ * @property {string} name
+ * @property {boolean} up                 pidfile pid is alive
+ * @property {number|null} pid
+ * @property {number|null} port
+ * @property {string|null} tracker
+ * @property {string|null} ingress
+ * @property {boolean|null} fullAuto
+ * @property {string|null} startedAt
+ * @property {string|null} updatedAt
+ * @property {number|null} active         agents running (heartbeat.queue.active)
+ * @property {number|null} queued         jobs waiting behind maxConcurrent
+ * @property {LastEvent|null} lastEvent  the last job the receiver took in
+ */
+
+/** @typedef {{ at: string|null, kind: string|null, ref: string|null, step: string|null }} LastEvent */
+
+/** @typedef {'running'|'queued'|'held'|'failed'|'done'|'idle'} TicketStatus */
+
+/**
+ * One merged record per (profile, ref): running ∪ queue ∪ held ∪ refmeta ∪ recent events.
+ * @typedef {object} TicketRow
+ * @property {string} profile
+ * @property {string} ref
+ * @property {string} displayId           refmeta.displayId, else ref
+ * @property {string|null} title
+ * @property {string|null} step           current / last step id
+ * @property {TicketStatus} status
+ * @property {string|null} model          from running.json, else the last run_start
+ * @property {string|null} startedAt
+ * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)
+ * @property {string|null} trackerUrl     refmeta.url
+ * @property {string|null} prUrl          https://github.com/<repository>/pull/<refmeta.pr>
+ * @property {string|null} heldReason
+ */
+
+/**
+ * `GET /api/snapshot` body.
+ * @typedef {object} Snapshot
+ * @property {ProfileView[]} profiles
+ * @property {TicketRow[]} tickets
+ */
+
+/** SSE delta (`GET /api/stream`) — placeholder, filled in by the realtime ticket.
+ * @typedef {{ type: string }} UiEvent */
+
+export {};

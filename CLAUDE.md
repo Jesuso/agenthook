@@ -39,6 +39,7 @@ node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through 
 node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections (explicit poll)
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
 node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink beside the agenthook bin)
+node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashboard (127.0.0.1, token→cookie; no config)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 npm test                                  # node:test suites in test/ (pure units; no network/spawn)
@@ -152,6 +153,11 @@ Key files:
   disk is the source of truth.
 - `src/heartbeat.js` — per-profile status JSON in the state dir, plus cross-profile readers
   (`listProfiles`/`readProfile`, pid-liveness) backing `ls`/`status`.
+- `src/ui/*.js` — `ah ui` server (docs/web-ui.md): `contract.js` (JSDoc view-model typedefs),
+  `rows.js` (pure `buildRows`/`buildSnapshot` over state dirs; events tail-read, last 256 KB),
+  `server.js` (Host guard → token/cookie auth → `/api/snapshot` + traversal-safe `ui/dist` static).
+  Blind **reader**: never writes any state dir, never loads a config; PR links come from the
+  heartbeat's `repository`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).

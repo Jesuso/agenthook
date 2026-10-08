@@ -17,6 +17,7 @@
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook doctor               preflight checks for this profile
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
+//   agenthook ui [--port <n>] [--no-open]  local read-only web dashboard (127.0.0.1 only)
 //
 // Global flag: --config <path> selects a config explicitly (default: discover
 // agenthook.config.json from the current dir upward).
@@ -37,12 +38,13 @@ import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
 import { usage } from "../src/commands/usage.js";
 import { events } from "../src/commands/events.js";
+import { ui } from "../src/commands/ui.js";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port"]);
 
 /** @param {string[]} argv */
 function parse(argv) {
@@ -72,7 +74,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -96,6 +98,7 @@ usage: agenthook <command> [args] [--config <path>]
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
+  ui [--port <n>] [--no-open]  local read-only web dashboard, all profiles (127.0.0.1; default port 4180)
   --version, -v             print the installed version
 `;
 
