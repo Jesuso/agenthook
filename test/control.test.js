@@ -490,3 +490,45 @@ test("control protocol: injected restart gets args; result -> ok, throw -> ok:fa
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("control protocol: decommission is unknown unless the engine injects it", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const cfg = cfgIn(dir);
+  const control = await startControl(cfg, { startedAt: "x", restart: async () => ({}) });
+  try {
+    const { socket, rest } = await connectAfterHello(cfg.controlSock);
+    const reader = replyReader(socket, rest);
+    socket.write(JSON.stringify({ id: 1, cmd: "decommission", args: { when: "idle" } }) + "\n");
+    assert.deepEqual(await reader.waitFor(1), { id: 1, ok: false, error: "unknown command" });
+    socket.end();
+  } finally {
+    control?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("control protocol: injected decommission gets args; result -> ok, throw -> generic ok:false", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const cfg = cfgIn(dir);
+  /** @type {any[]} */
+  const calls = [];
+  const decommission = async (/** @type {any} */ args) => {
+    calls.push(args);
+    if (args?.when !== "idle") throw new Error("unsupported when");
+    return { accepted: true, active: 0, queued: 0 };
+  };
+  const control = await startControl(cfg, { startedAt: "x", decommission });
+  try {
+    const { socket, rest } = await connectAfterHello(cfg.controlSock);
+    const reader = replyReader(socket, rest);
+    socket.write(JSON.stringify({ id: 1, cmd: "decommission", args: { when: "idle", unregister: false } }) + "\n");
+    assert.deepEqual(await reader.waitFor(1), { id: 1, ok: true, result: { accepted: true, active: 0, queued: 0 } });
+    socket.write(JSON.stringify({ id: 2, cmd: "decommission", args: { when: "now" } }) + "\n");
+    assert.deepEqual(await reader.waitFor(2), { id: 2, ok: false, error: "decommission failed" });
+    assert.deepEqual(calls, [{ when: "idle", unregister: false }, { when: "now" }]);
+    socket.end();
+  } finally {
+    control?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

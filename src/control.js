@@ -4,6 +4,9 @@
 //   discover            tracker + stage keys + live stage list (cached 60s)
 //   restart {when:'idle', moveTo?}  only when the engine passes `restart`: pause new runs,
 //                       restart once active agents reach 0 (see engine.js)
+//   decommission {when:'idle', unregister?}  only when the engine passes `decommission`: pause
+//                       new runs; once active agents reach 0, unregister webhooks (default),
+//                       exit without a respawn and archive the state dir (see engine.js)
 // See docs/web-ui.md.
 import net from "node:net";
 import fs from "node:fs";
@@ -98,11 +101,12 @@ function reply(socket, msg) {
 
 /**
  * @param {import('./types.js').Config} cfg
- * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>}} opts
- *   restart: the engine's restart requester; the `restart` command exists only when given
+ * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>, decommission?: (args: any) => Promise<any>}} opts
+ *   restart: the engine's restart requester; the `restart` command exists only when given.
+ *   decommission: the engine's decommission requester; likewise only when given
  * @returns {Promise<{close(): void} | null>}
  */
-export async function startControl(cfg, { startedAt, adapter, now = Date.now, restart }) {
+export async function startControl(cfg, { startedAt, adapter, now = Date.now, restart, decommission }) {
   const sockPath = cfg.controlSock;
   const posix = process.platform !== "win32";
 
@@ -123,6 +127,7 @@ export async function startControl(cfg, { startedAt, adapter, now = Date.now, re
   /** @type {Record<string, (args: any) => Promise<any>>} */
   const commands = { discover: makeCachedDiscover(ctx, now) };
   if (restart) commands.restart = restart;
+  if (decommission) commands.decommission = decommission;
 
   /** @type {Set<import('node:net').Socket>} */
   const sockets = new Set();

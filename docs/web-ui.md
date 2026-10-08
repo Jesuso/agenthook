@@ -270,7 +270,7 @@ profile's `ui-audit.jsonl` via `save.js`'s `appendAudit`.
 **Control socket hardening (prerequisite).** Profile state dirs are created / tightened to `0700`
 and the socket is created under a `0o077` umask (no chmod race), before any command lands.
 Protocol: NDJSON `{id, cmd, args}` → `{id, ok, result|error}`, allowlisted commands only
-(`discover`, `restart`); the v1 `hello` line is unchanged.
+(`discover`, `restart`, `decommission`); the v1 `hello` line is unchanged.
 
 **Pipeline graph.** Pure `ui/src/pipelineGraph.ts` (`layoutPipeline`, Vitest-covered) derives SVG
 step cards with advance / fail / hold / changes / queue edges from the buffer's stage bindings —

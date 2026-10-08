@@ -14,6 +14,7 @@ import path from "node:path";
  *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
+ *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
  *   ref   — task ref (provider-native id)
  *   step  — pipeline step id
  *
