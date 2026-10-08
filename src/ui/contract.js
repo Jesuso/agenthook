@@ -12,6 +12,7 @@
  * `[*]` expands every element of an array.
  */
 export const SENSITIVE_FIELDS = /** @type {const} */ ([
+  "name",
   "fullAuto",
   "claudeBin",
   "tracker.userGid",

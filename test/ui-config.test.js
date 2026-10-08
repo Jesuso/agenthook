@@ -62,7 +62,7 @@ function profile(name, text = json(valid()), configPath) {
 const P = profile("p");
 const BAD = profile("bad", json({ name: "bad", tracker: { type: "github", token: "ghp_literal" } }));
 const UNPARSE = profile("unparse", '{ "name": "u", ');
-const LIVE = profile("live");
+const LIVE = profile("live", json(valid({ name: "live" })));
 const RACE = profile("race");
 const BAKLINK = profile("baklink");
 profile("nocfg", null, null);
@@ -149,7 +149,9 @@ test("sensitiveChanges: concrete changed paths, [*] over the union of both array
   b.sinks[1].botToken = "${OTHER}";
   assert.deepEqual(sensitiveChanges(a, b), ["sinks[1].botToken"]);
   // Non-sensitive edits are not reported; a key-order change is not a value change.
-  assert.deepEqual(sensitiveChanges(a, valid({ maxConcurrent: 3, name: "q" })), []);
+  assert.deepEqual(sensitiveChanges(a, valid({ maxConcurrent: 3 })), []);
+  // `name` is sensitive too (a rename forks the state dir — writeConfigFile blocks it outright).
+  assert.deepEqual(sensitiveChanges(a, valid({ name: "q" })), ["name"]);
   // Added / removed fields and array elements.
   assert.deepEqual(sensitiveChanges(a, valid({ claudeBin: "/bin/claude" })), ["claudeBin"]);
   assert.deepEqual(sensitiveChanges(a, valid({ sinks: [a.sinks[0]] })), ["sinks[1].botToken"]);
@@ -160,7 +162,7 @@ test("sensitiveChanges: concrete changed paths, [*] over the union of both array
   ]);
   assert.deepEqual(sensitiveChanges(a, { ...a, tracker: { ...a.tracker, pipeline: [{ id: "x" }] } }), []);
   // Old text that didn't parse → every sensitive path present in the new config.
-  assert.deepEqual(sensitiveChanges(undefined, a), ["fullAuto", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
+  assert.deepEqual(sensitiveChanges(undefined, a), ["name", "fullAuto", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
   // Never throws on odd shapes.
   assert.deepEqual(sensitiveChanges(null, 7), []);
   assert.deepEqual(sensitiveChanges({ sinks: "x" }, { sinks: {} }), []);
@@ -256,6 +258,16 @@ test("PUT invalid text → 422 {errors}; file, backup dir and audit untouched", 
   assert.deepEqual(footprint(P), before);
 });
 
+test("PUT changed top-level name → 422 (renaming forks the state dir); nothing written", async () => {
+  const before = footprint(P);
+  const res = await put(save(P, json(valid({ name: "renamed" }))));
+  assert.equal(res.status, 422);
+  const errs = JSON.parse(res.body).errors;
+  assert.equal(errs.length, 1);
+  assert.match(errs[0], /renaming a profile \("p" → "renamed"\)/);
+  assert.deepEqual(footprint(P), before);
+});
+
 test("PUT save: 200 {hash, restartNeeded}, atomic replace keeps mode, config-bak/ backup, audit names sensitive changes", async () => {
   const AUDIT = path.join(P.dir, "ui-audit.jsonl");
   const v1 = fs.readFileSync(P.file, "utf8");
@@ -295,10 +307,10 @@ test("PUT save: 200 {hash, restartNeeded}, atomic replace keeps mode, config-bak
 });
 
 test("PUT over an unparseable config → audit names every sensitive path in the new one", async () => {
-  const text = json(valid({ name: "u" }));
+  const text = json(valid({ name: "unparse" }));
   assert.equal((await put(save(UNPARSE, text))).status, 200);
   const [line] = fs.readFileSync(path.join(UNPARSE.dir, "ui-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  assert.deepEqual(line.sensitive, ["fullAuto", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
+  assert.deepEqual(line.sensitive, ["name", "fullAuto", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
 });
 
 test("PUT: a symlinked config-bak backup is never followed → 500, config unchanged, nothing left beside it", async () => {
@@ -309,8 +321,8 @@ test("PUT: a symlinked config-bak backup is never followed → 500, config uncha
 });
 
 test("two concurrent PUTs with the same baseHash → exactly one 200, one 409", async () => {
-  const one = json(valid({ name: "one" }));
-  const two = json(valid({ name: "two" }));
+  const one = json(valid({ trigger: "one" }));
+  const two = json(valid({ trigger: "two" }));
   const [a, b] = await Promise.all([put(save(RACE, one)), put(save(RACE, two))]);
   assert.deepEqual([a.status, b.status].sort(), [200, 409]);
   const won = a.status === 200 ? one : two;

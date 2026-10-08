@@ -35,7 +35,7 @@ export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: fal
 }
 
 // SENSITIVE_FIELDS that aren't secrets: their values are shown as is.
-const CLEAR_FIELDS = new Set(["fullAuto", "claudeBin", "tracker.userGid", "tracker.assigneeFilter", "tracker.email"]);
+const CLEAR_FIELDS = new Set(["name", "fullAuto", "claudeBin", "tracker.userGid", "tracker.assigneeFilter", "tracker.email"]);
 // Same rule as src/config.js literalSecrets: a non-empty string that is not exactly one `${VAR}` ref.
 const isLiteralSecret = (v: unknown) => typeof v === "string" && v !== "" && !/^\$\{[A-Z0-9_]+\}$/.test(v);
 
