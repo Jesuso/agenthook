@@ -1,7 +1,30 @@
-// Shared server ↔ browser contract for `ah ui` (docs/web-ui.md). JSDoc typedefs only,
-// no runtime code — the frontend `import type`s these so the two sides can't drift.
-// Everything here is what the UI server is willing to expose: no ingress URL, no
-// paths beyond the instruction-file allowlist, no secrets, no config values beyond these fields.
+// Shared server ↔ browser contract for `ah ui` (docs/web-ui.md). JSDoc typedefs plus one
+// runtime constant (SENSITIVE_FIELDS) — the frontend imports these so the two sides can't
+// drift. Keep it import-free: the browser bundles this file, so it must never pull in a Node
+// module (src/config.js drags in node:fs). Everything here is what the UI server is willing to
+// expose: no ingress URL, no paths beyond the instruction-file allowlist and the profile's
+// config file, no resolved secrets (the config editor sees the raw file, `${VAR}` refs unresolved).
+
+/**
+ * Config paths whose change the audit line names and the config editor confirms twice: the
+ * agent's permission mode and binary, the tracker identity that scopes which items are ours,
+ * and every src/config.js SECRET_FIELDS path (a test keeps that list a subset of this one).
+ * `[*]` expands every element of an array.
+ */
+export const SENSITIVE_FIELDS = /** @type {const} */ ([
+  "fullAuto",
+  "claudeBin",
+  "tracker.userGid",
+  "tracker.assigneeFilter",
+  "tracker.email",
+  "tracker.token",
+  "tracker.webhookSecret",
+  "forge.token",
+  "forge.webhookSecret",
+  "ingress.authtoken",
+  "sinks[*].url",
+  "sinks[*].botToken",
+]);
 
 /**
  * One profile under ~/.agenthook. With no heartbeat (profile down, or never started)
@@ -60,12 +83,15 @@
  * - `instructions` — an allowlisted instruction file's content changed; `hash` is the new
  *   sha256, null when the file is gone. `source: 'ui'` — saved through `PUT
  *   /api/instructions/file`; `'disk'` — changed on disk by anything else (an `$EDITOR` save)
+ * - `config` — the profile's config file (heartbeat.configPath) changed; `hash`/`source` as for
+ *   `instructions` (`'ui'` = saved through `PUT /api/config`)
  * @typedef {{ type: 'profile', profile: ProfileView }
  *   | { type: 'profile_removed', name: string }
  *   | { type: 'ticket', ticket: TicketRow }
  *   | { type: 'ticket_removed', profile: string, ref: string }
  *   | { type: 'event', profile: string, event: Record<string, any> }
- *   | { type: 'instructions', profile: string, path: string, hash: string|null, source: 'ui'|'disk' }} UiEvent
+ *   | { type: 'instructions', profile: string, path: string, hash: string|null, source: 'ui'|'disk' }
+ *   | { type: 'config', profile: string, hash: string|null, source: 'ui'|'disk' }} UiEvent
  */
 
 /**
@@ -120,4 +146,15 @@
  * @typedef {{ run: string, standing: string, ticket: string } | { run: null }} PromptPreview
  */
 
-export {};
+/**
+ * `GET /api/config` body: the profile's raw `agenthook.config.json` (heartbeat.configPath —
+ * `${VAR}` refs unresolved). `errors` is [] when it passes validateRawConfig, its errors when not,
+ * `["invalid JSON: …"]` when it doesn't parse. `literalSecrets` names the SECRET_FIELDS paths
+ * holding a literal instead of a `${VAR}` ref (a warning; [] when it doesn't parse).
+ * @typedef {object} ConfigView
+ * @property {string} path
+ * @property {string} text
+ * @property {string} hash                sha256 hex — the `baseHash` of `PUT /api/config`
+ * @property {string[]} errors
+ * @property {string[]} literalSecrets
+ */
