@@ -1,28 +1,133 @@
 @import "tailwindcss";
 
-/* Dense ops console theme tokens (docs/web-ui.md): dark-first, light via media query. */
-:root {
-  --color-bg: #0b0d10;
-  --color-fg: #e6e9ef;
-  --color-muted: #8b92a3;
-  --color-border: #262b33;
-  --color-accent: #4f8cff;
-  --color-ok: #3fb950;
-  --color-warn: #d29922;
-  --color-err: #f85149;
+/*
+ * Design tokens (epic #220): a dense ops console, dark-first, light via the media query below.
+ * `@theme` turns them into utilities — `bg-surface`, `text-muted`, `border-border-strong`,
+ * `text-status-held`, `bg-status-held-bg`, `text-body`, `rounded-md`, … Text tiers and status
+ * foregrounds hold WCAG AA (4.5:1) on every surface tier in both schemes; `faint` is for
+ * non-content only (placeholders, separators, disabled) and holds 3:1. src/tokens.test.ts
+ * parses this file and enforces both, so keep every colour a 6-digit hex.
+ */
+@theme {
+  /* Spacing: Tailwind's scale is multiples of this (p-1 = 4px, p-2 = 8px, …). */
+  --spacing: 4px;
+
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  /* Type: 13px body, 12px labels/controls, 11px meta (timestamps, counts) — never content. */
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-meta: 11px;
+  --text-meta--line-height: 14px;
+  --text-title: 15px;
+  --text-title--line-height: 22px;
+
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Surface tiers, back to front. */
+  --color-bg: #0b0d10;
+  --color-surface: #12161b;
+  --color-surface-raised: #1a2027;
+  --color-overlay: #212831;
+
+  /* Border tiers. */
+  --color-border-subtle: #1c2128;
+  --color-border: #2a313a;
+  --color-border-strong: #3d4651;
+
+  /* Text tiers. */
+  --color-fg: #e6e9ef;
+  --color-muted: #9ba4b4;
+  --color-faint: #6b7483;
+
+  --color-accent: #5b9bff;
+  --color-accent-fg: #0b0d10;
+  --color-success: #3fb950;
+
+  /* Status language: running blue, queued slate, held amber, failed red, done muted green,
+   * idle neutral. Each has a subtle opaque background for badges. */
+  --color-status-running: #6cb0ff;
+  --color-status-running-bg: #10243d;
+  --color-status-queued: #a3b1c6;
+  --color-status-queued-bg: #1b2330;
+  --color-status-held: #e3b341;
+  --color-status-held-bg: #2e2410;
+  /* interrupted/stalled: a down profile's leftover running/queued jobs (#222) — same warn tone as held. */
+  --color-status-interrupted: #e3b341;
+  --color-status-interrupted-bg: #2e2410;
+  --color-status-stalled: #e3b341;
+  --color-status-stalled-bg: #2e2410;
+  --color-status-failed: #ff7b72;
+  --color-status-failed-bg: #351616;
+  --color-status-done: #7fc79a;
+  --color-status-done-bg: #142a1d;
+  --color-status-idle: #9ba4b4;
+  --color-status-idle-bg: #1a1f26;
+
+  /* Legacy names (pre-#221 views) — aliases until tickets 2–11 of #220 migrate them. */
+  --color-ok: var(--color-success);
+  --color-warn: var(--color-status-held);
+  --color-err: var(--color-status-failed);
+
+  --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --color-bg: #ffffff;
-    --color-fg: #1b1f24;
-    --color-muted: #656d76;
+    --color-bg: #f6f8fa;
+    --color-surface: #ffffff;
+    --color-surface-raised: #eef1f4;
+    --color-overlay: #ffffff;
+
+    --color-border-subtle: #e6e9ed;
     --color-border: #d0d7de;
+    --color-border-strong: #afb8c1;
+
+    --color-fg: #1b1f24;
+    --color-muted: #57606a;
+    --color-faint: #7d8590;
+
     --color-accent: #0969da;
-    --color-ok: #1a7f37;
-    --color-warn: #9a6700;
-    --color-err: #cf222e;
+    --color-accent-fg: #ffffff;
+    --color-success: #1a7f37;
+
+    --color-status-running: #0862cc;
+    --color-status-running-bg: #ddf0ff;
+    --color-status-queued: #4e5a6b;
+    --color-status-queued-bg: #e9edf2;
+    --color-status-held: #8a5a00;
+    --color-status-held-bg: #fff3cf;
+    --color-status-interrupted: #8a5a00;
+    --color-status-interrupted-bg: #fff3cf;
+    --color-status-stalled: #8a5a00;
+    --color-status-stalled-bg: #fff3cf;
+    --color-status-failed: #c4202b;
+    --color-status-failed-bg: #ffe9e7;
+    --color-status-done: #187a33;
+    --color-status-done-bg: #e3f5e8;
+    --color-status-idle: #57606a;
+    --color-status-idle-bg: #eef1f4;
+  }
+}
+
+/* The running dot's pulse; none at all under reduced motion. */
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-status-pulse {
+    animation: none;
   }
 }
 
@@ -30,6 +135,8 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-fg);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 
 /* Rendered-markdown preview (Instructions view): restore what Tailwind's preflight resets. */
