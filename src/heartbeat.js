@@ -35,6 +35,43 @@ export function repositoryOf(cfg) {
 }
 
 /**
+ * The write allowlist for the v2 instructions editor (`PUT /api/instructions`): every
+ * standing-instructions file the pipeline actually reads, grouped by role. Precedence
+ * when one path serves several roles is step > default > repo — first occurrence wins
+ * the scope, later roles only add their ids. Pure (no fs); paths are already absolute
+ * from config.js, `path.resolve` is defensive for hand-built test fixtures.
+ * @param {import('./types.js').Config} cfg
+ * @returns {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[]}
+ */
+export function instructionTargets(cfg) {
+  /** @type {Map<string, { path: string, scope: 'step'|'default'|'repo', ids: string[] }>} */
+  const byPath = new Map();
+  /** @param {string} p @param {'step'|'default'|'repo'} scope @param {string} id */
+  const add = (p, scope, id) => {
+    const resolved = path.resolve(p);
+    const existing = byPath.get(resolved);
+    if (existing) {
+      if (!existing.ids.includes(id)) existing.ids.push(id);
+    } else {
+      byPath.set(resolved, { path: resolved, scope, ids: [id] });
+    }
+  };
+
+  const steps = (cfg.pipeline || []).filter((s) => !s.manual);
+  for (const step of steps) {
+    if (step.instructionsFile) add(step.instructionsFile, "step", step.id);
+  }
+  for (const step of steps) {
+    if (!step.instructionsFile) add(cfg.instructionsFile, "default", step.id);
+  }
+  for (const repo of reposOf(cfg)) {
+    if (repo.instructionsFile) add(repo.instructionsFile, "repo", repo.id);
+  }
+
+  return [...byPath.values()];
+}
+
+/**
  * A heartbeat writer bound to one config. Holds the merged record in memory and
  * flushes the whole thing on every update.
  * @param {import('./types.js').Config} cfg
@@ -51,6 +88,8 @@ export function createHeartbeat(cfg) {
     fullAuto: !!cfg.fullAuto,
     maxConcurrent: cfg.maxConcurrent,
     repoPath: cfg.repoPath,
+    configPath: cfg.configPath,
+    instructions: instructionTargets(cfg),
     repos: reposOf(cfg).map((r) => ({ id: r.id, path: r.path })),
     repository: repositoryOf(cfg),
     startedAt: new Date().toISOString(),
