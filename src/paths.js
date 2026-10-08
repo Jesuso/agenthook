@@ -18,3 +18,7 @@ export const claudeProjectDir = (repoPath) => path.join(os.homedir(), ".claude",
  * @param {import('./types.js').Config} cfg @param {import('./types.js').RepoConfig} [repo] */
 export const worktreeDir = (cfg, repo = primaryRepo(cfg)) =>
   path.resolve(repo.path, repo.worktreePrefix || cfg.worktreePrefix || "../agenthook-worktrees");
+
+/** The receiver's liveness control socket (named pipe on win32). @param {string} stateDir @param {string} name @param {string} [platform] */
+export const controlSockPath = (stateDir, name, platform = process.platform) =>
+  platform === "win32" ? `\\\\.\\pipe\\agenthook-${name}` : path.join(stateDir, "control.sock");
