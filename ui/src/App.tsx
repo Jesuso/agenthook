@@ -16,6 +16,11 @@ import { CONFIG_DISCARD_PROMPT } from "./config";
 import type { ConfigSinkEvent } from "./config";
 import { RemoveProfile } from "./RemoveProfile";
 import { pendingText } from "./remove";
+import { AppBar } from "./AppBar";
+import type { Tab } from "./AppBar";
+import { connectionState } from "./connection";
+import type { ConnectionState } from "./connection";
+import { StatusBadge } from "./components";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
@@ -27,7 +32,7 @@ export default function App() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [connected, setConnected] = useState(false);
   // CLOSED means the EventSource gave up for good (e.g. a 401) — the browser
-  // will not retry it, so the "reconnecting…" banner would be a lie.
+  // will not retry it, so the app bar's dot says "disconnected", not "reconnecting".
   const [closed, setClosed] = useState(false);
   // Only the latest fetch's response may land — see snapshotFetch.ts.
   const fetchState = useRef<FetchState>(initFetchState());
@@ -44,7 +49,7 @@ export default function App() {
   const [runsNonce, setRunsNonce] = useState(0);
   // Plain tab state, no router. The Instructions / Config views report their dirty buffer here so
   // a tab switch can confirm before discarding it, and receive their SSE events via the sinks.
-  const [tab, setTab] = useState<"dashboard" | "instructions" | "config">("dashboard");
+  const [tab, setTab] = useState<Tab>("dashboard");
   const instructionsDirty = useRef(false);
   const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
   const configDirty = useRef(false);
@@ -148,42 +153,27 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  if (state.kind === "loading") return <Shell>Loading…</Shell>;
+  const connection = connectionState(connected, closed);
+  if (state.kind === "loading") return <Shell connection={connection}>Loading…</Shell>;
   if (state.kind === "unauthorized")
-    return <Shell>Unauthorized — open the URL printed by <code className="font-mono">ah ui</code> to exchange its token.</Shell>;
-  if (state.kind === "error") return <Shell>Failed to load snapshot (status {state.status}).</Shell>;
+    return (
+      <Shell connection={connection}>
+        Unauthorized — open the URL printed by <code className="font-mono">ah ui</code> to exchange its token.
+      </Shell>
+    );
+  if (state.kind === "error") return <Shell connection={connection}>Failed to load snapshot (status {state.status}).</Shell>;
 
-  const switchTab = (next: typeof tab) => {
+  const switchTab = (next: Tab) => {
     if (next === tab) return;
     if (tab === "instructions" && instructionsDirty.current && !window.confirm(DISCARD_PROMPT)) return;
     if (tab === "config" && configDirty.current && !window.confirm(CONFIG_DISCARD_PROMPT)) return;
     setTab(next);
   };
-  const header = (
-    <>
-      {!connected && !closed && (
-        <div className="mb-3 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-1.5 text-sm text-[var(--color-err)]">
-          disconnected — reconnecting…
-        </div>
-      )}
-      <nav className="mb-4 flex gap-1 border-b border-[var(--color-border)] text-sm">
-        {(["dashboard", "instructions", "config"] as const).map((t) => (
-          <button
-            key={t}
-            className={`-mb-px border-b-2 px-3 py-1 capitalize ${t === tab ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
-            onClick={() => switchTab(t)}
-          >
-            {t}
-          </button>
-        ))}
-      </nav>
-    </>
-  );
+  const nav = { connection, tab, onTab: switchTab };
 
   if (tab === "instructions")
     return (
-      <Shell>
-        {header}
+      <Shell {...nav}>
         <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
           <InstructionsView
             profiles={state.snapshot.profiles}
@@ -196,8 +186,7 @@ export default function App() {
 
   if (tab === "config")
     return (
-      <Shell>
-        {header}
+      <Shell {...nav}>
         <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
           <ConfigView profiles={state.snapshot.profiles} eventSink={configSink} onDirtyChange={(d) => (configDirty.current = d)} />
         </Suspense>
@@ -214,8 +203,7 @@ export default function App() {
   const tickets = sortTickets(filtered);
 
   return (
-    <Shell>
-      {header}
+    <Shell {...nav}>
       <table className="w-full border-collapse text-sm mb-6">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
@@ -340,7 +328,9 @@ export default function App() {
               <td className="px-2 py-1">{t.title ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{t.profile}</td>
               <td className="px-2 py-1">{t.step ?? "—"}</td>
-              <td className="px-2 py-1">{t.status}</td>
+              <td className="px-2 py-1">
+                <StatusBadge status={t.status} />
+              </td>
               <td className="px-2 py-1">{t.model ?? "—"}</td>
               <td className="px-2 py-1">{formatRelative(t.startedAt, now)}</td>
               <td className="px-2 py-1">{formatCost(t.costUsd)}</td>
@@ -474,11 +464,12 @@ function ProfileOrigin({ p }: { p: ProfileView }) {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/** The app bar over the page; `onTab` absent (loading / error screens) → no tabs. */
+function Shell({ children, ...bar }: { children: React.ReactNode; connection: ConnectionState; tab?: Tab; onTab?: (t: Tab) => void }) {
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-fg)] p-4 font-sans">
-      <h1 className="text-lg font-semibold mb-4">agenthook</h1>
-      {children}
+    <div className="min-h-screen bg-bg text-fg font-sans">
+      <AppBar {...bar} />
+      <main className="p-4">{children}</main>
     </div>
   );
 }
