@@ -857,6 +857,15 @@ test("timeout: a child ignoring SIGTERM is SIGKILLed after the grace and the slo
   assert.equal(r.children.size, 0);
 });
 
+test("timeout: a clean exit keeps its verdict even if a grandchild holds stdout past maxMinutes", async () => {
+  // claude exits 0 at once; a backgrounded `sleep 2` keeps the pipe open past the 60 ms cap
+  const r = await timeoutRun(`printf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\nsleep 2 &\nexit 0`, { maxMinutes: 0.001 }, 100);
+  assert.equal(r.advanced[0].outcome, "advance");
+  assert.doesNotMatch(r.logText, /killed/);
+  assert.ok(r.elapsed < 1500, `slot freed after the drain grace, not the grandchild (${r.elapsed} ms)`);
+  assert.equal(r.children.size, 0);
+});
+
 test("timeout: maxMinutes 0 sets no wall-clock cap; a default run behaves as before", async () => {
   const off = await timeoutRun(`sleep 0.2\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"`, { maxMinutes: 0 });
   assert.equal(off.advanced[0].outcome, "advance");

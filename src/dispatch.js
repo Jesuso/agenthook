@@ -375,18 +375,28 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         killTimer = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
       };
       if (maxMs) maxTimer = setTimeout(() => expire("max"), Math.min(maxMs, MAX_TIMER_MS));
+      let exited = false;
       const armIdle = () => {
-        if (!idleMs || timedOut) return;
+        if (!idleMs || timedOut || exited) return;
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => expire("idle"), Math.min(idleMs, MAX_TIMER_MS));
       };
       armIdle();
-      // A killed child's grandchildren (tool subprocesses) can keep its stdio open, which
-      // would delay `close` (and the slot) indefinitely — drop our ends once it's gone.
-      child.on("exit", () => {
-        if (!timedOut) return;
+      // The child is gone, so nothing is left to time out — a timer firing now would relabel
+      // a clean exit as a timeout. Its grandchildren (tool subprocesses) can still hold its
+      // stdio open, delaying `close` (and the slot) indefinitely: drop our ends at once for a
+      // killed child, else after the grace (time for its last output to drain).
+      /** @type {NodeJS.Timeout|undefined} */ let drainTimer;
+      const dropPipes = () => {
         child.stdout.destroy();
         child.stderr.destroy();
+      };
+      child.on("exit", () => {
+        exited = true;
+        clearTimeout(maxTimer);
+        clearTimeout(idleTimer);
+        if (timedOut) dropPipes();
+        else drainTimer = setTimeout(dropPipes, killGraceMs);
       });
 
       let lastOut = -1;
@@ -405,6 +415,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         clearTimeout(maxTimer);
         clearTimeout(idleTimer);
         clearTimeout(killTimer);
+        clearTimeout(drainTimer);
         const tail = parser.flush();
         if (tail) logStream.write(tail);
         children?.delete(child);
