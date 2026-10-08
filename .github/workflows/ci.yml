@@ -31,3 +31,18 @@ jobs:
             node --check "$f" || status=1
           done
           exit $status
+      - name: typecheck (ui)
+        run: npm run typecheck:ui
+      - name: tests (ui)
+        run: npm run test:ui
+      - name: build (ui)
+        run: npm run build:ui
+      - name: license check
+        run: |
+          npx --yes license-checker-rseidelsohn \
+            --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC' \
+            --excludePackagesStartingWith 'lightningcss;@jesuso/agenthook'
+          # lightningcss (MPL-2.0) is a build-only transitive of vite@8 and
+          # @tailwindcss/node; it never lands in ui/dist, so it's excluded by
+          # name rather than widening --onlyAllow. Any other non-allowlisted
+          # license still fails this step.

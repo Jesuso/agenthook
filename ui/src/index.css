@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Dense ops console theme tokens (docs/web-ui.md): dark-first, light via media query. */
+:root {
+  --color-bg: #0b0d10;
+  --color-fg: #e6e9ef;
+  --color-muted: #8b92a3;
+  --color-border: #262b33;
+  --color-accent: #4f8cff;
+  --color-ok: #3fb950;
+  --color-warn: #d29922;
+  --color-err: #f85149;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg: #ffffff;
+    --color-fg: #1b1f24;
+    --color-muted: #656d76;
+    --color-border: #d0d7de;
+    --color-accent: #0969da;
+    --color-ok: #1a7f37;
+    --color-warn: #9a6700;
+    --color-err: #cf222e;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+}

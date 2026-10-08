@@ -24,3 +24,6 @@ npm-debug.log*
 
 # Build/pack artifacts (npm pack output, used for docker local-spec builds)
 *.tgz
+
+# Frontend bundle — built in CI / prepublishOnly, never committed
+ui/dist/
