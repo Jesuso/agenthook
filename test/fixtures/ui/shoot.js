@@ -5,7 +5,11 @@
 // races the snapshot fetch — so this waits for a selector before capturing.
 //
 //   node test/fixtures/ui/shoot.js '<?token= URL>' <out.png> [--scheme dark|light]
-//     [--size 1440x900] [--wait <css selector>] [--chrome <bin>]
+//     [--size 1440x900] [--wait <css selector>] [--click <target>]... [--chrome <bin>]
+//
+// `--click` (repeatable, in order, after `--wait`) clicks a CSS selector, or `text=<label>` — the
+// first button whose text is <label> (case-insensitive) — or `select=<value>` picks <value> in the
+// first <select> offering it, e.g. `--click text=config --click select=agenthook --click text=pipeline`.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -24,9 +28,12 @@ const scheme = opt("scheme", "dark");
 const [width, height] = opt("size", "1440x900").split("x").map(Number);
 const waitFor = opt("wait", "table tbody tr");
 const chrome = opt("chrome", "google-chrome");
+/** @type {string[]} */
+const clicks = [];
+for (let c = opt("click", ""); c; c = opt("click", "")) clicks.push(c);
 const [url, out] = argv;
 if (!url || !out) {
-  console.error("usage: node test/fixtures/ui/shoot.js '<url>' <out.png> [--scheme dark|light] [--size WxH] [--wait <selector>]");
+  console.error("usage: node test/fixtures/ui/shoot.js '<url>' <out.png> [--scheme dark|light] [--size WxH] [--wait <selector>] [--click <target>]...");
   process.exit(2);
 }
 
@@ -90,12 +97,36 @@ try {
   await s("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
   await s("Page.enable");
   await s("Page.navigate", { url });
-  const deadline = Date.now() + 15_000;
-  for (;;) {
-    const { result } = await s("Runtime.evaluate", { expression: `!!document.querySelector(${JSON.stringify(waitFor)})`, returnByValue: true });
-    if (result.value) break;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${waitFor}`);
-    await new Promise((r) => setTimeout(r, 100));
+  /** Poll `expression` in the page until it's truthy. @param {string} expression @param {string} what */
+  const until = async (expression, what) => {
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const { result } = await s("Runtime.evaluate", { expression, returnByValue: true });
+      if (result.value) return;
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+  await until(`!!document.querySelector(${JSON.stringify(waitFor)})`, waitFor);
+  for (const c of clicks) {
+    if (c.startsWith("select=")) {
+      // React tracks the value itself: set it through the native setter, then fire `change`.
+      const v = JSON.stringify(c.slice(7));
+      await until(
+        `(() => { const el = [...document.querySelectorAll("select")].find((s) => [...s.options].some((o) => o.value === ${v}));
+          if (!el) return false;
+          Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, ${v});
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return true; })()`,
+        c,
+      );
+    } else {
+      const find = c.startsWith("text=")
+        ? `[...document.querySelectorAll("button")].find((b) => b.textContent.trim().toLowerCase() === ${JSON.stringify(c.slice(5).toLowerCase())})`
+        : `document.querySelector(${JSON.stringify(c)})`;
+      await until(`(() => { const el = ${find}; if (!el || el.disabled) return false; el.click(); return true; })()`, c);
+    }
+    await new Promise((r) => setTimeout(r, 300)); // lazy chunks + fetches land
   }
   await new Promise((r) => setTimeout(r, 500)); // fonts + SSE open → the connection dot settles
   const { data } = await s("Page.captureScreenshot", { format: "png" });

@@ -1,11 +1,9 @@
-import type { GraphEdge, GraphNode, PipelineLayout, StageNode, StepNode } from "./pipelineGraph";
+import { useState } from "react";
+import { STAGE_H, STEP_H, STEP_W } from "./pipelineGraph";
+import type { EdgeRoute, GraphEdge, PipelineLayout, StageNode, StepNode } from "./pipelineGraph";
 
-/** Inline SVG render of `layoutPipeline`'s output (docs/web-ui.md § v3 "Pipeline graph"). */
-
-const STEP_W = 180;
-const STEP_H = 64;
-const STAGE_W = 140;
-const STAGE_H = 40;
+/** Inline SVG render of `layoutPipeline`'s output (docs/web-ui.md § v3 "Pipeline graph"). Draws
+ *  the routes the layout computed — no geometry decisions here. */
 
 const EDGE_STYLE: Record<GraphEdge["type"], { stroke: string; dash?: string }> = {
   advance: { stroke: "var(--color-accent)" },
@@ -15,11 +13,6 @@ const EDGE_STYLE: Record<GraphEdge["type"], { stroke: string; dash?: string }> =
   queue: { stroke: "var(--color-muted)", dash: "2 3" },
 };
 
-/** Gap kept between a clipped edge endpoint and the node border, so arrowheads never sit under it. */
-const END_GAP = 5;
-/** How far above the step row's top edge a `changes` arc peaks (always, regardless of endpoint y). */
-const CHANGES_ARC_RISE = 40;
-
 const EDGE_LABEL: Record<GraphEdge["type"], string> = {
   advance: "advance",
   fail: "fail",
@@ -28,56 +21,63 @@ const EDGE_LABEL: Record<GraphEdge["type"], string> = {
   queue: "queue",
 };
 
-const isStep = (n: GraphNode): n is StepNode => n.kind === "step";
-const isStage = (n: GraphNode): n is StageNode => n.kind === "stage";
+/** Corner radius of an orthogonal route's bends. */
+const BEND_R = 6;
+/** Approximate glyph width at the 10px label size — sizes a label's backing rect and pill truncation. */
+const CHAR_W = 6;
 
-function dims(n: GraphNode): [number, number] {
-  return isStep(n) ? [STEP_W, STEP_H] : [STAGE_W, STAGE_H];
+const isStep = (n: { kind: string }): n is StepNode => n.kind === "step";
+
+/** `text` cut with an ellipsis to fit `width` px at the 10px label size. */
+function fit(text: string, width: number): string {
+  const max = Math.max(3, Math.floor(width / CHAR_W));
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function center(n: GraphNode): { x: number; y: number } {
-  const [w, h] = dims(n);
-  return { x: n.x + w / 2, y: n.y + h / 2 };
+/** SVG path data for a route: the `changes` quadratic, or a polyline with rounded bends. */
+function pathOf(r: EdgeRoute): string {
+  const [a, ...rest] = r.points;
+  if (!a) return "";
+  if (r.control) return `M${a.x},${a.y} Q${r.control.x},${r.control.y} ${rest[0].x},${rest[0].y}`;
+  let d = `M${a.x},${a.y}`;
+  r.points.forEach((p, i) => {
+    if (i === 0) return;
+    const next = r.points[i + 1];
+    if (!next) return void (d += ` L${p.x},${p.y}`);
+    const prev = r.points[i - 1];
+    // Cut the corner by up to BEND_R (half of the shorter leg) and curve through the bend point.
+    const rIn = Math.min(BEND_R, Math.hypot(p.x - prev.x, p.y - prev.y) / 2);
+    const rOut = Math.min(BEND_R, Math.hypot(next.x - p.x, next.y - p.y) / 2);
+    const inDir = { x: Math.sign(p.x - prev.x), y: Math.sign(p.y - prev.y) };
+    const outDir = { x: Math.sign(next.x - p.x), y: Math.sign(next.y - p.y) };
+    d += ` L${p.x - inDir.x * rIn},${p.y - inDir.y * rIn} Q${p.x},${p.y} ${p.x + outDir.x * rOut},${p.y + outDir.y * rOut}`;
+  });
+  return d;
 }
 
-/** Point on `n`'s border facing `towards`, nudged out by `END_GAP` so an arrowhead never sits under the node. */
-function borderPoint(n: GraphNode, towards: { x: number; y: number }): { x: number; y: number } {
-  const c = center(n);
-  const [w, h] = dims(n);
-  const dx = towards.x - c.x;
-  const dy = towards.y - c.y;
-  if (dx === 0 && dy === 0) return c;
-  const hw = w / 2;
-  const hh = h / 2;
-  let scale = Infinity;
-  if (dx !== 0) scale = Math.min(scale, hw / Math.abs(dx));
-  if (dy !== 0) scale = Math.min(scale, hh / Math.abs(dy));
-  const len = Math.hypot(dx, dy);
-  const gapScale = scale + END_GAP / len;
-  return { x: c.x + dx * gapScale, y: c.y + dy * gapScale };
-}
-
-function EdgePath(props: { edge: GraphEdge; from: GraphNode; to: GraphNode }) {
-  const { edge, from, to } = props;
-  const toC = center(to);
-  const fromC = center(from);
-  const a = borderPoint(from, toC);
-  const b = borderPoint(to, fromC);
-  const style = EDGE_STYLE[edge.type];
-  // `changes` always arcs above the step row (clear of every card, not just its own endpoints);
-  // every other edge — including step→step `advance` — is a straight line.
-  const isChanges = edge.type === "changes";
-  const peakY = Math.min(from.y, to.y) - CHANGES_ARC_RISE;
-  const d = isChanges ? `M${a.x},${a.y} Q${(a.x + b.x) / 2},${peakY} ${b.x},${b.y}` : `M${a.x},${a.y} L${b.x},${b.y}`;
-  const mid = isChanges ? { x: (a.x + b.x) / 2, y: peakY } : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+/** A label on a backing rect (so it reads on top of the line it sits on). */
+function EdgeLabel(props: { at: { x: number; y: number }; text: string; color: string }) {
+  const { at, text, color } = props;
+  const w = text.length * CHAR_W + 8;
   return (
-    <g>
-      <path d={d} fill="none" stroke={style.stroke} strokeWidth={1.5} strokeDasharray={style.dash} markerEnd={`url(#ah-arrow-${edge.type})`} />
-      {edge.label && (
-        <text x={mid.x} y={mid.y - 4} textAnchor="middle" fontSize={10} fill={style.stroke}>
-          {edge.label}
-        </text>
-      )}
+    <g pointerEvents="none">
+      <rect x={at.x - w / 2} y={at.y - 8} width={w} height={16} rx={3} fill="var(--color-bg)" stroke={color} strokeWidth={0.75} />
+      <text x={at.x} y={at.y + 3.5} textAnchor="middle" fontSize={10} fill={color}>
+        {text}
+      </text>
+    </g>
+  );
+}
+
+function EdgePath(props: { edge: GraphEdge; route: EdgeRoute; hover: boolean; onHover: (on: boolean) => void }) {
+  const { edge, route, hover, onHover } = props;
+  const style = EDGE_STYLE[edge.type];
+  const d = pathOf(route);
+  return (
+    <g onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
+      <path d={d} fill="none" stroke={style.stroke} strokeWidth={hover ? 2.5 : 1.5} strokeDasharray={style.dash} markerEnd={`url(#ah-arrow-${edge.type})`} />
+      {/* Wide invisible hit-stroke: a 1.5px line is too thin to hover. */}
+      <path d={d} fill="none" stroke="transparent" strokeWidth={12} pointerEvents="stroke" />
     </g>
   );
 }
@@ -85,8 +85,10 @@ function EdgePath(props: { edge: GraphEdge; from: GraphNode; to: GraphNode }) {
 function StepCard(props: { node: StepNode }) {
   const n = props.node;
   const badges = [n.manual && "manual", n.createsWorktree && "worktree", n.drainWorktree && "drain"].filter(Boolean) as string[];
+  const meta = [n.stepKind, n.model, n.effort].filter(Boolean).join(" · ");
   return (
     <g transform={`translate(${n.x},${n.y})`}>
+      <title>{`${n.id}\n${meta}`}</title>
       <rect
         width={STEP_W}
         height={STEP_H}
@@ -100,9 +102,7 @@ function StepCard(props: { node: StepNode }) {
         {n.id}
       </text>
       <text x={10} y={34} fontSize={10} fill="var(--color-muted)">
-        {n.stepKind}
-        {n.model ? ` · ${n.model}` : ""}
-        {n.effort ? ` · ${n.effort}` : ""}
+        {fit(meta, STEP_W - 20)}
       </text>
       {badges.length > 0 && (
         <text x={10} y={50} fontSize={9} fill="var(--color-muted)">
@@ -115,11 +115,14 @@ function StepCard(props: { node: StepNode }) {
 
 function StagePill(props: { node: StageNode }) {
   const n = props.node;
+  // A narrowed pill (two private sinks in one column) truncates; the full label is the tooltip.
+  const text = fit(n.label, n.w - 12);
   return (
     <g transform={`translate(${n.x},${n.y})`}>
-      <rect width={STAGE_W} height={STAGE_H} rx={STAGE_H / 2} fill="var(--color-bg)" stroke="var(--color-border)" strokeWidth={1.5} />
-      <text x={STAGE_W / 2} y={STAGE_H / 2 + 4} textAnchor="middle" fontSize={10} fill="var(--color-fg)">
-        {n.label}
+      <title>{n.label}</title>
+      <rect width={n.w} height={STAGE_H} rx={STAGE_H / 2} fill="var(--color-bg)" stroke="var(--color-border)" strokeWidth={1.5} />
+      <text x={n.w / 2} y={STAGE_H / 2 + 4} textAnchor="middle" fontSize={10} fill="var(--color-fg)">
+        {text}
       </text>
     </g>
   );
@@ -128,7 +131,7 @@ function StagePill(props: { node: StageNode }) {
 function Legend() {
   const types: GraphEdge["type"][] = ["advance", "fail", "hold", "changes", "queue"];
   return (
-    <div className="flex flex-wrap gap-3 text-xs text-[var(--color-muted)]">
+    <div className="flex flex-wrap justify-center gap-3 text-xs text-[var(--color-muted)]">
       {types.map((t) => (
         <span key={t} className="flex items-center gap-1">
           <svg width={20} height={8}>
@@ -137,34 +140,41 @@ function Legend() {
           {EDGE_LABEL[t]}
         </span>
       ))}
+      <span>· hover an edge for its label</span>
     </div>
   );
 }
 
 export function PipelineGraph(props: { layout: PipelineLayout }) {
   const { layout } = props;
-  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+  const [hovered, setHovered] = useState<number | null>(null);
+  if (!layout.nodes.length) return <p className="text-sm text-[var(--color-muted)]">no pipeline steps yet</p>;
   return (
     <div className="flex flex-col gap-2">
       {layout.unknownStageKeys && (
         <p className="text-xs text-[var(--color-warn)]">stage bindings unknown for this tracker — showing steps and `changes` edges only</p>
       )}
-      <div className="overflow-auto rounded border border-[var(--color-border)]">
-        <svg width={layout.width} height={layout.height} role="img" aria-label="pipeline graph">
+      <div className="overflow-auto">
+        <svg className="mx-auto block" width={layout.width} height={layout.height} role="img" aria-label="pipeline graph">
           <defs>
             {(["advance", "fail", "hold", "changes", "queue"] as const).map((t) => (
-              <marker key={t} id={`ah-arrow-${t}`} viewBox="0 0 10 10" refX={8} refY={5} markerWidth={7} markerHeight={7} orient="auto-start-reverse">
+              <marker key={t} id={`ah-arrow-${t}`} viewBox="0 0 10 10" refX={8} refY={5} markerUnits="userSpaceOnUse" markerWidth={10} markerHeight={10} orient="auto-start-reverse">
                 <path d="M0,0 L10,5 L0,10 z" fill={EDGE_STYLE[t].stroke} />
               </marker>
             ))}
           </defs>
-          {layout.edges.map((e, i) => {
-            const from = byId.get(e.from);
-            const to = byId.get(e.to);
-            if (!from || !to) return null;
-            return <EdgePath key={i} edge={e} from={from} to={to} />;
-          })}
-          {layout.nodes.map((n) => (isStep(n) ? <StepCard key={`s:${n.id}`} node={n} /> : <StagePill key={`g:${n.id}`} node={n as StageNode} />))}
+          {layout.edges.map((e, i) => (
+            <EdgePath key={i} edge={e} route={layout.routes[i]} hover={hovered === i} onHover={(on) => setHovered((h) => (on ? i : h === i ? null : h))} />
+          ))}
+          {layout.nodes.map((n) => (isStep(n) ? <StepCard key={`s:${n.id}`} node={n} /> : <StagePill key={`g:${n.id}`} node={n} />))}
+          {/* Labels last, over the cards: the `changes` arc's short label is persistent; hover shows the full one. */}
+          {layout.edges.map((e, i) =>
+            hovered === i ? (
+              <EdgeLabel key={`l:${i}`} at={layout.routes[i].labelAt} text={e.label ?? EDGE_LABEL[e.type]} color={EDGE_STYLE[e.type].stroke} />
+            ) : e.type === "changes" ? (
+              <EdgeLabel key={`l:${i}`} at={layout.routes[i].labelAt} text="changes" color={EDGE_STYLE[e.type].stroke} />
+            ) : null,
+          )}
         </svg>
       </div>
       <Legend />

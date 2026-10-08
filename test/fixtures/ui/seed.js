@@ -33,7 +33,18 @@ const logName = (ts, step, ref) => `${ts.replace(/[:.]/g, "-")}-step-${step}-${r
  * @property {Record<string, any>} held
  * @property {Record<string, any>} refmeta
  * @property {Record<string, any>[]} events
+ * @property {Record<string, any>} [config]  the stub agenthook.config.json (default `{}`)
  */
+
+/** A dogfood-style agent step on GitHub labels. @param {string} id @param {string} kind @param {string} next */
+const agent = (id, kind, next) => ({
+  id,
+  kind,
+  sourceLabel: `agent:${id}`,
+  successLabel: `agent:${next}`,
+  failureLabel: "agent:blocked",
+  holdLabel: "agent:needs-info",
+});
 
 /** @type {Fixture[]} */
 const fixtures = [
@@ -45,6 +56,21 @@ const fixtures = [
     running: {
       221: { stepId: "code", startedAt: ago(4), model: "opus" },
       218: { stepId: "review", startedAt: ago(12), model: "sonnet" },
+    },
+    // The dogfood pipeline, so the Config view's pipeline graph has something to draw.
+    config: {
+      name: "agenthook",
+      repoPath: "/tmp/agenthook",
+      tracker: {
+        type: "github",
+        repository: "Jesuso/agenthook",
+        pipeline: [
+          { ...agent("triage", "triage", "code"), model: "claude-opus-5-5", effort: "high", queueLabel: "agent:backlog" },
+          { ...agent("code", "implement", "review"), model: "claude-sonnet-5", effort: "medium", createsWorktree: true },
+          { ...agent("review", "review", "done"), model: "claude-opus-5-5", effort: "high" },
+          { id: "done", manual: true, drainWorktree: true, sourceLabel: "agent:done" },
+        ],
+      },
     },
     queue: [{ kind: "pipeline", ref: "223", stepId: "triage", dedupKey: "step:triage:223" }],
     held: { 214: { stepId: "triage", reason: "Should archived profiles keep their webhooks?", heldAt: ago(90) } },
@@ -121,7 +147,7 @@ for (const f of fixtures) {
   const write = (name, v) => fs.writeFileSync(path.join(dir, name), typeof v === "string" ? v : JSON.stringify(v, null, 2));
   // Every dir under the registry reads as a profile, so the (stub) config lives in the state dir.
   const configPath = path.join(path.resolve(dir), "agenthook.config.json");
-  fs.writeFileSync(configPath, "{}\n");
+  fs.writeFileSync(configPath, JSON.stringify(f.config ?? {}, null, 2) + "\n");
   const last = f.events.at(-1);
   write("heartbeat.json", {
     name: f.name,

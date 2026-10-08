@@ -305,11 +305,27 @@ Protocol: NDJSON `{id, cmd, args}` → `{id, ok, result|error}`, allowlisted com
 (`discover`, `restart`, `decommission`); the v1 `hello` line is unchanged.
 
 **Pipeline graph.** Pure `ui/src/pipelineGraph.ts` (`layoutPipeline`, Vitest-covered) derives SVG
-step cards with advance / fail / hold / changes / queue edges from the buffer's stage bindings —
-`ui/src/PipelineGraph.tsx` renders it, panel above the pane (not a fourth tab, so it stays visible
-while editing). A step's `changes` target has no static binding — it's a runtime verdict — so the
-graph draws `review → previous step` (`prevStep`, the engine's default) labelled "changes (default
-target)". An unknown tracker (no `stageKeys`) draws step nodes and `changes` edges only.
+step cards with advance / fail / hold / changes / queue edges from the buffer's stage bindings, and
+owns all the geometry: node positions plus one route per edge (`routes`, parallel to `edges`).
+`ui/src/PipelineGraph.tsx` only draws it, centered, in a panel above the pane (not a fourth tab, so
+it stays visible while editing). The layout is layered:
+
+- a queue-stage row on top, only when a step has a queue stage;
+- the step row — at the top margin when there are no queue stages and no `changes` arc (no empty
+  band), with a success exit nothing sources (e.g. `done`) inline at its right end;
+- sinks below: a fail/hold stage used by **one** step sits under that step's column (two private
+  sinks share the column, narrowed); a stage used by 2+ steps is **one** pill in a lower row,
+  centered under its sources and reached by orthogonal routes — a drop off the step's bottom edge
+  (a distinct x per edge), a run along the stage's own channel track, a drop into the pill — so no
+  sink route crosses a step→step line or a card.
+
+A step's `changes` target has no static binding — it's a runtime verdict — so the graph draws
+`review → previous step` (`prevStep`, the engine's default) as an arc above the step row, with a
+short persistent "changes" label on the arc (its t=0.5 point). Every other label shows on hover
+(a widened invisible hit-stroke per edge); hovering the arc shows "changes (default target)". The
+panel is collapsed on Raw and Basics and expanded on Pipeline — reset on every pane switch, the
+▾/▸ toggle holds until the next one — and is as tall as the SVG's content. An unknown tracker (no
+`stageKeys`) draws step nodes and `changes` edges only.
 
 ### Later
 
