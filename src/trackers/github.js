@@ -309,6 +309,17 @@ export function createGithubAdapter(cfg, store) {
     return job ? [job] : [];
   }
 
+  // The repo's existing labels — live. Shared by the init wizard's stage picks (which
+  // prepend the agenthook DEFAULTS as a nicety) and listStages (existing labels only —
+  // boot's ensureLabels() already creates every pipeline label, so those aren't synthetic).
+  /** @param {string|undefined} o @param {string|undefined} r @returns {Promise<import('../types.js').StageOption[]>} */
+  const fetchLabels = async (o, r) => {
+    if (!o || !r) throw new Error("github: no repository configured");
+    const res = await api(`/repos/${o}/${r}/labels?per_page=100`);
+    if (!res.ok) throw new Error(`GitHub labels ${res.status}`);
+    return ((await json(res)) || []).map((/** @type {any} */ l) => ({ id: l.name, label: l.name }));
+  };
+
   return {
     describe: () => ({
       platform: "GitHub",
@@ -316,7 +327,10 @@ export function createGithubAdapter(cfg, store) {
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -X POST https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments -d '{"body":"<text>"}' (your token is in the env as $GITHUB_TOKEN)`,
       readCommentsHowTo: `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments (or gh issue view <number> --comments)`,
+      stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" },
     }),
+
+    listStages: () => fetchLabels(owner, repo),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
     // accept. Sync + no network so the receiver ACKs inside GitHub's 10s window.
@@ -627,9 +641,7 @@ export function createGithubAdapter(cfg, store) {
       /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
       const labels = async (a) => {
         const [o, r] = String(a.repository).split("/");
-        const res = await api(`/repos/${o}/${r}/labels?per_page=100`);
-        if (!res.ok) throw new Error(`GitHub labels ${res.status}`);
-        const existing = ((await json(res)) || []).map((/** @type {any} */ l) => l.name);
+        const existing = (await fetchLabels(o, r)).map((opt) => opt.label);
         const merged = [...DEFAULTS, ...existing.filter((/** @type {string} */ n) => !DEFAULTS.includes(n))];
         return merged.map((n) => ({ title: n, value: n }));
       };

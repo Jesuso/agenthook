@@ -224,6 +224,15 @@ export function createAsanaAdapter(cfg, store) {
     return resumeJob(cfg, store, taskGid, storyGid, story.text);
   }
 
+  // The project's sections — live. Shared by the init wizard's stage picks and listStages.
+  /** @param {string|undefined} projectGid @returns {Promise<import('../types.js').StageOption[]>} */
+  const fetchSections = async (projectGid) => {
+    if (!projectGid) throw new Error("asana: no projectGid configured");
+    const res = await api(`/projects/${projectGid}/sections?opt_fields=name&limit=100`);
+    if (!res.ok) throw new Error(`Asana sections ${res.status}`);
+    return ((await json(res)).data || []).map((/** @type {any} */ s) => ({ id: s.gid, label: s.name }));
+  };
+
   return {
     describe: () => ({
       platform: "Asana",
@@ -231,7 +240,10 @@ export function createAsanaAdapter(cfg, store) {
       trigger: cfg.trigger,
       commentHowTo: `post via the Asana API (token in env ASANA_TOKEN) using POST /tasks/<gid>/stories`,
       readCommentsHowTo: `GET /tasks/<gid>/stories via the Asana API (token in env ASANA_TOKEN); comments are stories with type "comment"`,
+      stageKeys: { source: "sourceSectionGid", success: "successSectionGid", failure: "failureSectionGid", hold: "holdSectionGid", queue: "queueSectionGid" },
     }),
+
+    listStages: () => fetchSections(pc.projectGid),
 
     authenticate({ pathname, headers, rawBody }) {
       const key = norm(pathname);
@@ -544,9 +556,8 @@ export function createAsanaAdapter(cfg, store) {
       // The chosen project's sections — live, so the stage picks below are real gids.
       /** @param {Record<string,any>} a @returns {Promise<Array<{title:string,value:any}>>} */
       const sections = async (a) => {
-        const res = await api(`/projects/${a.projectGid}/sections?opt_fields=name&limit=100`);
-        if (!res.ok) throw new Error(`Asana sections ${res.status}`);
-        return ((await json(res)).data || []).map((/** @type {any} */ s) => ({ title: `${s.name} (${s.gid})`, value: s.gid }));
+        const opts = await fetchSections(a.projectGid);
+        return opts.map((o) => ({ title: `${o.label} (${o.id})`, value: o.id }));
       };
       return [
         {

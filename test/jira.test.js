@@ -213,6 +213,46 @@ test("init status discovery hits the answered site/project and dedups statuses a
   }
 });
 
+test("describe().stageKeys names the status binding family", () => {
+  assert.deepEqual(adapter().describe().stageKeys, {
+    source: "sourceStatus",
+    success: "successStatus",
+    failure: "failureStatus",
+    hold: "holdStatus",
+    queue: "queueStatus",
+  });
+});
+
+test("listStages hits the configured project's statuses and dedups across issue types", async () => {
+  const orig = global.fetch;
+  /** @type {string[]} */
+  const urls = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return /** @type {any} */ ({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { name: "Story", statuses: [{ name: "To Do" }, { name: "In Review" }] },
+        { name: "Bug", statuses: [{ name: "To Do" }, { name: "Blocked" }] },
+      ],
+    });
+  };
+  try {
+    const a = routed({ projectKey: "CAHUI" });
+    const stages = await a.listStages?.();
+    assert.deepEqual(stages, [
+      { id: "To Do", label: "To Do" },
+      { id: "In Review", label: "In Review" },
+      { id: "Blocked", label: "Blocked" },
+    ]);
+    assert.ok(urls.some((u) => u.includes("https://acme.atlassian.net") && u.includes("/project/CAHUI/statuses")), `expected a statuses fetch on the configured site/project; got:\n${urls.join("\n")}`);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
 test("listQueued searches the queue status ranked (ORDER BY Rank ASC), skipping done-category issues", async () => {
   /** @type {string[]} */
   const urls = [];

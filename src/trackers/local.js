@@ -103,7 +103,24 @@ export function createLocalAdapter(cfg, _store) {
       trigger: cfg.trigger || "@agent",
       commentHowTo: "this is a local offline run — do not post comments anywhere; put any note in the verdict `reason`",
       usesPR: false,
+      stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
+
+    // No network: the union of every …Status bound in the pipeline plus every stage
+    // currently sitting on the board. id === label (stages are free strings here).
+    async listStages() {
+      /** @type {Set<string>} */
+      const stages = new Set();
+      /** @type {Array<keyof import('../types.js').Step>} */
+      const keys = ["sourceStatus", "successStatus", "failureStatus", "holdStatus", "queueStatus"];
+      for (const step of pipeline || [])
+        for (const key of keys) {
+          const v = step[key];
+          if (typeof v === "string") stages.add(v);
+        }
+      for (const it of Object.values(readBoard(cfg))) if (it.stage) stages.add(it.stage);
+      return [...stages].map((s) => ({ id: s, label: s }));
+    },
 
     // Offline: nothing authenticates over HTTP. Accept so a stray POST (e.g. a test
     // harness driving the server) doesn't 401.
