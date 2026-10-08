@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { InstructionsView as InstructionsBody, ProfileView } from "./contract";
-import { DISCARD_PROMPT, baseName, externalChange, formatBytes, groupFiles, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
-import type { InstructionsEvent, OpenFile } from "./instructions";
+import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import type { InstructionsEvent } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { DiffView } from "./DiffView";
+import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
+import type { SaveAction, SaveState } from "./save";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
-type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; file: OpenFile };
+type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
+
+const OVERWRITE_PROMPT = "Overwrite the on-disk version with your buffer? The on-disk changes will be replaced (the previous content is kept as .bak).";
 
 /**
- * Per-profile standing-instruction files and a CodeMirror editor over one of them. Edits stay
- * in a local buffer (no save yet). External edits arrive as SSE `instructions` events through
- * `eventSink` — the parent forwards them off the existing /api/stream, no polling.
+ * Per-profile standing-instruction files and a CodeMirror editor over one of them. Saves go
+ * through a diff-first confirm (`save.ts` holds the state machine). External edits arrive as SSE
+ * `instructions` events through `eventSink` — the parent forwards them off the existing
+ * /api/stream, no polling.
  */
 export default function InstructionsView(props: {
   profiles: ProfileView[];
@@ -22,20 +28,33 @@ export default function InstructionsView(props: {
   const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);
-  const [file, setFile] = useState<FileState>({ kind: "none" });
-  const [buffer, setBuffer] = useState("");
+  const [file, setFileState] = useState<FileState>({ kind: "none" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
-  const [banner, setBanner] = useState<"changed" | "deleted" | null>(null);
   const [preview, setPreview] = useState(false);
-  // Only the latest file load may land; async callbacks read the live buffer via refs.
+  const [diff, setDiff] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  // Only the latest file load may land. `fileRef` is written with every update (not at render),
+  // so async callbacks and chained actions always see the newest state.
   const loadSeq = useRef(0);
-  const open = file.kind === "ok" ? file.file : null;
-  const openRef = useRef(open);
-  openRef.current = open;
-  const bufferRef = useRef(buffer);
-  bufferRef.current = buffer;
-  const dirty = open ? isDirty(buffer, open) : false;
+  const fileRef = useRef(file);
+  const setFile = (f: FileState) => {
+    fileRef.current = f;
+    setFileState(f);
+  };
+  /** Apply a save action to the open file; returns the resulting state (null when none is open). */
+  const act = (a: SaveAction): SaveState | null => {
+    const f = fileRef.current;
+    if (f.kind !== "ok") return null;
+    const next = saveReducer(f.doc, a);
+    if (next !== f.doc) setFile({ kind: "ok", doc: next });
+    return next;
+  };
+  const doc = file.kind === "ok" ? file.doc : null;
+  const open = doc?.open ?? null;
+  const phase = doc?.phase.kind ?? null;
+  const dirty = doc ? isDirty(doc.buffer, doc.open) : false;
+  const agentsRunning = (open && list.kind === "ok" && list.body.files.find((f) => f.path === open.path)?.agentsRunning) || 0;
 
   useEffect(() => {
     if (!profile) return;
@@ -52,47 +71,117 @@ export default function InstructionsView(props: {
     };
   }, [profile, listNonce]);
 
-  /** Load `path` into the editor. `silent` (an external edit on a clean buffer) keeps the current
-   *  view while fetching, and turns into the banner if the user started typing meanwhile. */
+  /** Load `path` into the editor. `silent` (an external edit on a clean buffer — the `stale`
+   *  phase) keeps the current view while fetching, and lands only if still stale: typing
+   *  meanwhile has already turned it into the conflict banner. */
   const load = (prof: string, path: string, silent = false) => {
     const seq = ++loadSeq.current;
-    if (!silent) {
-      setFile({ kind: "loading", path });
-      setBanner(null);
-    }
-    const stillClean = () => !silent || !openRef.current || !isDirty(bufferRef.current, openRef.current);
+    if (!silent) setFile({ kind: "loading", path });
+    const landable = () => {
+      const f = fileRef.current;
+      return seq === loadSeq.current && (!silent || (f.kind === "ok" && f.doc.phase.kind === "stale"));
+    };
     fetch(instructionFileUrl(prof, path))
       .then((res) => {
-        if (seq !== loadSeq.current) return;
-        if (!stillClean()) return setBanner("changed");
+        if (!landable()) return;
         if (!res.ok) return setFile({ kind: "error", path, status: res.status });
         return res.json().then((b: { content: string; hash: string }) => {
-          if (seq !== loadSeq.current) return;
-          if (!stillClean()) return setBanner("changed");
-          setFile({ kind: "ok", file: { profile: prof, path, content: b.content, baseHash: b.hash } });
-          setBuffer(b.content);
-          setBanner(null);
+          if (!landable()) return;
+          setFile({ kind: "ok", doc: freshSave({ profile: prof, path, content: b.content, baseHash: b.hash }) });
           setEditorKey((k) => k + 1);
         });
       })
       .catch(() => {
-        if (seq !== loadSeq.current) return;
-        if (!stillClean()) return setBanner("changed");
-        setFile({ kind: "error", path, status: 0 });
+        if (landable()) setFile({ kind: "error", path, status: 0 });
       });
   };
 
   useEffect(() => {
     props.eventSink.current = (ev) => {
       if (ev.profile === profile) setListNonce((n) => n + 1);
-      const action = externalChange(open, ev, buffer);
-      if (action === "reload" && open) load(open.profile, open.path, true);
-      else if (action === "banner") setBanner(ev.hash === null ? "deleted" : "changed");
+      act({ type: "external", ev });
     };
     return () => {
       props.eventSink.current = null;
     };
   });
+
+  const staleHash = doc?.phase.kind === "stale" ? doc.phase.hash : null;
+  useEffect(() => {
+    if (staleHash !== null && open) load(open.profile, open.path, true);
+  }, [staleHash]);
+
+  /** Save button / Mod-s: opens the diff confirm on a dirty buffer, else a no-op. */
+  const requestSave = () => act({ type: "save" });
+
+  /** PUT the buffer — `confirm` claims the loaded hash, `overwrite` the conflict's on-disk hash. */
+  const put = (type: "confirm" | "overwrite") => {
+    const s = act({ type });
+    if (s?.phase.kind !== "saving") return;
+    const { url, init } = saveRequest({ ...s.open, baseHash: s.phase.base }, s.phase.sent);
+    const target = s.open;
+    // A different file opened meanwhile (discard confirmed) must not receive this result.
+    const settle = (a: SaveAction) => {
+      const f = fileRef.current;
+      if (f.kind === "ok" && f.doc.open === target) act(a);
+    };
+    const fail = (status: number) => {
+      settle({ type: "failed" });
+      setToast(saveErrorText(status));
+    };
+    fetch(url, init)
+      .then((res) => {
+        const kind = classifySaveResponse(res.status);
+        if (kind === "error") return fail(res.status);
+        return res.json().then((b: { hash: string; content?: string }) =>
+          settle(kind === "ok" ? { type: "saved", hash: b.hash } : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
+        );
+      })
+      .catch(() => fail(0));
+  };
+
+  const overwrite = () => {
+    if (window.confirm(OVERWRITE_PROMPT)) put("overwrite");
+  };
+
+  /** Diff on a conflict: the 409 carried the disk content; an SSE-raised one fetches it. */
+  const showDiff = () => {
+    setDiff(true);
+    if (doc?.phase.kind !== "conflict" || doc.phase.content !== null) return;
+    const target = doc.open;
+    const settle = (a: SaveAction) => {
+      const f = fileRef.current;
+      if (f.kind === "ok" && f.doc.open === target) act(a);
+    };
+    fetch(instructionFileUrl(target.profile, target.path))
+      .then((res) => {
+        if (res.status === 404) return settle({ type: "disk", disk: null });
+        if (!res.ok) return setToast(`Couldn't load the on-disk version (status ${res.status})`);
+        return res.json().then((b: { content: string; hash: string }) => settle({ type: "disk", disk: b }));
+      })
+      .catch(() => setToast("Couldn't load the on-disk version (network error)"));
+  };
+
+  // Mod-s anywhere in the view (the editor's own binding stops propagation when it has focus).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+      requestSave();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "conflict") setDiff(false);
+  }, [phase]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     props.onDirtyChange(dirty);
@@ -116,7 +205,6 @@ export default function InstructionsView(props: {
     setPicked(name);
     setList({ kind: "loading" });
     setFile({ kind: "none" });
-    setBanner(null);
   };
 
   const pickFile = (path: string) => {
@@ -200,33 +288,129 @@ export default function InstructionsView(props: {
                 <span className="truncate font-mono" title={open.path}>
                   {open.path}
                 </span>
-                {dirty && <span className="shrink-0 text-[var(--color-warn)]">● modified — not saved (saving isn't available yet)</span>}
+                {phase === "saving" ? (
+                  <span className="shrink-0 text-[var(--color-muted)]">saving…</span>
+                ) : (
+                  dirty && <span className="shrink-0 text-[var(--color-warn)]">● modified</span>
+                )}
                 <button className="ml-auto shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5" onClick={() => setPreview((v) => !v)}>
                   {preview ? "hide preview" : "preview"}
                 </button>
+                <button
+                  className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!dirty || phase !== "editing"}
+                  title="Save (Ctrl/Cmd-S)"
+                  onClick={requestSave}
+                >
+                  Save
+                </button>
               </div>
-              {banner && (
+              {(phase === "conflict" || phase === "deleted") && (
                 <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-3 py-1.5 text-sm text-[var(--color-warn)]">
-                  {banner === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
-                  <button className="ml-auto rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
-                    Reload
-                  </button>
+                  {phase === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
+                  <span className="ml-auto flex gap-2">
+                    <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
+                      Reload
+                    </button>
+                    {phase === "conflict" && (
+                      <>
+                        <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={showDiff}>
+                          Diff
+                        </button>
+                        <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={overwrite}>
+                          Overwrite
+                        </button>
+                      </>
+                    )}
+                  </span>
                 </div>
               )}
               <div className="flex min-h-0 flex-1 gap-3">
                 <div className="min-w-0 flex-1">
-                  <MarkdownEditor key={editorKey} initial={open.content} onChange={setBuffer} />
+                  <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
                 </div>
-                {preview && (
+                {preview && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.
                   <div className="md-preview min-w-0 flex-1 overflow-auto rounded border border-[var(--color-border)] px-4 py-2 text-sm">
-                    <Markdown>{buffer}</Markdown>
+                    <Markdown>{doc.buffer}</Markdown>
                   </div>
                 )}
               </div>
             </>
           )}
         </div>
+      </div>
+      {doc?.phase.kind === "confirming" && (
+        <Modal title={`Save ${baseName(doc.open.path)}?`} onClose={() => act({ type: "cancel" })}>
+          <LiveEffect agentsRunning={agentsRunning} />
+          <DiffLegend />
+          <DiffView a={doc.open.content} b={doc.buffer} />
+          <div className="mt-3 flex justify-end gap-2">
+            <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => act({ type: "cancel" })}>
+              Cancel
+            </button>
+            <button className="rounded border border-[var(--color-accent)] px-3 py-1 text-[var(--color-accent)]" onClick={() => put("confirm")}>
+              Save
+            </button>
+          </div>
+        </Modal>
+      )}
+      {diff && doc?.phase.kind === "conflict" && (
+        <Modal title={`${baseName(doc.open.path)} changed on disk`} onClose={() => setDiff(false)}>
+          <DiffLegend />
+          {doc.phase.content === null ? <p className="text-sm">Loading the on-disk version…</p> : <DiffView a={doc.phase.content} b={doc.buffer} />}
+          <div className="mt-3 flex justify-end gap-2">
+            <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setDiff(false)}>
+              Close
+            </button>
+            <button className="rounded border border-[var(--color-warn)] px-3 py-1 text-[var(--color-warn)]" onClick={overwrite}>
+              Overwrite
+            </button>
+          </div>
+        </Modal>
+      )}
+      {toast && (
+        <div role="alert" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded border border-[var(--color-err)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-err)] shadow">
+          {toast}
+          <button aria-label="dismiss" onClick={() => setToast(null)}>
+            ×
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveEffect(props: { agentsRunning: number }) {
+  const note = liveEffectNote(props.agentsRunning);
+  return <p className={`mb-2 text-sm ${note.warn ? "text-[var(--color-warn)]" : "text-[var(--color-muted)]"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</p>;
+}
+
+function DiffLegend() {
+  return (
+    <div className="mb-1 flex text-xs text-[var(--color-muted)]">
+      <span className="flex-1">on disk</span>
+      <span className="flex-1">your buffer</span>
+    </div>
+  );
+}
+
+/** Minimal overlay dialog; Escape closes it. */
+function Modal(props: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const onClose = useRef(props.onClose);
+  onClose.current = props.onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+      <div role="dialog" aria-modal="true" className="flex max-h-full w-full max-w-5xl flex-col rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+        <h2 className="mb-2 font-semibold">{props.title}</h2>
+        {props.children}
       </div>
     </div>
   );

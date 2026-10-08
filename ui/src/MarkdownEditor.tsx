@@ -8,7 +8,7 @@ import { tags } from "@lezer/highlight";
 
 // Colours come from the index.css tokens, so dark/light follows prefers-color-scheme with no
 // second theme.
-const theme = EditorView.theme({
+export const theme = EditorView.theme({
   "&": { height: "100%", color: "var(--color-fg)", backgroundColor: "var(--color-bg)" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono)", lineHeight: "1.5" },
@@ -20,7 +20,7 @@ const theme = EditorView.theme({
   },
 });
 
-const highlight = HighlightStyle.define([
+export const highlight = HighlightStyle.define([
   { tag: tags.heading, fontWeight: "bold", color: "var(--color-accent)" },
   { tag: tags.strong, fontWeight: "bold" },
   { tag: tags.emphasis, fontStyle: "italic" },
@@ -33,12 +33,15 @@ const highlight = HighlightStyle.define([
 
 /**
  * CodeMirror 6 markdown editor, uncontrolled: `initial` seeds the document once. The parent
- * remounts it (`key`) to load new content, which also resets undo history.
+ * remounts it (`key`) to load new content, which also resets undo history. `Mod-s` calls
+ * `onSave` and always swallows the browser's "save page".
  */
-export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void }) {
+export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const onChange = useRef(props.onChange);
   onChange.current = props.onChange;
+  const onSave = useRef(props.onSave);
+  onSave.current = props.onSave;
 
   useEffect(() => {
     const view = new EditorView({
@@ -48,7 +51,20 @@ export function MarkdownEditor(props: { initial: string; onChange: (doc: string)
         extensions: [
           history(),
           drawSelection(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          keymap.of([
+            {
+              key: "Mod-s",
+              preventDefault: true,
+              // The view's window-level Mod-s would otherwise see the same keydown.
+              stopPropagation: true,
+              run: () => {
+                onSave.current?.();
+                return true;
+              },
+            },
+            ...defaultKeymap,
+            ...historyKeymap,
+          ]),
           markdown(),
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
