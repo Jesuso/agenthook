@@ -1,0 +1,96 @@
+import type { LogFrame, RunView, UiEvent } from "./contract";
+
+/** Retained-line cap: the oldest lines drop past this so a huge log can't exhaust memory. */
+export const MAX_LINES = 50_000;
+
+/**
+ * A log being tailed: complete lines plus the trailing line still being written.
+ * Mutated in place (a 50 000-line copy per append frame would be wasteful); the
+ * caller bumps its own render counter after each apply.
+ */
+export type LogBuffer = {
+  lines: string[];
+  partial: string;
+  /** lines dropped off the front by the cap */
+  dropped: number;
+  /** the init frame started mid-file (older bytes never sent) */
+  truncated: boolean;
+};
+
+export function emptyLog(): LogBuffer {
+  return { lines: [], partial: "", dropped: 0, truncated: false };
+}
+
+/** Append raw text, carrying an unterminated last line into `partial`. */
+export function appendText(buf: LogBuffer, text: string, cap = MAX_LINES): LogBuffer {
+  if (!text) return buf;
+  const parts = (buf.partial + text).split("\n");
+  buf.partial = parts.pop() ?? "";
+  for (const line of parts) buf.lines.push(line);
+  const excess = buf.lines.length - cap;
+  if (excess > 0) {
+    buf.lines.splice(0, excess);
+    buf.dropped += excess;
+  }
+  return buf;
+}
+
+/** Apply one `/api/log/stream` frame: `init` replaces, `append` extends, `reset` clears. */
+export function applyFrame(buf: LogBuffer, frame: LogFrame, cap = MAX_LINES): LogBuffer {
+  if (frame.type === "append") return appendText(buf, frame.text, cap);
+  buf.lines = [];
+  buf.partial = "";
+  buf.dropped = 0;
+  buf.truncated = false;
+  if (frame.type === "init") {
+    buf.truncated = frame.truncated;
+    appendText(buf, frame.text, cap);
+  }
+  return buf;
+}
+
+/** Rendered line count: complete lines plus a non-empty partial. */
+export function lineCount(buf: LogBuffer): number {
+  return buf.lines.length + (buf.partial ? 1 : 0);
+}
+
+export function lineAt(buf: LogBuffer, i: number): string {
+  return i < buf.lines.length ? buf.lines[i] : buf.partial;
+}
+
+/** [start, end) of the lines to render for a fixed line height, with overscan on both sides. */
+export function visibleRange(
+  scrollTop: number,
+  viewportHeight: number,
+  lineHeight: number,
+  total: number,
+  overscan = 20,
+): { start: number; end: number } {
+  const first = Math.floor(Math.max(0, scrollTop) / lineHeight);
+  const count = Math.ceil(Math.max(0, viewportHeight) / lineHeight);
+  return { start: Math.max(0, first - overscan), end: Math.min(total, first + count + overscan) };
+}
+
+/** Follow the tail only while scrolled to (within `slack` px of) the bottom. */
+export function isAtBottom(scrollTop: number, clientHeight: number, scrollHeight: number, slack = 4): boolean {
+  return scrollHeight - (scrollTop + clientHeight) <= slack;
+}
+
+/** A run_start / run_end for this ticket — its run list changed. */
+export function affectsRuns(ev: UiEvent, profile: string, ref: string): boolean {
+  if (ev.type !== "event" || ev.profile !== profile || ev.event.ref !== ref) return false;
+  return ev.event.event === "run_start" || ev.event.event === "run_end";
+}
+
+export function runsUrl(profile: string, ref: string): string {
+  return `/api/runs?${new URLSearchParams({ profile, ref })}`;
+}
+
+export function logStreamUrl(profile: string, run: string): string {
+  return `/api/log/stream?${new URLSearchParams({ profile, run })}`;
+}
+
+/** "advance" / "running" / "—" */
+export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
+  return r.outcome ?? (r.running ? "running" : "—");
+}

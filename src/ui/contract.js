@@ -64,4 +64,28 @@
  *   | { type: 'event', profile: string, event: Record<string, any> }} UiEvent
  */
 
+/**
+ * One run of a ref, from its log file under the profile's `logs/` (`GET /api/runs` → `{ runs }`,
+ * newest first). `outcome`/`costUsd` come from the matching `run_end` in the events tail —
+ * null while it runs, or when that event has aged out of the tail.
+ * @typedef {object} RunView
+ * @property {string} run                 log basename — the `run` param of /api/log/stream
+ * @property {string} step
+ * @property {string} startedAt           ISO, from the log's filename stamp
+ * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
+ * @property {number|null} costUsd
+ * @property {boolean} running            no outcome yet, newest run, and running.json has it
+ * @property {number} bytes               log size when listed
+ */
+
+/**
+ * `GET /api/log/stream` SSE frame, framed as `event: <type>` + `data: <the rest, as JSON>`.
+ * - `init` — the last ≤ 64 KB; when `truncated` it starts on a line boundary. `size` = file bytes.
+ * - `append` — bytes written since the previous frame.
+ * - `reset` — the file was truncated/replaced: clear, an `init` follows.
+ * @typedef {{ type: 'init', text: string, truncated: boolean, size: number }
+ *   | { type: 'append', text: string }
+ *   | { type: 'reset' }} LogFrame
+ */
+
 export {};

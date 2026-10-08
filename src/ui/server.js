@@ -3,13 +3,15 @@
 // exchanged once via `/?token=` for an HttpOnly SameSite=Strict cookie. Static assets
 // (the public frontend bundle) need no cookie — only `/api/*` exposes state.
 // `/api/stream` pushes UiEvent deltas over SSE from a dir watcher started on the first
-// stream connection. The server writes nothing to any state dir.
+// stream connection. `/api/runs` + `/api/log/stream` back the run-log viewer (src/ui/logs.js).
+// The server writes nothing to any state dir.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { registryDir } from "../config.js";
-import { buildSnapshot } from "./rows.js";
+import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
+import { buildSnapshot, readEventsTail } from "./rows.js";
 import { createWatcher } from "./watch.js";
 
 export const COOKIE = "ah_ui";
@@ -58,6 +60,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
   let watcher = null;
   /** @type {Set<http.ServerResponse>} */
   const streams = new Set();
+  /** Open `/api/log/stream` responses → their tail's cleanup. @type {Map<http.ServerResponse, () => void>} */
+  const tails = new Map();
 
   /** @param {import('./contract.js').UiEvent} ev */
   const broadcast = (ev) => {
@@ -69,6 +73,29 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
   const send = (res, code, body = http.STATUS_CODES[code] || "") => {
     res.writeHead(code, { "Content-Type": "text/plain; charset=utf-8" });
     res.end(body);
+  };
+
+  /** Start an SSE response with the keepalive ping; `onClose` runs once when either side ends.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {() => void} onClose
+   * @returns {() => void} the idempotent cleanup */
+  const openSse = (req, res, onClose) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    });
+    res.flushHeaders();
+    const ping = setInterval(() => res.write(": ping\n\n"), PING_MS);
+    let ended = false;
+    const done = () => {
+      if (ended) return;
+      ended = true;
+      clearInterval(ping);
+      onClose();
+    };
+    req.on("close", done);
+    res.on("close", done);
+    return done;
   };
 
   // requireHostHeader:false — a Host-less request reaches the guard below (→ 403), not Node's 400.
@@ -127,20 +154,40 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
       }
       if (p === "/api/stream") {
         if (!watcher) watcher = createWatcher(registry, broadcast);
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-store",
-          "X-Accel-Buffering": "no",
-        });
-        res.flushHeaders();
+        openSse(req, res, () => streams.delete(res));
         streams.add(res);
-        const ping = setInterval(() => res.write(": ping\n\n"), PING_MS);
-        const done = () => {
-          clearInterval(ping);
-          streams.delete(res);
-        };
-        req.on("close", done);
-        res.on("close", done);
+        return;
+      }
+      if (p === "/api/runs") {
+        const profile = params.get("profile") || "";
+        const ref = params.get("ref") || "";
+        const dir = profileDir(registry, profile);
+        if (!dir) return send(res, 404);
+        if (!ref) return send(res, 400);
+        /** @type {string} */
+        let body;
+        try {
+          body = JSON.stringify({ runs: listRuns(registry, profile, ref, readEventsTail(path.join(dir, "events.jsonl"))) });
+        } catch {
+          return send(res, 500);
+        }
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        return res.end(body);
+      }
+      if (p === "/api/log/stream") {
+        const file = resolveRunLog(registry, params.get("profile") || "", params.get("run") || "");
+        if (!file) return send(res, 404);
+        /** @type {{ close(): void }|null} */
+        let tail = null;
+        const done = openSse(req, res, () => {
+          tail?.close();
+          tails.delete(res);
+        });
+        tail = createLogTail(file, (f) => {
+          const { type, ...data } = f;
+          res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+        });
+        tails.set(res, done);
         return;
       }
       return send(res, 404);
@@ -170,6 +217,10 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
     watcher = null;
     for (const res of streams) res.end();
     streams.clear();
+    for (const [res, done] of tails) {
+      done();
+      res.end();
+    }
     return close(cb);
   };
   return server;
