@@ -159,8 +159,10 @@ Key files:
   `ui/dist` static), `watch.js` (lazy on first stream: `fs.watch` on registry + state dirs, 50 ms
   debounce + hash dedupe, torn read keeps last good value, `events.jsonl` byte-offset tail,
   `control.sock` liveness with pidfile fallback — no polling; the 25 s SSE ping is the only interval).
-  Blind **reader**: never writes any state dir, never loads a config; PR links come from the
-  heartbeat's `repository`.
+  `logs.js` (run-log viewer: `listRuns` from the profile's `logs/` dir, `resolveRunLog` name +
+  realpath validation, `createLogTail` byte-offset tail off a `logs/` dir watch → `/api/runs` +
+  `/api/log/stream`). Blind **reader**: never writes any state dir, never loads a config; PR links
+  come from the heartbeat's `repository`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).

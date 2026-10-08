@@ -79,6 +79,11 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
 
 - `GET /api/snapshot` → full state on connect. `GET /api/stream` (SSE) → typed deltas. The browser
   `EventSource` reconnects by itself and re-fetches the snapshot on reconnect.
+- Run-log viewer: `GET /api/runs?profile=&ref=` → `{ runs: RunView[] }` listed straight from the
+  profile's `logs/` (outcome/cost joined from `run_end`). `GET /api/log/stream?profile=&run=` (SSE)
+  → `init` (last ≤ 64 KB from a line boundary), `append`, `reset` — a per-connection `fs.watch` on
+  the `logs/` dir, closed with the connection. `run` must be a run-log basename actually listed in
+  `logs/` whose realpath stays there; anything else is `404`.
 - **Watch directories, not files.** `heartbeat.json` and friends are rewritten (and atomic writes
   rename over the inode), so a file-level watch dies. Watch the state dir and filter by name.
 - **Debounce + hash.** `fs.watch` emits duplicates/out-of-order; debounce ~50 ms, re-read, compare a

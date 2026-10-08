@@ -8,6 +8,8 @@ import { appendFeed, formatEventDetail } from "./feed";
 import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
+import { RunPanel } from "./RunPanel";
+import { affectsRuns } from "./logview";
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
@@ -23,6 +25,11 @@ export default function App() {
   const [profileFilter, setProfileFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
+  // The ticket whose runs/log panel is open. The stream callback reads it via a ref.
+  const [open, setOpen] = useState<{ profile: string; ref: string } | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+  const [runsNonce, setRunsNonce] = useState(0);
 
   useEffect(() => {
     const fetchSnapshot = () => {
@@ -70,6 +77,8 @@ export default function App() {
         // buffer entirely — a re-fetch or reconnect can never drop or clear it.
         if (ev.type === "event") {
           setFeed((f) => appendFeed(f, ev));
+          const o = openRef.current;
+          if (o && affectsRuns(ev, o.profile, o.ref)) setRunsNonce((n) => n + 1);
           return;
         }
         if (isBuffering(fetchState.current)) {
@@ -194,7 +203,15 @@ export default function App() {
         </thead>
         <tbody>
           {tickets.map((t) => (
-            <tr key={`${t.profile}\u0000${t.ref}`} className="border-b border-[var(--color-border)]">
+            <tr
+              key={`${t.profile}\u0000${t.ref}`}
+              className={`cursor-pointer border-b border-[var(--color-border)] ${open?.profile === t.profile && open.ref === t.ref ? "bg-[var(--color-border)]" : ""}`}
+              onClick={(e) => {
+                // Links in the row (tracker, PR) keep their own behavior.
+                if ((e.target as HTMLElement).closest("a")) return;
+                setOpen({ profile: t.profile, ref: t.ref });
+              }}
+            >
               <td className="px-2 py-1 font-mono">
                 {t.trackerUrl ? (
                   <a href={t.trackerUrl} target="_blank" rel="noopener noreferrer">
@@ -251,6 +268,15 @@ export default function App() {
           ))}
         </tbody>
       </table>
+      {open && (
+        <RunPanel
+          profile={open.profile}
+          ticketRef={open.ref}
+          label={state.snapshot.tickets.find((t) => t.profile === open.profile && t.ref === open.ref)?.displayId ?? open.ref}
+          runsNonce={runsNonce}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </Shell>
   );
 }
