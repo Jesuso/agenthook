@@ -32,3 +32,14 @@ export function applyEvent(state: Snapshot, ev: UiEvent): Snapshot {
   }
   return state;
 }
+
+/** The App-level picks that name a profile (the open RunPanel, the ticket filter). */
+export type ProfilePicks = { open: { profile: string; ref: string } | null; profileFilter: string };
+
+/** Drop whichever picks name `name` once its `profile_removed` arrives; others are kept as is. */
+export function clearRemovedProfile(view: ProfilePicks, name: string): ProfilePicks {
+  return {
+    open: view.open?.profile === name ? null : view.open,
+    profileFilter: view.profileFilter === name ? "" : view.profileFilter,
+  };
+}

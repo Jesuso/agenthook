@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { Snapshot, TicketStatus } from "./contract";
 import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel } from "./format";
 import { subscribe } from "./stream";
-import { applyEvent } from "./state";
+import { applyEvent, clearRemovedProfile } from "./state";
 import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
 import { appendFeed, formatEventDetail } from "./feed";
 import type { FeedEntry } from "./feed";
@@ -14,6 +14,8 @@ import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { CONFIG_DISCARD_PROMPT } from "./config";
 import type { ConfigSinkEvent } from "./config";
+import { RemoveProfile } from "./RemoveProfile";
+import { pendingText } from "./remove";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
@@ -31,6 +33,8 @@ export default function App() {
   const fetchState = useRef<FetchState>(initFetchState());
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [profileFilter, setProfileFilter] = useState<string>("");
+  const profileFilterRef = useRef(profileFilter);
+  profileFilterRef.current = profileFilter;
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
   // The ticket whose runs/log panel is open. The stream callback reads it via a ref.
@@ -45,6 +49,20 @@ export default function App() {
   const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
   const configDirty = useRef(false);
   const configSink = useRef<((ev: ConfigSinkEvent) => void) | null>(null);
+  // Remove…: the profile whose modal is open, the decommissions pending per state key (→ label,
+  // for the "Removed" toast on its profile_removed), and the one toast.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<Record<string, string>>({});
+  const pendingRemovalRef = useRef(pendingRemoval);
+  pendingRemovalRef.current = pendingRemoval;
+  const [toast, setToast] = useState<{ text: string; hint: string | null } | null>(null);
+
+  useEffect(() => {
+    // A webhook hint is a command to copy: it stays until dismissed.
+    if (!toast || toast.hint) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     const fetchSnapshot = () => {
@@ -106,6 +124,18 @@ export default function App() {
           const o = openRef.current;
           if (o && affectsRuns(ev, o.profile, o.ref)) setRunsNonce((n) => n + 1);
           return;
+        }
+        // Navigate away from a removed profile whether or not the snapshot is mid-fetch.
+        if (ev.type === "profile_removed") {
+          const picks = clearRemovedProfile({ open: openRef.current, profileFilter: profileFilterRef.current }, ev.name);
+          setOpen(picks.open);
+          setProfileFilter(picks.profileFilter);
+          setRemoving((r) => (r === ev.name ? null : r));
+          const label = pendingRemovalRef.current[ev.name];
+          if (label !== undefined) {
+            setPendingRemoval(({ [ev.name]: _, ...rest }) => rest);
+            setToast({ text: `Removed ${label}`, hint: null });
+          }
         }
         if (isBuffering(fetchState.current)) {
           fetchState.current = bufferEvent(fetchState.current, ev);
@@ -198,6 +228,7 @@ export default function App() {
             <th className="px-2 py-1">agents</th>
             <th className="px-2 py-1">queued</th>
             <th className="px-2 py-1">last event</th>
+            <th className="px-2 py-1" />
           </tr>
         </thead>
         <tbody>
@@ -220,6 +251,15 @@ export default function App() {
               <td className="px-2 py-1 font-mono">{formatAgents(p)}</td>
               <td className="px-2 py-1">{p.queued ?? "—"}</td>
               <td className="px-2 py-1 font-mono">{formatLastEvent(p.lastEvent)}</td>
+              <td className="px-2 py-1 text-right">
+                {pendingRemoval[p.name] !== undefined ? (
+                  <span className="text-[var(--color-warn)]">{pendingText(p)}</span>
+                ) : (
+                  <button className="rounded border border-[var(--color-border)] px-2 py-0.5 text-xs" onClick={() => setRemoving(p.name)}>
+                    Remove…
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -349,6 +389,36 @@ export default function App() {
           runsNonce={runsNonce}
           onClose={() => setOpen(null)}
         />
+      )}
+      {removing && (
+        <RemoveProfile
+          profile={removing}
+          onClose={() => setRemoving(null)}
+          onArchived={(r) => {
+            setRemoving(null);
+            setToast({ text: `Archived to ${r.archivedTo}`, hint: r.webhookHint });
+          }}
+          onPending={() => {
+            const label = state.snapshot.profiles.find((p) => p.name === removing)?.label ?? removing;
+            setPendingRemoval((m) => ({ ...m, [removing]: label }));
+            setRemoving(null);
+          }}
+        />
+      )}
+      {toast && (
+        <div role="status" className="fixed bottom-4 right-4 z-50 flex items-start gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm shadow">
+          <div>
+            <div>{toast.text}</div>
+            {toast.hint && (
+              <div className="mt-1">
+                Webhooks: run <code className="font-mono">{toast.hint}</code> (or skip if it never registered).
+              </div>
+            )}
+          </div>
+          <button aria-label="dismiss" onClick={() => setToast(null)}>
+            ×
+          </button>
+        </div>
       )}
     </Shell>
   );

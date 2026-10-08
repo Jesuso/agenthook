@@ -41,7 +41,8 @@ ah ui [--port 4180] [--no-open]
   for writes (v2+), whose `Origin` doesn't match (CSRF).
 - Is a **blind reader** of the state dirs. It never writes receiver-owned runtime state
   (`running.json`, `queue.json`, `held.json`, `seen.json`, …). In v2+ it writes only files the user
-  owns: `agenthook.config.json` and the `instructionsFile`s it references.
+  owns: `agenthook.config.json` and the `instructionsFile`s it references. The one state-dir move
+  it makes is archiving a **stopped** profile on Remove… (v3, below), via `src/archive.js`.
 
 ## Data sources (v1 needs almost no engine change)
 
@@ -266,6 +267,37 @@ The UI server exposes this as `POST /api/restart` with body `{profile}` — not 
 never picks `when`); the status mapping is the same as `discover`'s. Either way, once the profile
 is known, the outcome is audited — `{ts, action:'restart', profile, status}` appended to that
 profile's `ui-audit.jsonl` via `save.js`'s `appendAudit`.
+
+**Removing a profile.** Each dashboard profile row has a **Remove…** action that archives the
+state dir — never a hard delete (permanent purge is CLI-only). The modal first fetches `GET
+/api/profile/remove-preview?profile=<key>` (cookie only, read-only; unknown → `404`):
+`{profile, label, up, configPath, archivePattern, webhookHint}` — paths tildified, `archivePattern`
+= `<registry>-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/` (so it follows `AGENTHOOK_HOME`), `configPath`
+from `profile.json` else the heartbeat (null for a legacy dir), `webhookHint` =
+`agenthook unregister --config <configPath>` or null. It states that the move is reversible, the
+config file is untouched, and agent worktrees are left for `agenthook cleanup`; a running profile
+gets an "Unregister webhooks" checkbox (default on), a stopped one the `webhookHint`. Confirming
+needs the label typed exactly, then sends `POST /api/profile/remove` with `{profile, unregister?}`
+— the `restart` guard chain, `405 Allow: POST` for other methods. The UI server sends
+`decommission {when:'idle', unregister}` (default `true`) over `control.sock` and maps:
+
+| Status | When |
+|---|---|
+| `202 {pending:true, active, queued[, alreadyPending]}` | the receiver accepted: it pauses, waits for 0 agents, unregisters webhooks, exits and archives itself |
+| `200 {archivedTo, webhookHint}` | socket down (`503`) and no live pid: the UI server archived the dir itself (`archiveStateDir`) |
+| `400` | `profile` not a string, or `unregister` present and not a boolean (socket never contacted) |
+| `404` | unknown profile |
+| `409 {error}` | socket down but the pid is alive (`run agenthook stop first`), or `archiveStateDir` refused |
+| `502 {error}` | the receiver refused (`ok:false`: a restart pending, already draining, an old receiver) |
+| `504` | no reply within the restart timeout |
+
+Every outcome but a successful archive is audited — `{ts, action:'remove', profile, status,
+unregister}` in the profile's `ui-audit.jsonl`; `archiveStateDir` writes its own `action:'remove'`
+line into the archived dir. The browser follows a pending removal over SSE: `decommission_requested`
+→ `decommissioning` (feed events), the row showing "removing when idle (N agents running)…" from
+the live `ProfileView.active`, then `profile_removed` once the dir leaves the registry — which also
+closes an open run panel and clears a profile filter naming it. This stopped-branch archive is the
+one state-dir move the UI server makes.
 
 **Control socket hardening (prerequisite).** Profile state dirs are created / tightened to `0700`
 and the socket is created under a `0o077` umask (no chmod race), before any command lands.

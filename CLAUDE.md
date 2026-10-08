@@ -186,6 +186,10 @@ Key files:
   timeout) and `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
   timeout) — both map the receiver's reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200,
   and `restart` audits its outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
+  `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
+  read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
+  stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
+  `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
 - `src/state-move.js` — `rename --move`'s core, shared by the engine and the CLI: `checkMove`

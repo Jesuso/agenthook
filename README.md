@@ -154,6 +154,19 @@ can't be unregistered without it — run `agenthook unregister --config <path>` 
 removing. The config file and agent worktrees are never touched (`agenthook cleanup` prunes the
 latter); undo an archive by moving the dir back.
 
+From the web UI: the web UI (`agenthook ui`) has a **Remove…** action on each dashboard profile row. It never
+hard-deletes: the state dir moves to `~/.agenthook-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/`
+(`$AGENTHOOK_HOME-archive/…` under a custom `AGENTHOOK_HOME`), keeping history, dedup, logs and
+webhook secrets — **reversible** by moving the dir back. Confirm by typing the profile's label.
+
+- **Running receiver:** it decommissions itself at idle — new runs pause, running agents finish,
+  it unregisters its webhooks (an opt-out checkbox), exits and archives its dir.
+- **Stopped receiver:** the UI archives the dir directly. Webhooks can't be unregistered without
+  the receiver, so it shows the exact `agenthook unregister --config <path>` to run (skip it if the
+  profile never registered one).
+- **Not touched:** the config file, and agent worktrees — clean those with `agenthook cleanup` in
+  the repo.
+
 ## Ingress (how the webhook reaches you)
 
 Set by `ingress.type` in the config; the server owns its lifecycle (brings the tunnel up on
