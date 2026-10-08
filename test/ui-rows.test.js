@@ -235,7 +235,7 @@ test("buildSnapshot/profileView: a down profile blanks active/queued even with a
     },
   });
   const snap = buildSnapshot(reg);
-  const p = row2(snap.profiles, "stale");
+  const p = profileNamed(snap.profiles, "stale");
   assert.equal(p.up, false);
   assert.equal(p.active, null);
   assert.equal(p.queued, null);
@@ -243,7 +243,7 @@ test("buildSnapshot/profileView: a down profile blanks active/queued even with a
 });
 
 /** @param {any[]} profiles @param {string} name */
-function row2(profiles, name) {
+function profileNamed(profiles, name) {
   const p = profiles.find((x) => x.name === name);
   assert.ok(p, `profile ${name}`);
   return p;

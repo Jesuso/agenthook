@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { applyEvent } from "./state";
 import type { ProfileView, Snapshot, UiEvent } from "./contract";
 
-/** @param {Partial<ProfileView>} overrides */
 function profile(overrides: Partial<ProfileView> & { name: string }): ProfileView {
   return {
     up: true,

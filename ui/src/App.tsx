@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { Snapshot, UiEvent } from "./contract";
+import type { Snapshot } from "./contract";
 import { formatUp, formatLastEvent, formatAgents } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent } from "./state";
+import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
+import type { FetchState } from "./snapshotFetch";
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
@@ -12,24 +14,33 @@ export default function App() {
   // CLOSED means the EventSource gave up for good (e.g. a 401) — the browser
   // will not retry it, so the "reconnecting…" banner would be a lie.
   const [closed, setClosed] = useState(false);
-  // Buffers deltas that arrive while a snapshot re-fetch (triggered on open/reconnect)
-  // is still in flight, so they replay in order once it resolves.
-  const pending = useRef<UiEvent[] | null>(null);
+  // Only the latest fetch's response may land — see snapshotFetch.ts.
+  const fetchState = useRef<FetchState>(initFetchState());
 
   useEffect(() => {
     const fetchSnapshot = () => {
-      pending.current = [];
+      const { state: next, gen } = startFetch(fetchState.current);
+      fetchState.current = next;
       fetch("/api/snapshot")
         .then((res) => {
-          if (res.status === 401) return setState({ kind: "unauthorized" });
-          if (!res.ok) return setState({ kind: "error", status: res.status });
+          if (res.status === 401) {
+            fetchState.current = failFetch(fetchState.current, gen);
+            return setState({ kind: "unauthorized" });
+          }
+          if (!res.ok) {
+            fetchState.current = failFetch(fetchState.current, gen);
+            return setState({ kind: "error", status: res.status });
+          }
           return res.json().then((snapshot: Snapshot) => {
-            const buffered = pending.current ?? [];
-            pending.current = null;
-            setState({ kind: "ok", snapshot: buffered.reduce(applyEvent, snapshot) });
+            const { state: next, snapshot: resolved } = resolveFetch(fetchState.current, gen, snapshot);
+            fetchState.current = next;
+            if (resolved) setState({ kind: "ok", snapshot: resolved });
           });
         })
-        .catch(() => setState({ kind: "error", status: 0 }));
+        .catch(() => {
+          fetchState.current = failFetch(fetchState.current, gen);
+          setState({ kind: "error", status: 0 });
+        });
     };
 
     // First paint never depends on the stream connecting.
@@ -48,13 +59,14 @@ export default function App() {
         fetchSnapshot();
       },
       onEvent: (ev) => {
-        if (pending.current) {
-          pending.current.push(ev);
+        if (isBuffering(fetchState.current)) {
+          fetchState.current = bufferEvent(fetchState.current, ev);
           return;
         }
         setState((s) => (s.kind === "ok" ? { kind: "ok", snapshot: applyEvent(s.snapshot, ev) } : s));
       },
     });
+
     return unsubscribe;
   }, []);
 
