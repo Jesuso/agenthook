@@ -2,13 +2,16 @@
 // instruction files — the allowlist the receiver publishes in heartbeat.json, nothing else —
 // reads one of them, and splits a step's last real prompt (the `<log>.prompt.md` sidecar
 // dispatch.js writes) into its standing and ticket halves. Blind reader: no config load,
-// never builds a path from a request param, writes nothing.
+// never builds a path from a request param. The one exception is writeInstructionFile — the
+// only code in src/ui that writes: an allowlisted instruction file (atomically, with a `.bak`)
+// and the profile's `ui-audit.jsonl`.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { RUN_PREFIX_RE, profileDir } from "./logs.js";
 import { instructionEntries, isObj, readEventsTail, readJson, readStateFile, sha256 } from "./rows.js";
 
-/** Largest instruction file the editor reads (and, later, writes). */
+/** Largest instruction file the editor reads or writes (and the PUT body cap). */
 export const INSTRUCTIONS_MAX_BYTES = 256 * 1024;
 
 /** dispatch.js's join between the standing instructions and the ticket prompt. */
@@ -90,6 +93,88 @@ export function readInstructionFile(registry, profile, p) {
     return { path: file, content: buf.toString("utf8"), hash: sha256(buf) };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Save one allowlisted instruction file (`PUT /api/instructions/file`). Fully synchronous on
+ * purpose: Node's single thread serialises concurrent saves, so two with the same `baseHash`
+ * get exactly one 200 and one 409 with no lock. Sequence: resolve (as readInstructionFile) →
+ * size cap → `baseHash` must equal the current sha256 (else 409 with the current file) → temp
+ * file in the same dir with the exact original mode → fsync → old content to `<file>.bak`
+ * (same mode; a symlink / non-regular `.bak` is an error, never followed) → rename over the
+ * file. Then one `{ ts, path, oldHash, newHash, bytes }` line is appended to the profile's
+ * `ui-audit.jsonl` (0600); an audit failure doesn't undo the save.
+ * @param {string} registry @param {string} profile @param {string} p
+ * @param {string} baseHash @param {string} content
+ * @returns {{ status: 200, hash: string } | { status: 409, content: string, hash: string } | { status: 404|413|500 }}
+ */
+export function writeInstructionFile(registry, profile, p, baseHash, content) {
+  const file = resolveInstructionFile(registry, profile, p);
+  const dir = profileDir(registry, profile);
+  if (!file || !dir) return { status: 404 };
+  const next = Buffer.from(content, "utf8");
+  if (next.length > INSTRUCTIONS_MAX_BYTES) return { status: 413 };
+  /** @type {Buffer} */
+  let cur;
+  /** @type {number} */
+  let mode;
+  try {
+    mode = fs.lstatSync(file).mode & 0o7777;
+    cur = fs.readFileSync(file);
+  } catch {
+    return { status: 500 };
+  }
+  const oldHash = sha256(cur);
+  if (oldHash !== baseHash) return { status: 409, content: cur.toString("utf8"), hash: oldHash };
+
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${crypto.randomBytes(8).toString("hex")}.tmp`);
+  let made = false;
+  try {
+    const fd = fs.openSync(tmp, "wx", mode);
+    made = true;
+    writeAll(fd, next, mode);
+    const bak = `${file}.bak`;
+    try {
+      if (!fs.lstatSync(bak).isFile()) return fail();
+    } catch (e) {
+      if (e.code !== "ENOENT") return fail();
+    }
+    const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = fs.constants;
+    writeAll(fs.openSync(bak, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, mode), cur, mode);
+    fs.renameSync(tmp, file);
+  } catch {
+    return fail();
+  }
+  const hash = sha256(next);
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), path: file, oldHash, newHash: hash, bytes: next.length });
+    fs.appendFileSync(path.join(dir, "ui-audit.jsonl"), line + "\n", { mode: 0o600 });
+  } catch {
+    /* the save happened; a missing audit line doesn't undo it */
+  }
+  return { status: 200, hash };
+
+  /** @returns {{ status: 500 }} */
+  function fail() {
+    try {
+      if (made) fs.unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+    return { status: 500 };
+  }
+}
+
+/** Write all of `buf` to the open `fd` with exactly `mode` (umask would strip bits), fsync,
+ * close — closing even on failure. @param {number} fd @param {Buffer} buf @param {number} mode */
+function writeAll(fd, buf, mode) {
+  try {
+    fs.fchmodSync(fd, mode);
+    for (let off = 0; off < buf.length; ) off += fs.writeSync(fd, buf, off, buf.length - off);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
   }
 }
 

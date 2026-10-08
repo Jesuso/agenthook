@@ -240,7 +240,7 @@ test("instructions: external content change → one event with the new hash; tou
   fs.writeFileSync(file, "v2\n");
   fs.writeFileSync(file, "v2\n"); // several fs.watch events, one debounce
   const ev = await waitFor((e) => e.type === "instructions");
-  assert.deepEqual(ev, { type: "instructions", profile: "p", path: file, hash: sha("v2\n") });
+  assert.deepEqual(ev, { type: "instructions", profile: "p", path: file, hash: sha("v2\n"), source: "disk" });
   await sleep(SETTLE);
   assert.equal(instr().length, 1);
 

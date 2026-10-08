@@ -57,14 +57,15 @@
  * - `profile_removed` — its state dir is gone (its tickets get `ticket_removed` first)
  * - `ticket` — a row is new or changed; `ticket_removed` — the ref left every state source
  * - `event` — one new events.jsonl line, parsed, tagged with its profile
- * - `instructions` — an allowlisted instruction file's content changed on disk (an external
- *   `$EDITOR` save); `hash` is the new sha256, null when the file is gone
+ * - `instructions` — an allowlisted instruction file's content changed; `hash` is the new
+ *   sha256, null when the file is gone. `source: 'ui'` — saved through `PUT
+ *   /api/instructions/file`; `'disk'` — changed on disk by anything else (an `$EDITOR` save)
  * @typedef {{ type: 'profile', profile: ProfileView }
  *   | { type: 'profile_removed', name: string }
  *   | { type: 'ticket', ticket: TicketRow }
  *   | { type: 'ticket_removed', profile: string, ref: string }
  *   | { type: 'event', profile: string, event: Record<string, any> }
- *   | { type: 'instructions', profile: string, path: string, hash: string|null }} UiEvent
+ *   | { type: 'instructions', profile: string, path: string, hash: string|null, source: 'ui'|'disk' }} UiEvent
  */
 
 /**

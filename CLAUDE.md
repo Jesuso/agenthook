@@ -164,8 +164,12 @@ Key files:
   `/api/log/stream`). `instructions.js` (v2 editor read side: `listInstructions` /
   `readInstructionFile` / `promptPreview` over the heartbeat's `instructions` allowlist + the
   `.prompt.md` sidecars → `/api/instructions[/file]` + `/api/prompt-preview`; `watch.js` watches the
-  allowlisted files' parent dirs and emits SSE `instructions` on a sha256 change). Blind **reader**: never writes any state dir, never loads a config; PR links
-  come from the heartbeat's `repository`.
+  allowlisted files' parent dirs and emits SSE `instructions` on a sha256 change, `source:'disk'`).
+  Its write side, `writeInstructionFile` ← `PUT /api/instructions/file` (Origin + `X-AH-UI` +
+  JSON + 256 KB guards, `baseHash` → 409, sync temp→fsync→`.bak`→rename, `ui-audit.jsonl` 0600;
+  the server `noteWrite`s the watcher and broadcasts `source:'ui'`), is the **only** UI write —
+  `test/ui-server.test.js` confines write calls to it. Otherwise a blind **reader**: never writes
+  any state dir, never loads a config; PR links come from the heartbeat's `repository`.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.
 - `src/wizard.js` — zero-dep prompt runner used by `init`; adapters contribute `WizardStep[]`.
 - `src/paths.js` — derived paths (Claude transcript dir mangled from `repoPath`; worktree base).

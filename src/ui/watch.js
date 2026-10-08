@@ -67,7 +67,7 @@ const hash = (v) => JSON.stringify(v);
 /**
  * @param {string} registry  ~/.agenthook (overridable for tests)
  * @param {(ev: import('./contract.js').UiEvent) => void} onEvent
- * @returns {{ snapshot(): import('./contract.js').Snapshot, close(): void }}
+ * @returns {{ snapshot(): import('./contract.js').Snapshot, noteWrite(profile: string, file: string, hash: string): void, close(): void }}
  */
 export function createWatcher(registry, onEvent) {
   const posix = process.platform !== "win32";
@@ -282,7 +282,7 @@ export function createWatcher(registry, onEvent) {
       const h = hashFile(f);
       if (h === p.instrHashes.get(f)) continue;
       p.instrHashes.set(f, h);
-      emit({ type: "instructions", profile: p.name, path: f, hash: h });
+      emit({ type: "instructions", profile: p.name, path: f, hash: h, source: "disk" });
     }
   }
 
@@ -498,6 +498,13 @@ export function createWatcher(registry, onEvent) {
         for (const { row } of p.rows.values()) snap.tickets.push(row);
       }
       return snap;
+    },
+    /** The server just saved `file` (now `hash`): record it so the dir watch that follows
+     * sees no change and doesn't re-broadcast the save as an external edit.
+     * @param {string} profile @param {string} file @param {string} hash */
+    noteWrite(profile, file, hash) {
+      const p = profiles.get(profile);
+      if (p && p.instrHashes.has(file)) p.instrHashes.set(file, hash);
     },
     close() {
       closed = true;
