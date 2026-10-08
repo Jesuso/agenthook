@@ -23,7 +23,7 @@ Everyone interacting in the project agrees to the [Code of Conduct](CODE_OF_COND
 
 ## Project shape
 
-- **Plain Node ESM, no build.** `"type": "module"`, Node ≥ 20. The code ships as JS and runs
+- **Plain Node ESM, no build.** `"type": "module"`, Node ≥ 22. The code ships as JS and runs
   unbuilt. There is no bundler and no transpile step.
 - **TypeScript as a checker only.** Types live in `src/types.js` as JSDoc `@typedef`s; `checkJs`
   (`tsconfig.json`, `noEmit`) type-checks the JS. `src/types.js`'s `Adapter` typedef **is** the
@@ -51,7 +51,7 @@ npm link
 
 ## Before you push — the full local gate
 
-CI (`.github/workflows/ci.yml`) runs exactly these on Node 20 & 22. Run them locally first:
+CI (`.github/workflows/ci.yml`) runs exactly these on Node 22 & 24. Run them locally first:
 
 ```bash
 npm run typecheck        # tsc --noEmit over the JSDoc types — must be green

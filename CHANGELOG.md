@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Minimum Node raised to 22** (#130). Node 20 is EOL; CI now runs on Node 22 & 24.
+
 ### Fixed
 
 - **Forge hook cleanup is scoped to the profile's own hook** (#118). `deleteOurHooks()` in the
