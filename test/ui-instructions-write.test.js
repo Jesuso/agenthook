@@ -9,7 +9,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { INSTRUCTIONS_MAX_BYTES, writeInstructionFile } from "../src/ui/instructions.js";
+import { INSTRUCTIONS_MAX_BYTES, backupPathFor, writeInstructionFile } from "../src/ui/instructions.js";
 import { createUiServer } from "../src/ui/server.js";
 
 const TOKEN = "t0k3n-abcdefghijklmnopqrstuvwxyz0123456789";
@@ -42,7 +42,8 @@ fs.writeFileSync(SECRET, "secret-outside\n");
 fs.symlinkSync(SECRET, LINK);
 fs.writeFileSync(TXT, "not markdown\n");
 fs.writeFileSync(path.join(root, "bak-target"), "untouched\n");
-fs.symlinkSync(path.join(root, "bak-target"), `${BAKLINK}.bak`);
+fs.mkdirSync(path.dirname(backupPathFor(dir, BAKLINK)), { mode: 0o700 });
+fs.symlinkSync(path.join(root, "bak-target"), backupPathFor(dir, BAKLINK));
 fs.writeFileSync(
   path.join(dir, "heartbeat.json"),
   JSON.stringify({
@@ -165,10 +166,17 @@ test("PUT stale baseHash → 409 { content, hash } of the current file, nothing 
   assert.equal(res.status, 409);
   assert.match(String(res.headers["content-type"]), /^application\/json/);
   assert.deepEqual(JSON.parse(res.body), { content: "# CODE.md\n", hash: sha("# CODE.md\n") });
-  assert.equal(fs.existsSync(`${CODE}.bak`), false);
+  assert.equal(fs.existsSync(backupPathFor(dir, CODE)), false);
 });
 
-test("PUT save: 200 {hash}, atomic replace keeps mode, .bak = old content, audit line 0600", async () => {
+test("backupPathFor: state dir, never beside the file; same basename in two dirs never collides", () => {
+  const b = backupPathFor(dir, CODE);
+  assert.equal(path.dirname(b), path.join(dir, "instructions-bak"));
+  assert.ok(path.basename(b).startsWith("CODE.md.") && b.endsWith(".bak"));
+  assert.notEqual(backupPathFor(dir, path.join(root, "other", "CODE.md")), b);
+});
+
+test("PUT save: 200 {hash}, atomic replace keeps mode, backup = old content in state dir, audit line 0600", async () => {
   fs.chmodSync(CODE, 0o640);
   const res = await put(save(CODE, "# code v2\n"));
   assert.equal(res.status, 200);
@@ -176,8 +184,10 @@ test("PUT save: 200 {hash}, atomic replace keeps mode, .bak = old content, audit
   assert.deepEqual(JSON.parse(res.body), { hash: sha("# code v2\n") });
   assert.equal(fs.readFileSync(CODE, "utf8"), "# code v2\n");
   assert.equal(mode(CODE), 0o640);
-  assert.equal(fs.readFileSync(`${CODE}.bak`, "utf8"), "# CODE.md\n");
-  assert.equal(mode(`${CODE}.bak`), 0o640);
+  assert.equal(fs.readFileSync(backupPathFor(dir, CODE), "utf8"), "# CODE.md\n");
+  assert.equal(mode(backupPathFor(dir, CODE)), 0o600);
+  assert.equal(mode(path.dirname(backupPathFor(dir, CODE))), 0o700);
+  assert.deepEqual(fs.readdirSync(repo).filter((n) => n.endsWith(".bak")), [], "nothing written beside the file");
   assert.deepEqual(tmpLeft(), []);
   const lines = fs.readFileSync(AUDIT, "utf8").trim().split("\n");
   assert.equal(lines.length, 1);
@@ -189,11 +199,11 @@ test("PUT save: 200 {hash}, atomic replace keeps mode, .bak = old content, audit
 
   // Second save: one more audit line, .bak is one generation (the previous content).
   assert.equal((await put(save(CODE, "# code v3\n"))).status, 200);
-  assert.equal(fs.readFileSync(`${CODE}.bak`, "utf8"), "# code v2\n");
+  assert.equal(fs.readFileSync(backupPathFor(dir, CODE), "utf8"), "# code v2\n");
   assert.equal(fs.readFileSync(AUDIT, "utf8").trim().split("\n").length, 2);
 });
 
-test("PUT: a symlinked .bak is never followed → 500, file unchanged, no temp left", async () => {
+test("PUT: a symlinked backup is never followed → 500, file unchanged, no temp left", async () => {
   const res = await put(save(BAKLINK, "never\n"));
   assert.equal(res.status, 500);
   assert.equal(fs.readFileSync(BAKLINK, "utf8"), "# BAKLINK.md\n");
