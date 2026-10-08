@@ -4,12 +4,15 @@
 // (the public frontend bundle) need no cookie — only `/api/*` exposes state.
 // `/api/stream` pushes UiEvent deltas over SSE from a dir watcher started on the first
 // stream connection. `/api/runs` + `/api/log/stream` back the run-log viewer (src/ui/logs.js).
+// `/api/instructions*` + `/api/prompt-preview` are the instructions editor's read side
+// (src/ui/instructions.js).
 // The server writes nothing to any state dir.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { registryDir } from "../config.js";
+import { listInstructions, promptPreview, readInstructionFile } from "./instructions.js";
 import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
 import { buildSnapshot, readEventsTail } from "./rows.js";
 import { createWatcher } from "./watch.js";
@@ -72,6 +75,22 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
   /** @param {http.ServerResponse} res @param {number} code @param {string} [body] */
   const send = (res, code, body = http.STATUS_CODES[code] || "") => {
     res.writeHead(code, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end(body);
+  };
+
+  /** 200 JSON (no-store), or 404 when `get` returns null; 500 if it throws.
+   * @param {http.ServerResponse} res @param {() => any} get */
+  const sendJson = (res, get) => {
+    /** @type {string} */
+    let body;
+    try {
+      const v = get();
+      if (v === null) return send(res, 404);
+      body = JSON.stringify(v);
+    } catch {
+      return send(res, 500);
+    }
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
     res.end(body);
   };
 
@@ -173,6 +192,13 @@ export function createUiServer({ port, token, distDir, registry = registryDir })
         }
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
         return res.end(body);
+      }
+      if (p === "/api/instructions") return sendJson(res, () => listInstructions(registry, params.get("profile") || ""));
+      if (p === "/api/instructions/file") {
+        return sendJson(res, () => readInstructionFile(registry, params.get("profile") || "", params.get("path") || ""));
+      }
+      if (p === "/api/prompt-preview") {
+        return sendJson(res, () => promptPreview(registry, params.get("profile") || "", params.get("step") || ""));
       }
       if (p === "/api/log/stream") {
         const file = resolveRunLog(registry, params.get("profile") || "", params.get("run") || "");

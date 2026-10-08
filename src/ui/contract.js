@@ -1,7 +1,7 @@
 // Shared server ↔ browser contract for `ah ui` (docs/web-ui.md). JSDoc typedefs only,
 // no runtime code — the frontend `import type`s these so the two sides can't drift.
 // Everything here is what the UI server is willing to expose: no ingress URL, no
-// paths, no secrets, no config values beyond these fields.
+// paths beyond the instruction-file allowlist, no secrets, no config values beyond these fields.
 
 /**
  * One profile under ~/.agenthook. With no heartbeat (profile down, or never started)
@@ -57,11 +57,14 @@
  * - `profile_removed` — its state dir is gone (its tickets get `ticket_removed` first)
  * - `ticket` — a row is new or changed; `ticket_removed` — the ref left every state source
  * - `event` — one new events.jsonl line, parsed, tagged with its profile
+ * - `instructions` — an allowlisted instruction file's content changed on disk (an external
+ *   `$EDITOR` save); `hash` is the new sha256, null when the file is gone
  * @typedef {{ type: 'profile', profile: ProfileView }
  *   | { type: 'profile_removed', name: string }
  *   | { type: 'ticket', ticket: TicketRow }
  *   | { type: 'ticket_removed', profile: string, ref: string }
- *   | { type: 'event', profile: string, event: Record<string, any> }} UiEvent
+ *   | { type: 'event', profile: string, event: Record<string, any> }
+ *   | { type: 'instructions', profile: string, path: string, hash: string|null }} UiEvent
  */
 
 /**
@@ -86,6 +89,34 @@
  * @typedef {{ type: 'init', text: string, truncated: boolean, size: number }
  *   | { type: 'append', text: string }
  *   | { type: 'reset' }} LogFrame
+ */
+
+/**
+ * One allowlisted standing-instructions file (heartbeat.instructions). `ids` are step ids for
+ * `step`/`default` scope and repo ids for `repo`.
+ * @typedef {object} InstructionFileView
+ * @property {string} path                absolute — the `path` param of /api/instructions/file
+ * @property {'step'|'default'|'repo'} scope
+ * @property {string[]} ids
+ * @property {string|null} hash           sha256 hex of the content; null when missing
+ * @property {number} bytes
+ * @property {string|null} mtime          ISO
+ * @property {boolean} exists
+ * @property {number} agentsRunning       running agents on a step that reads it (repo: all)
+ */
+
+/**
+ * `GET /api/instructions` body.
+ * @typedef {object} InstructionsView
+ * @property {string|null} configPath     heartbeat.configPath
+ * @property {InstructionFileView[]} files
+ */
+
+/**
+ * `GET /api/prompt-preview` body: the step's last real prompt split at `=== TICKET ===`
+ * (`standing` is '' when the prompt had no standing part). `run` is the matching log
+ * basename, as in RunView; `{ run: null }` when the step has no saved prompt yet.
+ * @typedef {{ run: string, standing: string, ticket: string } | { run: null }} PromptPreview
  */
 
 export {};

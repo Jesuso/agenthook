@@ -3,6 +3,7 @@
 // Temp dirs + a local unix socket only; every watcher/socket is closed in `after`.
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -211,6 +212,62 @@ test("liveness without a socket falls back to the pidfile", async () => {
   assert.equal(on.profile.pid, process.pid);
   fs.rmSync(path.join(dir, "server.pid"));
   await waitFor((e) => e.type === "profile" && !e.profile.up);
+});
+
+test("instructions: external content change → one event with the new hash; touch / other files → nothing", async () => {
+  const { dir, events, waitFor } = setup();
+  const sha = (/** @type {string} */ t) => crypto.createHash("sha256").update(t).digest("hex");
+  const a = path.join(root, `instr${n}`);
+  const b = path.join(root, `instr${n}-b`);
+  fs.mkdirSync(a);
+  fs.mkdirSync(b);
+  const file = path.join(a, "CODE.md");
+  const other = path.join(a, "OTHER.md");
+  const late = path.join(b, "LATE.md");
+  fs.writeFileSync(file, "v1\n");
+  fs.writeFileSync(late, "late\n");
+  /** @param {string[]} paths */
+  const heartbeat = (paths) =>
+    fs.writeFileSync(
+      path.join(dir, "heartbeat.json"),
+      JSON.stringify({ name: "p", instructions: paths.map((p, i) => ({ path: p, scope: "step", ids: [`s${i}`] })) }),
+    );
+  heartbeat([file, path.join(root, "no-such-dir", "X.md")]); // a missing dir is skipped, no throw
+  await sleep(SETTLE);
+  const instr = () => events.filter((e) => e.type === "instructions");
+  assert.deepEqual(instr(), []); // seeding is silent
+
+  fs.writeFileSync(file, "v2\n");
+  fs.writeFileSync(file, "v2\n"); // several fs.watch events, one debounce
+  const ev = await waitFor((e) => e.type === "instructions");
+  assert.deepEqual(ev, { type: "instructions", profile: "p", path: file, hash: sha("v2\n") });
+  await sleep(SETTLE);
+  assert.equal(instr().length, 1);
+
+  const t = new Date(Date.now() + 5000);
+  fs.utimesSync(file, t, t); // mtime only, same content
+  fs.writeFileSync(other, "not allowlisted\n");
+  await sleep(SETTLE);
+  assert.equal(instr().length, 1);
+
+  // A heartbeat that adds a file in a new dir: seeded silently, then watched.
+  heartbeat([file, late]);
+  await sleep(SETTLE);
+  assert.equal(instr().length, 1);
+  fs.writeFileSync(late, "late v2\n");
+  await waitFor((e) => e.type === "instructions" && e.path === late);
+
+  fs.rmSync(file);
+  const gone = await waitFor((e) => e.type === "instructions" && e.path === file && e.hash === null);
+  assert.equal(gone.hash, null);
+
+  // Dropped from the allowlist → no longer watched.
+  heartbeat([]);
+  await sleep(SETTLE);
+  const before = instr().length;
+  fs.writeFileSync(late, "late v3\n");
+  await sleep(SETTLE);
+  assert.equal(instr().length, before);
 });
 
 test("src/ui never polls: no fs.watchFile, the only interval is the SSE ping", () => {
