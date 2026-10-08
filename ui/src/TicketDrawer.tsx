@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LogFrame, RunView, TicketRow, TicketStatus } from "./contract";
-import { formatCost, formatDuration, formatRelative } from "./format";
+import { formatCost, formatDuration, formatRelative, ticketTitle } from "./format";
 import { prNumber } from "./tickets";
 import {
   applyFrame,
@@ -102,7 +102,17 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             <span className="shrink-0 font-mono">{label}</span>
           )}
           <h2 className="min-w-0 flex-1 basis-40 truncate text-title font-semibold" title={ticket?.title ?? undefined}>
-            {ticket?.title ?? <span className="text-muted">—</span>}
+            {ticket ? (
+              ticketTitle(ticket).unknown ? (
+                <>
+                  {label} <span className="text-muted">{ticketTitle(ticket).text}</span>
+                </>
+              ) : (
+                ticketTitle(ticket).text
+              )
+            ) : (
+              <span className="text-muted">—</span>
+            )}
           </h2>
           {ticket && <StatusBadge status={ticket.status} />}
           <span className="font-mono text-label text-muted">{profile}</span>

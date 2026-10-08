@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration } from "./format";
+import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration } from "./format";
 
 describe("formatUp", () => {
   it("shows the pid when up", () => {
@@ -19,12 +19,66 @@ describe("profileLabel", () => {
   });
 });
 
-describe("formatLastEvent", () => {
-  it("renders null as an em dash", () => {
-    expect(formatLastEvent(null)).toBe("—");
+describe("shortRef", () => {
+  it("renders short refs as-is", () => {
+    expect(shortRef("223")).toEqual({ text: "223" });
   });
-  it("renders kind/ref/step", () => {
-    expect(formatLastEvent({ at: null, kind: "run_start", ref: "42", step: "code" })).toBe("run_start 42/code");
+  it("shortens long refs, keeping the full ref as the title", () => {
+    expect(shortRef("1209876543210987")).toEqual({ text: "…210987", title: "1209876543210987" });
+  });
+});
+
+describe("formatLastEvent", () => {
+  const now = Date.parse("2026-10-08T12:00:00Z");
+  const at = new Date(now - 2 * 60000).toISOString();
+
+  it("renders null as an em dash", () => {
+    expect(formatLastEvent(null, null, now)).toEqual({ text: "—" });
+  });
+
+  it("uses the displayId, verb-maps the kind, and drops the title when the ref isn't shortened", () => {
+    expect(formatLastEvent({ at, kind: "pipeline", ref: "1209876543210987", step: "review" }, "ID-2872", now)).toEqual({
+      text: "picked up ID-2872 · review · 2m ago",
+    });
+  });
+
+  it("falls back to a shortened ref with the full ref as the title when there's no displayId", () => {
+    expect(formatLastEvent({ at, kind: "pipeline", ref: "1209876543210987", step: "review" }, null, now)).toEqual({
+      text: "picked up …210987 · review · 2m ago",
+      title: "1209876543210987",
+    });
+  });
+
+  it("treats a displayId equal to the ref as absent", () => {
+    expect(formatLastEvent({ at, kind: "pipeline", ref: "1209876543210987", step: "review" }, "1209876543210987", now)).toEqual({
+      text: "picked up …210987 · review · 2m ago",
+      title: "1209876543210987",
+    });
+  });
+
+  it("renders short refs as-is with no title", () => {
+    expect(formatLastEvent({ at, kind: "pipeline", ref: "223", step: "code" }, null, now)).toEqual({
+      text: "picked up 223 · code · 2m ago",
+    });
+  });
+
+  it("maps merge and ci verbs, passes through unknown kinds, and drops a missing step", () => {
+    expect(formatLastEvent({ at, kind: "merge", ref: "223", step: null }, null, now)).toEqual({ text: "merged 223 · 2m ago" });
+    expect(formatLastEvent({ at, kind: "ci", ref: "223", step: "code" }, null, now)).toEqual({ text: "CI failed 223 · code · 2m ago" });
+    expect(formatLastEvent({ at, kind: "weird", ref: "223", step: null }, null, now)).toEqual({ text: "weird 223 · 2m ago" });
+  });
+
+  it("uses ? for a missing ref", () => {
+    expect(formatLastEvent({ at, kind: "pipeline", ref: null, step: "code" }, null, now)).toEqual({ text: "picked up ? · code · 2m ago" });
+  });
+});
+
+describe("ticketTitle", () => {
+  it("passes through a present title", () => {
+    expect(ticketTitle({ title: "Fix the thing" })).toEqual({ text: "Fix the thing", unknown: false });
+  });
+  it("flags a missing title", () => {
+    expect(ticketTitle({ title: null })).toEqual({ text: "(title unknown — appears after its next run)", unknown: true });
   });
 });
 

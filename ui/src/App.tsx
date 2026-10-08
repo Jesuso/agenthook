@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ProfileView, Snapshot, TicketStatus } from "./contract";
-import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel, profileBadge, formatDate } from "./format";
+import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel, profileBadge, formatDate, ticketTitle } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
@@ -241,7 +241,15 @@ export default function App() {
               </td>
               <td className="px-2 py-1 font-mono">{formatAgents(p)}</td>
               <td className="px-2 py-1">{p.queued ?? "—"}</td>
-              <td className="px-2 py-1 font-mono">{formatLastEvent(p.lastEvent)}</td>
+              {(() => {
+                const displayId = p.lastEvent ? state.snapshot.tickets.find((t) => t.profile === p.name && t.ref === p.lastEvent?.ref)?.displayId ?? null : null;
+                const lastEvent = formatLastEvent(p.lastEvent, displayId, now);
+                return (
+                  <td className="px-2 py-1" title={lastEvent.title}>
+                    {lastEvent.text}
+                  </td>
+                );
+              })()}
               <td className="px-2 py-1 text-right">
                 {pendingRemoval[p.name] !== undefined ? (
                   <span className="text-[var(--color-warn)]">{pendingText(p)}</span>
@@ -326,7 +334,7 @@ export default function App() {
                   t.displayId
                 )}
               </td>
-              <td className="px-2 py-1">{t.title ?? "—"}</td>
+              <td className={`px-2 py-1 ${ticketTitle(t).unknown ? "text-[var(--color-muted)]" : ""}`}>{ticketTitle(t).text}</td>
               <td className="px-2 py-1 font-mono">{t.profile}</td>
               <td className="px-2 py-1">{t.step ?? "—"}</td>
               <td

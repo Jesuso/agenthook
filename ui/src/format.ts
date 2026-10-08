@@ -1,4 +1,4 @@
-import type { ProfileView } from "./contract";
+import type { ProfileView, TicketRow } from "./contract";
 
 /** "up (pid 1234)" / "down" — the profile row's liveness cell. */
 export function formatUp(p: Pick<ProfileView, "up" | "pid">): string {
@@ -10,10 +10,37 @@ export function profileLabel(p: Pick<ProfileView, "name" | "label">): string {
   return p.label && p.label !== p.name ? `${p.label} (${p.name})` : p.name;
 }
 
-/** "kind ref/step" / "—" — the profile row's last-event cell. */
-export function formatLastEvent(e: ProfileView["lastEvent"]): string {
-  if (!e) return "—";
-  return `${e.kind ?? "?"} ${e.ref ?? "?"}/${e.step ?? "?"}`;
+const LAST_EVENT_VERB: Record<string, string> = { pipeline: "picked up", merge: "merged", ci: "CI failed" };
+
+/** Long refs (e.g. a 16-digit Asana gid) shorten to "…" + the last 6 chars, with the full ref as a tooltip. */
+export function shortRef(ref: string): { text: string; title?: string } {
+  if (ref.length <= 8) return { text: ref };
+  return { text: `…${ref.slice(-6)}`, title: ref };
+}
+
+/** "<verb> <id> · <step> · <relative>" / "—" — the profile row's last-event cell. */
+export function formatLastEvent(e: ProfileView["lastEvent"], displayId: string | null, now: number): { text: string; title?: string } {
+  if (!e) return { text: "—" };
+  const verb = e.kind ? LAST_EVENT_VERB[e.kind] ?? e.kind : "event";
+  let id = "?";
+  let title: string | undefined;
+  if (e.ref) {
+    if (displayId && displayId !== e.ref) {
+      id = displayId;
+    } else {
+      const short = shortRef(e.ref);
+      id = short.text;
+      title = short.title;
+    }
+  }
+  const step = e.step ? ` · ${e.step}` : "";
+  return { text: `${verb} ${id}${step} · ${formatRelative(e.at, now)}`, title };
+}
+
+/** The title cell's text + whether it's a placeholder for a title not yet cached. */
+export function ticketTitle(t: Pick<TicketRow, "title">): { text: string; unknown: boolean } {
+  if (t.title) return { text: t.title, unknown: false };
+  return { text: "(title unknown — appears after its next run)", unknown: true };
 }
 
 /** "active / maxConcurrent" — null on either side renders as "—". */
