@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StatusBadge, STATUS_CLASS, Pill, IconButton, Menu, Card, EmptyState, Tooltip } from "./index";
+import { StatusBadge, STATUS_CLASS, Pill, IconButton, Menu, Card, EmptyState, Tooltip, Segmented } from "./index";
 import { STATUS_ORDER } from "../tickets";
 
 describe("StatusBadge", () => {
@@ -61,5 +61,18 @@ describe("the rest", () => {
   });
   it("Tooltip is title-based", () => {
     expect(renderToStaticMarkup(<Tooltip text="why">x</Tooltip>)).toBe('<span title="why">x</span>');
+  });
+});
+
+describe("Segmented", () => {
+  const options = [
+    { value: "a", label: "A" },
+    { value: "b", label: "B" },
+  ];
+  it("is a radiogroup with one aria-checked option", () => {
+    const html = renderToStaticMarkup(createElement(Segmented, { value: "b", options, onChange: () => {} }));
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toMatch(/role="radio"[^>]*aria-checked="false"[^>]*>A<\/button>/);
+    expect(html).toMatch(/role="radio"[^>]*aria-checked="true"[^>]*>B<\/button>/);
   });
 });

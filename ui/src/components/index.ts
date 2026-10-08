@@ -9,3 +9,4 @@ export type { MenuItem } from "./Menu";
 export { Card } from "./Card";
 export { EmptyState } from "./EmptyState";
 export { Tooltip } from "./Tooltip";
+export { Segmented } from "./Segmented";
