@@ -164,6 +164,7 @@ describe("classifySaveResponse", () => {
   it("maps 200 / 409 / everything else", () => {
     expect(classifySaveResponse(200)).toBe("ok");
     expect(classifySaveResponse(409)).toBe("conflict");
+    expect(classifySaveResponse(422)).toBe("invalid");
     for (const status of [0, 400, 401, 403, 404, 413, 415, 500, 502]) expect(classifySaveResponse(status)).toBe("error");
   });
 

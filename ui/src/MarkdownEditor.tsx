@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { EditorState } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
@@ -29,14 +30,19 @@ export const highlight = HighlightStyle.define([
   { tag: tags.monospace, color: "var(--color-warn)" },
   { tag: tags.quote, color: "var(--color-muted)" },
   { tag: [tags.processingInstruction, tags.meta, tags.contentSeparator], color: "var(--color-muted)" },
+  // JSON (the Config view).
+  { tag: tags.propertyName, color: "var(--color-accent)" },
+  { tag: tags.string, color: "var(--color-ok)" },
+  { tag: [tags.number, tags.bool, tags.null], color: "var(--color-warn)" },
 ]);
 
 /**
  * CodeMirror 6 markdown editor, uncontrolled: `initial` seeds the document once. The parent
  * remounts it (`key`) to load new content, which also resets undo history. `Mod-s` calls
- * `onSave` and always swallows the browser's "save page".
+ * `onSave` and always swallows the browser's "save page". `language` defaults to markdown (the
+ * Config view passes `json()`).
  */
-export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void }) {
+export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void; language?: Extension }) {
   const host = useRef<HTMLDivElement>(null);
   const onChange = useRef(props.onChange);
   onChange.current = props.onChange;
@@ -65,7 +71,7 @@ export function MarkdownEditor(props: { initial: string; onChange: (doc: string)
             ...defaultKeymap,
             ...historyKeymap,
           ]),
-          markdown(),
+          props.language ?? markdown(),
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
           theme,

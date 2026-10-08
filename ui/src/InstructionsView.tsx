@@ -5,6 +5,7 @@ import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, instructionFileUrl, 
 import type { InstructionsEvent } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
+import { DiffLegend, Modal } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
@@ -135,7 +136,7 @@ export default function InstructionsView(props: {
     fetch(url, init)
       .then((res) => {
         const kind = classifySaveResponse(res.status);
-        if (kind === "error") return fail(res.status);
+        if (kind === "error" || kind === "invalid") return fail(res.status);
         return res.json().then((b: { hash: string; content?: string }) =>
           settle(kind === "ok" ? { type: "saved", hash: b.hash } : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
         );
@@ -396,34 +397,4 @@ export default function InstructionsView(props: {
 function LiveEffect(props: { agentsRunning: number }) {
   const note = liveEffectNote(props.agentsRunning);
   return <p className={`mb-2 text-sm ${note.warn ? "text-[var(--color-warn)]" : "text-[var(--color-muted)]"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</p>;
-}
-
-function DiffLegend() {
-  return (
-    <div className="mb-1 flex text-xs text-[var(--color-muted)]">
-      <span className="flex-1">on disk</span>
-      <span className="flex-1">your buffer</span>
-    </div>
-  );
-}
-
-/** Minimal overlay dialog; Escape closes it. */
-function Modal(props: { title: string; onClose: () => void; children: React.ReactNode }) {
-  const onClose = useRef(props.onClose);
-  onClose.current = props.onClose;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose.current();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div role="dialog" aria-modal="true" className="flex max-h-full w-full max-w-5xl flex-col rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-        <h2 className="mb-2 font-semibold">{props.title}</h2>
-        {props.children}
-      </div>
-    </div>
-  );
 }

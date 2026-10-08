@@ -193,6 +193,12 @@ reload / diff / overwrite" banner on 409 or an external edit.
 
 Edits `agenthook.config.json` — the one file at the receiver-published `heartbeat.configPath`.
 
+**Shipped so far:** the **Config** tab's raw JSON editor (live parse check, server errors and
+literal-secret warnings, diff → confirm with a second ack for changed sensitive fields — secret
+values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and **Restart when idle**
+after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid). The
+forms, stage pickers and pipeline graph below are still to come.
+
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
 `manual`, `instructionsFile`; the tracker's stage bindings) and the **top-level basics** (`name`,

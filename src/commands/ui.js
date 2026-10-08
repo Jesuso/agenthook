@@ -1,4 +1,4 @@
-// `agenthook ui [--port 4180] [--no-open]` — local read-only web dashboard over every
+// `agenthook ui [--port 4180] [--no-open]` — local web dashboard + editors over every
 // profile under ~/.agenthook (docs/web-ui.md). Binds 127.0.0.1 only (no flag to change
 // it), mints a per-launch token and prints/opens the `?token=` URL. Loads no config:
 // like `ls`, it reads the state dirs directly.
@@ -60,7 +60,7 @@ export async function ui(args) {
     server.listen(port, "127.0.0.1", () => resolve(undefined));
   });
   const url = `http://127.0.0.1:${port}/?token=${token}`;
-  console.log(`agenthook ui (read-only) at ${url}`);
+  console.log(`agenthook ui at ${url}`);
   console.log("Ctrl-C to stop.");
   if (!args["no-open"]) openBrowser(url);
 }
