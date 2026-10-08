@@ -161,3 +161,16 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string[]} errors
  * @property {string[]} literalSecrets
  */
+
+/**
+ * `GET /api/profile/remove-preview` body — what the Remove… modal shows before `POST
+ * /api/profile/remove`. Paths are tildified; `configPath` (and so `webhookHint`) is null for a
+ * legacy state dir with neither a `profile.json` nor a heartbeat naming it.
+ * @typedef {object} RemovePreview
+ * @property {string} profile             the state key
+ * @property {string} label               ProfileView.label — what the confirm input must match
+ * @property {boolean} up
+ * @property {string|null} configPath
+ * @property {string} archivePattern      `<registry>-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/`
+ * @property {string|null} webhookHint    `agenthook unregister --config <configPath>`
+ */

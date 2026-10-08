@@ -1,4 +1,4 @@
-// `ah ui` HTTP server (docs/web-ui.md). Localhost-only, read-only except two guarded write
+// `ah ui` HTTP server (docs/web-ui.md). Localhost-only, read-only except a few guarded write
 // actions. Every request passes the DNS-rebinding Host guard first; `/api/*` additionally needs
 // the per-launch token, exchanged once via `/?token=` for an HttpOnly SameSite=Strict cookie.
 // Static assets (the public frontend bundle) need no cookie — only `/api/*` exposes state.
@@ -13,13 +13,20 @@
 // `GET /api/discover` and `POST /api/restart` are v3's control-socket actions (src/ui/control-
 // client.js, src/control.js): no file write, just a request over the profile's control.sock,
 // mapped to 503/504/502 when the receiver is down, times out, or answers `ok:false`. `restart`
-// reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`. Nothing else in
-// any state dir is ever written.
+// reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`. `POST
+// /api/profile/remove` (same guards) retires a profile: a running receiver gets `decommission
+// {when:'idle'}` over its socket; a stopped one has its state dir archived via src/archive.js —
+// the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
+// read side (config path, archive pattern, webhook hint). Nothing else in any state dir is ever
+// written.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { archiveRoot, archiveStateDir } from "../archive.js";
 import { registryDir } from "../config.js";
+import { readProfile } from "../heartbeat.js";
+import { readMarker, tildify } from "../profile.js";
 import { readConfigFile, writeConfigFile } from "./config.js";
 import { controlRequest, resolveProfileSock } from "./control-client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
@@ -55,6 +62,7 @@ const WRITABLE = new Set([INSTR_FILE, CONFIG]);
 
 /** The control-socket action path (POST only). */
 const RESTART = "/api/restart";
+const REMOVE = "/api/profile/remove";
 
 /** Constant-time string compare; a length mismatch is a mismatch. @param {string} a @param {string} b */
 export function safeEqual(a, b) {
@@ -138,8 +146,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
   };
 
   /**
-   * The guard prelude shared by the two PUTs and `POST /api/restart`, in order: cookie (Host
-   * already checked) → 401;
+   * The guard prelude shared by the two PUTs, `POST /api/restart` and `POST
+   * /api/profile/remove`, in order: cookie (Host already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -226,6 +234,62 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       });
     });
 
+  /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
+  const profileConfigPath = (profile) => {
+    const p = readProfile(profile, registry);
+    const c = readMarker(p.dir)?.configPath ?? p.heartbeat?.configPath;
+    return typeof c === "string" && c ? c : null;
+  };
+
+  /** The `agenthook unregister` command for a stopped profile, or null. @param {string|null} configPath */
+  const webhookHint = (configPath) => (configPath ? `agenthook unregister --config ${configPath}` : null);
+
+  /**
+   * `POST /api/profile/remove` — readGuardedJson, then `{profile}` a string and `unregister`,
+   * when present, a boolean → else 400; unknown profile → 404 (socket never contacted). Sends
+   * `{cmd:'decommission', args:{when:'idle', unregister}}`: answered → 202 `{pending:true,
+   * active, queued[, alreadyPending]}`; `ok:false` → 502; timeout → 504; down → the stopped
+   * branch: a live pid behind a dead socket → 409, else archiveStateDir → 200 `{archivedTo,
+   * webhookHint}` (it throws → 409). Every outcome but a successful archive (audited by
+   * archiveStateDir inside the archived dir) appends `{ts, action:'remove', profile, status,
+   * unregister}` to the profile's audit log.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postRemove = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile } = body;
+      if (typeof profile !== "string") return send(res, 400);
+      if (body.unregister !== undefined && typeof body.unregister !== "boolean") return send(res, 400);
+      const unregister = body.unregister ?? true;
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      /** @param {number} status @param {any} result */
+      const reply = (status, result) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "remove", profile, status, unregister });
+        sendStatusJson(res, status, result);
+      };
+      callControl(sock.sockPath, "decommission", { when: "idle", unregister }, restartTimeoutMs).then(({ status, body: result }) => {
+        if (status === 200) {
+          const { active, queued, alreadyPending } = result ?? {};
+          return reply(202, { pending: true, active, queued, ...(alreadyPending ? { alreadyPending: true } : {}) });
+        }
+        if (status !== 503) return reply(status, result);
+        const { up, pid } = readProfile(profile, registry);
+        if (up) {
+          return reply(409, { error: `receiver pid ${pid} is alive but its control socket is not answering — run \`agenthook stop\` first` });
+        }
+        const configPath = profileConfigPath(profile);
+        /** @type {string} */
+        let archivedTo;
+        try {
+          ({ archivedTo } = archiveStateDir({ stateKey: profile, registry, reason: "ui remove", source: "ui" }));
+        } catch (e) {
+          return reply(409, { error: e.message });
+        }
+        sendStatusJson(res, 200, { archivedTo, webhookHint: webhookHint(configPath) });
+      });
+    });
+
   /**
    * `PUT /api/instructions/file` — readGuardedJson, then `{profile, path, baseHash, content}`
    * all strings → else 400; then writeInstructionFile (404 / 413 / 409 `{content, hash}` / 500 /
@@ -288,7 +352,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     }
 
     if (req.method === "POST" && p === RESTART) return postRestart(req, res, host);
-    if (p === RESTART) {
+    if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
+    if (p === RESTART || p === REMOVE) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }
@@ -354,6 +419,24 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         if (!sock) return send(res, 404);
         callControl(sock.sockPath, "discover", {}, discoverTimeoutMs).then(({ status, body }) => sendStatusJson(res, status, body));
         return;
+      }
+      if (p === "/api/profile/remove-preview") {
+        const profile = params.get("profile") || "";
+        return sendJson(res, () => {
+          if (!resolveProfileSock(registry, profile)) return null;
+          const { name, up } = readProfile(profile, registry);
+          const configPath = profileConfigPath(profile);
+          /** @type {import('./contract.js').RemovePreview} */
+          const preview = {
+            profile,
+            label: name,
+            up,
+            configPath: configPath && tildify(configPath),
+            archivePattern: tildify(path.join(archiveRoot(registry), `${profile}-<YYYY-MM-DDTHH-MM-SS>`)) + "/",
+            webhookHint: webhookHint(configPath && tildify(configPath)),
+          };
+          return preview;
+        });
       }
       if (p === "/api/instructions") return sendJson(res, () => listInstructions(registry, params.get("profile") || ""));
       if (p === "/api/instructions/file") {
