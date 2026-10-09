@@ -1,8 +1,9 @@
 import type { ProfileView, TicketRow } from "./contract";
 
-/** "up (pid 1234)" / "down" — the profile row's liveness cell. */
-export function formatUp(p: Pick<ProfileView, "up" | "pid">): string {
-  return p.up ? `up (pid ${p.pid})` : "down";
+/** "up" / "down" — the profile row's liveness cell; pid and port only in its tooltip. */
+export function formatUp(p: Pick<ProfileView, "up" | "pid" | "port">): { text: string; title?: string } {
+  const parts = [p.up && p.pid ? `pid ${p.pid}` : null, p.port ? `port ${p.port}` : null].filter(Boolean);
+  return { text: p.up ? "up" : "down", title: parts.length ? parts.join(" · ") : undefined };
 }
 
 /** The profile's display name: its label, "label (stateKey)" when they differ. `name` stays the key. */

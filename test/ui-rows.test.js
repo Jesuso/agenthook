@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildRows, buildSnapshot, readEventsTail, readProfileState } from "../src/ui/rows.js";
+import { buildRows, buildSnapshot, profileView, readEventsTail, readProfileState, RECENT_COSTS_MS } from "../src/ui/rows.js";
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
 import { uiPort, checkBundle, DEFAULT_PORT } from "../src/commands/ui.js";
@@ -232,6 +232,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     lastSeenAt: null, // heartbeat.updatedAt "u" isn't a timestamp
     ghost: false,
     configMissing: false,
+    recentCosts: [],
   });
   const down = snap.profiles[0];
   assert.equal(down.up, false);
@@ -316,6 +317,43 @@ function profileNamed(profiles, name) {
   assert.ok(p, `profile ${name}`);
   return p;
 }
+
+test("profileView: recentCosts = run_end with a finite costUsd and a parseable ts within 48 h, oldest first", () => {
+  const now = Date.parse("2026-10-08T12:00:00.000Z");
+  const ago = (/** @type {number} */ ms) => new Date(now - ms).toISOString();
+  const events = [
+    { ts: ago(RECENT_COSTS_MS + 1), event: "run_end", ref: "a", costUsd: 9 }, // too old
+    { ts: ago(RECENT_COSTS_MS), event: "run_end", ref: "a", costUsd: 0.5 },
+    { ts: ago(60_000), event: "run_start", ref: "b", costUsd: 7 }, // not a run_end
+    { ts: ago(50_000), event: "run_end", ref: "b" }, // no cost
+    { ts: ago(40_000), event: "run_end", ref: "b", costUsd: "1" },
+    { ts: ago(30_000), event: "run_end", ref: "b", costUsd: null },
+    { ts: "garbage", event: "run_end", ref: "b", costUsd: 3 },
+    { event: "run_end", ref: "b", costUsd: 3 },
+    { ts: ago(1000), event: "run_end", ref: "c", costUsd: 1.25 },
+  ];
+  const base = { name: "p", pid: 0, up: false, heartbeat: null };
+  assert.deepEqual(profileView({ ...base, events, now }).recentCosts, [
+    { at: ago(RECENT_COSTS_MS), costUsd: 0.5 },
+    { at: ago(1000), costUsd: 1.25 },
+  ]);
+  assert.deepEqual(profileView(base).recentCosts, []);
+});
+
+test("buildSnapshot: recentCosts comes from the profile's events tail (down profiles too)", () => {
+  const reg = tmp();
+  const ts = new Date(Date.now() - 60_000).toISOString();
+  writeState(path.join(reg, "p"), {
+    "events.jsonl": jsonl([
+      { ts, event: "run_start", ref: "1", step: "code" },
+      { ts, event: "run_end", ref: "1", step: "code", outcome: "advance", costUsd: 0.42 },
+    ]),
+  });
+  writeState(path.join(reg, "q"), {});
+  const snap = buildSnapshot(reg);
+  assert.deepEqual(profileNamed(snap.profiles, "p").recentCosts, [{ at: ts, costUsd: 0.42 }]);
+  assert.deepEqual(profileNamed(snap.profiles, "q").recentCosts, []);
+});
 
 test("repositoryOf: forge first, else a github/github-projects tracker, else null", () => {
   /** @param {any} c */

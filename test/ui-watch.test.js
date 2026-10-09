@@ -137,6 +137,22 @@ test("events.jsonl: one event per appended line, partial lines held, only new by
   assert.equal(events.filter((e) => e.type === "event").length, 1);
 });
 
+test("events.jsonl: a new run_end line re-emits the profile with its cost in recentCosts", async () => {
+  const { dir, events, waitFor } = setup();
+  const file = path.join(dir, "events.jsonl");
+  const end = (/** @type {number} */ costUsd) =>
+    JSON.stringify({ ts: new Date().toISOString(), event: "run_end", ref: "a", step: "code", outcome: "advance", costUsd }) + "\n";
+  fs.writeFileSync(file, end(0.25));
+  await sleep(SETTLE);
+  events.length = 0;
+  fs.appendFileSync(file, end(1.5));
+  const prof = await waitFor((e) => e.type === "profile" && e.profile.recentCosts.length === 2);
+  assert.deepEqual(
+    prof.profile.recentCosts.map((/** @type {any} */ c) => c.costUsd),
+    [0.25, 1.5],
+  );
+});
+
 test("registry: a new profile dir → profile (+ its tickets); removing it → ticket_removed + profile_removed", async () => {
   const { registry, events, waitFor, w } = setup([]);
   const q = path.join(registry, "q");

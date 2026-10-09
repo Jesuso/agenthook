@@ -31,8 +31,10 @@ export default function InstructionsView(props: {
   profiles: ProfileView[];
   eventSink: React.RefObject<((ev: InstructionsEvent) => void) | null>;
   onDirtyChange: (dirty: boolean) => void;
+  /** The profile to open on (the dashboard's ⋯ menu); falls back to the first one. */
+  initialProfile?: string;
 }) {
-  const [picked, setPicked] = useState(props.profiles[0]?.name ?? "");
+  const [picked, setPicked] = useState(props.initialProfile ?? props.profiles[0]?.name ?? "");
   const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);

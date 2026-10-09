@@ -109,6 +109,7 @@ export function createWatcher(registry, onEvent) {
       up: up(p),
       heartbeat: p.heartbeat,
       ...profileMeta(p.dir, p.heartbeat, p.marker),
+      events: p.state.events,
     });
 
   /** @param {Prof} p */

@@ -1,9 +1,11 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import type { ProfileView, Snapshot, TicketStatus } from "./contract";
-import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel, profileBadge, formatDate, ticketTitle } from "./format";
+import type { ProfileView, Snapshot } from "./contract";
+import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, formatDate, profileLabel, profileBadge, ticketTitle } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
+import type { StatusFilter } from "./tickets";
+import { summarize } from "./summary";
 import { appendFeed, formatEventDetail } from "./feed";
 import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
@@ -20,7 +22,7 @@ import { AppBar } from "./AppBar";
 import type { Tab } from "./AppBar";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
-import { StatusBadge } from "./components";
+import { Menu, Pill, StatusBadge } from "./components";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
@@ -50,6 +52,8 @@ export default function App() {
   // Plain tab state, no router. The Instructions / Config views report their dirty buffer here so
   // a tab switch can confirm before discarding it, and receive their SSE events via the sinks.
   const [tab, setTab] = useState<Tab>("dashboard");
+  // The profile a tab opens on when reached from a profile row's ⋯ menu (else the view's first).
+  const [tabProfile, setTabProfile] = useState<string | undefined>(undefined);
   const instructionsDirty = useRef(false);
   const instructionsSink = useRef<((ev: InstructionsEvent) => void) | null>(null);
   const configDirty = useRef(false);
@@ -163,13 +167,14 @@ export default function App() {
     );
   if (state.kind === "error") return <Shell connection={connection}>Failed to load snapshot (status {state.status}).</Shell>;
 
-  const switchTab = (next: Tab) => {
+  const switchTab = (next: Tab, profile?: string) => {
     if (next === tab) return;
     if (tab === "instructions" && instructionsDirty.current && !window.confirm(DISCARD_PROMPT)) return;
     if (tab === "config" && configDirty.current && !window.confirm(CONFIG_DISCARD_PROMPT)) return;
+    setTabProfile(profile);
     setTab(next);
   };
-  const nav = { connection, tab, onTab: switchTab };
+  const nav = { connection, tab, onTab: (t: Tab) => switchTab(t) };
 
   if (tab === "instructions")
     return (
@@ -177,6 +182,7 @@ export default function App() {
         <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
           <InstructionsView
             profiles={state.snapshot.profiles}
+            initialProfile={tabProfile}
             eventSink={instructionsSink}
             onDirtyChange={(d) => (instructionsDirty.current = d)}
           />
@@ -188,7 +194,12 @@ export default function App() {
     return (
       <Shell {...nav}>
         <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
-          <ConfigView profiles={state.snapshot.profiles} eventSink={configSink} onDirtyChange={(d) => (configDirty.current = d)} />
+          <ConfigView
+            profiles={state.snapshot.profiles}
+            initialProfile={tabProfile}
+            eventSink={configSink}
+            onDirtyChange={(d) => (configDirty.current = d)}
+          />
         </Suspense>
       </Shell>
     );
@@ -196,71 +207,115 @@ export default function App() {
   const now = Date.now();
   const filtered = filterTickets(state.snapshot.tickets, {
     profile: profileFilter || null,
-    status: (statusFilter || null) as TicketStatus | null,
+    status: (statusFilter || null) as StatusFilter | null,
     showAll,
     now,
   });
   const tickets = sortTickets(filtered);
+  const summary = summarize(state.snapshot, now);
+  const needsYouActive = statusFilter === "needs-you";
+  const needsYouTone = state.snapshot.tickets.some((t) => t.status === "failed") ? "text-status-failed" : "text-status-held";
 
   return (
     <Shell {...nav}>
-      <table className="w-full border-collapse text-sm mb-6">
+      <div className="mb-4 flex flex-wrap gap-2" data-summary>
+        <SummaryTile label="agents running">
+          <span className="font-mono">
+            {summary.active} <span className="text-muted">/ {summary.capacity}</span>
+          </span>
+        </SummaryTile>
+        <button
+          type="button"
+          aria-pressed={needsYouActive}
+          title={needsYouActive ? "show all statuses" : "show only held + failed tickets"}
+          className={`min-w-32 rounded-lg border bg-surface px-3 py-2 text-left hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${
+            needsYouActive ? "border-accent" : "border-border"
+          }`}
+          onClick={() => {
+            if (needsYouActive) return setStatusFilter("");
+            setStatusFilter("needs-you");
+            setProfileFilter("");
+          }}
+        >
+          <div className="text-label uppercase tracking-wide text-muted">needs you</div>
+          <div className={`text-title font-semibold font-mono ${summary.needsYou > 0 ? needsYouTone : ""}`}>{summary.needsYou}</div>
+        </button>
+        <SummaryTile label="queued">
+          <span className="font-mono">{summary.queued}</span>
+        </SummaryTile>
+        <SummaryTile label="cost today (approx.)" title="sum of run_end costs in each profile's last 256 KB of events">
+          <span className="font-mono">{formatCost(summary.costToday)}</span>
+        </SummaryTile>
+        <SummaryTile label="profiles">
+          <span className="text-status-done">{summary.up} up</span>
+          <span className="text-muted"> · </span>
+          <span className={summary.down > 0 ? "text-status-failed" : "text-muted"}>{summary.down} down</span>
+        </SummaryTile>
+      </div>
+
+      <h2 className="text-base font-semibold mb-2">profiles</h2>
+      <table className="w-full border-collapse text-body mb-6">
         <thead>
-          <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
-            <th className="px-2 py-1">profile</th>
-            <th className="px-2 py-1">status</th>
-            <th className="px-2 py-1">tracker</th>
-            <th className="px-2 py-1">ingress</th>
-            <th className="px-2 py-1">port</th>
-            <th className="px-2 py-1">fullAuto</th>
-            <th className="px-2 py-1">agents</th>
-            <th className="px-2 py-1">queued</th>
-            <th className="px-2 py-1">last event</th>
+          <tr className="border-b border-border text-left text-label text-muted">
+            <th className="px-2 py-1 font-medium">profile</th>
+            <th className="px-2 py-1 font-medium">status</th>
+            <th className="px-2 py-1 font-medium">tracker</th>
+            <th className="px-2 py-1 font-medium">ingress</th>
+            <th className="px-2 py-1 font-medium">agents</th>
+            <th className="px-2 py-1 font-medium">queued</th>
+            <th className="px-2 py-1 font-medium">last event</th>
             <th className="px-2 py-1" />
           </tr>
         </thead>
         <tbody>
-          {state.snapshot.profiles.map((p) => (
-            <tr key={p.name} className="border-b border-[var(--color-border)]">
-              <td className="px-2 py-1">
-                <div className="font-mono">{profileLabel(p)}</div>
-                <ProfileOrigin p={p} />
-              </td>
-              <td className="px-2 py-1" style={{ color: p.up ? "var(--color-ok)" : "var(--color-err)" }}>
-                {formatUp(p)}
-              </td>
-              <td className="px-2 py-1">{p.tracker ?? "—"}</td>
-              <td className="px-2 py-1">{p.ingress ?? "—"}</td>
-              <td className="px-2 py-1 font-mono">{p.port ?? "—"}</td>
-              <td className="px-2 py-1">
-                {p.fullAuto ? (
-                  <span className="rounded bg-[var(--color-err)]/20 px-1.5 py-0.5 text-xs font-semibold text-[var(--color-err)]">fullAuto</span>
-                ) : (
-                  "—"
-                )}
-              </td>
-              <td className="px-2 py-1 font-mono">{formatAgents(p)}</td>
-              <td className="px-2 py-1">{p.queued ?? "—"}</td>
-              {(() => {
-                const displayId = p.lastEvent ? state.snapshot.tickets.find((t) => t.profile === p.name && t.ref === p.lastEvent?.ref)?.displayId ?? null : null;
-                const lastEvent = formatLastEvent(p.lastEvent, displayId, now);
-                return (
-                  <td className="px-2 py-1" title={lastEvent.title}>
-                    {lastEvent.text}
-                  </td>
-                );
-              })()}
-              <td className="px-2 py-1 text-right">
-                {pendingRemoval[p.name] !== undefined ? (
-                  <span className="text-[var(--color-warn)]">{pendingText(p)}</span>
-                ) : (
-                  <button className="rounded border border-[var(--color-border)] px-2 py-0.5 text-xs" onClick={() => setRemoving(p.name)}>
-                    Remove…
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
+          {state.snapshot.profiles.map((p) => {
+            const up = formatUp(p);
+            const pending = pendingRemoval[p.name] !== undefined;
+            const displayId = p.lastEvent ? state.snapshot.tickets.find((t) => t.profile === p.name && t.ref === p.lastEvent?.ref)?.displayId ?? null : null;
+            const lastEvent = formatLastEvent(p.lastEvent, displayId, now);
+            return (
+              <tr key={p.name} data-profile-row={p.name} className="border-b border-border-subtle">
+                <td className="px-2 py-1">
+                  <ProfileNameCell p={p} />
+                </td>
+                <td className="px-2 py-1">
+                  <span title={up.title} className={`inline-flex items-center gap-1.5 ${p.up ? "text-success" : "text-status-failed"}`}>
+                    <span aria-hidden="true" className="size-2 rounded-full bg-current" />
+                    {up.text}
+                  </span>
+                </td>
+                <td className="px-2 py-1">{p.tracker ? <Pill>{p.tracker}</Pill> : <span className="text-muted">—</span>}</td>
+                <td className="px-2 py-1">{p.ingress ? <Pill>{p.ingress}</Pill> : <span className="text-muted">—</span>}</td>
+                <td className="px-2 py-1">
+                  <AgentsBar p={p} />
+                </td>
+                <td className="px-2 py-1 font-mono">{p.queued ?? <span className="text-muted">—</span>}</td>
+                <td className="px-2 py-1" title={lastEvent.title}>
+                  {lastEvent.text}
+                </td>
+                <td className="px-2 py-1 text-right whitespace-nowrap">
+                  {pending && <span className="mr-2 text-label text-status-held">{pendingText(p)}</span>}
+                  <Menu
+                    label="profile actions"
+                    items={[
+                      { label: "Open config", onSelect: () => switchTab("config", p.name) },
+                      { label: "Open instructions", onSelect: () => switchTab("instructions", p.name) },
+                      {
+                        label: "Copy config path",
+                        disabled: !p.configPath,
+                        onSelect: () =>
+                          navigator.clipboard.writeText(p.configPath!).then(
+                            () => setToast({ text: "Copied config path", hint: null }),
+                            () => {},
+                          ),
+                      },
+                      { label: "Remove…", danger: true, disabled: pending, onSelect: () => setRemoving(p.name) },
+                    ]}
+                  />
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
@@ -284,6 +339,7 @@ export default function App() {
           onChange={(e) => setStatusFilter(e.target.value)}
         >
           <option value="">all statuses</option>
+          <option value="needs-you">needs you (held + failed)</option>
           {STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
               {s}
@@ -436,50 +492,69 @@ export default function App() {
   );
 }
 
-/** Where a profile comes from: its (tildified) config path with a copy button, plus a "never ran" /
- * "config missing" badge. The payload carries only the tildified path, so that's what's copied. */
-function ProfileOrigin({ p }: { p: ProfileView }) {
-  const [copied, setCopied] = useState(false);
-  const badge = profileBadge(p);
-  const copy = (path: string) =>
-    navigator.clipboard.writeText(path).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      },
-      () => {},
-    );
+/** One summary-strip tile: a small uppercase label over a value. */
+function SummaryTile({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-muted)]">
-      {p.configPath && (
-        <>
-          <span className="font-mono" title={p.configPath}>
-            {p.configPath}
-          </span>
-          <button
-            className="rounded border border-[var(--color-border)] px-1 leading-4"
-            title="copy config path"
-            aria-label="copy config path"
-            onClick={() => copy(p.configPath!)}
-          >
-            {copied ? "copied" : "copy"}
-          </button>
-        </>
-      )}
-      {badge?.kind === "ghost" && (
-        <>
-          <span className="rounded border border-[var(--color-border)] px-1.5 py-0.5 font-semibold" title={badge.title}>
-            {badge.text}
-          </span>
-          <span title={badge.title}>created {formatDate(p.createdAt)}</span>
-        </>
-      )}
-      {badge?.kind === "missing" && (
-        <span className="rounded bg-[var(--color-warn)]/20 px-1.5 py-0.5 font-semibold text-[var(--color-warn)]" title={badge.title}>
-          {badge.text}
-        </span>
-      )}
+    <div title={title} className="min-w-32 rounded-lg border border-border bg-surface px-3 py-2">
+      <div className="text-label uppercase tracking-wide text-muted">{label}</div>
+      <div className="text-title font-semibold">{children}</div>
     </div>
+  );
+}
+
+/** A profile's name cell: label, fullAuto shield, ghost/config-missing badge, and the visible (tildified) config path. */
+export function ProfileNameCell({ p }: { p: ProfileView }) {
+  const badge = profileBadge(p);
+  return (
+    <>
+      <div className="flex items-center gap-1.5">
+        <span className="font-mono" title={p.configPath ?? undefined}>
+          {profileLabel(p)}
+        </span>
+        {p.fullAuto && <FullAutoShield />}
+        {badge && (
+          <Pill tone={badge.kind === "missing" ? "held" : "neutral"} title={badge.title}>
+            {badge.text}
+          </Pill>
+        )}
+        {badge?.kind === "ghost" && (
+          <span className="text-label text-muted" title={badge.title}>
+            created {formatDate(p.createdAt)}
+          </span>
+        )}
+      </div>
+      {p.configPath && (
+        <div className="font-mono text-label text-muted" title={p.configPath}>
+          {p.configPath}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The agents cell: a mini bar filled to active / maxConcurrent, plus that text; grey when down. */
+function AgentsBar({ p }: { p: ProfileView }) {
+  const max = p.maxConcurrent ?? 0;
+  const fill = p.up && p.active !== null && max > 0 ? Math.min(1, p.active / max) : 0;
+  return (
+    <span className={`inline-flex items-center gap-2 ${p.up ? "" : "text-muted"}`}>
+      <span aria-hidden="true" className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-raised">
+        <span className="block h-full rounded-full bg-status-running" style={{ width: `${fill * 100}%` }} />
+      </span>
+      <span className="font-mono text-label">{formatAgents(p)}</span>
+    </span>
+  );
+}
+
+/** fullAuto: an amber shield — agents on this profile skip every permission prompt. */
+function FullAutoShield() {
+  const text = "fullAuto: agents run with --dangerously-skip-permissions";
+  return (
+    <span title={text} aria-label={text} role="img" className="inline-flex text-status-held">
+      <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor" aria-hidden="true">
+        <path d="M8 1 2.5 3v4.2c0 3.4 2.3 6.4 5.5 7.8 3.2-1.4 5.5-4.4 5.5-7.8V3L8 1Z" />
+      </svg>
+    </span>
   );
 }
 

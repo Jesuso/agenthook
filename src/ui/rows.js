@@ -295,8 +295,10 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
  * not live counts, so they survive.
  * `name` is the state key; `label` is the heartbeat's name, else the passed-in label (profile.json's).
  * The provenance fields come from the optional heartbeat.js `profileMeta` inputs (default null/false).
+ * `recentCosts` is derived from the optional `events` tail (default none) relative to `now`.
  * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any,
- *   configPath?: string|null, createdAt?: string|null, lastSeenAt?: string|null, ghost?: boolean, configMissing?: boolean }} p
+ *   configPath?: string|null, createdAt?: string|null, lastSeenAt?: string|null, ghost?: boolean, configMissing?: boolean,
+ *   events?: Record<string, any>[], now?: number }} p
  * @returns {import('./contract.js').ProfileView}
  */
 export function profileView(p) {
@@ -325,7 +327,27 @@ export function profileView(p) {
     lastSeenAt: str(p.lastSeenAt),
     ghost: p.ghost === true,
     configMissing: p.configMissing === true,
+    recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now()),
   };
+}
+
+/** How far back `recentCosts` reaches: enough for the browser's "today" in any timezone. */
+export const RECENT_COSTS_MS = 48 * 60 * 60 * 1000;
+
+/** `run_end` events with a finite `costUsd` and a parseable `ts` within RECENT_COSTS_MS of
+ * `now`, oldest first (the tail's order).
+ * @param {Record<string, any>[]} events @param {number} now
+ * @returns {import('./contract.js').RecentCost[]} */
+export function recentCosts(events, now) {
+  /** @type {import('./contract.js').RecentCost[]} */
+  const out = [];
+  for (const e of events) {
+    if (e.event !== "run_end" || typeof e.costUsd !== "number" || !Number.isFinite(e.costUsd)) continue;
+    const t = typeof e.ts === "string" ? Date.parse(e.ts) : NaN;
+    if (Number.isNaN(t) || now - t > RECENT_COSTS_MS) continue;
+    out.push({ at: new Date(t).toISOString(), costUsd: e.costUsd });
+  }
+  return out;
 }
 
 /** Every profile under `registry` plus its merged ticket rows. Read-only.
@@ -335,9 +357,10 @@ export function buildSnapshot(registry = registryDir) {
   /** @type {import('./contract.js').Snapshot} */
   const snap = { profiles: [], tickets: [] };
   for (const p of listProfiles(registry)) {
-    snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name }));
+    const state = readProfileState(p.dir);
+    snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name, events: state.events }));
     const repository = isObj(p.heartbeat) ? p.heartbeat.repository : null;
-    snap.tickets.push(...buildRows(p.stateKey, readProfileState(p.dir), { repository, up: p.up }));
+    snap.tickets.push(...buildRows(p.stateKey, state, { repository, up: p.up }));
   }
   return snap;
 }

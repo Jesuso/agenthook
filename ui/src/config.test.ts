@@ -180,6 +180,7 @@ const prof = (over: Partial<ProfileView>): ProfileView => ({
   lastSeenAt: null,
   ghost: false,
   configMissing: false,
+  recentCosts: [],
   ...over,
 });
 const runR = (s: RestartState, ...a: RestartAction[]) => a.reduce(restartReducer, s);

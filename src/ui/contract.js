@@ -52,7 +52,12 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} lastSeenAt     heartbeat.updatedAt, else the later of profile.json updatedAt / events.jsonl mtime
  * @property {boolean} ghost              no receiver ever ran here: no marker, no heartbeat, nothing but an empty logs/
  * @property {boolean} configMissing      configPath is set but the file no longer exists
+ * @property {RecentCost[]} recentCosts   `run_end` costs from the events tail's last 48 h, oldest
+ *                                        first — the browser buckets them by its local midnight
+ *                                        (approximate: the tail is byte-bounded)
  */
+
+/** @typedef {{ at: string, costUsd: number }} RecentCost */
 
 /** @typedef {{ at: string|null, kind: string|null, ref: string|null, step: string|null }} LastEvent */
 

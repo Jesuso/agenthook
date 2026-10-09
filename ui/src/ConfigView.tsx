@@ -54,8 +54,10 @@ export default function ConfigView(props: {
   profiles: ProfileView[];
   eventSink: React.RefObject<((ev: ConfigSinkEvent) => void) | null>;
   onDirtyChange: (dirty: boolean) => void;
+  /** The profile to open on (the dashboard's ⋯ menu); falls back to the first one. */
+  initialProfile?: string;
 }) {
-  const [picked, setPicked] = useState(props.profiles[0]?.name ?? "");
+  const [picked, setPicked] = useState(props.initialProfile ?? props.profiles[0]?.name ?? "");
   // A requested state-dir move (old key → label). The old key vanishes from the snapshot when the
   // dir moves, so follow to the new one instead of falling back to the first profile.
   const [moving, setMoving] = useState<{ from: string; to: string } | null>(null);

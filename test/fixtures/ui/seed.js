@@ -207,4 +207,21 @@ for (const f of fixtures) {
   }
 }
 
-console.log(`seeded ${fixtures.length} profiles under ${path.resolve(root)}`);
+// A ghost: nothing but an empty logs/ — some command read a config named "scratch" and never ran
+// (isFreshStateDir in src/profile.js). No heartbeat.json, no profile.json, no server.pid.
+const ghostDir = path.join(root, "scratch");
+fs.mkdirSync(path.join(ghostDir, "logs"), { recursive: true });
+
+// A down profile whose owning config file has since been deleted (profileMeta's configMissing).
+const missingDir = path.join(root, "deprecated-client");
+fs.mkdirSync(path.join(missingDir, "logs"), { recursive: true });
+const missingConfigPath = path.join(path.resolve(root), "deprecated-client.config.json");
+fs.writeFileSync(path.join(missingDir, "profile.json"), JSON.stringify({ configPath: missingConfigPath, stateKey: "deprecated-client", name: "deprecated-client", createdAt: ago(60 * 24 * 90), updatedAt: ago(60 * 24 * 60) }));
+fs.writeFileSync(path.join(missingDir, "running.json"), "{}");
+fs.writeFileSync(path.join(missingDir, "queue.json"), "[]");
+fs.writeFileSync(path.join(missingDir, "held.json"), "{}");
+fs.writeFileSync(path.join(missingDir, "refmeta.json"), "{}");
+fs.writeFileSync(path.join(missingDir, "events.jsonl"), "");
+// configMissing requires the file be gone — never write missingConfigPath.
+
+console.log(`seeded ${fixtures.length + 2} profiles under ${path.resolve(root)}`);
