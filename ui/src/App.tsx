@@ -4,8 +4,9 @@ import { formatUp, formatLastEvent, formatAgents, formatCost, formatDate, profil
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { summarize } from "./summary";
-import { appendFeed, formatEventDetail } from "./feed";
+import { appendFeed, readRailOpen, writeRailOpen } from "./feed";
 import type { FeedEntry } from "./feed";
+import { ActivityRail } from "./ActivityRail";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
 import { TicketDrawer } from "./TicketDrawer";
@@ -38,6 +39,7 @@ export default function App() {
   // Only the latest fetch's response may land — see snapshotFetch.ts.
   const fetchState = useRef<FetchState>(initFetchState());
   const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [railOpen, setRailOpen] = useState<boolean>(() => readRailOpen());
   const [profileFilter, setProfileFilter] = useState<string>("");
   const profileFilterRef = useRef(profileFilter);
   profileFilterRef.current = profileFilter;
@@ -207,9 +209,17 @@ export default function App() {
   const summary = summarize(state.snapshot, now);
   const needsYouActive = statusFilter === "needs-you";
   const needsYouTone = state.snapshot.tickets.some((t) => t.status === "failed") ? "text-status-failed" : "text-status-held";
+  const toggleRail = () => {
+    const next = !railOpen;
+    setRailOpen(next);
+    writeRailOpen(next);
+  };
+  const displayIdFor = (profile: string, ref: string) => state.snapshot.tickets.find((t) => t.profile === profile && t.ref === ref)?.displayId ?? null;
 
   return (
     <Shell {...nav}>
+      <div className="xl:flex xl:items-start xl:gap-4">
+      <div className="min-w-0 flex-1">
       <div className="mb-4 flex flex-wrap gap-2" data-summary>
         <SummaryTile label="agents running">
           <span className="font-mono">
@@ -243,6 +253,10 @@ export default function App() {
           <span className="text-muted"> · </span>
           <span className={summary.down > 0 ? "text-status-failed" : "text-muted"}>{summary.down} down</span>
         </SummaryTile>
+      </div>
+
+      <div className="mb-6 xl:hidden">
+        <ActivityRail feed={feed} displayIdFor={displayIdFor} open={railOpen} onToggle={toggleRail} onOpen={setOpen} variant="panel" />
       </div>
 
       <h2 className="text-base font-semibold mb-2">profiles</h2>
@@ -324,32 +338,29 @@ export default function App() {
         open={open}
         onOpen={setOpen}
       />
+      </div>
 
-      <h2 className="text-base font-semibold mb-2">events</h2>
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
-            <th className="px-2 py-1">ts</th>
-            <th className="px-2 py-1">profile</th>
-            <th className="px-2 py-1">ref</th>
-            <th className="px-2 py-1">step</th>
-            <th className="px-2 py-1">event</th>
-            <th className="px-2 py-1">detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {feed.map((f, i) => (
-            <tr key={i} className="border-b border-[var(--color-border)]">
-              <td className="px-2 py-1 font-mono">{String(f.event.ts ?? "—")}</td>
-              <td className="px-2 py-1 font-mono">{f.profile}</td>
-              <td className="px-2 py-1 font-mono">{String(f.event.ref ?? "—")}</td>
-              <td className="px-2 py-1">{String(f.event.step ?? "—")}</td>
-              <td className="px-2 py-1">{String(f.event.event ?? "—")}</td>
-              <td className="px-2 py-1">{formatEventDetail(f.event)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {railOpen ? (
+        <aside
+          data-activity-rail-wrap
+          className="hidden xl:sticky xl:top-11 xl:block xl:h-[calc(100vh-2.75rem)] xl:w-90 xl:shrink-0 xl:rounded-lg xl:border xl:border-border xl:bg-surface"
+        >
+          <ActivityRail feed={feed} displayIdFor={displayIdFor} open={true} onToggle={toggleRail} onOpen={setOpen} variant="rail" />
+        </aside>
+      ) : (
+        <aside data-activity-rail-wrap className="hidden xl:sticky xl:top-11 xl:block xl:shrink-0">
+          <button
+            type="button"
+            data-activity-toggle
+            aria-expanded={false}
+            onClick={toggleRail}
+            className="rounded-md border border-border bg-surface px-2 py-2 text-label text-muted hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Activity <span className="font-mono">{feed.length}</span>
+          </button>
+        </aside>
+      )}
+      </div>
       {open && (
         <TicketDrawer
           key={`${open.profile}\u0000${open.ref}`}
