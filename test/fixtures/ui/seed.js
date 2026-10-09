@@ -6,13 +6,19 @@
 // now so nothing falls behind the dashboard's 24h stale filter. Not a test — `npm test` only
 // globs test/*.test.js.
 //
-//   node test/fixtures/ui/seed.js <dir>
+//   node test/fixtures/ui/seed.js <dir> [--bulk <n>]
+//
+// `--bulk <n>` (opt-in) adds n recent `done` tickets to the "agenthook" profile so the tickets
+// table's paging and scroll region show up; without it the seed is unchanged.
 import fs from "node:fs";
 import path from "node:path";
 
-const root = process.argv[2];
-if (!root) {
-  console.error("usage: node test/fixtures/ui/seed.js <dir>");
+const args = process.argv.slice(2);
+const bulkAt = args.indexOf("--bulk");
+const bulk = bulkAt === -1 ? 0 : Number(args.splice(bulkAt, 2)[1]);
+const root = args[0];
+if (!root || !Number.isInteger(bulk) || bulk < 0) {
+  console.error("usage: node test/fixtures/ui/seed.js <dir> [--bulk <n>]");
   process.exit(2);
 }
 
@@ -145,7 +151,7 @@ const fixtures = [
     // next boot (recoverInterrupted/restoreQueued), not live.
     running: { "BILL-229": { stepId: "code", startedAt: ago(60 * 24 * 14), model: "sonnet" } },
     queue: [{ kind: "pipeline", ref: "BILL-232", stepId: "review", dedupKey: "k-bill-232" }],
-    held: { "BILL-88": { stepId: "code", reason: "Which currency rounding mode — banker's or half-up?", heldAt: ago(30) } },
+    held: { "BILL-88": { stepId: "code", reason: "Which currency rounding mode — banker's or half-up? Finance's spreadsheet uses half-up but the ledger service rounds to even, and the two disagree on 3% of invoices.", heldAt: ago(30) } },
     refmeta: {
       "BILL-88": { displayId: "BILL-88", title: "Prorate mid-cycle plan changes" },
       "BILL-91": { displayId: "BILL-91", title: "Invoice PDF footer overflow" },
@@ -162,6 +168,29 @@ const fixtures = [
     ],
   },
 ];
+
+// --bulk: n `done` tickets on the first (up) profile, spread over the last ~23h so none is stale.
+// Refs start at 1000, clear of the hand-written ones; models mix full ids and bare aliases.
+const BULK_MODELS = ["claude-opus-5-5", "claude-sonnet-5", "opus", "claude-haiku-5-5", "sonnet"];
+const BULK_TITLES = ["Retry webhook delivery on 5xx", "Tighten worktree cleanup", "Doc: multi-repo routing", "Cap rework loop per step", "Jira transition lookup cache"];
+const spacing = bulk ? Math.max(1, Math.floor((60 * 23 - 30) / bulk)) : 0;
+for (let i = 0; i < bulk; i++) {
+  const f = fixtures[0];
+  const ref = String(1000 + i);
+  const start = 30 + i * spacing;
+  f.refmeta[ref] = {
+    displayId: `#${ref}`,
+    title: `${BULK_TITLES[i % BULK_TITLES.length]} (${i + 1})`,
+    url: `https://github.com/Jesuso/agenthook/issues/${ref}`,
+    ...(i % 3 === 0 ? { pr: 2000 + i } : {}),
+  };
+  // Prepended, so the heartbeat's lastEvent (the file's last line) stays the same.
+  f.events.unshift(
+    { ts: ago(start), event: "run_start", ref, step: "code", model: BULK_MODELS[i % BULK_MODELS.length] },
+    { ts: ago(start - 1), event: "run_end", ref, step: "code", outcome: "advance", costUsd: 0.1 + (i % 7) * 0.37 },
+    { ts: ago(start - 1), event: "pipeline_done", ref, step: "done" },
+  );
+}
 
 for (const f of fixtures) {
   const dir = path.join(root, f.key);

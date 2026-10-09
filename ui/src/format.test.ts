@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration } from "./format";
+import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatModel } from "./format";
 
 describe("formatUp", () => {
   it("reads up, with pid and port only in the tooltip", () => {
@@ -150,5 +150,21 @@ describe("formatDuration", () => {
     expect(formatDuration(-1)).toBe("—");
     expect(formatDuration(NaN)).toBe("—");
     expect(formatDuration(Infinity)).toBe("—");
+  });
+});
+
+describe("formatModel", () => {
+  it("shortens claude-<family>-<maj>[-<min>] ids, keeping the id as the title", () => {
+    expect(formatModel("claude-opus-5-5")).toEqual({ text: "opus 5.5", title: "claude-opus-5-5" });
+    expect(formatModel("claude-sonnet-5")).toEqual({ text: "sonnet 5", title: "claude-sonnet-5" });
+    expect(formatModel("claude-haiku-5-5")).toEqual({ text: "haiku 5.5", title: "claude-haiku-5-5" });
+  });
+  it("passes bare aliases and unknown strings through", () => {
+    expect(formatModel("opus").text).toBe("opus");
+    expect(formatModel("claude-opus-4-20250514").text).toBe("claude-opus-4-20250514");
+    expect(formatModel("gpt-x").text).toBe("gpt-x");
+  });
+  it("renders null as an em dash", () => {
+    expect(formatModel(null)).toEqual({ text: "—" });
   });
 });

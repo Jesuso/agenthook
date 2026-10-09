@@ -44,6 +44,14 @@ export function ticketTitle(t: Pick<TicketRow, "title">): { text: string; unknow
   return { text: "(title unknown — appears after its next run)", unknown: true };
 }
 
+/** "opus 5.5" from "claude-opus-5-5", "sonnet 5" from "claude-sonnet-5"; bare aliases ("opus") and
+ * unknown strings pass through; null → "—". The full id is the tooltip. */
+export function formatModel(id: string | null): { text: string; title?: string } {
+  if (!id) return { text: "—" };
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?$/.exec(id);
+  return { text: m ? `${m[1]} ${m[2]}${m[3] ? `.${m[3]}` : ""}` : id, title: id };
+}
+
 /** "active / maxConcurrent" — null on either side renders as "—". */
 export function formatAgents(p: Pick<ProfileView, "active" | "maxConcurrent">): string {
   return `${p.active ?? "—"} / ${p.maxConcurrent ?? "—"}`;
