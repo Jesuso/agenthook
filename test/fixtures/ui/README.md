@@ -5,6 +5,10 @@ dashboard. The seed covers every ticket status (`running`, `queued`, `held`, `fa
 `idle`), and its timestamps are relative to now, so nothing is hidden by the 24h stale filter.
 `npm test` doesn't run anything here, because it only globs `test/*.test.js`.
 
+`seed.js <dir> --bulk <n>` (opt-in) also adds n recent `done` tickets (titles, mixed model ids, a
+PR on every third) to the `agenthook` profile, so the tickets table's 50-row paging and scroll
+region show up — e.g. `--bulk 60`. Without the flag the seed is unchanged.
+
 ```bash
 npm run build:ui                                   # ui/dist — the server serves the built bundle
 HOME_DIR=$(mktemp -d)

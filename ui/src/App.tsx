@@ -1,16 +1,15 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ProfileView, Snapshot } from "./contract";
-import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, formatDate, profileLabel, profileBadge, ticketTitle } from "./format";
+import { formatUp, formatLastEvent, formatAgents, formatCost, formatDate, profileLabel, profileBadge } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
-import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
-import type { StatusFilter } from "./tickets";
 import { summarize } from "./summary";
 import { appendFeed, formatEventDetail } from "./feed";
 import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
 import { TicketDrawer } from "./TicketDrawer";
+import { TicketsTable } from "./TicketsTable";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
@@ -22,7 +21,7 @@ import { AppBar } from "./AppBar";
 import type { Tab } from "./AppBar";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
-import { Menu, Pill, StatusBadge } from "./components";
+import { Menu, Pill } from "./components";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
@@ -205,13 +204,6 @@ export default function App() {
     );
 
   const now = Date.now();
-  const filtered = filterTickets(state.snapshot.tickets, {
-    profile: profileFilter || null,
-    status: (statusFilter || null) as StatusFilter | null,
-    showAll,
-    now,
-  });
-  const tickets = sortTickets(filtered);
   const summary = summarize(state.snapshot, now);
   const needsYouActive = statusFilter === "needs-you";
   const needsYouTone = state.snapshot.tickets.some((t) => t.status === "failed") ? "text-status-failed" : "text-status-held";
@@ -319,109 +311,19 @@ export default function App() {
         </tbody>
       </table>
 
-      <h2 className="text-base font-semibold mb-2">tickets</h2>
-      <div className="flex items-center gap-3 mb-2 text-sm">
-        <select
-          className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
-          value={profileFilter}
-          onChange={(e) => setProfileFilter(e.target.value)}
-        >
-          <option value="">all profiles</option>
-          {state.snapshot.profiles.map((p) => (
-            <option key={p.name} value={p.name}>
-              {profileLabel(p)}
-            </option>
-          ))}
-        </select>
-        <select
-          className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="">all statuses</option>
-          <option value="needs-you">needs you (held + failed)</option>
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1">
-          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-          show all
-        </label>
-        <span className="text-[var(--color-muted)]">
-          {tickets.length} shown / {state.snapshot.tickets.length} total
-        </span>
-      </div>
-      <table className="w-full border-collapse text-sm mb-6">
-        <thead>
-          <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
-            <th className="px-2 py-1">id</th>
-            <th className="px-2 py-1">title</th>
-            <th className="px-2 py-1">profile</th>
-            <th className="px-2 py-1">step</th>
-            <th className="px-2 py-1">status</th>
-            <th className="px-2 py-1">model</th>
-            <th className="px-2 py-1">started</th>
-            <th className="px-2 py-1">cost</th>
-            <th className="px-2 py-1">held reason</th>
-            <th className="px-2 py-1">PR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tickets.map((t) => (
-            <tr
-              key={`${t.profile}\u0000${t.ref}`}
-              data-ticket-row={t.ref}
-              className={`cursor-pointer border-b border-[var(--color-border)] ${open?.profile === t.profile && open.ref === t.ref ? "bg-[var(--color-border)]" : ""}`}
-              onClick={(e) => {
-                // Links in the row (tracker, PR) keep their own behavior.
-                if ((e.target as HTMLElement).closest("a")) return;
-                setOpen({ profile: t.profile, ref: t.ref });
-              }}
-            >
-              <td className="px-2 py-1 font-mono">
-                {t.trackerUrl ? (
-                  <a href={t.trackerUrl} target="_blank" rel="noopener noreferrer">
-                    {t.displayId}
-                  </a>
-                ) : (
-                  t.displayId
-                )}
-              </td>
-              <td className={`px-2 py-1 ${ticketTitle(t).unknown ? "text-[var(--color-muted)]" : ""}`}>{ticketTitle(t).text}</td>
-              <td className="px-2 py-1 font-mono">{t.profile}</td>
-              <td className="px-2 py-1">{t.step ?? "—"}</td>
-              <td
-                className="px-2 py-1"
-                title={
-                  t.status === "interrupted"
-                    ? "receiver is down — this run was interrupted"
-                    : t.status === "stalled"
-                      ? "receiver is down — will resume when it restarts"
-                      : undefined
-                }
-              >
-                <StatusBadge status={t.status} />
-              </td>
-              <td className="px-2 py-1">{t.model ?? "—"}</td>
-              <td className="px-2 py-1">{formatRelative(t.startedAt, now)}</td>
-              <td className="px-2 py-1">{formatCost(t.costUsd)}</td>
-              <td className="px-2 py-1">{t.heldReason ?? "—"}</td>
-              <td className="px-2 py-1">
-                {t.prUrl ? (
-                  <a href={t.prUrl} target="_blank" rel="noopener noreferrer">
-                    PR
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <TicketsTable
+        tickets={state.snapshot.tickets}
+        profiles={state.snapshot.profiles}
+        now={now}
+        profileFilter={profileFilter}
+        onProfileFilter={setProfileFilter}
+        statusFilter={statusFilter}
+        onStatusFilter={setStatusFilter}
+        showAll={showAll}
+        onShowAll={setShowAll}
+        open={open}
+        onOpen={setOpen}
+      />
 
       <h2 className="text-base font-semibold mb-2">events</h2>
       <table className="w-full border-collapse text-sm">

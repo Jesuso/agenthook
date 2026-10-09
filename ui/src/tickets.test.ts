@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortTickets, filterTickets, isStale, prNumber, STATUS_ORDER } from "./tickets";
+import { sortTickets, filterTickets, isStale, prNumber, statusCounts, pageLimit, showMore, PAGE_SIZE } from "./tickets";
 import type { TicketRow } from "./contract";
 
 function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; status: TicketRow["status"] }): TicketRow {
@@ -50,7 +50,7 @@ describe("isStale", () => {
 });
 
 describe("sortTickets", () => {
-  it("orders by status rank", () => {
+  it("pins held/failed/interrupted first, then running → queued → stalled → done → idle", () => {
     const rows = [
       ticket({ profile: "a", ref: "1", status: "idle" }),
       ticket({ profile: "a", ref: "2", status: "running" }),
@@ -62,7 +62,18 @@ describe("sortTickets", () => {
       ticket({ profile: "a", ref: "8", status: "stalled" }),
     ];
     const sorted = sortTickets(rows).map((r) => r.status);
-    expect(sorted).toEqual(STATUS_ORDER);
+    expect(new Set(sorted.slice(0, 3))).toEqual(new Set(["held", "failed", "interrupted"]));
+    expect(sorted.slice(3)).toEqual(["running", "queued", "stalled", "done", "idle"]);
+  });
+
+  it("the pinned group is one rank: newest first across held/failed/interrupted", () => {
+    const rows = [
+      ticket({ profile: "a", ref: "1", status: "held", startedAt: "2026-10-01T00:00:00Z" }),
+      ticket({ profile: "a", ref: "2", status: "running", startedAt: "2026-10-08T00:00:00Z" }),
+      ticket({ profile: "a", ref: "3", status: "interrupted", startedAt: "2026-10-07T00:00:00Z" }),
+      ticket({ profile: "a", ref: "4", status: "failed", startedAt: "2026-10-03T00:00:00Z" }),
+    ];
+    expect(sortTickets(rows).map((r) => r.ref)).toEqual(["3", "4", "1", "2"]);
   });
 
   it("within a status, sorts startedAt descending with nulls last", () => {
@@ -129,5 +140,44 @@ describe("prNumber", () => {
     expect(prNumber("")).toBeNull();
     expect(prNumber("https://github.com/Jesuso/agenthook/issues/230")).toBeNull();
     expect(prNumber("https://github.com/Jesuso/agenthook/pull/230/files")).toBeNull();
+  });
+});
+
+describe("statusCounts", () => {
+  const rows = [
+    ticket({ profile: "a", ref: "1", status: "running" }),
+    ticket({ profile: "a", ref: "2", status: "held" }),
+    ticket({ profile: "a", ref: "3", status: "done", startedAt: null }),
+    ticket({ profile: "b", ref: "4", status: "failed" }),
+    ticket({ profile: "b", ref: "5", status: "interrupted" }),
+  ];
+
+  it("counts every status, all, and needs-you (held + failed only)", () => {
+    const c = statusCounts(rows, { profile: null, showAll: true, now: NOW });
+    expect(c.all).toBe(5);
+    expect(c["needs-you"]).toBe(2);
+    expect([c.running, c.held, c.done, c.failed, c.interrupted, c.queued]).toEqual([1, 1, 1, 1, 1, 0]);
+  });
+
+  it("applies the profile and stale filters first", () => {
+    const c = statusCounts(rows, { profile: "a", showAll: false, now: NOW });
+    expect(c.all).toBe(2);
+    expect(c.done).toBe(0);
+    expect(c.failed).toBe(0);
+    expect(c["needs-you"]).toBe(1);
+  });
+});
+
+describe("paging", () => {
+  it("grows by a page under the same filters", () => {
+    const p = showMore({ key: "k", limit: PAGE_SIZE }, "k");
+    expect(pageLimit(p, "k")).toBe(2 * PAGE_SIZE);
+    expect(pageLimit(showMore(p, "k"), "k")).toBe(3 * PAGE_SIZE);
+  });
+
+  it("resets to one page when the filters change", () => {
+    const p = showMore({ key: "k", limit: PAGE_SIZE }, "k");
+    expect(pageLimit(p, "other")).toBe(PAGE_SIZE);
+    expect(pageLimit(showMore(p, "other"), "other")).toBe(2 * PAGE_SIZE);
   });
 });
