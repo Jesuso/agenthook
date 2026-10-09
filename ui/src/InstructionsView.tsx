@@ -247,9 +247,9 @@ export default function InstructionsView(props: {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
-      <div className="mb-3 flex items-center gap-3 text-sm">
+      <div className="mb-3 flex min-w-0 items-center gap-3 text-sm">
         <select
-          className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
+          className="shrink-0 border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
           value={profile}
           onChange={(e) => pickProfile(e.target.value)}
         >
@@ -260,13 +260,13 @@ export default function InstructionsView(props: {
           ))}
         </select>
         {list.kind === "ok" && list.body.configPath && (
-          <span className="truncate font-mono text-xs text-[var(--color-muted)]" title={list.body.configPath}>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]" title={list.body.configPath}>
             {list.body.configPath}
           </span>
         )}
       </div>
       <div className="flex min-h-0 flex-1 gap-4">
-        <nav className="w-72 shrink-0 overflow-auto text-sm">
+        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48">
           {list.kind === "loading" && <p className="text-muted">Loading files…</p>}
           {list.kind === "ok" &&
             groupFiles(list.body.files).map((g) => (
@@ -317,8 +317,8 @@ export default function InstructionsView(props: {
           )}
           {open && (
             <>
-              <div className="mb-2 flex items-center gap-3 text-sm">
-                <span className="truncate font-mono" title={open.path}>
+              <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
+                <span className="min-w-0 flex-1 basis-32 truncate font-mono" title={open.path}>
                   {open.path}
                 </span>
                 {phase === "saving" ? (
@@ -331,7 +331,7 @@ export default function InstructionsView(props: {
                   options={[
                     { value: "none", label: "Editor" },
                     { value: "preview", label: "Preview" },
-                    { value: "agent", label: "What the agent sees" },
+                    { value: "agent", label: <><span className="lg:hidden">Agent</span><span className="max-lg:hidden">What the agent sees</span></> },
                   ]}
                   onChange={setSide}
                 />

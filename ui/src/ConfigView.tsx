@@ -383,7 +383,7 @@ export default function ConfigView(props: {
         {phase === "saving" ? (
           <span className="shrink-0 text-[var(--color-muted)]">saving…</span>
         ) : (
-          dirty && <span className="shrink-0 text-[var(--color-warn)]">● modified</span>
+          dirty && <span className="shrink-0 text-status-held">● modified</span>
         )}
         {open && (
           <button
@@ -398,7 +398,7 @@ export default function ConfigView(props: {
       </div>
       {file.kind === "loading" && <p className="text-sm">Loading config…</p>}
       {file.kind === "error" && (
-        <p className="text-sm text-[var(--color-err)]">
+        <p className="text-sm text-status-failed">
           {file.status === 404
             ? "This profile's receiver hasn't published a config path (start it once)."
             : `Failed to load the config (status ${file.status}).`}
@@ -412,7 +412,7 @@ export default function ConfigView(props: {
               {restartLine && (
                 <span
                   className={
-                    restart.kind === "error" ? "text-[var(--color-err)]" : restart.kind === "up" ? "text-[var(--color-ok)]" : "text-[var(--color-muted)]"
+                    restart.kind === "error" ? "text-status-failed" : restart.kind === "up" ? "text-status-done" : "text-[var(--color-muted)]"
                   }
                 >
                   {restartLine}
@@ -442,7 +442,7 @@ export default function ConfigView(props: {
               {restartLine && (
                 <span
                   className={
-                    restart.kind === "error" ? "text-[var(--color-err)]" : restart.kind === "up" ? "text-[var(--color-ok)]" : "text-[var(--color-muted)]"
+                    restart.kind === "error" ? "text-status-failed" : restart.kind === "up" ? "text-status-done" : "text-[var(--color-muted)]"
                   }
                 >
                   {restartLine}
@@ -478,18 +478,18 @@ export default function ConfigView(props: {
             )
           )}
           {(phase === "conflict" || phase === "deleted") && (
-            <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-3 py-1.5 text-sm text-[var(--color-warn)]">
+            <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
               {phase === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
               <span className="ml-auto flex gap-2">
-                <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={() => load(open.profile)}>
+                <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile)}>
                   Reload
                 </button>
                 {phase === "conflict" && (
                   <>
-                    <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={showDiff}>
+                    <button className="rounded border border-status-held px-2 py-0.5" onClick={showDiff}>
                       Diff
                     </button>
-                    <button className="rounded border border-[var(--color-warn)] px-2 py-0.5" onClick={overwrite}>
+                    <button className="rounded border border-status-held px-2 py-0.5" onClick={overwrite}>
                       Overwrite
                     </button>
                   </>
@@ -498,7 +498,7 @@ export default function ConfigView(props: {
             </div>
           )}
           {file.meta.literalSecrets.length > 0 && (
-            <div className="mb-2 rounded border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-3 py-1.5 text-sm text-[var(--color-warn)]">
+            <div className="mb-2 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
               ⚠ Literal secret{file.meta.literalSecrets.length === 1 ? "" : "s"} in{" "}
               <span className="font-mono">{file.meta.literalSecrets.join(", ")}</span> — prefer a <span className="font-mono">{"${VAR}"}</span> ref
               (saving is still allowed).
@@ -508,18 +508,18 @@ export default function ConfigView(props: {
             const valid = parsed?.ok && checks.length === 0 && file.meta.errors.length === 0;
             if (valid) {
               return (
-                <div className="mb-2 rounded border border-[var(--color-ok)] bg-[var(--color-ok)]/10 px-3 py-1 text-sm text-[var(--color-ok)]">
+                <div className="mb-2 rounded border border-status-done bg-status-done-bg px-3 py-1 text-sm text-status-done">
                   ✓ valid (server: {META_LABEL[file.meta.as]})
                 </div>
               );
             }
             return (
-              <div className="mb-2 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-2 text-sm">
-                {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-[var(--color-err)]">{parsed.error}</p>}
+              <div className="mb-2 rounded border border-status-failed bg-status-failed-bg px-3 py-2 text-sm">
+                {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-status-failed">{parsed.error}</p>}
                 {checks.length > 0 && (
                   <>
                     <h4 className="mb-1 text-xs text-[var(--color-muted)]">pipeline checks (the server decides on save)</h4>
-                    <ul className="mb-2 list-disc space-y-1 pl-4 text-[var(--color-warn)]">
+                    <ul className="mb-2 list-disc space-y-1 pl-4 text-status-held">
                       {checks.map((e, i) => (
                         <li key={i} className="break-words">
                           {e}
@@ -531,7 +531,7 @@ export default function ConfigView(props: {
                 {file.meta.errors.length > 0 && (
                   <>
                     <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
-                    <ul className="list-disc space-y-1 pl-4 text-[var(--color-err)]">
+                    <ul className="list-disc space-y-1 pl-4 text-status-failed">
                       {file.meta.errors.map((e, i) => (
                         <li key={i} className="break-words">
                           {e}
@@ -611,7 +611,7 @@ export default function ConfigView(props: {
         <Modal title="Save agenthook.config.json?" onClose={() => act({ type: "cancel" })}>
           <p className="mb-2 text-sm text-[var(--color-muted)]">The receiver reads its config at boot — this takes effect on restart.</p>
           {sensitive.length > 0 && (
-            <div className="mb-2 rounded border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-3 py-2 text-sm text-[var(--color-warn)]">
+            <div className="mb-2 rounded border border-status-held bg-status-held-bg px-3 py-2 text-sm text-status-held">
               <p className="mb-1 font-semibold">Sensitive fields change:</p>
               <ul className="mb-2 font-mono text-xs">
                 {sensitive.map((c) => (
@@ -682,14 +682,14 @@ export default function ConfigView(props: {
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setDiff(false)}>
               Close
             </button>
-            <button className="rounded border border-[var(--color-warn)] px-3 py-1 text-[var(--color-warn)]" onClick={overwrite}>
+            <button className="rounded border border-status-held px-3 py-1 text-status-held" onClick={overwrite}>
               Overwrite
             </button>
           </div>
         </Modal>
       )}
       {toast && (
-        <div role="alert" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded border border-[var(--color-err)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-err)] shadow">
+        <div role="alert" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded border border-status-failed bg-[var(--color-bg)] px-3 py-2 text-sm text-status-failed shadow">
           {toast}
           <button aria-label="dismiss" onClick={() => setToast(null)}>
             ×

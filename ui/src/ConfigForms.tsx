@@ -45,7 +45,7 @@ function Field(props: { label: string; hint?: string; error?: string | null; chi
         {props.hint && <span className="ml-1 font-mono opacity-70">{props.hint}</span>}
       </span>
       {props.children}
-      {props.error && <span className="text-xs text-[var(--color-err)]">{props.error}</span>}
+      {props.error && <span className="text-xs text-status-failed">{props.error}</span>}
     </label>
   );
 }
@@ -262,7 +262,7 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <NumberField {...edit} label="Local port" hint="port" path={["port"]} value={b.port} placeholder="4123 (default)" />
         <div className="col-span-2 flex flex-col gap-1">
           <CheckField {...edit} label="Full auto (skip permissions)" hint="fullAuto" path={["fullAuto"]} value={b.fullAuto} explicitFalse />
-          <p className="text-xs text-[var(--color-warn)]">
+          <p className="text-xs text-status-held">
             fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
           </p>
         </div>

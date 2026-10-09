@@ -32,7 +32,9 @@ describe("ProfileNameCell", () => {
     const html = renderToStaticMarkup(createElement(ProfileNameCell, { p: base }));
     expect(html).toContain("~/p/agenthook.config.json");
     // visible text, not only the name's title attribute
-    expect(html).toContain('<div class="font-mono text-label text-muted" title="~/p/agenthook.config.json">~/p/agenthook.config.json</div>');
+    expect(html).toContain(
+      '<div class="block max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title="~/p/agenthook.config.json">~/p/agenthook.config.json</div>',
+    );
   });
 
   it("shows the never-ran badge with its created date for a ghost profile", () => {
