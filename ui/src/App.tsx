@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ProfileView, Snapshot } from "./contract";
-import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, profileLabel, profileBadge, ticketTitle } from "./format";
+import { formatUp, formatLastEvent, formatAgents, formatRelative, formatCost, formatDate, profileLabel, profileBadge, ticketTitle } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { sortTickets, filterTickets, STATUS_ORDER } from "./tickets";
@@ -270,24 +270,13 @@ export default function App() {
         <tbody>
           {state.snapshot.profiles.map((p) => {
             const up = formatUp(p);
-            const badge = profileBadge(p);
             const pending = pendingRemoval[p.name] !== undefined;
             const displayId = p.lastEvent ? state.snapshot.tickets.find((t) => t.profile === p.name && t.ref === p.lastEvent?.ref)?.displayId ?? null : null;
             const lastEvent = formatLastEvent(p.lastEvent, displayId, now);
             return (
               <tr key={p.name} data-profile-row={p.name} className="border-b border-border-subtle">
                 <td className="px-2 py-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono" title={p.configPath ?? undefined}>
-                      {profileLabel(p)}
-                    </span>
-                    {p.fullAuto && <FullAutoShield />}
-                    {badge && (
-                      <Pill tone={badge.kind === "missing" ? "held" : "neutral"} title={badge.title}>
-                        {badge.text}
-                      </Pill>
-                    )}
-                  </div>
+                  <ProfileNameCell p={p} />
                 </td>
                 <td className="px-2 py-1">
                   <span title={up.title} className={`inline-flex items-center gap-1.5 ${p.up ? "text-success" : "text-status-failed"}`}>
@@ -510,6 +499,36 @@ function SummaryTile({ label, title, children }: { label: string; title?: string
       <div className="text-label uppercase tracking-wide text-muted">{label}</div>
       <div className="text-title font-semibold">{children}</div>
     </div>
+  );
+}
+
+/** A profile's name cell: label, fullAuto shield, ghost/config-missing badge, and the visible (tildified) config path. */
+export function ProfileNameCell({ p }: { p: ProfileView }) {
+  const badge = profileBadge(p);
+  return (
+    <>
+      <div className="flex items-center gap-1.5">
+        <span className="font-mono" title={p.configPath ?? undefined}>
+          {profileLabel(p)}
+        </span>
+        {p.fullAuto && <FullAutoShield />}
+        {badge && (
+          <Pill tone={badge.kind === "missing" ? "held" : "neutral"} title={badge.title}>
+            {badge.text}
+          </Pill>
+        )}
+        {badge?.kind === "ghost" && (
+          <span className="text-label text-muted" title={badge.title}>
+            created {formatDate(p.createdAt)}
+          </span>
+        )}
+      </div>
+      {p.configPath && (
+        <div className="font-mono text-label text-muted" title={p.configPath}>
+          {p.configPath}
+        </div>
+      )}
+    </>
   );
 }
 
