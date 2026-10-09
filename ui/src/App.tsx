@@ -260,8 +260,7 @@ export default function App() {
       </div>
 
       <h2 className="text-base font-semibold mb-2">profiles</h2>
-      <div className="mb-6 overflow-x-auto">
-      <table className="w-full border-collapse text-body">
+      <table className="mb-6 w-full border-collapse text-body">
         <thead>
           <tr className="border-b border-border text-left text-label text-muted">
             <th className="px-2 py-1 font-medium">profile</th>
@@ -325,7 +324,6 @@ export default function App() {
           })}
         </tbody>
       </table>
-      </div>
 
       <TicketsTable
         tickets={state.snapshot.tickets}
@@ -422,7 +420,7 @@ export function ProfileNameCell({ p }: { p: ProfileView }) {
   const badge = profileBadge(p);
   return (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
         <span className="font-mono" title={p.configPath ?? undefined}>
           {profileLabel(p)}
         </span>
