@@ -49,11 +49,28 @@ google-chrome --headless --screenshot=out.png --window-size=1440,900 --timeout=4
   --blink-settings=preferredColorScheme=0 '<printed ?token= URL>'   # 0 = dark, 1 = light
 ```
 
+## Activity rail (#226 — live-only)
+
+The Activity rail shows only events appended to `events.jsonl` while the page is open — the
+static seed never reaches it. `pulse.js` appends a realistic mix (run_start / run_end with costs /
+enqueued / blocked / failed / merged / one restarting) to a seeded profile's `events.jsonl`,
+backdated across ~2.5 minutes so the rail's minute grouping has more than one header:
+
+```bash
+node test/fixtures/ui/pulse.js "$HOME_DIR" --count 9      # while a browser tab is open on the UI
+node test/fixtures/ui/shoot.js '<printed ?token= URL>' rail.png --wait '[data-activity-line]'
+```
+
+Combine with `--click` to screenshot the rail collapsed, or a narrow viewport to get the "Activity"
+panel under the summary strip instead of the right-hand rail (`--size 900x900`).
+
 Notes:
 - "Up" profiles write `server.pid` = `1`. PID 1 always exists (`kill(1, 0)` gives `EPERM`, which
   counts as alive), so they read as up. There's no `control.sock` behind them, so *Remove…* on one
   answers 409 (live pid, dead socket) and never archives anything.
 - Each profile's stub `agenthook.config.json` sits inside its state dir, because any other
   directory under `AGENTHOOK_HOME` would be listed as a profile.
-- The events table stays empty: it shows live SSE events only, and the fixture is static.
+- The Activity rail (and the events it's built from) stays empty until `pulse.js` or a real
+  receiver appends to `events.jsonl` — it shows live SSE events only, and the static seed never
+  reaches it.
 - PNGs for a PR go under `docs/ui-screens/<issue>-{before,after}-{dark,light}.png`.
