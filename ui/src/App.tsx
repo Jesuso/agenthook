@@ -260,16 +260,16 @@ export default function App() {
       </div>
 
       <h2 className="text-base font-semibold mb-2">profiles</h2>
-      <table className="w-full border-collapse text-body mb-6">
+      <table className="mb-6 w-full border-collapse text-body">
         <thead>
           <tr className="border-b border-border text-left text-label text-muted">
             <th className="px-2 py-1 font-medium">profile</th>
-            <th className="px-2 py-1 font-medium">status</th>
-            <th className="px-2 py-1 font-medium">tracker</th>
-            <th className="px-2 py-1 font-medium">ingress</th>
-            <th className="px-2 py-1 font-medium">agents</th>
-            <th className="px-2 py-1 font-medium">queued</th>
-            <th className="px-2 py-1 font-medium">last event</th>
+            <th className="px-2 py-1 font-medium whitespace-nowrap">status</th>
+            <th className="px-2 py-1 font-medium max-lg:hidden">tracker</th>
+            <th className="px-2 py-1 font-medium max-lg:hidden">ingress</th>
+            <th className="px-2 py-1 font-medium whitespace-nowrap">agents</th>
+            <th className="px-2 py-1 font-medium whitespace-nowrap">queued</th>
+            <th className="px-2 py-1 font-medium min-w-48 max-lg:min-w-36">last event</th>
             <th className="px-2 py-1" />
           </tr>
         </thead>
@@ -281,22 +281,22 @@ export default function App() {
             const lastEvent = formatLastEvent(p.lastEvent, displayId, now);
             return (
               <tr key={p.name} data-profile-row={p.name} className="border-b border-border-subtle">
-                <td className="px-2 py-1">
+                <td className="px-2 py-1 min-w-0">
                   <ProfileNameCell p={p} />
                 </td>
-                <td className="px-2 py-1">
+                <td className="px-2 py-1 whitespace-nowrap">
                   <span title={up.title} className={`inline-flex items-center gap-1.5 ${p.up ? "text-success" : "text-status-failed"}`}>
                     <span aria-hidden="true" className="size-2 rounded-full bg-current" />
                     {up.text}
                   </span>
                 </td>
-                <td className="px-2 py-1">{p.tracker ? <Pill>{p.tracker}</Pill> : <span className="text-muted">—</span>}</td>
-                <td className="px-2 py-1">{p.ingress ? <Pill>{p.ingress}</Pill> : <span className="text-muted">—</span>}</td>
-                <td className="px-2 py-1">
+                <td className="px-2 py-1 max-lg:hidden">{p.tracker ? <Pill>{p.tracker}</Pill> : <span className="text-muted">—</span>}</td>
+                <td className="px-2 py-1 max-lg:hidden">{p.ingress ? <Pill>{p.ingress}</Pill> : <span className="text-muted">—</span>}</td>
+                <td className="px-2 py-1 whitespace-nowrap">
                   <AgentsBar p={p} />
                 </td>
-                <td className="px-2 py-1 font-mono">{p.queued ?? <span className="text-muted">—</span>}</td>
-                <td className="px-2 py-1" title={lastEvent.title}>
+                <td className="px-2 py-1 font-mono whitespace-nowrap">{p.queued ?? <span className="text-muted">—</span>}</td>
+                <td className="px-2 py-1 min-w-48 max-lg:min-w-36" title={lastEvent.title}>
                   {lastEvent.text}
                 </td>
                 <td className="px-2 py-1 text-right whitespace-nowrap">
@@ -420,7 +420,7 @@ export function ProfileNameCell({ p }: { p: ProfileView }) {
   const badge = profileBadge(p);
   return (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
         <span className="font-mono" title={p.configPath ?? undefined}>
           {profileLabel(p)}
         </span>
@@ -437,7 +437,7 @@ export function ProfileNameCell({ p }: { p: ProfileView }) {
         )}
       </div>
       {p.configPath && (
-        <div className="font-mono text-label text-muted" title={p.configPath}>
+        <div className="block max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title={p.configPath}>
           {p.configPath}
         </div>
       )}
@@ -454,7 +454,7 @@ function AgentsBar({ p }: { p: ProfileView }) {
       <span aria-hidden="true" className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-raised">
         <span className="block h-full rounded-full bg-status-running" style={{ width: `${fill * 100}%` }} />
       </span>
-      <span className="font-mono text-label">{formatAgents(p)}</span>
+      <span className="font-mono text-label whitespace-nowrap">{formatAgents(p)}</span>
     </span>
   );
 }
