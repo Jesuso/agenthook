@@ -36,6 +36,7 @@ export function AppBar({ connection, tab, onTab }: { connection: ConnectionState
             <button
               key={t}
               type="button"
+              data-tab={t}
               aria-current={t === tab ? "page" : undefined}
               className={`rounded-md px-3 py-1 text-label font-medium capitalize ${
                 t === tab ? "bg-surface-raised text-fg ring-1 ring-inset ring-border-strong" : "text-muted hover:bg-surface-raised hover:text-fg"

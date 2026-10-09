@@ -5,10 +5,12 @@
 // races the snapshot fetch — so this waits for a selector before capturing.
 //
 //   node test/fixtures/ui/shoot.js '<?token= URL>' <out.png> [--scheme dark|light]
-//     [--size 1440x900] [--wait <css selector>] [--click <css selector>] [--chrome <bin>]
+//     [--size 1440x900] [--wait <css selector>] [--click <css selector>]... [--chrome <bin>]
 //
-// `--click` waits for its selector, clicks the first match, then waits for `--wait` (e.g. open the
-// ticket drawer: `--click '[data-ticket-row="221"]' --wait '[data-drawer] pre'`).
+// `--click` waits for its selector, clicks the first match, then waits for `--wait`. Repeatable:
+// each `--click` is applied in order, waiting for its own selector before clicking (e.g. open the
+// ticket drawer: `--click '[data-ticket-row="221"]' --wait '[data-drawer] pre'`; reach Config →
+// Pipeline: `--click '[data-tab="config"]' --click '[data-config-pane="pipeline"]' --wait '[data-step-card]'`).
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,14 +25,24 @@ const opt = (name, def) => {
   argv.splice(i, 2);
   return v;
 };
+/** @param {string} name */
+const optAll = (name) => {
+  const out = [];
+  for (;;) {
+    const i = argv.indexOf(`--${name}`);
+    if (i === -1) return out;
+    out.push(argv[i + 1]);
+    argv.splice(i, 2);
+  }
+};
 const scheme = opt("scheme", "dark");
 const [width, height] = opt("size", "1440x900").split("x").map(Number);
 const waitFor = opt("wait", "table tbody tr");
-const click = opt("click", "");
+const clicks = optAll("click");
 const chrome = opt("chrome", "google-chrome");
 const [url, out] = argv;
 if (!url || !out) {
-  console.error("usage: node test/fixtures/ui/shoot.js '<url>' <out.png> [--scheme dark|light] [--size WxH] [--wait <selector>] [--click <selector>]");
+  console.error("usage: node test/fixtures/ui/shoot.js '<url>' <out.png> [--scheme dark|light] [--size WxH] [--wait <selector>] [--click <selector>]...");
   process.exit(2);
 }
 
@@ -104,7 +116,7 @@ try {
       await new Promise((r) => setTimeout(r, 100));
     }
   };
-  if (click) {
+  for (const click of clicks) {
     await waitSel(click);
     await s("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(click)}).click()` });
   }

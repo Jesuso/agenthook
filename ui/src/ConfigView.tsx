@@ -502,10 +502,50 @@ export default function ConfigView(props: {
               (saving is still allowed).
             </div>
           )}
+          {(() => {
+            const valid = parsed?.ok && checks.length === 0 && file.meta.errors.length === 0;
+            if (valid) {
+              return (
+                <div className="mb-2 rounded border border-[var(--color-ok)] bg-[var(--color-ok)]/10 px-3 py-1 text-sm text-[var(--color-ok)]">
+                  ✓ valid (server: {META_LABEL[file.meta.as]})
+                </div>
+              );
+            }
+            return (
+              <div className="mb-2 rounded border border-[var(--color-err)] bg-[var(--color-err)]/10 px-3 py-2 text-sm">
+                {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-[var(--color-err)]">{parsed.error}</p>}
+                {checks.length > 0 && (
+                  <>
+                    <h4 className="mb-1 text-xs text-[var(--color-muted)]">pipeline checks (the server decides on save)</h4>
+                    <ul className="mb-2 list-disc space-y-1 pl-4 text-[var(--color-warn)]">
+                      {checks.map((e, i) => (
+                        <li key={i} className="break-words">
+                          {e}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {file.meta.errors.length > 0 && (
+                  <>
+                    <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
+                    <ul className="list-disc space-y-1 pl-4 text-[var(--color-err)]">
+                      {file.meta.errors.map((e, i) => (
+                        <li key={i} className="break-words">
+                          {e}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            );
+          })()}
           <div className="mb-2 flex gap-1 border-b border-[var(--color-border)] text-sm">
             {(["raw", "basics", "pipeline"] as const).map((t) => (
               <button
                 key={t}
+                data-config-pane={t}
                 className={`-mb-px border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${t === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
                 disabled={t !== "raw" && !parsed?.ok}
                 title={t !== "raw" && !parsed?.ok ? "fix the JSON in Raw first" : undefined}
@@ -540,7 +580,7 @@ export default function ConfigView(props: {
               </div>
             )}
           </div>
-          <div className="flex min-h-0 flex-1 gap-3">
+          <div className="flex min-h-0 flex-1">
             <div className="min-w-0 flex-1 overflow-auto">
               {pane === "raw" || !parsed?.ok ? (
                 <MarkdownEditor
@@ -562,38 +602,6 @@ export default function ConfigView(props: {
                 />
               )}
             </div>
-            <aside className="w-80 shrink-0 overflow-auto text-sm">
-              <h3 className="mb-1 text-xs uppercase tracking-wide text-[var(--color-muted)]">validation</h3>
-              {parsed?.ok ? (
-                <p className="mb-2 text-[var(--color-ok)]">JSON parses.</p>
-              ) : (
-                <p className="mb-2 break-words font-mono text-xs text-[var(--color-err)]">{parsed?.error}</p>
-              )}
-              {checks.length > 0 && (
-                <>
-                  <h4 className="mb-1 text-xs text-[var(--color-muted)]">pipeline checks (the server decides on save)</h4>
-                  <ul className="mb-2 list-disc space-y-1 pl-4 text-[var(--color-warn)]">
-                    {checks.map((e, i) => (
-                      <li key={i} className="break-words">
-                        {e}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
-              {file.meta.errors.length === 0 ? (
-                <p className="text-[var(--color-ok)]">valid</p>
-              ) : (
-                <ul className="list-disc space-y-1 pl-4 text-[var(--color-err)]">
-                  {file.meta.errors.map((e, i) => (
-                    <li key={i} className="break-words">
-                      {e}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </aside>
           </div>
         </>
       )}

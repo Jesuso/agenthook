@@ -24,6 +24,14 @@ node test/fixtures/ui/shoot.js '<printed ?token= URL>' out-light.png --scheme li
 
 # the ticket drawer, open on the running ticket (fixture ref 221 has a live run + log):
 node test/fixtures/ui/shoot.js '<printed ?token= URL>' drawer.png --click '[data-ticket-row="221"]' --wait '[data-drawer] pre'
+
+# Config → Basics (two clicks: app-bar tab, then the Config pane tab — `--click` is repeatable):
+node test/fixtures/ui/shoot.js '<printed ?token= URL>' config-basics.png \
+  --click '[data-tab="config"]' --click '[data-config-pane="basics"]' --wait 'input[name="name"]'
+
+# Config → Pipeline (one step card renders once discover's stage list has loaded):
+node test/fixtures/ui/shoot.js '<printed ?token= URL>' config-pipeline.png \
+  --click '[data-tab="config"]' --click '[data-config-pane="pipeline"]' --wait '[data-step-card]'
 ```
 
 `shoot.js` drives `google-chrome --headless` over the DevTools protocol (Node 22's built-in
