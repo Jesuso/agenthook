@@ -318,3 +318,21 @@ test("release reports a dropped resume job instead of claiming it was queued", a
   s.store.setHeld("5", { stepId: "code", heldAt: "x" });
   await assert.rejects(() => s.ops.release({ ref: "5", comment: "go" }), /resume job was not accepted/);
 });
+
+test("dismiss writes a dismissed event; refuses running, queued and held refs", async () => {
+  const killed = new Set(["RUN"]);
+  const s = setup({ killed });
+  const ok = await s.ops.dismiss({ ref: "F" });
+  assert.deepEqual(ok, { ref: "F", dismissed: true });
+  assert.deepEqual(s.events.at(-1), ["dismissed", "F", "", { by: "operator" }]);
+  await assert.rejects(() => s.ops.dismiss({}), /ref is required/);
+  s.store.setHeld("H", { stepId: "code", heldAt: "x" });
+  await assert.rejects(() => s.ops.dismiss({ ref: "H" }), /is held/);
+  s.store.setRunning("R", { stepId: "code", startedAt: "x" });
+  await assert.rejects(() => s.ops.dismiss({ ref: "R" }), /is running/);
+  s.queue.enqueue({ kind: "pipeline", ref: "X", stepId: "code", dedupKey: "x" });
+  s.queue.enqueue({ kind: "pipeline", ref: "Q", stepId: "code", dedupKey: "q" });
+  await assert.rejects(() => s.ops.dismiss({ ref: "Q" }), /is queued/);
+  assert.equal(s.events.filter((e) => e[0] === "dismissed").length, 1, "refusals write nothing");
+  assert.ok(s.audit().some((l) => l.cmd === "dismiss" && l.ok === true));
+});

@@ -159,6 +159,14 @@ const TOOLS = {
       ["ref", "comment"],
     ),
   },
+  dismiss: {
+    write: true,
+    def: schema(
+      "Acknowledge a FAILED or CANCELLED task so the dashboard stops counting it as needing attention (writes a `dismissed` event; the ticket and board are untouched). Errors if the task is running, queued or held. A later run of the ref shows up normally.",
+      { profile: PROFILE, ref: REF },
+      ["ref"],
+    ),
+  },
   reconcile: {
     write: true,
     def: schema("Replay tasks resting in pipeline source stages (explicit one-shot board read). For items missed during downtime.", { profile: PROFILE }),

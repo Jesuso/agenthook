@@ -13,6 +13,7 @@ import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
 import { entryBlock } from "./commands/run.js";
 import { runReconcile } from "./commands/reconcile.js";
 import { isStateDedupKey } from "./store.js";
+import { CANCELLED_REASON } from "./events.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const COMMENT_MAX = 8000;
@@ -209,7 +210,7 @@ export function createOps(deps) {
       let outcome = {};
       if (!killed && stepId && (held || dropped.some((j) => (j.kind ?? "pipeline") === "pipeline"))) {
         try {
-          await adapter.advance(ref, stepId, { outcome: "fail", reason: "cancelled by operator" });
+          await adapter.advance(ref, stepId, { outcome: "fail", reason: CANCELLED_REASON });
           outcome = { moved: true };
         } catch (e) {
           outcome = { moved: false, moveError: String(e.message).slice(0, 200) };
@@ -220,9 +221,17 @@ export function createOps(deps) {
         store.clearHeld(ref);
         store.clearFindings(ref);
         leavePipeline?.(ref);
-        emit("failed", ref, stepId, { reason: "cancelled by operator" });
+        emit("failed", ref, stepId, { reason: CANCELLED_REASON });
       }
       return { ref, killed, dequeued: dropped.map((j) => j.stepId), ...(held && !killed ? { releasedHold: true } : {}), ...outcome };
+    }),
+    dismiss: write("dismiss", async (args) => {
+      const ref = needString(args.ref, "ref");
+      if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to dismiss`);
+      if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to dismiss`);
+      if (store.getHeld(ref)) throw new Error(`${ref} is held — answer it with release, or abandon it with cancel`);
+      emit("dismissed", ref, "", { by: "operator" });
+      return { ref, dismissed: true };
     }),
     run: write("run", async (args) => {
       const ref = needString(args.ref, "ref");

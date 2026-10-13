@@ -33,6 +33,7 @@ const DOT_TEXT: Record<TicketStatus, string> = {
   held: "text-status-held",
   failed: "text-status-failed",
   done: "text-status-done",
+  cancelled: "text-status-cancelled",
   idle: "text-status-idle",
   interrupted: "text-status-interrupted",
   stalled: "text-status-stalled",

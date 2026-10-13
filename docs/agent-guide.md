@@ -152,6 +152,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `set_concurrency {max}` | cap 1–64, runtime only | out of range |
 | `run {ref, step?, assign?, force?}` | assign + move into a step's source stage | ref not found; ticket already completed (override: `force`); already in the pipeline (override: `force`) |
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
+| `dismiss {ref}` | acknowledge a **failed/cancelled** task so dashboards stop counting it as needing attention (writes a `dismissed` event; the ticket is untouched) | ref is running, queued or held |
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |
 | `reconcile` | replay tickets resting in source stages | — |
 | `pull` | fill free slots from the backlog lane; returns the queue state | — (a no-op when no step has a queue stage) |

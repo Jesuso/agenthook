@@ -11,6 +11,14 @@ All notable changes to this project are documented here. The format is based on
 - `ci_green` event: emitted once per `(ref, sha)` when every check on an agent PR's head has passed
   (payload `pr`, `sha`, `mergeable`, `mergeState`), so supervisors can wait on `events` instead of
   polling the forge (#259). Signal only; `forge.greenCi:false` disables.
+- `dismiss {ref}` operator action (MCP tool, control socket, and a **dismiss** button on failed/cancelled
+  rows in `ah ui`): acknowledges a failed or cancelled ticket by writing a `dismissed` event, so it
+  stops counting as "needs you". The ticket and board are untouched; a later failure counts again.
+
+### Changed
+
+- Dashboard: an operator `cancel` now shows as a distinct `cancelled` status instead of `failed`, and
+  no longer counts toward the "needs you" tile.
 
 ## [0.4.0] — 2026-10-13
 

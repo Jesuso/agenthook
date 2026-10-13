@@ -14,7 +14,7 @@ import { TicketsTable } from "./TicketsTable";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
-import { CONFIG_DISCARD_PROMPT } from "./config";
+import { CONFIG_DISCARD_PROMPT, dismissRequest } from "./config";
 import type { ConfigSinkEvent } from "./config";
 import { RemoveProfile } from "./RemoveProfile";
 import { pendingText } from "./remove";
@@ -337,6 +337,16 @@ export default function App() {
         onShowAll={setShowAll}
         open={open}
         onOpen={setOpen}
+        onDismiss={(t) => {
+          const { url, init } = dismissRequest(t.profile, t.ref);
+          fetch(url, init)
+            .then(async (res) => {
+              if (res.ok) return; // the row flips to idle off the stream
+              const why = await res.json().then((b: { error?: string }) => b.error, () => undefined);
+              setToast({ text: `Dismiss failed: ${why ?? `status ${res.status}`}`, hint: null });
+            })
+            .catch(() => setToast({ text: "Dismiss failed: dashboard unreachable", hint: null }));
+        }}
       />
       </div>
 

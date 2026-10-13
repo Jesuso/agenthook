@@ -112,7 +112,7 @@ type TicketRow = {
   displayId: string;          // refmeta.displayId, else ref
   title: string | null;
   step: string | null;        // current / last step id
-  status: 'running' | 'queued' | 'held' | 'failed' | 'done' | 'idle' | 'interrupted' | 'stalled';
+  status: 'running' | 'queued' | 'held' | 'failed' | 'cancelled' | 'done' | 'idle' | 'interrupted' | 'stalled';
   model: string | null;       // from run_start
   startedAt: string | null;
   costUsd: number;            // sum of run_end.costUsd
@@ -125,6 +125,12 @@ type TicketRow = {
 When the owning profile is down, `running` reads as `interrupted` and `queued` reads as
 `stalled` — the receiver isn't live to finish or drain those jobs (it resolves them on its next
 boot: `recoverInterrupted()` / `restoreQueued()`).
+
+A `failed` event whose reason is `cancelled by operator` reads `cancelled` (not counted by the
+"needs you" tile). A `failed`/`cancelled` row has a **dismiss** button: `POST /api/dismiss`
+(`{profile, ref}`, the same guard chain as restart) asks the receiver over `control.sock` to write
+a `dismissed` event, after which the row reads `idle`. The receiver — not the UI server — writes
+it, and refuses a running, queued or held ref. A later run or failure of the ref counts again.
 
 ## Stack
 

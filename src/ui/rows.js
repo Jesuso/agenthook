@@ -7,6 +7,7 @@ import path from "node:path";
 import { registryDir } from "../config.js";
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
+import { CANCELLED_REASON } from "../events.js";
 
 /** Only the last N bytes of events.jsonl are read — the file is append-only and unbounded. */
 export const EVENTS_TAIL_BYTES = 256 * 1024;
@@ -205,8 +206,9 @@ const str = (v) => (typeof v === "string" && v ? v : null);
 
 /**
  * One TicketRow per ref. Status precedence: running > queued > held > the last terminal
- * event in the tail (pipeline_done/merged → done, failed → failed) > idle. A terminal event
- * followed by a later `enqueued`/`run_start` for the ref no longer counts (it was re-run).
+ * event in the tail (pipeline_done/merged → done, failed → failed, or cancelled when the reason is
+ * an operator cancel) > idle. A terminal event followed by a later `enqueued`/`run_start` for the
+ * ref no longer counts (it was re-run), nor does a failed/cancelled one followed by `dismissed`.
  * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs.
  * `up` (default true) names whether the owning profile's receiver is live: when it's not,
  * `running` reads as `interrupted` and `queued` reads as `stalled` — the receiver that would
@@ -245,7 +247,7 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
     const meta = isObj(metaRaw) ? metaRaw : {};
     const events = eventsByRef.get(ref) || [];
 
-    /** @type {'done'|'failed'|null} */
+    /** @type {'done'|'failed'|'cancelled'|null} */
     let terminal = null;
     /** @type {Record<string, any>|null} */
     let lastStart = null;
@@ -258,7 +260,8 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
       if (e.event === "run_start") lastStart = e;
       if (e.event === "run_start" || e.event === "enqueued") terminal = null;
       else if (e.event === "pipeline_done" || e.event === "merged") terminal = "done";
-      else if (e.event === "failed") terminal = "failed";
+      else if (e.event === "failed") terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
+      else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
       if (e.event === "run_end" && typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
       lastStep = str(e.step) ?? lastStep;
       lastName = str(e.name) ?? lastName;

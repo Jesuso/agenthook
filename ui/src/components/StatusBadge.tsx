@@ -9,6 +9,7 @@ export const STATUS_CLASS: Record<TicketStatus, string> = {
   stalled: "text-status-stalled bg-status-stalled-bg",
   failed: "text-status-failed bg-status-failed-bg",
   done: "text-status-done bg-status-done-bg",
+  cancelled: "text-status-cancelled bg-status-cancelled-bg",
   idle: "text-status-idle bg-status-idle-bg",
 };
 

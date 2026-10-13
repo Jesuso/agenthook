@@ -11,6 +11,7 @@ import { stepPrompt } from "./prompts.js";
 import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_MINUTES } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 import { resolveRepo, repoById, primaryRepo } from "./repos.js";
+import { CANCELLED_REASON } from "./events.js";
 import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
@@ -959,7 +960,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // always fails — a verdict file it half-wrote before the kill is not trusted.
     /** @type {import('./types.js').Verdict} */
     const verdict = wasCancelled
-      ? { outcome: "fail", reason: "cancelled by operator" }
+      ? { outcome: "fail", reason: CANCELLED_REASON }
       : timedOut
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
       : readVerdict(code, verdictFile);

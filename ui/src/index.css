@@ -65,6 +65,8 @@
   --color-status-failed-bg: #351616;
   --color-status-done: #7fc79a;
   --color-status-done-bg: #142a1d;
+  --color-status-cancelled: #9ba4b4;
+  --color-status-cancelled-bg: #1a1f26;
   --color-status-idle: #9ba4b4;
   --color-status-idle-bg: #1a1f26;
 
@@ -109,6 +111,8 @@
     --color-status-failed-bg: #ffe9e7;
     --color-status-done: #187a33;
     --color-status-done-bg: #e3f5e8;
+    --color-status-cancelled: #57606a;
+    --color-status-cancelled-bg: #eef1f4;
     --color-status-idle: #57606a;
     --color-status-idle-bg: #eef1f4;
   }

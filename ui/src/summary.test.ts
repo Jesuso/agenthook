@@ -53,7 +53,7 @@ describe("summarize", () => {
 
   it("needsYou = held + failed tickets", () => {
     expect(NEEDS_YOU).toEqual(["held", "failed"]);
-    const statuses: TicketRow["status"][] = ["running", "queued", "held", "interrupted", "stalled", "failed", "done", "idle", "held"];
+    const statuses: TicketRow["status"][] = ["running", "queued", "held", "interrupted", "stalled", "failed", "cancelled", "done", "idle", "held"];
     const s = summarize({ profiles: [], tickets: statuses.map((st, i) => ticket(String(i), st)) }, NOW);
     expect(s.needsYou).toBe(3);
   });

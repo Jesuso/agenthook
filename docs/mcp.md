@@ -67,6 +67,7 @@ Writes (control socket → engine; omitted entirely under `--read-only`):
 | `run {ref, step?, assign?, force?}` | `agenthook run`: assign + move into a step's source stage; the tracker webhook fires the step. Refuses a ref already in the pipeline unless `force` |
 | `cancel {ref}` | abandon a task: SIGTERM→SIGKILL the live agent (resolves as `fail`, reason "cancelled by operator", worktree kept), and/or drop its waiting queue entries, and/or drop its **held** record. Waiting/held tasks are moved to the failure lane too so `reconcile`/restart can't re-fire them (`moved:false` + `moveError` if the tracker call failed; the local state is cleared regardless) |
 | `release {ref, comment}` | resume a **held** task with your answer — the `@agent` reply path, same gate (held, non-manual step, under `maxAttempts`) |
+| `dismiss {ref}` | acknowledge a **failed** or **cancelled** task: writes a `dismissed` event so the dashboard stops counting it as "needs you" (ticket and board untouched). Refuses a running, queued or held ref |
 | `reconcile` | replay tasks resting in source stages (trackers with webhooks) |
 | `pull` | fill free slots from the opt-in backlog now |
 | `restart` | restart once idle (queue preserved) — e.g. after pulling new agenthook code |

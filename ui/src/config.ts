@@ -26,6 +26,11 @@ export function restartRequest(profile: string, moveTo?: string): { url: string;
   return { url: "/api/restart", init: guarded("POST", moveTo === undefined ? { profile } : { profile, moveTo }) };
 }
 
+/** Acknowledge a failed/cancelled ticket: the receiver records a `dismissed` event for it. */
+export function dismissRequest(profile: string, ref: string): { url: string; init: RequestInit } {
+  return { url: "/api/dismiss", init: guarded("POST", { profile, ref }) };
+}
+
 /**
  * The state key a "Move state dir to match name" would move to: the loaded config's label when it
  * differs from the open profile's state key, else null (nothing to move; unparseable config too).

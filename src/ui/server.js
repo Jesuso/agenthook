@@ -17,8 +17,9 @@
 // /api/profile/remove` (same guards) retires a profile: a running receiver gets `decommission
 // {when:'idle'}` over its socket; a stopped one has its state dir archived via src/archive.js —
 // the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
-// read side (config path, archive pattern, webhook hint). Nothing else in any state dir is ever
-// written.
+// read side (config path, archive pattern, webhook hint). `POST /api/dismiss` (same guards) asks
+// the receiver over its socket to acknowledge a failed/cancelled ticket (a `dismissed` event the
+// receiver itself writes). Nothing else in any state dir is ever written.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -63,6 +64,7 @@ const WRITABLE = new Set([INSTR_FILE, CONFIG]);
 /** The control-socket action path (POST only). */
 const RESTART = "/api/restart";
 const REMOVE = "/api/profile/remove";
+const DISMISS = "/api/dismiss";
 
 /** Constant-time string compare; a length mismatch is a mismatch. @param {string} a @param {string} b */
 export function safeEqual(a, b) {
@@ -234,6 +236,22 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       });
     });
 
+  /**
+   * `POST /api/dismiss` — readGuardedJson, then `{profile, ref}` both strings → else 400; unknown
+   * profile → 404 (socket never contacted); else sends `{cmd:'dismiss', args:{ref, actor:'ui'}}`
+   * (the receiver writes a `dismissed` event and audits it in control-audit.jsonl; it refuses a
+   * running, queued or held ref → 502 `{error}`) and maps the reply via `callControl`.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postDismiss = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, ref } = body;
+      if (typeof profile !== "string" || typeof ref !== "string" || !ref) return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "dismiss", { ref, actor: "ui" }, restartTimeoutMs).then(({ status, body: result }) => sendStatusJson(res, status, result));
+    });
+
   /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
   const profileConfigPath = (profile) => {
     const p = readProfile(profile, registry);
@@ -353,7 +371,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
 
     if (req.method === "POST" && p === RESTART) return postRestart(req, res, host);
     if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
-    if (p === RESTART || p === REMOVE) {
+    if (req.method === "POST" && p === DISMISS) return postDismiss(req, res, host);
+    if (p === RESTART || p === REMOVE || p === DISMISS) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }

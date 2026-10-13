@@ -38,6 +38,7 @@ const render = (tickets: TicketRow[], over: Partial<TicketsTableProps> = {}) =>
       onShowAll: () => {},
       open: null,
       onOpen: () => {},
+      onDismiss: () => {},
       ...over,
     }),
   );
@@ -110,5 +111,10 @@ describe("TicketsTable", () => {
     expect(html).toMatch(chip("interrupted", 1));
     expect(html).toMatch(chip("done", 1));
     expect(html).not.toMatch(/>running <span/);
+  });
+
+  it("shows a dismiss button only on failed and cancelled rows", () => {
+    const html = render([ticket({ ref: "1", status: "failed" }), ticket({ ref: "2", status: "cancelled" }), ticket({ ref: "3", status: "done" }), ticket({ ref: "4", status: "held" })], { showAll: true });
+    expect((html.match(/>dismiss</g) ?? []).length).toBe(2);
   });
 });

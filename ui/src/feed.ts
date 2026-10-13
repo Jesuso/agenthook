@@ -44,8 +44,15 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       break;
     }
     case "failed": {
-      text = `failed: ${event.reason ?? "?"}`;
-      tone = "failed";
+      // Mirrors CANCELLED_REASON in src/events.js: an operator cancel is not a crash.
+      const cancelled = event.reason === "cancelled by operator";
+      text = cancelled ? "cancelled by operator" : `failed: ${event.reason ?? "?"}`;
+      tone = cancelled ? "cancelled" : "failed";
+      break;
+    }
+    case "dismissed": {
+      text = "dismissed";
+      tone = "idle";
       break;
     }
     case "blocked": {

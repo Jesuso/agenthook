@@ -1,7 +1,7 @@
 import type { TicketRow, TicketStatus } from "./contract";
 import { NEEDS_YOU } from "./summary";
 
-export const STATUS_ORDER: TicketStatus[] = ["running", "queued", "held", "interrupted", "stalled", "failed", "done", "idle"];
+export const STATUS_ORDER: TicketStatus[] = ["running", "queued", "held", "interrupted", "stalled", "failed", "cancelled", "done", "idle"];
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -20,11 +20,11 @@ export function isStale(row: Pick<TicketRow, "status" | "startedAt">, now: numbe
 export const PINNED: TicketStatus[] = ["held", "failed", "interrupted"];
 
 /** The order after the pinned group. */
-const REST_ORDER: TicketStatus[] = ["running", "queued", "stalled", "done", "idle"];
+const REST_ORDER: TicketStatus[] = ["running", "queued", "stalled", "cancelled", "done", "idle"];
 
 const rank = (s: TicketStatus) => (PINNED.includes(s) ? 0 : 1 + REST_ORDER.indexOf(s));
 
-/** held/failed/interrupted (one group) → running → queued → stalled → done → idle; newest first
+/** held/failed/interrupted (one group) → running → queued → stalled → cancelled → done → idle; newest first
  * within a group, then stable by profile, ref. */
 export function sortTickets(rows: TicketRow[]): TicketRow[] {
   return [...rows].sort((a, b) => {

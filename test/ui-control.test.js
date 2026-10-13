@@ -35,6 +35,7 @@ const TIMEOUT = profile("timeout");
 const FAIL = profile("fail");
 const OK = profile("ok");
 const RESTARTED = profile("restarted");
+const DISMISSED = profile("dismissed");
 
 /**
  * Starts a fake control socket at `sockPath`: writes the `hello` line on connect, then calls
@@ -59,8 +60,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[]}} */
-const calls = { restart: [] };
+/** @type {{restart: any[], dismiss: any[]}} */
+const calls = { restart: [], dismiss: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -74,6 +75,10 @@ test.before(async () => {
     await fakeControl(RESTARTED.sockPath, (s, req) => {
       calls.restart.push(req);
       s.write(JSON.stringify({ id: req.id, ok: true, result: { accepted: true, active: 0, queued: 0 } }) + "\n");
+    }),
+    await fakeControl(DISMISSED.sockPath, (s, req) => {
+      calls.dismiss.push(req);
+      s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, dismissed: true } }) + "\n");
     }),
   );
 });
@@ -274,4 +279,27 @@ test("controlRequest: no reply within timeoutMs → rejects with code 'timeout'"
   } finally {
     await new Promise((r) => srv.close(r));
   }
+});
+
+const postDismiss = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/dismiss", JSON.stringify(body), h);
+
+test("POST /api/dismiss: guards and validation never reach the socket", async () => {
+  assert.equal((await postDismiss({ profile: "dismissed", ref: "1" }, { cookie: null })).status, 401);
+  assert.equal((await postDismiss({ profile: "dismissed", ref: "1" }, { origin: "http://evil.example" })).status, 403);
+  assert.equal((await postDismiss({ profile: "dismissed", ref: "1" }, { "x-ah-ui": null })).status, 403);
+  assert.equal((await postDismiss({ profile: "dismissed" })).status, 400);
+  assert.equal((await postDismiss({ profile: "dismissed", ref: "" })).status, 400);
+  assert.equal((await postDismiss({ profile: "dismissed", ref: 5 })).status, 400);
+  assert.equal((await postDismiss({ profile: "nope", ref: "1" })).status, 404);
+  assert.equal(calls.dismiss.length, 0);
+});
+
+test("POST /api/dismiss: sends {cmd:'dismiss', args:{ref, actor:'ui'}} and returns the result; down → 503", async () => {
+  const res = await postDismiss({ profile: "dismissed", ref: "42" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(res.body), { ref: "42", dismissed: true });
+  assert.equal(calls.dismiss[0].cmd, "dismiss");
+  assert.deepEqual(calls.dismiss[0].args, { ref: "42", actor: "ui" });
+  assert.equal((await postDismiss({ profile: "down", ref: "42" })).status, 503);
+  assert.equal((await request("GET", "/api/dismiss", undefined, {})).status, 405);
 });

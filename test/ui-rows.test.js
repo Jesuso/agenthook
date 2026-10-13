@@ -407,3 +407,30 @@ test("buildSnapshot: provenance — tildified configPath, created/last-seen from
   assert.match(String(ghost.createdAt), /^\d{4}-/);
   assert.ok(!JSON.stringify(snap).includes(os.homedir() + path.sep + ".ah-ui-rows"), "configPath is tildified");
 });
+
+test("buildRows: an operator cancel reads cancelled, not failed; dismissed clears failed/cancelled; a re-run supersedes it", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      events: [
+        { ts: "1", event: "failed", ref: "c", step: "triage", reason: "cancelled by operator" },
+        { ts: "2", event: "failed", ref: "f", step: "code", reason: "exit 1" },
+        { ts: "3", event: "failed", ref: "fd", step: "code", reason: "exit 1" },
+        { ts: "4", event: "dismissed", ref: "fd", step: "", by: "operator" },
+        { ts: "5", event: "failed", ref: "cd", step: "code", reason: "cancelled by operator" },
+        { ts: "6", event: "dismissed", ref: "cd", step: "", by: "operator" },
+        { ts: "7", event: "dismissed", ref: "dn", step: "" },
+        { ts: "8", event: "pipeline_done", ref: "dn", step: "done" },
+        { ts: "9", event: "failed", ref: "again", step: "code", reason: "exit 1" },
+        { ts: "10", event: "dismissed", ref: "again", step: "" },
+        { ts: "11", event: "failed", ref: "again", step: "code", reason: "exit 2" },
+      ],
+    }),
+  );
+  assert.equal(row(rows, "c").status, "cancelled");
+  assert.equal(row(rows, "f").status, "failed");
+  assert.equal(row(rows, "fd").status, "idle");
+  assert.equal(row(rows, "cd").status, "idle");
+  assert.equal(row(rows, "dn").status, "done", "dismiss never touches a done ticket");
+  assert.equal(row(rows, "again").status, "failed", "a failure after a dismiss counts again");
+});

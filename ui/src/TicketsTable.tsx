@@ -34,6 +34,8 @@ export type TicketsTableProps = {
   /** The ticket whose drawer is open (highlighted), if any. */
   open: { profile: string; ref: string } | null;
   onOpen: (t: { profile: string; ref: string }) => void;
+  /** Acknowledge a failed/cancelled ticket (it then reads `idle`). */
+  onDismiss: (t: { profile: string; ref: string }) => void;
 };
 
 /** The dashboard's tickets section: a one-row filter toolbar over a paged table in its own scroll region. */
@@ -95,11 +97,12 @@ export function TicketsTable(props: TicketsTableProps) {
               <th className={NOWRAP}>cost</th>
               <th className={NOWRAP}>held reason</th>
               <th className={NOWRAP}>PR</th>
+              <th className={NOWRAP} aria-label="actions"></th>
             </tr>
           </thead>
           <tbody>
             {shown.map((t) => (
-              <Row key={`${t.profile}\u0000${t.ref}`} t={t} now={now} selected={open?.profile === t.profile && open.ref === t.ref} onOpen={props.onOpen} />
+              <Row key={`${t.profile}\u0000${t.ref}`} t={t} now={now} selected={open?.profile === t.profile && open.ref === t.ref} onOpen={props.onOpen} onDismiss={props.onDismiss} />
             ))}
           </tbody>
         </table>
@@ -127,7 +130,7 @@ function ChipLabel({ text, count }: { text: string; count: number }) {
   );
 }
 
-function Row({ t, now, selected, onOpen }: { t: TicketRow; now: number; selected: boolean; onOpen: TicketsTableProps["onOpen"] }) {
+function Row({ t, now, selected, onOpen, onDismiss }: { t: TicketRow; now: number; selected: boolean; onOpen: TicketsTableProps["onOpen"]; onDismiss: TicketsTableProps["onDismiss"] }) {
   const title = ticketTitle(t);
   const model = formatModel(t.model);
   const pr = prNumber(t.prUrl);
@@ -182,6 +185,18 @@ function Row({ t, now, selected, onOpen }: { t: TicketRow; now: number; selected
           </a>
         ) : (
           "—"
+        )}
+      </td>
+      <td className={NOWRAP}>
+        {(t.status === "failed" || t.status === "cancelled") && (
+          <button
+            type="button"
+            title="Acknowledge: stop counting this ticket as needing you (the ticket itself is untouched)"
+            className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
+            onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}
+          >
+            dismiss
+          </button>
         )}
       </td>
     </tr>

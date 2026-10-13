@@ -4,7 +4,7 @@
 //   discover            tracker + stage keys + live stage list (cached 60s)
 //   restart {when:'idle', moveTo?}  only when the engine passes `restart`: pause new runs,
 //                       restart once active agents reach 0 (see engine.js)
-//   board / prs / pause / resume / set_concurrency / cancel / run / release / reconcile / pull
+//   board / prs / pause / resume / set_concurrency / cancel / dismiss / run / release / reconcile / pull
 //                       operator commands from src/ops.js (the MCP surface, docs/mcp.md)
 //   decommission {when:'idle', unregister?}  only when the engine passes `decommission`: pause
 //                       new runs; once active agents reach 0, unregister webhooks (default),

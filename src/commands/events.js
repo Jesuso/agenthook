@@ -10,7 +10,7 @@ import path from "node:path";
 import { loadConfig } from "../config.js";
 import { neverStarted } from "../profile.js";
 
-const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green"]);
+const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed"]);
 
 /**
  * Parse an event line as JSON; return null on failure.

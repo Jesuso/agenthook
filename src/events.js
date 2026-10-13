@@ -4,6 +4,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/** The `failed` reason for an operator `cancel` — readers (the dashboard) tell it apart from a crash. */
+export const CANCELLED_REASON = "cancelled by operator";
+
 /**
  * Create an event emitter that appends to `<dataDir>/events.jsonl`.
  * Every call is synchronous (appendFileSync) and best-effort: exceptions
@@ -12,6 +15,7 @@ import path from "node:path";
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
  *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red | ci_green
+ *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
