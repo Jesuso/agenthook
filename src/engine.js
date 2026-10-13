@@ -36,6 +36,7 @@ import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { claimStateDir } from "./profile.js";
 import { startControl } from "./control.js";
+import { createOps } from "./ops.js";
 import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
 import { loadConfig } from "./config.js";
@@ -477,6 +478,13 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     });
   });
 
+  const ops = createOps({
+    cfg, store, adapter, forge, queue, intake, emit, heartbeat,
+    cancelRun: runClaude.cancel,
+    pull: () => puller.pull(),
+    isLocked: () => draining || restarter.isPending() || decommissioner.isPending(),
+  });
+
   let draining = false;
   let respawnOnExit = false; // set by a firing restart; any signal clears it
   /** @type {string|undefined} */
@@ -686,7 +694,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       // POST a handshake/ping to the public URL, which must reach a live server (Asana
       // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
       await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
-      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request, decommission: decommissioner.request }); // owner check reads the OLD pidfile — must run before the write below
+      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request, decommission: decommissioner.request, commands: ops }); // owner check reads the OLD pidfile — must run before the write below
       fs.writeFileSync(cfg.pidFile, String(process.pid));
       console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
 

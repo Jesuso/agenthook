@@ -183,3 +183,48 @@ test("onActiveIdle resolves immediately at 0 active even with jobs queued", asyn
   assert.equal(resolved, true);
   assert.deepEqual(q.state(), { active: 0, queued: 1 });
 });
+
+test("remove drops waiting jobs only (never the running one), persists, and frees the coalesce key", async () => {
+  /** @type {(() => void)[]} */
+  const releases = [];
+  const run = (j) => new Promise((resolve) => releases.push(() => resolve(info(j))));
+  /** @type {string[]} */
+  const removed = [];
+  const q = createQueue(1, run, undefined, { onRemove: (j) => removed.push(j.ref) });
+  q.enqueue(job("A"));
+  q.enqueue(job("B"));
+  q.enqueue(job("B", "other"));
+  assert.deepEqual(q.state(), { active: 1, queued: 2 });
+  assert.equal(q.remove("A").length, 0, "A is running — not removable here");
+  const dropped = q.remove("B", "other");
+  assert.deepEqual(dropped.map((j) => j.stepId), ["other"]);
+  assert.deepEqual(q.state(), { active: 1, queued: 1 });
+  assert.equal(q.remove("B").length, 1);
+  assert.equal(q.enqueue(job("B")), true, "key freed — B can be queued again");
+  releases.shift()?.(); // A finishes -> B starts
+  await new Promise((r) => setTimeout(r, 5));
+  releases.shift()?.();
+  await q.onIdle();
+  assert.ok(removed.includes("B"));
+});
+
+test("setMax raises the cap live and starts waiting jobs; isPaused reflects pause/resume", async () => {
+  /** @type {(() => void)[]} */
+  const releases = [];
+  const run = (j) => new Promise((resolve) => releases.push(() => resolve(info(j))));
+  const q = createQueue(1, run);
+  q.enqueue(job("A"));
+  q.enqueue(job("B"));
+  assert.equal(q.max(), 1);
+  assert.deepEqual(q.state(), { active: 1, queued: 1 });
+  q.setMax(2);
+  assert.equal(q.max(), 2);
+  assert.deepEqual(q.state(), { active: 2, queued: 0 });
+  assert.equal(q.isPaused(), false);
+  q.pause();
+  assert.equal(q.isPaused(), true);
+  q.resume();
+  assert.equal(q.isPaused(), false);
+  for (const r of releases) r();
+  await q.onIdle();
+});

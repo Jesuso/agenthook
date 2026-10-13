@@ -4,6 +4,8 @@
 //   discover            tracker + stage keys + live stage list (cached 60s)
 //   restart {when:'idle', moveTo?}  only when the engine passes `restart`: pause new runs,
 //                       restart once active agents reach 0 (see engine.js)
+//   board / prs / pause / resume / set_concurrency / cancel / run / release / reconcile / pull
+//                       operator commands from src/ops.js (the MCP surface, docs/mcp.md)
 //   decommission {when:'idle', unregister?}  only when the engine passes `decommission`: pause
 //                       new runs; once active agents reach 0, unregister webhooks (default),
 //                       exit without a respawn and archive the state dir (see engine.js)
@@ -86,7 +88,7 @@ function handleLine(socket, line, commands) {
     .then((result) => reply(socket, { id, ok: true, result }))
     .catch((e) => {
       console.error(`[control] ${req.cmd} failed: ${e.message}`);
-      reply(socket, { id, ok: false, error: `${req.cmd} failed` });
+      reply(socket, { id, ok: false, error: e.expose ? String(e.message) : `${req.cmd} failed` });
     });
 }
 
@@ -101,12 +103,13 @@ function reply(socket, msg) {
 
 /**
  * @param {import('./types.js').Config} cfg
- * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>, decommission?: (args: any) => Promise<any>}} opts
+ * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>, decommission?: (args: any) => Promise<any>, commands?: Record<string, (args: any) => Promise<any>>}} opts
  *   restart: the engine's restart requester; the `restart` command exists only when given.
  *   decommission: the engine's decommission requester; likewise only when given
+ *   commands: extra allowlisted commands (src/ops.js — pause/cancel/run/board/…); a built-in name wins
  * @returns {Promise<{close(): void} | null>}
  */
-export async function startControl(cfg, { startedAt, adapter, now = Date.now, restart, decommission }) {
+export async function startControl(cfg, { startedAt, adapter, now = Date.now, restart, decommission, commands: extra }) {
   const sockPath = cfg.controlSock;
   const posix = process.platform !== "win32";
 
@@ -128,6 +131,7 @@ export async function startControl(cfg, { startedAt, adapter, now = Date.now, re
   const commands = { discover: makeCachedDiscover(ctx, now) };
   if (restart) commands.restart = restart;
   if (decommission) commands.decommission = decommission;
+  if (extra) for (const [name, fn] of Object.entries(extra)) if (!Object.hasOwn(commands, name)) commands[name] = fn;
 
   /** @type {Set<import('node:net').Socket>} */
   const sockets = new Set();

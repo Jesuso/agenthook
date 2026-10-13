@@ -22,14 +22,15 @@ export function planRestore(queued, runningRefs, stepIds) {
 }
 
 /**
- * @param {number} max
+ * @param {number} initialMax
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
  * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
  * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
  *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run,
  *   onSettle after a job settles and its slot is released (the engine's queue-stage pull trigger)
  */
-export function createQueue(max, run, onChange, persist) {
+export function createQueue(initialMax, run, onChange, persist) {
+  let max = initialMax;
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -136,6 +137,38 @@ export function createQueue(max, run, onChange, persist) {
     },
     /** {active, queued} snapshot. */
     state: () => ({ active, queued: queue.length }),
+    /** Whether new runs are held back (restart/decommission/operator pause). */
+    isPaused: () => paused,
+    /** Current concurrency cap. */
+    max: () => max,
+    /** Change the concurrency cap at runtime (not persisted to config); a raise starts waiting jobs now. @param {number} n */
+    setMax(n) {
+      max = n;
+      report();
+      pump();
+    },
+    /**
+     * Drop WAITING jobs for `ref` (optionally only `stepId`) — never a running one. Fires
+     * `onRemove` per job so queue.json follows. Returns the dropped jobs.
+     * @param {string} ref @param {string} [stepId]
+     */
+    remove(ref, stepId) {
+      /** @type {import('./types.js').Job[]} */
+      const dropped = [];
+      for (let i = queue.length - 1; i >= 0; i--) {
+        const j = queue[i];
+        if (j.ref !== ref || (stepId && j.stepId !== stepId)) continue;
+        queue.splice(i, 1);
+        inflight.delete(workKey(j));
+        persist?.onRemove?.(j);
+        dropped.unshift(j);
+      }
+      if (dropped.length) {
+        report();
+        resolveIdle();
+      }
+      return dropped;
+    },
     /** Resolves once nothing is running and the queue is empty. Immediate if idle now. */
     onIdle() {
       if (active === 0 && queue.length === 0) return Promise.resolve();

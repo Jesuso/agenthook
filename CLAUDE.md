@@ -43,6 +43,9 @@ node bin/agenthook.js reconcile          # replay tasks resting in pipeline sect
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
 node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink beside the agenthook bin)
 node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashboard (127.0.0.1, token→cookie; no config)
+node bin/agenthook.js mcp [--read-only]  # MCP server (stdio, all profiles) for external agents — docs/mcp.md
+node bin/agenthook.js tick [name] [--json]  # one-call status+board+PRs+events digest (same payload as the MCP `tick`)
+node bin/agenthook.js watch [name] [--event a,b] [--timeout s]  # block until the next event (exit 2 on timeout)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 npm test                                  # node:test suites in test/ (pure units; no network/spawn)
@@ -192,6 +195,19 @@ Key files:
   `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
+- `src/agent-api.js` + `src/mcp/*` + `src/ops.js` — the **agent-facing surface** (docs/mcp.md). `agent-api.js`
+  is the pure read model over a state dir (`readStatus` slots/running/queue/held with an `etag`,
+  `readEventsSince`/`waitForEvents` byte-offset cursors — `waitForEvents` is `fs.watch`-driven, never
+  polling —, `readRuns`/`readRunLogTail`, `readTick`, `pickProfile` multiplexing); reads work with the
+  receiver down. `mcp/server.js` is a zero-dep stdio JSON-RPC MCP transport, `mcp/tools.js` the tool
+  table (`--read-only` unlists + refuses every write). Live-only reads (`board`, `prs`) and all writes go
+  over `control.sock` to `ops.js` (`createOps`, wired in `engine.js`, passed to `startControl({commands})`):
+  `pause/resume/set_concurrency/cancel/run/release/reconcile/pull`, each audited to `control-audit.jsonl`
+  (0600, comment text never logged), refusals exposed to the caller (`e.expose`). `cancel` = `queue.remove`
+  + `runClaude.cancel(ref)` (SIGTERM→SIGKILL; resolves as `fail`, "cancelled by operator"). `release`
+  reuses `resumeJob` (the `@agent` gate); `run` is `agenthook run`'s move incl. `entryBlock`. Forge
+  `listAgentPrs` (github) backs `prs`. `board`/`prs` are cached ~30 s (`ttlCache`) — an explicit tool call
+  is the only trigger, so the no-implicit-polling rule holds.
 - `src/state-move.js` — `rename --move`'s core, shared by the engine and the CLI: `checkMove`
   (valid/free/non-colliding target, config still keys `from`, same filesystem) and
   `moveStateDir` (rename the dir, then rewrite/drop `stateId` via `json-edit.js`

@@ -460,3 +460,45 @@ test("createForge: null without a forge block; throws on an unknown type", () =>
   assert.equal(createForge(/** @type {any} */ ({ pipeline }), /** @type {any} */ (makeStore())), null);
   assert.throws(() => createForge(/** @type {any} */ ({ pipeline, forge: { type: "gitlab" } }), /** @type {any} */ (makeStore())), /unknown forge "gitlab"/);
 });
+
+test("listAgentPrs: only same-repo agent/<ref> PRs, with CI roll-up and mergeability", async () => {
+  const pr = (number, ref, extra = {}) => ({ number, title: `t${number}`, html_url: `u${number}`, draft: false, updated_at: "now", head: { ref, sha: `sha${number}`, repo: { full_name: "o/r" } }, ...extra });
+  const s = stubFetch({
+    "GET /repos/o/r/pulls?state=open&per_page=50": {
+      json: [pr(1, "agent/10"), pr(2, "agent/11"), pr(3, "feature/x"), pr(4, "agent/12", { head: { ref: "agent/12", sha: "s4", repo: { full_name: "fork/r" } } }), pr(5, "agent/13", { draft: true })],
+    },
+    "GET /repos/o/r/pulls/1": { json: { mergeable: true, mergeable_state: "clean" } },
+    "GET /repos/o/r/pulls/2": { json: { mergeable: false, mergeable_state: "dirty" } },
+    "GET /repos/o/r/pulls/5": { json: { mergeable: null, mergeable_state: "unknown" } },
+    "GET /repos/o/r/commits/sha1/check-runs?per_page=100": { json: { check_runs: [{ status: "completed", conclusion: "success" }] } },
+    "GET /repos/o/r/commits/sha2/check-runs?per_page=100": { json: { check_runs: [{ status: "completed", conclusion: "failure" }, { status: "completed", conclusion: "success" }] } },
+    "GET /repos/o/r/commits/sha5/check-runs?per_page=100": { json: { check_runs: [{ status: "in_progress", conclusion: null }] } },
+  });
+  try {
+    const out = await forge().listAgentPrs?.();
+    assert.deepEqual(out?.map((p) => [p.number, p.ref, p.ci, p.mergeable, p.mergeState, p.draft]), [
+      [1, "10", "success", true, "clean", false],
+      [2, "11", "failure", false, "dirty", false],
+      [5, "13", "pending", null, "unknown", true],
+    ]);
+  } finally {
+    s.restore();
+  }
+});
+
+test("listAgentPrs: a failing list call throws; a failing detail call degrades that PR only", async () => {
+  let s = stubFetch({ "GET /repos/o/r/pulls?state=open&per_page=50": { status: 500, json: {} } });
+  try {
+    await assert.rejects(() => /** @type {any} */ (forge()).listAgentPrs(), /list PRs 500/);
+  } finally {
+    s.restore();
+  }
+  s = stubFetch({ "GET /repos/o/r/pulls?state=open&per_page=50": { json: [{ number: 1, title: "t", html_url: "u", draft: false, updated_at: "n", head: { ref: "agent/1", sha: "s", repo: { full_name: "o/r" } } }] } });
+  try {
+    const out = await /** @type {any} */ (forge()).listAgentPrs();
+    assert.equal(out[0].ci, "none");
+    assert.equal(out[0].mergeable, null);
+  } finally {
+    s.restore();
+  }
+});

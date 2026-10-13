@@ -252,6 +252,43 @@ export function createGithubForge(cfg, store) {
 
     // The open-or-not PR for a ref's agent branch and its current head sha. By number
     // when the run names one, else the open PR whose head is `<owner>:agent/<ref>`.
+    async listAgentPrs() {
+      const res = await api(`${repoPath()}/pulls?state=open&per_page=50`);
+      if (!res.ok) throw new Error(`list PRs ${res.status}`);
+      const prs = ((await json(res)) || []).filter(
+        (/** @type {any} */ p) =>
+          refFromBranch(p.head?.ref) && p.head?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase(),
+      );
+      return Promise.all(
+        prs.map(async (/** @type {any} */ p) => {
+          // Detail (mergeable is only on the single-PR endpoint) + check runs, in parallel.
+          /** @type {[any, any]} */
+          const [d, c] = await Promise.all([
+            api(`${repoPath()}/pulls/${p.number}`).then((r) => (r.ok ? json(r) : {})).catch(() => ({})),
+            api(`${repoPath()}/commits/${p.head.sha}/check-runs?per_page=100`).then((r) => (r.ok ? json(r) : null)).catch(() => null),
+          ]);
+          const runs = /** @type {any[]} */ (c?.check_runs || []);
+          /** @type {'success'|'failure'|'pending'|'none'} */
+          let ci = "none";
+          if (runs.length) {
+            if (runs.some((r) => RED.has(r.conclusion))) ci = "failure";
+            else if (runs.some((r) => r.status !== "completed")) ci = "pending";
+            else ci = "success";
+          }
+          return {
+            number: p.number,
+            ref: /** @type {string} */ (refFromBranch(p.head.ref)),
+            title: String(p.title ?? ""),
+            url: String(p.html_url ?? ""),
+            draft: !!p.draft,
+            mergeable: typeof d.mergeable === "boolean" ? d.mergeable : null,
+            mergeState: typeof d.mergeable_state === "string" ? d.mergeable_state : null,
+            ci,
+            updatedAt: String(p.updated_at ?? ""),
+          };
+        }),
+      );
+    },
     async prHead(prNumber, ref) {
       const branch = `${BRANCH_PREFIX}${ref}`;
       let pr;
