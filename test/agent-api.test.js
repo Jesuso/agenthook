@@ -207,3 +207,10 @@ test("live(): distinguishes down / timed-out (may still be running) / closed-bef
     await new Promise((r) => hangup.close(() => r(undefined)));
   }
 });
+
+test("compactEvent keeps the ci_green payload (pr, sha, mergeable, mergeState) and drops null mergeable", async () => {
+  const { compactEvent } = await import("../src/agent-api.js");
+  const e = compactEvent({ ts: "t", event: "ci_green", ref: "1", step: "", pr: 7, sha: "abc", mergeable: false, mergeState: "dirty", runId: 9 });
+  assert.deepEqual(e, { ts: "t", e: "ci_green", ref: "1", pr: 7, sha: "abc", mergeable: false, mergeState: "dirty" });
+  assert.equal("mergeable" in compactEvent({ ts: "t", event: "ci_green", ref: "1", pr: 7, mergeable: null }), false);
+});

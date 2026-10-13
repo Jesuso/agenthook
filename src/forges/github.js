@@ -145,13 +145,16 @@ export function createGithubForge(cfg, store) {
     return true;
   }
 
-  /** A red Actions run on one of this repo's agent branches → one `ci` job. Everything
-   * else (green/cancelled/in-progress, a non-agent or fork branch, redCi:false) → [].
+  /** A red Actions run on one of this repo's agent branches → one `ci` job; a green one →
+   * one `ci_green` job (a candidate: dispatch-side `ciGreen` re-reads the roll-up and emits only
+   * when every check is done). Everything else (cancelled/in-progress, a non-agent or fork
+   * branch, the matching flag off) → [].
    * @param {any} ev @returns {import('../types.js').Job[]} */
   function ciJobs(ev) {
     const run = ev?.workflow_run;
-    if (fc.redCi === false) return [];
-    if (ev?.action !== "completed" || !RED.has(run?.conclusion)) {
+    const green = ev?.action === "completed" && run?.conclusion === "success";
+    if (green ? fc.greenCi === false : fc.redCi === false) return [];
+    if (ev?.action !== "completed" || !(green || RED.has(run?.conclusion))) {
       console.log(`[forge] ignore workflow_run ${run?.id ?? "?"} (${ev?.action}${run?.conclusion ? `, ${run.conclusion}` : ""})`);
       return [];
     }
@@ -166,6 +169,11 @@ export function createGithubForge(cfg, store) {
       return [];
     }
     const attempt = Number(run.run_attempt) || 1;
+    const payload = { runId: run.id, attempt, headSha: run.head_sha, prNumber: run.pull_requests?.[0]?.number ?? null, url: run.html_url };
+    if (green) {
+      console.log(`[forge] green CI run ${run.id} on ${run.head_branch} → ci_green candidate ${ref}`);
+      return [{ kind: "ci_green", ref, stepId: "", dedupKey: `cigreen:${ref}:${run.head_sha}`, ci: payload }];
+    }
     console.log(`[forge] red CI run ${run.id} attempt ${attempt} on ${run.head_branch} → ci ${ref}`);
     return [
       {
@@ -173,9 +181,45 @@ export function createGithubForge(cfg, store) {
         ref,
         stepId: "",
         dedupKey: `ci:${run.id}:${attempt}`,
-        ci: { runId: run.id, attempt, headSha: run.head_sha, prNumber: run.pull_requests?.[0]?.number ?? null, url: run.html_url },
+        ci: payload,
       },
     ];
+  }
+
+  /** CI roll-up for a head SHA + the PR's mergeability. Shared by `listAgentPrs` and `ciStatus`.
+   * @param {number} number @param {string} sha
+   * @returns {Promise<{mergeable: boolean|null, mergeState: string|null, ci: import('../types.js').AgentPr['ci']}>} */
+  async function prStatus(number, sha) {
+    // Detail (mergeable is only on the single-PR endpoint) + check runs, in parallel.
+    /** @type {() => Promise<any>} */
+    const detail = () => api(`${repoPath()}/pulls/${number}`).then((r) => (r.ok ? json(r) : {})).catch(() => ({}));
+    // GitHub computes mergeability lazily: the first read of a fresh/just-pushed PR says null /
+    // "unknown". One short retry so that transient value is not cached as the answer.
+    const settled = async () => {
+      const first = await detail();
+      if (first.mergeable !== null && first.mergeable !== undefined) return first;
+      await new Promise((r) => setTimeout(r, 1500));
+      return detail();
+    };
+    /** @type {[any, any]} */
+    const [d, c] = await Promise.all([
+      settled(),
+      api(`${repoPath()}/commits/${sha}/check-runs?per_page=100`).then((r) => (r.ok ? json(r) : null)).catch(() => null),
+    ]);
+    const runs = /** @type {any[]} */ (c?.check_runs || []);
+    /** @type {'success'|'failure'|'pending'|'none'|'unknown'} */
+    let ci = "none";
+    if (c === null) ci = "unknown"; // the call failed — do not read that as "no CI"
+    else if (runs.length) {
+      if (runs.some((r) => FAILING.has(r.conclusion))) ci = "failure";
+      else if (runs.some((r) => r.status !== "completed")) ci = "pending";
+      else ci = "success";
+    }
+    return {
+      mergeable: typeof d.mergeable === "boolean" ? d.mergeable : null,
+      mergeState: typeof d.mergeable_state === "string" ? d.mergeable_state : null,
+      ci,
+    };
   }
 
   return {
@@ -274,45 +318,23 @@ export function createGithubForge(cfg, store) {
       );
       return Promise.all(
         prs.map(async (/** @type {any} */ p) => {
-          // Detail (mergeable is only on the single-PR endpoint) + check runs, in parallel.
-          /** @type {() => Promise<any>} */
-          const detail = () => api(`${repoPath()}/pulls/${p.number}`).then((r) => (r.ok ? json(r) : {})).catch(() => ({}));
-          // GitHub computes mergeability lazily: the first read of a fresh/just-pushed PR says null /
-          // "unknown". One short retry so that transient value is not cached as the answer.
-          const settled = async () => {
-            const first = await detail();
-            if (first.mergeable !== null && first.mergeable !== undefined) return first;
-            await new Promise((r) => setTimeout(r, 1500));
-            return detail();
-          };
-          /** @type {[any, any]} */
-          const [d, c] = await Promise.all([
-            settled(),
-            api(`${repoPath()}/commits/${p.head.sha}/check-runs?per_page=100`).then((r) => (r.ok ? json(r) : null)).catch(() => null),
-          ]);
-          const runs = /** @type {any[]} */ (c?.check_runs || []);
-          /** @type {'success'|'failure'|'pending'|'none'|'unknown'} */
-          let ci = "none";
-          if (c === null) ci = "unknown"; // the call failed — do not read that as "no CI"
-          else if (runs.length) {
-            if (runs.some((r) => FAILING.has(r.conclusion))) ci = "failure";
-            else if (runs.some((r) => r.status !== "completed")) ci = "pending";
-            else ci = "success";
-          }
+          const { mergeable, mergeState, ci } = await prStatus(p.number, p.head.sha);
           return {
             number: p.number,
             ref: /** @type {string} */ (refFromBranch(p.head.ref)),
             title: String(p.title ?? ""),
             url: String(p.html_url ?? ""),
             draft: !!p.draft,
-            mergeable: typeof d.mergeable === "boolean" ? d.mergeable : null,
-            mergeState: typeof d.mergeable_state === "string" ? d.mergeable_state : null,
+            mergeable,
+            mergeState,
             ci,
             updatedAt: String(p.updated_at ?? ""),
           };
         }),
       );
     },
+    // Roll-up for one PR head (backs the `ci_green` event; same logic as `prs`).
+    ciStatus: (prNumber, sha) => prStatus(prNumber, sha),
     // The open-or-not PR for a ref's agent branch and its current head sha. By number
     // when the run names one, else the open PR whose head is `<owner>:agent/<ref>`.
     async prHead(prNumber, ref) {

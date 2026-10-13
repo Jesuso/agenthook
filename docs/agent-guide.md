@@ -69,7 +69,7 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 `boardError` / `prsError` instead; the rest is still valid.
 
 `events` item: `{"ts","e":"run_end","ref":"123","step":"code","outcome":"advance","costUsd":0.33}`;
-`reason` (clipped to 200 chars) appears on `blocked`/`failed`. Result: `{events, cursor, more?,
+`reason` (clipped to 200 chars) appears on `blocked`/`failed`. `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
 `runs {ref, tail?}` → `{runs:[{run,step,at,outcome,costUsd,running?}], log?}`. `tail:N` adds the
@@ -90,7 +90,7 @@ brand-new PR may read `null`/`unknown` for a few seconds.
 t = tick()                         # first call; keep t.etag and t.cursor
 loop:
   handle(t)                        # held? failed? red PRs? free slots + board?
-  e = events(cursor=t.cursor, waitS=120, types=[run_end, failed, blocked, merged, ci_red, pipeline_done])
+  e = events(cursor=t.cursor, waitS=120, types=[run_end, failed, blocked, merged, ci_red, ci_green, pipeline_done])
   t = tick(cursor=e.cursor, ifNoneMatch=t.etag)   # {unchanged:true} = nothing changed
 ```
 
@@ -117,6 +117,12 @@ without firing if their webhook was missed (receiver was down). `reconcile` repl
 step's source stage; the tracker webhook fires the step (a few seconds). Watch for `enqueued` /
 `run_start` with `events {ref, waitS}`.
 
+**Merge when green.** Don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
+carries `mergeable`/`mergeState`, so you can merge without another call (`mergeable:null` = GitHub hasn't
+computed it yet; re-read `prs`). It fires only once the last workflow finishes, and only for Actions
+workflows — a repo whose last check is an external app (no `workflow_run`) won't emit, so keep `prs` as the
+fallback there.
+
 **Red PR** (`prs[].ci` = `failure`). The receiver already handles red CI itself when the forge is
 configured (`ci_red` event with `action` `rerun`/`bounced`/`deferred`). Intervene only if it keeps
 bouncing. Conflicts (`conflict:true`) are not auto-fixed.
@@ -130,7 +136,7 @@ cap until the next restart (not persisted).
 
 Names you will act on: `enqueued`, `run_start`, `run_end {outcome, costUsd}`, `blocked {reason}`
 (task now held), `failed {reason}`, `merged`, `pipeline_done` (ticket finished, PR ready),
-`ci_red {action}`, `pulled` (backlog item pulled into a slot), `dequeued` (an operator `cancel`
+`ci_red {action}`, `ci_green {pr, sha, mergeable, mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled` (backlog item pulled into a slot), `dequeued` (an operator `cancel`
 dropped a waiting job). Housekeeping: `restart_requested`, `restarting`, `overlap_held`,
 `overlap_released`. Full catalog with fields: [events.md](events.md).
 

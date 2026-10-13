@@ -11,7 +11,7 @@ import path from "node:path";
  *
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
- *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red
+ *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red | ci_green
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)

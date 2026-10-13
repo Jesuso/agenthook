@@ -9,7 +9,7 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'pipeline'|'merge'|'ci'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces)
+ * @property {'pipeline'|'merge'|'ci'|'ci_green'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces; ci_green: a green run — a candidate for the `ci_green` event, handled by `src/ci-green.js` outside the queue)
  * @property {string} ref       provider-native item id (Asana gid, …)
  * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or ""; ci: "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
@@ -325,6 +325,7 @@
  * @property {string} [repo]            GitHub: repo name (alternative to repository)
  * @property {string} [webhookSecret]   explicit signing secret; omit to let agenthook generate+store one (no opt-out — always verified)
  * @property {boolean} [redCi]          react to red CI on agent PRs (re-run once, then bounce with `changes`). Default on; false disables
+ * @property {boolean} [greenCi]        emit a `ci_green` event when an agent PR's checks all pass (a supervisor signal; moves nothing). Default on; false disables
  * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)
  */
 
@@ -340,6 +341,7 @@
  * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
  * @property {(prNumber: number|null, ref: string) => Promise<{number: number, sha: string, open: boolean}|null>} [prHead]  the ref's agent-branch PR (by number, else the open one), or null
  * @property {() => Promise<AgentPr[]>} [listAgentPrs]  open PRs on receiver-made `agent/<ref>` branches of this repo, with CI + mergeability (read-only; the MCP `prs` tool)
+ * @property {(prNumber: number, sha: string) => Promise<{mergeable: boolean|null, mergeState: string|null, ci: AgentPr['ci']}>} [ciStatus]  CI roll-up for one PR head + its mergeability (backs `ci_green`)
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
