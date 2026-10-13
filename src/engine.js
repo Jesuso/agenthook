@@ -432,7 +432,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
     enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),
     stageOf: queueStageOf,
-    isDraining: () => draining || restarter.isPending() || decommissioner.isPending(),
+    isDraining: () => draining || queue.isPaused() || restarter.isPending() || decommissioner.isPending(), // an operator pause also stops backlog pulls
     emit,
     onDepth: (queueStage) => heartbeat.update({ queueStage }),
   });
@@ -482,6 +482,13 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     cfg, store, adapter, forge, queue, intake, emit, heartbeat,
     cancelRun: runClaude.cancel,
     pull: () => puller.pull(),
+    // mirrors dispatch's leavePipeline: a ref abandoned by `cancel` must not keep an overlap lock
+    leavePipeline: (ref) => {
+      if (!cfg.overlapGuard) return;
+      store.clearPredictedPaths(ref);
+      store.clearOverlap(ref);
+      releaseOverlap?.(ref);
+    },
     isLocked: () => draining || restarter.isPending() || decommissioner.isPending(),
   });
 

@@ -25,18 +25,21 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
   /** @type {any[]} */ const events = [];
   /** @type {any[]} */ const beats = [];
   const queue = createQueue(1, () => new Promise(() => {}), undefined, { onAdd: (j) => store.addQueued(j), onRemove: (j) => store.removeQueued(j) });
+  /** @type {string[]} */ const pulls = [];
+  /** @type {string[]} */ const left = [];
   const ops = createOps({
     cfg, store, forge, queue,
+    leavePipeline: (ref) => left.push(ref),
     adapter: /** @type {any} */ (adapter),
     cancelRun: (ref) => killed.has(ref),
     intake: (jobs, o) => intaken.push([jobs, o]),
     emit: (e, ref, step, x) => events.push([e, ref, step, x]),
     heartbeat: { update: (p) => beats.push(p) },
-    pull: async () => {},
+    pull: async () => void pulls.push("pull"),
     isLocked: () => locked,
   });
   const audit = () => fs.readFileSync(path.join(dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  return { dir, cfg, store, queue, ops, intaken, events, beats, audit };
+  return { dir, cfg, store, queue, ops, intaken, events, beats, audit, pulls, left };
 }
 
 test("ttlCache: caches within ttl, shares in-flight fetches, never caches failures, reset forces refetch", async () => {
@@ -92,12 +95,14 @@ test("set_concurrency validates and applies; cancel kills a running ref and/or d
   s.queue.enqueue({ kind: "pipeline", ref: "X", stepId: "code", dedupKey: "x" }); // runs (never settles)
   s.queue.enqueue({ kind: "pipeline", ref: "W", stepId: "code", dedupKey: "w" }); // waits
   const c = await s.ops.cancel({ ref: "W" });
-  assert.deepEqual(c, { ref: "W", killed: false, dequeued: ["code"] });
+  assert.equal(c.killed, false);
+  assert.deepEqual(c.dequeued, ["code"]);
   assert.equal(s.store.listQueued().length, 0, "queue.json follows");
-  assert.deepEqual(s.events.at(-1).slice(0, 3), ["dequeued", "W", "code"]);
+  assert.ok(s.events.some((e) => e[0] === "dequeued" && e[1] === "W" && e[2] === "code"));
   const k = await s.ops.cancel({ ref: "RUN" });
   assert.equal(k.killed, true);
-  await assert.rejects(() => s.ops.cancel({ ref: "NOPE" }), /neither running nor queued/);
+  assert.equal(k.moved, undefined, "a killed agent moves via dispatch, not here");
+  await assert.rejects(() => s.ops.cancel({ ref: "NOPE" }), /not running, queued or held/);
   await assert.rejects(() => s.ops.cancel({}), /ref is required/);
 });
 
@@ -149,7 +154,7 @@ test("audit: every write is logged (ok and failed) with actor, never the comment
   assert.equal(a[0].args.commentChars, 13);
   assert.ok(!JSON.stringify(a).includes("SECRET-ANSWER"));
   assert.equal(a[1].ok, false);
-  assert.match(a[1].error, /neither running nor queued/);
+  assert.match(a[1].error, /not running, queued or held/);
   if (process.platform !== "win32") assert.equal(fs.statSync(path.join(s.dir, "control-audit.jsonl")).mode & 0o777, 0o600);
 });
 
@@ -183,10 +188,51 @@ test("control socket: ops commands are reachable and their refusals are exposed 
     const ok = await controlRequest(sock, "pause", { actor: "t" }, { timeoutMs: 2000 });
     assert.equal(ok.ok, true);
     const refused = await controlRequest(sock, "cancel", { ref: "ghost" }, { timeoutMs: 2000 });
-    assert.deepEqual(refused, { ok: false, error: "ghost is neither running nor queued here" });
+    assert.deepEqual(refused, { ok: false, error: "ghost is not running, queued or held here" });
     const unknown = await controlRequest(sock, "rm-rf", {}, { timeoutMs: 2000 });
     assert.equal(unknown.ok, false);
   } finally {
     control?.close();
   }
+});
+
+test("cancel of a WAITING job finishes the abandon: ticket moved to the failure lane, state cleared, seen key freed", async () => {
+  /** @type {any[]} */ const advanced = [];
+  const s = setup({ adapter: { advance: async (ref, step, v) => void advanced.push([ref, step, v]) } });
+  s.queue.enqueue({ kind: "pipeline", ref: "X", stepId: "code", dedupKey: "x" }); // takes the only slot
+  s.queue.enqueue({ kind: "pipeline", ref: "W", stepId: "code", dedupKey: "step:code:W" });
+  s.store.markSeen("step:code:W");
+  s.store.setDifficulty("W", "hard");
+  const r = await s.ops.cancel({ ref: "W" });
+  assert.equal(r.moved, true);
+  assert.deepEqual(advanced, [["W", "code", { outcome: "fail", reason: "cancelled by operator" }]]);
+  assert.equal(s.store.hasSeen("step:code:W"), false, "a later re-entry of the stage must not be deduped away");
+  assert.equal(s.store.getDifficulty("W"), undefined);
+  assert.deepEqual(s.left, ["W"]);
+  assert.ok(s.events.some((e) => e[0] === "failed" && e[1] === "W" && e[3]?.reason === "cancelled by operator"));
+});
+
+test("cancel of a HELD ref abandons it (hold cleared, moved to failure lane); a tracker error is reported, state still cleared", async () => {
+  const ok = setup({ adapter: { advance: async () => {} } });
+  ok.store.setHeld("H", { stepId: "code", heldAt: "x" });
+  const r = await ok.ops.cancel({ ref: "H" });
+  assert.deepEqual([r.killed, r.releasedHold, r.moved], [false, true, true]);
+  assert.equal(ok.store.getHeld("H"), undefined);
+
+  const bad = setup({ adapter: { advance: async () => { throw new Error("tracker 500"); } } });
+  bad.store.setHeld("H", { stepId: "code", heldAt: "x" });
+  const r2 = await bad.ops.cancel({ ref: "H" });
+  assert.equal(r2.moved, false);
+  assert.match(r2.moveError, /tracker 500/);
+  assert.equal(bad.store.getHeld("H"), undefined, "the stale hold is gone even when the tracker move failed");
+});
+
+test("resume pulls the backlog (pulls were skipped while paused), but not while a restart owns the queue", async () => {
+  const s = setup();
+  await s.ops.pause({});
+  await s.ops.resume({});
+  assert.deepEqual(s.pulls, ["pull"]);
+  const locked = setup({ locked: true });
+  await locked.ops.resume({});
+  assert.deepEqual(locked.pulls, []);
 });

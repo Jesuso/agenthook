@@ -96,11 +96,11 @@ const TOOLS = {
   },
   pause: {
     write: true,
-    def: schema("Stop STARTING new agents (running ones finish; new events still queue). Reverse with `resume`.", { profile: PROFILE }),
+    def: schema("Stop STARTING new agents and pulling backlog (running ones finish; new events still queue). `status.slots.free` reads 0 while paused. Reverse with `resume`.", { profile: PROFILE }),
   },
   resume: {
     write: true,
-    def: schema("Undo `pause` and start queued work. No effect while a restart/shutdown owns the queue.", { profile: PROFILE }),
+    def: schema("Undo `pause`: start queued work and pull the backlog into free slots. No effect while a restart/shutdown owns the queue.", { profile: PROFILE }),
   },
   set_concurrency: {
     write: true,
@@ -124,7 +124,7 @@ const TOOLS = {
     write: true,
     destructive: true,
     def: schema(
-      "Stop a task's live agent (SIGTERM→SIGKILL; the run resolves as fail → failure lane, worktree kept) and/or drop its waiting queue entries. Errors if the ref is neither running nor queued.",
+      "Abandon a task: stop its live agent (SIGTERM→SIGKILL; resolves as fail → failure lane, worktree kept), and/or drop its waiting queue entries, and/or drop its HELD record. A waiting or held task is moved to the failure lane too, so reconcile/restart will not re-fire it (`moved:false` + `moveError` if the tracker call failed). Errors if the ref is not running, queued or held.",
       { profile: PROFILE, ref: REF },
       ["ref"],
     ),

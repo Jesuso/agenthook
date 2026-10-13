@@ -59,10 +59,10 @@ Writes (control socket → engine; omitted entirely under `--read-only`):
 
 | Tool | Effect |
 |---|---|
-| `pause` / `resume` | stop/start *starting* agents (running ones finish; events still queue). `resume` is refused while a restart/decommission/shutdown owns the queue |
+| `pause` / `resume` | stop/start *starting* agents **and pulling the backlog** (running ones finish; events still queue; `status.slots.free` reads 0 while paused). `resume` pulls into free slots, and is a no-op while a restart/decommission/shutdown owns the queue |
 | `set_concurrency {max}` | change the cap (1–64) at runtime; not persisted |
 | `run {ref, step?, assign?, force?}` | `agenthook run`: assign + move into a step's source stage; the tracker webhook fires the step. Refuses a ref already in the pipeline unless `force` |
-| `cancel {ref}` | SIGTERM→SIGKILL the live agent (resolves as `fail`, reason "cancelled by operator", worktree kept) and/or drop its waiting queue entries |
+| `cancel {ref}` | abandon a task: SIGTERM→SIGKILL the live agent (resolves as `fail`, reason "cancelled by operator", worktree kept), and/or drop its waiting queue entries, and/or drop its **held** record. Waiting/held tasks are moved to the failure lane too so `reconcile`/restart can't re-fire them (`moved:false` + `moveError` if the tracker call failed; the local state is cleared regardless) |
 | `release {ref, comment}` | resume a **held** task with your answer — the `@agent` reply path, same gate (held, non-manual step, under `maxAttempts`) |
 | `reconcile` | replay tasks resting in source stages (trackers with webhooks) |
 | `pull` | fill free slots from the opt-in backlog now |

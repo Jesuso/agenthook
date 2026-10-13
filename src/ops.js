@@ -12,6 +12,7 @@ import path from "node:path";
 import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
 import { entryBlock } from "./commands/run.js";
 import { runReconcile } from "./commands/reconcile.js";
+import { isStateDedupKey } from "./store.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const COMMENT_MAX = 8000;
@@ -64,13 +65,14 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  *   heartbeat: {update(p: Record<string, any>): void},
  *   pull: () => Promise<void>,
+ *   leavePipeline?: (ref: string) => void,
  *   isLocked: () => boolean,
  *   now?: () => number,
  * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it
  * @returns {Record<string, (args: any) => Promise<any>>}
  */
 export function createOps(deps) {
-  const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked } = deps;
+  const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline } = deps;
   const now = deps.now ?? Date.now;
   let operatorPaused = false;
 
@@ -164,6 +166,7 @@ export function createOps(deps) {
       if (isLocked()) return { paused: queue.isPaused(), note: "a restart/decommission/shutdown holds the queue; not resumed", ...queue.state() };
       queue.resume();
       heartbeat.update({ paused: false });
+      await pull().catch((e) => console.warn(`[ops] pull after resume failed: ${e.message}`)); // pulls were skipped while paused
       return { paused: false, ...queue.state() };
     }),
     set_concurrency: write("set_concurrency", async (args) => {
@@ -175,11 +178,36 @@ export function createOps(deps) {
     }),
     cancel: write("cancel", async (args) => {
       const ref = needString(args.ref, "ref");
-      const dequeued = queue.remove(ref).map((j) => j.stepId);
+      const dropped = queue.remove(ref);
       const killed = cancelRun(ref);
-      if (!killed && !dequeued.length) throw new Error(`${ref} is neither running nor queued here`);
-      if (dequeued.length) emit("dequeued", ref, dequeued[0], { by: "operator" });
-      return { ref, killed, dequeued };
+      const held = store.getHeld(ref);
+      if (!killed && !dropped.length && !held) throw new Error(`${ref} is not running, queued or held here`);
+      store.reloadSeen();
+      for (const j of dropped) if (isStateDedupKey(j.dedupKey)) store.unmarkSeen(j.dedupKey); // else a later re-entry of the same stage would be deduped away
+      const stepId = dropped[0]?.stepId ?? held?.stepId;
+      for (const j of dropped) emit("dequeued", ref, j.stepId, { by: "operator" });
+      // A killed agent resolves through dispatch (fail verdict -> failure lane, state cleared). A
+      // waiting job or a held record never reaches dispatch, so finish the abandon here: move the
+      // ticket out of its source/hold stage (else `reconcile` or a restart would re-fire it) and
+      // drop the per-ref state a terminal fail would drop.
+      /** @type {{moved?: boolean, moveError?: string}} */
+      let outcome = {};
+      if (!killed && stepId && (held || dropped.some((j) => (j.kind ?? "pipeline") === "pipeline"))) {
+        try {
+          await adapter.advance(ref, stepId, { outcome: "fail", reason: "cancelled by operator" });
+          outcome = { moved: true };
+        } catch (e) {
+          outcome = { moved: false, moveError: String(e.message).slice(0, 200) };
+        }
+        store.clearAttempts(ref);
+        store.clearDifficulty(ref);
+        store.clearRepo(ref);
+        store.clearHeld(ref);
+        store.clearFindings(ref);
+        leavePipeline?.(ref);
+        emit("failed", ref, stepId, { reason: "cancelled by operator" });
+      }
+      return { ref, killed, dequeued: dropped.map((j) => j.stepId), ...(held && !killed ? { releasedHold: true } : {}), ...outcome };
     }),
     run: write("run", async (args) => {
       const ref = needString(args.ref, "ref");

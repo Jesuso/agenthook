@@ -52,7 +52,6 @@ test("readStatus: slots, running age, queue, held, free subtracts queued", () =>
     queue: [{ kind: "pipeline", ref: "8", stepId: "triage", dedupKey: "k" }],
     held: { 9: { stepId: "code", reason: "x".repeat(500), heldAt: "h" } },
     refmeta: { 7: { displayId: "#7", title: "Seven" } },
-    hb: { paused: true },
   });
   const s = readStatus(readProfile("p", reg), { now });
   assert.deepEqual(s.slots, { max: 3, active: 1, queued: 1, free: 1 });
@@ -60,7 +59,6 @@ test("readStatus: slots, running age, queue, held, free subtracts queued", () =>
   assert.equal(s.running[0].ageS, 600);
   assert.equal(s.queue[0].ref, "8");
   assert.ok(s.held[0].why.length <= 200, "reason clipped");
-  assert.equal(s.paused, true);
   assert.equal(s.etag, readStatus(readProfile("p", reg), { now: now + 60000 }).etag, "age drift does not change the etag");
 });
 
@@ -146,4 +144,17 @@ test("readRuns / readRunLogTail: newest run log tail, step filter, unknown ref",
   assert.equal(tail.tail, "line 97\nline 98\nline 99");
   assert.match(String(readRunLogTail("p", "7", dir, { step: "nope" }, reg).error), /no run log/);
   assert.match(String(readRunLogTail("p", "404", dir, {}, reg).error), /no run log/);
+});
+
+test("readStatus: free is 0 while paused / restarting / draining (nothing can start); the flag is surfaced", () => {
+  const reg = registry();
+  for (const flag of ["paused", "restartPending", "decommissionPending", "draining"]) {
+    profile(reg, flag, { hb: { [flag]: true } });
+    const s = readStatus(readProfile(flag, reg));
+    assert.equal(s.slots.free, 0, `${flag} -> free 0`);
+    assert.equal(s.slots.max, 3);
+    assert.equal(s[flag], true);
+  }
+  profile(reg, "ok");
+  assert.equal(readStatus(readProfile("ok", reg)).slots.free, 3);
 });

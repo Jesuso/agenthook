@@ -66,7 +66,7 @@ const label = (t, meta) => ({ ...(meta?.displayId ? { id: String(meta.displayId)
 
 /**
  * One profile's live picture in the fewest tokens that still answer "what is running, what is
- * waiting, can I start more?". `slots.free` already subtracts queued jobs.
+ * waiting, can I start more?". `slots.free` already subtracts queued jobs and is 0 while paused / restarting / draining (nothing can start).
  * @param {ReturnType<typeof import('./heartbeat.js').readProfile>} entry
  * @param {{now?: number}} [opts]
  */
@@ -96,7 +96,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     profile: entry.stateKey,
     up: entry.up,
     tracker: hb.tracker ?? null,
-    slots: { max, active, queued: entry.up ? queue.length : 0, free: max === null ? null : Math.max(0, max - active - (entry.up ? queue.length : 0)) },
+    slots: { max, active, queued: entry.up ? queue.length : 0, free: max === null ? null : hb.paused || hb.restartPending || hb.decommissionPending || hb.draining ? 0 : Math.max(0, max - active - (entry.up ? queue.length : 0)) },
     ...(hb.paused ? { paused: true } : {}),
     ...(hb.restartPending ? { restartPending: true } : {}),
     ...(hb.decommissionPending ? { decommissionPending: true } : {}),
