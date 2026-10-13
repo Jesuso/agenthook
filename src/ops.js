@@ -230,6 +230,16 @@ export function createOps(deps) {
       const step = args.step ? stepOrThrow(String(args.step)) : cfg.pipeline?.[0];
       if (!step) throw new Error("pipeline is empty");
       const force = args.force === true;
+      // Like the CLI: confirm the item exists first (a clear error beats a tracker 404 from
+      // enterStage), and don't re-enter a completed one unless forced.
+      /** @type {import('./types.js').Task} */
+      let task;
+      try {
+        task = await adapter.fetchTask(ref);
+      } catch (e) {
+        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
+      }
+      if (task.completed && !force) throw new Error(`${ref} ("${task.name}") is already completed — pass force to enter it anyway`);
       let stage = null;
       if (!force && typeof adapter.currentStage === "function") stage = await adapter.currentStage(ref);
       const blocked = entryBlock(ref, { stage, running: store.listRunning()[ref] ?? null, force });

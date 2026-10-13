@@ -126,6 +126,10 @@ test("run: guards against a ref already in the pipeline, enters the first step, 
   let stage = null;
   const s = setup({
     adapter: {
+      fetchTask: async (ref) => {
+        if (ref === "404") throw new Error("no such task");
+        return { ref, name: "T", completed: ref === "done" };
+      },
       currentStage: async () => stage,
       enterStage: async (ref, step, o) => { entered.push([ref, step, o]); return { stage: `src-${step}` }; },
     },
@@ -140,6 +144,11 @@ test("run: guards against a ref already in the pipeline, enters the first step, 
   await s.ops.run({ ref: "9", force: true });
   assert.equal(entered.length, 3);
   await assert.rejects(() => s.ops.run({ ref: "9", step: "nope" }), /no step "nope"/);
+  await assert.rejects(() => s.ops.run({ ref: "404" }), /404 not found \(no such task\)/);
+  await assert.rejects(() => s.ops.run({ ref: "done" }), /already completed/);
+  assert.equal(entered.length, 3, "neither refusal reached enterStage");
+  await s.ops.run({ ref: "done", force: true });
+  assert.equal(entered.length, 4);
 });
 
 test("release: resumes a held ref through the @agent gate with the comment; refuses otherwise", async () => {
@@ -253,7 +262,7 @@ test("resume pulls the backlog (pulls were skipped while paused), but not while 
 });
 
 test("exposed error text is bounded (adapter errors can embed whole API bodies)", async () => {
-  const s = setup({ adapter: { currentStage: async () => { throw new Error("GitHub 422: " + "x".repeat(5000)); }, enterStage: async () => ({ stage: "s" }) } });
+  const s = setup({ adapter: { fetchTask: async (ref) => ({ ref, name: "T", completed: false }), currentStage: async () => { throw new Error("GitHub 422: " + "x".repeat(5000)); }, enterStage: async () => ({ stage: "s" }) } });
   await assert.rejects(
     () => s.ops.run({ ref: "1" }),
     (e) => e.expose === true && e.message.length <= 500 && e.message.endsWith("…") && e.message.startsWith("GitHub 422:"),

@@ -31,6 +31,14 @@ events**. The trust boundary is small and worth understanding:
 - **Assignee scoping is fail-closed.** The receiver must never act on items not assigned to the
   configured account. If you find a path where it acts on an unassigned item, that's a
   vulnerability — report it.
+- **The agent interface is operator authority.** `agenthook mcp` (and the control socket behind it)
+  can start, cancel, pause and resume work and answer held tickets — the same authority as
+  `agenthook run` / replying `@agent` as the token owner. It is reachable only by the Unix user that
+  owns the receiver (`control.sock` is 0600; the MCP server is a stdio child of your agent, no
+  network listener). When you hand those tools to an LLM, you delegate that authority to whatever
+  text the LLM reads (ticket bodies, agent logs, tracker errors). Register it with `--read-only`
+  for any agent that reads untrusted content; every write is audited to
+  `~/.agenthook/<name>/control-audit.jsonl`. See [docs/mcp.md](docs/mcp.md#safety).
 - **Not multi-tenant.** One profile = one trusted operator on one trusted host. agenthook does not
   isolate users from each other and is not designed to be exposed as a shared service.
 

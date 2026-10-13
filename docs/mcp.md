@@ -70,6 +70,14 @@ Writes (control socket → engine; omitted entirely under `--read-only`):
 
 ### Safety
 
+**Granting the write tools to an LLM delegates operator authority** — run, cancel, release (an
+answer to a held ticket is appended to the resumed agent's prompt, like an owner's `@agent` reply),
+pause, restart — to whatever text that LLM reads: ticket bodies, agent transcripts, tracker error
+text. The socket is same-user only and the server has no network listener, so this is not a new
+privilege boundary on the host, but a prompt-injected supervisor can use the authority you gave it.
+Use `--read-only` for any agent that reads untrusted content, and keep write access for a
+supervisor you trust.
+
 - Every write is appended to `~/.agenthook/<key>/control-audit.jsonl` (0600) with the actor
   (`mcp`), arguments, and outcome — success *and* refusal. `release` comment text is never logged
   (only its length).
