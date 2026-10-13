@@ -1,0 +1,6 @@
+# Ignore everything here; hand-pick what to share with ! rules, e.g.
+#   !skills/
+#   !skills/em-loop/
+#   !skills/em-loop/**
+*
+!.gitignore

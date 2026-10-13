@@ -10,6 +10,7 @@ secrets.json
 
 # Standing instructions are user-authored; ship only the example
 INSTRUCTIONS.md
+INSTRUCTIONS_*.md
 
 # Runtime state (handshake secrets, dedup sets, tunnel URL, pidfile)
 .runtime/
