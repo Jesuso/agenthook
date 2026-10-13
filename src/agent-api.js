@@ -11,9 +11,10 @@ import { registryDir, peekConfig } from "./config.js";
 import { listProfiles } from "./heartbeat.js";
 import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
-import { readProfileState } from "./ui/rows.js";
+import { readProfileState, buildRows } from "./ui/rows.js";
 
 const REASON_MAX = 200;
+const FAILED_MAX = 50;
 const TITLE_MAX = 80;
 const LOG_BYTES_MAX = 24 * 1024;
 /** Control-socket call budgets: board/PR reads hit the tracker/forge; reconcile/run/release can walk a whole board. */
@@ -100,6 +101,18 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   const held = Object.entries(state.held).map(([ref, h]) =>
     label({ ref, step: h?.stepId, ...(h?.reason ? { why: clip(h.reason, REASON_MAX) } : {}), since: h?.heldAt }, state.refmeta[ref]),
   );
+  // Tickets whose last word is a real failure (the dashboard's "needs you" minus held): not an
+  // operator cancel, not dismissed, not re-run since. Newest first, from the events tail.
+  const lastFailed = new Map();
+  for (const e of state.events) if (e.event === "failed") lastFailed.set(e.ref, e);
+  const failed = buildRows(entry.stateKey, state, { up: entry.up })
+    .filter((r) => r.status === "failed")
+    .map((r) => {
+      const e = lastFailed.get(r.ref);
+      return label({ ref: r.ref, step: e?.step || r.step, ...(e?.reason ? { why: clip(String(e.reason), REASON_MAX) } : {}), at: e?.ts }, state.refmeta[r.ref]);
+    })
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .slice(0, FAILED_MAX);
   const active = entry.up ? running.length : 0;
   const out = {
     profile: entry.stateKey,
@@ -114,6 +127,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     running,
     queue,
     held,
+    ...(failed.length ? { failed } : {}),
     ...(entry.up ? {} : { note: "receiver down — running/queue are from the last state on disk (interrupted/stalled)" }),
   };
   return { ...out, etag: etagOf(out) };

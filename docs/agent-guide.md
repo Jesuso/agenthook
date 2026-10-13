@@ -29,6 +29,7 @@ Vocabulary you will see in tool output:
   `id` / `title` next to a ref are the human display id and a clipped title.
 - **slot** — concurrency: at most `slots.max` agents run at once; the rest wait in the **queue**.
 - **held** — a task whose agent asked for input. It stays parked until someone answers (`release`).
+- **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again or you `dismiss` them. `held` + `failed` is the dashboard's "needs you" list.
 - **backlog / queue stage** — optional opt-in lane the receiver pulls from when a slot frees.
 - There is **no polling** inside agenthook: forward motion is webhook-driven. Reads cost nothing on
   the tracker; `board`/`prs` hit the tracker/forge only when you call them (cached ~30 s).

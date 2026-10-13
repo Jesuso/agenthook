@@ -214,3 +214,20 @@ test("compactEvent keeps the ci_green payload (pr, sha, mergeable, mergeState) a
   assert.deepEqual(e, { ts: "t", e: "ci_green", ref: "1", pr: 7, sha: "abc", mergeable: false, mergeState: "dirty" });
   assert.equal("mergeable" in compactEvent({ ts: "t", event: "ci_green", ref: "1", pr: 7, mergeable: null }), false);
 });
+
+test("readStatus lists real failures (not cancels, dismissed or re-run ones) as failed[] with why", async () => {
+  const { readStatus } = await import("../src/agent-api.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-failed-"));
+  const ev = [
+    { ts: "2026-10-13T10:00:00Z", event: "failed", ref: "a", step: "code", reason: "exit 1" },
+    { ts: "2026-10-13T11:00:00Z", event: "failed", ref: "b", step: "triage", reason: "cancelled by operator" },
+    { ts: "2026-10-13T12:00:00Z", event: "failed", ref: "c", step: "code", reason: "boom" },
+    { ts: "2026-10-13T12:01:00Z", event: "dismissed", ref: "c", step: "" },
+    { ts: "2026-10-13T13:00:00Z", event: "failed", ref: "d", step: "code", reason: "later" },
+    { ts: "2026-10-13T13:05:00Z", event: "run_start", ref: "d", step: "code" },
+  ];
+  fs.writeFileSync(path.join(dir, "events.jsonl"), ev.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const s = readStatus({ dir, stateKey: "p", up: true, heartbeat: {} });
+  assert.deepEqual(s.failed?.map((f) => [f.ref, f.step, f.why]), [["a", "code", "exit 1"]]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

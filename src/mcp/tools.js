@@ -61,7 +61,7 @@ const TOOLS = {
   },
   status: {
     def: schema(
-      "Live picture of one profile: slots {max,active,queued,free}, running agents (ref, step, ageS, model), queued jobs, held tasks (why), pause/restart flags. `free` is how many more tasks can start now. Pass `ifNoneMatch` with the last `etag` to get `{unchanged:true}` (near-zero tokens) when nothing changed. profile:\"*\" = all profiles.",
+      "Live picture of one profile: slots {max,active,queued,free}, running agents (ref, step, ageS, model), queued jobs, held tasks (why), failed tasks (why — real failures not yet re-run or dismissed; with `held` this is the dashboard's \"needs you\" list), pause/restart flags. `free` is how many more tasks can start now. Pass `ifNoneMatch` with the last `etag` to get `{unchanged:true}` (near-zero tokens) when nothing changed. profile:\"*\" = all profiles.",
       { profile: PROFILE, ifNoneMatch: { type: "string", description: "etag from a previous status call" } },
     ),
   },
