@@ -64,7 +64,7 @@ export function createMcpServer({ name, version, instructions, handlers }) {
         try {
           const result = await handlers.call(toolName, params?.arguments ?? {}, { signal: ac.signal });
           // MCP: a cancelled request gets no response.
-          if (!clientCancelled.has(id)) write({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
+          if (!clientCancelled.has(id)) write({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] } });
         } catch (e) {
           if (clientCancelled.has(id)) return;
           if (e?.code === "unknown_tool") write(rpcError(id, -32602, e.message));

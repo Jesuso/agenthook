@@ -96,6 +96,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 - [Architecture](docs/architecture.md) — how the engine works + the honest tradeoffs
 - [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely
 - [Providers](docs/providers.md) — add a tracker or ingress adapter
+- [Agent interface (MCP)](docs/mcp.md) · [Agent guide](docs/agent-guide.md) — let an EM loop or Claude Code session read and manage the pipeline
 
 ## Profiles & parallel runs
 
@@ -258,6 +259,25 @@ and `ls`. See [Token & cost tracking](docs/usage.md).
 
 Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
 does, and only once the PR is merged/closed or the tracker item is completed.
+
+## Let other agents run it (MCP)
+
+An engineering-manager loop or any Claude Code session can see and manage the pipeline without
+writing its own polling script:
+
+```bash
+claude mcp add agenthook -- agenthook mcp              # read + write, all profiles
+claude mcp add agenthook -- agenthook mcp --read-only  # watcher that can never act
+```
+
+Tools: `tick` (status + board + PRs + new events in one call), `status`, `events` (blocks until
+something happens, no polling), `runs`, `board`, `prs`, `guide`, and — unless `--read-only` — `run`,
+`cancel`, `release` (answer a held ticket), `pause`/`resume`, `set_concurrency`, `reconcile`,
+`pull`, `restart`. Calls are token-thrifty (`etag`, event cursors). No MCP client? `agenthook tick`
+and `agenthook watch` give shell agents the same data. Write tools hand operator authority to the
+agent that holds them — read [docs/mcp.md](docs/mcp.md#safety) first. Agents learn the tools from
+the `guide` tool ([docs/agent-guide.md](docs/agent-guide.md)); a ready-made Claude Code skill is in
+[`examples/skills/agenthook-supervisor`](examples/skills/agenthook-supervisor/SKILL.md).
 
 ## Safety
 

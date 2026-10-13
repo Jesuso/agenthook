@@ -11,6 +11,8 @@ re-read state every cycle. agenthook already holds that data, so it exposes it d
 | `agenthook tick [--json]` | shell-only agents — the same one-call snapshot | board/PRs: yes |
 | `agenthook watch` | sleep-until-something-happens (`Monitor`, `until` loops) | no |
 
+**Agents:** call the `guide` tool (or read [agent-guide.md](agent-guide.md)) for the pipeline model, response shapes, recipes, and error meanings. This page is the reference.
+
 Zero new dependencies: the MCP server is a small stdio JSON-RPC implementation (`src/mcp/server.js`).
 
 ## Register
@@ -42,6 +44,7 @@ Reads (state dir; work with the receiver down):
 
 | Tool | Returns |
 |---|---|
+| `guide` | the agent guide, by topic (`model`, `shapes`, `recipes`, `events`, `writes`, `errors`, `gotchas`, `all`); no topic = the list |
 | `profiles` | every profile: up/down, active/queued/max |
 | `status` | `slots {max,active,queued,free}`, `running[]` (ref, step, `ageS`, model, output tokens), `queue[]`, `held[]` (+`why`), `paused`/`restartPending`/`draining`, `backlog` depth. `profile:"*"` = all up profiles |
 | `events` | events after `cursor` (`types`, `ref`, `limit`, `waitS`); no cursor → the current cursor (or `last` N events) |

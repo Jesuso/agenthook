@@ -6,12 +6,36 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-13
+
+### Added
+
+- **Agent interface** (docs/mcp.md, docs/agent-guide.md). External agents — an engineering-manager
+  loop, a Claude Code session — can read and manage the pipeline without hand-written polling scripts.
+  - `agenthook mcp [--read-only]`: zero-dependency stdio MCP server multiplexing every profile.
+    Reads (`profiles`, `status`, `events`, `runs`) come from the state dir and work with the receiver
+    down; `board`, `prs`, `tick` and all writes go over `control.sock`.
+  - Write tools: `run`, `cancel`, `release`, `pause`, `resume`, `set_concurrency`, `reconcile`,
+    `pull`, `restart` — audited to `control-audit.jsonl` (0600; `release` text never logged).
+    Granting them delegates operator authority; see SECURITY.md. `--read-only` removes them.
+  - Token thrift: `etag`/`ifNoneMatch`, byte-offset event cursors, and `events` with `waitS`
+    (`fs.watch`-driven, no polling).
+  - `guide` tool + `docs/agent-guide.md` so agents learn the model, response shapes, recipes and
+    error meanings without reading source; ready-made skill in `examples/skills/agenthook-supervisor`.
+  - `agenthook tick [--json]` and `agenthook watch` for shell-only agents.
+  - GitHub forge `listAgentPrs` (CI roll-up, mergeability) backs `prs`; new `dequeued` event.
+  - Dispatcher `cancel` (SIGTERM→SIGKILL, resolves as `fail` "cancelled by operator"); the queue gains
+    runtime `setMax`, `remove`, operator pause; a paused queue also stops backlog pulls.
+
 ### Changed
 
 - **Minimum Node raised to 22** (#130). Node 20 is EOL; CI now runs on Node 22 & 24.
 
 ### Fixed
 
+- GitHub tracker `listResting` (so `reconcile`) re-reads each candidate issue live: GitHub's
+  list-by-label index lags label moves by seconds, which could replay a ticket that had just left
+  the stage and start a second agent on it.
 - **Forge hook cleanup is scoped to the profile's own hook** (#118). `deleteOurHooks()` in the
   `github` forge deleted every repo hook whose URL ended in `/forge`, so two profiles with a
   `forge` block on one repo removed each other's hook on boot/stop — the other profile silently

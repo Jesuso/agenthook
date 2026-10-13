@@ -21,8 +21,23 @@ import { readEventsTail } from "../ui/rows.js";
 import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";
 import path from "node:path";
+import fs from "node:fs";
 
 const MAX_WAIT_S = 120;
+
+/** The agent guide (docs/agent-guide.md) split by `## topic`, so an agent can pull one section. */
+const GUIDE_FILE = new URL("../../docs/agent-guide.md", import.meta.url);
+/** @returns {{intro: string, topics: Map<string, string>}} */
+export function loadGuide(file = GUIDE_FILE) {
+  const text = fs.readFileSync(file, "utf8");
+  const parts = text.split(/^## /m);
+  const topics = new Map();
+  for (const part of parts.slice(1)) {
+    const nl = part.indexOf("\n");
+    topics.set(part.slice(0, nl).trim(), `## ${part}`.trimEnd());
+  }
+  return { intro: parts[0].trimEnd(), topics };
+}
 
 const PROFILE = { type: "string", description: "Profile state key or label. Omit to use the project's own profile (or the only running one)." };
 const REF = { type: "string", description: "Task ref (tracker-native id; see `ref` in status/board output)." };
@@ -37,6 +52,12 @@ const schema = (description, properties, required = []) => ({
 const TOOLS = {
   profiles: {
     def: schema("List every agenthook profile on this machine: up/down, slots in use, queued. Start here when unsure which profile.", {}),
+  },
+  guide: {
+    def: schema(
+      "How to use these tools well: pipeline model, response shapes, supervisor recipes (held / failed / stuck / red PR), event names, write-tool refusals, error meanings, gotchas. No topic = the topic list; topic \"all\" = everything. Read it once per session before acting.",
+      { topic: { type: "string", description: "model | quickstart | shapes | recipes | events | writes | errors | gotchas | all" } },
+    ),
   },
   status: {
     def: schema(
@@ -171,6 +192,14 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
   const impl = {
     async profiles() {
       return readProfiles(registry);
+    },
+    async guide(args) {
+      const { topics } = loadGuide();
+      if (!args.topic) return { topics: [...topics.keys()], hint: "call guide {topic} for one section, or {topic:\"all\"}" };
+      if (args.topic === "all") return [...topics.values()].join("\n\n");
+      const t = topics.get(String(args.topic).toLowerCase());
+      if (!t) throw new Error(`guide: unknown topic "${args.topic}". Topics: ${[...topics.keys()].join(", ")}`);
+      return t;
     },
     async status(args) {
       if (args.profile === "*") return listProfiles(registry).filter((p) => !p.ghost && p.up).map((p) => readStatus(p));

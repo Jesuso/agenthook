@@ -12,7 +12,8 @@ import { defaultProfileKey } from "../agent-api.js";
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 
 const INSTRUCTIONS =
-  "agenthook pipeline control. Start with `tick` (or `status`) — it is one cheap call and tells you free slots, running agents, queue, held tasks, board and PR state. " +
+  "agenthook pipeline control. New to these tools? Call `guide` once: pipeline model, response shapes, recipes for held/failed/stuck tasks, error meanings. " +
+  "Start with `tick` (or `status`) — it is one cheap call and tells you free slots, running agents, queue, held tasks, board and PR state. " +
   "Pass back `etag` as ifNoneMatch and `cursor` to keep repeat calls near-free. To wait for something to happen use `events` with `waitS` instead of looping on status. " +
   "Write tools (run, cancel, release, pause, …) act on the real board and real agents.";
 

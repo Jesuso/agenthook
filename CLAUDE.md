@@ -195,7 +195,7 @@ Key files:
   `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
   Otherwise a blind **reader**: never writes any state dir, never loads a config; PR links come
   from the heartbeat's `repository`.
-- `src/agent-api.js` + `src/mcp/*` + `src/ops.js` — the **agent-facing surface** (docs/mcp.md). `agent-api.js`
+- `src/agent-api.js` + `src/mcp/*` + `src/ops.js` — the **agent-facing surface** (docs/mcp.md; usage guide for agents `docs/agent-guide.md`, served by the MCP `guide` tool — update it when a tool, event or error message changes). `agent-api.js`
   is the pure read model over a state dir (`readStatus` slots/running/queue/held with an `etag`,
   `readEventsSince`/`waitForEvents` byte-offset cursors — `waitForEvents` is `fs.watch`-driven, never
   polling —, `readRuns`/`readRunLogTail`, `readTick`, `pickProfile` multiplexing); reads work with the

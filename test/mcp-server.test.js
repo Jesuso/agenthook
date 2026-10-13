@@ -127,3 +127,23 @@ test("tools/call validates arguments against the advertised schema (types, range
   await assert.rejects(() => call("cancel", {}), /"ref" is required/);
   await assert.rejects(() => call("runs", { ref: 5 }), /"ref" must be a string/);
 });
+
+test("guide tool: lists topics, serves one section or all as raw markdown, rejects unknown topics; works read-only", async () => {
+  const t = createTools({ readOnly: true });
+  const ctx = { signal: new AbortController().signal };
+  const idx = await t.call("guide", {}, ctx);
+  for (const k of ["model", "shapes", "recipes", "events", "writes", "errors", "gotchas"]) assert.ok(idx.topics.includes(k), k);
+  const one = await t.call("guide", { topic: "recipes" }, ctx);
+  assert.equal(typeof one, "string");
+  assert.match(one, /^## recipes/);
+  assert.doesNotMatch(one, /^## model/m);
+  const all = await t.call("guide", { topic: "all" }, ctx);
+  assert.match(all, /## model[\s\S]*## gotchas/);
+  await assert.rejects(() => t.call("guide", { topic: "nope" }, ctx), /unknown topic "nope"/);
+});
+
+test("every tool is covered by the agent guide or the writes table", async () => {
+  const t = createTools({});
+  const text = (await t.call("guide", { topic: "all" }, { signal: new AbortController().signal })) + "";
+  for (const { name } of t.list()) assert.ok(text.includes(`\`${name}`), `guide never mentions \`${name}\``);
+});
