@@ -36,6 +36,9 @@ const BRANCH_PREFIX = "agent/";
 const SECRET_KEY = "forge:github:webhookSecret";
 // Conclusions that count as red. `cancelled` (superseded push, human stop) does not.
 const RED = new Set(["failure", "timed_out"]);
+// For the read-only PR roll-up (`listAgentPrs`) a cancelled / startup-failed / action-required run is
+// also not green. (RED stays narrower: it decides when the receiver itself reacts to red CI.)
+const FAILING = new Set([...RED, "cancelled", "startup_failure", "action_required"]);
 const LOG_TAIL_LINES = 60;
 const LOG_TAIL_MAX = 6000;
 
@@ -250,6 +253,66 @@ export function createGithubForge(cfg, store) {
       if (!(await deleteOurHooks())) console.warn(`[forge] cannot list hooks on ${owner}/${repo} (403/404) — remove the /forge hook by hand`);
     },
 
+    // Open PRs on this repo's receiver-made `agent/<ref>` branches, with a CI roll-up and
+    // mergeability (read-only; backs the MCP `prs` tool). Paged (up to 5 x 100 open PRs).
+    // CI is conservative for a supervisor that decides merges: anything not clearly green is
+    // not `success` — `failure` covers failed / timed-out / cancelled / startup-failure /
+    // action-required runs, and `unknown` means the check-runs call itself failed.
+    async listAgentPrs() {
+      /** @type {any[]} */
+      let all = [];
+      for (let page = 1; page <= 5; page++) {
+        const res = await api(`${repoPath()}/pulls?state=open&per_page=100&page=${page}`);
+        if (!res.ok) throw new Error(`list PRs ${res.status}`);
+        const batch = (await json(res)) || [];
+        all = all.concat(batch);
+        if (batch.length < 100) break;
+      }
+      const prs = all.filter(
+        (/** @type {any} */ p) =>
+          refFromBranch(p.head?.ref) && p.head?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase(),
+      );
+      return Promise.all(
+        prs.map(async (/** @type {any} */ p) => {
+          // Detail (mergeable is only on the single-PR endpoint) + check runs, in parallel.
+          /** @type {() => Promise<any>} */
+          const detail = () => api(`${repoPath()}/pulls/${p.number}`).then((r) => (r.ok ? json(r) : {})).catch(() => ({}));
+          // GitHub computes mergeability lazily: the first read of a fresh/just-pushed PR says null /
+          // "unknown". One short retry so that transient value is not cached as the answer.
+          const settled = async () => {
+            const first = await detail();
+            if (first.mergeable !== null && first.mergeable !== undefined) return first;
+            await new Promise((r) => setTimeout(r, 1500));
+            return detail();
+          };
+          /** @type {[any, any]} */
+          const [d, c] = await Promise.all([
+            settled(),
+            api(`${repoPath()}/commits/${p.head.sha}/check-runs?per_page=100`).then((r) => (r.ok ? json(r) : null)).catch(() => null),
+          ]);
+          const runs = /** @type {any[]} */ (c?.check_runs || []);
+          /** @type {'success'|'failure'|'pending'|'none'|'unknown'} */
+          let ci = "none";
+          if (c === null) ci = "unknown"; // the call failed — do not read that as "no CI"
+          else if (runs.length) {
+            if (runs.some((r) => FAILING.has(r.conclusion))) ci = "failure";
+            else if (runs.some((r) => r.status !== "completed")) ci = "pending";
+            else ci = "success";
+          }
+          return {
+            number: p.number,
+            ref: /** @type {string} */ (refFromBranch(p.head.ref)),
+            title: String(p.title ?? ""),
+            url: String(p.html_url ?? ""),
+            draft: !!p.draft,
+            mergeable: typeof d.mergeable === "boolean" ? d.mergeable : null,
+            mergeState: typeof d.mergeable_state === "string" ? d.mergeable_state : null,
+            ci,
+            updatedAt: String(p.updated_at ?? ""),
+          };
+        }),
+      );
+    },
     // The open-or-not PR for a ref's agent branch and its current head sha. By number
     // when the run names one, else the open PR whose head is `<owner>:agent/<ref>`.
     async prHead(prNumber, ref) {

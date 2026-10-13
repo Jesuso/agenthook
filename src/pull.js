@@ -52,7 +52,7 @@ export const PULL_TTL_MS = 10 * 60 * 1000;
  * refs in running.json + queue.json.
  * @param {{
  *   steps: import('./types.js').Step[],
- *   max: number,
+ *   max: number | (() => number),   // a function tracks the live cap (`set_concurrency`)
  *   queueState: () => {active: number, queued: number},
  *   inflightRefs: () => string[],
  *   listQueued: (stepId: string) => Promise<string[]>,
@@ -74,7 +74,7 @@ export function createPuller(deps) {
   let pulling = false;
   let again = false;
 
-  const slots = () => freeSlots({ max, ...queueState(), pending: pending.size });
+  const slots = () => freeSlots({ max: typeof max === "function" ? max() : max, ...queueState(), pending: pending.size });
 
   async function pass() {
     const t = now();

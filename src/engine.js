@@ -36,6 +36,7 @@ import { createDispatcher } from "./dispatch.js";
 import { createHeartbeat } from "./heartbeat.js";
 import { claimStateDir } from "./profile.js";
 import { startControl } from "./control.js";
+import { createOps } from "./ops.js";
 import { createEmitter } from "./events.js";
 import { createSinks } from "./sinks.js";
 import { loadConfig } from "./config.js";
@@ -385,8 +386,10 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   /**
    * @param {import('./types.js').Job[]} [jobs]
    * @param {{force?: boolean}} [opts]  force skips the dedup gate (explicit replay/reconcile)
+   * @returns {number} how many jobs the queue accepted (a coalesced duplicate is not accepted)
    */
   function intake(jobs, { force = false } = {}) {
+    let accepted = 0;
     store.reloadSeen();
     for (const job of jobs || []) {
       if (!job.dedupKey) continue;
@@ -400,8 +403,10 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       });
       emit("enqueued", job.ref, job.stepId);
       // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
-      if (!queue.enqueue(job) && isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
+      if (queue.enqueue(job)) accepted++;
+      else if (isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
     }
+    return accepted;
   }
 
   // Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
@@ -425,13 +430,13 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // every job settles — never on a timer; a no-op without any queue key.
   const puller = createPuller({
     steps: adapter.listQueued && adapter.enterStage ? (cfg.pipeline || []).filter((s) => !s.manual && queueStageOf(s)) : [],
-    max: cfg.maxConcurrent,
+    max: () => queue.max(), // live: `set_concurrency` moves it
     queueState: () => queue.state(),
     inflightRefs: () => [...Object.keys(store.listRunning()), ...store.listQueued().map((j) => j.ref)],
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
     enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),
     stageOf: queueStageOf,
-    isDraining: () => draining || restarter.isPending() || decommissioner.isPending(),
+    isDraining: () => draining || queue.isPaused() || restarter.isPending() || decommissioner.isPending(), // an operator pause also stops backlog pulls
     emit,
     onDepth: (queueStage) => heartbeat.update({ queueStage }),
   });
@@ -475,6 +480,20 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       res.end();
       Promise.resolve(source.processEvents(ctx)).then(intake).catch((e) => console.error("[events]", e.message));
     });
+  });
+
+  const ops = createOps({
+    cfg, store, adapter, forge, queue, intake, emit, heartbeat,
+    cancelRun: runClaude.cancel,
+    pull: () => puller.pull(),
+    // mirrors dispatch's leavePipeline: a ref abandoned by `cancel` must not keep an overlap lock
+    leavePipeline: (ref) => {
+      if (!cfg.overlapGuard) return;
+      store.clearPredictedPaths(ref);
+      store.clearOverlap(ref);
+      releaseOverlap?.(ref);
+    },
+    isLocked: () => draining || restarter.isPending() || decommissioner.isPending(),
   });
 
   let draining = false;
@@ -686,7 +705,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       // POST a handshake/ping to the public URL, which must reach a live server (Asana
       // needs the X-Hook-Secret echoed back, or it fails the hook with a 502).
       await new Promise((resolve) => server.listen(cfg.port, "127.0.0.1", () => resolve(undefined)));
-      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request, decommission: decommissioner.request }); // owner check reads the OLD pidfile — must run before the write below
+      control = await startControl(cfg, { startedAt, adapter, restart: restarter.request, decommission: decommissioner.request, commands: ops }); // owner check reads the OLD pidfile — must run before the write below
       fs.writeFileSync(cfg.pidFile, String(process.pid));
       console.log(`agenthook [${cfg.name}] listening on 127.0.0.1:${cfg.port}  (public: ${url})`);
 

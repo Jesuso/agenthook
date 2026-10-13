@@ -207,6 +207,22 @@ export function createGithubAdapter(cfg, store) {
     }
   }
 
+  /**
+   * Live check (single-issue read, not the lagging list index): still open and still carrying `label`.
+   * @param {string} ref @param {string} label
+   */
+  async function stillRestingIn(ref, label) {
+    try {
+      const res = await api(`${repoPath()}/issues/${ref}`);
+      if (!res.ok) return false;
+      const live = await json(res);
+      const want = String(label).toLowerCase();
+      return live.state === "open" && (live.labels || []).some((/** @type {any} */ l) => String(typeof l === "string" ? l : l?.name).toLowerCase() === want);
+    } catch {
+      return false;
+    }
+  }
+
   // --- native GitHub issue dependencies (the block gate) ---
   // GitHub's issue dependencies are LIVE data, queried per event with no caching, so a
   // reopen, a fresh blocker, or a second blocker is always reflected. This is a WORKFLOW
@@ -533,6 +549,11 @@ export function createGithubAdapter(cfg, store) {
           const ref = String(it.number);
           if (seen.has(ref)) continue;
           if (!(await issueIsOurs(it))) continue;
+          // The list-by-label index lags label changes by seconds: an issue that just left this stage
+          // (cancelled, failed, advanced) can still be listed under it. Re-read the single issue —
+          // strongly consistent — and require it to still be open and carry the label, or reconcile
+          // would replay a ticket that already moved on. Fail closed on a read error.
+          if (!(await stillRestingIn(ref, step.sourceLabel))) continue;
           if ((await blockedBy(ref)).length) continue; // blocked → reconcile must not re-inject it
           seen.add(ref);
           jobs.push({ kind: "pipeline", ref, stepId: step.id, dedupKey: `reconcile:${step.id}:${ref}` });

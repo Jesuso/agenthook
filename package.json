@@ -1,6 +1,6 @@
 {
   "name": "@jesuso/agenthook",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
   "type": "module",
   "bin": {
@@ -10,6 +10,9 @@
     "bin",
     "src",
     "ui/dist",
+    "docs/agent-guide.md",
+    "docs/mcp.md",
+    "docs/events.md",
     "SECURITY.md",
     "INSTRUCTIONS.example.md",
     "agenthook.config.example.json"

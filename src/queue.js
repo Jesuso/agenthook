@@ -22,14 +22,15 @@ export function planRestore(queued, runningRefs, stepIds) {
 }
 
 /**
- * @param {number} max
+ * @param {number} initialMax
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
  * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
  * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
  *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run,
  *   onSettle after a job settles and its slot is released (the engine's queue-stage pull trigger)
  */
-export function createQueue(max, run, onChange, persist) {
+export function createQueue(initialMax, run, onChange, persist) {
+  let max = initialMax;
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -46,6 +47,8 @@ export function createQueue(max, run, onChange, persist) {
   /** @param {import('./types.js').Job} job */
   const workKey = (job) =>
     job.kind === "ci" ? job.dedupKey : `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
+  /** @type {Map<string, (() => void)[]>} work key -> waiters for that key to leave the queue/finish */
+  const freeWaiters = new Map();
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
   let paused = false; // restart pending: accept + persist new work, but start nothing
@@ -93,6 +96,8 @@ export function createQueue(max, run, onChange, persist) {
         .finally(() => {
           active--;
           inflight.delete(workKey(job));
+          for (const w of freeWaiters.get(workKey(job)) ?? []) w();
+          freeWaiters.delete(workKey(job));
           report();
           pump();
           resolveIdle();
@@ -134,8 +139,66 @@ export function createQueue(max, run, onChange, persist) {
       paused = false;
       pump();
     },
+    /** True while `job`'s (ref, step) is queued or running — an enqueue of it would be coalesced away. @param {import('./types.js').Job} job */
+    has: (job) => inflight.has(workKey(job)),
+    /**
+     * Resolve true once `job`'s (ref, step) is no longer queued/running (immediately if it is not),
+     * false after `timeoutMs`. Event-driven: woken by the run settling, no polling. For a caller that
+     * must enqueue right after an event announcing the previous run's verdict, which lands a few
+     * hundred ms before the run's own cleanup (label move) finishes.
+     * @param {import('./types.js').Job} job @param {number} timeoutMs @returns {Promise<boolean>}
+     */
+    whenFree(job, timeoutMs) {
+      const key = workKey(job);
+      if (!inflight.has(key)) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          const rest = (freeWaiters.get(key) ?? []).filter((w) => w !== wake);
+          if (rest.length) freeWaiters.set(key, rest);
+          else freeWaiters.delete(key);
+          resolve(false);
+        }, timeoutMs);
+        const wake = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        freeWaiters.set(key, [...(freeWaiters.get(key) ?? []), wake]);
+      });
+    },
     /** {active, queued} snapshot. */
     state: () => ({ active, queued: queue.length }),
+    /** Whether new runs are held back (restart/decommission/operator pause). */
+    isPaused: () => paused,
+    /** Current concurrency cap. */
+    max: () => max,
+    /** Change the concurrency cap at runtime (not persisted to config); a raise starts waiting jobs now. @param {number} n */
+    setMax(n) {
+      max = n;
+      report();
+      pump();
+    },
+    /**
+     * Drop WAITING jobs for `ref` (optionally only `stepId`) — never a running one. Fires
+     * `onRemove` per job so queue.json follows. Returns the dropped jobs.
+     * @param {string} ref @param {string} [stepId]
+     */
+    remove(ref, stepId) {
+      /** @type {import('./types.js').Job[]} */
+      const dropped = [];
+      for (let i = queue.length - 1; i >= 0; i--) {
+        const j = queue[i];
+        if (j.ref !== ref || (stepId && j.stepId !== stepId)) continue;
+        queue.splice(i, 1);
+        inflight.delete(workKey(j));
+        persist?.onRemove?.(j);
+        dropped.unshift(j);
+      }
+      if (dropped.length) {
+        report();
+        resolveIdle();
+      }
+      return dropped;
+    },
     /** Resolves once nothing is running and the queue is empty. Immediate if idle now. */
     onIdle() {
       if (active === 0 && queue.length === 0) return Promise.resolve();

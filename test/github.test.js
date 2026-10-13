@@ -710,3 +710,50 @@ test("fetchTask returns routeKeys from labels; [] when routeField unset", async 
     restore();
   }
 });
+
+// --- listResting: the list-by-label index lags label changes; the live issue read decides ---
+
+/** @param {Record<string, any>} routes  url-suffix → body (or {status}) */
+function restingAdapter(routes) {
+  const a = createGithubAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: [{ id: "code", sourceLabel: "agent:code", successLabel: "agent:review", failureLabel: "agent:blocked" }], providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }),
+    /** @type {any} */ (makeStore()),
+  );
+  const restore = withDeps((u) => {
+    const hit = Object.entries(routes).find(([suffix]) => u.includes(suffix));
+    if (!hit) return null;
+    const r = hit[1];
+    return /** @type {any} */ ({ ok: (r.status ?? 200) < 300, status: r.status ?? 200, json: async () => r.body });
+  });
+  return { a, restore };
+}
+
+test("listResting: a ticket the stale list index still shows under the label, but that already moved on, is NOT resting", async () => {
+  const { a, restore } = restingAdapter({
+    "/dependencies/blocked_by": { body: [] },
+    "/issues?state=open&labels=agent%3Acode": { body: [{ number: 10, labels: [{ name: "agent:code" }], assignees: [] }, { number: 11, labels: [{ name: "agent:code" }], assignees: [] }] },
+    "/issues/10": { body: { number: 10, state: "open", labels: [{ name: "agent:blocked" }] } }, // moved on: the list is stale
+    "/issues/11": { body: { number: 11, state: "open", labels: [{ name: "agent:code" }] } },
+  });
+  try {
+    const jobs = await a.listResting();
+    assert.deepEqual(jobs.map((j) => j.ref), ["11"]);
+  } finally {
+    restore();
+  }
+});
+
+test("listResting: a closed ticket, and a live read that fails, are not resting (fail closed)", async () => {
+  const { a, restore } = restingAdapter({
+    "/dependencies/blocked_by": { body: [] },
+    "/issues?state=open&labels=agent%3Acode": { body: [{ number: 20, labels: [{ name: "agent:code" }], assignees: [] }, { number: 21, labels: [{ name: "agent:code" }], assignees: [] }, { number: 22, labels: [{ name: "Agent:Code" }], assignees: [] }] },
+    "/issues/20": { body: { number: 20, state: "closed", labels: [{ name: "agent:code" }] } },
+    "/issues/21": { status: 502, body: {} },
+    "/issues/22": { body: { number: 22, state: "open", labels: [{ name: "Agent:Code" }] } }, // label match is case-insensitive
+  });
+  try {
+    assert.deepEqual((await a.listResting()).map((j) => j.ref), ["22"]);
+  } finally {
+    restore();
+  }
+});

@@ -339,9 +339,23 @@
  * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup
  * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
  * @property {(prNumber: number|null, ref: string) => Promise<{number: number, sha: string, open: boolean}|null>} [prHead]  the ref's agent-branch PR (by number, else the open one), or null
+ * @property {() => Promise<AgentPr[]>} [listAgentPrs]  open PRs on receiver-made `agent/<ref>` branches of this repo, with CI + mergeability (read-only; the MCP `prs` tool)
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
+ */
+
+/** One open agent PR as `listAgentPrs` reports it.
+ * @typedef {object} AgentPr
+ * @property {number} number
+ * @property {string} ref        the task ref (branch minus `agent/`)
+ * @property {string} title
+ * @property {string} url
+ * @property {boolean} draft
+ * @property {boolean|null} mergeable    null = GitHub has not computed it yet
+ * @property {string|null} mergeState    GitHub's mergeable_state (clean|dirty|blocked|behind|unstable|…)
+ * @property {'success'|'failure'|'pending'|'none'|'unknown'} ci   unknown = the check-runs call failed (not the same as none)
+ * @property {string} updatedAt
  */
 
 /** A factory `(cfg, store) => Forge`.

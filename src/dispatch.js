@@ -288,6 +288,41 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   // busy ref is parked (store.setCiRed) instead of racing that job's own advance.
   /** @type {Set<string>} */
   const busy = new Set();
+  // Operator cancel (MCP/control `cancel`): live agent pid per ref, and the refs asked to stop.
+  // A cancelled run always resolves as `fail` ("cancelled by operator"), like a timeout kill.
+  /** @type {Map<string, number>} */
+  const pids = new Map();
+  /** @type {Set<string>} */
+  const cancelled = new Set();
+  // Refs between runClaude() starting and the agent being spawned (fetch, routing, worktree):
+  // the only window in which a cancel has no pid yet but can still stop the run. After the
+  // agent exits (verdict, advance) a cancel is too late and must say so.
+  /** @type {Set<string>} */
+  const preSpawn = new Set();
+  /** @type {Map<string, NodeJS.Timeout>} */
+  const killTimers = new Map();
+  /** SIGTERM now, SIGKILL after the grace (cleared when the run ends, so a recycled pid is never hit).
+   * @param {string} ref @param {number} pid */
+  function killNow(ref, pid) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      return false;
+    }
+    clearTimeout(killTimers.get(ref));
+    killTimers.set(
+      ref,
+      setTimeout(() => {
+        killTimers.delete(ref);
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, killGraceMs).unref(),
+    );
+    return true;
+  }
   /** Pipeline position of a step id (-1 if unknown). @param {string} id */
   const stepIndex = (id) => cfg.pipeline?.findIndex((s) => s.id === id) ?? -1;
 
@@ -885,6 +920,10 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
       onPid: (p) => {
         pid = p;
+        if (p) pids.set(job.ref, p);
+        // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
+        preSpawn.delete(job.ref);
+        if (p && cancelled.has(job.ref)) killNow(job.ref, p);
         try {
           store?.setRunning(job.ref, { ...baseRunning, pid });
         } catch (e) {
@@ -901,6 +940,10 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       },
     });
     store?.clearRunning(job.ref);
+    pids.delete(job.ref);
+    clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
+    killTimers.delete(job.ref);
+    const wasCancelled = cancelled.delete(job.ref);
     // The step may just have opened the PR.
     await recordPr(job.ref, repo);
 
@@ -915,7 +958,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
     /** @type {import('./types.js').Verdict} */
-    const verdict = timedOut
+    const verdict = wasCancelled
+      ? { outcome: "fail", reason: "cancelled by operator" }
+      : timedOut
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
       : readVerdict(code, verdictFile);
     try {
@@ -1012,10 +1057,11 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   }
 
   /** @param {import('./types.js').Job} job */
-  return async function runClaude(job) {
+  async function runClaude(job) {
     if (job.kind === "merge") return runMerge(job);
     if (job.kind === "ci") return runCi(job);
     busy.add(job.ref);
+    preSpawn.add(job.ref);
     /** @type {{name?: string, url?: string}} */
     let info = {};
     try {
@@ -1026,8 +1072,33 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       // wherever the task landed. Sync with the delete, so a concurrent runCi either
       // sees this ref busy (and parks) or finds this take already done (and bounces).
       busy.delete(job.ref);
+      preSpawn.delete(job.ref);
+      cancelled.delete(job.ref); // a cancel flagged before a spawn that never happened (held, skipped)
       const late = store?.takeCiRed(job.ref);
       if (late) await bounceCi(job.ref, late, info);
     }
+  }
+
+  /**
+   * Stop the live agent for `ref` (SIGTERM, then SIGKILL after the grace). The run then resolves
+   * as `fail` ("cancelled by operator"). False when no agent is running for the ref.
+   * @param {string} ref
+   */
+  runClaude.cancel = (ref) => {
+    const pid = pids.get(ref);
+    if (!pid) {
+      // Between runClaude() and the spawn (fetch, routing, worktree): flag it; onPid kills at birth.
+      if (!preSpawn.has(ref)) return false;
+      cancelled.add(ref);
+      return true;
+    }
+    cancelled.add(ref);
+    if (!killNow(ref, pid)) {
+      cancelled.delete(ref);
+      return false;
+    }
+    return true;
   };
+
+  return runClaude;
 }
