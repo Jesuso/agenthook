@@ -35,23 +35,34 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
   let hit = null;
   /** @type {Promise<T>|null} */
   let pending = null;
+  let gen = 0; // bumped by reset(): a fetch started before it must not be cached or shared
   const get = () => {
     if (hit && now() - hit.at < ttlMs) return Promise.resolve(hit.value);
     if (pending) return pending;
-    pending = fn().then(
+    const mine = gen;
+    const p = fn().then(
       (value) => {
-        hit = { value, at: now() };
-        pending = null;
+        if (mine === gen) {
+          hit = { value, at: now() };
+          pending = null;
+        }
         return value;
       },
       (e) => {
-        pending = null;
+        if (mine === gen) pending = null;
         throw e;
       },
     );
-    return pending;
+    pending = p;
+    return p;
   };
-  return Object.assign(get, { reset: () => void (hit = null) });
+  return Object.assign(get, {
+    reset: () => {
+      gen++;
+      hit = null;
+      pending = null;
+    },
+  });
 }
 
 /**
@@ -75,7 +86,6 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
 export function createOps(deps) {
   const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline } = deps;
   const now = deps.now ?? Date.now;
-  let operatorPaused = false;
 
   /** @param {string} cmd @param {any} args @param {{ok: boolean, error?: string}} outcome */
   function audit(cmd, args, outcome) {
@@ -94,10 +104,13 @@ export function createOps(deps) {
     }
   }
 
-  /** Wrap a write: audit success and failure alike. @param {string} cmd @param {(args: any) => Promise<any>} fn */
+  /** Wrap a write: audit success and failure alike. Writes that move tickets drop the cached
+   * board/PR reads, so the next `tick` never shows the pre-write board. @param {string} cmd @param {(args: any) => Promise<any>} fn */
   const write = (cmd, fn) => async (/** @type {any} */ args) => {
     try {
       const result = await fn(args ?? {});
+      board.reset();
+      prs.reset();
       audit(cmd, args, { ok: true });
       return result;
     } catch (e) {
@@ -121,13 +134,15 @@ export function createOps(deps) {
       const running = store.listRunning();
       /** @param {string} ref */
       const card = (ref) => ({ ref, ...(meta[ref]?.displayId ? { id: meta[ref].displayId } : {}), ...(meta[ref]?.title ? { title: meta[ref].title } : {}), ...(ref in running ? { running: true } : {}) });
-      const steps = [];
-      for (const step of cfg.pipeline ?? []) {
-        if (step.manual) continue;
-        const refs = resting.filter((j) => j.stepId === step.id).map((j) => j.ref);
-        const queued = queueStageOf(step) && typeof adapter.listQueued === "function" ? await adapter.listQueued(step.id) : [];
-        steps.push({ step: step.id, resting: refs.map(card), ...(queued.length ? { backlog: queued.map(card) } : {}) });
-      }
+      const steps = await Promise.all(
+        (cfg.pipeline ?? [])
+          .filter((step) => !step.manual)
+          .map(async (step) => {
+            const refs = resting.filter((j) => j.stepId === step.id).map((j) => j.ref);
+            const queued = queueStageOf(step) && typeof adapter.listQueued === "function" ? await adapter.listQueued(step.id) : [];
+            return { step: step.id, resting: refs.map(card), ...(queued.length ? { backlog: queued.map(card) } : {}) };
+          }),
+      );
       return { at: new Date(now()).toISOString(), steps };
     },
     BOARD_TTL_MS,
@@ -157,13 +172,11 @@ export function createOps(deps) {
 
     // ---- writes ----
     pause: write("pause", async () => {
-      operatorPaused = true;
       queue.pause();
       heartbeat.update({ paused: true });
       return { paused: true, ...queue.state() };
     }),
     resume: write("resume", async () => {
-      operatorPaused = false;
       if (isLocked()) return { paused: queue.isPaused(), note: "a restart/decommission/shutdown holds the queue; not resumed", ...queue.state() };
       queue.resume();
       heartbeat.update({ paused: false });

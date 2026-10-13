@@ -426,7 +426,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // every job settles — never on a timer; a no-op without any queue key.
   const puller = createPuller({
     steps: adapter.listQueued && adapter.enterStage ? (cfg.pipeline || []).filter((s) => !s.manual && queueStageOf(s)) : [],
-    max: cfg.maxConcurrent,
+    max: () => queue.max(), // live: `set_concurrency` moves it
     queueState: () => queue.state(),
     inflightRefs: () => [...Object.keys(store.listRunning()), ...store.listQueued().map((j) => j.ref)],
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),

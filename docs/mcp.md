@@ -52,7 +52,7 @@ Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasse
 | Tool | Returns |
 |---|---|
 | `board` | per pipeline step: tickets resting in the source stage, and the opt-in backlog lane |
-| `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none`), mergeable/conflict, draft. Needs a `forge` block |
+| `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft. Needs a `forge` block |
 | `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError` |
 
 Writes (control socket → engine; omitted entirely under `--read-only`):

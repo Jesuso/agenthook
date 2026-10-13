@@ -90,7 +90,7 @@ const TOOLS = {
   },
   prs: {
     def: schema(
-      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none), mergeable/conflict state, draft. Needs a live receiver with a `forge` block (cached ~30s).",
+      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft. Needs a live receiver with a `forge` block (cached ~30s).",
       { profile: PROFILE, fresh: { type: "boolean" } },
     ),
   },

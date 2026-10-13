@@ -42,6 +42,21 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
   return { dir, cfg, store, queue, ops, intaken, events, beats, audit, pulls, left };
 }
 
+test("ttlCache: reset() also discards an in-flight fetch (fresh must not return the pre-write read)", async () => {
+  /** @type {((v: string) => void)[]} */
+  const resolvers = [];
+  const c = ttlCache(() => new Promise((r) => resolvers.push(r)), 1000, () => 0);
+  const stale = c(); // fetch #1 in flight
+  c.reset();
+  const fresh = c(); // must start fetch #2, not share #1
+  assert.equal(resolvers.length, 2);
+  resolvers[1]("new");
+  resolvers[0]("old");
+  assert.equal(await fresh, "new");
+  assert.equal(await stale, "old");
+  assert.equal(await c(), "new", "the stale fetch must not overwrite the cache");
+});
+
 test("ttlCache: caches within ttl, shares in-flight fetches, never caches failures, reset forces refetch", async () => {
   let n = 0;
   let t = 0;
@@ -243,4 +258,33 @@ test("exposed error text is bounded (adapter errors can embed whole API bodies)"
     () => s.ops.run({ ref: "1" }),
     (e) => e.expose === true && e.message.length <= 500 && e.message.endsWith("…") && e.message.startsWith("GitHub 422:"),
   );
+});
+
+test("writes drop the cached board/prs, so the next read sees the post-write board", async () => {
+  let calls = 0;
+  const s = setup({
+    adapter: { listResting: async () => { calls++; return []; }, advance: async () => {} },
+    forge: { listAgentPrs: async () => [] },
+  });
+  await s.ops.board({});
+  await s.ops.board({});
+  assert.equal(calls, 1, "cached");
+  s.store.setHeld("H", { stepId: "code", heldAt: "x" });
+  await s.ops.cancel({ ref: "H" });
+  await s.ops.board({});
+  assert.equal(calls, 2, "cancel invalidated the cache");
+});
+
+test("board fetches the per-step backlogs in parallel", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const s = setup({
+    pipeline: [{ id: "a", queueLabel: "qa" }, { id: "b", queueLabel: "qb" }, { id: "c", queueLabel: "qc" }, { id: "done", manual: true }],
+    adapter: {
+      listResting: async () => [],
+      listQueued: async () => { inFlight++; peak = Math.max(peak, inFlight); await new Promise((r) => setTimeout(r, 15)); inFlight--; return []; },
+    },
+  });
+  await s.ops.board({});
+  assert.equal(peak, 3);
 });

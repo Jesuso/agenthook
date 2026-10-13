@@ -294,20 +294,33 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   const pids = new Map();
   /** @type {Set<string>} */
   const cancelled = new Set();
-  /** SIGTERM now, SIGKILL after the grace. @param {number} pid */
-  function killNow(pid) {
+  // Refs between runClaude() starting and the agent being spawned (fetch, routing, worktree):
+  // the only window in which a cancel has no pid yet but can still stop the run. After the
+  // agent exits (verdict, advance) a cancel is too late and must say so.
+  /** @type {Set<string>} */
+  const preSpawn = new Set();
+  /** @type {Map<string, NodeJS.Timeout>} */
+  const killTimers = new Map();
+  /** SIGTERM now, SIGKILL after the grace (cleared when the run ends, so a recycled pid is never hit).
+   * @param {string} ref @param {number} pid */
+  function killNow(ref, pid) {
     try {
       process.kill(pid, "SIGTERM");
     } catch {
       return false;
     }
-    setTimeout(() => {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        /* already gone */
-      }
-    }, killGraceMs).unref();
+    clearTimeout(killTimers.get(ref));
+    killTimers.set(
+      ref,
+      setTimeout(() => {
+        killTimers.delete(ref);
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, killGraceMs).unref(),
+    );
     return true;
   }
   /** Pipeline position of a step id (-1 if unknown). @param {string} id */
@@ -909,7 +922,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         pid = p;
         if (p) pids.set(job.ref, p);
         // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
-        if (p && cancelled.has(job.ref)) killNow(p);
+        preSpawn.delete(job.ref);
+        if (p && cancelled.has(job.ref)) killNow(job.ref, p);
         try {
           store?.setRunning(job.ref, { ...baseRunning, pid });
         } catch (e) {
@@ -927,6 +941,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     });
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
+    clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
+    killTimers.delete(job.ref);
     const wasCancelled = cancelled.delete(job.ref);
     // The step may just have opened the PR.
     await recordPr(job.ref, repo);
@@ -1045,6 +1061,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     if (job.kind === "merge") return runMerge(job);
     if (job.kind === "ci") return runCi(job);
     busy.add(job.ref);
+    preSpawn.add(job.ref);
     /** @type {{name?: string, url?: string}} */
     let info = {};
     try {
@@ -1055,6 +1072,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       // wherever the task landed. Sync with the delete, so a concurrent runCi either
       // sees this ref busy (and parks) or finds this take already done (and bounces).
       busy.delete(job.ref);
+      preSpawn.delete(job.ref);
       cancelled.delete(job.ref); // a cancel flagged before a spawn that never happened (held, skipped)
       const late = store?.takeCiRed(job.ref);
       if (late) await bounceCi(job.ref, late, info);
@@ -1070,12 +1088,12 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     const pid = pids.get(ref);
     if (!pid) {
       // Between runClaude() and the spawn (fetch, routing, worktree): flag it; onPid kills at birth.
-      if (!busy.has(ref)) return false;
+      if (!preSpawn.has(ref)) return false;
       cancelled.add(ref);
       return true;
     }
     cancelled.add(ref);
-    if (!killNow(pid)) {
+    if (!killNow(ref, pid)) {
       cancelled.delete(ref);
       return false;
     }

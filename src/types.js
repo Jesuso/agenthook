@@ -354,7 +354,7 @@
  * @property {boolean} draft
  * @property {boolean|null} mergeable    null = GitHub has not computed it yet
  * @property {string|null} mergeState    GitHub's mergeable_state (clean|dirty|blocked|behind|unstable|…)
- * @property {'success'|'failure'|'pending'|'none'} ci
+ * @property {'success'|'failure'|'pending'|'none'|'unknown'} ci   unknown = the check-runs call failed (not the same as none)
  * @property {string} updatedAt
  */
 

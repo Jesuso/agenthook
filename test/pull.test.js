@@ -151,3 +151,13 @@ test("puller: listQueued/enterStage failures are logged and skipped (best-effort
   assert.deepEqual(h2.entered, ["11:code:assign=false"]);
   assert.deepEqual(h2.p.pending(), ["11"], "a failed move frees its pending slot");
 });
+
+test("max may be a function: a live cap change moves the pull budget", async () => {
+  let cap = 1;
+  const h = harness({ max: () => cap });
+  await h.p.pull();
+  assert.equal(h.entered.length, 1, "cap 1 -> one pull");
+  cap = 3; // `set_concurrency` raised the cap while 1 is pending
+  await h.p.pull();
+  assert.equal(h.entered.length, 3, "cap 3 -> two more (pending counts against the cap)");
+});

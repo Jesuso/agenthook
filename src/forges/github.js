@@ -36,6 +36,9 @@ const BRANCH_PREFIX = "agent/";
 const SECRET_KEY = "forge:github:webhookSecret";
 // Conclusions that count as red. `cancelled` (superseded push, human stop) does not.
 const RED = new Set(["failure", "timed_out"]);
+// For the read-only PR roll-up (`listAgentPrs`) a cancelled / startup-failed / action-required run is
+// also not green. (RED stays narrower: it decides when the receiver itself reacts to red CI.)
+const FAILING = new Set([...RED, "cancelled", "startup_failure", "action_required"]);
 const LOG_TAIL_LINES = 60;
 const LOG_TAIL_MAX = 6000;
 
@@ -250,12 +253,22 @@ export function createGithubForge(cfg, store) {
       if (!(await deleteOurHooks())) console.warn(`[forge] cannot list hooks on ${owner}/${repo} (403/404) — remove the /forge hook by hand`);
     },
 
-    // The open-or-not PR for a ref's agent branch and its current head sha. By number
-    // when the run names one, else the open PR whose head is `<owner>:agent/<ref>`.
+    // Open PRs on this repo's receiver-made `agent/<ref>` branches, with a CI roll-up and
+    // mergeability (read-only; backs the MCP `prs` tool). Paged (up to 5 x 100 open PRs).
+    // CI is conservative for a supervisor that decides merges: anything not clearly green is
+    // not `success` — `failure` covers failed / timed-out / cancelled / startup-failure /
+    // action-required runs, and `unknown` means the check-runs call itself failed.
     async listAgentPrs() {
-      const res = await api(`${repoPath()}/pulls?state=open&per_page=50`);
-      if (!res.ok) throw new Error(`list PRs ${res.status}`);
-      const prs = ((await json(res)) || []).filter(
+      /** @type {any[]} */
+      let all = [];
+      for (let page = 1; page <= 5; page++) {
+        const res = await api(`${repoPath()}/pulls?state=open&per_page=100&page=${page}`);
+        if (!res.ok) throw new Error(`list PRs ${res.status}`);
+        const batch = (await json(res)) || [];
+        all = all.concat(batch);
+        if (batch.length < 100) break;
+      }
+      const prs = all.filter(
         (/** @type {any} */ p) =>
           refFromBranch(p.head?.ref) && p.head?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase(),
       );
@@ -268,10 +281,11 @@ export function createGithubForge(cfg, store) {
             api(`${repoPath()}/commits/${p.head.sha}/check-runs?per_page=100`).then((r) => (r.ok ? json(r) : null)).catch(() => null),
           ]);
           const runs = /** @type {any[]} */ (c?.check_runs || []);
-          /** @type {'success'|'failure'|'pending'|'none'} */
+          /** @type {'success'|'failure'|'pending'|'none'|'unknown'} */
           let ci = "none";
-          if (runs.length) {
-            if (runs.some((r) => RED.has(r.conclusion))) ci = "failure";
+          if (c === null) ci = "unknown"; // the call failed — do not read that as "no CI"
+          else if (runs.length) {
+            if (runs.some((r) => FAILING.has(r.conclusion))) ci = "failure";
             else if (runs.some((r) => r.status !== "completed")) ci = "pending";
             else ci = "success";
           }
@@ -289,6 +303,8 @@ export function createGithubForge(cfg, store) {
         }),
       );
     },
+    // The open-or-not PR for a ref's agent branch and its current head sha. By number
+    // when the run names one, else the open PR whose head is `<owner>:agent/<ref>`.
     async prHead(prNumber, ref) {
       const branch = `${BRANCH_PREFIX}${ref}`;
       let pr;
