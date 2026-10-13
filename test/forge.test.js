@@ -521,3 +521,26 @@ test("listAgentPrs: pages past 100 open PRs; cancelled/startup_failure/action_re
     s.restore();
   }
 });
+
+test("listAgentPrs: a not-yet-computed mergeability is re-read once instead of reported as unknown", async () => {
+  const orig = global.fetch;
+  let detailCalls = 0;
+  // @ts-ignore - test stub
+  global.fetch = async (/** @type {string} */ url) => {
+    const u = String(url);
+    const reply = (/** @type {any} */ body) => ({ ok: true, status: 200, json: async () => body });
+    if (u.includes("/pulls?state=open")) return reply([{ number: 1, title: "t", html_url: "u", draft: false, updated_at: "n", head: { ref: "agent/1", sha: "s", repo: { full_name: "o/r" } } }]);
+    if (u.endsWith("/pulls/1")) {
+      detailCalls++;
+      return reply(detailCalls === 1 ? { mergeable: null, mergeable_state: "unknown" } : { mergeable: true, mergeable_state: "clean" });
+    }
+    return reply({ check_runs: [{ status: "completed", conclusion: "success" }] });
+  };
+  try {
+    const out = await /** @type {any} */ (forge()).listAgentPrs();
+    assert.equal(detailCalls, 2);
+    assert.deepEqual([out[0].mergeable, out[0].mergeState], [true, "clean"]);
+  } finally {
+    global.fetch = orig;
+  }
+});

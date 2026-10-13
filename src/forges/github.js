@@ -275,9 +275,19 @@ export function createGithubForge(cfg, store) {
       return Promise.all(
         prs.map(async (/** @type {any} */ p) => {
           // Detail (mergeable is only on the single-PR endpoint) + check runs, in parallel.
+          /** @type {() => Promise<any>} */
+          const detail = () => api(`${repoPath()}/pulls/${p.number}`).then((r) => (r.ok ? json(r) : {})).catch(() => ({}));
+          // GitHub computes mergeability lazily: the first read of a fresh/just-pushed PR says null /
+          // "unknown". One short retry so that transient value is not cached as the answer.
+          const settled = async () => {
+            const first = await detail();
+            if (first.mergeable !== null && first.mergeable !== undefined) return first;
+            await new Promise((r) => setTimeout(r, 1500));
+            return detail();
+          };
           /** @type {[any, any]} */
           const [d, c] = await Promise.all([
-            api(`${repoPath()}/pulls/${p.number}`).then((r) => (r.ok ? json(r) : {})).catch(() => ({})),
+            settled(),
             api(`${repoPath()}/commits/${p.head.sha}/check-runs?per_page=100`).then((r) => (r.ok ? json(r) : null)).catch(() => null),
           ]);
           const runs = /** @type {any[]} */ (c?.check_runs || []);
