@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `ci_green` event: emitted once per `(ref, sha)` when every check on an agent PR's head has passed
+  (payload `pr`, `sha`, `mergeable`, `mergeState`), so supervisors can wait on `events` instead of
+  polling the forge (#259). Signal only; `forge.greenCi:false` disables.
+
 ## [0.4.0] — 2026-10-13
 
 ### Added

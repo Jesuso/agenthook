@@ -29,6 +29,7 @@ import { ensurePrivateDir } from "./config.js";
 import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
 import { createForge, isForgePath } from "./forges/index.js";
+import { createCiGreen } from "./ci-green.js";
 import { createQueue, planRestore } from "./queue.js";
 import { createPuller } from "./pull.js";
 import { queueStageOf } from "./pipeline.js";
@@ -372,6 +373,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const children = new Set();
   // overlapGuard only: undefined when off, so nothing downstream touches the overlap files.
   const releaseOverlap = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
+  const ciGreen = createCiGreen({ adapter, forge, store, emit });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap);
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
@@ -478,7 +480,12 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       // accept: ACK immediately (providers expect a fast 2xx), then process async.
       res.writeHead(200);
       res.end();
-      Promise.resolve(source.processEvents(ctx)).then(intake).catch((e) => console.error("[events]", e.message));
+      Promise.resolve(source.processEvents(ctx))
+        .then((jobs) => {
+          // `ci_green` is a signal, not work: skip the queue (see src/ci-green.js).
+          for (const j of jobs || []) if (j.kind === "ci_green") ciGreen(j);
+          return intake((jobs || []).filter((j) => j.kind !== "ci_green"));
+        }).catch((e) => console.error("[events]", e.message));
     });
   });
 

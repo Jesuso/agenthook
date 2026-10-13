@@ -212,8 +212,23 @@ Safety rules:
 - A run on an **outdated commit** (the PR head moved on), a **closed** PR, a task **not assigned**
   to you, a branch from a **fork**, or a task that is not past the code step is a logged no-op.
   Each commit is bounced **at most once**, even if several workflows fail on it.
-- `cancelled` and green runs are ignored. Only GitHub Actions is supported (not other check
+- `cancelled` runs are ignored. A green run never changes the pipeline; it can only emit `ci_green` (below). Only GitHub Actions is supported (not other check
   providers).
+
+### Green CI signal (`ci_green`)
+
+When a `workflow_run` finishes **successfully** on an `agent/<ref>` PR, agenthook re-reads that
+head's check-run roll-up (the same one the MCP `prs` tool shows). If **every** check is complete
+and none failed, it emits one `ci_green` event (`pr`, `sha`, `mergeable`, `mergeState`) so a
+supervisor can wait on `events` instead of polling `gh`. It is a signal only: no agent runs, nothing
+moves, and it does not use a concurrency slot. On by default; `"greenCi": false` turns it off.
+
+- Several workflows send one event each; only the one that finishes last sees an all-green roll-up,
+  and each `(ref, sha)` fires once. A re-run that turns a red head green fires it; a new push can
+  fire again.
+- Same safety gates as red CI: stale head, closed PR, fork, or a task not assigned to you → no event.
+- Limit: only workflow completions trigger the check. If the last check to finish is an external
+  app's (no `workflow_run`), no event fires. Use `prs` for that case.
 
 ## Routing to multiple repos
 

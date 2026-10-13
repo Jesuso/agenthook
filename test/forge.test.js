@@ -181,10 +181,12 @@ test("timed_out counts as red; attempt 2 keys apart; no pull_requests → prNumb
   assert.equal(j.ci.prNumber, null);
 });
 
-test("green/cancelled/in-progress, non-agent branch, fork, redCi:false → no ci job", async () => {
+test("cancelled/in-progress, non-agent branch, fork, flags off → no ci job", async () => {
   const f = forge();
   const none = async (/** @type {any} */ p, g = f) => assert.deepEqual(await g.processEvents(ctx(p, "workflow_run")), []);
-  await none(redRun({ conclusion: "success" }));
+  await none(redRun({ conclusion: "success", head_branch: "feature/x" }));
+  await none(redRun({ conclusion: "success", head_repository: { full_name: "evil/r" } }));
+  await none(redRun({ conclusion: "success" }), forge({ greenCi: false }));
   await none(redRun({ conclusion: "cancelled" }));
   await none(redRun({ conclusion: null }, "in_progress"));
   await none(redRun({}, "requested"));
@@ -192,6 +194,20 @@ test("green/cancelled/in-progress, non-agent branch, fork, redCi:false → no ci
   await none(redRun({ head_repository: { full_name: "evil/r" } }));
   await none(redRun({ head_repository: null }));
   await none(redRun(), forge({ redCi: false }));
+});
+
+test("green workflow_run on agent/<ref> → one ci_green candidate keyed per (ref, sha); redCi:false does not hide it", async () => {
+  for (const g of [forge(), forge({ redCi: false })]) {
+    const jobs = await g.processEvents(ctx(redRun({ conclusion: "success" }), "workflow_run"));
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].kind, "ci_green");
+    assert.equal(jobs[0].ref, "123");
+    assert.equal(jobs[0].dedupKey, "cigreen:123:abc1234def");
+    assert.equal(jobs[0].ci?.prNumber, 77);
+  }
+  // a red run is still a ci job when only greenCi is off
+  const [red] = await forge({ greenCi: false }).processEvents(ctx(redRun(), "workflow_run"));
+  assert.equal(red.kind, "ci");
 });
 
 // --- red-CI REST calls (fetch stubbed) ---
@@ -542,5 +558,26 @@ test("listAgentPrs: a not-yet-computed mergeability is re-read once instead of r
     assert.deepEqual([out[0].mergeable, out[0].mergeState], [true, "clean"]);
   } finally {
     global.fetch = orig;
+  }
+});
+
+test("ciStatus: whole check-run roll-up + mergeability for one PR head", async () => {
+  const run = (/** @type {any} */ o) => ({ status: "completed", conclusion: "success", ...o });
+  const cases = [
+    [[run(), run()], "success"],
+    [[run(), run({ status: "in_progress", conclusion: null })], "pending"],
+    [[run(), run({ conclusion: "failure" })], "failure"],
+    [[], "none"],
+  ];
+  for (const [check_runs, want] of cases) {
+    const s = stubFetch({
+      "GET /repos/o/r/pulls/77": { json: { mergeable: true, mergeable_state: "clean" } },
+      "GET /repos/o/r/commits/abc/check-runs?per_page=100": { json: { check_runs } },
+    });
+    try {
+      assert.deepEqual(await forge().ciStatus(77, "abc"), { mergeable: true, mergeState: "clean", ci: want });
+    } finally {
+      s.restore();
+    }
   }
 });

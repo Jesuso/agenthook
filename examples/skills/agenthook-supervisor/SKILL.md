@@ -21,7 +21,7 @@ model, response shapes, recipes and error meanings. Full text: `docs/agent-guide
    - **failed event** → `runs {ref, tail}`; transient → `run {ref, force: true}`; otherwise report.
    - **prs with ci `failure`/conflict** → report; the receiver already retries/bounces red CI itself.
    - **free slots + board has resting tickets** → they were missed (receiver was down): `reconcile`.
-3. Wait, do not poll: `events {cursor, waitS: 120, types: ["run_end","failed","blocked","merged","ci_red","pipeline_done"]}`.
+3. Wait, do not poll: `events {cursor, waitS: 120, types: ["run_end","failed","blocked","merged","ci_red","ci_green","pipeline_done"]}`.
 4. `tick {cursor, ifNoneMatch: etag}`. `{"unchanged":true}` = nothing to do, go back to 3.
 
 ## Rules
