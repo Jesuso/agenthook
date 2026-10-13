@@ -26,7 +26,7 @@ export async function watch(args) {
   const events = r.events.map(compactEvent);
   if (args.json) console.log(JSON.stringify({ events, cursor: r.cursor, ...(r.timedOut ? { timedOut: true } : {}) }));
   else {
-    for (const e of events) console.log(`${e.ts} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}`);
+    for (const e of events) console.log(`${e.ts} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}${e.pr ? ` PR#${e.pr}` : ""}${e.sha ? ` ${String(e.sha).slice(0, 7)}` : ""}${e.mergeState ? ` ${e.mergeState}` : ""}`);
     if (r.timedOut) console.log(`(no event in ${timeoutS}s) cursor ${r.cursor}`);
     else console.log(`cursor ${r.cursor}`);
   }

@@ -69,7 +69,7 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 `boardError` / `prsError` instead; the rest is still valid.
 
 `events` item: `{"ts","e":"run_end","ref":"123","step":"code","outcome":"advance","costUsd":0.33}`;
-`reason` (clipped to 200 chars) appears on `blocked`/`failed`. Result: `{events, cursor, more?,
+`reason` (clipped to 200 chars) appears on `blocked`/`failed`. `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
 `runs {ref, tail?}` → `{runs:[{run,step,at,outcome,costUsd,running?}], log?}`. `tail:N` adds the

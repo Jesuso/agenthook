@@ -18,7 +18,7 @@ export function digest(t) {
   if (t.boardError) lines.push(`  board: ${t.boardError}`);
   if (t.prs) for (const p of t.prs) lines.push(`  PR #${p.n} ${p.ref} ci=${p.ci}${p.conflict ? " CONFLICT" : ""}${p.state ? ` ${p.state}` : ""}${p.draft ? " draft" : ""}`);
   if (t.prsError) lines.push(`  prs: ${t.prsError}`);
-  for (const e of t.events) lines.push(`  ev ${e.ts?.slice(11, 19)} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}`);
+  for (const e of t.events) lines.push(`  ev ${e.ts?.slice(11, 19)} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}${e.pr ? ` PR#${e.pr}` : ""}${e.sha ? ` ${String(e.sha).slice(0, 7)}` : ""}${e.mergeState ? ` ${e.mergeState}` : ""}`);
   lines.push(`  cursor ${t.cursor}`);
   return lines.join("\n");
 }
