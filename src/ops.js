@@ -16,6 +16,7 @@ import { isStateDedupKey } from "./store.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const COMMENT_MAX = 8000;
+const MAX_ERROR_CHARS = 500;
 
 /** @param {any} v @param {string} what */
 function needString(v, what) {
@@ -251,7 +252,9 @@ export function createOps(deps) {
         try {
           return await fn(args);
         } catch (e) {
-          throw Object.assign(e instanceof Error ? e : new Error(String(e)), { expose: true });
+          // Bounded: tracker/forge errors can embed whole API error bodies (third-party text).
+          const msg = String(e?.message ?? e);
+          throw Object.assign(new Error(msg.length > MAX_ERROR_CHARS ? msg.slice(0, MAX_ERROR_CHARS - 1) + "…" : msg), { expose: true });
         }
       },
     ]),

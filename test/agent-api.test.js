@@ -37,11 +37,14 @@ test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", (
   profile(reg, "b", { name: "Beta", up: false });
   assert.equal(pickProfile("a", null, reg).entry?.stateKey, "a");
   assert.equal(pickProfile("Beta", null, reg).entry?.stateKey, "b");
+  assert.equal(pickProfile("beta", null, reg).entry?.stateKey, "b", "case-insensitive fallback when unique");
   assert.equal(pickProfile(undefined, "b", reg).entry?.stateKey, "b", "default key wins");
   assert.equal(pickProfile(undefined, null, reg).entry?.stateKey, "a", "the only running profile");
   profile(reg, "c");
   assert.match(String(pickProfile(undefined, null, reg).error), /profile required; known: a, b, c/);
   assert.match(String(pickProfile("zzz", null, reg).error), /unknown profile "zzz"/);
+  profile(reg, "BETA2", { name: "beta", up: false });
+  assert.ok(pickProfile("BETA", null, reg).error, "ambiguous case-insensitive match -> no guess");
 });
 
 test("readStatus: slots, running age, queue, held, free subtracts queued", () => {

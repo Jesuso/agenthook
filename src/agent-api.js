@@ -43,6 +43,12 @@ export function pickProfile(arg, defaultKey, registry = registryDir) {
     if (byKey) return { entry: byKey };
     const byLabel = all.filter((p) => p.name === arg);
     if (byLabel.length === 1) return { entry: byLabel[0] };
+    if (!byLabel.length) {
+      // Agents type names from memory: fall back to a case-insensitive match, only when unique.
+      const lc = arg.toLowerCase();
+      const loose = all.filter((p) => p.stateKey.toLowerCase() === lc || p.name.toLowerCase() === lc);
+      if (loose.length === 1) return { entry: loose[0] };
+    }
     return { error: byLabel.length > 1 ? `profile "${arg}" is ambiguous; use a state key: ${names()}` : `unknown profile "${arg}"; known: ${names()}` };
   }
   const def = defaultKey && all.find((p) => p.stateKey === defaultKey);

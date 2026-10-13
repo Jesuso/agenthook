@@ -236,3 +236,11 @@ test("resume pulls the backlog (pulls were skipped while paused), but not while 
   await locked.ops.resume({});
   assert.deepEqual(locked.pulls, []);
 });
+
+test("exposed error text is bounded (adapter errors can embed whole API bodies)", async () => {
+  const s = setup({ adapter: { currentStage: async () => { throw new Error("GitHub 422: " + "x".repeat(5000)); }, enterStage: async () => ({ stage: "s" }) } });
+  await assert.rejects(
+    () => s.ops.run({ ref: "1" }),
+    (e) => e.expose === true && e.message.length <= 500 && e.message.endsWith("…") && e.message.startsWith("GitHub 422:"),
+  );
+});
