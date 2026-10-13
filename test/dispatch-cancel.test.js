@@ -60,3 +60,28 @@ test("cancel: kills the live agent; the run advances as fail with the operator r
   assert.equal(store.listRunning()["42"], undefined, "running.json cleared");
   assert.equal(run.cancel("42"), false, "pid forgotten after the run");
 });
+
+test("cancel before the agent exists (fetch/worktree phase) is honoured: killed at spawn, run fails", async () => {
+  const { store, run, advanced } = harness();
+  const done = quiet(() => run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" }));
+  assert.equal(run.cancel("42"), true, "busy ref with no pid yet is cancellable");
+  await done;
+  assert.equal(advanced.length, 1);
+  assert.equal(advanced[0].outcome, "fail");
+  assert.equal(advanced[0].reason, "cancelled by operator");
+  assert.equal(store.listRunning()["42"], undefined);
+  assert.equal(run.cancel("42"), false, "flag does not linger after the run");
+});
+
+test("a finished cancelled run does not poison the next run of the same ref", async () => {
+  const { run, advanced } = harness();
+  const first = quiet(() => run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "k1" }));
+  run.cancel("7");
+  await first;
+  const second = quiet(() => run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "k2" }));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(advanced.length, 1, "second run is still running (not instantly cancelled)");
+  assert.equal(run.cancel("7"), true);
+  await second;
+  assert.equal(advanced.length, 2);
+});

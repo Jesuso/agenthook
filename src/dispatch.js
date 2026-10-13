@@ -294,6 +294,22 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   const pids = new Map();
   /** @type {Set<string>} */
   const cancelled = new Set();
+  /** SIGTERM now, SIGKILL after the grace. @param {number} pid */
+  function killNow(pid) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      return false;
+    }
+    setTimeout(() => {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }, killGraceMs).unref();
+    return true;
+  }
   /** Pipeline position of a step id (-1 if unknown). @param {string} id */
   const stepIndex = (id) => cfg.pipeline?.findIndex((s) => s.id === id) ?? -1;
 
@@ -892,6 +908,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       onPid: (p) => {
         pid = p;
         if (p) pids.set(job.ref, p);
+        // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
+        if (p && cancelled.has(job.ref)) killNow(p);
         try {
           store?.setRunning(job.ref, { ...baseRunning, pid });
         } catch (e) {
@@ -1037,6 +1055,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       // wherever the task landed. Sync with the delete, so a concurrent runCi either
       // sees this ref busy (and parks) or finds this take already done (and bounces).
       busy.delete(job.ref);
+      cancelled.delete(job.ref); // a cancel flagged before a spawn that never happened (held, skipped)
       const late = store?.takeCiRed(job.ref);
       if (late) await bounceCi(job.ref, late, info);
     }
@@ -1049,21 +1068,17 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
    */
   runClaude.cancel = (ref) => {
     const pid = pids.get(ref);
-    if (!pid) return false;
+    if (!pid) {
+      // Between runClaude() and the spawn (fetch, routing, worktree): flag it; onPid kills at birth.
+      if (!busy.has(ref)) return false;
+      cancelled.add(ref);
+      return true;
+    }
     cancelled.add(ref);
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
+    if (!killNow(pid)) {
       cancelled.delete(ref);
       return false;
     }
-    setTimeout(() => {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        /* already gone */
-      }
-    }, killGraceMs).unref();
     return true;
   };
 
