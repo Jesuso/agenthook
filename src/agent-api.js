@@ -16,6 +16,9 @@ import { readProfileState } from "./ui/rows.js";
 const REASON_MAX = 200;
 const TITLE_MAX = 80;
 const LOG_BYTES_MAX = 24 * 1024;
+/** Control-socket call budgets: board/PR reads hit the tracker/forge; reconcile/run/release can walk a whole board. */
+const LIVE_TIMEOUT_DEFAULT_MS = 20_000;
+const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_000, run: 60_000, release: 60_000, cancel: 60_000, pull: 60_000 });
 
 /** @param {any} v @param {number} n */
 const clip = (v, n) => (typeof v === "string" && v.length > n ? v.slice(0, n - 1) + "…" : v);
@@ -216,6 +219,7 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
  */
 export async function waitForEvents(dir, cursor, { timeoutMs, signal, ...filter }) {
   let cur = cursor;
+  if (signal?.aborted) return { events: [], cursor: cur, truncated: false, timedOut: true }; // cancelled before the wait began
   const first = readEventsSince(dir, cur, filter);
   if (first.events.length) return { ...first, timedOut: false };
   cur = first.cursor;
@@ -310,14 +314,23 @@ export function readRunLogTail(profile, ref, dir, { lines = 40, step, run } = {}
  * @param {{registry?: string, timeoutMs?: number}} [o]
  * @returns {Promise<any>} the result; throws an Error whose message is agent-readable
  */
-export async function live(profile, cmd, args, { registry = registryDir, timeoutMs = 20000 } = {}) {
+export async function live(profile, cmd, args, { registry = registryDir, timeoutMs } = {}) {
   const target = resolveProfileSock(registry, profile);
   if (!target) throw new Error(`unknown profile "${profile}"`);
+  const limit = timeoutMs ?? LIVE_TIMEOUT_MS[cmd] ?? LIVE_TIMEOUT_DEFAULT_MS;
   let reply;
   try {
-    reply = await controlRequest(target.sockPath, cmd, args, { timeoutMs });
+    reply = await controlRequest(target.sockPath, cmd, args, { timeoutMs: limit });
   } catch (e) {
-    throw new Error(e.code === "timeout" ? `${cmd}: receiver did not answer in ${timeoutMs / 1000}s` : `receiver for "${profile}" is down — ${cmd} needs a live receiver (agenthook start)`);
+    if (e.code === "timeout") {
+      throw new Error(`${cmd}: no reply within ${limit / 1000}s — it may still be running; check status before retrying`);
+    }
+    const why = e.cause?.code;
+    if (why === "ENOENT" || why === "ECONNREFUSED") {
+      throw new Error(`receiver for "${profile}" is down — ${cmd} needs a live receiver (agenthook start)`);
+    }
+    if (why === "EACCES" || why === "EPERM") throw new Error(`${cmd}: cannot open the control socket (${why}) — run as the user that owns the receiver`);
+    throw new Error(`${cmd}: the control socket closed before replying (receiver restarting?) — check status before retrying`);
   }
   if (!reply.ok) throw new Error(reply.error);
   return reply.result;

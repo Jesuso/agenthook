@@ -18,6 +18,7 @@ import {
   live,
 } from "../agent-api.js";
 import { readEventsTail } from "../ui/rows.js";
+import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";
 import path from "node:path";
 
@@ -241,7 +242,9 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
       if (!enabled.some(([n]) => n === name)) {
         throw Object.assign(new Error(TOOLS[name] ? `tool "${name}" is disabled (read-only mode)` : `unknown tool "${name}"`), { code: "unknown_tool" });
       }
-      return impl[name](args && typeof args === "object" ? args : {}, ctx);
+      const bad = validateArgs(TOOLS[name].def.inputSchema, args ?? {});
+      if (bad) throw new Error(`${name}: ${bad}`);
+      return impl[name](args ?? {}, ctx);
     },
   };
 }

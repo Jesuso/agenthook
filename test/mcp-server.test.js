@@ -74,7 +74,7 @@ test("notifications/cancelled aborts the matching in-flight call", async () => {
   await send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 9 } });
   await p;
   assert.equal(sig?.aborted, true);
-  assert.deepEqual(JSON.parse(out[0].result.content[0].text), { aborted: true });
+  assert.deepEqual(out, [], "a cancelled request gets no response (MCP spec)");
 });
 
 test("serveStdio: concurrent requests, replies matched by id, resolves when stdin ends", async () => {
@@ -113,4 +113,17 @@ test("createTools: read-only hides and refuses every write tool; annotations mar
   assert.equal(cancel.annotations.destructiveHint, true);
   assert.equal(rw.list().find((t) => t.name === "status").annotations.readOnlyHint, true);
   for (const t of rw.list()) assert.equal(t.inputSchema.type, "object");
+});
+
+test("tools/call validates arguments against the advertised schema (types, ranges, unknown fields, required)", async () => {
+  const t = createTools({});
+  const call = (name, args) => t.call(name, args, { signal: new AbortController().signal });
+  await assert.rejects(() => call("events", { last: "abc" }), /events: "last" must be an integer/);
+  await assert.rejects(() => call("events", { last: 0 }), /"last" must be >= 1/);
+  await assert.rejects(() => call("events", { waitS: 9999 }), /"waitS" must be <= 120/);
+  await assert.rejects(() => call("events", { types: [1] }), /array of strings/);
+  await assert.rejects(() => call("events", { bogus: 1 }), /unknown argument "bogus"/);
+  await assert.rejects(() => call("cancel", { actor: "root", ref: "1" }), /unknown argument "actor"/, "callers cannot set the audit actor");
+  await assert.rejects(() => call("cancel", {}), /"ref" is required/);
+  await assert.rejects(() => call("runs", { ref: 5 }), /"ref" must be a string/);
 });

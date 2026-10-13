@@ -6,6 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { etagOf, pickProfile, readStatus, readProfiles, readEventsSince, waitForEvents, compactEvent, eventsCursor, readRuns, readRunLogTail } from "../src/agent-api.js";
 import { readProfile } from "../src/heartbeat.js";
+import net from "node:net";
+import { live } from "../src/agent-api.js";
+import { controlSockPath } from "../src/paths.js";
 
 function registry() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-agentapi-"));
@@ -160,4 +163,47 @@ test("readStatus: free is 0 while paused / restarting / draining (nothing can st
   }
   profile(reg, "ok");
   assert.equal(readStatus(readProfile("ok", reg)).slots.free, 3);
+});
+
+test("waitForEvents: an already-aborted signal returns at once (no watch, no 120s hold)", async () => {
+  const dir = registry();
+  fs.writeFileSync(path.join(dir, "events.jsonl"), "");
+  const ac = new AbortController();
+  ac.abort();
+  const t0 = Date.now();
+  const r = await waitForEvents(dir, 0, { timeoutMs: 60000, signal: ac.signal });
+  assert.equal(r.timedOut, true);
+  assert.ok(Date.now() - t0 < 500);
+});
+
+test("live(): distinguishes down / timed-out (may still be running) / closed-before-reply", async () => {
+  const reg = registry();
+  profile(reg, "p");
+  const sock = controlSockPath(path.join(reg, "p"), "p");
+  await assert.rejects(() => live("p", "board", {}, { registry: reg }), /receiver for "p" is down/);
+  await assert.rejects(() => live("nope", "board", {}, { registry: reg }), /unknown profile "nope"/);
+
+  // a server that accepts and never answers
+  /** @type {net.Socket[]} */ const held = [];
+  const slow = net.createServer((c) => void held.push(c));
+  await new Promise((r) => slow.listen(sock, () => r(undefined)));
+  try {
+    await assert.rejects(() => live("p", "reconcile", {}, { registry: reg, timeoutMs: 80 }), /no reply within 0\.08s — it may still be running; check status before retrying/);
+  } finally {
+    for (const c of held) c.destroy();
+    await new Promise((r) => slow.close(() => r(undefined)));
+  }
+
+  // a server that hangs up straight away
+  const hangup = net.createServer((c) => {
+    held.push(c);
+    c.end();
+  });
+  await new Promise((r) => hangup.listen(sock, () => r(undefined)));
+  try {
+    await assert.rejects(() => live("p", "board", {}, { registry: reg }), /closed before replying \(receiver restarting\?\)/);
+  } finally {
+    for (const c of held) c.destroy();
+    await new Promise((r) => hangup.close(() => r(undefined)));
+  }
 });

@@ -22,6 +22,9 @@ export const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 export function createMcpServer({ name, version, instructions, handlers }) {
   /** @type {Map<string|number, AbortController>} */
   const inflight = new Map();
+  /** Request ids the CLIENT cancelled (MCP: those get no response). Closing stdin aborts waits too,
+   * but a one-shot `printf ... | agenthook mcp` pipeline still wants its replies. @type {Set<string|number>} */
+  const clientCancelled = new Set();
 
   /** @param {any} id @param {number} code @param {string} message */
   const rpcError = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -60,12 +63,15 @@ export function createMcpServer({ name, version, instructions, handlers }) {
         inflight.set(id, ac);
         try {
           const result = await handlers.call(toolName, params?.arguments ?? {}, { signal: ac.signal });
-          write({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
+          // MCP: a cancelled request gets no response.
+          if (!clientCancelled.has(id)) write({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
         } catch (e) {
+          if (clientCancelled.has(id)) return;
           if (e?.code === "unknown_tool") write(rpcError(id, -32602, e.message));
           else write({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: String(e?.message ?? e) }] } });
         } finally {
           inflight.delete(id);
+          clientCancelled.delete(id);
         }
         return;
       }
@@ -93,7 +99,13 @@ export function createMcpServer({ name, version, instructions, handlers }) {
       }
       if (msg.id === undefined || msg.id === null) {
         // notification
-        if (msg.method === "notifications/cancelled") inflight.get(msg.params?.requestId)?.abort();
+        if (msg.method === "notifications/cancelled") {
+          const rid = msg.params?.requestId;
+          if (inflight.has(rid)) {
+            clientCancelled.add(rid);
+            inflight.get(rid)?.abort();
+          }
+        }
         return;
       }
       await request(msg, write);
