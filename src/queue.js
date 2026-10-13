@@ -47,6 +47,8 @@ export function createQueue(initialMax, run, onChange, persist) {
   /** @param {import('./types.js').Job} job */
   const workKey = (job) =>
     job.kind === "ci" ? job.dedupKey : `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
+  /** @type {Map<string, (() => void)[]>} work key -> waiters for that key to leave the queue/finish */
+  const freeWaiters = new Map();
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
   let paused = false; // restart pending: accept + persist new work, but start nothing
@@ -94,6 +96,8 @@ export function createQueue(initialMax, run, onChange, persist) {
         .finally(() => {
           active--;
           inflight.delete(workKey(job));
+          for (const w of freeWaiters.get(workKey(job)) ?? []) w();
+          freeWaiters.delete(workKey(job));
           report();
           pump();
           resolveIdle();
@@ -134,6 +138,32 @@ export function createQueue(initialMax, run, onChange, persist) {
     resume() {
       paused = false;
       pump();
+    },
+    /** True while `job`'s (ref, step) is queued or running — an enqueue of it would be coalesced away. @param {import('./types.js').Job} job */
+    has: (job) => inflight.has(workKey(job)),
+    /**
+     * Resolve true once `job`'s (ref, step) is no longer queued/running (immediately if it is not),
+     * false after `timeoutMs`. Event-driven: woken by the run settling, no polling. For a caller that
+     * must enqueue right after an event announcing the previous run's verdict, which lands a few
+     * hundred ms before the run's own cleanup (label move) finishes.
+     * @param {import('./types.js').Job} job @param {number} timeoutMs @returns {Promise<boolean>}
+     */
+    whenFree(job, timeoutMs) {
+      const key = workKey(job);
+      if (!inflight.has(key)) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          const rest = (freeWaiters.get(key) ?? []).filter((w) => w !== wake);
+          if (rest.length) freeWaiters.set(key, rest);
+          else freeWaiters.delete(key);
+          resolve(false);
+        }, timeoutMs);
+        const wake = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        freeWaiters.set(key, [...(freeWaiters.get(key) ?? []), wake]);
+      });
     },
     /** {active, queued} snapshot. */
     state: () => ({ active, queued: queue.length }),

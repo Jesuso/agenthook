@@ -17,6 +17,7 @@ import { isStateDedupKey } from "./store.js";
 const BOARD_TTL_MS = 30 * 1000;
 const COMMENT_MAX = 8000;
 const MAX_ERROR_CHARS = 500;
+const RELEASE_SETTLE_MS = 15_000;
 
 /** @param {any} v @param {string} what */
 function needString(v, what) {
@@ -73,7 +74,7 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   forge: import('./types.js').Forge|null,
  *   queue: ReturnType<typeof import('./queue.js').createQueue>,
  *   cancelRun: (ref: string) => boolean,
- *   intake: (jobs: import('./types.js').Job[], opts?: {force?: boolean}) => void,
+ *   intake: (jobs: import('./types.js').Job[], opts?: {force?: boolean}) => number,
  *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
  *   heartbeat: {update(p: Record<string, any>): void},
  *   pull: () => Promise<void>,
@@ -253,7 +254,14 @@ export function createOps(deps) {
       const comment = typeof args.comment === "string" ? args.comment.slice(0, COMMENT_MAX) : "";
       const job = resumeJob(cfg, store, ref, `mcp-${now()}`, comment);
       if (!job) throw new Error(`${ref} cannot be released: not held, held step is manual/unknown, or its attempt cap is reached`);
-      intake([job], { force: true });
+      // The `blocked` event (what a supervisor waits on) lands before the held run's own cleanup
+      // (label move) finishes; an enqueue in that window is coalesced away. Wait for it to settle.
+      if (!(await queue.whenFree(job, RELEASE_SETTLE_MS))) {
+        throw new Error(`${ref}: its previous run is still finishing — try release again in a moment`);
+      }
+      if (intake([job], { force: true }) < 1) {
+        throw new Error(`${ref}: the resume job was not accepted (a run for this step is queued or running, or the receiver is shutting down) — check status, then retry`);
+      }
       return { ref, step: job.stepId, queued: true };
     }),
     reconcile: write("reconcile", async () => {

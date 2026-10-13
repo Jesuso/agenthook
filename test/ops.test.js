@@ -11,7 +11,7 @@ import { startControl } from "../src/control.js";
 import { controlRequest } from "../src/ui/control-client.js";
 
 /** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>}} [o] */
-function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set() } = {}) {
+function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
   const cfg = /** @type {any} */ ({
     name: "t",
@@ -24,7 +24,7 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
   /** @type {any[]} */ const intaken = [];
   /** @type {any[]} */ const events = [];
   /** @type {any[]} */ const beats = [];
-  const queue = createQueue(1, () => new Promise(() => {}), undefined, { onAdd: (j) => store.addQueued(j), onRemove: (j) => store.removeQueued(j) });
+  const queue = createQueue(1, queueRun ?? (() => new Promise(() => {})), undefined, { onAdd: (j) => store.addQueued(j), onRemove: (j) => store.removeQueued(j) });
   /** @type {string[]} */ const pulls = [];
   /** @type {string[]} */ const left = [];
   const ops = createOps({
@@ -32,7 +32,7 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
     leavePipeline: (ref) => left.push(ref),
     adapter: /** @type {any} */ (adapter),
     cancelRun: (ref) => killed.has(ref),
-    intake: (jobs, o) => intaken.push([jobs, o]),
+    intake: (jobs, o) => (intaken.push([jobs, o]), accept ? jobs.length : 0),
     emit: (e, ref, step, x) => events.push([e, ref, step, x]),
     heartbeat: { update: (p) => beats.push(p) },
     pull: async () => void pulls.push("pull"),
@@ -296,4 +296,25 @@ test("board fetches the per-step backlogs in parallel", async () => {
   });
   await s.ops.board({});
   assert.equal(peak, 3);
+});
+
+test("release right after the hold event waits for the previous run to settle instead of being coalesced away", async () => {
+  /** @type {() => void} */
+  let finish = () => {};
+  const s = setup({ queueRun: (j) => new Promise((r) => (finish = () => r({ kind: j.kind, ref: j.ref, name: "n", url: "", code: 0 }))) });
+  s.queue.enqueue({ kind: "pipeline", ref: "5", stepId: "code", dedupKey: "orig" }); // the held run, still in its cleanup
+  s.store.setHeld("5", { stepId: "code", heldAt: "x" });
+  const p = s.ops.release({ ref: "5", comment: "go" });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(s.intaken.length, 0, "not enqueued while the previous run is still finishing");
+  finish();
+  const r = await p;
+  assert.equal(r.queued, true);
+  assert.equal(s.intaken.length, 1);
+});
+
+test("release reports a dropped resume job instead of claiming it was queued", async () => {
+  const s = setup({ accept: false });
+  s.store.setHeld("5", { stepId: "code", heldAt: "x" });
+  await assert.rejects(() => s.ops.release({ ref: "5", comment: "go" }), /resume job was not accepted/);
 });

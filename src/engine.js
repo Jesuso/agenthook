@@ -386,8 +386,10 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   /**
    * @param {import('./types.js').Job[]} [jobs]
    * @param {{force?: boolean}} [opts]  force skips the dedup gate (explicit replay/reconcile)
+   * @returns {number} how many jobs the queue accepted (a coalesced duplicate is not accepted)
    */
   function intake(jobs, { force = false } = {}) {
+    let accepted = 0;
     store.reloadSeen();
     for (const job of jobs || []) {
       if (!job.dedupKey) continue;
@@ -401,8 +403,10 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       });
       emit("enqueued", job.ref, job.stepId);
       // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
-      if (!queue.enqueue(job) && isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
+      if (queue.enqueue(job)) accepted++;
+      else if (isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
     }
+    return accepted;
   }
 
   // Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses

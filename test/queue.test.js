@@ -228,3 +228,24 @@ test("setMax raises the cap live and starts waiting jobs; isPaused reflects paus
   for (const r of releases) r();
   await q.onIdle();
 });
+
+test("has / whenFree: true once the (ref,step) leaves the queue; immediate when idle; false on timeout", async () => {
+  /** @type {(() => void)[]} */
+  const releases = [];
+  const run = (j) => new Promise((resolve) => releases.push(() => resolve(info(j))));
+  const q = createQueue(1, run);
+  const a = job("A");
+  assert.equal(q.has(a), false);
+  assert.equal(await q.whenFree(a, 1000), true, "nothing in flight -> immediately free");
+  q.enqueue(a);
+  assert.equal(q.has(a), true);
+  assert.equal(q.has(job("A", "other")), false, "a different step is independent");
+  assert.equal(await q.whenFree(a, 20), false, "still running -> false after the timeout");
+  const waiting = q.whenFree(a, 5000);
+  releases.shift()?.();
+  assert.equal(await waiting, true, "woken by the run settling");
+  assert.equal(q.has(a), false);
+  assert.equal(q.enqueue(a), true, "and the key can be enqueued again");
+  releases.shift()?.();
+  await q.onIdle();
+});
