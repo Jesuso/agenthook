@@ -428,6 +428,16 @@ test("dispatch: adapter with no openBlockers -> runs normally (Jira/Projects/loc
   assert.deepEqual(advanced[0], ["42", "code", "advance"]);
 });
 
+test("dispatch: openBlockers throwing fails open -> runs normally, no crash", async () => {
+  const { advanced, runStep } = blockHarness(undefined, {
+    openBlockers: async () => {
+      throw new Error("boom");
+    },
+  });
+  await runStep("code");
+  assert.deepEqual(advanced[0], ["42", "code", "advance"]);
+});
+
 test("dispatch: a trigger: resume job is never gated, even with open blockers", async () => {
   const { advanced, runStep } = blockHarness(["#1"]);
   await runStep("code", "trigger:xyz");

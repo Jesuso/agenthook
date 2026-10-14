@@ -795,7 +795,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // gate entirely, so a dependency added while it waited would otherwise still run. An
     // owner's `@agent` resume bypasses this — they already decided to re-run the step.
     if (adapter.openBlockers && !job.dedupKey?.startsWith("trigger:")) {
-      const blockers = await adapter.openBlockers(job.ref);
+      /** @type {string[]} */
+      let blockers = [];
+      try {
+        blockers = await adapter.openBlockers(job.ref);
+      } catch (err) {
+        console.warn(`[blocked] openBlockers failed for ${job.ref}, failing open: ${err.message}`);
+      }
       if (blockers.length) {
         console.log(`[blocked] ${job.ref} blocked by ${blockers.join(", ")} — resting (dispatch)`);
         return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
