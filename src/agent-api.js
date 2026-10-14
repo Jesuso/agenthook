@@ -12,7 +12,7 @@ import { listProfiles } from "./heartbeat.js";
 import { HIDDEN_BY_DEFAULT } from "./events.js";
 import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
-import { readProfileState, buildRows } from "./ui/rows.js";
+import { readProfileState, buildRows, readJson, isObj } from "./ui/rows.js";
 
 const REASON_MAX = 200;
 const FAILED_MAX = 50;
@@ -290,14 +290,21 @@ export async function waitForEvents(dir, cursor, { timeoutMs, signal, ...filter 
  */
 export function readRuns(profile, ref, dir, registry = registryDir) {
   const events = readProfileState(dir).events;
-  return listRuns(registry, profile, ref, events).map((r) => ({
-    run: r.run,
-    step: r.step,
-    at: r.startedAt,
-    outcome: r.outcome,
-    ...(r.costUsd !== null ? { costUsd: r.costUsd } : {}),
-    ...(r.running ? { running: true } : {}),
-  }));
+  // The step's stored summary (summaries.json) goes on the exact run that wrote it, only.
+  const stored = readJson(path.join(dir, "summaries.json"), {}, isObj);
+  const mine = Object.hasOwn(stored, ref) && isObj(stored[ref]) ? stored[ref] : {};
+  return listRuns(registry, profile, ref, events).map((r) => {
+    const s = Object.hasOwn(mine, r.step) ? mine[r.step] : null;
+    return {
+      run: r.run,
+      step: r.step,
+      at: r.startedAt,
+      outcome: r.outcome,
+      ...(r.costUsd !== null ? { costUsd: r.costUsd } : {}),
+      ...(r.running ? { running: true } : {}),
+      ...(isObj(s) && s.run === r.run && isObj(s.summary) ? { summary: s.summary } : {}),
+    };
+  });
 }
 
 /**
@@ -380,7 +387,7 @@ export async function readTick(entry, { cursor, board = true, prs = true, eventL
   }
   if (p) {
     if (p.error) out.prsError = p.error;
-    else out.prs = p.prs.map((/** @type {any} */ x) => ({ n: x.number, ref: x.ref, ci: x.ci, ...(x.mergeable === false ? { conflict: true } : {}), ...(x.mergeState && x.mergeState !== "clean" ? { state: x.mergeState } : {}), ...(x.draft ? { draft: true } : {}), ...(typeof x.mine === "boolean" ? { mine: x.mine } : {}) }));
+    else out.prs = p.prs.map((/** @type {any} */ x) => ({ n: x.number, ref: x.ref, ci: x.ci, ...(x.mergeable === false ? { conflict: true } : {}), ...(x.mergeState && x.mergeState !== "clean" ? { state: x.mergeState } : {}), ...(x.draft ? { draft: true } : {}), ...(typeof x.mine === "boolean" ? { mine: x.mine } : {}), ...(x.review ? { review: x.review } : {}) }));
   }
   const since = readEventsSince(entry.dir, cursor ?? eventsCursor(entry.dir), { limit: eventLimit });
   out.events = since.events.map(compactEvent);

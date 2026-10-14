@@ -87,6 +87,15 @@
  * @property {string} [findings]   changes: full Markdown review findings, handed verbatim to the target step's next prompt (falls back to `reason`)
  * @property {'easy'|'medium'|'hard'} [difficulty]  optional ticket difficulty emitted by triage; persisted per-ref to gate model/effort on subsequent steps
  * @property {string[]} [paths]    overlapGuard: repo-relative files (dir = trailing `/`) — predicted by a no-worktree step, touched by a worktree step (sanitised, ≤200)
+ * @property {Record<string, unknown>} [summary]  optional free-form supervisor summary (plain object, ≤300 chars serialised); stored as-is per (ref, step), shown on `runs`/`prs`, never interpreted or fed back into a prompt
+ */
+
+/** One stored step summary (summaries.json, keyed ref → stepId).
+ * @typedef {object} SummaryRecord
+ * @property {Record<string, unknown>} summary  the verdict's `summary`, as written (agent-authored — untrusted)
+ * @property {StepOutcome} outcome  the outcome actually applied (after the changes guard / CI bounce)
+ * @property {string} run           the run log basename (matches a `runs` row's `run`)
+ * @property {string} at            ISO time the run finished
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
@@ -361,6 +370,7 @@
  * @property {string|null} mergeState    GitHub's mergeable_state (clean|dirty|blocked|behind|unstable|…)
  * @property {'success'|'failure'|'pending'|'none'|'unknown'} ci   unknown = the check-runs call failed (not the same as none)
  * @property {string} updatedAt
+ * @property {Record<string, unknown>} [review]  set by ops (not the forge): the newest review-kind step's stored summary + its `outcome`/`at` (agent-authored — untrusted); absent when none is stored
  * @property {boolean} [mine]   set by ops (not the forge): true/false from a 5-min-cached `adapter.ownership` lookup, absent when scoping is off, the adapter has no `ownership`, or the lookup failed
  */
 
@@ -451,6 +461,10 @@
  * @property {(ref: string) => void} clearFindings                  drop pending findings for ref
  * @property {(ref: string, b: {target: string, text: string}) => void} setCiRed  park a red-CI bounce for ref while a step runs on it (latest wins)
  * @property {(ref: string) => {target: string, text: string}|undefined} takeCiRed  read AND clear ref's parked red-CI bounce
+ * @property {(ref: string) => Record<string, SummaryRecord>|undefined} getSummaries  ref's stored step summaries, keyed by stepId
+ * @property {(ref: string, stepId: string, rec: SummaryRecord) => void} setSummary  store (replace) one step's summary; caps the file at 500 refs
+ * @property {(ref: string, stepId: string) => void} clearSummary   drop one step's summary (a re-run that wrote none)
+ * @property {(ref: string) => void} clearSummaries                 drop all of ref's summaries (terminal fail/cancel, merge)
  * @property {(rec: UsageRecord) => void} recordUsage               append one per-run token/cost record to usage.jsonl
  * @property {() => UsageRecord[]} readUsage                        parsed usage records (tolerates a trailing/garbage line)
  * @property {(ref: string) => string[]|undefined} getPredictedPaths  overlapGuard: paths a no-worktree step predicted for ref

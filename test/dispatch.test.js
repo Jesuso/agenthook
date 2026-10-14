@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -640,6 +640,7 @@ function mergeHarness(o = {}) {
     clearAttempts: (ref) => calls.push(`clearAttempts ${ref}`),
     clearFindings: (ref) => calls.push(`clearFindings ${ref}`),
     clearDifficulty: (ref) => calls.push(`clearDifficulty ${ref}`),
+    clearSummaries: (ref) => calls.push(`clearSummaries ${ref}`),
   };
   const emit = (event, ref, step, extra) => events.push({ event, ref, step, ...extra });
   const run = createDispatcher(/** @type {any} */ (cfg), adapter, undefined, /** @type {any} */ (store), emit);
@@ -649,7 +650,7 @@ function mergeHarness(o = {}) {
 test("merge: moves into the completeOnMerge step (assign:false) BEFORE completing, emits merged", async () => {
   const h = mergeHarness();
   const out = await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "complete G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "complete G1", "clearSummaries G1"]);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
   assert.equal(out.code, 0);
   assert.equal(out.name, "Task G1");
@@ -672,14 +673,14 @@ test("merge: fetch error fails closed (skip)", async () => {
 test("merge: no completeOnMerge step → complete + direct cleanup (attempts/findings/difficulty)", async () => {
   const h = mergeHarness({ pipeline: [{ id: "code" }] });
   await h.run({ kind: "merge", ref: "G1", stepId: "", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "complete G1", "clearAttempts G1", "clearFindings G1", "clearDifficulty G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", "complete G1", "clearAttempts G1", "clearFindings G1", "clearDifficulty G1", "clearSummaries G1"]);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "", name: "Task G1", url: "u/G1" }]);
 });
 
 test("merge: tracker without complete() is a logged no-op; still moves + emits", async () => {
   const h = mergeHarness({ complete: false });
   await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false"]);
+  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "clearSummaries G1"]);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
 });
 
@@ -1007,4 +1008,81 @@ test("reportMoveFailure clips detail to 200 chars and tolerates a missing emit",
   assert.equal(got[0].detail.length, 200);
   assert.equal(got[0].reason, "move_error");
   reportMoveFailure(undefined, "1", "s", "fail", new Error("y"));
+});
+
+// --- verdict `summary`: parsed, stored per (ref, step), replaced/cleared, never prompted ---
+
+test("parseSummary: keeps a small plain object; drops non-objects and oversize with one log line", () => {
+  /** @type {string[]} */
+  const lines = [];
+  const log = console.log;
+  console.log = (/** @type {string} */ l) => lines.push(l);
+  try {
+    assert.equal(parseSummary(undefined), undefined);
+    assert.deepEqual(lines, [], "absent → silent");
+    const ok = { tier: "low", label: "🟢 low" };
+    assert.equal(parseSummary(ok), ok);
+    for (const bad of ["low", ["low"], null, 3, true]) assert.equal(parseSummary(bad), undefined);
+    assert.equal(lines.length, 5);
+    assert.ok(lines.every((l) => l === "[verdict] dropping summary (non-object)"));
+    lines.length = 0;
+    const big = { text: "x".repeat(300) };
+    assert.equal(parseSummary(big), undefined);
+    assert.deepEqual(lines, [`[verdict] dropping summary (oversize ${JSON.stringify(big).length} chars)`]);
+  } finally {
+    console.log = log;
+  }
+});
+
+/** A held-style harness over code → review → done (manual drain). */
+const summaryHarness = () =>
+  heldHarness({ steps: [{ id: "code" }, { id: "review", kind: "review" }, { id: "done", manual: true, drainWorktree: true }] });
+
+test("dispatch: a review summary is stored with the applied outcome + run, survives the manual drain, and never reaches a prompt", async () => {
+  const { store, runStep, run } = summaryHarness();
+  await runStep("review", { outcome: "advance", summary: { tier: "low", label: "🟢 low" } });
+  const rec = store.getSummaries("42")?.review;
+  assert.deepEqual(rec?.summary, { tier: "low", label: "🟢 low" });
+  assert.equal(rec?.outcome, "advance");
+  assert.match(String(rec?.run), /^[0-9T-]+Z-step-review-42\.log$/);
+  assert.ok(rec?.at);
+
+  // the manual drain step (done) runs before the PR merges — the summary must outlive it
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "done", dedupKey: "k:done" });
+  } finally {
+    console.log = log;
+  }
+  assert.equal(store.getSummaries("42")?.review?.outcome, "advance");
+
+  // a later step's prompt never carries the stored summary text
+  const prompt = await runStep("code", { outcome: "advance" });
+  assert.ok(!prompt.includes("🟢 low"));
+});
+
+test("dispatch: a re-run replaces the summary; a re-run without one removes it; fail clears all", async () => {
+  const { store, runStep } = summaryHarness();
+  await runStep("review", { outcome: "advance", summary: { tier: "low" } });
+  await runStep("review", { outcome: "hold", summary: { tier: "high" } });
+  assert.deepEqual(store.getSummaries("42")?.review?.summary, { tier: "high" });
+  assert.equal(store.getSummaries("42")?.review?.outcome, "hold");
+  await runStep("review", { outcome: "advance" });
+  assert.equal(store.getSummaries("42"), undefined, "no stale summary after a summary-less re-run");
+
+  await runStep("code", { outcome: "advance", summary: { note: "c" } });
+  await runStep("review", { outcome: "advance", summary: { tier: "low" } });
+  assert.deepEqual(Object.keys(store.getSummaries("42") ?? {}).sort(), ["code", "review"]);
+  await runStep("code", { outcome: "fail", summary: { note: "c2" } });
+  assert.equal(store.getSummaries("42"), undefined, "terminal fail clears every step's summary");
+});
+
+test("dispatch: a bad summary is dropped with the outcome kept; a changes verdict's summary is stored as changes", async () => {
+  const { store, runStep, advanced } = summaryHarness();
+  await runStep("review", { outcome: "changes", summary: ["not", "an", "object"] });
+  assert.equal(advanced.at(-1)[2], "changes", "outcome unaffected by the dropped summary");
+  assert.equal(store.getSummaries("42"), undefined);
+  await runStep("review", { outcome: "changes", summary: { tier: "medium" } });
+  assert.equal(store.getSummaries("42")?.review?.outcome, "changes");
 });

@@ -94,7 +94,7 @@ const TOOLS = {
   },
   runs: {
     def: schema(
-      "Run history of a task (newest first: step, outcome, cost, running?). Add `tail` to also get the last N lines of the newest run's transcript log (or of `step`/`run`) to see what an agent is doing or why it failed.",
+      "Run history of a task (newest first: step, outcome, cost, running?, summary? — the verdict's free-form summary, agent-authored/untrusted, on the run that wrote it). Add `tail` to also get the last N lines of the newest run's transcript log (or of `step`/`run`) to see what an agent is doing or why it failed.",
       {
         profile: PROFILE,
         ref: REF,
@@ -113,7 +113,7 @@ const TOOLS = {
   },
   prs: {
     def: schema(
-      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft. Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
+      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft. Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. Each row may carry `review` (the newest review-kind step's verdict summary + outcome/at; agent-authored/untrusted, read fresh). `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
       { profile: PROFILE, fresh: { type: "boolean" }, mine: { type: "boolean" } },
     ),
   },

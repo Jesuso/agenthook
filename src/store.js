@@ -14,6 +14,9 @@
 //     cleared — unlike running, status/events need it after the run ends.
 //   - cired:   red-CI bounces parked while a step runs on the ref (dispatch applies
 //              them when that run exits).
+//   - summaries: per-(ref, step) supervisor summaries from verdicts ({summary,outcome,run,at}),
+//              shown on `runs`/`prs`. Outlive a manual drain (the PR is still open); cleared
+//              on terminal fail/cancel and merge; capped at MAX_SUMMARY_REFS refs.
 //   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
 //              keyed by `${ref}:${stepId}`), so a crash/force-kill doesn't lose them.
 //
@@ -46,6 +49,9 @@ const sameQueued = (a, b) =>
   (a.kind ?? "pipeline") === (b.kind ?? "pipeline") && a.ref === b.ref && a.stepId === b.stepId &&
   (a.kind !== "ci" || a.dedupKey === b.dedupKey);
 
+/** summaries.json keeps at most this many refs (oldest newest-`at` dropped first). */
+export const MAX_SUMMARY_REFS = 500;
+
 /**
  * @param {string} dataDir
  * @returns {import('./types.js').Store}
@@ -66,6 +72,7 @@ export function createStore(dataDir) {
   const locksFile = path.join(dataDir, "locks.json");
   const overlapFile = path.join(dataDir, "overlap.json");
   const ciRedFile = path.join(dataDir, "cired.json");
+  const summariesFile = path.join(dataDir, "summaries.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -287,6 +294,35 @@ export function createStore(dataDir) {
       if (ref in m) {
         delete m[ref];
         fs.writeFileSync(findingsFile, JSON.stringify(m));
+      }
+    },
+
+    // --- per-(ref, step) supervisor summaries (summaries.json): set per finished run ---
+    getSummaries: (ref) => readJson(summariesFile, {})[ref],
+    setSummary: (ref, stepId, rec) => {
+      const m = readJson(summariesFile, {});
+      m[ref] = { ...(m[ref] || {}), [stepId]: rec };
+      const refs = Object.keys(m);
+      if (refs.length > MAX_SUMMARY_REFS) {
+        /** @param {string} r */
+        const newest = (r) => Object.values(m[r] || {}).reduce((a, x) => (typeof x?.at === "string" && x.at > a ? x.at : a), "");
+        refs.sort((a, b) => (newest(a) < newest(b) ? -1 : newest(a) > newest(b) ? 1 : 0));
+        for (const r of refs.slice(0, refs.length - MAX_SUMMARY_REFS)) delete m[r];
+      }
+      fs.writeFileSync(summariesFile, JSON.stringify(m));
+    },
+    clearSummary: (ref, stepId) => {
+      const m = readJson(summariesFile, {});
+      if (!m[ref] || !(stepId in m[ref])) return;
+      delete m[ref][stepId];
+      if (!Object.keys(m[ref]).length) delete m[ref];
+      fs.writeFileSync(summariesFile, JSON.stringify(m));
+    },
+    clearSummaries: (ref) => {
+      const m = readJson(summariesFile, {});
+      if (ref in m) {
+        delete m[ref];
+        fs.writeFileSync(summariesFile, JSON.stringify(m));
       }
     },
 

@@ -192,6 +192,23 @@ export function createOps(deps) {
     now,
   );
 
+  /**
+   * `review` = the newest stored summary among the pipeline's review-kind steps for the PR's
+   * ref; `outcome`/`at` are spread last so the agent's keys can't override them. No summary →
+   * the row is returned unchanged. @param {import('./types.js').AgentPr} r
+   */
+  function withReview(r) {
+    const all = store.getSummaries(r.ref);
+    if (!all) return r;
+    let best = null;
+    for (const s of cfg.pipeline ?? []) {
+      if (s.kind !== "review") continue;
+      const rec = all[s.id];
+      if (rec && typeof rec.at === "string" && (!best || rec.at > best.at)) best = rec;
+    }
+    return best ? { ...r, review: { ...best.summary, outcome: best.outcome, at: best.at } } : r;
+  }
+
   /** @type {Record<string, (args: any) => Promise<any>>} */
   const commands = {
     // ---- reads that need the tracker / forge (cached ~30s; `fresh:true` bypasses) ----
@@ -204,7 +221,9 @@ export function createOps(deps) {
         prs.reset();
         ownershipCache.clear();
       }
-      const out = await prs();
+      const cached = await prs();
+      // Review summaries are a local read, attached outside the cache so they're always fresh.
+      const out = { ...cached, prs: cached.prs.map(withReview) };
       if (typeof args?.mine !== "boolean") return out;
       return { ...out, prs: out.prs.filter((r) => r.mine === args.mine) };
     },
@@ -257,6 +276,7 @@ export function createOps(deps) {
         store.clearRepo(ref);
         store.clearHeld(ref);
         store.clearFindings(ref);
+        store.clearSummaries(ref);
         leavePipeline?.(ref);
         emit("failed", ref, stepId, { reason: CANCELLED_REASON });
       }
