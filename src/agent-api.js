@@ -19,7 +19,7 @@ const TITLE_MAX = 80;
 const LOG_BYTES_MAX = 24 * 1024;
 /** Control-socket call budgets: board/PR reads hit the tracker/forge; reconcile/run/release can walk a whole board. */
 const LIVE_TIMEOUT_DEFAULT_MS = 20_000;
-const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_000, run: 60_000, release: 60_000, cancel: 60_000, pull: 60_000 });
+const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_000, run: 60_000, catchup: 60_000, release: 60_000, cancel: 60_000, pull: 60_000 });
 
 /** @param {any} v @param {number} n */
 const clip = (v, n) => (typeof v === "string" && v.length > n ? v.slice(0, n - 1) + "…" : v);

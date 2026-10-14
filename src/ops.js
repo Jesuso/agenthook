@@ -256,7 +256,35 @@ export function createOps(deps) {
       if (blocked) throw new Error(blocked);
       await adapter.ensureLabels?.();
       const entered = await adapter.enterStage(ref, step.id, { assign: args.assign !== false });
-      return { ref, step: step.id, stage: entered.stage, note: "the tracker webhook fires the step; `reconcile` if it does not" };
+      return { ref, step: step.id, stage: entered.stage, note: "the tracker webhook fires the step; `reconcile` if it does not. Already resting there? use `catchup` instead" };
+    }),
+    catchup: write("catchup", async (args) => {
+      const ref = needString(args.ref, "ref");
+      if (!isPipeline(cfg)) throw new Error("catchup is for pipeline configs");
+      if (typeof adapter.forgeCatchup !== "function") throw new Error(`tracker "${cfg.provider}" has no catchup support`);
+      let task;
+      try {
+        task = await adapter.fetchTask(ref);
+      } catch (e) {
+        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
+      }
+      if (!task.assignedToUs) throw new Error(`${ref} is not assigned to us`);
+      const forged = await adapter.forgeCatchup(ref);
+      if (!forged.stepId) throw new Error(`${ref} is not in any pipeline source stage — nothing to replay. Use run to start it.`);
+      const force = args.force === true;
+      store.reloadSeen();
+      const wasSeen = store.hasSeen(forged.dedupKey);
+      if (wasSeen && !force) {
+        return { ref, step: forged.stepId, dispatched: false, reason: "already seen — the server would dedup-skip it; pass force to re-fire" };
+      }
+      const accepted = intake([{ kind: "pipeline", ref, stepId: forged.stepId, dedupKey: forged.dedupKey }], { force }) > 0;
+      return {
+        ref,
+        step: forged.stepId,
+        dispatched: accepted,
+        ...(force ? { clearedDedup: wasSeen } : {}),
+        reason: accepted ? "queued" : "a run for this step is queued or running, or the receiver is shutting down",
+      };
     }),
     release: write("release", async (args) => {
       const ref = needString(args.ref, "ref");
