@@ -9,8 +9,9 @@
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
-//   listQueued(stepId)                 -> [ref] in the step's opt-in queue section, board order
-//                                         (optional; only on run_end + once on boot, never a timer)
+//   listQueued(stepId)                 -> [ref] in the step's opt-in queue section, board order,
+//                                         unblocked only (optional; only on run_end + once on boot,
+//                                         never a timer)
 //   complete(ref)                      -> mark the task completed (optional; forge merge)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
@@ -468,7 +469,7 @@ export function createAsanaAdapter(cfg, store) {
 
     // Queue-stage source (the one narrow boot/run_end board read — see engine pullQueued):
     // tasks resting in the step's opt-in queueSectionGid, in the API's section order (the
-    // board's top-to-bottom priority), filtered like listResting. [] without the key.
+    // board's top-to-bottom priority), filtered like listResting, unblocked only. [] without the key.
     /** @param {string} stepId */
     async listQueued(stepId) {
       const step = stepById(stepId);
@@ -479,6 +480,7 @@ export function createAsanaAdapter(cfg, store) {
       const refs = [];
       for (const t of (await json(res)).data || []) {
         if (t.completed || !isOurs(t.assignee?.gid)) continue;
+        if ((await openDependencies(t.gid)).length) continue; // blocked → must not be pulled into work
         refs.push(t.gid);
       }
       return refs;
