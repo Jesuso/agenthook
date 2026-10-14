@@ -27,9 +27,9 @@ function profile(reg, key, { hb = {}, running = {}, queue = [], held = {}, refme
   return dir;
 }
 
-test("etagOf: stable, ignores volatile at/ageS/etag", () => {
-  const a = etagOf({ x: 1, at: "t1", ageS: 5, etag: "z" });
-  const b = etagOf({ x: 1, at: "t2", ageS: 99 });
+test("etagOf: stable, ignores volatile at/ageS/etag/outTok", () => {
+  const a = etagOf({ x: 1, at: "t1", ageS: 5, etag: "z", outTok: 5 });
+  const b = etagOf({ x: 1, at: "t2", ageS: 99, outTok: 9000 });
   assert.equal(a, b);
   assert.notEqual(a, etagOf({ x: 2 }));
 });
@@ -66,6 +66,22 @@ test("readStatus: slots, running age, queue, held, free subtracts queued", () =>
   assert.equal(s.queue[0].ref, "8");
   assert.ok(s.held[0].why.length <= 200, "reason clipped");
   assert.equal(s.etag, readStatus(readProfile("p", reg), { now: now + 60000 }).etag, "age drift does not change the etag");
+});
+
+test("readStatus: live output-token drift does not change the etag, a real change does", () => {
+  const reg = registry();
+  const now = Date.parse("2026-01-01T01:00:00Z");
+  profile(reg, "o", {
+    running: { 7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", output: 12 } },
+  });
+  const before = readStatus(readProfile("o", reg), { now });
+  fs.writeFileSync(path.join(reg, "o", "running.json"), JSON.stringify({ 7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", output: 9000 } }));
+  const after = readStatus(readProfile("o", reg), { now: now + 60000 });
+  assert.equal(before.etag, after.etag, "outTok drift does not change the etag");
+
+  fs.writeFileSync(path.join(reg, "o", "queue.json"), JSON.stringify([{ kind: "pipeline", ref: "8", stepId: "triage", dedupKey: "k" }]));
+  const changed = readStatus(readProfile("o", reg), { now: now + 60000 });
+  assert.notEqual(after.etag, changed.etag, "a real state change (queue) still changes the etag");
 });
 
 test("readStatus: a down profile reports no active/queued and a note", () => {

@@ -24,11 +24,14 @@ const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_
 /** @param {any} v @param {number} n */
 const clip = (v, n) => (typeof v === "string" && v.length > n ? v.slice(0, n - 1) + "…" : v);
 
-/** Stable short hash of a payload, ignoring volatile `at`/`etag` keys. @param {any} obj */
+/** Keys that drift every call without the underlying state changing — excluded from the etag hash. */
+const ETAG_VOLATILE_KEYS = new Set(["at", "etag", "ageS", "outTok"]);
+
+/** Stable short hash of a payload, ignoring volatile keys (`at`, `etag`, `ageS`, `outTok`). @param {any} obj */
 export function etagOf(obj) {
   return crypto
     .createHash("sha1")
-    .update(JSON.stringify(obj, (k, v) => (k === "at" || k === "etag" || k === "ageS" ? undefined : v)))
+    .update(JSON.stringify(obj, (k, v) => (ETAG_VOLATILE_KEYS.has(k) ? undefined : v)))
     .digest("hex")
     .slice(0, 12);
 }

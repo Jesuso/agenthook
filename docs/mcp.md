@@ -30,7 +30,8 @@ directory (or `--config`), else the only running profile, else an error listing 
 ## Token thrift (by design)
 
 - **`etag`**: `status`/`tick` return one; pass it back as `ifNoneMatch` and an unchanged
-  answer is `{"unchanged":true,…}` (~10 tokens). Volatile fields (`ageS`) don't affect it.
+  answer is `{"unchanged":true,…}` (~10 tokens). Volatile fields (`ageS`, `outTok`, `at`
+  timestamps) don't affect it.
 - **`cursor`**: `events`/`tick` return a byte offset into `events.jsonl`; pass it back to get
   only what's new. A half-written line is never returned (it arrives whole next time).
 - **`events` with `waitS`** blocks (≤120 s) until a matching event lands — `fs.watch`-driven,
