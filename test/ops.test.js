@@ -151,6 +151,58 @@ test("run: guards against a ref already in the pipeline, enters the first step, 
   assert.equal(entered.length, 4);
 });
 
+test("catchup: dispatches an unseen ref resting in a source stage; dedup-skips without force; force clears and re-fires", async () => {
+  const s = setup({
+    adapter: {
+      fetchTask: async (ref) => ({ ref, name: "T", assignedToUs: true }),
+      forgeCatchup: async (ref) => ({ stepId: "code", dedupKey: `step:code:${ref}` }),
+    },
+  });
+  const r = await s.ops.catchup({ ref: "9" });
+  assert.equal(r.step, "code");
+  assert.equal(r.dispatched, true);
+  assert.deepEqual(s.intaken[0], [[{ kind: "pipeline", ref: "9", stepId: "code", dedupKey: "step:code:9" }], { force: false }]);
+
+  s.store.markSeen("step:code:9");
+  const seen = await s.ops.catchup({ ref: "9" });
+  assert.equal(seen.dispatched, false);
+  assert.match(seen.reason, /already seen/);
+  assert.equal(s.intaken.length, 1, "no intake when dedup-skipped");
+
+  const forced = await s.ops.catchup({ ref: "9", force: true });
+  assert.equal(forced.dispatched, true);
+  assert.equal(forced.clearedDedup, true);
+  assert.deepEqual(s.intaken[1][1], { force: true });
+});
+
+test("catchup: refuses when not assigned to us, when resting in no source stage, or when the tracker has no support", async () => {
+  const s = setup({
+    adapter: {
+      fetchTask: async (ref) => ({ ref, name: "T", assignedToUs: ref !== "theirs" }),
+      forgeCatchup: async (ref) => (ref === "idle" ? { dedupKey: "x" } : { stepId: "code", dedupKey: "x" }),
+    },
+  });
+  await assert.rejects(() => s.ops.catchup({ ref: "theirs" }), /not assigned to us/);
+  await assert.rejects(() => s.ops.catchup({ ref: "idle" }), /not in any pipeline source stage/);
+  assert.equal(s.intaken.length, 0);
+
+  const noSupport = setup({ adapter: { fetchTask: async () => ({ assignedToUs: true }) } });
+  await assert.rejects(() => noSupport.ops.catchup({ ref: "1" }), /no catchup support/);
+});
+
+test("catchup: not accepted (coalesced) is reported as dispatched:false, not success", async () => {
+  const s = setup({
+    accept: false,
+    adapter: {
+      fetchTask: async (ref) => ({ ref, assignedToUs: true }),
+      forgeCatchup: async (ref) => ({ stepId: "code", dedupKey: `step:code:${ref}` }),
+    },
+  });
+  const r = await s.ops.catchup({ ref: "9" });
+  assert.equal(r.dispatched, false);
+  assert.match(r.reason, /queued or running/);
+});
+
 test("release: resumes a held ref through the @agent gate with the comment; refuses otherwise", async () => {
   const s = setup();
   await assert.rejects(() => s.ops.release({ ref: "5", comment: "go" }), /cannot be released/);

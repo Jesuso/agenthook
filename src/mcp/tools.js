@@ -142,6 +142,14 @@ const TOOLS = {
       ["ref"],
     ),
   },
+  catchup: {
+    write: true,
+    def: schema(
+      "Re-fire the pipeline step for the stage a task CURRENTLY RESTS IN (it replays the forged tracker event in-process and reports whether it actually dispatched). Use this instead of `run` with `force` to re-fire a task that is already in its step's source stage — `run`'s move produces no fresh transition there, so nothing fires even though it reports success. `force` clears the dedup key if the event was already seen. Refuses if the task is not assigned to us, or rests in no pipeline source stage.",
+      { profile: PROFILE, ref: REF, force: { type: "boolean", description: "clear the dedup key and re-fire even if already seen" } },
+      ["ref"],
+    ),
+  },
   cancel: {
     write: true,
     destructive: true,
