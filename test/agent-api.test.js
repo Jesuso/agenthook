@@ -116,6 +116,15 @@ test("readEventsSince: incremental cursor, whole lines only, filters, limit, tru
   assert.equal(eventsCursor(dir), fs.statSync(f).size);
 });
 
+test("readEventsSince: coalesced is hidden with no types filter, returned when explicitly requested", () => {
+  const dir = registry();
+  const f = path.join(dir, "events.jsonl");
+  const ev = (event, ref) => JSON.stringify({ ts: "t", event, ref, step: "code" }) + "\n";
+  fs.writeFileSync(f, ev("enqueued", "1") + ev("coalesced", "1") + ev("run_end", "1"));
+  assert.deepEqual(readEventsSince(dir, 0).events.map((e) => e.event), ["enqueued", "run_end"]);
+  assert.deepEqual(readEventsSince(dir, 0, { types: new Set(["coalesced"]) }).events.map((e) => e.event), ["coalesced"]);
+});
+
 test("waitForEvents: wakes on an append, ignores non-matching lines, times out empty", async () => {
   const dir = registry();
   const f = path.join(dir, "events.jsonl");

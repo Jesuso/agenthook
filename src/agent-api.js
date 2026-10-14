@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { registryDir, peekConfig } from "./config.js";
 import { listProfiles } from "./heartbeat.js";
+import { HIDDEN_BY_DEFAULT } from "./events.js";
 import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
 import { readProfileState, buildRows } from "./ui/rows.js";
@@ -212,7 +213,8 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
         } catch {
           /* torn/garbage line: skip */
         }
-        if (e && typeof e === "object" && (!types || types.has(e.event)) && (!ref || e.ref === ref)) {
+        const passesType = types ? types.has(e?.event) : !HIDDEN_BY_DEFAULT.has(e?.event);
+        if (e && typeof e === "object" && passesType && (!ref || e.ref === ref)) {
           if (events.length >= limit) {
             truncated = true;
             break;

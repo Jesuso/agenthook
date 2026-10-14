@@ -141,6 +141,8 @@ export function createQueue(initialMax, run, onChange, persist) {
     },
     /** True while `job`'s (ref, step) is queued or running — an enqueue of it would be coalesced away. @param {import('./types.js').Job} job */
     has: (job) => inflight.has(workKey(job)),
+    /** True once `close()` has been called — a refused enqueue past this point is draining, not a coalesced duplicate. */
+    isClosed: () => closed,
     /**
      * Resolve true once `job`'s (ref, step) is no longer queued/running (immediately if it is not),
      * false after `timeoutMs`. Event-driven: woken by the run settling, no polling. For a caller that

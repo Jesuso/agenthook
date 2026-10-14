@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { appendFeed, formatFeedEvent, ticketLabel, groupByMinute, readRailOpen, writeRailOpen, FEED_MAX } from "./feed";
+import { appendFeed, formatFeedEvent, isHiddenFeedEvent, ticketLabel, groupByMinute, readRailOpen, writeRailOpen, FEED_MAX } from "./feed";
 import type { FeedEntry } from "./feed";
 
 function entry(ref: string, event: Record<string, any> = {}): FeedEntry {
@@ -64,6 +64,18 @@ describe("formatFeedEvent", () => {
 
   it("sets ticket:false for events with no ref", () => {
     expect(formatFeedEvent({ event: "run_start", ref: "", step: "code" }, null).ticket).toBe(false);
+  });
+
+  it("maps coalesced to a sensible idle-toned render, in case it's ever shown", () => {
+    expect(formatFeedEvent({ event: "coalesced", ref: "1", step: "code" }, null)).toMatchObject({ text: "duplicate dropped", tone: "idle" });
+  });
+});
+
+describe("isHiddenFeedEvent", () => {
+  it("hides coalesced, nothing else", () => {
+    expect(isHiddenFeedEvent("coalesced")).toBe(true);
+    expect(isHiddenFeedEvent("enqueued")).toBe(false);
+    expect(isHiddenFeedEvent("run_end")).toBe(false);
   });
 });
 
