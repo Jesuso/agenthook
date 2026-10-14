@@ -367,6 +367,89 @@ test("dispatch: the manual drain step clears the held record", async () => {
   assert.equal(store.getHeld("42"), undefined);
 });
 
+// --- block gate re-checked at dispatch time (queued jobs skip the webhook-time gate) ---
+
+/** @param {string[]} [blockers] @param {any} [adapterOverrides] */
+function blockHarness(blockers, adapterOverrides) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code" }, { id: "done", manual: true, drainWorktree: true }],
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+    ...(blockers !== undefined ? { openBlockers: async () => blockers } : {}),
+    ...adapterOverrides,
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store);
+  /** @param {string} stepId @param {string} [dedupKey] */
+  const runStep = async (stepId, dedupKey) => {
+    const log = console.log;
+    console.log = () => {};
+    try {
+      return await run({ kind: "pipeline", ref: "42", stepId, dedupKey: dedupKey ?? `k:${stepId}` });
+    } finally {
+      console.log = log;
+    }
+  };
+  return { store, advanced, runStep };
+}
+
+test("dispatch: openBlockers returns blockers -> rests, no spawn/advance/attempt bump/lock", async () => {
+  const { store, advanced, runStep } = blockHarness(["#1"]);
+  const result = await runStep("code");
+  assert.deepEqual(result, { kind: "pipeline", ref: "42", name: "t", url: "u", code: 0 });
+  assert.equal(advanced.length, 0);
+  assert.equal(store.getAttempt("42", "code"), 0);
+  assert.equal(store.getLock("42"), undefined);
+});
+
+test("dispatch: openBlockers returns [] -> runs normally", async () => {
+  const { advanced, runStep } = blockHarness([]);
+  await runStep("code");
+  assert.deepEqual(advanced[0], ["42", "code", "advance"]);
+});
+
+test("dispatch: adapter with no openBlockers -> runs normally (Jira/Projects/local unaffected)", async () => {
+  const { advanced, runStep } = blockHarness(undefined);
+  await runStep("code");
+  assert.deepEqual(advanced[0], ["42", "code", "advance"]);
+});
+
+test("dispatch: openBlockers throwing fails open -> runs normally, no crash", async () => {
+  const { advanced, runStep } = blockHarness(undefined, {
+    openBlockers: async () => {
+      throw new Error("boom");
+    },
+  });
+  await runStep("code");
+  assert.deepEqual(advanced[0], ["42", "code", "advance"]);
+});
+
+test("dispatch: a trigger: resume job is never gated, even with open blockers", async () => {
+  const { advanced, runStep } = blockHarness(["#1"]);
+  await runStep("code", "trigger:xyz");
+  assert.deepEqual(advanced[0], ["42", "code", "advance"]);
+});
+
+test("dispatch: a manual step is not gated — the manual branch returns before the gate runs", async () => {
+  const { runStep } = blockHarness(["#1"]);
+  const result = await runStep("done");
+  assert.equal(result.code, 0);
+});
+
 // --- multi-repo routing: resolve → sticky → hold on ambiguity (no spawn) ---
 // A fake `claude` records its cwd + prompt; steps create no worktree, so cwd = repo.path.
 

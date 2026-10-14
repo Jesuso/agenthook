@@ -790,6 +790,24 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
 
+    // Re-check the block gate at dispatch time: a job that waited in the local queue
+    // (slots busy, boot-restored queue.json, an overlap release) skips the webhook-time
+    // gate entirely, so a dependency added while it waited would otherwise still run. An
+    // owner's `@agent` resume bypasses this — they already decided to re-run the step.
+    if (adapter.openBlockers && !job.dedupKey?.startsWith("trigger:")) {
+      /** @type {string[]} */
+      let blockers = [];
+      try {
+        blockers = await adapter.openBlockers(job.ref);
+      } catch (err) {
+        console.warn(`[blocked] openBlockers failed for ${job.ref}, failing open: ${err.message}`);
+      }
+      if (blockers.length) {
+        console.log(`[blocked] ${job.ref} blocked by ${blockers.join(", ")} — resting (dispatch)`);
+        return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
+      }
+    }
+
     let tookLock = false;
     if (cfg.overlapGuard && store) {
       // A release re-enters here with no tracker event behind it: fail-closed on the
