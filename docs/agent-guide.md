@@ -45,6 +45,8 @@ Vocabulary you will see in tool output:
 4. Re-`tick` with `ifNoneMatch: <etag>` — `{"unchanged":true}` means nothing to do.
 
 Never loop on `status`. One `events` call with `waitS` replaces dozens of status calls.
+`ageS`/`outTok` never affect the etag, so `{"unchanged":true}` can fire while an agent is running;
+omit `ifNoneMatch` when you want fresh ages and token counts rather than the cheap unchanged check.
 
 ## shapes
 
