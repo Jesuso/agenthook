@@ -26,6 +26,11 @@ export function restartRequest(profile: string, moveTo?: string): { url: string;
   return { url: "/api/restart", init: guarded("POST", moveTo === undefined ? { profile } : { profile, moveTo }) };
 }
 
+/** The dashboard row's operator pause / resume: `POST /api/pause` or `/api/resume` with `{profile}`. */
+export function queueToggleRequest(cmd: "pause" | "resume", profile: string): { url: string; init: RequestInit } {
+  return { url: `/api/${cmd}`, init: guarded("POST", { profile }) };
+}
+
 /** Acknowledge a failed/cancelled ticket: the receiver records a `dismissed` event for it. */
 export function dismissRequest(profile: string, ref: string): { url: string; init: RequestInit } {
   return { url: "/api/dismiss", init: guarded("POST", { profile, ref }) };
@@ -124,14 +129,14 @@ export type RestartAction =
 
 export const RESTART_IDLE: RestartState = { kind: "idle" };
 
-const inFlight = (s: RestartState): s is Extract<RestartState, { kind: "requesting" | "pending" | "restarting" }> =>
+export const restartInFlight = (s: RestartState): s is Extract<RestartState, { kind: "requesting" | "pending" | "restarting" }> =>
   s.kind === "requesting" || s.kind === "pending" || s.kind === "restarting";
 
 /** Pure transition; an action that doesn't apply returns `s` unchanged. */
 export function restartReducer(s: RestartState, a: RestartAction): RestartState {
   switch (a.type) {
     case "request":
-      return inFlight(s) ? s : { kind: "requesting", pid: a.pid };
+      return restartInFlight(s) ? s : { kind: "requesting", pid: a.pid };
     case "response":
       // SSE can beat the reply (an idle receiver fires at once): only `requesting` takes it.
       if (s.kind !== "requesting") return s;
@@ -144,7 +149,7 @@ export function restartReducer(s: RestartState, a: RestartAction): RestartState 
       return s;
     }
     case "profile": {
-      if (!inFlight(s)) return s;
+      if (!restartInFlight(s)) return s;
       const p = a.profile;
       if (p.up && p.pid !== null && p.pid !== s.pid) return { kind: "up" };
       if (!p.up && s.kind !== "restarting") return { kind: "restarting", pid: s.pid };
@@ -165,7 +170,8 @@ export function restartErrorText(status: number, body: any): string {
   return `Restart failed (status ${status})`;
 }
 
-export function restartText(s: RestartState): string | null {
+/** `upText` is the `up` line: the Config view's default, or e.g. "restarted" on the dashboard. */
+export function restartText(s: RestartState, upText = "up — the new config is live"): string | null {
   switch (s.kind) {
     case "idle":
       return null;
@@ -176,7 +182,7 @@ export function restartText(s: RestartState): string | null {
     case "restarting":
       return "restarting…";
     case "up":
-      return "up — the new config is live";
+      return upText;
     case "error":
       return s.message;
   }

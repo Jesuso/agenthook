@@ -18,6 +18,8 @@ const base: ProfileView = {
   updatedAt: null,
   active: 0,
   queued: 0,
+  paused: false,
+  restartPending: false,
   lastEvent: null,
   configPath: "~/p/agenthook.config.json",
   createdAt: "2026-04-05T12:00:00.000Z",
@@ -46,5 +48,12 @@ describe("ProfileNameCell", () => {
   it("shows the config-missing badge for a profile whose config file is gone", () => {
     const html = renderToStaticMarkup(createElement(ProfileNameCell, { p: { ...base, configMissing: true } }));
     expect(html).toContain("config missing");
+  });
+
+  it("shows the paused badge only when the operator paused the profile", () => {
+    const pill = (p: ProfileView) => renderToStaticMarkup(createElement(ProfileNameCell, { p })).includes(">paused</span>");
+    expect(pill({ ...base, paused: true })).toBe(true);
+    expect(pill({ ...base, paused: false })).toBe(false);
+    expect(pill({ ...base, up: false, paused: null })).toBe(false);
   });
 });

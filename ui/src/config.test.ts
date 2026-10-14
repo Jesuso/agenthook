@@ -7,6 +7,7 @@ import {
   configUrl,
   moveTarget,
   parseCheck,
+  queueToggleRequest,
   restartErrorText,
   restartReducer,
   restartRequest,
@@ -49,6 +50,16 @@ describe("requests", () => {
   it("POST /api/restart with {profile, moveTo} for a state-dir move", () => {
     const { init } = restartRequest("old", "new");
     expect(JSON.parse(String(init.body))).toEqual({ profile: "old", moveTo: "new" });
+  });
+
+  it("POST /api/pause and /api/resume with {profile}, guarded", () => {
+    for (const cmd of ["pause", "resume"] as const) {
+      const { url, init } = queueToggleRequest(cmd, "p");
+      expect(url).toBe(`/api/${cmd}`);
+      expect(init.method).toBe("POST");
+      expect(init.headers).toEqual({ "Content-Type": "application/json", "X-AH-UI": "1" });
+      expect(JSON.parse(String(init.body))).toEqual({ profile: "p" });
+    }
   });
 });
 
@@ -174,6 +185,8 @@ const prof = (over: Partial<ProfileView>): ProfileView => ({
   updatedAt: null,
   active: 0,
   queued: 0,
+  paused: false,
+  restartPending: false,
   lastEvent: null,
   configPath: null,
   createdAt: null,
@@ -255,5 +268,7 @@ describe("restartReducer", () => {
     expect(restartText({ kind: "pending", pid: 1, active: 2 })).toBe("restart pending (2 agents running)");
     expect(restartText({ kind: "restarting", pid: 1 })).toBe("restarting…");
     expect(restartText({ kind: "error", message: "x" })).toBe("x");
+    expect(restartText({ kind: "up" })).toBe("up — the new config is live");
+    expect(restartText({ kind: "up" }, "restarted")).toBe("restarted");
   });
 });

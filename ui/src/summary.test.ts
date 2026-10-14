@@ -15,6 +15,8 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
     updatedAt: null,
     active: null,
     queued: null,
+    paused: null,
+    restartPending: null,
     lastEvent: null,
     configPath: null,
     createdAt: null,

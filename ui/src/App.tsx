@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useReducer, useRef, useState } from "react";
 import type { ProfileView, Snapshot } from "./contract";
 import { formatUp, formatLastEvent, formatAgents, formatCost, formatDate, profileLabel, profileBadge } from "./format";
 import { subscribe } from "./stream";
@@ -14,10 +14,11 @@ import { TicketsTable } from "./TicketsTable";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
-import { CONFIG_DISCARD_PROMPT, dismissRequest } from "./config";
+import { CONFIG_DISCARD_PROMPT, RESTART_IDLE, dismissRequest, queueToggleRequest, restartRequest, restartText } from "./config";
 import type { ConfigSinkEvent } from "./config";
 import { RemoveProfile } from "./RemoveProfile";
 import { pendingText } from "./remove";
+import { queueToggleText, restartsReducer, rowActions } from "./profileActions";
 import { AppBar } from "./AppBar";
 import type { Tab } from "./AppBar";
 import { connectionState } from "./connection";
@@ -66,6 +67,26 @@ export default function App() {
   const pendingRemovalRef = useRef(pendingRemoval);
   pendingRemovalRef.current = pendingRemoval;
   const [toast, setToast] = useState<{ text: string; hint: string | null } | null>(null);
+  // Restart when idle from a row's ⋯ menu: per-state-key restartReducer state, fed by the POST
+  // reply, the profile's restart feed events and snapshot/profile updates (no polling).
+  const [restarts, dispatchRestarts] = useReducer(restartsReducer, {});
+  const snapshotProfiles = state.kind === "ok" ? state.snapshot.profiles : null;
+  const snapshotProfilesRef = useRef(snapshotProfiles);
+  snapshotProfilesRef.current = snapshotProfiles;
+
+  useEffect(() => {
+    if (snapshotProfiles) dispatchRestarts({ type: "profiles", profiles: snapshotProfiles });
+  }, [snapshotProfiles]);
+
+  useEffect(() => {
+    // A finished or failed restart becomes a toast and leaves the row.
+    for (const [key, s] of Object.entries(restarts)) {
+      if (s.kind !== "up" && s.kind !== "error") continue;
+      const label = snapshotProfilesRef.current?.find((p) => p.name === key)?.label ?? key;
+      setToast({ text: `${label}: ${restartText(s, "restarted")}`, hint: null });
+      dispatchRestarts({ type: "one", profile: key, action: { type: "reset" } });
+    }
+  }, [restarts]);
 
   useEffect(() => {
     // A webhook hint is a command to copy: it stays until dismissed.
@@ -130,6 +151,7 @@ export default function App() {
         }
         if (ev.type === "event") {
           configSink.current?.(ev);
+          dispatchRestarts({ type: "one", profile: ev.profile, action: { type: "event", event: ev.event } });
           if (!isHiddenFeedEvent(ev.event.event)) setFeed((f) => appendFeed(f, ev));
           const o = openRef.current;
           if (o && affectsRuns(ev, o.profile, o.ref)) setRunsNonce((n) => n + 1);
@@ -214,6 +236,21 @@ export default function App() {
     setRailOpen(next);
     writeRailOpen(next);
   };
+  const requestRestart = (p: ProfileView) => {
+    dispatchRestarts({ type: "one", profile: p.name, action: { type: "request", pid: p.pid } });
+    const { url, init } = restartRequest(p.name);
+    const respond = (status: number, body: any) => dispatchRestarts({ type: "one", profile: p.name, action: { type: "response", status, body } });
+    fetch(url, init)
+      .then((res) => res.json().then((b) => respond(res.status, b), () => respond(res.status, null)))
+      .catch(() => respond(0, null));
+  };
+  const toggleQueue = (cmd: "pause" | "resume", p: ProfileView) => {
+    const { url, init } = queueToggleRequest(cmd, p.name);
+    const report = (status: number, body: any) => setToast({ text: queueToggleText(cmd, p.label, status, body), hint: null });
+    fetch(url, init)
+      .then((res) => res.json().then((b) => report(res.status, b), () => report(res.status, null)))
+      .catch(() => report(0, null));
+  };
   const displayIdFor = (profile: string, ref: string) => state.snapshot.tickets.find((t) => t.profile === profile && t.ref === ref)?.displayId ?? null;
 
   return (
@@ -277,6 +314,9 @@ export default function App() {
           {state.snapshot.profiles.map((p) => {
             const up = formatUp(p);
             const pending = pendingRemoval[p.name] !== undefined;
+            const restart = restarts[p.name] ?? RESTART_IDLE;
+            const restartLine = restartText(restart);
+            const actions = rowActions(p, restart, pending);
             const displayId = p.lastEvent ? state.snapshot.tickets.find((t) => t.profile === p.name && t.ref === p.lastEvent?.ref)?.displayId ?? null : null;
             const lastEvent = formatLastEvent(p.lastEvent, displayId, now);
             return (
@@ -301,6 +341,7 @@ export default function App() {
                 </td>
                 <td className="px-2 py-1 text-right whitespace-nowrap">
                   {pending && <span className="mr-2 text-label text-status-held">{pendingText(p)}</span>}
+                  {restartLine && <span className="mr-2 text-label text-muted">{restartLine}</span>}
                   <Menu
                     label="profile actions"
                     items={[
@@ -315,6 +356,10 @@ export default function App() {
                             () => {},
                           ),
                       },
+                      { label: "Restart when idle", disabled: actions.restartDisabled, onSelect: () => requestRestart(p) },
+                      actions.toggle === "pause"
+                        ? { label: "Pause new runs", disabled: actions.toggleDisabled, onSelect: () => toggleQueue("pause", p) }
+                        : { label: "Resume", disabled: actions.toggleDisabled, onSelect: () => toggleQueue("resume", p) },
                       { label: "Remove…", danger: true, disabled: pending, onSelect: () => setRemoving(p.name) },
                     ]}
                   />
@@ -435,6 +480,11 @@ export function ProfileNameCell({ p }: { p: ProfileView }) {
           {profileLabel(p)}
         </span>
         {p.fullAuto && <FullAutoShield />}
+        {p.paused === true && (
+          <Pill tone="held" title="operator pause: no new runs start; running agents finish (a restart clears it)">
+            paused
+          </Pill>
+        )}
         {badge && (
           <Pill tone={badge.kind === "missing" ? "held" : "neutral"} title={badge.title}>
             {badge.text}

@@ -13,7 +13,8 @@
 // `GET /api/discover` and `POST /api/restart` are v3's control-socket actions (src/ui/control-
 // client.js, src/control.js): no file write, just a request over the profile's control.sock,
 // mapped to 503/504/502 when the receiver is down, times out, or answers `ok:false`. `restart`
-// reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`. `POST
+// reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`; so do `POST
+// /api/pause` and `POST /api/resume` (the dashboard row's operator pause — in-memory). `POST
 // /api/profile/remove` (same guards) retires a profile: a running receiver gets `decommission
 // {when:'idle'}` over its socket; a stopped one has its state dir archived via src/archive.js —
 // the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
@@ -65,6 +66,8 @@ const WRITABLE = new Set([INSTR_FILE, CONFIG]);
 const RESTART = "/api/restart";
 const REMOVE = "/api/profile/remove";
 const DISMISS = "/api/dismiss";
+const PAUSE = "/api/pause";
+const RESUME = "/api/resume";
 
 /** Constant-time string compare; a length mismatch is a mismatch. @param {string} a @param {string} b */
 export function safeEqual(a, b) {
@@ -148,8 +151,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
   };
 
   /**
-   * The guard prelude shared by the two PUTs, `POST /api/restart` and `POST
-   * /api/profile/remove`, in order: cookie (Host already checked) → 401;
+   * The guard prelude shared by the two PUTs and every POST (`/api/restart`, `/api/pause`,
+   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`), in order: cookie (Host already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -235,6 +238,29 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         sendStatusJson(res, status, result);
       });
     });
+
+  /**
+   * `POST /api/pause` / `POST /api/resume` — readGuardedJson, then `{profile}` a string → else
+   * 400; unknown profile → 404 (socket never contacted); else sends `{cmd, args:{}}` and maps the
+   * reply via `callControl` (a resume while a restart/decommission/shutdown holds the queue is
+   * still a 200, its result carrying a `note`). Always audits `{ts, action:cmd, profile, status}`
+   * once the profile is known.
+   * @param {"pause"|"resume"} cmd
+   * @returns {(req: http.IncomingMessage, res: http.ServerResponse, host: string) => void}
+   */
+  const postQueueToggle = (cmd) => (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile } = body;
+      if (typeof profile !== "string") return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, cmd, {}, restartTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: cmd, profile, status });
+        sendStatusJson(res, status, result);
+      });
+    });
+  const postPause = postQueueToggle("pause");
+  const postResume = postQueueToggle("resume");
 
   /**
    * `POST /api/dismiss` — readGuardedJson, then `{profile, ref}` both strings → else 400; unknown
@@ -372,7 +398,9 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     if (req.method === "POST" && p === RESTART) return postRestart(req, res, host);
     if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
     if (req.method === "POST" && p === DISMISS) return postDismiss(req, res, host);
-    if (p === RESTART || p === REMOVE || p === DISMISS) {
+    if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
+    if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
+    if (p === RESTART || p === REMOVE || p === DISMISS || p === PAUSE || p === RESUME) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }

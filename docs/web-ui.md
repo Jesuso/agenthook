@@ -84,6 +84,11 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
   the last 48 h of the profile's events tail, oldest first. The dashboard's "cost today (approx.)"
   tile buckets them by the browser's local midnight — approximate because the tail is
   byte-bounded (256 KB). A new `run_end` re-emits the profile over SSE.
+- `ProfileView.paused` (the operator pause, `heartbeat.paused`) and `ProfileView.restartPending`
+  (`heartbeat.restartPending || decommissionPending || draining` — something already holds the
+  queue) are booleans while the receiver is up and `null` when it's down, like `active`/`queued`:
+  a dead heartbeat keeps its last flags. They back the dashboard row's Paused pill and its
+  Restart when idle / Pause new runs / Resume actions (below).
 - Run-log viewer: `GET /api/runs?profile=&ref=` → `{ runs: RunView[] }` listed straight from the
   profile's `logs/` (outcome/cost/`endedAt` joined from `run_end`; `endedAt` = its `ts`, `null`
   while running or once it aged out of the events tail). `GET /api/log/stream?profile=&run=` (SSE)
@@ -282,6 +287,30 @@ The UI server exposes this as `POST /api/restart` with body `{profile}` — not 
 never picks `when`); the status mapping is the same as `discover`'s. Either way, once the profile
 is known, the outcome is audited — `{ts, action:'restart', profile, status}` appended to that
 profile's `ui-audit.jsonl` via `save.js`'s `appendAudit`.
+
+**Dashboard row actions — restart, pause, resume.** Each dashboard profile row's `⋯` menu also
+has **Restart when idle** (the same `POST /api/restart {profile}` as the Config view) and **Pause
+new runs** / **Resume** (whichever applies, from `ProfileView.paused`). All three are disabled
+while the receiver is down; Restart is also disabled while a restart from that row is in flight,
+while `ProfileView.restartPending` is set, or while a removal from this dashboard is pending. The
+row shows the restart's progress inline (the Config view's `restartReducer`, one per state key,
+fed by the POST reply, the profile's `restart_requested`/`restarting` feed events and profile
+updates); the outcome ("restarted" or the error) becomes a toast. A paused profile shows a
+**paused** pill beside its name.
+
+`POST /api/pause` and `POST /api/resume`, body `{profile}`, take the `restart` guard chain in the
+same order (no cookie `401` → bad `Origin` `403` → missing `X-AH-UI` `403` → non-JSON `415` →
+body over 256 KB `413` → bad JSON `400`); a non-string `profile` is a `400`, an unknown one a `404` (socket
+never contacted), and other methods get `405 Allow: POST`. They send exactly `{cmd:'pause'|'resume',
+args:{}}` over `control.sock` and map the reply like `restart`: down `503`, timeout `504`,
+`ok:false` `502 {error}`, else `200` + the receiver's result as is (`{paused, active, queued}`).
+A **resume while a restart, decommission or shutdown holds the queue** does nothing and is still a
+`200`, its result carrying `note: "a restart/decommission/shutdown holds the queue; not resumed"`
+— the dashboard surfaces that note (and every non-`200`) as a toast, never as success. Every
+outcome after profile resolution appends `{ts, action:'pause'|'resume', profile, status}` to the
+profile's `ui-audit.jsonl` via `appendAudit`; a guard failure writes nothing. The pause is
+**in-memory** (the queue's flag + `heartbeat.paused`): a restart — including Restart when idle —
+starts unpaused.
 
 **Removing a profile.** Each dashboard profile row has a **Remove…** action that archives the
 state dir — never a hard delete (permanent purge is CLI-only). The modal first fetches `GET

@@ -185,10 +185,11 @@ Key files:
   confines write calls to it. `control-client.js` (`controlRequest` — one NDJSON request over a
   profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
   `down`/`timeout`; `resolveProfileSock` gates by `listProfiles` like `logs.js`'s `profileDir`)
-  backs two more endpoints that are **not** file writes: `GET /api/discover` (cookie only; 5 s
-  timeout) and `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
-  timeout) — both map the receiver's reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200,
-  and `restart` audits its outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
+  backs more endpoints that are **not** file writes: `GET /api/discover` (cookie only; 5 s
+  timeout), `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
+  timeout) and `POST /api/pause` / `/api/resume` (same guards; `args:{}`) — all map the receiver's
+  reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200, and the three POSTs audit their
+  outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
   `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
   read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
   stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
