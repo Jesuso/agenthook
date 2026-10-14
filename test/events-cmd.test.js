@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { renderEvent, resolveRefFilter, tailFile } from "../src/commands/events.js";
+import { events, renderEvent, resolveRefFilter, tailFile } from "../src/commands/events.js";
+import { loadConfig } from "../src/config.js";
 
 // Unit tests for the events command's pure helpers.
 // The read/filter path is exercised via renderEvent + the inline filter logic
@@ -127,3 +128,47 @@ function waitFor(check, timeoutMs = 2000) {
     tick();
   });
 }
+
+/** Run `fn` capturing stdout writes (jsonMode prints via process.stdout.write). @param {() => Promise<any>} fn */
+async function captureStdout(fn) {
+  /** @type {string[]} */
+  const out = [];
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((/** @type {any} */ s) => (out.push(String(s)), true));
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = write;
+  }
+  return out.join("");
+}
+
+/** A started profile with the given events.jsonl content; returns its config path. */
+function startedProfile(lines) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-events-cmd-"));
+  const configFile = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(
+    configFile,
+    JSON.stringify({ name: "ah-events-cmd", repoPath: dir, ingress: { type: "manual", url: "https://example.test" }, tracker: { type: "asana", token: "t", pipeline: [{ id: "code" }] } }),
+  );
+  const cfg = loadConfig({ configPath: configFile });
+  fs.mkdirSync(cfg.dataDir, { recursive: true });
+  fs.writeFileSync(path.join(cfg.dataDir, "events.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  return configFile;
+}
+
+test("events --json: coalesced hidden by default, shown with --event coalesced, not an \"unknown event type\" error", async () => {
+  const config = startedProfile([
+    { ts: "t", event: "enqueued", ref: "1", step: "code" },
+    { ts: "t", event: "coalesced", ref: "1", step: "code" },
+    { ts: "t", event: "run_end", ref: "1", step: "code", outcome: "advance" },
+  ]);
+
+  const defaultOut = await captureStdout(() => events({ _: [], config, json: true }));
+  const defaultEvents = defaultOut.trim().split("\n").map((l) => JSON.parse(l).event);
+  assert.deepEqual(defaultEvents, ["enqueued", "run_end"]);
+
+  const filtered = await captureStdout(() => events({ _: [], config, json: true, event: "coalesced" }));
+  const filteredEvents = filtered.trim().split("\n").map((l) => JSON.parse(l).event);
+  assert.deepEqual(filteredEvents, ["coalesced"]);
+});

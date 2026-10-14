@@ -15,6 +15,14 @@ const RUN_END_WORD: Record<string, string> = { advance: "passed", hold: "held", 
 
 const PLAIN_EVENTS = new Set(["restart_requested", "restarting", "decommission_requested", "decommissioning"]);
 
+/** Event names hidden from the activity feed by default (src/events.js HIDDEN_BY_DEFAULT). */
+const HIDDEN_FEED_EVENTS = new Set(["coalesced"]);
+
+/** Whether `name` (events.jsonl's `event` field) should not be appended to the activity feed. */
+export function isHiddenFeedEvent(name: string): boolean {
+  return HIDDEN_FEED_EVENTS.has(name);
+}
+
 /** Human text + status tone for one events.jsonl line (src/dispatch.js / src/engine.js event names). */
 export function formatFeedEvent(event: Record<string, any>, displayId: string | null): { text: string; title?: string; tone: TicketStatus; ticket: boolean } {
   const name = String(event.event ?? "");
@@ -52,6 +60,11 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
     }
     case "dismissed": {
       text = "dismissed";
+      tone = "idle";
+      break;
+    }
+    case "coalesced": {
+      text = "duplicate dropped";
       tone = "idle";
       break;
     }

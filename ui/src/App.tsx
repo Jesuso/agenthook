@@ -4,7 +4,7 @@ import { formatUp, formatLastEvent, formatAgents, formatCost, formatDate, profil
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { summarize } from "./summary";
-import { appendFeed, readRailOpen, writeRailOpen } from "./feed";
+import { appendFeed, isHiddenFeedEvent, readRailOpen, writeRailOpen } from "./feed";
 import type { FeedEntry } from "./feed";
 import { ActivityRail } from "./ActivityRail";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
@@ -130,7 +130,7 @@ export default function App() {
         }
         if (ev.type === "event") {
           configSink.current?.(ev);
-          setFeed((f) => appendFeed(f, ev));
+          if (!isHiddenFeedEvent(ev.event.event)) setFeed((f) => appendFeed(f, ev));
           const o = openRef.current;
           if (o && affectsRuns(ev, o.profile, o.ref)) setRunsNonce((n) => n + 1);
           return;

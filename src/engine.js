@@ -65,6 +65,19 @@ export function crashRecord(kind, err, runningRefs) {
 }
 
 /**
+ * Decide which event (if any) intake() emits for a job given the queue's accept/refuse
+ * outcome — pure, unit-testable without touching the queue or disk.
+ * @param {boolean} accepted  `queue.enqueue(job)` returned true
+ * @param {boolean} wasInflight  `queue.has(job)` was true before the enqueue attempt — refused
+ *   because a duplicate (ref+step already queued/running), not because the queue is draining
+ * @returns {"enqueued"|"coalesced"|null}
+ */
+export function intakeEvent(accepted, wasInflight) {
+  if (accepted) return "enqueued";
+  return wasInflight ? "coalesced" : null;
+}
+
+/**
  * Wrap a job runner so a `step:` dedup key is released when the job settles
  * (resolve or reject). Other keys stay in `seen`.
  * @param {(job: import('./types.js').Job) => Promise<any>} run
@@ -403,10 +416,13 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
         lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, step: job.stepId },
         seen: store.seenCount(),
       });
-      emit("enqueued", job.ref, job.stepId);
+      const wasInflight = queue.has(job);
+      const ok = queue.enqueue(job);
+      if (ok) accepted++;
       // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
-      if (queue.enqueue(job)) accepted++;
       else if (isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
+      const ev = intakeEvent(ok, wasInflight);
+      if (ev) emit(ev, job.ref, job.stepId);
     }
     return accepted;
   }
@@ -423,8 +439,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     if (!keep.length) return;
     console.log(`[restore] ${keep.length} queued job(s) re-enqueued`);
     for (const j of keep) {
-      emit("enqueued", j.ref, j.stepId, { restored: true });
-      queue.enqueue(j);
+      if (queue.enqueue(j)) emit("enqueued", j.ref, j.stepId, { restored: true });
     }
   }
 

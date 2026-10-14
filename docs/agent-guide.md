@@ -135,11 +135,15 @@ cap until the next restart (not persisted).
 
 ## events
 
-Names you will act on: `enqueued`, `run_start`, `run_end {outcome, costUsd}`, `blocked {reason}`
-(task now held), `failed {reason}`, `merged`, `pipeline_done` (ticket finished, PR ready),
-`ci_red {action}`, `ci_green {pr, sha, mergeable, mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled` (backlog item pulled into a slot), `dequeued` (an operator `cancel`
-dropped a waiting job). Housekeeping: `restart_requested`, `restarting`, `overlap_held`,
-`overlap_released`. Full catalog with fields: [events.md](events.md).
+Names you will act on: `enqueued` (job accepted into the queue; fires once per accepted job —
+a duplicate webhook for the same ref+step coalesces away silently), `run_start`, `run_end
+{outcome, costUsd}`, `blocked {reason}` (task now held), `failed {reason}`, `merged`,
+`pipeline_done` (ticket finished, PR ready), `ci_red {action}`, `ci_green {pr, sha, mergeable,
+mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled`
+(backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
+Housekeeping: `restart_requested`, `restarting`, `overlap_held`, `overlap_released`. There's also
+`coalesced` (a duplicate webhook dropped), hidden unless you pass `types:["coalesced"]`. Full
+catalog with fields: [events.md](events.md).
 
 Filter with `types:[…]` and/or `ref`. Cursors are byte offsets into `events.jsonl`; an old cursor
 past a replaced file restarts from 0. With no cursor you get the current cursor (or the last N

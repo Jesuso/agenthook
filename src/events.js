@@ -7,6 +7,10 @@ import path from "node:path";
 /** The `failed` reason for an operator `cancel` — readers (the dashboard) tell it apart from a crash. */
 export const CANCELLED_REASON = "cancelled by operator";
 
+/** Event names omitted by default from `ah events`/`ah watch`/the MCP `events` tool/the UI feed
+ * unless explicitly requested — still written to events.jsonl. */
+export const HIDDEN_BY_DEFAULT = new Set(["coalesced"]);
+
 /**
  * Create an event emitter that appends to `<dataDir>/events.jsonl`.
  * Every call is synchronous (appendFileSync) and best-effort: exceptions
@@ -15,6 +19,9 @@ export const CANCELLED_REASON = "cancelled by operator";
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
  *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red | ci_green
+ *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in
+ *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
+ *             tool/the UI feed — see HIDDEN_BY_DEFAULT)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
