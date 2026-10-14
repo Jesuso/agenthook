@@ -16,7 +16,7 @@ export function digest(t) {
   for (const h of t.held) lines.push(`  HELD ${fmt(h)} ${h.step}${h.why ? ` — ${h.why}` : ""}`);
   if (t.board) for (const b of t.board) lines.push(`  board ${b.step}: ${b.resting.length} resting${b.backlog ? `, ${b.backlog.length} backlog` : ""}${b.resting.length ? ` [${b.resting.map((/** @type {any} */ c) => c.id ?? c.ref).join(" ")}]` : ""}`);
   if (t.boardError) lines.push(`  board: ${t.boardError}`);
-  if (t.prs) for (const p of t.prs) lines.push(`  PR #${p.n} ${p.ref} ci=${p.ci}${p.conflict ? " CONFLICT" : ""}${p.state ? ` ${p.state}` : ""}${p.draft ? " draft" : ""}`);
+  if (t.prs) for (const p of t.prs) lines.push(`  PR #${p.n} ${p.ref} ci=${p.ci}${p.conflict ? " CONFLICT" : ""}${p.state ? ` ${p.state}` : ""}${p.draft ? " draft" : ""}${typeof p.mine === "boolean" ? (p.mine ? " mine" : " not-mine") : ""}`);
   if (t.prsError) lines.push(`  prs: ${t.prsError}`);
   for (const e of t.events) lines.push(`  ev ${e.ts?.slice(11, 19)} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}${e.pr ? ` PR#${e.pr}` : ""}${e.sha ? ` ${String(e.sha).slice(0, 7)}` : ""}${e.mergeState ? ` ${e.mergeState}` : ""}`);
   lines.push(`  cursor ${t.cursor}`);

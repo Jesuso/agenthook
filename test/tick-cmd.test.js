@@ -12,7 +12,7 @@ test("digest: one header line, RUN/WAIT/HELD rows, board, PRs, events, cursor", 
     held: [{ ref: "9", step: "code", why: "which db?" }],
     board: [{ step: "code", resting: [{ ref: "1", id: "ID-1" }], backlog: [{ ref: "2" }] }],
     prsError: "no forge",
-    prs: [{ n: 4, ref: "7", ci: "failure", conflict: true, state: "dirty" }],
+    prs: [{ n: 4, ref: "7", ci: "failure", conflict: true, state: "dirty", mine: true }, { n: 5, ref: "8", ci: "success", mine: false }],
     events: [{ ts: "2026-01-01T10:20:30.000Z", e: "run_end", ref: "7", step: "code", outcome: "fail", reason: "boom" }],
     cursor: 42,
   });
@@ -22,7 +22,8 @@ test("digest: one header line, RUN/WAIT/HELD rows, board, PRs, events, cursor", 
   assert.ok(lines.includes("  WAIT 8 triage"));
   assert.ok(lines.includes("  HELD 9 code — which db?"));
   assert.ok(lines.includes("  board code: 1 resting, 1 backlog [ID-1]"));
-  assert.ok(lines.includes("  PR #4 7 ci=failure CONFLICT dirty"));
+  assert.ok(lines.includes("  PR #4 7 ci=failure CONFLICT dirty mine"));
+  assert.ok(lines.includes("  PR #5 8 ci=success not-mine"));
   assert.ok(lines.includes("  prs: no forge"));
   assert.ok(lines.includes("  ev 10:20:30 run_end 7/code → fail (boom)"));
   assert.equal(lines.at(-1), "  cursor 42");

@@ -380,7 +380,7 @@ export async function readTick(entry, { cursor, board = true, prs = true, eventL
   }
   if (p) {
     if (p.error) out.prsError = p.error;
-    else out.prs = p.prs.map((/** @type {any} */ x) => ({ n: x.number, ref: x.ref, ci: x.ci, ...(x.mergeable === false ? { conflict: true } : {}), ...(x.mergeState && x.mergeState !== "clean" ? { state: x.mergeState } : {}), ...(x.draft ? { draft: true } : {}) }));
+    else out.prs = p.prs.map((/** @type {any} */ x) => ({ n: x.number, ref: x.ref, ci: x.ci, ...(x.mergeable === false ? { conflict: true } : {}), ...(x.mergeState && x.mergeState !== "clean" ? { state: x.mergeState } : {}), ...(x.draft ? { draft: true } : {}), ...(typeof x.mine === "boolean" ? { mine: x.mine } : {}) }));
   }
   const since = readEventsSince(entry.dir, cursor ?? eventsCursor(entry.dir), { limit: eventLimit });
   out.events = since.events.map(compactEvent);

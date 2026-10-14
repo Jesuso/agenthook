@@ -81,11 +81,15 @@ timedOut?}` — `more:true` means the page was full, call again with the new cur
 last N transcript lines of the newest run (or `step` / `run`): the way to see *why* an agent held
 or failed.
 
-`prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt}]}`. `ci` is
+`prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt,mine?}]}`. `ci` is
 `success | failure | pending | none | unknown`; **only `success` is green**. `cancelled` and
 `action_required` runs count as `failure`; `unknown` means the CI lookup itself failed (not "no CI").
 `mergeable:false` / `mergeState:"dirty"` = merge conflict. GitHub computes mergeability lazily; a
-brand-new PR may read `null`/`unknown` for a few seconds.
+brand-new PR may read `null`/`unknown` for a few seconds. `mine` is `true`/`false` when the
+receiver could resolve the row's ticket owner (fail-closed, 5 min cache per ref); it is **absent**
+— never a guess — when `tracker.assigneeFilter` is off or the adapter has no ownership check
+(github-projects, local). Pass `mine:true`/`mine:false` to filter; a stale `mine` from the cache
+still means act-at-your-own-risk — a mutating call re-checks ownership itself.
 
 ## recipes
 

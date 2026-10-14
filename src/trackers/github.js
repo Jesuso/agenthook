@@ -590,6 +590,8 @@ export function createGithubAdapter(cfg, store) {
 
     openBlockers: async (ref) => (await blockedBy(ref)).map((n) => `#${n}`),
 
+    ownership: ownedByUs,
+
     // Auto-create the repo webhook (GitHub, unlike Jira, allows it with a token). Scrub
     // our stale hooks first (the tunnel URL rotates each boot on an ephemeral ingress),
     // then create one `issues` + `issue_comment` hook signed with the generated secret.

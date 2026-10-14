@@ -7,8 +7,9 @@ import path from "node:path";
 import { etagOf, pickProfile, readStatus, readProfiles, readEventsSince, waitForEvents, compactEvent, eventsCursor, readRuns, readRunLogTail } from "../src/agent-api.js";
 import { readProfile } from "../src/heartbeat.js";
 import net from "node:net";
-import { live } from "../src/agent-api.js";
+import { live, readTick } from "../src/agent-api.js";
 import { controlSockPath } from "../src/paths.js";
+import { startControl } from "../src/control.js";
 
 function registry() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-agentapi-"));
@@ -248,6 +249,33 @@ test("live(): distinguishes down / timed-out (may still be running) / closed-bef
   } finally {
     for (const c of held) c.destroy();
     await new Promise((r) => hangup.close(() => r(undefined)));
+  }
+});
+
+test("readTick: carries a PR row's mine through to the tick payload and changes the etag", async () => {
+  const reg = registry();
+  const dir = profile(reg, "p");
+  fs.writeFileSync(path.join(dir, "events.jsonl"), "");
+  const sock = controlSockPath(dir, "p");
+  /** @type {any} */
+  let prsResult = { at: "t", prs: [{ number: 1, ref: "1", ci: "success", mine: true }] };
+  const control = await startControl(/** @type {any} */ ({ name: "p", controlSock: sock, pidFile: path.join(dir, "server.pid") }), {
+    startedAt: "x",
+    commands: { prs: async () => prsResult },
+  });
+  try {
+    const entry = readProfile("p", reg);
+    const t1 = await readTick(entry, { board: false, registry: reg });
+    assert.deepEqual(t1.prs, [{ n: 1, ref: "1", ci: "success", mine: true }]);
+    prsResult = { at: "t", prs: [{ number: 1, ref: "1", ci: "success" }] }; // mine now absent (check_failed)
+    const t2 = await readTick(entry, { board: false, registry: reg });
+    assert.equal("mine" in t2.prs[0], false);
+    assert.notEqual(t1.etag, t2.etag, "a mine change must change the etag");
+    prsResult = { at: "t", prs: [{ number: 1, ref: "1", ci: "success", mine: true }] };
+    const t3 = await readTick(entry, { board: false, registry: reg });
+    assert.equal(t3.etag, t1.etag, "unchanged payload reproduces the etag");
+  } finally {
+    control?.close();
   }
 });
 

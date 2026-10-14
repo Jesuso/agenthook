@@ -236,6 +236,7 @@
  * @property {() => Promise<Job[]>} listResting  tasks currently resting in step source sections, as jobs — drives the explicit `reconcile` command (NEVER called on boot)
  * @property {(stepId: string) => Promise<string[]>} [listQueued]  optional; refs resting in the step's opt-in QUEUE stage (queueSectionGid/queueStatus/queueLabel), board priority order (top first), filtered exactly like listResting (ours, fail-closed; open; GitHub: not blocked). [] when the step has no queue key. The engine calls it only when a slot frees (run_end) and once on boot — never on a timer. Not the same as store.listQueued (the local queue.json)
  * @property {(ref: string) => Promise<string[]>} [openBlockers]  optional; the item's unresolved blockers (empty = unblocked), re-checked at dispatch time so a dependency added while the job waited in the local queue still gates it. Same fail-open semantics as the receive-time gate (API error → [] + warn)
+ * @property {(ref: string) => Promise<"ours"|"not_ours"|"check_failed">} [ownership]  optional; the same fail-closed owner check the mutation gate uses, exposed read-only for `prs`' `mine` flag (asana/github/jira only; absent on github-projects/local)
  * @property {(publicUrl: string) => Promise<void>} registerWebhook
  * @property {() => Promise<void>} unregisterWebhooks
  * @property {(ref: string) => Promise<void>} [complete]  optional; mark the item completed/closed on the tracker (Asana: completed:true). Used by a forge `merge` job; absent = no-op
@@ -360,6 +361,7 @@
  * @property {string|null} mergeState    GitHub's mergeable_state (clean|dirty|blocked|behind|unstable|…)
  * @property {'success'|'failure'|'pending'|'none'|'unknown'} ci   unknown = the check-runs call failed (not the same as none)
  * @property {string} updatedAt
+ * @property {boolean} [mine]   set by ops (not the forge): true/false from a 5-min-cached `adapter.ownership` lookup, absent when scoping is off, the adapter has no `ownership`, or the lookup failed
  */
 
 /** A factory `(cfg, store) => Forge`.

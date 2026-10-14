@@ -10,14 +10,15 @@ import { createQueue } from "../src/queue.js";
 import { startControl } from "../src/control.js";
 import { controlRequest } from "../src/ui/control-client.js";
 
-/** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>}} [o] */
-function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun } = {}) {
+/** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any}} [o] */
+function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
   const cfg = /** @type {any} */ ({
     name: "t",
     provider: "github",
     stateDir: dir,
     dataDir: dir,
+    tracker,
     pipeline: pipeline ?? [{ id: "triage", queueLabel: "backlog" }, { id: "code" }, { id: "done", manual: true }],
   });
   const store = createStore(dir);
@@ -387,4 +388,75 @@ test("dismiss writes a dismissed event; refuses running, queued and held refs", 
   await assert.rejects(() => s.ops.dismiss({ ref: "Q" }), /is queued/);
   assert.equal(s.events.filter((e) => e[0] === "dismissed").length, 1, "refusals write nothing");
   assert.ok(s.audit().some((l) => l.cmd === "dismiss" && l.ok === true));
+});
+
+test("prs: marks mine from adapter.ownership; a non-fresh repeat within 5 min does not re-resolve; fresh:true does", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const adapter = {
+    ownership: async (/** @type {string} */ ref) => {
+      calls.push(ref);
+      return ref === "1" ? "ours" : "not_ours";
+    },
+  };
+  const forge = { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }, { number: 2, ref: "2", ci: "success" }] };
+  const s = setup({ adapter, forge });
+  const r1 = await s.ops.prs({});
+  assert.deepEqual(r1.prs.map((/** @type {any} */ p) => p.mine), [true, false]);
+  assert.deepEqual(calls, ["1", "2"]);
+  s.store.setHeld("ZZ", { stepId: "code", heldAt: "x" }); // bust the 30s board/prs ttl without fresh
+  await s.ops.cancel({ ref: "ZZ" });
+  await s.ops.prs({});
+  assert.deepEqual(calls, ["1", "2"], "within 5 min, a repeat uncached-board read still reuses the ownership cache");
+  await s.ops.prs({ fresh: true });
+  assert.deepEqual(calls, ["1", "2", "1", "2"], "fresh:true clears the ownership cache and re-resolves");
+});
+
+test("prs: fresh:true clears the ownership cache so a reassignment is re-resolved", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  let flip = "ours";
+  const adapter = { ownership: async (/** @type {string} */ ref) => (calls.push(ref), flip) };
+  const forge = { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }] };
+  const s = setup({ adapter, forge });
+  assert.equal((await s.ops.prs({})).prs[0].mine, true);
+  flip = "not_ours";
+  assert.equal((await s.ops.prs({})).prs[0].mine, true, "cached within 5 min, old board cache too");
+  assert.equal((await s.ops.prs({ fresh: true })).prs[0].mine, false, "fresh clears both caches");
+  assert.equal(calls.length, 2);
+});
+
+test("prs: check_failed (or a thrown error) omits mine and is never cached", async () => {
+  let fail = true;
+  const adapter = {
+    ownership: async (/** @type {string} */ ref) => {
+      if (fail) throw new Error("boom");
+      return "ours";
+    },
+  };
+  const forge = { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }] };
+  const s = setup({ adapter, forge });
+  const r1 = await s.ops.prs({});
+  assert.equal("mine" in r1.prs[0], false);
+  fail = false;
+  const r2 = await s.ops.prs({ fresh: true });
+  assert.equal(r2.prs[0].mine, true, "a failed lookup was not cached, so the retry succeeds");
+});
+
+test("prs: assigneeFilter:false or no adapter.ownership omits mine on every row", async () => {
+  const forge = { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }] };
+  const scopedOff = setup({ adapter: { ownership: async () => "ours" }, forge, tracker: { assigneeFilter: false } });
+  assert.equal("mine" in (await scopedOff.ops.prs({})).prs[0], false);
+  const noMethod = setup({ adapter: {}, forge });
+  assert.equal("mine" in (await noMethod.ops.prs({})).prs[0], false);
+});
+
+test("prs: {mine:true}/{mine:false} filter after the cache; unfiltered cache is reused", async () => {
+  const adapter = { ownership: async (/** @type {string} */ ref) => (ref === "1" ? "ours" : "not_ours") };
+  const forge = { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }, { number: 2, ref: "2", ci: "success" }] };
+  const s = setup({ adapter, forge });
+  const mine = await s.ops.prs({ mine: true });
+  assert.deepEqual(mine.prs.map((/** @type {any} */ p) => p.number), [1]);
+  const notMine = await s.ops.prs({ mine: false });
+  assert.deepEqual(notMine.prs.map((/** @type {any} */ p) => p.number), [2]);
 });

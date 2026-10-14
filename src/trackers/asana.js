@@ -489,6 +489,8 @@ export function createAsanaAdapter(cfg, store) {
 
     openBlockers: openDependencies,
 
+    ownership: ownedByUs,
+
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/mytasks/`;
       // Remove stale hooks first (tunnel URL rotates each boot).
