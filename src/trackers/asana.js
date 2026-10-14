@@ -31,6 +31,7 @@
 // cfg.trigger on a held task re-runs the step that held, with the comment as `comment`.
 import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
+import { checkOwner, MoveRefusedError } from "./owner.js";
 
 /**
  * Raw route keys from the custom field named `fieldName` (case-insensitive). Values are
@@ -191,17 +192,15 @@ export function createAsanaAdapter(cfg, store) {
   }
 
   // Fail-closed owner check used to gate task MUTATION (advance/moveToSection).
-  // Any uncertainty — fetch error, non-2xx, missing/!matching assignee — returns
-  // false, so we never move a task we can't positively confirm is ours.
-  /** @param {string} ref @returns {Promise<boolean>} */
-  async function ownedByUs(ref) {
-    try {
+  // Only a 2xx with a matching assignee is "ours"; a transient fetch error/5xx/429 is
+  // retried, and anything still uncertain is "check_failed" (never "ours").
+  /** @param {string} ref @returns {Promise<"ours"|"not_ours"|"check_failed">} */
+  function ownedByUs(ref) {
+    return checkOwner(async () => {
       const res = await api(`/tasks/${ref}?opt_fields=assignee.gid`);
-      if (!res.ok) return false;
-      return isOurs((await json(res)).data?.assignee?.gid);
-    } catch {
-      return false;
-    }
+      if (!res.ok) return { ok: false, status: res.status };
+      return { ok: true, status: res.status, mine: isOurs((await json(res)).data?.assignee?.gid) };
+    });
   }
 
   /** The `@agent` comment trigger for a comment_added story. Emits a resume job only
@@ -218,7 +217,7 @@ export function createAsanaAdapter(cfg, store) {
       console.log(`[trigger] ${taskGid}: comment ${storyGid} not by our user — ignoring`);
       return null;
     }
-    if (!(await ownedByUs(taskGid))) {
+    if ((await ownedByUs(taskGid)) !== "ours") {
       console.log(`[trigger] ${taskGid}: not assigned to us — ignoring`);
       return null;
     }
@@ -377,9 +376,11 @@ export function createAsanaAdapter(cfg, store) {
       if (!step) return;
       // Mutation chokepoint: never move a task that isn't ours (covers the blind
       // recoverInterrupted path + defense-in-depth for dispatch). Fail-closed.
-      if (scopeToUser && !(await ownedByUs(ref))) {
-        console.log(`[assignee] refuse to move ${ref} (${stepId}:${verdict.outcome}) — not assigned to us`);
-        return;
+      const owner = scopeToUser ? await ownedByUs(ref) : "ours";
+      if (owner !== "ours") {
+        const why = owner === "not_ours" ? "not assigned to us" : "owner check failed";
+        console.log(`[assignee] refuse to move ${ref} (${stepId}:${verdict.outcome}) — ${why}`);
+        throw new MoveRefusedError(owner === "not_ours" ? "not_ours" : "owner_check_failed", `refused to move ${ref}: ${why}`);
       }
       const { outcome, target } = verdict;
       let gid;
@@ -420,7 +421,7 @@ export function createAsanaAdapter(cfg, store) {
     // mutation gate as advance: never complete a task that isn't ours.
     /** @param {string} ref */
     async complete(ref) {
-      if (scopeToUser && !(await ownedByUs(ref))) {
+      if (scopeToUser && (await ownedByUs(ref)) !== "ours") {
         console.log(`[assignee] refuse to complete ${ref} — not assigned to us`);
         return;
       }

@@ -72,7 +72,7 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 `boardError` / `prsError` instead; the rest is still valid.
 
 `events` item: `{"ts","e":"run_end","ref":"123","step":"code","outcome":"advance","costUsd":0.33}`;
-`reason` (clipped to 200 chars) appears on `blocked`/`failed`. `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
+`reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
 `runs {ref, tail?}` → `{runs:[{run,step,at,outcome,costUsd,running?}], log?}`. `tail:N` adds the
@@ -93,7 +93,7 @@ brand-new PR may read `null`/`unknown` for a few seconds.
 t = tick()                         # first call; keep t.etag and t.cursor
 loop:
   handle(t)                        # held? failed? red PRs? free slots + board?
-  e = events(cursor=t.cursor, waitS=120, types=[run_end, failed, blocked, merged, ci_red, ci_green, pipeline_done])
+  e = events(cursor=t.cursor, waitS=120, types=[run_end, failed, blocked, move_refused, merged, ci_red, ci_green, pipeline_done])
   t = tick(cursor=e.cursor, ifNoneMatch=t.etag)   # {unchanged:true} = nothing changed
 ```
 
@@ -107,6 +107,12 @@ reply, so write it as an instruction: concrete, self-contained, no secrets.
 Decide: transient (re-enter with `run {ref, force:true}`), needs a fix elsewhere, or needs a human.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
+
+**A move was refused** (`move_refused` event). The run finished but the ticket never left its
+stage, so the next step won't fire. `owner_check_failed` = the tracker kept erroring on the
+assignee read; `not_ours` = it is assigned to someone else; `move_error` = the move itself threw
+(`detail`). Fix the cause; then, for a refused `advance`, start the next step with
+`run {ref, step:<next>, force:true}`.
 
 **Agent is stuck or wrong** (`status.running[].ageS` far above normal, or you saw its log head
 the wrong way). `runs {ref, tail}` to look, then `cancel {ref}`. The run resolves as `fail`
@@ -145,6 +151,8 @@ cap until the next restart (not persisted).
 Names you will act on: `enqueued` (job accepted into the queue; fires once per accepted job —
 a duplicate webhook for the same ref+step coalesces away silently), `run_start`, `run_end
 {outcome, costUsd}`, `blocked {reason}` (task now held), `failed {reason}`, `merged`,
+`move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
+its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
 `pipeline_done` (ticket finished, PR ready), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).

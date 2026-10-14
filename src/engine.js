@@ -38,7 +38,7 @@ import { createHeartbeat } from "./heartbeat.js";
 import { claimStateDir } from "./profile.js";
 import { startControl } from "./control.js";
 import { createOps } from "./ops.js";
-import { createEmitter } from "./events.js";
+import { createEmitter, reportMoveFailure } from "./events.js";
 import { createSinks } from "./sinks.js";
 import { loadConfig } from "./config.js";
 import { restartSpawnArgs, spawnDetached } from "./respawn.js";
@@ -146,6 +146,7 @@ export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
       await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
     } catch (e) {
       console.error(`[recover] advance ${ref} (${stepId}) failed:`, e.message);
+      reportMoveFailure(emit, ref, stepId, "fail", e);
     }
     store.clearRunning(ref);
     store.clearAttempts(ref);

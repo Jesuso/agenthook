@@ -2,7 +2,7 @@
 // Telegram, or a generic webhook. Best-effort and fire-and-forget — a sink never
 // throws into, blocks, or changes the outcome of the pipeline. No retries/queuing.
 
-const DEFAULT_EVENTS = ["blocked", "failed", "pipeline_done"];
+const DEFAULT_EVENTS = ["blocked", "failed", "move_refused", "pipeline_done"];
 const TIMEOUT_MS = 5000;
 
 /** @param {import('./types.js').Config} cfg @param {Record<string, any>} ev */

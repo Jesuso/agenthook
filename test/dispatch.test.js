@@ -874,3 +874,54 @@ test("timeout: maxMinutes 0 sets no wall-clock cap; a default run behaves as bef
   assert.deepEqual([dflt.advanced[0].outcome, dflt.advanced[0].reason], ["hold", "q"]);
   assert.equal(DEFAULT_MAX_MINUTES, 120);
 });
+
+// --- a verdict's move that doesn't happen is reported (#265): move_refused after run_end ---
+import { createEmitter, reportMoveFailure } from "../src/events.js";
+import { MoveRefusedError } from "../src/trackers/owner.js";
+
+/** Run one clean `code` step whose adapter.advance throws `err`; return events.jsonl. @param {Error} err */
+async function refusedRun(err) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({ pipeline: [{ id: "code" }, { id: "review" }], claudeBin: bin, repoPath: dir, dataDir: dir, logDir: dir, instructionsFile: path.join(dir, "none.md") });
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment", usesPR: false }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {
+      throw err;
+    },
+  });
+  const run = createDispatcher(cfg, adapter, undefined, createStore(dir), createEmitter(dir));
+  const { log, error } = console;
+  console.log = console.error = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    Object.assign(console, { log, error });
+  }
+  return fs.readFileSync(path.join(dir, "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+}
+
+test("dispatch: a refused advance emits move_refused {outcome, reason} after run_end", async () => {
+  const evs = await refusedRun(new MoveRefusedError("owner_check_failed"));
+  const names = evs.map((e) => e.event);
+  const i = names.indexOf("move_refused");
+  assert.ok(i > names.indexOf("run_end") && names.indexOf("run_end") >= 0, names.join(","));
+  assert.deepEqual([evs[i].ref, evs[i].step, evs[i].outcome, evs[i].reason], ["42", "code", "advance", "owner_check_failed"]);
+});
+
+test("dispatch: a generic advance throw emits move_refused reason move_error with detail", async () => {
+  const evs = await refusedRun(new Error("Asana addTask 500"));
+  const e = evs.find((x) => x.event === "move_refused");
+  assert.deepEqual([e?.outcome, e?.reason, e?.detail], ["advance", "move_error", "Asana addTask 500"]);
+});
+
+test("reportMoveFailure clips detail to 200 chars and tolerates a missing emit", () => {
+  /** @type {any[]} */
+  const got = [];
+  reportMoveFailure((ev, ref, step, extra) => got.push({ ev, ref, step, ...extra }), "1", "s", "fail", new Error("x".repeat(500)));
+  assert.equal(got[0].detail.length, 200);
+  assert.equal(got[0].reason, "move_error");
+  reportMoveFailure(undefined, "1", "s", "fail", new Error("y"));
+});

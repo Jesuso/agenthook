@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createGithubProjectsAdapter, extractRouteKeys } from "../src/trackers/github-projects.js";
+import { MoveRefusedError } from "../src/trackers/owner.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -321,7 +322,7 @@ test("advance is a no-op when the target status has no matching Status option", 
 test("advance refuses to move an item whose issue isn't ours (fail-closed)", async () => {
   const { captured, restore } = stubGraphql({ assignees: ["someone-else"], viewer: "bot" });
   try {
-    await adapter({ assigneeFilter: true }).advance("42", "code", { outcome: "advance" });
+    await assert.rejects(adapter({ assigneeFilter: true }).advance("42", "code", { outcome: "advance" }), (e) => e instanceof MoveRefusedError && e.reason === "not_ours");
   } finally {
     restore();
   }
