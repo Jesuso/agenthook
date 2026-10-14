@@ -46,6 +46,9 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} updatedAt
  * @property {number|null} active         agents running (heartbeat.queue.active); null when down
  * @property {number|null} queued         jobs waiting behind maxConcurrent; null when down
+ * @property {boolean|null} paused       operator pause (heartbeat.paused; in-memory, a restart clears it); null when down
+ * @property {boolean|null} restartPending a restart, decommission or shutdown drain holds the queue
+ *                                        (heartbeat.restartPending || decommissionPending || draining); null when down
  * @property {LastEvent|null} lastEvent  the last job the receiver took in
  * @property {string|null} configPath     the owning config file, tildified (profile.json, else heartbeat)
  * @property {string|null} createdAt      profile.json createdAt, else the state dir's birth time

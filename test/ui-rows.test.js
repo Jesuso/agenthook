@@ -226,6 +226,8 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     updatedAt: "u",
     active: 2,
     queued: 1,
+    paused: false,
+    restartPending: false,
     lastEvent: { at: "t", kind: "pipeline", ref: "9", step: "code" },
     configPath: null,
     createdAt: live.createdAt,
@@ -294,6 +296,20 @@ test("buildSnapshot/profileView: a down profile blanks active/queued even with a
   assert.equal(p.active, null);
   assert.equal(p.queued, null);
   assert.equal(p.maxConcurrent, 3);
+});
+
+test("profileView: paused/restartPending are booleans when up (restartPending = restart/decommission/drain), null when down", () => {
+  const view = (/** @type {boolean} */ up, /** @type {any} */ heartbeat) => {
+    const v = profileView({ name: "p", pid: 1, up, heartbeat });
+    return [v.paused, v.restartPending];
+  };
+  assert.deepEqual(view(true, {}), [false, false]);
+  assert.deepEqual(view(true, null), [false, false]);
+  assert.deepEqual(view(true, { paused: true }), [true, false]);
+  assert.deepEqual(view(true, { paused: "yes" }), [false, false]); // booleans only
+  for (const flag of ["restartPending", "decommissionPending", "draining"]) assert.deepEqual(view(true, { [flag]: true }), [false, true], flag);
+  // A dead heartbeat keeps its last flags: never read as live state.
+  assert.deepEqual(view(false, { paused: true, restartPending: true, draining: true }), [null, null]);
 });
 
 test("buildSnapshot: name = state key, label = heartbeat name, else profile.json name; API resolves by key only", () => {

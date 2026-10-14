@@ -16,6 +16,8 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     updatedAt: "u",
     active: 0,
     queued: 0,
+    paused: false,
+    restartPending: false,
     lastEvent: null,
     configPath: null,
     createdAt: null,

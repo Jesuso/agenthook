@@ -292,9 +292,9 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
 /**
  * Whitelisted heartbeat projection: no ingress URL, only the tildified config path, nothing
  * beyond ProfileView.
- * `active`/`queued` are blanked to null when the profile is down — a dead profile's
- * heartbeat.json keeps the last counts it wrote, which would otherwise read as stale
- * live state. `maxConcurrent`, `lastEvent`, `startedAt`, `updatedAt` are history/config,
+ * `active`/`queued`/`paused`/`restartPending` are blanked to null when the profile is down — a
+ * dead profile's heartbeat.json keeps the last counts and flags it wrote, which would otherwise
+ * read as stale live state. `maxConcurrent`, `lastEvent`, `startedAt`, `updatedAt` are history/config,
  * not live counts, so they survive.
  * `name` is the state key; `label` is the heartbeat's name, else the passed-in label (profile.json's).
  * The provenance fields come from the optional heartbeat.js `profileMeta` inputs (default null/false).
@@ -322,6 +322,8 @@ export function profileView(p) {
     updatedAt: str(hb?.updatedAt),
     active: p.up ? num(hb?.queue?.active) : null,
     queued: p.up ? num(hb?.queue?.queued) : null,
+    paused: p.up ? hb?.paused === true : null,
+    restartPending: p.up ? hb?.restartPending === true || hb?.decommissionPending === true || hb?.draining === true : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
       : null,

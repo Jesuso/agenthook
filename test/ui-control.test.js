@@ -36,6 +36,7 @@ const FAIL = profile("fail");
 const OK = profile("ok");
 const RESTARTED = profile("restarted");
 const DISMISSED = profile("dismissed");
+const TOGGLED = profile("toggled");
 
 /**
  * Starts a fake control socket at `sockPath`: writes the `hello` line on connect, then calls
@@ -60,8 +61,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[], dismiss: any[]}} */
-const calls = { restart: [], dismiss: [] };
+/** @type {{restart: any[], dismiss: any[], toggle: any[]}} */
+const calls = { restart: [], dismiss: [], toggle: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -79,6 +80,15 @@ test.before(async () => {
     await fakeControl(DISMISSED.sockPath, (s, req) => {
       calls.dismiss.push(req);
       s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, dismissed: true } }) + "\n");
+    }),
+    // Mimics src/ops.js: pause → paused; resume → the locked reply (ok:true + a note).
+    await fakeControl(TOGGLED.sockPath, (s, req) => {
+      calls.toggle.push(req);
+      const result =
+        req.cmd === "pause"
+          ? { paused: true, active: 0, queued: 0 }
+          : { paused: true, note: "a restart/decommission/shutdown holds the queue; not resumed", active: 0, queued: 0 };
+      s.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
     }),
   );
 });
@@ -303,3 +313,73 @@ test("POST /api/dismiss: sends {cmd:'dismiss', args:{ref, actor:'ui'}} and retur
   assert.equal((await postDismiss({ profile: "down", ref: "42" })).status, 503);
   assert.equal((await request("GET", "/api/dismiss", undefined, {})).status, 405);
 });
+
+for (const cmd of ["pause", "resume"]) {
+  const url = `/api/${cmd}`;
+  const post = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", url, JSON.stringify(body), h);
+  const auditLines = (/** @type {string} */ dir) => (fs.existsSync(path.join(dir, "ui-audit.jsonl")) ? fs.readFileSync(path.join(dir, "ui-audit.jsonl"), "utf8").trim().split("\n").length : 0);
+  const auditTail = (/** @type {string} */ dir) => {
+    const lines = fs.readFileSync(path.join(dir, "ui-audit.jsonl"), "utf8").trim().split("\n");
+    return JSON.parse(lines[lines.length - 1]);
+  };
+
+  test(`POST ${url} guards, in order: no cookie 401 → bad Origin 403 → missing X-AH-UI 403 → non-JSON 415 → >256 KB 413 → bad JSON 400 — no audit`, async () => {
+    const before = calls.toggle.length;
+    const audited = auditLines(TOGGLED.dir);
+    const body = { profile: "toggled" };
+    assert.equal((await post(body, { cookie: null })).status, 401);
+    assert.equal((await post(body, { origin: "http://evil.com" })).status, 403);
+    assert.equal((await post(body, { "x-ah-ui": null })).status, 403);
+    assert.equal((await post(body, { "content-type": "text/plain" })).status, 415);
+    assert.equal((await request("POST", url, JSON.stringify({ profile: "toggled", pad: "x".repeat(256 * 1024) }))).status, 413);
+    assert.equal((await request("POST", url, "{not json")).status, 400);
+    assert.equal(calls.toggle.length, before);
+    assert.equal(auditLines(TOGGLED.dir), audited);
+  });
+
+  test(`POST ${url}: non-string profile → 400; unknown profile → 404, socket never contacted`, async () => {
+    const before = calls.toggle.length;
+    assert.equal((await post({ profile: 7 })).status, 400);
+    assert.equal((await post({})).status, 400);
+    assert.equal((await post({ profile: "nope" })).status, 404);
+    assert.equal(calls.toggle.length, before);
+  });
+
+  test(`POST ${url}: receiver down → 503, timeout → 504, ok:false → 502 — each audited`, async () => {
+    assert.equal((await post({ profile: "down" })).status, 503);
+    assert.equal((await post({ profile: "timeout" })).status, 504);
+    const fail = await post({ profile: "fail" });
+    assert.equal(fail.status, 502);
+    assert.deepEqual(JSON.parse(fail.body), { error: "unknown command" });
+    for (const [prof, name, status] of /** @type {const} */ ([[DOWN, "down", 503], [TIMEOUT, "timeout", 504], [FAIL, "fail", 502]])) {
+      const last = auditTail(prof.dir);
+      assert.equal(last.action, cmd);
+      assert.equal(last.profile, name);
+      assert.equal(last.status, status);
+      assert.ok(typeof last.ts === "string");
+    }
+  });
+
+  test(`POST ${url}: sends exactly {cmd:'${cmd}', args:{}} and returns the receiver's result as is on 200`, async () => {
+    const res = await post({ profile: "toggled" });
+    assert.equal(res.status, 200);
+    const req = calls.toggle.at(-1);
+    assert.equal(req.cmd, cmd);
+    assert.deepEqual(req.args, {});
+    const result = JSON.parse(res.body);
+    if (cmd === "pause") assert.deepEqual(result, { paused: true, active: 0, queued: 0 });
+    // A locked resume is a 200 whose result carries the note — the UI must surface it.
+    else assert.equal(result.note, "a restart/decommission/shutdown holds the queue; not resumed");
+    assert.deepEqual(Object.keys(auditTail(TOGGLED.dir)).sort(), ["action", "profile", "status", "ts"]);
+    assert.equal(auditTail(TOGGLED.dir).action, cmd);
+    assert.equal(auditTail(TOGGLED.dir).status, 200);
+  });
+
+  test(`${url}: non-POST methods → 405 Allow: POST`, async () => {
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      const res = await request(method, url, null);
+      assert.equal(res.status, 405, method);
+      assert.equal(res.headers.allow, "POST");
+    }
+  });
+}
