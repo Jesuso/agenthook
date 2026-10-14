@@ -25,6 +25,7 @@
 //     hand-made webhook URL can't rotate, so run behind a STABLE ingress
 //     (ngrok reserved domain, or a hosted URL) — never an ephemeral tunnel.
 import crypto from "node:crypto";
+import { checkOwner, MoveRefusedError } from "./owner.js";
 
 /**
  * How `routeField` resolves: components | labels | customfield_N, else null.
@@ -187,18 +188,16 @@ export function createJiraAdapter(cfg, store) {
     if (!res.ok) throw new Error(`assign ${res.status}`);
   }
 
-  // Fail-closed owner check gating issue MUTATION (advance/transition). Any
-  // uncertainty — fetch error, non-2xx, missing/!matching assignee — returns false,
-  // so we never move an issue we can't positively confirm is ours.
-  /** @param {string} ref @returns {Promise<boolean>} */
-  async function ownedByUs(ref) {
-    try {
+  // Fail-closed owner check gating issue MUTATION (advance/transition). Only a 2xx
+  // with a matching assignee is "ours"; a transient fetch error/5xx/429 is retried, and
+  // anything still uncertain is "check_failed" (never "ours").
+  /** @param {string} ref @returns {Promise<"ours"|"not_ours"|"check_failed">} */
+  function ownedByUs(ref) {
+    return checkOwner(async () => {
       const res = await api(`/issue/${ref}?fields=assignee`);
-      if (!res.ok) return false;
-      return await isOurs((await json(res)).fields?.assignee?.accountId);
-    } catch {
-      return false;
-    }
+      if (!res.ok) return { ok: false, status: res.status };
+      return { ok: true, status: res.status, mine: await isOurs((await json(res)).fields?.assignee?.accountId) };
+    });
   }
 
   // The project's workflow statuses — live. Flattens issue-type groups and dedups by
@@ -318,9 +317,11 @@ export function createJiraAdapter(cfg, store) {
       if (!step) return;
       // Mutation chokepoint: never move an issue that isn't ours (covers the blind
       // recoverInterrupted path + defense-in-depth for dispatch). Fail-closed.
-      if (scopeToUser && !(await ownedByUs(ref))) {
-        console.log(`[assignee] refuse to move ${ref} (${stepId}:${verdict.outcome}) — not assigned to us`);
-        return;
+      const owner = scopeToUser ? await ownedByUs(ref) : "ours";
+      if (owner !== "ours") {
+        const why = owner === "not_ours" ? "not assigned to us" : "owner check failed";
+        console.log(`[assignee] refuse to move ${ref} (${stepId}:${verdict.outcome}) — ${why}`);
+        throw new MoveRefusedError(owner === "not_ours" ? "not_ours" : "owner_check_failed", `refused to move ${ref}: ${why}`);
       }
       const { outcome, target } = verdict;
       let status;

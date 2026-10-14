@@ -11,7 +11,7 @@ import { stepPrompt } from "./prompts.js";
 import { findStep, prevStep, stepForStage, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_MINUTES } from "./pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./worktree.js";
 import { resolveRepo, repoById, primaryRepo } from "./repos.js";
-import { CANCELLED_REASON } from "./events.js";
+import { CANCELLED_REASON, reportMoveFailure } from "./events.js";
 import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
@@ -640,6 +640,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       await adapter.advance(ref, cur.id, verdict);
     } catch (e) {
       console.error(`[advance] ci ${cur.id} ${ref} (${verdict.outcome}) failed:`, e.message);
+      reportMoveFailure(emit, ref, cur.id, verdict.outcome, e);
     }
     if (verdict.outcome === "fail") {
       store?.clearAttempts(ref);
@@ -764,6 +765,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         await adapter.advance(job.ref, step.id, { outcome: "hold", reason: routed.message });
       } catch (e) {
         console.error(`[advance] ${step.id} ${job.ref} (hold) failed:`, e.message);
+        reportMoveFailure(emit, job.ref, step.id, "hold", e);
       }
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
@@ -1040,6 +1042,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       await adapter.advance(job.ref, step.id, verdict);
     } catch (e) {
       console.error(`[advance] ${step.id} ${job.ref} (${verdict.outcome}) failed:`, e.message);
+      reportMoveFailure(emit, job.ref, step.id, verdict.outcome, e);
     }
 
     // Reset loop counters and difficulty when the task leaves the pipeline: a terminal

@@ -27,6 +27,7 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 | `pipeline_done` | task advances into a terminal step (`manual + drainWorktree`, e.g. `done`) | `name`, `url` |
 | `blocked` | verdict is `hold` | `reason` (string \| null), `name`, `url` |
 | `failed` | verdict is `fail` (incl. a `changes` forced to fail by the loop cap) or a run interrupted by restart | `reason` (string \| null), `name`, `url` (no name/url for restart) |
+| `move_refused` | a verdict's move did not happen: the adapter's `advance` refused it (fail-closed owner check — `not_ours`, or `owner_check_failed` when the assignee read still failed after retrying 5xx/429/network errors) or threw. Follows `run_end`/`blocked`/`failed`; the ticket is **still in its stage** and the next step will not fire. Also emitted from the red-CI bounce, route-hold and restart-recovery moves | `outcome` (the verdict that was refused), `reason` (`not_ours`\|`owner_check_failed`\|`move_error`), `detail` (error message, ≤200 chars) |
 | `merged` | a [forge](asana-setup.md#completing-tasks-on-merge-forge) saw the task's `agent/<ref>` PR merge (after the task is moved + completed) | `name`, `url` (`step` = the `completeOnMerge` step, or `""`) |
 | `ci_green` | a [forge](asana-setup.md#red-ci-on-agent-prs) saw a green `workflow_run` on the task's `agent/<ref>` PR and the whole check-run roll-up for that head is `success` (same roll-up as the MCP `prs` tool). Emitted once per `(ref, sha)`; a signal only — nothing moves. `forge.greenCi:false` disables | `pr`, `sha`, `mergeable`, `mergeState` (`step` is `""`). Not emitted when a non-Actions check is the last to finish (no `workflow_run` fires for it) |
 | `ci_red` | a [forge](asana-setup.md#red-ci-on-agent-prs) saw a red CI run on the task's `agent/<ref>` PR and acted | `action` (`rerun`\|`deferred`\|`bounced`\|`skipped`), `runId`, `attempt`, `sha`, `pr`, `target?` (`step` = the step it bounced from, or `""`; a bounce forced to `fail` by the loop cap emits `failed` instead) |
@@ -40,7 +41,7 @@ Every line carries `ts`, `event`, `ref`, and `step`. Additional fields depend on
 Both decommission events land in the **archived** `events.jsonl` (the state dir moves after them).
 
 `pipeline_done` is the signal that a ticket is fully finished and its PR is ready for merge.
-`blocked` and `failed` are the needs-attention signals.
+`blocked`, `failed` and `move_refused` are the needs-attention signals.
 
 ## Guarantees
 
@@ -62,7 +63,7 @@ Opt-in, top-level `sinks` in `agenthook.config.json` forwards events to chat/web
 ]
 ```
 
-- `events` defaults to `["blocked","failed","pipeline_done"]`; any event name is accepted.
+- `events` defaults to `["blocked","failed","move_refused","pipeline_done"]`; any event name is accepted.
 - slack: `{ text }` to the incoming-webhook URL. telegram: Bot API `sendMessage`. webhook: the raw
   event JSON plus a `profile` field.
 - Text: `[agenthook:<profile>] <event> <ref> "<name>" (step <step>)`, then `reason`, then `url`.

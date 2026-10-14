@@ -161,6 +161,11 @@ test("compactEvent: keeps the acting keys, clips long reasons", () => {
   assert.ok(c.reason.length <= 200);
 });
 
+test("compactEvent: move_refused keeps outcome, reason and detail", () => {
+  const c = compactEvent({ ts: "t", event: "move_refused", ref: "1", step: "code", outcome: "advance", reason: "owner_check_failed", detail: "refused to move 1: owner check failed" });
+  assert.deepEqual(c, { ts: "t", e: "move_refused", ref: "1", step: "code", outcome: "advance", reason: "owner_check_failed", detail: "refused to move 1: owner check failed" });
+});
+
 test("readRuns / readRunLogTail: newest run log tail, step filter, unknown ref", () => {
   const reg = registry();
   const dir = profile(reg, "p");

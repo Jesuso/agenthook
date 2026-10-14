@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createGithubAdapter, extractRouteKeys } from "../src/trackers/github.js";
+import { MoveRefusedError } from "../src/trackers/owner.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -279,6 +280,26 @@ test("advance adds the target label before removing the source (crash-safe)", as
   assert.ok(add >= 0, `expected an add-label POST; got:\n${calls.join("\n")}`);
   assert.ok(del >= 0, `expected a remove-label DELETE; got:\n${calls.join("\n")}`);
   assert.ok(add < del, `add must precede remove; got:\n${calls.join("\n")}`);
+});
+
+test("advance throws not_ours (and never relabels) for an issue assigned to someone else", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    calls.push(`${init.method || "GET"} ${url}`);
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ assignees: [{ login: "someone-else" }] }) });
+  };
+  try {
+    await assert.rejects(
+      adapter({ assigneeFilter: true, assigneeLogin: "bot" }).advance("42", "code", { outcome: "advance" }),
+      (e) => e instanceof MoveRefusedError && e.reason === "not_ours",
+    );
+  } finally {
+    global.fetch = orig;
+  }
+  assert.ok(!calls.some((c) => !c.startsWith("GET")), `expected no mutation; got:\n${calls.join("\n")}`);
 });
 
 test("currentStage returns ANY pipeline label the issue carries (not just source) — backs run's guard", async () => {

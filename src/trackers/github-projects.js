@@ -31,6 +31,7 @@
 //     only by an org webhook or a GitHub App), so it just prints why. The assignee "us"
 //     is the token owner's login (GraphQL `viewer`, cached). Scoping is FAIL CLOSED.
 import crypto from "node:crypto";
+import { MoveRefusedError } from "./owner.js";
 
 /**
  * Route keys from the routeField single-select's option name → [name] or [].
@@ -559,7 +560,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       // recoverInterrupted path + defense-in-depth for dispatch). Fail-closed.
       if (scopeToUser && !(await issueIsOurs(it.issue))) {
         console.log(`[assignee] refuse to move #${ref} (${stepId}:${outcome}) — not assigned to us`);
-        return;
+        throw new MoveRefusedError("not_ours", `refused to move #${ref}: not assigned to us`);
       }
       const field = await statusField();
       const optionId = field.options.get(norm(status));

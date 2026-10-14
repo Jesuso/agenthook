@@ -22,6 +22,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced"]);
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in
  *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
  *             tool/the UI feed — see HIDDEN_BY_DEFAULT)
+ *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
+ *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
@@ -50,4 +52,17 @@ export function createEmitter(dataDir, onEvent) {
       console.warn(`[events] onEvent failed for "${event}" ${ref}/${step}:`, e.message);
     }
   };
+}
+
+/**
+ * Report a verdict's move that did not happen (the adapter's `advance` threw), so a supervisor
+ * watching events doesn't wait on a next step that will never fire. A `MoveRefusedError`
+ * (code "move_refused") carries its own reason; anything else is "move_error".
+ * @param {((event: string, ref: string, step: string, extra?: Record<string, any>) => void) | undefined} emit
+ * @param {string} ref @param {string} stepId @param {string} outcome  the refused verdict outcome
+ * @param {any} err
+ */
+export function reportMoveFailure(emit, ref, stepId, outcome, err) {
+  const reason = err?.code === "move_refused" && err.reason ? err.reason : "move_error";
+  emit?.("move_refused", ref, stepId, { outcome, reason, detail: String(err?.message ?? err).slice(0, 200) });
 }

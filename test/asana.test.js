@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createAsanaAdapter, extractRouteKeys } from "../src/trackers/asana.js";
+import { MoveRefusedError } from "../src/trackers/owner.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -486,8 +487,44 @@ test("a task that isn't ours is never completed (nor moved)", async () => {
     { id: "code", sourceSectionGid: "S1", successSectionGid: "S2" },
     { id: "done", sourceSectionGid: "S2", manual: true, completeTask: true },
   ];
-  await withFetch(recordStub(calls, "OTHER"), () => withPipeline(pl, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" })));
+  await assert.rejects(
+    withFetch(recordStub(calls, "OTHER"), () => withPipeline(pl, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" }))),
+    (e) => e instanceof MoveRefusedError && e.reason === "not_ours",
+  );
   assert.ok(!calls.some((c) => c.startsWith("PUT") || c.startsWith("POST")), `expected no mutation; got:\n${calls.join("\n")}`);
+});
+
+// --- transient owner-check failures (#265): retried, and a persistent one is reported (thrown), never moved.
+/** Stub: the owner GET answers `statuses[i]` on call i (then the last), 200 = the task as ours. @param {string[]} calls @param {number[]} statuses */
+const flakyOwner = (calls, statuses) => {
+  let n = 0;
+  return (/** @type {string} */ u, /** @type {any} */ init) => {
+    calls.push(`${init.method || "GET"} ${u}`);
+    if (u.includes("opt_fields=assignee.gid")) {
+      const status = statuses[Math.min(n++, statuses.length - 1)];
+      if (status !== 200) return /** @type {any} */ ({ ok: false, status, json: async () => ({}) });
+    }
+    return ok({ data: { assignee: { gid: "U" } } });
+  };
+};
+
+test("advance retries a transient owner-check 503 and then moves the task", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  await withFetch(flakyOwner(calls, [503, 200]), () => withPipeline(pipeline, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" })));
+  assert.equal(calls.filter((c) => c.includes("opt_fields=assignee.gid")).length, 2);
+  assert.ok(calls.some((c) => c.startsWith("POST https://app.asana.com/api/1.0/sections/S2/addTask")), calls.join("\n"));
+});
+
+test("advance throws owner_check_failed (and never moves) on a persistent owner-check 503", async () => {
+  /** @type {string[]} */
+  const calls = [];
+  await assert.rejects(
+    withFetch(flakyOwner(calls, [503]), () => withPipeline(pipeline, { assigneeFilter: true, userGid: "U" }).advance("G1", "code", /** @type {any} */ ({ outcome: "advance" }))),
+    (e) => e instanceof MoveRefusedError && e.code === "move_refused" && e.reason === "owner_check_failed",
+  );
+  assert.equal(calls.filter((c) => c.includes("opt_fields=assignee.gid")).length, 3);
+  assert.ok(!calls.some((c) => c.includes("/addTask")), calls.join("\n"));
 });
 
 // --- fetchTask displayId: the human id comes from a custom field (default name "ID").
