@@ -63,6 +63,8 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
 
 - `slots.free` is how many more tasks can start *right now*. It is **0 while paused**, restarting,
   decommissioning or draining — flags `paused` / `restartPending` / `draining` say why.
+- `slots.capped` (present only when > 0) counts queued jobs waiting on their step's own
+  `maxConcurrent` cap, not on a slot — so `free` can be > 0 while `queued` is non-zero.
 - `up:false` → the receiver is down; `running`/`queue` are the last state on disk, not live.
 
 `tick` adds `board` (`[{step, resting:[{ref,id,title}]}]` — tickets sitting in each step's source

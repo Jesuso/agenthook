@@ -67,6 +67,7 @@ test("every loadConfig error case: errors[0] is byte-identical to what loadConfi
     raw({}, [{ kind: "x" }]),
     raw({}, [{ id: "code" }, { id: "code" }]),
     raw({}, [{ id: "code", maxAttempts: 0 }]),
+    raw({}, [{ id: "code", maxConcurrent: 0 }]),
     raw({}, [{ id: "code", maxMinutes: -1 }]),
     raw({}, [{ id: "code", idleMinutes: 0 }]),
     raw({}, [{ id: "code", lite: { descriptionHeadings: [] } }]),
@@ -204,4 +205,14 @@ test("literalSecrets: only non-empty strings that are not exactly one ${VAR} ref
 test("the example config holds no literal secrets", () => {
   const example = JSON.parse(fs.readFileSync(new URL("../agenthook.config.example.json", import.meta.url), "utf8"));
   assert.deepEqual(literalSecrets(example), []);
+});
+
+test("pipeline step maxConcurrent: a positive integer passes; 0, -1, 1.5, \"2\" and a manual step fail", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "triage", maxConcurrent: 1 }, { id: "code", maxConcurrent: 99 }])), { ok: true });
+  for (const v of [0, -1, 1.5, "2"]) {
+    const r = validateRawConfig(raw({}, [{ id: "triage", maxConcurrent: v }]));
+    assert.deepEqual(!r.ok && r.errors, [`config: pipeline step "triage" maxConcurrent must be a positive integer.`], `maxConcurrent ${JSON.stringify(v)}`);
+  }
+  const m = validateRawConfig(raw({}, [{ id: "code" }, { id: "done", manual: true, maxConcurrent: 1 }]));
+  assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" maxConcurrent has no effect on a manual step (no agent runs).`]);
 });

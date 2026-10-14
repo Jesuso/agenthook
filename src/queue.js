@@ -24,13 +24,28 @@ export function planRestore(queued, runningRefs, stepIds) {
 /**
  * @param {number} initialMax
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
- * @param {(state: {active:number, queued:number}) => void} [onChange]  called after every state change (heartbeat)
+ * @param {(state: {active:number, queued:number, capped?:number}) => void} [onChange]  called after every state change (heartbeat)
  * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
  *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run,
  *   onSettle after a job settles and its slot is released (the engine's queue-stage pull trigger)
+ * @param {Record<string, number>} [stepCaps]  per-step concurrency caps (stepId → max runs at once),
+ *   counted INSIDE the global max. Only `pipeline` jobs count; `merge`/`ci` spawn no agent. Empty →
+ *   strict FIFO as before, and `state()` carries no `capped`.
  */
-export function createQueue(initialMax, run, onChange, persist) {
+export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
   let max = initialMax;
+  const caps = new Map(Object.entries(stepCaps));
+  const capping = caps.size > 0;
+  /** @type {Map<string, number>} stepId → running pipeline jobs of that step */
+  const activeByStep = new Map();
+  /** @param {import('./types.js').Job} job */
+  const isPipeline = (job) => (job.kind ?? "pipeline") === "pipeline";
+  /** @param {import('./types.js').Job} job  true while `job`'s step is at its cap (it must wait) */
+  const atCap = (job) => {
+    const cap = isPipeline(job) ? caps.get(job.stepId) : undefined;
+    return cap != null && (activeByStep.get(job.stepId) ?? 0) >= cap;
+  };
+  const cappedCount = () => (capping ? queue.filter(atCap).length : 0);
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -56,7 +71,8 @@ export function createQueue(initialMax, run, onChange, persist) {
   let idleWaiters = [];
   /** @type {(() => void)[]} */
   let activeIdleWaiters = [];
-  const report = () => onChange?.({ active, queued: queue.length });
+  const snapshot = () => (capping ? { active, queued: queue.length, capped: cappedCount() } : { active, queued: queue.length });
+  const report = () => onChange?.(snapshot());
   const resolveIdle = () => {
     if (active === 0 && queue.length === 0 && idleWaiters.length) {
       const waiters = idleWaiters;
@@ -74,10 +90,15 @@ export function createQueue(initialMax, run, onChange, persist) {
 
   function pump() {
     while (!paused && active < max && queue.length) {
-      const job = queue.shift();
+      // First waiting job whose step is under its cap: a capped job never blocks the
+      // uncapped ones behind it, and the jobs left behind keep their relative order.
+      const i = capping ? queue.findIndex((j) => !atCap(j)) : 0;
+      if (i < 0) break;
+      const [job] = queue.splice(i, 1);
       if (!job) break;
       persist?.onRemove?.(job);
       active++;
+      if (isPipeline(job)) activeByStep.set(job.stepId, (activeByStep.get(job.stepId) ?? 0) + 1);
       report();
       console.log(`[start] ${job.kind} ${job.ref} (running ${active}/${max}, ${queue.length} queued)`);
       run(job)
@@ -95,6 +116,11 @@ export function createQueue(initialMax, run, onChange, persist) {
         })
         .finally(() => {
           active--;
+          if (isPipeline(job)) {
+            const n = (activeByStep.get(job.stepId) ?? 1) - 1;
+            if (n > 0) activeByStep.set(job.stepId, n);
+            else activeByStep.delete(job.stepId);
+          }
           inflight.delete(workKey(job));
           for (const w of freeWaiters.get(workKey(job)) ?? []) w();
           freeWaiters.delete(workKey(job));
@@ -167,8 +193,20 @@ export function createQueue(initialMax, run, onChange, persist) {
         freeWaiters.set(key, [...(freeWaiters.get(key) ?? []), wake]);
       });
     },
-    /** {active, queued} snapshot. */
-    state: () => ({ active, queued: queue.length }),
+    /** {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap) only when step caps are set. */
+    state: snapshot,
+    /**
+     * Per-step counts of PIPELINE jobs: {[stepId]: {active, queued}} — the puller's per-step budget.
+     * @returns {Record<string, {active: number, queued: number}>}
+     */
+    stepState() {
+      /** @type {Record<string, {active: number, queued: number}>} */
+      const out = {};
+      const at = (/** @type {string} */ id) => (out[id] ??= { active: 0, queued: 0 });
+      for (const [id, n] of activeByStep) at(id).active = n;
+      for (const j of queue) if (isPipeline(j)) at(j.stepId).queued++;
+      return out;
+    },
     /** Whether new runs are held back (restart/decommission/operator pause). */
     isPaused: () => paused,
     /** Current concurrency cap. */

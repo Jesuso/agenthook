@@ -249,3 +249,88 @@ test("has / whenFree: true once the (ref,step) leaves the queue; immediate when 
   releases.shift()?.();
   await q.onIdle();
 });
+
+/** A queue whose jobs settle only when the test says so. @param {number} max @param {Record<string, number>} caps */
+function manual(max, caps) {
+  /** @type {Map<string, () => void>} */ const settle = new Map();
+  /** @type {string[]} */ const started = [];
+  let peak = 0;
+  let live = 0;
+  const run = (/** @type {any} */ j) =>
+    new Promise((resolve) => {
+      started.push(`${j.kind === "pipeline" ? "" : `${j.kind}:`}${j.ref}:${j.stepId}`);
+      peak = Math.max(peak, ++live);
+      settle.set(j.ref, () => {
+        live--;
+        resolve(info(j));
+      });
+    });
+  const q = createQueue(max, run, undefined, undefined, caps);
+  const done = async (/** @type {string} */ ref) => {
+    settle.get(ref)?.();
+    settle.delete(ref);
+    await new Promise((r) => setImmediate(r));
+  };
+  return { q, started, done, peak: () => peak };
+}
+
+test("step cap: 3 triage + 1 code under max 3 / triage cap 1 → 1 triage + code run; next triage starts on settle", async () => {
+  const { q, started, done, peak } = manual(3, { triage: 1 });
+  for (const r of ["T1", "T2", "T3"]) q.enqueue(job(r, "triage"));
+  q.enqueue(job("C1", "code"));
+  assert.deepEqual(started, ["T1:triage", "C1:code"]);
+  assert.deepEqual(q.state(), { active: 2, queued: 2, capped: 2 }, "two triage wait on their cap with a slot free");
+  assert.deepEqual(q.stepState(), { triage: { active: 1, queued: 2 }, code: { active: 1, queued: 0 } });
+  await done("T1");
+  assert.deepEqual(started, ["T1:triage", "C1:code", "T2:triage"]);
+  await done("C1");
+  await done("T2");
+  await done("T3");
+  await q.onIdle();
+  assert.deepEqual(started, ["T1:triage", "C1:code", "T2:triage", "T3:triage"]);
+  assert.ok(peak() <= 3, "global active never exceeds max");
+  assert.deepEqual(q.state(), { active: 0, queued: 0, capped: 0 });
+  assert.deepEqual(q.stepState(), {});
+});
+
+test("step cap: global max still bounds uncapped work; capped head doesn't block, capped jobs keep FIFO", async () => {
+  const { q, started, done, peak } = manual(2, { triage: 1 });
+  q.enqueue(job("T1", "triage"));
+  q.enqueue(job("T2", "triage")); // capped head of the wait list
+  q.enqueue(job("T3", "triage"));
+  q.enqueue(job("C1", "code"));
+  q.enqueue(job("C2", "code"));
+  assert.deepEqual(started, ["T1:triage", "C1:code"], "C1 jumps the capped T2/T3");
+  assert.deepEqual(q.state(), { active: 2, queued: 3, capped: 2 });
+  await done("C1");
+  assert.deepEqual(started.slice(2), ["C2:code"], "slot goes to the runnable job, not the capped head");
+  await done("T1");
+  assert.deepEqual(started.slice(3), ["T2:triage"], "capped jobs keep their FIFO order");
+  await done("C2");
+  await done("T2");
+  assert.deepEqual(started.slice(4), ["T3:triage"]);
+  await done("T3");
+  await q.onIdle();
+  assert.equal(peak(), 2);
+});
+
+test("step cap: merge/ci jobs are never counted against or blocked by a cap", async () => {
+  const { q, started, done } = manual(3, { code: 1 });
+  q.enqueue(job("C1", "code"));
+  q.enqueue({ kind: "merge", ref: "M1", stepId: "code", dedupKey: "merged:1" });
+  q.enqueue({ kind: "ci", ref: "X1", stepId: "code", dedupKey: "ci:1:1" });
+  assert.deepEqual(started, ["C1:code", "merge:M1:code", "ci:X1:code"]);
+  assert.deepEqual(q.state(), { active: 3, queued: 0, capped: 0 });
+  assert.deepEqual(q.stepState(), { code: { active: 1, queued: 0 } }, "only the pipeline job counts");
+  await done("C1");
+  await done("M1");
+  await done("X1");
+  await q.onIdle();
+});
+
+test("no step caps: state() keeps its {active, queued} shape", () => {
+  const q = createQueue(1, () => new Promise(() => {}), undefined, undefined, {});
+  q.enqueue(job("T1"));
+  q.enqueue(job("T2"));
+  assert.deepEqual(q.state(), { active: 1, queued: 1 });
+});

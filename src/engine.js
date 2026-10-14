@@ -389,9 +389,14 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const releaseOverlap = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
   const ciGreen = createCiGreen({ adapter, forge, store, emit });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap);
+  // Per-step caps (`maxConcurrent` on a step), counted inside the global cap.
+  /** @type {Record<string, number>} */
+  const stepCaps = {};
+  for (const s of cfg.pipeline || []) if (!s.manual && s.maxConcurrent != null) stepCaps[s.id] = s.maxConcurrent;
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
     { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
+    stepCaps,
   );
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
@@ -450,6 +455,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     steps: adapter.listQueued && adapter.enterStage ? (cfg.pipeline || []).filter((s) => !s.manual && queueStageOf(s)) : [],
     max: () => queue.max(), // live: `set_concurrency` moves it
     queueState: () => queue.state(),
+    stepState: () => queue.stepState(),
     inflightRefs: () => [...Object.keys(store.listRunning()), ...store.listQueued().map((j) => j.ref)],
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
     enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),
