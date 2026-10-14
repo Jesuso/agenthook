@@ -34,6 +34,19 @@ test("etagOf: stable, ignores volatile at/ageS/etag/outTok", () => {
   assert.notEqual(a, etagOf({ x: 2 }));
 });
 
+test("readStatus: slots.capped (heartbeat) frees the slots its queued jobs would hold", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: { 7: { stepId: "triage", startedAt: "2026-01-01T00:50:00Z" } },
+    queue: [
+      { kind: "pipeline", ref: "8", stepId: "triage", dedupKey: "k8" },
+      { kind: "pipeline", ref: "9", stepId: "triage", dedupKey: "k9" },
+    ],
+    hb: { queue: { active: 1, queued: 2, capped: 2 } },
+  });
+  assert.deepEqual(readStatus(readProfile("p", reg)).slots, { max: 3, active: 1, queued: 2, capped: 2, free: 2 });
+});
+
 test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", () => {
   const reg = registry();
   profile(reg, "a", { name: "Alpha" });

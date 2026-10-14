@@ -118,11 +118,14 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     .sort((a, b) => String(b.at).localeCompare(String(a.at)))
     .slice(0, FAILED_MAX);
   const active = entry.up ? running.length : 0;
+  const queued = entry.up ? queue.length : 0;
+  // Queued jobs waiting on their step's own maxConcurrent, not on a slot (heartbeat; only set with step caps).
+  const capped = Math.min(queued, Math.max(0, Number(hb.queue?.capped) || 0));
   const out = {
     profile: entry.stateKey,
     up: entry.up,
     tracker: hb.tracker ?? null,
-    slots: { max, active, queued: entry.up ? queue.length : 0, free: max === null ? null : hb.paused || hb.restartPending || hb.decommissionPending || hb.draining ? 0 : Math.max(0, max - active - (entry.up ? queue.length : 0)) },
+    slots: { max, active, queued, ...(capped ? { capped } : {}), free: max === null ? null : hb.paused || hb.restartPending || hb.decommissionPending || hb.draining ? 0 : Math.max(0, max - active - (queued - capped)) },
     ...(hb.paused ? { paused: true } : {}),
     ...(hb.restartPending ? { restartPending: true } : {}),
     ...(hb.decommissionPending ? { decommissionPending: true } : {}),

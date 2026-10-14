@@ -128,6 +128,11 @@ Extra step fields you'll want to know:
 - `maxMinutes` (default 120, `0` = off) — wall-clock cap on one run of the step. Past it the agent
   is killed and the run fails with a `timeout` reason, so a stuck agent can't hold a
   `maxConcurrent` slot forever.
+- `maxConcurrent` (default: no per-step cap) — max runs of this step at once, counted **inside**
+  the global `maxConcurrent` (never on top of it). E.g. `"maxConcurrent": 1` on `triage` keeps a
+  burst of new tickets from taking every slot: waiting triage jobs let `code`/`review` jobs behind
+  them start, and a queue-stage pull never fills a capped step past its cap. Not valid on a
+  `manual` step.
 - `idleMinutes` (default off) — also kill the agent after this many minutes with no output. Opt-in:
   a long single tool call can legitimately be silent.
 - `model` — pin a step to a specific Claude model (e.g. `"claude-opus-4-8"` for review).

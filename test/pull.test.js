@@ -3,7 +3,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // single-flight puller (injected deps; no network, no engine).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeSlots, planPull, createPuller, PULL_TTL_MS } from "../src/pull.js";
+import { freeSlots, planPull, stepBudget, createPuller, PULL_TTL_MS } from "../src/pull.js";
 
 test("freeSlots: full → 0, pending counted, never negative", () => {
   assert.equal(freeSlots({ max: 2, active: 2, queued: 0, pending: 0 }), 0);
@@ -60,6 +60,7 @@ function harness(o = {}) {
     steps: o.steps || [{ id: "code", queueLabel: "queue:code", sourceLabel: "agent:code" }],
     max: o.max ?? 2,
     queueState: () => state,
+    stepState: () => o.stepState || {},
     inflightRefs: () => o.inflight || [],
     listQueued: async (stepId) => {
       lists++;
@@ -160,4 +161,51 @@ test("max may be a function: a live cap change moves the pull budget", async () 
   cap = 3; // `set_concurrency` raised the cap while 1 is pending
   await h.p.pull();
   assert.equal(h.entered.length, 3, "cap 3 -> two more (pending counts against the cap)");
+});
+
+test("freeSlots: capped queued jobs don't hold a slot", () => {
+  assert.equal(freeSlots({ max: 3, active: 1, queued: 2, capped: 2, pending: 0 }), 2);
+  assert.equal(freeSlots({ max: 3, active: 1, queued: 2, capped: 1, pending: 1 }), 0);
+});
+
+test("stepBudget: cap − active − queued − pending per capped step, never negative", () => {
+  const b = stepBudget({ triage: 2, review: 1 }, { triage: { active: 1, queued: 0 }, review: { active: 1, queued: 1 } }, ["triage", "code"]);
+  assert.deepEqual(b, { triage: 0, review: 0 });
+  assert.deepEqual(stepBudget({ triage: 3 }, {}, ["triage"]), { triage: 2 });
+});
+
+test("planPull: a capped step never gets more than its budget; free slots still fill from uncapped steps", () => {
+  const picks = planPull({
+    free: 3,
+    pending: [],
+    inflightRefs: [],
+    candidates: [
+      { stepId: "triage", refs: ["1", "2", "3"] },
+      { stepId: "code", refs: ["5", "6", "7"] },
+    ],
+    budget: { triage: 1 },
+  });
+  assert.deepEqual(picks, [
+    { ref: "1", stepId: "triage", rank: 0 },
+    { ref: "5", stepId: "code", rank: 0 },
+    { ref: "6", stepId: "code", rank: 1 },
+  ]);
+  assert.deepEqual(planPull({ free: 2, pending: [], inflightRefs: [], candidates: [{ stepId: "triage", refs: ["1"] }], budget: { triage: 0 } }), []);
+});
+
+test("puller: capped queued jobs leave slots for the code pull; a capped step's backlog stops at its cap", async () => {
+  const steps = [
+    { id: "triage", queueLabel: "queue:triage", maxConcurrent: 1 },
+    { id: "code", queueLabel: "queue:code" },
+  ];
+  const board = { triage: ["1", "2"], code: ["10", "11", "12"] };
+  // triage at its cap (1 active, 2 waiting capped): the two free slots go to code only.
+  const h1 = harness({ steps, board, max: 3, state: { active: 1, queued: 2, capped: 2 }, stepState: { triage: { active: 1, queued: 2 } } });
+  await h1.p.pull();
+  assert.deepEqual(h1.entered, ["10:code:assign=false", "11:code:assign=false"]);
+  // Triage has room: exactly one triage pull; its pending entry spends the budget on the next pass.
+  const h2 = harness({ steps, board, max: 4 });
+  await h2.p.pull();
+  await h2.p.pull();
+  assert.deepEqual(h2.entered, ["1:triage:assign=false", "10:code:assign=false", "11:code:assign=false", "12:code:assign=false"]);
 });

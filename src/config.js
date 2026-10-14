@@ -389,6 +389,13 @@ export function validateRawConfig(raw) {
     if (step.maxAttempts != null && (!Number.isInteger(step.maxAttempts) || step.maxAttempts < 1)) {
       errors.push(`config: pipeline step "${sid}" maxAttempts must be a positive integer.`);
     }
+    if (step.maxConcurrent != null) {
+      if (!Number.isInteger(step.maxConcurrent) || step.maxConcurrent < 1) {
+        errors.push(`config: pipeline step "${sid}" maxConcurrent must be a positive integer.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" maxConcurrent has no effect on a manual step (no agent runs).`);
+      }
+    }
     if (step.maxMinutes != null && (typeof step.maxMinutes !== "number" || !Number.isFinite(step.maxMinutes) || step.maxMinutes < 0)) {
       errors.push(`config: pipeline step "${sid}" maxMinutes must be a number >= 0 (0 disables the cap).`);
     }
