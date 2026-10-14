@@ -2,6 +2,9 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createMcpServer, serveStdio } from "../src/mcp/server.js";
 import { createTools } from "../src/mcp/tools.js";
 
@@ -126,6 +129,24 @@ test("tools/call validates arguments against the advertised schema (types, range
   await assert.rejects(() => call("cancel", { actor: "root", ref: "1" }), /unknown argument "actor"/, "callers cannot set the audit actor");
   await assert.rejects(() => call("cancel", {}), /"ref" is required/);
   await assert.rejects(() => call("runs", { ref: 5 }), /"ref" must be a string/);
+});
+
+test("events tool's last path hides coalesced by default, returns it when explicitly requested", async () => {
+  const registry = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-mcptools-"));
+  const dir = path.join(registry, "p");
+  fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: "p", maxConcurrent: 3, tracker: "github", queue: { active: 0, queued: 0 } }));
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+  for (const f of ["running.json", "queue.json", "held.json", "refmeta.json"]) fs.writeFileSync(path.join(dir, f), "{}");
+  const ev = (event, ref) => JSON.stringify({ ts: "t", event, ref, step: "code" }) + "\n";
+  fs.writeFileSync(path.join(dir, "events.jsonl"), ev("enqueued", "1") + ev("coalesced", "1") + ev("run_end", "1"));
+
+  const t = createTools({ registry });
+  const call = (args) => t.call("events", { profile: "p", last: 10, ...args }, { signal: new AbortController().signal });
+  const noFilter = await call({});
+  assert.deepEqual(noFilter.events.map((e) => e.e), ["enqueued", "run_end"]);
+  const explicit = await call({ types: ["coalesced"] });
+  assert.deepEqual(explicit.events.map((e) => e.e), ["coalesced"]);
 });
 
 test("guide tool: lists topics, serves one section or all as raw markdown, rejects unknown topics; works read-only", async () => {

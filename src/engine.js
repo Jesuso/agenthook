@@ -416,7 +416,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
         lastEvent: { at: new Date().toISOString(), kind: job.kind, ref: job.ref, step: job.stepId },
         seen: store.seenCount(),
       });
-      const wasInflight = queue.has(job);
+      const wasInflight = queue.has(job) && !queue.isClosed();
       const ok = queue.enqueue(job);
       if (ok) accepted++;
       // Refused (coalesced/draining) → never ran, so don't leave a state key behind.

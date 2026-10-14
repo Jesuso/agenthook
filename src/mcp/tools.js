@@ -3,6 +3,7 @@
 // control socket (src/ops.js), which audits writes. `readOnly` omits the write tools entirely —
 // they are neither listed nor callable.
 import { registryDir } from "../config.js";
+import { HIDDEN_BY_DEFAULT } from "../events.js";
 import {
   pickProfile,
   readStatus,
@@ -226,7 +227,9 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
       if (!Number.isInteger(args.cursor)) {
         const cursor = eventsCursor(entry.dir);
         if (!args.last) return { events: [], cursor };
-        const all = readEventsTail(path.join(entry.dir, "events.jsonl")).filter((e) => (!types || types.has(e.event)) && (!args.ref || e.ref === args.ref));
+        const all = readEventsTail(path.join(entry.dir, "events.jsonl")).filter(
+          (e) => (types ? types.has(e.event) : !HIDDEN_BY_DEFAULT.has(e.event)) && (!args.ref || e.ref === args.ref)
+        );
         return { events: all.slice(-args.last).map(compactEvent), cursor };
       }
       const waitS = Math.min(Number(args.waitS) || 0, MAX_WAIT_S);

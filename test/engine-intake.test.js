@@ -21,7 +21,7 @@ test("intakeEvent matches a real queue: two intakes of the same ref+step while t
   const events = [];
 
   const intake = (j) => {
-    const wasInflight = queue.has(j);
+    const wasInflight = queue.has(j) && !queue.isClosed();
     const ok = queue.enqueue(j);
     const ev = intakeEvent(ok, wasInflight);
     if (ev) events.push(ev);
@@ -37,6 +37,30 @@ test("intakeEvent matches a real queue: two intakes of the same ref+step while t
   queue.close();
   assert.equal(intake(job("B", "code")), false, "draining refusal");
   assert.deepEqual(events, ["enqueued", "coalesced"], "draining refusal emits nothing");
+
+  releases.shift()?.();
+  await queue.onIdle();
+});
+
+test("intakeEvent: a duplicate refused while draining emits nothing even for a ref already in flight", async () => {
+  const releases = [];
+  const run = (j) => new Promise((resolve) => releases.push(() => resolve({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 })));
+  const queue = createQueue(2, run);
+  const events = [];
+
+  const intake = (j) => {
+    const wasInflight = queue.has(j) && !queue.isClosed();
+    const ok = queue.enqueue(j);
+    const ev = intakeEvent(ok, wasInflight);
+    if (ev) events.push(ev);
+    return ok;
+  };
+
+  const a1 = job("A", "code");
+  assert.equal(intake(a1), true); // A now running
+  queue.close();
+  assert.equal(intake(job("A", "code")), false, "refused: A already inflight AND draining");
+  assert.deepEqual(events, ["enqueued"], "draining refusal emits nothing, even though A is inflight");
 
   releases.shift()?.();
   await queue.onIdle();
