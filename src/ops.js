@@ -16,6 +16,7 @@ import { isStateDedupKey } from "./store.js";
 import { CANCELLED_REASON } from "./events.js";
 
 const BOARD_TTL_MS = 30 * 1000;
+const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
 const COMMENT_MAX = 8000;
 const MAX_ERROR_CHARS = 500;
 const RELEASE_SETTLE_MS = 15_000;
@@ -151,10 +152,41 @@ export function createOps(deps) {
     now,
   );
 
+  // Per-ref ownership cache backing `prs`' `mine` flag: only "ours"/"not_ours" are
+  // cached (never "check_failed" or a thrown error), 5 min TTL. Cleared on `fresh:true`
+  // alongside the PR list cache so a reassignment is picked up without waiting it out.
+  /** @type {Map<string, {v: "ours"|"not_ours", at: number}>} */
+  const ownershipCache = new Map();
+  /** @param {string} ref @param {(ref: string) => Promise<"ours"|"not_ours"|"check_failed">} ownership @returns {Promise<"ours"|"not_ours"|"check_failed"|undefined>} */
+  async function ownershipOf(ref, ownership) {
+    const hit = ownershipCache.get(ref);
+    if (hit && now() - hit.at < OWNERSHIP_TTL_MS) return hit.v;
+    let v;
+    try {
+      v = await ownership(ref);
+    } catch (e) {
+      console.warn(`[ops] ownership(${ref}) failed: ${e.message}`);
+      return undefined;
+    }
+    if (v === "ours" || v === "not_ours") ownershipCache.set(ref, { v, at: now() });
+    return v === "check_failed" ? undefined : v;
+  }
+
   const prs = ttlCache(
     async () => {
       if (!forge?.listAgentPrs) throw new Error("no forge with PR support configured (add a `forge` block)");
-      return { at: new Date(now()).toISOString(), prs: await forge.listAgentPrs() };
+      const rows = await forge.listAgentPrs();
+      const ownership = adapter.ownership;
+      const withMine =
+        cfg.tracker?.assigneeFilter !== false && typeof ownership === "function"
+          ? await Promise.all(
+              rows.map(async (r) => {
+                const o = await ownershipOf(r.ref, ownership);
+                return o === "ours" ? { ...r, mine: true } : o === "not_ours" ? { ...r, mine: false } : r;
+              }),
+            )
+          : rows;
+      return { at: new Date(now()).toISOString(), prs: withMine };
     },
     BOARD_TTL_MS,
     now,
@@ -168,8 +200,13 @@ export function createOps(deps) {
       return board();
     },
     async prs(/** @type {any} */ args) {
-      if (args?.fresh) prs.reset();
-      return prs();
+      if (args?.fresh) {
+        prs.reset();
+        ownershipCache.clear();
+      }
+      const out = await prs();
+      if (typeof args?.mine !== "boolean") return out;
+      return { ...out, prs: out.prs.filter((r) => r.mine === args.mine) };
     },
 
     // ---- writes ----

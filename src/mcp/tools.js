@@ -113,8 +113,8 @@ const TOOLS = {
   },
   prs: {
     def: schema(
-      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft. Needs a live receiver with a `forge` block (cached ~30s).",
-      { profile: PROFILE, fresh: { type: "boolean" } },
+      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft. Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
+      { profile: PROFILE, fresh: { type: "boolean" }, mine: { type: "boolean" } },
     ),
   },
   pause: {
@@ -258,7 +258,7 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
     },
     async prs(args) {
       const entry = target(args);
-      const r = await live(entry.stateKey, "prs", { fresh: args.fresh === true }, { registry });
+      const r = await live(entry.stateKey, "prs", { fresh: args.fresh === true, ...(typeof args.mine === "boolean" ? { mine: args.mine } : {}) }, { registry });
       return { at: r.at, prs: r.prs };
     },
   };

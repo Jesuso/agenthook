@@ -412,6 +412,8 @@ export function createJiraAdapter(cfg, store) {
       return refs;
     },
 
+    ownership: ownedByUs,
+
     // Jira Cloud forbids creating webhooks with an API token (Connect/Forge apps
     // only), so there is nothing to auto-register or scrub. Print one-time manual
     // setup the first admin runs, then return — boot continues regardless.
