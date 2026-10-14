@@ -672,13 +672,16 @@ const qPipeline = [{ id: "code", sourceSectionGid: "S1", successSectionGid: "S2"
 const queued = (pc = {}) =>
   createAsanaAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: qPipeline, providerConfig: { type: "asana", token: "t", ...pc } }), /** @type {any} */ (makeStore()));
 
-test("listQueued reads the queue section in API order, keeping only our open tasks", async () => {
+test("listQueued reads the queue section in API order, keeping only our open, unblocked tasks", async () => {
   /** @type {string[]} */
   const urls = [];
   const orig = global.fetch;
   // @ts-ignore - test stub
   global.fetch = async (url) => {
-    urls.push(String(url));
+    const u = String(url);
+    urls.push(u);
+    if (u.includes("/tasks/t3/dependencies")) return ok({ data: [] });
+    if (u.includes("/tasks/t9/dependencies")) return ok({ data: [{ gid: "blocker", completed: false }] });
     return ok({
       data: [
         { gid: "t3", completed: false, assignee: { gid: "me" } },
@@ -689,10 +692,41 @@ test("listQueued reads the queue section in API order, keeping only our open tas
     });
   };
   try {
-    assert.deepEqual(await queued({ userGid: "me" }).listQueued("code"), ["t3", "t9"]);
+    // t9 is blocked (open dependency) and must not be pulled.
+    assert.deepEqual(await queued({ userGid: "me" }).listQueued("code"), ["t3"]);
     assert.ok(urls[0].includes("/sections/Q1/tasks"), urls[0]);
     // Fail-closed: scoping on but no userGid → nothing is ours.
     assert.deepEqual(await queued().listQueued("code"), []);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listQueued lists a task whose dependencies are all completed", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("/tasks/t3/dependencies")) return ok({ data: [{ gid: "blocker", completed: true }] });
+    return ok({ data: [{ gid: "t3", completed: false, assignee: { gid: "me" } }] });
+  };
+  try {
+    assert.deepEqual(await queued({ userGid: "me" }).listQueued("code"), ["t3"]);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listQueued fails open (lists the task) when the dependencies call errors", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("/tasks/t3/dependencies")) return /** @type {any} */ ({ ok: false, status: 500 });
+    return ok({ data: [{ gid: "t3", completed: false, assignee: { gid: "me" } }] });
+  };
+  try {
+    assert.deepEqual(await queued({ userGid: "me" }).listQueued("code"), ["t3"]);
   } finally {
     global.fetch = orig;
   }
