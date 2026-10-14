@@ -242,3 +242,34 @@ test("queue.json keeps two ci jobs for one ref apart (keyed by dedupKey)", () =>
   s.removeQueued(ci("ci:1:1"));
   assert.deepEqual(s.listQueued().map((j) => j.dedupKey), ["ci:2:1"]);
 });
+
+test("summaries set/replace/clear per (ref, step) and persist; the file is capped at MAX_SUMMARY_REFS refs", async () => {
+  const { MAX_SUMMARY_REFS } = await import("../src/store.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-store-"));
+  const s = createStore(dir);
+  assert.equal(s.getSummaries("1"), undefined);
+  s.setSummary("1", "review", { summary: { tier: "low" }, outcome: "advance", run: "r1.log", at: "2026-01-01T00:00:01Z" });
+  s.setSummary("1", "code", { summary: { n: 1 }, outcome: "advance", run: "c1.log", at: "2026-01-01T00:00:00Z" });
+  s.setSummary("1", "review", { summary: { tier: "high" }, outcome: "hold", run: "r2.log", at: "2026-01-01T00:00:02Z" });
+  assert.deepEqual(createStore(dir).getSummaries("1")?.review?.summary, { tier: "high" });
+  s.clearSummary("1", "review");
+  assert.deepEqual(Object.keys(s.getSummaries("1") ?? {}), ["code"]);
+  s.clearSummary("1", "code");
+  assert.equal(s.getSummaries("1"), undefined, "an emptied ref is dropped");
+  s.clearSummary("1", "code"); // no-op
+  s.setSummary("2", "review", { summary: {}, outcome: "advance", run: "x", at: "2026-01-01T00:00:00Z" });
+  s.clearSummaries("2");
+  assert.equal(s.getSummaries("2"), undefined);
+
+  // cap: the refs with the oldest newest-`at` go first
+  const m = {};
+  const at = (/** @type {number} */ i) => new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString();
+  for (let i = 0; i < MAX_SUMMARY_REFS; i++) m[`r${i}`] = { review: { summary: {}, outcome: "advance", run: "x", at: at(i + 10) } };
+  m.r0.code = { summary: {}, outcome: "advance", run: "x", at: at(9999) }; // r0's newest is recent → kept
+  fs.writeFileSync(path.join(dir, "summaries.json"), JSON.stringify(m));
+  s.setSummary("new", "review", { summary: {}, outcome: "advance", run: "x", at: at(5000) });
+  const after = JSON.parse(fs.readFileSync(path.join(dir, "summaries.json"), "utf8"));
+  assert.equal(Object.keys(after).length, MAX_SUMMARY_REFS);
+  assert.ok("r0" in after && "new" in after);
+  assert.equal("r1" in after, false, "r1 had the oldest newest-at");
+});

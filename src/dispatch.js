@@ -214,6 +214,30 @@ export function buildUsageRecord({ ref, stepId, model, startedAt, endedAt, resul
 
 const DIFFICULTIES = /** @type {const} */ (["easy", "medium", "hard"]);
 
+/** Serialised-size cap for a verdict's free-form `summary` object. */
+export const MAX_SUMMARY_CHARS = 300;
+
+/**
+ * The verdict's optional `summary`: a small plain object, stored as-is (never interpreted)
+ * for supervisors. Anything else — non-object, array, null, or over MAX_SUMMARY_CHARS
+ * serialised — is dropped with one log line; it never affects the outcome.
+ * @param {unknown} raw
+ * @returns {Record<string, unknown>|undefined}
+ */
+export function parseSummary(raw) {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    console.log("[verdict] dropping summary (non-object)");
+    return undefined;
+  }
+  const n = JSON.stringify(raw).length; // raw came from JSON.parse — always serialisable
+  if (n > MAX_SUMMARY_CHARS) {
+    console.log(`[verdict] dropping summary (oversize ${n} chars)`);
+    return undefined;
+  }
+  return /** @type {Record<string, unknown>} */ (raw);
+}
+
 /**
  * True iff every heading starts some line of `description`, case-insensitive, after
  * trimming leading whitespace and stripping heading/emphasis markers (`#`, `h1.`–`h6.`,
@@ -508,6 +532,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         ? (raw.findings.length > MAX_FINDINGS ? `${raw.findings.slice(0, MAX_FINDINGS)}…(truncated)` : raw.findings)
         : undefined,
       paths: sanitizePaths(raw.paths),
+      summary: parseSummary(raw.summary),
     };
   }
 
@@ -569,7 +594,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       store?.clearRepo?.(job.ref);
     }
 
-    // A merge is a release signal whether or not the move landed.
+    // A merge is a release signal whether or not the move landed. Summaries outlive the
+    // manual drain (the PR is still open there) and end here.
+    store?.clearSummaries(job.ref);
     leavePipeline(job.ref);
     emit?.("merged", job.ref, job.stepId, { name: task.name, url: task.url });
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
@@ -647,6 +674,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       store?.clearDifficulty(ref);
       store?.clearFindings(ref);
       store?.clearRepo(ref);
+      store?.clearSummaries(ref);
     }
   }
 
@@ -1034,6 +1062,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     guardChanges(job.ref, step.id, verdict, ciBounce ? "ci" : step.id);
     if (ciBounce && verdict.outcome === "changes") emit?.("ci_red", job.ref, step.id, { action: "bounced", target: verdict.target });
 
+    // The step's supervisor summary, with the outcome actually applied. A run without one
+    // drops the step's earlier summary, so a stale one never outlives a re-run.
+    if (store) {
+      if (verdict.summary) {
+        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString() });
+      } else {
+        store.clearSummary(job.ref, step.id);
+      }
+    }
+
     // Drain before advancing, so the worktree is gone by the time the next stage looks.
     // A `changes` keeps the worktree (the re-fired step reworks the same branch/PR).
     const drained = step.drainWorktree && verdict.outcome !== "changes";
@@ -1074,6 +1112,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       store?.clearFindings(job.ref);
       leavePipeline(job.ref);
     }
+    // Summaries end on a terminal fail only — a drained `advance` (done) still has an open PR.
+    if (verdict.outcome === "fail") store?.clearSummaries(job.ref);
 
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };
   }

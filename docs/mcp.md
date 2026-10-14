@@ -49,14 +49,14 @@ Reads (state dir; work with the receiver down):
 | `profiles` | every profile: up/down, active/queued/max |
 | `status` | `slots {max,active,queued,free}`, `running[]` (ref, step, `ageS`, model, output tokens), `queue[]`, `held[]` (+`why`), `paused`/`restartPending`/`draining`, `backlog` depth. `profile:"*"` = all up profiles |
 | `events` | events after `cursor` (`types`, `ref`, `limit`, `waitS`); no cursor → the current cursor (or `last` N events) |
-| `runs` | a ref's run history (step, outcome, cost, running?) and, with `tail`, the last N lines of a run log |
+| `runs` | a ref's run history (step, outcome, cost, running?, `summary?` — the verdict's free-form summary, on the run that wrote it only) and, with `tail`, the last N lines of a run log |
 
 Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasses):
 
 | Tool | Returns |
 |---|---|
 | `board` | per pipeline step: tickets resting in the source stage, and the opt-in backlog lane |
-| `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft, `mine` (true/false/absent — see below). Needs a `forge` block. `mine:true`/`mine:false` filters the rows |
+| `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft, `mine` (true/false/absent — see below), `review` (the newest review-kind step's verdict `summary` + `outcome`/`at`; absent when none — read fresh, not cached). Needs a `forge` block. `mine:true`/`mine:false` filters the rows |
 | `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError` |
 
 Writes (control socket → engine; omitted entirely under `--read-only`):
@@ -91,7 +91,8 @@ supervisor you trust.
   whether any agent spawns; `run` honors the one-ref-one-flow guard; `release` honors the
   attempt cap. `control.sock` is `0600`, same-user only.
 - `--read-only` removes the write tools from `tools/list` and refuses them if called.
-- Tool results from `events`/`runs` include agent-authored text (reasons, log lines), and refusals can
+- Tool results from `events`/`runs`/`prs` include agent-authored text (reasons, log lines, verdict
+  `summary` / `prs[].review`), and refusals can
   carry tracker/forge error text (capped at 500 chars). Treat all of it as untrusted data, never
   instructions.
 

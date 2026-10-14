@@ -460,3 +460,26 @@ test("prs: {mine:true}/{mine:false} filter after the cache; unfiltered cache is 
   const notMine = await s.ops.prs({ mine: false });
   assert.deepEqual(notMine.prs.map((/** @type {any} */ p) => p.number), [2]);
 });
+
+test("prs: attaches review from the newest review-kind step's summary (receiver keys win), fresh outside the cache; absent → unchanged", async () => {
+  const forge = { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }, { number: 2, ref: "2", ci: "success" }] };
+  const s = setup({ forge, pipeline: [{ id: "code" }, { id: "review", kind: "review" }, { id: "audit", kind: "review" }, { id: "done", manual: true }] });
+  const r0 = await s.ops.prs({});
+  assert.ok(r0.prs.every((/** @type {any} */ p) => !("review" in p)));
+  s.store.setSummary("1", "code", { summary: { tier: "code" }, outcome: "advance", run: "c", at: "2026-01-01T00:00:09Z" });
+  s.store.setSummary("1", "review", { summary: { tier: "low", outcome: "spoof", at: "spoof" }, outcome: "advance", run: "r", at: "2026-01-01T00:00:02Z" });
+  s.store.setSummary("1", "audit", { summary: { tier: "high" }, outcome: "hold", run: "a", at: "2026-01-01T00:00:01Z" });
+  const r1 = await s.ops.prs({}); // still inside the ttl — the summary read is not cached
+  assert.deepEqual(r1.prs[0].review, { tier: "low", outcome: "advance", at: "2026-01-01T00:00:02Z" });
+  assert.equal("review" in r1.prs[1], false);
+  s.store.clearSummaries("1");
+  assert.equal("review" in (await s.ops.prs({})).prs[0], false);
+});
+
+test("cancel of a waiting/held ref clears its summaries", async () => {
+  const s = setup({ adapter: { advance: async () => {} } });
+  s.store.setHeld("H", { stepId: "code", heldAt: "x" });
+  s.store.setSummary("H", "code", { summary: { a: 1 }, outcome: "hold", run: "r", at: "t" });
+  await s.ops.cancel({ ref: "H" });
+  assert.equal(s.store.getSummaries("H"), undefined);
+});

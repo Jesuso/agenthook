@@ -23,7 +23,7 @@ function verdictFooter(verdictFile, outcomeLines, pathsLines = []) {
     `Before you exit, write your verdict as JSON to this exact file:`,
     `  ${verdictFile}`,
     `(also passed to you as the env var $AGENTHOOK_VERDICT_FILE). Schema:`,
-    `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>", "findings": "<optional, changes only: full Markdown review findings>" }`,
+    `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>", "findings": "<optional, changes only: full Markdown review findings>", "summary": {<optional small JSON object (≤300 chars) — a summary for supervisors, stored as-is>} }`,
     ...pathsLines,
     `Valid outcomes for THIS stage:`,
     ...outcomeLines,

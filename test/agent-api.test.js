@@ -302,3 +302,39 @@ test("readStatus lists real failures (not cancels, dismissed or re-run ones) as 
   assert.deepEqual(s.failed?.map((f) => [f.ref, f.step, f.why]), [["a", "code", "exit 1"]]);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("readRuns: a stored summary goes on the exact run that wrote it only; missing/garbage summaries.json is tolerated", () => {
+  const reg = registry();
+  const dir = profile(reg, "p");
+  const logs = path.join(dir, "logs");
+  const r1 = "2026-01-01T00-00-00-000Z-step-review-7.log";
+  const r2 = "2026-01-01T00-01-00-000Z-step-review-7.log";
+  const c1 = "2026-01-01T00-00-30-000Z-step-code-7.log";
+  for (const f of [r1, r2, c1]) fs.writeFileSync(path.join(logs, f), "# hdr\n");
+  fs.writeFileSync(path.join(dir, "events.jsonl"), "");
+  assert.ok(readRuns("p", "7", dir, reg).every((r) => !("summary" in r)), "no file → no summary");
+  fs.writeFileSync(path.join(dir, "summaries.json"), "{garbage");
+  assert.ok(readRuns("p", "7", dir, reg).every((r) => !("summary" in r)), "garbage → no summary");
+  fs.writeFileSync(path.join(dir, "summaries.json"), JSON.stringify({ 7: { review: { summary: { tier: "low" }, outcome: "advance", run: r2, at: "t" } } }));
+  const runs = readRuns("p", "7", dir, reg);
+  assert.deepEqual(runs.filter((r) => "summary" in r).map((r) => r.run), [r2]);
+  assert.deepEqual(runs.find((r) => r.run === r2)?.summary, { tier: "low" });
+});
+
+test("readTick: passes a PR row's review through to the compact row", async () => {
+  const reg = registry();
+  const dir = profile(reg, "p");
+  fs.writeFileSync(path.join(dir, "events.jsonl"), "");
+  const sock = controlSockPath(dir, "p");
+  const review = { tier: "low", outcome: "advance", at: "t" };
+  const control = await startControl(/** @type {any} */ ({ name: "p", controlSock: sock, pidFile: path.join(dir, "server.pid") }), {
+    startedAt: "x",
+    commands: { prs: async () => ({ at: "t", prs: [{ number: 1, ref: "1", ci: "success", review }, { number: 2, ref: "2", ci: "success" }] }) },
+  });
+  try {
+    const t = await readTick(readProfile("p", reg), { board: false, registry: reg });
+    assert.deepEqual(t.prs, [{ n: 1, ref: "1", ci: "success", review }, { n: 2, ref: "2", ci: "success" }]);
+  } finally {
+    control?.close();
+  }
+});
