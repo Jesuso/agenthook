@@ -17,6 +17,7 @@ import {
   compactEvent,
   etagOf,
   live,
+  readEpics,
 } from "../agent-api.js";
 import { readEventsTail } from "../ui/rows.js";
 import { validateArgs } from "./schema.js";
@@ -74,8 +75,15 @@ const TOOLS = {
         cursor: { type: "integer", description: "events.jsonl byte offset from a previous call; omit on the first call (events then start from now)" },
         board: { type: "boolean", description: "include board (default true)" },
         prs: { type: "boolean", description: "include agent PRs (default true)" },
+        epics: { type: "boolean", description: "include epics (default false)" },
         ifNoneMatch: { type: "string", description: "etag from a previous tick" },
       },
+    ),
+  },
+  epics: {
+    def: schema(
+      "List every epic with its progress, or one epic's tickets with `ref`: live via the tracker when the receiver is up (`live:true`), else a fallback built from this profile's own ticket history (`live:false`). `supported:false` means the tracker adapter has no epic support. Cached ~30s; `fresh` bypasses.",
+      { profile: PROFILE, ref: { type: "string", description: "one epic's ref — returns its tickets instead of the list" }, fresh: { type: "boolean" } },
     ),
   },
   events: {
@@ -225,7 +233,7 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
     },
     async tick(args) {
       const entry = target(args);
-      const t = await readTick(entry, { cursor: args.cursor, board: args.board !== false, prs: args.prs !== false, registry });
+      const t = await readTick(entry, { cursor: args.cursor, board: args.board !== false, prs: args.prs !== false, epics: args.epics === true, registry });
       return args.ifNoneMatch && args.ifNoneMatch === t.etag ? { unchanged: true, etag: t.etag, cursor: t.cursor } : t;
     },
     async events(args, { signal }) {
@@ -260,6 +268,10 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
       const entry = target(args);
       const r = await live(entry.stateKey, "prs", { fresh: args.fresh === true, ...(typeof args.mine === "boolean" ? { mine: args.mine } : {}) }, { registry });
       return { at: r.at, prs: r.prs };
+    },
+    async epics(args) {
+      const entry = target(args);
+      return readEpics(entry, { ref: args.ref, fresh: args.fresh === true, registry });
     },
   };
 

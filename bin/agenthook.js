@@ -23,6 +23,7 @@
 //   agenthook ui [--port <n>] [--no-open]  local web dashboard + editors (127.0.0.1 only)
 //   agenthook mcp [--read-only]    MCP server (stdio) for external agents — docs/mcp.md
 //   agenthook tick [name] [--json] one-call status+board+PRs+events digest for agents
+//   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
 //   agenthook digest [name] [--json] write + print a profile's Digest (no receiver needed)
 //   agenthook watch [name] [--event a,b] [--ref r] [--timeout s]  block until the next event
 //
@@ -51,6 +52,7 @@ import { events } from "../src/commands/events.js";
 import { ui } from "../src/commands/ui.js";
 import { mcp } from "../src/commands/mcp.js";
 import { tick } from "../src/commands/tick.js";
+import { epics } from "../src/commands/epics.js";
 import { digest } from "../src/commands/digest.js";
 import { watch } from "../src/commands/watch.js";
 import { readFileSync, realpathSync } from "node:fs";
@@ -88,7 +90,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, digest, watch };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch };
 
 const HELP = `agenthook — event-driven agentic development receiver
 
@@ -118,7 +120,8 @@ usage: agenthook <command> [args] [--config <path>]
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
   ui [--port <n>] [--no-open]  local web dashboard + editors, all profiles (127.0.0.1; default port 4180)
   mcp [--read-only]         MCP server over stdio: read+manage the pipeline from an agent (all profiles)
-  tick [name] [--json] [--cursor <n>] [--no-board] [--no-prs]  status+board+PRs+new events in one call
+  tick [name] [--json] [--cursor <n>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
+  epics [name] [--ref <epic>] [--fresh] [--json]  every epic's progress, or one epic's tickets
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
   watch [name] [--event a,b] [--ref r] [--cursor <n>] [--timeout <s>] [--json]  block until the next event (exit 2 on timeout)
   --version, -v             print the installed version
