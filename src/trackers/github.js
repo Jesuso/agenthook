@@ -19,10 +19,85 @@
 //     comment starting with cfg.trigger on a held issue re-runs the step that held.
 //   - The assignee "us" is the token owner's login, read once from /user and cached
 //     (so no login is pasted). Scoping is FAIL CLOSED — see scopeToUser below.
+//   - Epics: an issue is an epic when its custom type matches tracker.epicType (default
+//     "Epic") or it carries tracker.epicLabel (default "epic"); its tickets are its
+//     native GitHub sub-issues (ADR 0004).
 import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
 import { checkOwner, MoveRefusedError } from "./owner.js";
+
+/** Is `issue` an epic — its type matches `epicType`, OR it carries `epicLabel` (any
+ * case). A plain parent with sub-issues but no type/label is never an epic.
+ * @param {any} issue @param {string} epicType @param {string} epicLabel @returns {boolean} */
+export function isEpicIssue(issue, epicType, epicLabel) {
+  if (issue?.type?.name === epicType) return true;
+  const want = String(epicLabel || "").trim().toLowerCase();
+  if (!want) return false;
+  return (issue?.labels || []).some((/** @type {any} */ l) => String(typeof l === "string" ? l : l?.name).trim().toLowerCase() === want);
+}
+
+/** Rows that ARE epics (typed or labelled), PRs dropped, deduped by number. Pure —
+ * drives listEpics. @param {any[]} items @param {string} epicType @param {string} epicLabel
+ * @returns {import('../types.js').Epic[]} */
+export function mapEpics(items, epicType, epicLabel) {
+  /** @type {import('../types.js').Epic[]} */
+  const out = [];
+  const seen = new Set();
+  for (const it of Array.isArray(items) ? items : []) {
+    if (it?.pull_request) continue;
+    if (!isEpicIssue(it, epicType, epicLabel)) continue;
+    const ref = String(it.number);
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    out.push({
+      ref,
+      name: it.title,
+      url: it.html_url,
+      displayId: `#${ref}`,
+      status: it.state === "closed" ? "closed" : "open",
+      completed: it.state === "closed",
+    });
+  }
+  return out;
+}
+
+/** An epic's direct sub-issues mapped to EpicTicket[]. PRs dropped. Same-repo sub-issue
+ * (its repository_url matches `repoApiUrl`): ref/displayId `#<n>`, stage = the original
+ * casing of the first pipeline label (source/success/failure/hold/queue of any step) it
+ * carries, else null. Other-repo sub-issue: ref/displayId `<owner>/<repo>#<n>`, stage
+ * always null (so it never joins a local row with the same bare number). Pure — drives
+ * listEpicTickets.
+ * @param {any[]} items @param {string} repoApiUrl @param {Map<string,string>} stageLabels
+ * @returns {import('../types.js').EpicTicket[]} */
+export function mapEpicTickets(items, repoApiUrl, stageLabels) {
+  /** @type {import('../types.js').EpicTicket[]} */
+  const out = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    if (it?.pull_request) continue;
+    const n = String(it.number);
+    const sameRepo = typeof it.repository_url === "string" && it.repository_url.toLowerCase() === String(repoApiUrl).toLowerCase();
+    let ref = n;
+    let displayId = `#${n}`;
+    let stage = null;
+    if (!sameRepo) {
+      const m = /\/repos\/([^/]+\/[^/]+)$/.exec(String(it.repository_url || ""));
+      ref = displayId = `${m ? m[1] : "unknown/unknown"}#${n}`;
+    } else {
+      for (const l of it.labels || []) {
+        const name = typeof l === "string" ? l : l?.name;
+        if (typeof name !== "string") continue;
+        const hit = stageLabels.get(name.trim().toLowerCase());
+        if (hit) {
+          stage = hit;
+          break;
+        }
+      }
+    }
+    out.push({ ref, displayId, name: it.title, completed: it.state === "closed", stage });
+  }
+  return out;
+}
 
 /**
  * Raw route keys from issue labels starting with `prefix` (case-insensitive), e.g.
@@ -72,9 +147,27 @@ export function createGithubAdapter(cfg, store) {
   /** @param {Response} res @returns {Promise<any>} */
   const json = (res) => res.json();
   const repoPath = () => `/repos/${owner}/${repo}`;
+  const repoApiUrl = () => `https://api.github.com${repoPath()}`;
+  const epicType = pc.epicType || "Epic";
+  const epicLabel = pc.epicLabel || "epic";
 
   /** @param {string|null|undefined} s */
   const norm = (s) => (s || "").trim().toLowerCase();
+
+  /** Paginate an issues-list endpoint (page=1.. until a short page), capped at 10 pages.
+   * @param {string} path @param {string} query @returns {Promise<any[]>} */
+  async function pagedIssues(path, query) {
+    /** @type {any[]} */
+    const out = [];
+    for (let page = 1; page <= 10; page++) {
+      const res = await api(`${path}?${query}${query ? "&" : ""}per_page=100&page=${page}`);
+      if (!res.ok) throw new Error(`list issues ${res.status}`);
+      const batch = (await json(res)) || [];
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
 
   // Webhook secret: NEVER required of the user. An explicit tracker.webhookSecret wins
   // (and `false` disables verification — accept unsigned). Otherwise agenthook GENERATES
@@ -432,6 +525,24 @@ export function createGithubAdapter(cfg, store) {
       const res = await api(`${repoPath()}/issues/${ref}`);
       if (!res.ok) throw new Error(`issue fetch ${res.status}`);
       const issue = await json(res);
+      /** @type {import('../types.js').EpicRef | undefined} */
+      let epic;
+      if (issue.parent_issue_url) {
+        try {
+          const pres = await api(`${repoPath()}/issues/${ref}/parent`);
+          if (pres.ok) {
+            const parent = await json(pres);
+            const parentSameRepo = typeof parent.repository_url !== "string" || parent.repository_url.toLowerCase() === repoApiUrl().toLowerCase();
+            if (parentSameRepo && isEpicIssue(parent, epicType, epicLabel)) {
+              epic = { ref: String(parent.number), name: parent.title, url: parent.html_url, displayId: `#${parent.number}` };
+            }
+          } else if (pres.status !== 404) {
+            console.warn(`[epics] parent lookup for #${ref} failed (${pres.status})`);
+          }
+        } catch (e) {
+          console.warn(`[epics] parent lookup for #${ref} failed:`, e instanceof Error ? e.message : e);
+        }
+      }
       return {
         ref,
         name: issue.title,
@@ -440,6 +551,8 @@ export function createGithubAdapter(cfg, store) {
         completed: issue.state === "closed",
         assignedToUs: await issueIsOurs(issue),
         displayId: `#${ref}`,
+        isEpic: isEpicIssue(issue, epicType, epicLabel),
+        ...(epic ? { epic } : {}),
         routeKeys: extractRouteKeys(
           issue.labels,
           cfg.providerConfig?.routeField,
@@ -547,6 +660,7 @@ export function createGithubAdapter(cfg, store) {
         if (!res.ok) throw new Error(`list issues "${step.sourceLabel}" ${res.status}`);
         for (const it of (await json(res)) || []) {
           if (it.pull_request) continue; // the issues list endpoint also returns PRs — skip them
+          if (isEpicIssue(it, epicType, epicLabel)) continue; // never run an agent on an epic
           const ref = String(it.number);
           if (seen.has(ref)) continue;
           if (!(await issueIsOurs(it))) continue;
@@ -580,6 +694,7 @@ export function createGithubAdapter(cfg, store) {
       const refs = [];
       for (const it of (await json(res)) || []) {
         if (it.pull_request) continue; // the issues list endpoint also returns PRs — skip them
+        if (isEpicIssue(it, epicType, epicLabel)) continue; // never run an agent on an epic
         const ref = String(it.number);
         if (!(await issueIsOurs(it))) continue;
         if ((await blockedBy(ref)).length) continue; // blocked → must not be pulled into work
@@ -591,6 +706,46 @@ export function createGithubAdapter(cfg, store) {
     openBlockers: async (ref) => (await blockedBy(ref)).map((n) => `#${n}`),
 
     ownership: ownedByUs,
+
+    // Every epic in the repo: typed `epicType` OR labelled `epicLabel`, from either path,
+    // always post-filtered through mapEpics (so a stray match on either query can't leak
+    // a non-epic). Each path fails open independently (a personal repo has no issue types
+    // → the type path 4xxs, yielding none from it); the whole thing fails open too.
+    async listEpics() {
+      try {
+        /** @type {any[]} */
+        let byLabel = [];
+        try {
+          byLabel = await pagedIssues(`${repoPath()}/issues`, `labels=${encodeURIComponent(epicLabel)}&state=all`);
+        } catch (e) {
+          console.warn(`[epics] listEpics label path failed:`, e instanceof Error ? e.message : e);
+        }
+        /** @type {any[]} */
+        let byType = [];
+        try {
+          byType = await pagedIssues(`${repoPath()}/issues`, `type=${encodeURIComponent(epicType)}&state=all`);
+        } catch (e) {
+          console.warn(`[epics] listEpics type path failed:`, e instanceof Error ? e.message : e);
+        }
+        return mapEpics([...byLabel, ...byType], epicType, epicLabel);
+      } catch (e) {
+        console.warn(`[epics] listEpics failed:`, e instanceof Error ? e.message : e, "— returning []");
+        return [];
+      }
+    },
+
+    // An epic's direct sub-issues (ADR 0004 — native GitHub sub-issues, not Projects/
+    // Asana subtasks). Fail-open on API error.
+    /** @param {string} epicRef */
+    async listEpicTickets(epicRef) {
+      try {
+        const items = await pagedIssues(`${repoPath()}/issues/${epicRef}/sub_issues`, "");
+        return mapEpicTickets(items, repoApiUrl(), pipelineLabels());
+      } catch (e) {
+        console.warn(`[epics] listEpicTickets(${epicRef}) failed:`, e instanceof Error ? e.message : e, "— returning []");
+        return [];
+      }
+    },
 
     // Auto-create the repo webhook (GitHub, unlike Jira, allows it with a token). Scrub
     // our stale hooks first (the tunnel URL rotates each boot on an ephemeral ingress),
