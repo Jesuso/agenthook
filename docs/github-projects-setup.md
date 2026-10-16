@@ -125,6 +125,31 @@ answer the agent's question, then set the card's Status from its `holdStatus` ba
 `sourceStatus`. The step re-runs, but without your reply in its prompt. (A future adapter would need
 the `issue_comment` event on a repo or org hook; `projects_v2_item` does not carry comments.)
 
+## Epics
+
+An **epic** is an issue that groups other issues as **direct native sub-issues**, same as the
+[labels tracker](github-setup.md#epics) (ADR 0004). It is an epic when its **issue type** is
+`tracker.epicType` (default `"Epic"`, organization repos only) **or** it carries the label
+`tracker.epicLabel` (default `"epic"`, the path for personal accounts). A parent that merely has
+sub-issues is not an epic, and agenthook never runs an agent on one, even in a pipeline Status.
+
+```jsonc
+"tracker": { "type": "github-projects", "project": "owner/1", "epicType": "Epic", "epicLabel": "epic" }
+```
+
+- **Scope = the board.** Only epic *cards on this board* are listed. Each ticket's stage is its own
+  card's **Status**; a card with no Status reads as backlog, and a sub-issue that is not on the board
+  (or lives in another repository) is shown as untracked.
+- **Sub-issues follow their parent onto the board.** GitHub adds a sub-issue to its parent's projects
+  by default, so adding an epic card also adds its children (verified: adding one epic card added its
+  three sub-issues, with their Status). Untracked children are therefore rare for same-owner boards.
+- No extra token scope: the epic fields ride on the same project item query the pipeline already uses.
+- **No push for epic changes.** The `projects_v2_item` org hook carries card edits, not sub-issue
+  changes (those are *repository* events), and a user-owned board has no webhook at all. The Epics
+  view refreshes on ticket events and its Refresh button, like Asana. (If you also run a `github`
+  labels profile on a repo, its hook emits `epic_changed` for that repo.)
+- See epics in the dashboard ([`web-ui.md`](web-ui.md)) or via the MCP `epics` tool / `agenthook epics`.
+
 ## Verify
 
 ```bash
