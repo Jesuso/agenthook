@@ -27,6 +27,7 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)
  *           | digest_start | digest_end (an on-demand Digest ran, src/digest.js; ref/step ""; `digest_end` has `outcome` ok|fail, `costUsd` or `reason`; hidden by default, not in the sinks' default set)
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
+ *           | epic_skipped (a pipeline job reached an item that is an epic; no agent ran, nothing moved; `name`, `url`)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
  *   ref   — task ref (provider-native id)

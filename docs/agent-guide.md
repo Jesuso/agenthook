@@ -168,7 +168,8 @@ its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
 `pipeline_done` (ticket finished, PR ready), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
-Housekeeping: `restart_requested`, `restarting`, `overlap_held`, `overlap_released`. There's also
+Housekeeping: `restart_requested`, `restarting`, `overlap_held`, `overlap_released`, `epic_skipped`
+(an epic reached a step; no agent ran, nothing moved). There's also
 `coalesced` (a duplicate webhook dropped), hidden unless you pass `types:["coalesced"]`. Full
 catalog with fields: [events.md](events.md).
 

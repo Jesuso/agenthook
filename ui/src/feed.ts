@@ -99,6 +99,11 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       tone = "queued";
       break;
     }
+    case "epic_skipped": {
+      text = "epic — skipped";
+      tone = "idle";
+      break;
+    }
     default: {
       if (PLAIN_EVENTS.has(name)) {
         text = name.replace(/_/g, " ");

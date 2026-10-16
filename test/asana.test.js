@@ -447,6 +447,29 @@ test("listResting omits blocked tasks", async () => {
   );
 });
 
+test("listResting drops an epic row, keeps untyped and other-typed rows", async () => {
+  const jobs = await withFetch(
+    (u) => {
+      if (u.includes("/sections/S1/tasks")) {
+        return ok({
+          data: [
+            { gid: "T1", completed: false },
+            { gid: "T2", completed: false, custom_type: { name: "Epic" } },
+            { gid: "T3", completed: false, custom_type: { name: "Milestone" } },
+          ],
+        });
+      }
+      if (u.includes("/dependencies")) return ok({ data: [] });
+      return ok({});
+    },
+    () => routed().listResting(),
+  );
+  assert.deepEqual(
+    jobs.map((j) => j.ref),
+    ["T1", "T3"],
+  );
+});
+
 /** Record every fetch as `METHOD url body`. @param {string[]} calls @param {string} [assignee] */
 const recordStub = (calls, assignee = "U") => (/** @type {string} */ u, /** @type {any} */ init) => {
   calls.push(`${init.method || "GET"} ${u} ${init.body || ""}`);
@@ -734,6 +757,27 @@ test("listQueued reads the queue section in API order, keeping only our open, un
     assert.ok(urls[0].includes("/sections/Q1/tasks"), urls[0]);
     // Fail-closed: scoping on but no userGid → nothing is ours.
     assert.deepEqual(await queued().listQueued("code"), []);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listQueued drops an epic row, keeps untyped and other-typed rows", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("/dependencies")) return ok({ data: [] });
+    return ok({
+      data: [
+        { gid: "t1", completed: false, assignee: { gid: "me" } },
+        { gid: "t2", completed: false, assignee: { gid: "me" }, custom_type: { name: "Epic" } },
+        { gid: "t3", completed: false, assignee: { gid: "me" }, custom_type: { name: "Milestone" } },
+      ],
+    });
+  };
+  try {
+    assert.deepEqual(await queued({ userGid: "me" }).listQueued("code"), ["t1", "t3"]);
   } finally {
     global.fetch = orig;
   }
