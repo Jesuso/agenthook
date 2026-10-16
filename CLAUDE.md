@@ -45,6 +45,7 @@ node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink be
 node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashboard (127.0.0.1, token→cookie; no config)
 node bin/agenthook.js mcp [--read-only]  # MCP server (stdio, all profiles) for external agents — docs/mcp.md
 node bin/agenthook.js tick [name] [--json]  # one-call status+board+PRs+events digest (same payload as the MCP `tick`)
+node bin/agenthook.js digest [name] [--json]  # write + print a profile's Digest in-process (no receiver needed)
 node bin/agenthook.js watch [name] [--event a,b] [--timeout s]  # block until the next event (exit 2 on timeout)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)

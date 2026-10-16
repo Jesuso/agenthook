@@ -448,6 +448,11 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
 - **Result**: only the latest per profile, written by the receiver to `<stateDir>/digest.json`
   (`text, generatedAt, costUsd, model, basedOnEventOffset`) and pushed to the UI by SSE. The Overview
   panel shows age, an "N events since" stale hint and a Refresh button.
+- **CLI path**: `agenthook digest [name] [--json]` runs the same `createDigester` in the CLI
+  process, against the profile's own config + state dir — no control socket, works whether the
+  receiver is up or down. Not audited to `control-audit.jsonl` (only the receiver's `digest` op
+  is). `events.jsonl` only gets `digest_start`/`digest_end` from the CLI when the receiver is down
+  (it stays the single writer while it's up); the UI picks up the written `digest.json` either way.
 - **As built**: `src/digest.js` (snapshot, prompt, argv, single-flight runner), `src/digest-config.js`
   (validation), the receiver op `digest` (`ops.js`, audited), `GET`/`POST /api/digest` (POST waits up to
   200 s for the agent), `DigestPanel.tsx` in the Overview. The agent runs with `--tools ""`,
