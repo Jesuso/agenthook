@@ -29,6 +29,7 @@ import { Overview } from "./Overview";
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
 const ConfigView = lazy(() => import("./ConfigView"));
+const StatsView = lazy(() => import("./StatsView"));
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
@@ -286,6 +287,12 @@ export default function App() {
             eventSink={instructionsSink}
             onDirtyChange={(d) => (instructionsDirty.current = d)}
           />
+        </Suspense>
+      );
+    } else if (route.view === "stats") {
+      page = (
+        <Suspense fallback={<p className="text-sm">Loading stats…</p>}>
+          <StatsView key={profile.name} profile={profile} feed={feed.filter((f) => f.profile === profile.name)} />
         </Suspense>
       );
     } else if (route.view === "config") {

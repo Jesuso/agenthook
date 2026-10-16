@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dailyStats, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/ui/stats.js";
+import { dailyStats, quantile, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/ui/stats.js";
 
 const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC; tzOffset 0 unless a test says otherwise
 const at = (/** @type {string} */ iso) => iso;
@@ -90,4 +90,48 @@ test("readStats: a replaced (shorter) file restarts the read; garbage lines are 
   assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 2);
   fs.writeFileSync(f, "not json\n" + line(ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "C" })));
   assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 1);
+});
+
+test("quantile: linear interpolation on a sorted list; empty is 0", () => {
+  assert.equal(quantile([], 0.5), 0);
+  assert.equal(quantile([4], 0.9), 4);
+  assert.equal(quantile([1, 2, 3, 4], 0.5), 2.5);
+  assert.equal(quantile([10, 20, 30], 0.1), 12);
+  assert.equal(quantile([10, 20, 30], 1), 30);
+});
+
+test("dailyStats: spend and runs per step, outcomes per day (unknown outcome and missing step are kept, not dropped)", () => {
+  const events = [
+    ev("2026-10-15T10:00:00Z", "run_end", { step: "triage", outcome: "advance", costUsd: 1 }),
+    ev("2026-10-15T10:05:00Z", "run_end", { step: "code", outcome: "advance", costUsd: 4 }),
+    ev("2026-10-15T10:10:00Z", "run_end", { step: "code", outcome: "changes", costUsd: 2 }),
+    ev("2026-10-15T10:15:00Z", "run_end", { step: "review", outcome: "hold", costUsd: 0.5 }),
+    ev("2026-10-15T10:20:00Z", "run_end", { step: "review", outcome: "fail" }),
+    ev("2026-10-15T10:25:00Z", "run_end", { step: "", outcome: "weird", costUsd: 1 }),
+  ];
+  const [t] = dailyStats(events, { now: NOW, days: 1 });
+  assert.deepEqual(t.byStep.code, { runs: 2, costUsd: 6 });
+  assert.deepEqual(t.byStep.triage, { runs: 1, costUsd: 1 });
+  assert.deepEqual(t.byStep.review, { runs: 2, costUsd: 0.5 });
+  assert.deepEqual(t.byStep["?"], { runs: 1, costUsd: 1 });
+  assert.deepEqual(t.outcomes, { advance: 2, changes: 1, hold: 1, fail: 1, other: 1 });
+});
+
+test("dailyStats: ticketCost is what each finished ticket cost since its last finish, counted once, incl. spend before the window", () => {
+  const events = [
+    ev("2026-09-01T10:00:00Z", "run_end", { ref: "A", costUsd: 3 }), // long before the 2-day window
+    ev("2026-10-14T10:00:00Z", "run_end", { ref: "A", costUsd: 2 }),
+    ev("2026-10-14T11:00:00Z", "pipeline_done", { ref: "A" }), // A cost 5 to finish
+    ev("2026-10-14T11:00:02Z", "pipeline_done", { ref: "A" }), // duplicate burst: not a second ticket cost
+    ev("2026-10-14T12:00:00Z", "pipeline_done", { ref: "H" }), // finished by hand: no agent spend, no cost sample
+    ev("2026-10-15T09:00:00Z", "run_end", { ref: "A", costUsd: 1 }), // reopened and re-run
+    ev("2026-10-15T09:30:00Z", "pipeline_done", { ref: "A" }),
+    ev("2026-10-15T09:00:00Z", "run_end", { ref: "B", costUsd: 10 }),
+    ev("2026-10-15T09:40:00Z", "pipeline_done", { ref: "B" }),
+  ];
+  const [y, t] = dailyStats(events, { now: NOW, days: 2 });
+  assert.deepEqual(y.ticketCost, { n: 1, p10: 5, p50: 5, p90: 5 });
+  assert.equal(y.finished, 2, "the hand-finished ticket still counts as finished");
+  assert.deepEqual(t.ticketCost, { n: 2, p10: 1.9, p50: 5.5, p90: 9.1 });
+  assert.equal(dailyStats([ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "Z" })], { now: NOW, days: 1 })[0].ticketCost, null);
 });

@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { axisDollars, chartModel, costPerTicket, dayAt, MARGIN } from "./statsChart";
-import type { DayStats } from "./contract";
+import { day } from "./statsFixtures";
 
-const day = (date: string, over: Partial<DayStats> = {}): DayStats => ({ date, finished: 0, merged: 0, runs: 0, rework: 0, failedRuns: 0, costUsd: 0, ...over });
 const week = [
   day("2026-10-12", { finished: 10, costUsd: 50 }),
   day("2026-10-13", { finished: 0 }),
