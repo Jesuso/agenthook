@@ -71,7 +71,7 @@ several projects stay distinguishable at a glance. Details in [docs/web-ui.md](d
 | **Forge** | Optional GitHub forge: PR merge detection, red-CI handling, mergeability and CI roll-up |
 | **Multi-profile** | Many projects in parallel, each its own config, state and port; rename, move and archive profiles safely |
 | **Multi-repo** | Route tickets of one board to different repositories |
-| **Epics** | Group tickets into epics (Asana custom type, GitHub issue type or label + sub-issues, Jira's native epic + parent) — progress, needs-you, velocity/ETA in the [UI](docs/github-setup.md#epics), MCP and CLI |
+| **Epics** | Group tickets into epics (Asana custom type, GitHub issue type or label + sub-issues — labels or Projects v2 —, Jira's native epic + parent) — progress, needs-you, velocity/ETA in the [UI](docs/github-setup.md#epics), MCP and CLI |
 | **Briefings** | `ah digest` / **Catch me up**: a tool-less agent summarises one profile from a read-only snapshot |
 | **Agent interface** | An MCP server and `tick`/`watch` commands so an engineering-manager loop can supervise and drive the pipeline |
 | **Safety** | `fullAuto` off by default, HMAC-verified webhooks, fail-closed assignee scoping, optional [sandbox container](docs/sandbox.md) |
