@@ -6,7 +6,11 @@ import { PROFILE_COLORS, PROFILE_EMOJIS, deriveIdentity, identityErrors, isProfi
 test("the palette excludes status hues and the emoji list has unique single entries", () => {
   for (const c of ["red", "amber", "green", "orange", "yellow"]) assert.ok(!PROFILE_COLORS.includes(c), c);
   assert.equal(new Set(PROFILE_EMOJIS).size, PROFILE_EMOJIS.length);
-  assert.ok(PROFILE_EMOJIS.length >= 50);
+  assert.ok(PROFILE_EMOJIS.length >= 200);
+});
+
+test("every emoji is one code point: no variation selector or ZWJ sequence, so it round-trips as a plain string", () => {
+  for (const e of PROFILE_EMOJIS) assert.equal([...e].length, 1, `${e} ${[...e].map((c) => c.codePointAt(0)?.toString(16)).join(" ")}`);
 });
 
 test("deriveIdentity is deterministic and always lands on the palette / list", () => {

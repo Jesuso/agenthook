@@ -416,7 +416,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 
 ### Profile identity
 - Optional config block `ui: { color, emoji }`: fixed ~10-hue palette tuned for light/dark, curated
-  ~60-emoji list, edited in the Config editor's form (no new write path).
+  ~230-emoji list, edited in the Config editor's form (no new write path).
 - Unset → derived deterministically from the state key (hue + emoji).
 - **Image deferred.** If wanted later: `ui.image` as a path/URL in config, no upload endpoint
   (upload would break "the UI's only file writes are instructions and config").

@@ -329,14 +329,9 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
           <button type="button" className={BUTTON} aria-expanded={emojiOpen} onClick={() => setEmojiOpen((o) => !o)}>
             {emojiOpen ? "Hide emoji" : "Choose emoji"}
           </button>
-          {emoji !== undefined && (
-            <button type="button" className={BUTTON} onClick={() => pick("emoji", undefined)}>
-              Automatic emoji
-            </button>
-          )}
         </div>
         {emojiOpen && (
-          <div role="radiogroup" aria-label="profile emoji" className="grid max-w-md grid-cols-10 gap-1">
+          <div role="radiogroup" aria-label="profile emoji" className="grid max-h-56 max-w-md grid-cols-10 gap-1 overflow-y-auto rounded border border-[var(--color-border-subtle)] p-1">
             {PROFILE_EMOJIS.map((e) => (
               <button
                 key={e}
