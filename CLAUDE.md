@@ -193,7 +193,9 @@ Key files:
   reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200, and the three POSTs audit their
   outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
   `POST /api/release` (same guards; `{profile, ref, comment?}`, 20 s timeout, audited without the comment) answers a held
-  ticket via the receiver's `release` op. `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
+  ticket via the receiver's `release` op. `GET /api/epics[/<ref>]` (cookie only, like discover; `<ref>` must match
+  `EPIC_REF_RE` → else 400; 20 s `epicsTimeoutMs`) relays the receiver's `epics` op; down (503) → 200 `live:false`
+  built locally from `refmeta.epic` via `epics.js` `localEpics` (no tracker call, no write). `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
   read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
   stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
   `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
@@ -210,7 +212,9 @@ Key files:
   (0600, comment text never logged), refusals exposed to the caller (`e.expose`). `cancel` = `queue.remove`
   + `runClaude.cancel(ref)` (SIGTERM→SIGKILL; resolves as `fail`, "cancelled by operator"). `release`
   reuses `resumeJob` (the `@agent` gate); `run` is `agenthook run`'s move incl. `entryBlock`. Forge
-  `listAgentPrs` (github) backs `prs`. `board`/`prs` are cached ~30 s (`ttlCache`) — an explicit tool call
+  `listAgentPrs` (github) backs `prs`. The read `epics` (`{ref?, fresh?, tz?}`) lists every epic + its tickets
+  (`listEpics` then `listEpicTickets` per epic; no readers → `supported:false`) and joins them with local rows/history
+  through `epics.js` outside the cache. `board`/`prs`/`epics` are cached ~30 s (`ttlCache`) — an explicit tool call
   is the only trigger, so the no-implicit-polling rule holds.
 - `src/state-move.js` — `rename --move`'s core, shared by the engine and the CLI: `checkMove`
   (valid/free/non-colliding target, config still keys `from`, same filesystem) and
@@ -224,7 +228,8 @@ Key files:
   unregisters webhooks (best-effort), exits with no respawn and archives in teardown's tail.
 - `src/digest.js` + `src/digest-config.js` — the on-demand **Digest** (docs/web-ui.md, ADR 0002): `buildSnapshot` (pure over a state dir), `buildDigestArgs` (tool-less `claude -p`, project settings only, never `fullAuto`), `createDigester` (single-flight, outside the slot pool, writes `<stateDir>/digest.json`, emits `digest_start`/`digest_end`). Reached only through the `digest` control op (`ops.js`) ← `POST /api/digest`; the SOUL file (`digest.soul`, default `SOUL.md` beside the config) is on the instructions allowlist with scope `soul`.
 - `src/ticket-summary.js` — `summarizeDescription` (pure): a tracker description → one plain paragraph (≤240 chars, first prose paragraph, markdown/fences/checklists stripped), stored by dispatch as `refmeta.summary` and shown by the UI as what a ticket is about.
-- `src/epics.js` — pure `epicStats` (progress by bucket, needs-you, velocity, ETA) joining an `Epic` + its `EpicTicket`s with `ui/rows.js` `TicketRow`s and `ui/stats.js` `readHistory`; `isNeedsYou` mirrors `ui/src/summary.ts`. No I/O; #300+ wires it up.
+- `src/epics.js` — pure `epicStats` (progress by bucket, needs-you, velocity, ETA) joining an `Epic` + its `EpicTicket`s with `ui/rows.js` `TicketRow`s and `ui/stats.js` `readHistory`; `isNeedsYou` mirrors `ui/src/summary.ts`; `ticketBucket` is the per-ticket decision, `epicDetail` adds it per ticket,
+  `localEpics` groups `refmeta.epic` for the UI's receiver-down fallback, `EPIC_REF_RE` guards refs before any tracker URL. No I/O.
 - `src/identity.js` — a profile's colour + emoji (`ui: {color, emoji}` in config). Import-free so config validation (`identityErrors`),
   the heartbeat (`ui`), `ui/rows.js` `profileView` (resolved `color`/`emoji`, validated — foreign values never reach the browser) and the
   browser bundle share one palette (`PROFILE_COLORS`, tokens `--color-profile-<id>` in `ui/src/index.css`) and one curated emoji list.

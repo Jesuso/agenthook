@@ -22,9 +22,12 @@
 // the receiver over its socket to acknowledge a failed/cancelled ticket (a `dismissed` event the
 // receiver itself writes). `POST /api/release` (same guards) answers a held ticket: the receiver
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
-// reused as the MCP `release` tool). Nothing else in any state dir is ever written.
+// reused as the MCP `release` tool). `GET /api/epics[/<ref>]` asks the receiver's `epics` op (the
+// tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic. Nothing
+// else in any state dir is ever written.
 import { readDigest } from "../digest.js";
-import { readStats } from "./stats.js";
+import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "../epics.js";
+import { readHistory, readStats } from "./stats.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -37,7 +40,7 @@ import { readConfigFile, writeConfigFile } from "./config.js";
 import { controlRequest, resolveProfileSock } from "./control-client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
 import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
-import { buildSnapshot, readEventsTail } from "./rows.js";
+import { buildRows, buildSnapshot, readEventsTail, readProfileState } from "./rows.js";
 import { appendAudit, UI_MAX_BYTES } from "./save.js";
 import { createWatcher } from "./watch.js";
 
@@ -75,6 +78,9 @@ const DIGEST = "/api/digest";
 const PAUSE = "/api/pause";
 const RESUME = "/api/resume";
 
+/** `GET /api/epics` (list) and `GET /api/epics/<ref>` (one epic). */
+const EPICS = "/api/epics";
+
 /** Constant-time string compare; a length mismatch is a mismatch. @param {string} a @param {string} b */
 export function safeEqual(a, b) {
   const x = Buffer.from(a, "utf8");
@@ -93,10 +99,10 @@ export function cookieToken(header) {
 
 /**
  * @param {{ port: number, token: string, distDir: string, registry?: string,
- *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number }} opts
+ *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, epicsTimeoutMs?: number }} opts
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000 }) {
+export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, epicsTimeoutMs = 20000 }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -327,6 +333,28 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       });
     });
 
+  /**
+   * The receiver-down view of `GET /api/epics[/<ref>]`: the epics the profile's refmeta names
+   * (`epic` per ticket), joined with its local rows and history — no tracker read, `live:false`.
+   * Null when `ref` names none of them (→ 404).
+   * @param {string} profile @param {string} dir @param {string|null} ref @param {number} tz
+   */
+  const localEpicsView = (profile, dir, ref, tz) => {
+    const { heartbeat: hb } = readProfile(profile, registry);
+    const state = readProfileState(dir);
+    const join = {
+      rows: buildRows(profile, state, { repository: hb?.repository ?? null, up: false }),
+      events: readHistory(path.join(dir, "events.jsonl")).events,
+      forge: !!hb?.forge,
+      tzOffset: tz,
+    };
+    const groups = localEpics(state.refmeta);
+    const at = new Date().toISOString();
+    if (ref === null) return { at, live: false, supported: true, epics: groups.map((g) => epicStats(g.epic, g.tickets, join)) };
+    const hit = groups.find((g) => g.epic.ref === ref);
+    return hit ? { at, live: false, supported: true, epic: epicDetail(hit.epic, hit.tickets, join) } : null;
+  };
+
   /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
   const profileConfigPath = (profile) => {
     const p = readProfile(profile, registry);
@@ -529,6 +557,19 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         const sock = resolveProfileSock(registry, params.get("profile") || "");
         if (!sock) return send(res, 404);
         callControl(sock.sockPath, "discover", {}, discoverTimeoutMs).then(({ status, body }) => sendStatusJson(res, status, body));
+        return;
+      }
+      if (p === EPICS || p.startsWith(EPICS + "/")) {
+        const profile = params.get("profile") || "";
+        const sock = resolveProfileSock(registry, profile);
+        if (!sock) return send(res, 404);
+        const ref = p === EPICS ? null : p.slice(EPICS.length + 1);
+        const tz = Number(params.get("tz") ?? 0);
+        if ((ref !== null && !EPIC_REF_RE.test(ref)) || !Number.isFinite(tz) || Math.abs(tz) > 14 * 60) return send(res, 400);
+        callControl(sock.sockPath, "epics", { ...(ref !== null ? { ref } : {}), tz }, epicsTimeoutMs).then(({ status, body }) => {
+          if (status !== 503) return sendStatusJson(res, status, body);
+          sendJson(res, () => localEpicsView(profile, sock.dir, ref, tz));
+        });
         return;
       }
       if (p === "/api/profile/remove-preview") {

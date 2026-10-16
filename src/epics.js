@@ -1,9 +1,13 @@
 // Pure stats over an epic + its tickets (no I/O): joins the live members (Adapter.listEpicTickets)
 // with the profile's local state (ui/rows.js buildRows) and event history (ui/stats.js readHistory)
-// into progress-by-bucket, needs-you, and velocity/ETA numbers. #300+ wires this up (ops/MCP/CLI/UI).
+// into progress-by-bucket, needs-you, and velocity/ETA numbers. The receiver's `epics` op (ops.js)
+// and the `ah ui` receiver-down fallback (`localEpics`, from refmeta.epic) both join through here.
 import { dailyStats } from "./ui/stats.js";
 
 const DAY_MS = 24 * 3600 * 1000;
+
+/** An epic ref safe to interpolate into a tracker URL path (Asana gid, Jira key, issue number). */
+export const EPIC_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
  * @typedef {'backlog'|'running'|'needsYou'|'finished'|'merged'|'untracked'} EpicBucket
@@ -37,6 +41,38 @@ export function isNeedsYou(row, forge) {
 /** @param {number} ts @param {number} tzOffset */
 const dayKey = (ts, tzOffset) => new Date(ts - tzOffset * 60000).toISOString().slice(0, 10);
 
+/** Events grouped per ref, in order. @param {Record<string, any>[]} events */
+function groupByRef(events) {
+  /** @type {Map<string, Record<string, any>[]>} */
+  const byRef = new Map();
+  for (const e of events) {
+    const list = byRef.get(String(e.ref));
+    if (list) list.push(e);
+    else byRef.set(String(e.ref), [e]);
+  }
+  return byRef;
+}
+
+/**
+ * The bucket one epic ticket counts in: the local row (when the ref ran here) outranks the
+ * tracker's view; with no live row, the event history and then the tracker stage decide.
+ * @param {import('./types.js').EpicTicket} ticket
+ * @param {import('./ui/contract.js').TicketRow|null} row  the ref's local row, or null
+ * @param {Record<string, any>[]|undefined} refEvents  the ref's events, in order
+ * @param {boolean} forge
+ * @returns {EpicBucket}
+ */
+export function ticketBucket(ticket, row, refEvents, forge) {
+  if (row && row.status === "done" && row.prState === "merged") return "merged";
+  if (row && isNeedsYou(row, forge)) return "needsYou";
+  if (row && ["running", "queued", "interrupted", "stalled"].includes(row.status)) return "running";
+  if (row && row.status === "done") return "finished";
+  if (ticket.completed) return "finished";
+  if ((!row || row.status === "idle") && historicallyFinished(refEvents)) return "finished";
+  if (ticket.stage !== null) return "backlog";
+  return "untracked";
+}
+
 /**
  * @param {import('./types.js').Epic} epic
  * @param {import('./types.js').EpicTicket[]} tickets
@@ -47,14 +83,7 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
   const memberRefs = new Set(tickets.map((t) => t.ref));
   const rowByRef = new Map(rows.map((r) => [r.ref, r]));
   const memberEvents = events.filter((e) => memberRefs.has(String(e.ref)));
-
-  /** @type {Map<string, Record<string, any>[]>} events per ref, in order */
-  const eventsByRef = new Map();
-  for (const e of memberEvents) {
-    const list = eventsByRef.get(String(e.ref));
-    if (list) list.push(e);
-    else eventsByRef.set(String(e.ref), [e]);
-  }
+  const eventsByRef = groupByRef(memberEvents);
 
   /** @type {Record<EpicBucket, number>} */
   const byStage = { backlog: 0, running: 0, needsYou: 0, finished: 0, merged: 0, untracked: 0 };
@@ -62,26 +91,7 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
   const needsYou = [];
 
   for (const ticket of tickets) {
-    const row = rowByRef.get(ticket.ref) ?? null;
-    /** @type {EpicBucket} */
-    let bucket;
-    if (row && row.status === "done" && row.prState === "merged") {
-      bucket = "merged";
-    } else if (row && isNeedsYou(row, forge)) {
-      bucket = "needsYou";
-    } else if (row && ["running", "queued", "interrupted", "stalled"].includes(row.status)) {
-      bucket = "running";
-    } else if (row && row.status === "done") {
-      bucket = "finished";
-    } else if (ticket.completed) {
-      bucket = "finished";
-    } else if ((!row || row.status === "idle") && historicallyFinished(eventsByRef.get(ticket.ref))) {
-      bucket = "finished";
-    } else if (ticket.stage !== null) {
-      bucket = "backlog";
-    } else {
-      bucket = "untracked";
-    }
+    const bucket = ticketBucket(ticket, rowByRef.get(ticket.ref) ?? null, eventsByRef.get(ticket.ref), forge);
     byStage[bucket]++;
     if (bucket === "needsYou") needsYou.push(ticket.ref);
   }
@@ -137,4 +147,57 @@ function historicallyFinished(refEvents) {
     else if (e.event === "run_start") finished = false;
   }
   return finished;
+}
+
+/**
+ * @typedef {import('./types.js').EpicTicket & { bucket: EpicBucket, status: import('./ui/contract.js').TicketStatus|null }} EpicDetailTicket
+ * @typedef {EpicStats & { tickets: EpicDetailTicket[] }} EpicDetail
+ */
+
+/**
+ * One epic's stats plus each ticket with its bucket and local row status (null: never ran here).
+ * @param {import('./types.js').Epic} epic
+ * @param {import('./types.js').EpicTicket[]} tickets
+ * @param {Parameters<typeof epicStats>[2]} o
+ * @returns {EpicDetail}
+ */
+export function epicDetail(epic, tickets, o) {
+  const rowByRef = new Map(o.rows.map((r) => [r.ref, r]));
+  const memberRefs = new Set(tickets.map((t) => t.ref));
+  const eventsByRef = groupByRef(o.events.filter((e) => memberRefs.has(String(e.ref))));
+  return {
+    ...epicStats(epic, tickets, o),
+    tickets: tickets.map((t) => {
+      const row = rowByRef.get(t.ref) ?? null;
+      return { ...t, bucket: ticketBucket(t, row, eventsByRef.get(t.ref), o.forge), status: row?.status ?? null };
+    }),
+  };
+}
+
+/**
+ * The epics a profile can see without its tracker: refmeta entries grouped by their `epic.ref`
+ * (dispatch records it per run). Each epic's status is unknown and its tickets carry no stage.
+ * @param {Record<string, any>} refmeta  refmeta.json
+ * @returns {{ epic: import('./types.js').Epic, tickets: import('./types.js').EpicTicket[] }[]}
+ */
+export function localEpics(refmeta) {
+  /** @type {Map<string, { epic: import('./types.js').Epic, tickets: import('./types.js').EpicTicket[] }>} */
+  const byEpic = new Map();
+  for (const [ref, m] of Object.entries(refmeta)) {
+    const e = m && typeof m === "object" ? m.epic : null;
+    if (!e || typeof e !== "object" || typeof e.ref !== "string" || !e.ref) continue;
+    let group = byEpic.get(e.ref);
+    if (!group) {
+      group = { epic: { ref: e.ref, name: typeof e.name === "string" ? e.name : e.ref, url: typeof e.url === "string" ? e.url : "", status: null, completed: false }, tickets: [] };
+      byEpic.set(e.ref, group);
+    }
+    group.tickets.push({
+      ref,
+      ...(typeof m.displayId === "string" && m.displayId ? { displayId: m.displayId } : {}),
+      name: typeof m.title === "string" ? m.title : ref,
+      completed: false,
+      stage: null,
+    });
+  }
+  return [...byEpic.values()];
 }
