@@ -11,6 +11,33 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
+/**
+ * The https tunnel that forwards to local `port` (ngrok reports it as `config.addr`, e.g.
+ * `http://localhost:4124`). Never "the first https tunnel": with parallel profiles the web API
+ * we read may belong to another profile's agent, and trusting its first tunnel registers that
+ * profile's URL as ours (webhooks then land on the wrong receiver). `domain`, when configured,
+ * must match too.
+ * @param {any[]} tunnels @param {number|string} port @param {string} [domain]
+ * @returns {string|null}
+ */
+export function pickTunnel(tunnels, port, domain) {
+  for (const t of tunnels || []) {
+    if (!String(t?.public_url ?? "").startsWith("https")) continue;
+    const m = /:(\d+)\/?$/.exec(String(t?.config?.addr ?? ""));
+    if (!m || m[1] !== String(port)) continue;
+    const url = String(t.public_url).replace(/\/$/, "");
+    if (domain && new URL(url).host !== domain) continue;
+    return url;
+  }
+  return null;
+}
+
+/** The web API address ngrok actually bound (it falls back from 4040 when taken), from its log. @param {string} log */
+export function webAddrFromLog(log) {
+  const m = /starting web service[^\n]*\baddr=(\S+)/.exec(log);
+  return m ? m[1] : null;
+}
+
 /** @type {import('../types.js').IngressFactory} */
 export function createNgrokIngress(cfg) {
   const opts = cfg.ingress || { type: "ngrok" };
@@ -19,22 +46,26 @@ export function createNgrokIngress(cfg) {
   /** @type {import('node:child_process').ChildProcess | null} */
   let child = null;
 
-  /** Poll ngrok's web API until a https tunnel appears. */
-  async function waitForUrl() {
+  let out = ""; // our child's early output: names the web address it really bound
+
+  /** Poll ngrok's web API until OUR https tunnel (forwarding to `port`) appears. */
+  async function waitForUrl(/** @type {number} */ port) {
     for (let i = 0; i < 40; i++) {
-      try {
-        const res = await fetch(`http://${webAddr}/api/tunnels`);
-        if (res.ok) {
-          const data = /** @type {any} */ (await res.json());
-          const t = (data.tunnels || []).find((/** @type {any} */ x) => x.public_url?.startsWith("https"));
-          if (t) return t.public_url.replace(/\/$/, "");
+      // The address our own ngrok logged first; the configured one is only a fallback (it may be
+      // another profile's agent: ngrok moves to the next free port when 4040 is taken).
+      for (const addr of new Set([webAddrFromLog(out), webAddr].filter(Boolean))) {
+        try {
+          const res = await fetch(`http://${addr}/api/tunnels`);
+          if (!res.ok) continue;
+          const url = pickTunnel(/** @type {any} */ (await res.json()).tunnels, port, opts.domain);
+          if (url) return url;
+        } catch {
+          /* not up yet */
         }
-      } catch {
-        /* not up yet */
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw new Error(`ngrok: no https tunnel after 20s (web API ${webAddr}). Check the ngrok log in ${cfg.logDir}.`);
+    throw new Error(`ngrok: no https tunnel for port ${port} after 20s (web API ${webAddrFromLog(out) ?? webAddr}). Check the ngrok log in ${cfg.logDir}.`);
   }
 
   return {
@@ -54,11 +85,14 @@ export function createNgrokIngress(cfg) {
       const logPath = path.join(cfg.logDir, "ngrok.log");
       const log = fs.createWriteStream(logPath, { flags: "a" });
       child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+      child.stdout?.on("data", (c) => {
+        if (out.length < 8192) out += c;
+      });
       child.stdout?.pipe(log);
       child.stderr?.pipe(log);
       child.on("error", (e) => console.error(`[ngrok] spawn failed: ${e.message} (is "${bin}" installed?)`));
 
-      const url = await waitForUrl();
+      const url = await waitForUrl(port);
       console.log(`[ngrok] tunnel up: ${url} -> 127.0.0.1:${port}`);
       return { url };
     },
