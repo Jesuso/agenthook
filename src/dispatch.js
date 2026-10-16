@@ -779,6 +779,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     const step = findStep(cfg, job.stepId);
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
     const task = await adapter.fetchTask(job.ref);
+    // An epic is a tracker item, never a ticket: no agent may ever run on it (CONTEXT.md,
+    // ADR 0003). Fail closed before any state mutation — no worktree, no spawn, no advance.
+    if (task.isEpic) {
+      console.log(`[epic] skip ${step.id} ${job.ref} — epics never run an agent`);
+      emit?.("epic_skipped", job.ref, step.id, { name: task.name, url: task.url });
+      return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
+    }
     // Durable display metadata for `ah agents`/`status`/`events` (survives run exit).
     store?.setRefMeta(job.ref, {
       displayId: task.displayId,

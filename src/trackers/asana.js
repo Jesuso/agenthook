@@ -534,10 +534,13 @@ export function createAsanaAdapter(cfg, store) {
       const seenGids = new Set();
       for (const step of pipeline) {
         if (!step.sourceSectionGid || step.manual) continue;
-        const res = await api(`/sections/${step.sourceSectionGid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
+        const res = await api(
+          `/sections/${step.sourceSectionGid}/tasks?opt_fields=completed,assignee.gid,custom_type.name&limit=100`,
+        );
         if (!res.ok) throw new Error(`section ${step.sourceSectionGid} tasks ${res.status}`);
         for (const t of (await json(res)).data || []) {
           if (t.completed || seenGids.has(t.gid)) continue;
+          if (t.custom_type?.name === epicType) continue; // never run an agent on an epic
           if (!isOurs(t.assignee?.gid)) continue;
           if ((await openDependencies(t.gid)).length) continue; // blocked → reconcile must not re-inject it
           seenGids.add(t.gid);
@@ -554,12 +557,14 @@ export function createAsanaAdapter(cfg, store) {
     async listQueued(stepId) {
       const step = stepById(stepId);
       if (!step?.queueSectionGid || step.manual) return [];
-      const res = await api(`/sections/${step.queueSectionGid}/tasks?opt_fields=completed,assignee.gid&limit=100`);
+      const res = await api(
+        `/sections/${step.queueSectionGid}/tasks?opt_fields=completed,assignee.gid,custom_type.name&limit=100`,
+      );
       if (!res.ok) throw new Error(`section ${step.queueSectionGid} tasks ${res.status}`);
       /** @type {string[]} */
       const refs = [];
       for (const t of (await json(res)).data || []) {
-        if (t.completed || !isOurs(t.assignee?.gid)) continue;
+        if (t.completed || t.custom_type?.name === epicType || !isOurs(t.assignee?.gid)) continue;
         if ((await openDependencies(t.gid)).length) continue; // blocked → must not be pulled into work
         refs.push(t.gid);
       }

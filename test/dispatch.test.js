@@ -459,6 +459,89 @@ test("dispatch: a manual step is not gated — the manual branch returns before 
   assert.equal(result.code, 0);
 });
 
+// --- epic gate: fetchTask().isEpic skips before any state mutation, for every step kind ---
+
+/** @param {any[]} steps @param {any} [adapterOverrides] */
+function epicHarness(steps, adapterOverrides) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: steps,
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "epic t", url: "u", completed: false, assignedToUs: true, isEpic: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+    ...adapterOverrides,
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ extra) =>
+    events.push({ event, ref, step, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  /** @param {string} stepId @param {string} [dedupKey] */
+  const runStep = async (stepId, dedupKey) => {
+    const log = console.log;
+    console.log = () => {};
+    try {
+      return await run({ kind: "pipeline", ref: "42", stepId, dedupKey: dedupKey ?? `k:${stepId}` });
+    } finally {
+      console.log = log;
+    }
+  };
+  return { store, advanced, events, runStep };
+}
+
+test("dispatch: an epic skips an agent step — no spawn/advance/attempt, one epic_skipped event", async () => {
+  const { store, advanced, events, runStep } = epicHarness([{ id: "code" }, { id: "done", manual: true, drainWorktree: true }]);
+  const result = await runStep("code");
+  assert.deepEqual(result, { kind: "pipeline", ref: "42", name: "epic t", url: "u", code: 0 });
+  assert.equal(advanced.length, 0, "adapter.advance never called");
+  assert.equal(store.getAttempt("42", "code"), 0, "attempts.json untouched");
+  assert.equal(store.getHeld("42"), undefined, "held.json untouched");
+  assert.equal(store.getRefMeta("42"), undefined, "refmeta untouched");
+  assert.deepEqual(
+    events.map((e) => e.event),
+    ["epic_skipped"],
+    "no run_start/run_end/pipeline_done",
+  );
+  assert.equal(events[0].ref, "42");
+  assert.equal(events[0].step, "code");
+  assert.equal(events[0].name, "epic t");
+  assert.equal(events[0].url, "u");
+});
+
+test("dispatch: an epic skips a manual drainWorktree step — no drain, no pipeline_done", async () => {
+  const { advanced, events, runStep } = epicHarness([{ id: "done", manual: true, drainWorktree: true }]);
+  const result = await runStep("done");
+  assert.equal(result.code, 0);
+  assert.equal(advanced.length, 0);
+  assert.deepEqual(
+    events.map((e) => e.event),
+    ["epic_skipped"],
+  );
+});
+
+test("dispatch: an epic skips an @agent (trigger:) resume job too", async () => {
+  const { advanced, events, runStep } = epicHarness([{ id: "code" }, { id: "done", manual: true, drainWorktree: true }]);
+  await runStep("code", "trigger:xyz");
+  assert.equal(advanced.length, 0);
+  assert.deepEqual(
+    events.map((e) => e.event),
+    ["epic_skipped"],
+  );
+});
+
 // --- multi-repo routing: resolve → sticky → hold on ambiguity (no spawn) ---
 // A fake `claude` records its cwd + prompt; steps create no worktree, so cwd = repo.path.
 
