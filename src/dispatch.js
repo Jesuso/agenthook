@@ -780,7 +780,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     if (!step) throw new Error(`unknown pipeline step "${job.stepId}"`);
     const task = await adapter.fetchTask(job.ref);
     // Durable display metadata for `ah agents`/`status`/`events` (survives run exit).
-    store?.setRefMeta(job.ref, { displayId: task.displayId, title: task.name, url: task.url, summary: summarizeDescription(task.description) });
+    store?.setRefMeta(job.ref, {
+      displayId: task.displayId,
+      title: task.name,
+      url: task.url,
+      summary: summarizeDescription(task.description),
+      epic: task.epic ? { ref: task.epic.ref, name: task.epic.name, url: task.epic.url } : null,
+    });
 
     // Which checkout this ref works in. Ambiguous or unmatched routing never guesses: park
     // the task in the hold lane (no agent, no attempt) so a human fixes the routing field;

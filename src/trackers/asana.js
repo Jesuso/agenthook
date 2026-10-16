@@ -5,13 +5,18 @@
 //   authenticate({pathname,headers,rawBody}) -> {type:'handshake',headers} | {type:'reject'} | {type:'accept'}
 //                                         (fast, no network — lets the engine ACK <10s)
 //   processEvents({pathname,headers,rawBody}) -> [job]   (async; may hit the API)
-//   fetchTask(ref)                     -> { name, description, url, completed, assignedToUs, ref, routeKeys }
+//   fetchTask(ref)                     -> { name, description, url, completed, assignedToUs, ref, routeKeys, epic?, isEpic? }
 //   advance(ref, stepId, verdict)      -> move the task to the section its outcome maps to
 //                                         (advance/fail/hold section, or a `changes` target's source)
 //   listResting()                      -> [job] for tasks resting in step sections (reconcile only)
 //   listQueued(stepId)                 -> [ref] in the step's opt-in queue section, board order,
 //                                         unblocked only (optional; only on run_end + once on boot,
 //                                         never a timer)
+//   listEpics()                        -> [Epic] — tasks whose custom type is tracker.epicType
+//                                         (default "Epic"); [] when the type isn't configured
+//                                         (optional; fail-open on API error)
+//   listEpicTickets(epicRef)           -> [EpicTicket] — epicRef's direct subtasks that are
+//                                         also in this project (optional; fail-open)
 //   complete(ref)                      -> mark the task completed (optional; forge merge)
 //   registerWebhook(publicUrl)         -> create the project hook (CLI)
 //   unregisterWebhooks()               -> delete this provider's hooks (CLI)
@@ -58,6 +63,57 @@ function findCustomField(customFields, fieldName) {
   if (!fieldName || !Array.isArray(customFields)) return undefined;
   const want = String(fieldName).trim().toLowerCase();
   return customFields.find((f) => String(f?.name ?? "").trim().toLowerCase() === want);
+}
+
+/** The display id custom field's value, matched like fetchTask does (default "ID", case-insensitive).
+ * @param {any} customFields @param {string | undefined} displayIdField @returns {string|undefined} */
+function displayIdOf(customFields, displayIdField) {
+  const idField = String(displayIdField ?? "ID").toLowerCase();
+  const idCf = (Array.isArray(customFields) ? customFields : []).find((/** @type {any} */ f) => String(f?.name ?? "").toLowerCase() === idField);
+  return idCf?.display_value ? String(idCf.display_value) : undefined;
+}
+
+/** Whether `t` IS an epic, and the epic it belongs to (its parent, when the parent is typed as
+ * an epic). A plain (untyped) parent never counts as an epic.
+ * @param {any} t @param {string} epicType @returns {{isEpic: boolean, epic?: import('../types.js').EpicRef}} */
+export function mapEpicFields(t, epicType) {
+  const isEpic = t?.custom_type?.name === epicType;
+  if (t?.parent?.custom_type?.name !== epicType) return { isEpic };
+  return { isEpic, epic: { ref: t.parent.gid, name: t.parent.name, url: t.parent.permalink_url } };
+}
+
+/** Rows whose custom type is `epicType`, mapped to Epic[]. Pure — drives listEpics.
+ * @param {any[]} data @param {string} epicType @returns {import('../types.js').Epic[]} */
+export function mapEpics(data, epicType) {
+  return (Array.isArray(data) ? data : [])
+    .filter((t) => t?.custom_type?.name === epicType)
+    .map((t) => ({
+      ref: t.gid,
+      name: t.name,
+      url: t.permalink_url,
+      status: t.custom_type_status_option?.name ?? null,
+      completed: t.completed === true,
+    }));
+}
+
+/** Subtasks resting in `projectGid`, mapped to EpicTicket[]. Pure — drives listEpicTickets.
+ * @param {any[]} data @param {string | undefined} projectGid @param {string | undefined} displayIdField
+ * @returns {import('../types.js').EpicTicket[]} */
+export function mapEpicTickets(data, projectGid, displayIdField) {
+  /** @type {import('../types.js').EpicTicket[]} */
+  const out = [];
+  for (const t of Array.isArray(data) ? data : []) {
+    const membership = (t.memberships || []).find((/** @type {any} */ m) => m.project?.gid === projectGid);
+    if (!membership) continue;
+    out.push({
+      ref: t.gid,
+      displayId: displayIdOf(t.custom_fields, displayIdField),
+      name: t.name,
+      completed: t.completed === true,
+      stage: membership.section?.name ?? null,
+    });
+  }
+  return out;
 }
 
 /** @type {import('../types.js').AdapterFactory} */
@@ -233,6 +289,31 @@ export function createAsanaAdapter(cfg, store) {
     return ((await json(res)).data || []).map((/** @type {any} */ s) => ({ id: s.gid, label: s.name }));
   };
 
+  // Epics are OPT-IN: a custom task type named pc.epicType ("Epic" by default) on the
+  // project. Lazy + memoized (never called on boot) — a missing type logs once and both
+  // readers return []. Fail-open on an API error, like openBlockers.
+  const epicType = pc.epicType ?? "Epic";
+  /** @type {string|null|undefined} */
+  let epicTypeGid; // undefined = not looked up yet, null = looked up, not found
+  let warnedNoEpicType = false;
+  async function findEpicTypeGid() {
+    if (epicTypeGid !== undefined) return epicTypeGid;
+    try {
+      const res = await api(`/custom_types?project=${pc.projectGid}&opt_fields=name`);
+      if (!res.ok) throw new Error(`custom types ${res.status}`);
+      const type = ((await json(res)).data || []).find((/** @type {any} */ c) => c.name === epicType);
+      epicTypeGid = type?.gid ?? null;
+    } catch (e) {
+      console.warn(`[epics] could not look up custom type "${epicType}": ${e.message} — treating as no epics`);
+      epicTypeGid = null;
+    }
+    if (epicTypeGid === null && !warnedNoEpicType) {
+      warnedNoEpicType = true;
+      console.log(`[epics] no custom type "${epicType}" on this project — epics not configured`);
+    }
+    return epicTypeGid;
+  }
+
   return {
     describe: () => ({
       platform: "Asana",
@@ -340,13 +421,10 @@ export function createAsanaAdapter(cfg, store) {
 
     async fetchTask(ref) {
       const res = await api(
-        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value,custom_fields.enum_value.name,custom_fields.multi_enum_values.name,custom_fields.text_value`,
+        `/tasks/${ref}?opt_fields=name,notes,permalink_url,assignee.gid,completed,custom_fields.name,custom_fields.display_value,custom_fields.enum_value.name,custom_fields.multi_enum_values.name,custom_fields.text_value,custom_type.name,parent.gid,parent.name,parent.permalink_url,parent.custom_type.name,resource_subtype`,
       );
       if (!res.ok) throw new Error(`task fetch ${res.status}`);
       const t = (await json(res)).data;
-      // Human id (e.g. "ID-2738") lives in a custom field; name configurable, default "ID".
-      const idField = String(pc.displayIdField ?? "ID").toLowerCase();
-      const idCf = (t.custom_fields || []).find((/** @type {any} */ f) => String(f?.name ?? "").toLowerCase() === idField);
       if (pc.routeField && !findCustomField(t.custom_fields, pc.routeField)) {
         console.log(`[route] ${ref}: no custom field "${pc.routeField}" — unrouted`);
       }
@@ -357,8 +435,9 @@ export function createAsanaAdapter(cfg, store) {
         url: t.permalink_url,
         completed: t.completed === true,
         assignedToUs: t.assignee?.gid === pc.userGid,
-        displayId: idCf?.display_value ? String(idCf.display_value) : undefined,
+        displayId: displayIdOf(t.custom_fields, pc.displayIdField),
         routeKeys: extractRouteKeys(t.custom_fields, pc.routeField),
+        ...mapEpicFields(t, pc.epicType ?? "Epic"),
       };
     },
 
@@ -490,6 +569,39 @@ export function createAsanaAdapter(cfg, store) {
     openBlockers: openDependencies,
 
     ownership: ownedByUs,
+
+    // Every epic in the project: tasks whose custom type is pc.epicType. [] when the type
+    // isn't configured on the project, or on an API error (fail-open, logged).
+    async listEpics() {
+      if (!(await findEpicTypeGid())) return [];
+      try {
+        const res = await api(
+          `/workspaces/${pc.workspaceGid}/tasks/search?projects.any=${pc.projectGid}&resource_subtype=custom&opt_fields=name,completed,custom_type.name,custom_type_status_option.name,permalink_url&limit=100`,
+        );
+        if (!res.ok) throw new Error(`task search ${res.status}`);
+        return mapEpics((await json(res)).data, epicType);
+      } catch (e) {
+        console.warn(`[epics] listEpics failed: ${e.message} — returning []`);
+        return [];
+      }
+    },
+
+    // An epic's tickets: its direct subtasks that are also in this project. [] when epics
+    // aren't configured, or on an API error (fail-open, logged).
+    /** @param {string} epicRef */
+    async listEpicTickets(epicRef) {
+      if (!(await findEpicTypeGid())) return [];
+      try {
+        const res = await api(
+          `/tasks/${epicRef}/subtasks?opt_fields=name,completed,custom_fields.name,custom_fields.display_value,memberships.project.gid,memberships.section.name&limit=100`,
+        );
+        if (!res.ok) throw new Error(`subtasks ${res.status}`);
+        return mapEpicTickets((await json(res)).data, pc.projectGid, pc.displayIdField);
+      } catch (e) {
+        console.warn(`[epics] listEpicTickets(${epicRef}) failed: ${e.message} — returning []`);
+        return [];
+      }
+    },
 
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/mytasks/`;

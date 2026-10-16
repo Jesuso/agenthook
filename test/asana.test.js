@@ -6,7 +6,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createAsanaAdapter, extractRouteKeys } from "../src/trackers/asana.js";
+import { createAsanaAdapter, extractRouteKeys, mapEpicFields, mapEpics, mapEpicTickets } from "../src/trackers/asana.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
 
 /** Minimal in-memory Store stub. */
@@ -780,4 +780,159 @@ test("listQueued is [] (no API call) for a step without a queue key", async () =
     global.fetch = orig;
   }
   assert.equal(calls, 0);
+});
+
+// --- epics (#297): tracker-neutral shape + Asana reader — pure mappers, fetchTask fields,
+// and the two optional readers (fail-open, [] when the custom type isn't configured).
+
+test("mapEpicFields: a task typed as the epic type is itself an epic", () => {
+  assert.deepEqual(mapEpicFields({ custom_type: { name: "Epic" } }, "Epic"), { isEpic: true });
+});
+
+test("mapEpicFields: a ticket whose parent is typed as the epic type gets .epic", () => {
+  const t = { parent: { gid: "E1", name: "Epics epic", permalink_url: "https://x/E1", custom_type: { name: "Epic" } } };
+  assert.deepEqual(mapEpicFields(t, "Epic"), { isEpic: false, epic: { ref: "E1", name: "Epics epic", url: "https://x/E1" } });
+});
+
+test("mapEpicFields: a plain (untyped) parent is never an epic", () => {
+  assert.deepEqual(mapEpicFields({ parent: { gid: "P1", name: "Plain parent" } }, "Epic"), { isEpic: false });
+});
+
+test("mapEpicFields: a non-default epicType name is respected", () => {
+  assert.deepEqual(mapEpicFields({ custom_type: { name: "Initiative" } }, "Initiative"), { isEpic: true });
+  assert.deepEqual(mapEpicFields({ custom_type: { name: "Epic" } }, "Initiative"), { isEpic: false });
+});
+
+test("mapEpics keeps only Epic-typed rows, maps status and completed", () => {
+  const data = [
+    { gid: "E1", name: "Epic one", permalink_url: "https://x/E1", completed: false, custom_type: { name: "Epic" }, custom_type_status_option: { name: "On track" } },
+    { gid: "E2", name: "Epic two", permalink_url: "https://x/E2", completed: true, custom_type: { name: "Epic" } },
+    { gid: "T1", name: "Not an epic", permalink_url: "https://x/T1", completed: false, custom_type: { name: "Milestone" } },
+  ];
+  assert.deepEqual(mapEpics(data, "Epic"), [
+    { ref: "E1", name: "Epic one", url: "https://x/E1", status: "On track", completed: false },
+    { ref: "E2", name: "Epic two", url: "https://x/E2", status: null, completed: true },
+  ]);
+});
+
+test("mapEpicTickets keeps a subtask in the project (right stage + displayId) and drops one outside it", () => {
+  const data = [
+    {
+      gid: "T1",
+      name: "In project",
+      completed: false,
+      custom_fields: [{ name: "ID", display_value: "ID-1" }],
+      memberships: [{ project: { gid: "P1" }, section: { name: "In progress" } }],
+    },
+    {
+      gid: "T2",
+      name: "Elsewhere",
+      completed: false,
+      memberships: [{ project: { gid: "OTHER" }, section: { name: "Backlog" } }],
+    },
+  ];
+  assert.deepEqual(mapEpicTickets(data, "P1", "ID"), [{ ref: "T1", displayId: "ID-1", name: "In project", completed: false, stage: "In progress" }]);
+});
+
+test("fetchTask returns epic and isEpic with no extra API call (opt_fields only)", async () => {
+  /** @type {string[]} */
+  const urls = [];
+  const task = await withFetch(
+    (u) => {
+      urls.push(u);
+      return ok({
+        data: {
+          name: "A ticket",
+          permalink_url: "https://x/G1",
+          completed: false,
+          custom_fields: [],
+          parent: { gid: "E1", name: "The epic", permalink_url: "https://x/E1", custom_type: { name: "Epic" } },
+        },
+      });
+    },
+    () => routed().fetchTask("G1"),
+  );
+  assert.deepEqual(task.epic, { ref: "E1", name: "The epic", url: "https://x/E1" });
+  assert.equal(task.isEpic, false);
+  assert.equal(urls.length, 1, `expected exactly one fetchTask call; got:\n${urls.join("\n")}`);
+});
+
+test("listEpics returns [] with no Epic type configured on the project (fail-open, no search call)", async () => {
+  const jobs = await withFetch(
+    (u) => {
+      if (u.includes("/custom_types")) return ok({ data: [] });
+      throw new Error(`unexpected call: ${u}`);
+    },
+    () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpics?.(),
+  );
+  assert.deepEqual(jobs, []);
+});
+
+test("listEpics returns [] on a custom_types API error (fail-open)", async () => {
+  const origWarn = console.warn;
+  console.warn = () => {};
+  let epics;
+  try {
+    epics = await withFetch(
+      () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) }),
+      () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpics?.(),
+    );
+  } finally {
+    console.warn = origWarn;
+  }
+  assert.deepEqual(epics, []);
+});
+
+test("listEpics maps the task search results once the Epic type is found", async () => {
+  const epics = await withFetch(
+    (u) => {
+      if (u.includes("/custom_types")) return ok({ data: [{ gid: "CT1", name: "Epic" }] });
+      if (u.includes("/tasks/search")) return ok({ data: [{ gid: "E1", name: "Epic one", permalink_url: "https://x/E1", completed: false, custom_type: { name: "Epic" } }] });
+      throw new Error(`unexpected call: ${u}`);
+    },
+    () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpics?.(),
+  );
+  assert.deepEqual(epics, [{ ref: "E1", name: "Epic one", url: "https://x/E1", status: null, completed: false }]);
+});
+
+test("listEpicTickets returns [] with no Epic type configured (fail-open, no subtasks call)", async () => {
+  const tickets = await withFetch(
+    (u) => {
+      if (u.includes("/custom_types")) return ok({ data: [] });
+      throw new Error(`unexpected call: ${u}`);
+    },
+    () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpicTickets?.("E1"),
+  );
+  assert.deepEqual(tickets, []);
+});
+
+test("listEpicTickets maps the subtasks results once the Epic type is found", async () => {
+  const tickets = await withFetch(
+    (u) => {
+      if (u.includes("/custom_types")) return ok({ data: [{ gid: "CT1", name: "Epic" }] });
+      if (u.includes("/tasks/E1/subtasks")) return ok({ data: [{ gid: "T1", name: "A ticket", completed: false, custom_fields: [], memberships: [{ project: { gid: "P1" }, section: { name: "Doing" } }] }] });
+      throw new Error(`unexpected call: ${u}`);
+    },
+    () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpicTickets?.("E1"),
+  );
+  assert.deepEqual(tickets, [{ ref: "T1", displayId: undefined, name: "A ticket", completed: false, stage: "Doing" }]);
+});
+
+test("listEpicTickets returns [] on a subtasks API error (fail-open)", async () => {
+  const origWarn = console.warn;
+  console.warn = () => {};
+  let tickets;
+  try {
+    tickets = await withFetch(
+      (u) => {
+        if (u.includes("/custom_types")) return ok({ data: [{ gid: "CT1", name: "Epic" }] });
+        if (u.includes("/subtasks")) return /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+        throw new Error(`unexpected call: ${u}`);
+      },
+      () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpicTickets?.("E1"),
+    );
+  } finally {
+    console.warn = origWarn;
+  }
+  assert.deepEqual(tickets, []);
 });

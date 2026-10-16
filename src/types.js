@@ -122,6 +122,7 @@
  * @property {'merged'|'closed'} [prState]  that PR's terminal state once learned (the `prs` op's `forge.prState` lookup, or a merge job); unset while open/unknown, dropped when a new agent run starts or the PR shows open again
  * @property {string} [url]        the item's tracker web URL (Task.url)
  * @property {string} [summary]    the first prose paragraph of the description, plain and clipped (src/ticket-summary.js); what `ah ui` shows as "what is this about"
+ * @property {{ref: string, name: string, url?: string}} [epic]  the ticket's epic, written by dispatch from Task.epic; null drops a stale value when the ticket leaves its epic
  */
 
 /** A `setRefMeta` patch: `undefined` skips a key, `null` deletes it.
@@ -177,6 +178,38 @@
  * @property {boolean} assignedToUs
  * @property {string} [displayId]  the human-facing id operators use (Asana "ID-2738", GitHub "#94", Jira "CAHUI-7"); undefined when the tracker has none
  * @property {string[]} [routeKeys]  raw, opaque route keys the engine maps to a repo via cfg.repos[].match (src/repos.js); absent/[] = unrouted (→ the default repo)
+ * @property {EpicRef} [epic]  the epic this ticket belongs to (its parent, when the parent is typed as an epic); undefined when it has none
+ * @property {boolean} [isEpic]  true when this item IS an epic (its own custom type matches), not a ticket
+ */
+
+/**
+ * A reference to the epic a ticket belongs to (Task.epic / RefMeta.epic).
+ * @typedef {object} EpicRef
+ * @property {string} ref
+ * @property {string} name
+ * @property {string} [url]
+ * @property {string} [displayId]
+ */
+
+/**
+ * An epic, as listed by Adapter.listEpics.
+ * @typedef {object} Epic
+ * @property {string} ref
+ * @property {string} name
+ * @property {string} url
+ * @property {string} [displayId]
+ * @property {string|null} status  tracker-reported status label (Asana: the custom type's status option name), shown as-is; null when unset
+ * @property {boolean} completed
+ */
+
+/**
+ * One of an epic's tickets, as listed by Adapter.listEpicTickets.
+ * @typedef {object} EpicTicket
+ * @property {string} ref
+ * @property {string} [displayId]
+ * @property {string} name
+ * @property {boolean} completed
+ * @property {string|null} stage  the tracker stage the ticket rests in (Asana: the section name of its membership in this project); null when unresolved
  */
 
 /**
@@ -260,6 +293,8 @@
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(answers: Record<string, any>) => (Partial<Step>|null)} [pipelineBindings]  optional; `agenthook init` turns the wizard's live stage picks (the `_*Stage` answers) into the code step's tracker bindings (real source/success/failure), so no TODO_* editing is needed. Null ⇒ init keeps the placeholder skeleton
  * @property {() => Promise<StageOption[]>} [listStages]  optional; the tracker's available stages (Asana sections, Jira statuses, GitHub labels, Projects Status options) for the UI's stage pickers, read off the adapter's own configured board — no credentials leave the receiver
+ * @property {() => Promise<Epic[]>} [listEpics]  optional; every epic in the tracker's configured scope. Absent = the tracker has no epics
+ * @property {(epicRef: string) => Promise<EpicTicket[]>} [listEpicTickets]  optional; the epic's tickets (direct children in scope). Absent = the tracker has no epics
  */
 
 /**
@@ -292,6 +327,7 @@
  * @property {string} [project]            github-projects: the Projects v2 board as "owner/number" or its URL, whose Status field drives the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  * @property {string} [routeField]  name of the tracker field whose value(s) become Task.routeKeys (multi-repo routing; read by the adapter)
+ * @property {string} [epicType]  Asana: the custom task type name an epic is tagged with (default "Epic")
  */
 
 /**
