@@ -34,7 +34,8 @@ import { createQueue, planRestore } from "./queue.js";
 import { createPuller } from "./pull.js";
 import { queueStageOf } from "./pipeline.js";
 import { createDispatcher } from "./dispatch.js";
-import { createHeartbeat } from "./heartbeat.js";
+import { createHeartbeat, repositoryOf } from "./heartbeat.js";
+import { createDigester } from "./digest.js";
 import { claimStateDir } from "./profile.js";
 import { startControl } from "./control.js";
 import { createOps } from "./ops.js";
@@ -513,6 +514,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
 
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat,
+    digester: createDigester({ cfg, emit, repository: repositoryOf(cfg) }),
     cancelRun: runClaude.cancel,
     pull: () => puller.pull(),
     // mirrors dispatch's leavePipeline: a ref abandoned by `cancel` must not keep an overlap lock

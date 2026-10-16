@@ -83,11 +83,13 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   leavePipeline?: (ref: string) => void,
  *   isLocked: () => boolean,
  *   now?: () => number,
+ *   digester?: { request(): Promise<any> },
  * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it
  * @returns {Record<string, (args: any) => Promise<any>>}
  */
 export function createOps(deps) {
   const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline } = deps;
+  const digester = deps.digester;
   const now = deps.now ?? Date.now;
 
   /** @param {string} cmd @param {any} args @param {{ok: boolean, error?: string}} outcome */
@@ -362,6 +364,12 @@ export function createOps(deps) {
       const lines = /** @type {string[]} */ ([]);
       const r = await runReconcile(cfg, { store, adapter, log: (m) => lines.push(m) });
       return { ...r, log: lines.slice(-20) };
+    }),
+    // The Digest (src/digest.js): a tool-less summary outside the slot pool. Waits for the result;
+    // a request while one runs joins it. Never touches the board, so it is not a ticket write.
+    digest: write("digest", async () => {
+      if (!digester) throw new Error("digest is not available on this receiver");
+      return await digester.request();
     }),
     pull: write("pull", async () => {
       await pull();

@@ -42,12 +42,12 @@ export function repositoryOf(cfg) {
  * the scope, later roles only add their ids. Pure (no fs); paths are already absolute
  * from config.js, `path.resolve` is defensive for hand-built test fixtures.
  * @param {import('./types.js').Config} cfg
- * @returns {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[]}
+ * @returns {{ path: string, scope: 'step'|'default'|'repo'|'soul', ids: string[] }[]}
  */
 export function instructionTargets(cfg) {
-  /** @type {Map<string, { path: string, scope: 'step'|'default'|'repo', ids: string[] }>} */
+  /** @type {Map<string, { path: string, scope: 'step'|'default'|'repo'|'soul', ids: string[] }>} */
   const byPath = new Map();
-  /** @param {string} p @param {'step'|'default'|'repo'} scope @param {string} id */
+  /** @param {string} p @param {'step'|'default'|'repo'|'soul'} scope @param {string} id */
   const add = (p, scope, id) => {
     const resolved = path.resolve(p);
     const existing = byPath.get(resolved);
@@ -68,6 +68,8 @@ export function instructionTargets(cfg) {
   for (const repo of reposOf(cfg)) {
     if (repo.instructionsFile) add(repo.instructionsFile, "repo", repo.id);
   }
+
+  if (cfg.digest?.soul) add(cfg.digest.soul, "soul", "digest");
 
   return [...byPath.values()];
 }

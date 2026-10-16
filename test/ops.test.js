@@ -483,3 +483,18 @@ test("cancel of a waiting/held ref clears its summaries", async () => {
   await s.ops.cancel({ ref: "H" });
   assert.equal(s.store.getSummaries("H"), undefined);
 });
+
+test("digest: delegates to the digester, audited; no digester → refused; not a board write", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
+  const cfg = /** @type {any} */ ({ name: "t", provider: "github", stateDir: dir, dataDir: dir, pipeline: [{ id: "code" }] });
+  const store = createStore(dir);
+  const queue = createQueue(1, () => new Promise(() => {}), undefined, {});
+  const base = { cfg, store, forge: null, queue, leavePipeline() {}, adapter: /** @type {any} */ ({}), cancelRun: () => false, intake: () => 0, emit() {}, heartbeat: { update() {} }, pull: async () => {}, isLocked: () => false };
+  const rec = { text: "hi", generatedAt: "t", basedOnEvents: 0, needsYou: 0 };
+  const ok = createOps({ ...base, digester: { request: async () => rec } });
+  assert.deepEqual(await ok.digest({ actor: "ui" }), rec);
+  const none = createOps(base);
+  await assert.rejects(none.digest({}), /not available/);
+  const lines = fs.readFileSync(path.join(dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => [l.cmd, l.ok, l.actor]), [["digest", true, "ui"], ["digest", false, "unknown"]]);
+});

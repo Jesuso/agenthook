@@ -13,6 +13,7 @@ const GROUPS: { scope: InstructionFileView["scope"]; label: string }[] = [
   { scope: "step", label: "steps" },
   { scope: "default", label: "profile default" },
   { scope: "repo", label: "repos" },
+  { scope: "soul", label: "digest SOUL" },
 ];
 
 /**

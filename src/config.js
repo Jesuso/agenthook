@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
+import { digestErrors } from "./digest-config.js";
 
 // The installed package root (this file is src/config.js). Used only to read
 // bundled templates — never for runtime state.
@@ -231,6 +232,9 @@ export function loadConfig(opts = {}) {
 
   // instructionsFile defaults to one beside the config; resolve relative to it.
   cfg.instructionsFile = resolvePath(cfg.instructionsFile || "./INSTRUCTIONS.md", configDir);
+
+  // The Digest's SOUL file defaults to one beside the config, like instructionsFile.
+  cfg.digest = { ...(cfg.digest && typeof cfg.digest === "object" ? cfg.digest : {}), soul: resolvePath(cfg.digest?.soul || "./SOUL.md", configDir) };
 
   // --- defaults ---
   cfg.trigger = cfg.trigger || "@agent";
@@ -449,6 +453,7 @@ export function validateRawConfig(raw) {
   }
 
   errors.push(...identityErrors(cfg.ui));
+  errors.push(...digestErrors(cfg.digest));
 
   // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
   if (cfg.forge && !cfg.forge.type) errors.push(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
