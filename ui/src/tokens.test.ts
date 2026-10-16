@@ -111,6 +111,12 @@ describe("design tokens", () => {
     expect(dark["--animate-status-pulse"]).toMatch(/status-pulse/);
     expect(block("@media (prefers-reduced-motion: reduce)")).toMatch(/\.animate-status-pulse\s*\{\s*animation:\s*none/);
   });
+
+  it("declare color-scheme per theme so native widgets (selects) match it", () => {
+    expect(block("@media (prefers-color-scheme: light)")).toMatch(/color-scheme:\s*light/);
+    const outsideLightMedia = css.replace(block("@media (prefers-color-scheme: light)"), "");
+    expect(outsideLightMedia).toMatch(/:root\s*\{[^}]*color-scheme:\s*dark/);
+  });
 });
 
 // The profile identity palette (src/identity.js): every id has a token, readable as a non-text

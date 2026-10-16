@@ -60,7 +60,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
             <select
               aria-label="switch profile"
               data-profile-switcher
-              className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-label font-medium"
+              className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-label font-medium"
               value={nav.profile}
               onChange={(e) => nav.onProfile(e.target.value)}
             >

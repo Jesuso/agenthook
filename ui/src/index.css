@@ -96,8 +96,13 @@
   --text-stat--line-height: 32px;
 }
 
+:root {
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: light) {
   :root {
+    color-scheme: light;
     --color-bg: #f6f8fa;
     --color-surface: #ffffff;
     --color-surface-raised: #eef1f4;
@@ -168,6 +173,14 @@ body {
   color: var(--color-fg);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+}
+
+@layer base {
+  select option,
+  select optgroup {
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+  }
 }
 
 /* Rendered-markdown preview (Instructions view): restore what Tailwind's preflight resets. */
