@@ -26,7 +26,7 @@ export function digestOutcome(status: number, body: any): DigestOutcome {
 }
 
 /** Meaningful live events (run_end, failed, blocked, pipeline_done, merged) since the digest was written. */
-const MEANINGFUL = new Set(["run_end", "failed", "blocked", "pipeline_done", "merged"]);
+export const MEANINGFUL = new Set(["run_end", "failed", "blocked", "pipeline_done", "merged"]);
 export function eventsSince(feed: FeedEntry[], generatedAt: string): number {
   const at = Date.parse(generatedAt);
   if (Number.isNaN(at)) return 0;

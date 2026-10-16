@@ -6,6 +6,7 @@ import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
 import { DigestPanel } from "./DigestPanel";
+import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
@@ -77,7 +78,7 @@ export function Overview(props: OverviewProps) {
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
-      <ProgressZone prog={prog} />
+      <ProgressZone prog={prog} profile={profile.name} feed={feed} />
 
       <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== ""}>
         <summary className="cursor-pointer select-none px-3 py-2 text-label font-semibold uppercase tracking-wide text-muted">
@@ -316,7 +317,7 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
 
 const delta = (today: number, yesterday: number) => (yesterday === 0 && today === 0 ? "" : `yesterday ${yesterday}`);
 
-function ProgressZone({ prog }: { prog: Progress }) {
+function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string; feed: FeedEntry[] }) {
   const rate = prog.reworkRate;
   return (
     <Zone title="Progress">
@@ -335,7 +336,8 @@ function ProgressZone({ prog }: { prog: Progress }) {
           )}
         </Tile>
       </dl>
-      <p className="mt-1 text-meta text-faint">From the last ~48 h of events (the receiver&apos;s log tail), so older history isn&apos;t counted.</p>
+      <p className="mt-1 text-meta text-faint">Today, yesterday and the rework rate come from the last ~48 h of events.</p>
+      <StatsStrip profile={profile} feed={feed} />
     </Zone>
   );
 }

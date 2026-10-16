@@ -24,6 +24,7 @@
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
 // reused as the MCP `release` tool). Nothing else in any state dir is ever written.
 import { readDigest } from "../digest.js";
+import { readStats } from "./stats.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -510,6 +511,14 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         }
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
         return res.end(body);
+      }
+      if (p === "/api/stats") {
+        const dir = profileDir(registry, params.get("profile") || "");
+        if (!dir) return send(res, 404);
+        const days = Number(params.get("days") ?? 14);
+        const tz = Number(params.get("tz") ?? 0);
+        if (!Number.isFinite(days) || !Number.isFinite(tz) || Math.abs(tz) > 14 * 60) return send(res, 400);
+        return sendJson(res, () => readStats(path.join(dir, "events.jsonl"), { days, tzOffset: tz }));
       }
       if (p === DIGEST) {
         const dir = profileDir(registry, params.get("profile") || "");

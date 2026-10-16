@@ -410,7 +410,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - Zone 2 *Now*: running agents per step with elapsed, model, cost, follow-log; free slots as empty
   pips; queue order below.
 - Zone 3 *Progress*: today + last 48 h only (events tail range): finished today vs yesterday, cost,
-  rework rate; hidden below ~10 runs. A daily rollup for longer ranges is a later, separate change.
+  rework rate; hidden below ~10 runs. Longer ranges: see "Daily stats" below.
 - Activity feed: **collapsed bottom panel** with an unread count. Raw ticket table is an
   "All tickets" drill-down.
 
@@ -420,6 +420,31 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - Unset → derived deterministically from the state key (hue + emoji).
 - **Image deferred.** If wanted later: `ui.image` as a path/URL in config, no upload endpoint
   (upload would break "the UI's only file writes are instructions and config").
+
+### Daily stats (built)
+Day-by-day history under the Progress tiles: tickets finished and cost per day, 7 / 14 / 30 day range,
+plus total, per-day average, rework rate (from 10 runs) and best day.
+- **No rollup file, no engine write path.** `events.jsonl` is a complete append-only history (alephbeta's
+  reaches back to July: 12k lines, 1.5 MB, first read ≈ 30 ms), so `src/ui/stats.js` derives the day
+  buckets from it on demand. Only the fields stats need are kept in memory per file and appended by
+  byte offset; a shrunk file restarts the read; a history over 64 MB is read from its last 64 MB. A
+  rollup file would only become necessary if `events.jsonl` were ever rotated or pruned — it is not.
+- **Days** are cut at the browser's midnight (`tz` = `getTimezoneOffset()` is sent with the request),
+  so they match the tiles' "today".
+- **Distinct tickets:** `finished`/`merged` count distinct refs per day, because a ticket can emit
+  `pipeline_done` several times within seconds (seen live). `runs`/`rework`/`failedRuns`/`cost` are
+  `run_end` counts and sums. Merged is only meaningful on a profile with a forge.
+- `GET /api/stats?profile=&days=&tz=` (cookie only, days ≤ 90) → `{ days: DayStats[], since }`.
+  Refetched when a meaningful live event arrives (`run_end`, `pipeline_done`, `failed`, `blocked`, `merged`).
+- **One chart, d3 for the maths:** finished tickets per day as bars (left axis) and spend per finished
+  ticket (day's cost ÷ tickets finished that day) as a line (right axis), with a hover tooltip.
+  `d3-scale`/`d3-shape`/`d3-array` compute scales and paths (`ui/src/statsChart.ts`, pure and tested);
+  React renders the SVG (`StatsChart.tsx`), no d3 DOM manipulation. It loads as its own chunk (~12 KB
+  gzipped), so the main bundle is unchanged. The line breaks on days that finished nothing.
+- Next, on a separate Stats view (`#/p/<key>/stats`) rather than the Overview: stacked cost by step,
+  diverging runs (advance vs changes/fail), a calendar heatmap, a median/p10–p90 range per ticket.
+  A candlestick has no open/close in our data, so the range chart stands in for it.
+- Out of scope: anything cross-profile (ADR 0001).
 
 ### What a ticket is about (built)
 - `refmeta.json` gains `summary`: the first prose paragraph of the tracker description, markdown
@@ -518,4 +543,4 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   profile, ref, status, commented}` — the comment text is never logged (the receiver's
   `control-audit.jsonl` omits it too).
 - Progress is today vs yesterday (browser-local days) over the tail, plus the rework rate
-  (`changes` / runs), hidden under 10 runs. Longer ranges need a daily rollup (later, separate change).
+  (`changes` / runs), hidden under 10 runs. Longer ranges: see "Daily stats".

@@ -167,7 +167,7 @@ Key files:
 - `src/ui/*.js` — `ah ui` server (docs/web-ui.md): `contract.js` (JSDoc view-model typedefs),
   `rows.js` (pure `buildRows`/`buildSnapshot` over state dirs; events tail-read, last 256 KB),
   `server.js` (Host guard → token/cookie auth → `/api/snapshot` + `/api/stream` SSE + traversal-safe
-  `ui/dist` static), `watch.js` (lazy on first stream: `fs.watch` on registry + state dirs, 50 ms
+  `ui/dist` static), `stats.js` (`dailyStats` pure day buckets + `readStats`: the whole `events.jsonl` history read incrementally by byte offset → `GET /api/stats`; no rollup file), `watch.js` (lazy on first stream: `fs.watch` on registry + state dirs, 50 ms
   debounce + hash dedupe, torn read keeps last good value, `events.jsonl` byte-offset tail,
   `control.sock` liveness with pidfile fallback — no polling; the 25 s SSE ping is the only interval).
   `logs.js` (run-log viewer: `listRuns` from the profile's `logs/` dir, `resolveRunLog` name +
