@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createGithubAdapter, epicChangeFromEvent, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
+import { ticketBucket } from "../src/epics.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -824,9 +825,16 @@ test("mapEpicTickets: in-pipeline stage, no-pipeline-label same-repo, other-repo
   );
   assert.deepEqual(tickets, [
     { ref: "10", displayId: "#10", name: "in pipeline", completed: false, stage: "agent:review" },
-    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: null },
+    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: "" },
     { ref: "o/other#12", displayId: "o/other#12", name: "other repo", completed: true, stage: null },
   ]);
+  assert.equal(ticketBucket(tickets[1], null, [], false), "backlog");
+  const openOtherRepo = mapEpicTickets(
+    [{ number: 20, title: "other repo open", state: "open", repository_url: "https://api.github.com/repos/o/other" }],
+    repoApiUrl,
+    stageLabels,
+  )[0];
+  assert.equal(ticketBucket(openOtherRepo, null, [], false), "untracked");
 });
 
 test("fetchTask: no parent_issue_url makes exactly 1 call and sets no epic", async () => {
