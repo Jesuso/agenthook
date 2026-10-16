@@ -281,6 +281,27 @@ test("prHead: closed PR reports open:false; a fork/other-branch head → null; n
   }
 });
 
+test("prState by number: merged_at → merged, closed → closed, else open (any branch); non-2xx throws", async () => {
+  for (const [over, want] of /** @type {[any, string][]} */ ([
+    [{ state: "closed", merged_at: "2026-10-15T00:00:00Z" }, "merged"],
+    [{ state: "closed", merged_at: null }, "closed"],
+    [{ state: "open", head: { ref: "feature/x", sha: "s", repo: { full_name: "o/r" } } }, "open"],
+  ])) {
+    const s = stubFetch({ "GET /repos/o/r/pulls/77": { json: prJson(over) } });
+    try {
+      assert.equal(await forge().prState(77), want);
+    } finally {
+      s.restore();
+    }
+  }
+  const s = stubFetch({ "GET /pulls/77": { status: 404, json: {} } });
+  try {
+    await assert.rejects(forge().prState(77), /404/);
+  } finally {
+    s.restore();
+  }
+});
+
 test("rerunFailedJobs POSTs rerun-failed-jobs; throws on non-2xx", async () => {
   let s = stubFetch({ "POST /actions/runs/555/rerun-failed-jobs": { status: 201, json: {} } });
   try {

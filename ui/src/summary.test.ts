@@ -64,6 +64,13 @@ describe("summarize", () => {
     expect(s.needsYou).toBe(3);
   });
 
+  it("needsYou counts a finished ticket's ready PR only on a forge profile and only with a known PR", () => {
+    const done = (ref: string, over: Partial<TicketRow>): TicketRow => ({ ...ticket(ref, "done"), prState: "ready", ...over });
+    const tickets = [done("a", { prUrl: "https://github.com/o/r/pull/1" }), done("b", { prUrl: null }), done("c", { prState: "closed", prUrl: "https://github.com/o/r/pull/2" })];
+    expect(summarize({ profiles: [profile({ name: "a", up: true, forge: "github" })], tickets }, NOW).needsYou).toBe(1);
+    expect(summarize({ profiles: [profile({ name: "a", up: true, forge: null })], tickets }, NOW).needsYou).toBe(0);
+  });
+
   it("costToday sums every profile's costs since local midnight, down profiles included", () => {
     const s = summarize(
       {

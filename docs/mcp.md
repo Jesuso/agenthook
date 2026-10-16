@@ -56,7 +56,7 @@ Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasse
 | Tool | Returns |
 |---|---|
 | `board` | per pipeline step: tickets resting in the source stage, and the opt-in backlog lane |
-| `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft, `mine` (true/false/absent — see below), `review` (the newest review-kind step's verdict `summary` + `outcome`/`at`; absent when none — read fresh, not cached). Needs a `forge` block. `mine:true`/`mine:false` filters the rows |
+| `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft, `mine` (true/false/absent — see below), `review` (the newest review-kind step's verdict `summary` + `outcome`/`at`; absent when none — read fresh, not cached). Needs a `forge` block. `mine:true`/`mine:false` filters the rows. Side effect: up to 20 known PRs (`refmeta.pr`) missing from the open list are looked up per cache fill and a merged/closed state is recorded (so the web UI's Needs you drops them) |
 | `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError` |
 
 Writes (control socket → engine; omitted entirely under `--read-only`):

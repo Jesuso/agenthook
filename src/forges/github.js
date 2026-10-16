@@ -333,6 +333,14 @@ export function createGithubForge(cfg, store) {
         }),
       );
     },
+    // One known PR's state by number, whatever its branch (backs the `prs` op learning that a
+    // recorded PR left `open` without the merge hook firing).
+    async prState(prNumber) {
+      const res = await api(`${repoPath()}/pulls/${prNumber}`);
+      if (!res.ok) throw new Error(`get PR #${prNumber} ${res.status}`);
+      const pr = await json(res);
+      return pr?.merged_at ? "merged" : pr?.state === "closed" ? "closed" : "open";
+    },
     // Roll-up for one PR head (backs the `ci_green` event; same logic as `prs`).
     ciStatus: (prNumber, sha) => prStatus(prNumber, sha),
     // The open-or-not PR for a ref's agent branch and its current head sha. By number

@@ -10,8 +10,9 @@
 //              paths per ref, in-flight locks (ref -> {paths,stepId}), and refs waiting on
 //              another ref's lock (ref -> {stepId,blockedBy,heldAt}). Only written when
 //              cfg.overlapGuard is on.
-//   - refmeta: per-ref display metadata ({displayId,title,pr,url}) for the CLIs. Never
-//     cleared — unlike running, status/events need it after the run ends.
+//   - refmeta: per-ref display metadata ({displayId,title,pr,prState,url,summary}) for the CLIs. Never
+//     cleared — unlike running, status/events need it after the run ends (only `prState` is
+//     dropped, when a new agent run starts or its PR shows open again).
 //   - cired:   red-CI bounces parked while a step runs on the ref (dispatch applies
 //              them when that run exits).
 //   - summaries: per-(ref, step) supervisor summaries from verdicts ({summary,outcome,run,at}),
@@ -270,14 +271,18 @@ export function createStore(dataDir) {
     },
     listOverlap: () => readJson(overlapFile, {}),
 
-    // --- per-ref display metadata (refmeta.json): human id, title, PR number, tracker URL ---
-    // Written by dispatch (receiver-side only); read by agents/status/events. Shallow
-    // merge so the PR lookup and the fetchTask write can land independently.
+    // --- per-ref display metadata (refmeta.json): human id, title, PR number + terminal state, tracker URL ---
+    // Written by dispatch and the `prs` op (receiver-side only); read by agents/status/events. Shallow
+    // merge so the PR lookup and the fetchTask write can land independently; a `null` value deletes
+    // that key (a re-run drops a stale `prState`), `undefined` is skipped.
     getRefMeta: (ref) => readJson(refmetaFile, {})[ref],
     setRefMeta: (ref, patch) => {
       const m = readJson(refmetaFile, {});
       const cur = m[ref] || {};
-      for (const [k, v] of Object.entries(patch)) if (v !== undefined) cur[k] = v;
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null) delete cur[k];
+        else if (v !== undefined) cur[k] = v;
+      }
       m[ref] = cur;
       fs.writeFileSync(refmetaFile, JSON.stringify(m));
     },

@@ -57,7 +57,7 @@ describe("Overview", () => {
     const html = render(profile({ forge: "github" }), [
       ticket("r", { status: "running", summary: "Cap triage runs so they cannot take every slot." }),
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8), summary: "Held ticket summary." }),
-      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), summary: "PR-ready summary." }),
+      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8", summary: "PR-ready summary." }),
     ]);
     const row = (attr: string) => html.slice(html.indexOf(attr), html.indexOf("</li>", html.indexOf(attr)));
     expect(row('data-now-row="r"')).toContain("Cap triage runs so they cannot take every slot.");
@@ -78,8 +78,8 @@ describe("Overview", () => {
     expect(row("p")).toMatch(/data-needs-primary[^>]*><a[^>]*href="https:\/\/github.com\/o\/r\/pull\/8114"[^>]*>PR #8114/);
     expect(row("h")).toMatch(/data-needs-primary[^>]*><button[^>]*data-release-open/);
     expect(row("f")).toMatch(/data-needs-primary[^>]*><button[^>]*>Dismiss/);
-    expect(row("n")).toMatch(/data-needs-primary[^>]*><\/span>/); // no PR known: empty, same width
-    for (const r of ["p", "n", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
+    expect(html).not.toContain('data-needs-row="n"'); // no PR known: Finished, not Needs you
+    for (const r of ["p", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
   });
 
   it("shows no second line for a ticket without a summary", () => {

@@ -598,6 +598,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // A merge is a release signal whether or not the move landed. Summaries outlive the
     // manual drain (the PR is still open there) and end here.
     store?.clearSummaries(job.ref);
+    store?.setRefMeta(job.ref, { prState: "merged" }); // state and events agree
     leavePipeline(job.ref);
     emit?.("merged", job.ref, job.stepId, { name: task.name, url: task.url });
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
@@ -955,6 +956,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
 
     const startedAt = new Date().toISOString();
     const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null };
+    // A new agent run means any PR state learned earlier (closed, merged) no longer stands —
+    // mirrors buildRows resetting its event-derived prState on run_start.
+    store?.setRefMeta(job.ref, { prState: null });
     emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;

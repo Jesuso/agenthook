@@ -21,7 +21,7 @@ A ticket's PR was merged. Only observable on a profile with a forge.
 _Avoid_: Shipped, landed
 
 **Needs you**:
-A ticket that is blocked on a human: held, failed, or a PR awaiting merge. The headline number of a profile.
+A ticket that is blocked on a human: held, failed, or a PR awaiting merge with a known PR (a ticket finished with no recorded PR is just finished). The headline number of a profile.
 _Avoid_: Attention, alerts, pending
 
 **Digest**:

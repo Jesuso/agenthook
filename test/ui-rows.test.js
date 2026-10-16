@@ -492,6 +492,20 @@ test("buildRows: prState / finishedAt follow pipeline_done → merged, and a re-
   assert.deepEqual([row(rows, "bad").prState, row(rows, "bad").finishedAt], [null, null]);
 });
 
+test("buildRows: refmeta.prState merged/closed overrides an event-derived ready; absent → still ready", () => {
+  const done = (/** @type {string} */ ref) => ({ ts: "2026-10-08T09:00:00.000Z", event: "pipeline_done", ref, step: "done" });
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: { m: { pr: 1, prState: "merged" }, c: { pr: 2, prState: "closed" }, r: { pr: 3 }, odd: { pr: 4, prState: "weird" }, idle: { pr: 5, prState: "merged" } },
+      events: [done("m"), done("c"), done("r"), done("odd")],
+    }),
+  );
+  assert.deepEqual(["m", "c", "r", "odd"].map((ref) => row(rows, ref).prState), ["merged", "closed", "ready", "ready"]);
+  assert.equal(row(rows, "m").status, "done");
+  assert.equal(row(rows, "idle").prState, null, "no finish → no PR state, whatever refmeta says");
+});
+
 test("buildRows: failReason only while failed/cancelled; queuePos is the place in queue.json", () => {
   const rows = buildRows(
     "p",
