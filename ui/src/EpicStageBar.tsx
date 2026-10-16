@@ -12,7 +12,8 @@ export const BUCKET_CLASS: Record<EpicBucket, string> = {
   untracked: "bg-border-strong",
 };
 
-/** An epic's tickets as one stacked bar by bucket (`byStage`), with its `N/M` done count. */
+/** An epic's tickets as one stacked bar by bucket (`byStage`), with its `N/M` done count. The
+ * running segment carries `epic-seg-running` (index.css): a sliding stripe, so it reads as in progress. */
 export function EpicStageBar({ epic, wide }: { epic: Pick<EpicStats, "byStage" | "total">; wide?: boolean }) {
   const { done, total } = progressOf(epic);
   const segs = stageSegments(epic);
@@ -21,7 +22,7 @@ export function EpicStageBar({ epic, wide }: { epic: Pick<EpicStats, "byStage" |
     <div className="flex min-w-0 items-center gap-2" data-stage-bar>
       <div role="img" aria-label={`${done} of ${total} done — ${title}`} title={title} className={`flex h-2 overflow-hidden rounded-full bg-surface-raised ${wide ? "w-full" : "w-40 shrink-0"}`}>
         {segs.map((s) => (
-          <span key={s.bucket} data-seg={s.bucket} className={BUCKET_CLASS[s.bucket]} style={{ width: `${s.pct}%` }} />
+          <span key={s.bucket} data-seg={s.bucket} className={s.bucket === "running" ? `${BUCKET_CLASS.running} epic-seg-running` : BUCKET_CLASS[s.bucket]} style={{ width: `${s.pct}%` }} />
         ))}
       </div>
       <span className={`shrink-0 font-mono text-label ${wide ? "" : "w-12"}`} data-progress>

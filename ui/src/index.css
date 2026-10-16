@@ -167,6 +167,31 @@
   }
 }
 
+/* The epic stage bar's running segment: diagonal stripes sliding along it (a barber pole), so the
+ * blue part reads as still in progress. The stripes sit on top of the segment's own colour; the
+ * background-size equals one stripe period (12px / sin 45°), so the loop is seamless. Static
+ * stripes under reduced motion. */
+@keyframes epic-seg-run {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 17px 0;
+  }
+}
+
+.epic-seg-running {
+  background-image: repeating-linear-gradient(45deg, rgb(255 255 255 / 0.3) 0 6px, transparent 6px 12px);
+  background-size: 17px 17px;
+  animation: epic-seg-run 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .epic-seg-running {
+    animation: none;
+  }
+}
+
 body {
   margin: 0;
   background: var(--color-bg);

@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import EpicsView, { EpicsList } from "./EpicsView";
 import { EpicPage } from "./EpicPage";
+import { EpicStageBar } from "./EpicStageBar";
 import { epicDetail, epicStats, epicTicket, velocityDays } from "./epicsFixtures";
 import type { EpicResponse, EpicsResponse, ProfileView, TicketRow } from "./contract";
 
@@ -109,5 +110,19 @@ describe("EpicPage", () => {
     expect(page({ epic: calm })).not.toContain('data-group="needsYou"');
     expect(page({ epic: calm, live: false })).toContain("data-live-note");
     expect(page({ supported: false })).toContain("This tracker has no epics");
+  });
+});
+
+describe("EpicStageBar running animation", () => {
+  const bar = (byStage: Record<string, number>, total: number) => html(createElement(EpicStageBar, { epic: { byStage, total } as never }));
+  it("marks only the running segment so it slides (epic-seg-running)", () => {
+    const out = bar({ merged: 1, finished: 0, running: 2, needsYou: 0, backlog: 1, untracked: 0 }, 4);
+    const seg = (b: string) => out.match(new RegExp(`<span[^>]*data-seg="${b}"[^>]*>`))?.[0] ?? "";
+    expect(seg("running")).toContain("epic-seg-running");
+    expect(seg("merged")).not.toContain("epic-seg-running");
+    expect(seg("backlog")).not.toContain("epic-seg-running");
+  });
+  it("has no animated segment when nothing is running", () => {
+    expect(bar({ merged: 2, finished: 0, running: 0, needsYou: 0, backlog: 2, untracked: 0 }, 4)).not.toContain("epic-seg-running");
   });
 });
