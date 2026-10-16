@@ -8,7 +8,7 @@ import type { NeedsItem, Progress } from "./zones";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { Menu, Pill, ProfileMark } from "./components";
+import { Menu, Pill, ProfileMark, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -214,9 +214,10 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
           return (
             <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
               <div className="group flex items-center gap-3 px-3 py-2">
-                <Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill>
-                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-                  <span className="font-mono text-label text-muted">{t.displayId}</span> <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
+                <span className="w-[4.5rem] shrink-0"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
+                <TicketId id={t.displayId} url={t.trackerUrl} />
+                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title="open details" onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                  <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
                   {reason && <span className="block truncate text-label text-muted" title={reason}>{reason}</span>}
                 </button>
                 <span className="whitespace-nowrap text-label text-muted">
@@ -229,11 +230,6 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
                   </button>
                 )}
                 <span className={`flex items-center gap-0.5 ${REVEAL}`}>
-                  {t.trackerUrl && (
-                    <a className={LINK} href={t.trackerUrl} target="_blank" rel="noreferrer">
-                      Ticket ↗
-                    </a>
-                  )}
                   {t.prUrl && (
                     <a className={LINK} href={t.prUrl} target="_blank" rel="noreferrer">
                       PR {pr ? `#${pr}` : ""} ↗
@@ -265,8 +261,9 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
   return (
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
-      <button type="button" className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-        <span className="font-mono text-label text-muted">{t.displayId}</span> <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
+      <TicketId id={t.displayId} url={t.trackerUrl} />
+      <button type="button" className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+        <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
       </button>
       {t.step && <Pill>{t.step}</Pill>}
       {queuedAt === undefined && (

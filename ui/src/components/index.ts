@@ -12,3 +12,4 @@ export { Tooltip } from "./Tooltip";
 export { Segmented } from "./Segmented";
 export { FullAutoShield } from "./FullAutoShield";
 export { ProfileMark } from "./ProfileMark";
+export { TicketId } from "./TicketId";
