@@ -3,31 +3,83 @@
 [![CI](https://github.com/Jesuso/agenthook/actions/workflows/ci.yml/badge.svg)](https://github.com/Jesuso/agenthook/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@jesuso/agenthook)](https://www.npmjs.com/package/@jesuso/agenthook)
 
-**Event-driven agentic development.** Move a task into a board section → a coding agent picks it
-up *the instant it lands*, works that stage in an isolated git worktree, and (for the coding
-stage) opens a draft PR. The agent reports a **verdict** and the receiver moves the task — forward
-to the next section (which fires the next stage), back a stage for rework, into a hold lane for a
-human answer, or to a failure lane. You define the **pipeline** of stages (e.g. triage → code →
-review).
+**Turn your task board into a team of coding agents.** Move a ticket into a column and a Claude
+Code agent picks it up *the instant it lands*, works in its own git worktree, opens a draft PR,
+and hands the ticket to the next stage — all while you do something else. agenthook is the
+receiver, the pipeline and the dashboard that make that safe to leave running.
 
-No polling loop. The tracker already knows the moment a task moves — so it pushes a webhook and
-the matching stage starts. Latency is bounded by the network, not by a poll interval, and nothing
-spins while you're idle.
+![Needs you, Now and Progress for one profile](docs/img/ui-overview.png)
 
-> Event-first, poll only to reconcile. See [docs/architecture.md](docs/architecture.md) for the
-> honest tradeoffs (push delivery isn't free — agenthook ships a targeted replay for the gaps).
+## What it solves
 
-Two swappable axes, engine blind to both: a **tracker** (where work comes from) and an
-**ingress** (how the receiver is reachable). Ships with **Asana**, **Jira**, and **two GitHub**
-trackers — **GitHub Issues** (labels-as-sections) and **GitHub Projects v2** (board columns) — plus
-**ngrok** + **hosted** ingress; adding another section/stage tracker or tunnel is one adapter
-file ([docs/providers.md](docs/providers.md)).
+Running one coding agent in a terminal is easy. Running a *dozen tickets a day* through agents is
+not, and the work moves from writing code to **supervising**: who is stuck, what needs my answer,
+what is ready to merge, what is this costing me? agenthook handles the plumbing so your attention
+goes only where a human is actually needed.
+
+- **No babysitting.** The tracker already knows the moment a ticket moves, so it pushes a webhook
+  and the matching stage starts. No polling loop, no cron, nothing spinning while you're idle.
+- **A real workflow, not one big prompt.** You define a **pipeline** of stages (say triage → code →
+  review), each with its own standing instructions. An agent ends a stage with a **verdict**:
+  advance, send back for rework, *hold* to ask you a question, or fail. The receiver moves the
+  ticket accordingly; the rework loop is capped so it can't spin forever.
+- **Parallel and isolated.** Every ticket gets its own git worktree, so several agents work side by
+  side without colliding. One receiver per project, any number of projects at once.
+- **Your attention, boiled down.** The web UI shows what **needs you** (held questions, failures,
+  PRs waiting to merge), what is **running now**, and how the day is going — one project at a time.
+- **Works with the tools you have.** Asana, Jira, GitHub Issues and GitHub Projects v2 today;
+  ngrok or your own HTTPS endpoint for ingress. Each is one small adapter, so more are easy to add.
 
 ```
- move to a section       webhook POST            route to step        headless `claude -p`
+ move to a stage         webhook POST            route to step        headless `claude -p`
  on your board    ─────▶  receiver (verify)  ──▶  dedup + queue   ──▶  branch + draft PR
-                                                                        → advance to next section
+                                                                        → advance to next stage
 ```
+
+## What it looks like
+
+`agenthook ui` opens a local dashboard (127.0.0.1 only, token-protected, nothing to configure).
+
+**Home** — one card per project: how many things need you, how many agents are busy, today's
+spend, and the last thing that happened.
+
+![Home: one card per profile](docs/img/ui-home.png)
+
+**Overview** — the page you keep open. *Catch me up* writes a short briefing in the voice you
+define; **Needs you** lists every ticket blocked on a human, each with its one action (answer a
+held ticket, dismiss a failure, open the PR); **Now** shows live agents; **Progress** keeps score.
+It follows your system's light or dark theme.
+
+![Overview in light theme](docs/img/ui-overview-light.png)
+
+**Stats** — your whole history: a calendar heatmap of finished tickets, spend per pipeline step,
+how runs ended (advanced, sent back, held, failed) and what a finished ticket really costs.
+
+![Stats: heatmap, spend by step, outcomes, cost per ticket](docs/img/ui-stats.png)
+
+Also in the UI: a live log viewer for every agent run, an editor for the per-step instruction
+files and the config (with validation and backups), and profile identity (colour + emoji) so
+several projects stay distinguishable at a glance. Details in [docs/web-ui.md](docs/web-ui.md).
+
+## Capabilities
+
+| | |
+|---|---|
+| **Pipeline** | Ordered stages bound to Asana sections, Jira statuses, GitHub labels or Projects v2 columns; verdict-driven routing with hold and rework lanes |
+| **Agents** | Headless `claude -p` per stage in a receiver-owned worktree; per-stage instructions; token and cost tracking (`agenthook usage`) |
+| **Human in the loop** | Held tickets wait for your answer (`@agent` comment or **Release…** in the UI); failures and unmerged PRs surface as **Needs you** |
+| **Forge** | Optional GitHub forge: PR merge detection, red-CI handling, mergeability and CI roll-up |
+| **Multi-profile** | Many projects in parallel, each its own config, state and port; rename, move and archive profiles safely |
+| **Multi-repo** | Route tickets of one board to different repositories |
+| **Briefings** | `ah digest` / **Catch me up**: a tool-less agent summarises one profile from a read-only snapshot |
+| **Agent interface** | An MCP server and `tick`/`watch` commands so an engineering-manager loop can supervise and drive the pipeline |
+| **Safety** | `fullAuto` off by default, HMAC-verified webhooks, fail-closed assignee scoping, optional [sandbox container](docs/sandbox.md) |
+
+Two swappable axes, the engine blind to both: a **tracker** (where work comes from) and an
+**ingress** (how the receiver is reachable). Adding another stage-based tracker or tunnel is one
+adapter file ([docs/providers.md](docs/providers.md)). The architecture and the honest trade-offs
+of push delivery are in [docs/architecture.md](docs/architecture.md) — agenthook ships a targeted
+replay (`catchup` / `reconcile`) for the gaps.
 
 > [!WARNING]
 > **agenthook turns a webhook into code execution on your host.** With `fullAuto` enabled it runs
@@ -92,6 +144,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 
 - **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
 - [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics
+- [Web UI](docs/web-ui.md) — the `agenthook ui` dashboard: Home, Overview, Stats, editors
 - [Troubleshooting](docs/troubleshooting.md) — symptom → fix
 - [Architecture](docs/architecture.md) — how the engine works + the honest tradeoffs
 - [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely

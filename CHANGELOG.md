@@ -6,19 +6,47 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-15
+
 ### Added
 
+- **Profile-focused web UI** (docs/web-ui.md). Home is one card per profile (needs-you count,
+  agents, queue, cost today); each profile has an Overview built around the human-attention
+  bottleneck — **Needs you**, **Now**, **Progress** — plus profile identity (`ui: {color, emoji}`),
+  release of a held ticket (**Release…**), restart-when-idle and pause/resume, and tracker links.
+- **Digest ("Catch me up")** — an on-demand, tool-less `claude -p` summary of one profile written
+  from a receiver-built snapshot and a SOUL file (`digest.soul`, default `SOUL.md`); never started
+  automatically, outside the slot pool (ADR 0002). `ah digest [profile]` runs it from the CLI.
+- **Stats** — daily stats derived from the whole `events.jsonl` history (`GET /api/stats`, no
+  rollup file): a Stats tab with a finished-per-day calendar heatmap, spend by step, run outcomes
+  and per-ticket cost (median + p10–p90), and a small trend on the Overview.
+- **What a ticket is about** — a plain one-paragraph summary of the tracker description is stored
+  as `refmeta.summary` and shown on Now rows, Needs-you rows and the drawer.
 - `ci_green` event: emitted once per `(ref, sha)` when every check on an agent PR's head has passed
   (payload `pr`, `sha`, `mergeable`, `mergeState`), so supervisors can wait on `events` instead of
   polling the forge (#259). Signal only; `forge.greenCi:false` disables.
 - `dismiss {ref}` operator action (MCP tool, control socket, and a **dismiss** button on failed/cancelled
   rows in `ah ui`): acknowledges a failed or cancelled ticket by writing a `dismissed` event, so it
   stops counting as "needs you". The ticket and board are untouched; a later failure counts again.
+- Per-step `maxConcurrent` cap inside the global slot pool (#277); `catchup` MCP write tool (#272);
+  PR rows marked `mine` for the profile owner (#278); verdict free-form `summary` kept and shown on
+  `runs`/`prs` (#279); `move_refused` event for refused or failed advances (#274).
 
 ### Changed
 
 - Dashboard: an operator `cancel` now shows as a distinct `cancelled` status instead of `failed`, and
   no longer counts toward the "needs you" tile.
+- "PR ready" in Needs you requires a known PR; the `prs` op learns the merged/closed state of known
+  PRs, so tickets finished by hand no longer sit in Needs you forever (#289).
+
+### Fixed
+
+- ngrok ingress registered another profile's tunnel as its own, so webhooks were registered at the
+  wrong domain (#284).
+- Block gate is re-checked at dispatch time (#276); blocked Asana tasks are skipped in queue pulls
+  (#271); coalesced webhooks no longer emit `enqueued` (#273); `status`/`tick` etag no longer churns
+  while an agent runs (#270).
+- Native `<select>` menus are readable in the dark theme (#292).
 
 ## [0.4.0] — 2026-10-13
 
