@@ -67,6 +67,21 @@ describe("Overview", () => {
     expect(row('data-needs-row="p"')).toMatch(/data-needs-sub[^>]*>PR-ready summary\./);
   });
 
+  it("keeps each row's primary action visible in one fixed slot (PR link on PR ready, Release on held, Dismiss on failed)", () => {
+    const html = render(profile({ forge: "github" }), [
+      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8114" }),
+      ticket("n", { status: "done", prState: "ready", finishedAt: local(9), prUrl: null }),
+      ticket("h", { status: "held", heldReason: "q?", heldAt: local(8) }),
+      ticket("f", { status: "failed", failReason: "x" }),
+    ]);
+    const row = (ref: string) => html.slice(html.indexOf(`data-needs-row="${ref}"`), html.indexOf("</li>", html.indexOf(`data-needs-row="${ref}"`)));
+    expect(row("p")).toMatch(/data-needs-primary[^>]*><a[^>]*href="https:\/\/github.com\/o\/r\/pull\/8114"[^>]*>PR #8114/);
+    expect(row("h")).toMatch(/data-needs-primary[^>]*><button[^>]*data-release-open/);
+    expect(row("f")).toMatch(/data-needs-primary[^>]*><button[^>]*>Dismiss/);
+    expect(row("n")).toMatch(/data-needs-primary[^>]*><\/span>/); // no PR known: empty, same width
+    for (const r of ["p", "n", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
+  });
+
   it("shows no second line for a ticket without a summary", () => {
     const html = render(profile(), [ticket("r", { status: "running", summary: null })]);
     expect(html).not.toContain("data-now-sub");

@@ -153,6 +153,8 @@ const KIND: Record<NeedsItem["kind"], { text: string; tone: "failed" | "held" | 
 
 /** Hover (or keyboard focus) reveals a row's actions; touch screens always show them. */
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
+/** A primary, always-visible row action (Release…, PR ↗). */
+const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
 /** The inline answer form under a held row: an optional comment for the agent, then Release. */
@@ -223,29 +225,28 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
                   <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
                   {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
                 </button>
-                <span className="whitespace-nowrap text-label text-muted">
+                <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted">
                   {t.step ? `${t.step} · ` : ""}
                   {formatRelative(since, now)}
                 </span>
-                {kind === "held" && releasing !== t.ref && (
-                  <button type="button" data-release-open className="rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => setReleasing(t.ref)}>
-                    Release…
-                  </button>
-                )}
-                <span className={`flex items-center gap-0.5 ${REVEAL}`}>
-                  {t.prUrl && (
-                    <a className={LINK} href={t.prUrl} target="_blank" rel="noreferrer">
-                      PR {pr ? `#${pr}` : ""} ↗
-                    </a>
-                  )}
-                  <button type="button" className={LINK} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-                    Details
-                  </button>
-                  {kind === "failed" && (
-                    <button type="button" className={LINK} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
+                {/* One primary action per row: always visible, fixed width, so the columns line up. A PR
+                    link on a held/failed row lives in the drawer header; the title opens the drawer. */}
+                <span className="w-28 shrink-0 text-right" data-needs-primary>
+                  {kind === "held" ? (
+                    releasing !== t.ref && (
+                      <button type="button" data-release-open className={ACTION} onClick={() => setReleasing(t.ref)}>
+                        Release…
+                      </button>
+                    )
+                  ) : kind === "failed" ? (
+                    <button type="button" className={ACTION} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
                       Dismiss
                     </button>
-                  )}
+                  ) : t.prUrl ? (
+                    <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer">
+                      PR {pr ? `#${pr}` : ""} ↗
+                    </a>
+                  ) : null}
                 </span>
               </div>
               {kind === "held" && releasing === t.ref && <ReleasePanel item={item} onRelease={onRelease} onClose={() => setReleasing(null)} />}
