@@ -21,7 +21,7 @@ const row: TicketRow = {
   failReason: null,
   prState: null,
   finishedAt: null,
-  queuePos: null,
+  queuePos: null, epic: null,
 };
 
 const render = (ticket: TicketRow | undefined) =>

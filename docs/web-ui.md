@@ -498,7 +498,7 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
   run on a busy profile cost about 2.5¢. A digest sent while a receiver runs old code fails with
   "unknown command": restart the receiver (at 0 agents) after updating.
 
-### Epics data (built; views in #301)
+### Epics data (built)
 Live epic data for the UI (epic #304, ADR 0003). Only the receiver holds the tracker credential, so
 the tracker read is the receiver's `epics` control op (`src/ops.js`); the UI server only relays it.
 - `GET /api/epics?profile=&tz=` → `{ at, live, supported, epics: EpicStats[] }` — every epic with
@@ -520,6 +520,28 @@ the tracker read is the receiver's `epics` control op (`src/ops.js`); the UI ser
   the `refmeta.json` entries grouped by their `epic` (dispatch records it per run), each epic with
   `status:null`, tickets with `stage:null` (so a ticket that never reached a row reads `untracked`).
   Only epics a ticket here has run under appear; detail of any other ref → 404. Not a file write.
+
+### Epics view (built)
+The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy chunk like Stats.
+- **Routes:** `#/p/<key>/epics` (the **Epics** tab) lists the profile's epics; `#/p/<key>/epics/<ref>`
+  is one epic's page. Fetched on open and on **Refresh**; a `ticket` SSE event for the profile refetches
+  after a 2 s quiet period (trailing debounce). No timer polling. 404 / 502 / 503 / 504 show inline.
+- **List** (`EpicsView.tsx`): one row per epic — name (→ its page), tracker `status`, a stacked bar of
+  `byStage` with `N/M` (N = finished + merged, M = total), a needs-you badge and the ETA when known.
+  Completed epics sit last, dimmed, under a collapsed "Completed (k)". `supported:false` → "This tracker
+  has no epics"; `live:false` → a "known tickets only — receiver down" note.
+- **Epic page** (`EpicPage.tsx`): header (name, status, tracker link only if http(s)), the same stage bar
+  with a legend, **Needs you** first, a 14-day velocity sparkline (`ui/src/epicSparkline.ts`, a pure d3
+  model) with `finished14`, per-day rate and ETA, then the other tickets by bucket (running, backlog,
+  finished, merged) and an "Untracked / not on board" note. A ticket that has a local row opens the
+  ticket drawer.
+- **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or
+  malformed, `url` only http(s)) puts an epic chip on the row; clicking it filters the table to that
+  epic. The toolbar's epic select (shown once a row has an epic) does the same; status counts follow it.
+- Bucket colours come from the status tokens (done, running, held, queued), light and dark.
+
+![Epics list](img/ui-epics.png)
+![One epic](img/ui-epic.png)
 
 ### Build order
 (Steps 1–3 are built.)

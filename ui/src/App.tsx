@@ -30,6 +30,7 @@ import { Overview } from "./Overview";
 const InstructionsView = lazy(() => import("./InstructionsView"));
 const ConfigView = lazy(() => import("./ConfigView"));
 const StatsView = lazy(() => import("./StatsView"));
+const EpicsView = lazy(() => import("./EpicsView"));
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
@@ -43,12 +44,15 @@ export default function App() {
   const fetchState = useRef<FetchState>(initFetchState());
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [epicFilter, setEpicFilter] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
   // The ticket whose runs/log panel is open. The stream callback reads it via a ref.
   const [open, setOpen] = useState<{ profile: string; ref: string } | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
   const [runsNonce, setRunsNonce] = useState(0);
+  // Bumped per `ticket` SSE event of the routed profile: the Epics view refetches off it (debounced).
+  const [ticketsNonce, setTicketsNonce] = useState(0);
   // Hash routing, no router lib: `#/` Home, `#/p/<key>[/<view>]` a profile (route.ts). The
   // Instructions / Config views report their dirty buffer here so leaving them (a tab, Home, the
   // back button) can confirm before discarding it, and receive their SSE events via the sinks.
@@ -102,6 +106,7 @@ export default function App() {
         }
       }
       setStatusFilter("");
+      setEpicFilter("");
       setRoute(next);
     };
     window.addEventListener("hashchange", onHash);
@@ -188,6 +193,11 @@ export default function App() {
             setPendingRemoval(({ [ev.name]: _, ...rest }) => rest);
             setToast({ text: `Removed ${label}`, hint: null });
           }
+        }
+        if (ev.type === "ticket" || ev.type === "ticket_removed") {
+          const here = routeRef.current;
+          const profile = ev.type === "ticket" ? ev.ticket.profile : ev.profile;
+          if (here.kind === "profile" && here.view === "epics" && here.profile === profile) setTicketsNonce((n) => n + 1);
         }
         if (isBuffering(fetchState.current)) {
           fetchState.current = bufferEvent(fetchState.current, ev);
@@ -295,6 +305,19 @@ export default function App() {
           <StatsView key={profile.name} profile={profile} feed={feed.filter((f) => f.profile === profile.name)} />
         </Suspense>
       );
+    } else if (route.view === "epics") {
+      page = (
+        <Suspense fallback={<p className="text-sm">Loading epics…</p>}>
+          <EpicsView
+            key={profile.name}
+            profile={profile}
+            epic={route.epic}
+            rows={snapshot.tickets.filter((t) => t.profile === profile.name)}
+            ticketsNonce={ticketsNonce}
+            onOpen={setOpen}
+          />
+        </Suspense>
+      );
     } else if (route.view === "config") {
       page = (
         <Suspense fallback={<p className="text-sm">Loading editor…</p>}>
@@ -310,6 +333,8 @@ export default function App() {
           feed={feed.filter((f) => f.profile === profile.name)}
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
+          epicFilter={epicFilter}
+          setEpicFilter={setEpicFilter}
           showAll={showAll}
           setShowAll={setShowAll}
           open={open}

@@ -16,13 +16,13 @@ const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, trackerUrl: null,
-  prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, ...over,
+  prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
 const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProps> = {}) =>
   renderToStaticMarkup(
     createElement(Overview, {
-      profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, showAll: false, setShowAll: () => {},
+      profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
       open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), ...over,
     }),
   );
@@ -132,5 +132,6 @@ describe("Overview", () => {
   it("opens the All tickets drill-down only while a status filter is active", () => {
     expect(render(profile(), [])).not.toMatch(/<details[^>]*data-all-tickets[^>]*open/);
     expect(render(profile(), [], { statusFilter: "failed" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
+    expect(render(profile(), [], { epicFilter: "E1" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
   });
 });

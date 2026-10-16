@@ -143,6 +143,27 @@ test("buildRows: prUrl needs both a well-formed repository and refmeta.pr", () =
   assert.equal(row(buildRows("p", s, { repository: "a/b?x" }), "a").prUrl, null);
 });
 
+test("buildRows: epic from refmeta.epic — name falls back to ref, non-http url dropped, malformed → null", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: {
+        a: { epic: { ref: "E1", name: "Epics", url: "https://app.asana.com/0/1/E1" } },
+        b: { epic: { ref: "E2", url: "javascript:alert(1)" } },
+        c: { title: "no epic" },
+        d: { epic: { ref: "", name: "empty ref" } },
+        e: { epic: "E3" },
+        f: { epic: { ref: 7, name: "numeric ref" } },
+        g: { epic: { ref: "E4", name: 9, url: 9 } },
+      },
+    }),
+  );
+  assert.deepEqual(row(rows, "a").epic, { ref: "E1", name: "Epics", url: "https://app.asana.com/0/1/E1" });
+  assert.deepEqual(row(rows, "b").epic, { ref: "E2", name: "E2", url: null });
+  for (const ref of ["c", "d", "e", "f"]) assert.equal(row(rows, ref).epic, null, ref);
+  assert.deepEqual(row(rows, "g").epic, { ref: "E4", name: "E4", url: null });
+});
+
 test("buildRows: prototype-named refs don't resolve through Object.prototype", () => {
   const rows = buildRows("p", state({ events: [{ ts: "1", event: "run_end", ref: "constructor", step: "code" }] }));
   assert.equal(row(rows, "constructor").status, "idle");

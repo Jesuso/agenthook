@@ -12,7 +12,7 @@ function profile(name: string, over: Partial<ProfileView> = {}): ProfileView {
   };
 }
 const ticket = (profileName: string, ref: string, status: TicketRow["status"]): TicketRow => ({
-  profile: profileName, ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null,
+  profile: profileName, ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null,
 });
 
 describe("buildHome", () => {

@@ -48,6 +48,8 @@ export type StatusFilter = TicketStatus | "needs-you";
 export type TicketFilter = {
   profile: string | null;
   status: StatusFilter | null;
+  /** An epic ref (`TicketRow.epic.ref`), or null for every ticket. */
+  epic?: string | null;
   showAll: boolean;
   now: number;
   /** Names of profiles with a forge: only there does a ready PR count as Needs you. */
@@ -59,11 +61,19 @@ const needsYou = (r: TicketRow, forges?: ReadonlySet<string>) => isNeedsYou(r, !
 export function filterTickets(rows: TicketRow[], filter: TicketFilter): TicketRow[] {
   return rows.filter((r) => {
     if (filter.profile && r.profile !== filter.profile) return false;
+    if (filter.epic && r.epic?.ref !== filter.epic) return false;
     if (filter.status === "needs-you" ? !needsYou(r, filter.forges) : filter.status && r.status !== filter.status) return false;
     // A row that needs a human is never hidden as stale (a PR can wait for days).
     if (!filter.showAll && isStale(r, filter.now) && !needsYou(r, filter.forges)) return false;
     return true;
   });
+}
+
+/** The distinct epics of `rows` (first name seen per ref), sorted by name — the epic filter's options. */
+export function ticketEpics(rows: TicketRow[]): { ref: string; name: string }[] {
+  const byRef = new Map<string, string>();
+  for (const r of rows) if (r.epic && !byRef.has(r.epic.ref)) byRef.set(r.epic.ref, r.epic.name);
+  return [...byRef].map(([ref, name]) => ({ ref, name })).sort((a, b) => a.name.localeCompare(b.name) || a.ref.localeCompare(b.ref));
 }
 
 /** "230" from ".../pull/230" — the PR number of a `TicketRow.prUrl`; null when it isn't one. */
@@ -73,7 +83,7 @@ export function prNumber(prUrl: string | null): string | null {
 
 export type StatusCounts = { all: number; "needs-you": number } & Record<TicketStatus, number>;
 
-/** Per-chip counts for the status filter: over the rows the profile + stale filters keep, before
+/** Per-chip counts for the status filter: over the rows the profile + epic + stale filters keep, before
  * the status filter (so every chip shows what clicking it would list). */
 export function statusCounts(rows: TicketRow[], filter: Omit<TicketFilter, "status">): StatusCounts {
   const counts = { all: 0, "needs-you": 0, ...Object.fromEntries(STATUS_ORDER.map((s) => [s, 0])) } as StatusCounts;
