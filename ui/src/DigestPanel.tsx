@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import type { DigestView } from "./contract";
 import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatRelative } from "./format";
+
+// react-markdown ships in the same lazy chunk as the Instructions preview, not the main bundle.
+const DigestMarkdown = lazy(() => import("./DigestMarkdown"));
 
 /**
  * "Catch me up": the profile's latest Digest (docs/web-ui.md § Digest agent) and the button that
@@ -51,11 +54,11 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
       <div className="rounded-lg border border-border bg-surface px-3 py-3">
         {!loaded ? null : digest ? (
           <>
-            <p className="whitespace-pre-wrap text-body text-fg" data-digest-text>
-              {digest.text}
-            </p>
+            <Suspense fallback={<p className="whitespace-pre-wrap text-body text-fg">{digest.text}</p>}>
+              <DigestMarkdown text={digest.text} />
+            </Suspense>
             <p className="mt-2 text-meta text-faint">
-              {formatRelative(digest.generatedAt, now)}
+              {formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)))}
               {digest.costUsd !== undefined && ` · ${formatCost(digest.costUsd)}`}
               {since > 0 && <span className="text-status-held"> · {since} new {since === 1 ? "event" : "events"} since</span>}
             </p>

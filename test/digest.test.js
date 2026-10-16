@@ -96,7 +96,8 @@ function digester(run, extra = {}) {
 
 test("digester: writes digest.json, emits digest_start/end with cost, never uses fullAuto", async () => {
   /** @type {string[]} */ let argv = [];
-  const { d, dir, events } = digester(async (_b, args) => ((argv = args), JSON.stringify({ result: "  Two things need you.  ", total_cost_usd: 0.04 })));
+  let cwd = "";
+  const { d, dir, events } = digester(async (_b, args, c) => ((argv = args), (cwd = c), JSON.stringify({ result: "  Two things need you.  ", total_cost_usd: 0.04 })));
   const rec = await d.request();
   assert.equal(rec.text, "Two things need you.");
   assert.equal(rec.costUsd, 0.04);
@@ -104,6 +105,8 @@ test("digester: writes digest.json, emits digest_start/end with cost, never uses
   assert.deepEqual(events.map((e) => e[0]), ["digest_start", "digest_end"]);
   assert.equal(events[1][1].outcome, "ok");
   assert.ok(!argv.includes("--dangerously-skip-permissions"));
+  assert.ok(!cwd.startsWith(os.homedir()) && cwd.startsWith(os.tmpdir()), "runs in a throwaway dir outside $HOME");
+  assert.ok(!fs.existsSync(cwd), "and removes it afterwards");
   assert.equal((fs.statSync(path.join(dir, "digest.json")).mode & 0o777), 0o600);
 });
 
