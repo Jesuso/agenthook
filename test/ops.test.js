@@ -444,6 +444,13 @@ test("prs: learns merged/closed for known PRs missing from the open list; open o
   assert.deepEqual(looked.sort(), [4, 5], "terminal states are not re-looked up");
 });
 
+test("prs: a learned terminal state whose PR shows open again (reopened) is dropped", async () => {
+  const s = setup({ forge: { listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }], prState: async () => "closed" } });
+  s.store.setRefMeta("1", { pr: 1, title: "reopened", prState: "closed" });
+  await s.ops.prs({});
+  assert.deepEqual(s.store.getRefMeta("1"), { pr: 1, title: "reopened" });
+});
+
 test("prs: a forge without prState still lists PRs; lookups are bounded per fill", async () => {
   const plain = setup({ forge: { listAgentPrs: async () => [] } });
   plain.store.setRefMeta("1", { pr: 1 });

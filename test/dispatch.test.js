@@ -346,6 +346,15 @@ test("dispatch: a hold verdict writes held.json[ref]; the next run of any step c
   assert.equal(store.getHeld("42"), undefined);
 });
 
+test("dispatch: a new agent run drops a learned refmeta.prState (a re-run's finish is ready again)", async () => {
+  const { store, runStep } = heldHarness();
+  store.setRefMeta("42", { pr: 7, prState: "closed" });
+  await runStep("code", { outcome: "advance" });
+  const meta = store.getRefMeta("42");
+  assert.equal(meta?.pr, 7, "the PR number stays");
+  assert.equal(meta?.prState, undefined, "the stale closed state no longer overrides the next pipeline_done");
+});
+
 test("dispatch: a held ref that later fails ends with no held record", async () => {
   const { store, runStep } = heldHarness();
   await runStep("triage", { outcome: "hold" });

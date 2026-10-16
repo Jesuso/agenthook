@@ -128,6 +128,9 @@ test("refmeta set shallow-merges, lists, and persists across instances", () => {
   assert.deepEqual(s.getRefMeta("123"), { displayId: "ID-1", title: "Renamed", pr: 42, url: "https://example.com/123" });
   s.setRefMeta("123", { url: "https://example.com/123-moved", title: "Renamed Again" }); // later url/title patch keeps pr
   assert.deepEqual(s.getRefMeta("123"), { displayId: "ID-1", title: "Renamed Again", pr: 42, url: "https://example.com/123-moved" });
+  s.setRefMeta("123", { prState: "closed" });
+  s.setRefMeta("123", { prState: null }); // null deletes the key
+  assert.equal("prState" in (s.getRefMeta("123") ?? {}), false);
   s.setRefMeta("456", { title: "Other" });
   assert.deepEqual(Object.keys(createStore(dir).listRefMeta()).sort(), ["123", "456"]);
   assert.equal(createStore(dir).getRefMeta("123")?.pr, 42);

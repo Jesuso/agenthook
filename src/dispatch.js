@@ -956,6 +956,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
 
     const startedAt = new Date().toISOString();
     const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null };
+    // A new agent run means any PR state learned earlier (closed, merged) no longer stands —
+    // mirrors buildRows resetting its event-derived prState on run_start.
+    store?.setRefMeta(job.ref, { prState: null });
     emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;

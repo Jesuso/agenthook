@@ -119,9 +119,13 @@
  * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
  * @property {string} [title]      the task title
  * @property {number} [pr]         the PR number for the ref's branch, once one exists
- * @property {'merged'|'closed'} [prState]  that PR's terminal state once learned (the `prs` op's `forge.prState` lookup, or a merge job); unset while open/unknown
+ * @property {'merged'|'closed'} [prState]  that PR's terminal state once learned (the `prs` op's `forge.prState` lookup, or a merge job); unset while open/unknown, dropped when a new agent run starts or the PR shows open again
  * @property {string} [url]        the item's tracker web URL (Task.url)
  * @property {string} [summary]    the first prose paragraph of the description, plain and clipped (src/ticket-summary.js); what `ah ui` shows as "what is this about"
+ */
+
+/** A `setRefMeta` patch: `undefined` skips a key, `null` deletes it.
+ * @typedef {{ [K in keyof RefMeta]?: RefMeta[K] | null }} RefMetaPatch
  */
 
 /** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.
@@ -484,7 +488,7 @@
  * @property {(ref: string) => void} clearOverlap
  * @property {() => Record<string, OverlapInfo>} listOverlap
  * @property {(ref: string) => RefMeta|undefined} getRefMeta        display metadata for ref (undefined = none recorded)
- * @property {(ref: string, patch: RefMeta) => void} setRefMeta     shallow-merge patch into ref's record (undefined values skipped)
+ * @property {(ref: string, patch: RefMetaPatch) => void} setRefMeta  shallow-merge patch into ref's record (undefined skipped, null deletes)
  * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
  */
 

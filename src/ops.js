@@ -180,13 +180,16 @@ export function createOps(deps) {
    * Known PRs (refmeta.pr) missing from the open list may have been merged/closed without the
    * forge hook firing: look a bounded few up and record a terminal state, so the UI stops
    * counting them as awaiting merge. Only runs inside the `prs` loader (an explicit call) — no
-   * timer. A failed lookup writes nothing and never fails `prs`.
+   * timer. A failed lookup writes nothing and never fails `prs`. A terminal state whose PR is
+   * open again (reopened) is dropped, no lookup needed.
    * @param {Set<number>} open  PR numbers listAgentPrs just reported open
    */
   async function learnPrStates(open) {
     const prState = forge?.prState;
     if (typeof prState !== "function") return;
-    const todo = Object.entries(store.listRefMeta())
+    const metas = Object.entries(store.listRefMeta());
+    for (const [ref, m] of metas) if (m?.prState && open.has(/** @type {number} */ (m.pr))) store.setRefMeta(ref, { prState: null });
+    const todo = metas
       .filter(([, m]) => Number.isInteger(m?.pr) && (m.pr ?? 0) > 0 && m.prState !== "merged" && m.prState !== "closed" && !open.has(/** @type {number} */ (m.pr)))
       .slice(0, MAX_PR_STATE_LOOKUPS);
     await Promise.all(
