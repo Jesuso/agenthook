@@ -55,12 +55,12 @@ export function renameEdit(text: string, input: string, stateKey: string): strin
   return applyEdits(next, edits);
 }
 
-export type Basics = { name?: unknown; maxConcurrent?: unknown; fullAuto?: unknown; port?: unknown; trigger?: unknown };
+export type Basics = { name?: unknown; maxConcurrent?: unknown; fullAuto?: unknown; port?: unknown; trigger?: unknown; ui?: { color?: unknown; emoji?: unknown } };
 
 export function readBasics(raw: unknown): Basics {
   if (!isObj(raw)) return {};
-  const { name, maxConcurrent, fullAuto, port, trigger } = raw;
-  return { name, maxConcurrent, fullAuto, port, trigger };
+  const { name, maxConcurrent, fullAuto, port, trigger, ui } = raw;
+  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined };
 }
 
 /** `tracker.pipeline` as-is (a non-object element reads as `{}`); [] when absent. */
@@ -94,6 +94,19 @@ export function boolEdit(text: string, path: JSONPath, checked: boolean, current
   if (checked) return setPath(text, path, true);
   if (explicitFalse) return setPath(text, path, false);
   return current === true ? setPath(text, path, undefined) : text;
+}
+
+/**
+ * The Appearance picker's edit: set `ui.<field>` to a palette id / emoji, or `undefined` to go back
+ * to the derived default. An emptied `ui` block is removed so "automatic" leaves no trace in the file.
+ */
+export function identityEdit(text: string, field: "color" | "emoji", value: string | undefined): string {
+  const before = JSON.parse(text);
+  // Clearing under a missing `ui` block has nothing to delete (and jsonc-parser throws on it).
+  if (value === undefined && !(isObj(before) && isObj(before.ui) && before.ui[field] !== undefined)) return text;
+  const next = setPath(text, ["ui", field], value);
+  const raw = JSON.parse(next);
+  return isObj(raw) && isObj(raw.ui) && Object.keys(raw.ui).length === 0 ? setPath(next, ["ui"], undefined) : next;
 }
 
 export const stepPath = (i: number, key: string): JSONPath => [...PIPELINE, i, key];

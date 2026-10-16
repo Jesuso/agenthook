@@ -10,3 +10,5 @@ export { Card } from "./Card";
 export { EmptyState } from "./EmptyState";
 export { Tooltip } from "./Tooltip";
 export { Segmented } from "./Segmented";
+export { FullAutoShield } from "./FullAutoShield";
+export { ProfileMark } from "./ProfileMark";

@@ -10,12 +10,14 @@ export type ActivityRailProps = {
   onOpen: (t: { profile: string; ref: string }) => void;
   /** "rail" (fixed-width right column, xl+) or "panel" (capped-height disclosure, narrow). */
   variant: "rail" | "panel";
+  /** Events that arrived while the panel was collapsed; shown as a badge beside the count. */
+  unread?: number;
 };
 
 /** The live event feed, grouped by minute, newest first — a collapsible right-hand rail on wide
  * screens or an "Activity" panel under the summary strip on narrow ones. Live-only: nothing before
  * the page opened. */
-export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, variant }: ActivityRailProps) {
+export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, variant, unread = 0 }: ActivityRailProps) {
   const groups = groupByMinute(feed);
   const bodyHeight = variant === "rail" ? "flex-1 min-h-0 overflow-y-auto" : "max-h-72 overflow-y-auto";
 
@@ -24,6 +26,11 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <h2 className="text-base font-semibold">
           Activity <span className="font-mono text-label text-muted">{feed.length}</span>
+          {unread > 0 && (
+            <span data-unread={unread} className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-meta font-medium text-accent-fg">
+              {unread} new
+            </span>
+          )}
         </h2>
         <button
           type="button"

@@ -1,13 +1,22 @@
-import type { Snapshot, TicketStatus } from "./contract";
+import type { Snapshot, TicketRow, TicketStatus } from "./contract";
 
-/** The ticket statuses that want a human: the "needs you" tile and its ticket filter. */
+/** The ticket statuses that always want a human: held and failed. */
 export const NEEDS_YOU: TicketStatus[] = ["held", "failed"];
+
+/**
+ * Whether a ticket is Needs you (CONTEXT.md): held, failed, or a finished ticket whose PR awaits
+ * merge. The PR clause needs `forge` — without one `merged` is never observed, so a PR merged by
+ * hand would read as awaiting forever.
+ */
+export function isNeedsYou(t: Pick<TicketRow, "status" | "prState">, forge: boolean): boolean {
+  return NEEDS_YOU.includes(t.status) || (forge && t.status === "done" && t.prState === "ready");
+}
 
 export type Summary = {
   /** Σ active / Σ maxConcurrent over up profiles (null → 0). */
   active: number;
   capacity: number;
-  /** Tickets whose status is in NEEDS_YOU. */
+  /** Tickets that are Needs you (isNeedsYou). */
   needsYou: number;
   /** Σ queued over up profiles (null → 0). */
   queued: number;
@@ -37,6 +46,12 @@ export function summarize(snapshot: Snapshot, now: number): Summary {
       if (!Number.isNaN(t) && t >= since && Number.isFinite(c.costUsd)) s.costToday += c.costUsd;
     }
   }
-  for (const t of snapshot.tickets) if (NEEDS_YOU.includes(t.status)) s.needsYou++;
+  const forges = new Set(snapshot.profiles.filter((p) => p.forge).map((p) => p.name));
+  for (const t of snapshot.tickets) if (isNeedsYou(t, forges.has(t.profile))) s.needsYou++;
   return s;
+}
+
+/** `snapshot` narrowed to one profile — so `summarize` gives that profile's own strip / card numbers. */
+export function scopeToProfile(snapshot: Snapshot, name: string): Snapshot {
+  return { profiles: snapshot.profiles.filter((p) => p.name === name), tickets: snapshot.tickets.filter((t) => t.profile === name) };
 }

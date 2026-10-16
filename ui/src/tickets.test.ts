@@ -13,6 +13,11 @@ function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; 
     trackerUrl: null,
     prUrl: null,
     heldReason: null,
+    heldAt: null,
+    failReason: null,
+    prState: null,
+    finishedAt: null,
+    queuePos: null,
     ...overrides,
   };
 }

@@ -14,6 +14,8 @@ const prof = (over: Partial<ProfileView> = {}): ProfileView => ({
   tracker: null,
   ingress: null,
   fullAuto: null,
+  color: "sky",
+  emoji: "💻",
   maxConcurrent: null,
   startedAt: null,
   updatedAt: null,
@@ -28,6 +30,8 @@ const prof = (over: Partial<ProfileView> = {}): ProfileView => ({
   ghost: false,
   configMissing: false,
   recentCosts: [],
+  forge: null,
+  recentRuns: [],
   ...over,
 });
 

@@ -26,6 +26,8 @@ export type TicketsTableProps = {
   now: number;
   profileFilter: string;
   onProfileFilter: (v: string) => void;
+  /** Hide the profile picker and column: the table is already one profile's (the profile Overview). */
+  lockProfile?: boolean;
   /** `""` = all statuses. */
   statusFilter: string;
   onStatusFilter: (v: string) => void;
@@ -41,7 +43,8 @@ export type TicketsTableProps = {
 /** The dashboard's tickets section: a one-row filter toolbar over a paged table in its own scroll region. */
 export function TicketsTable(props: TicketsTableProps) {
   const { tickets, profiles, now, profileFilter, statusFilter, showAll, open } = props;
-  const base = { profile: profileFilter || null, showAll, now };
+  const forges = new Set(profiles.filter((p) => p.forge).map((p) => p.name));
+  const base = { profile: profileFilter || null, showAll, now, forges };
   const counts = statusCounts(tickets, base);
   const rows = sortTickets(filterTickets(tickets, { ...base, status: (statusFilter || null) as StatusFilter | null }));
   // Grown pages reset to one whenever a filter changes (the key no longer matches).
@@ -61,6 +64,7 @@ export function TicketsTable(props: TicketsTableProps) {
     <>
       <h2 className="text-base font-semibold mb-2">tickets</h2>
       <div className="flex flex-wrap items-center gap-3 mb-2 text-sm" data-tickets-toolbar>
+        {!props.lockProfile && (
         <select
           aria-label="profile"
           className="border border-border rounded px-1.5 py-0.5 bg-transparent"
@@ -74,6 +78,7 @@ export function TicketsTable(props: TicketsTableProps) {
             </option>
           ))}
         </select>
+        )}
         <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={showAll} onChange={(e) => props.onShowAll(e.target.checked)} />

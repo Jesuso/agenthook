@@ -41,6 +41,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} tracker
  * @property {string|null} ingress
  * @property {boolean|null} fullAuto
+ * @property {string} color               palette id (src/identity.js): the heartbeat's `ui.color` if valid, else derived from `name`
+ * @property {string} emoji               the heartbeat's `ui.emoji` if on the curated list, else derived from `name`
  * @property {number|null} maxConcurrent  configured agent slots (heartbeat.maxConcurrent)
  * @property {string|null} startedAt
  * @property {string|null} updatedAt
@@ -55,12 +57,16 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} lastSeenAt     heartbeat.updatedAt, else the later of profile.json updatedAt / events.jsonl mtime
  * @property {boolean} ghost              no receiver ever ran here: no marker, no heartbeat, nothing but an empty logs/
  * @property {boolean} configMissing      configPath is set but the file no longer exists
+ * @property {string|null} forge         the forge adapter type (`github`) when one is configured, else null — a ready PR only counts as Needs you where merges are observable
+ * @property {RecentRun[]} recentRuns     every `run_end` in the events tail's last 48 h, oldest first (outcome per run: the Overview's rework rate)
  * @property {RecentCost[]} recentCosts   `run_end` costs from the events tail's last 48 h, oldest
  *                                        first — the browser buckets them by its local midnight
  *                                        (approximate: the tail is byte-bounded)
  */
 
 /** @typedef {{ at: string, costUsd: number }} RecentCost */
+
+/** @typedef {{ at: string, outcome: string|null }} RecentRun */
 
 /** @typedef {{ at: string|null, kind: string|null, ref: string|null, step: string|null }} LastEvent */
 
@@ -83,6 +89,11 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} trackerUrl     refmeta.url
  * @property {string|null} prUrl          https://github.com/<repository>/pull/<refmeta.pr>
  * @property {string|null} heldReason
+ * @property {string|null} heldAt          when the hold was recorded (held.json), while held
+ * @property {string|null} failReason     the last `failed` event's reason, while the ticket rests failed/cancelled
+ * @property {'ready'|'merged'|null} prState  once finished: `ready` after pipeline_done (PR awaiting merge), `merged` after a forge's merged event; null otherwise
+ * @property {string|null} finishedAt      ts of the finish (pipeline_done, else merged) while status is `done` — what "finished today" counts
+ * @property {number|null} queuePos        0-based place in queue.json while queued
  */
 
 /**

@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildRows, buildSnapshot, profileView, readEventsTail, readProfileState, RECENT_COSTS_MS } from "../src/ui/rows.js";
+import { deriveIdentity } from "../src/identity.js";
+import { buildRows, buildSnapshot, profileView, readEventsTail, readProfileState, recentRuns, RECENT_COSTS_MS } from "../src/ui/rows.js";
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
 import { uiPort, checkBundle, DEFAULT_PORT } from "../src/commands/ui.js";
@@ -221,6 +222,8 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     tracker: "github",
     ingress: "ngrok",
     fullAuto: true,
+    color: deriveIdentity("live").color,
+    emoji: deriveIdentity("live").emoji,
     maxConcurrent: null,
     startedAt: "s",
     updatedAt: "u",
@@ -234,6 +237,8 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     lastSeenAt: null, // heartbeat.updatedAt "u" isn't a timestamp
     ghost: false,
     configMissing: false,
+    forge: null,
+    recentRuns: [],
     recentCosts: [],
   });
   const down = snap.profiles[0];
@@ -449,4 +454,83 @@ test("buildRows: an operator cancel reads cancelled, not failed; dismissed clear
   assert.equal(row(rows, "cd").status, "idle");
   assert.equal(row(rows, "dn").status, "done", "dismiss never touches a done ticket");
   assert.equal(row(rows, "again").status, "failed", "a failure after a dismiss counts again");
+});
+
+test("profileView: colour / emoji come from the heartbeat's ui when valid, else derive from the state key", () => {
+  const view = (/** @type {any} */ heartbeat) => profileView({ name: "k", pid: 1, up: true, heartbeat });
+  const d = deriveIdentity("k");
+  assert.deepEqual([view(null).color, view(null).emoji], [d.color, d.emoji]);
+  assert.deepEqual([view({ ui: { color: "pink", emoji: "🦊" } }).color, view({ ui: { color: "pink", emoji: "🦊" } }).emoji], ["pink", "🦊"]);
+  // invalid / foreign values never reach the browser; null fields fall back per field
+  const odd = view({ ui: { color: "#ff0000", emoji: "<script>" } });
+  assert.deepEqual([odd.color, odd.emoji], [d.color, d.emoji]);
+  assert.equal(view({ ui: { color: null, emoji: "🦊" } }).color, d.color);
+  assert.equal(view({ ui: "nope" }).color, d.color);
+});
+
+test("buildRows: prState / finishedAt follow pipeline_done → merged, and a re-run clears them", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      events: [
+        { ts: "2026-10-08T09:00:00.000Z", event: "pipeline_done", ref: "ready", step: "done" },
+        { ts: "2026-10-08T08:00:00.000Z", event: "pipeline_done", ref: "merged", step: "done" },
+        { ts: "2026-10-08T10:00:00.000Z", event: "merged", ref: "merged", step: "" },
+        { ts: "2026-10-08T07:00:00.000Z", event: "merged", ref: "merge-only", step: "" },
+        { ts: "2026-10-08T06:00:00.000Z", event: "pipeline_done", ref: "rerun", step: "done" },
+        { ts: "2026-10-08T07:00:00.000Z", event: "run_start", ref: "rerun", step: "code" },
+        { ts: "2026-10-08T07:30:00.000Z", event: "failed", ref: "bad", step: "code", reason: "tests red" },
+      ],
+    }),
+  );
+  assert.deepEqual([row(rows, "ready").prState, row(rows, "ready").finishedAt], ["ready", "2026-10-08T09:00:00.000Z"]);
+  // the finish stays the pipeline_done ts; the later merge only flips prState
+  assert.deepEqual([row(rows, "merged").prState, row(rows, "merged").finishedAt], ["merged", "2026-10-08T08:00:00.000Z"]);
+  assert.deepEqual([row(rows, "merge-only").prState, row(rows, "merge-only").finishedAt], ["merged", "2026-10-08T07:00:00.000Z"]);
+  const rerun = row(rows, "rerun");
+  assert.deepEqual([rerun.status, rerun.prState, rerun.finishedAt], ["idle", null, null]);
+  assert.deepEqual([row(rows, "bad").prState, row(rows, "bad").finishedAt], [null, null]);
+});
+
+test("buildRows: failReason only while failed/cancelled; queuePos is the place in queue.json", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      queue: [
+        { kind: "pipeline", ref: "q0", stepId: "code", dedupKey: "a" },
+        { kind: "pipeline", ref: "q1", stepId: "code", dedupKey: "b" },
+      ],
+      events: [
+        { ts: "1", event: "failed", ref: "f", step: "code", reason: "tests red" },
+        { ts: "2", event: "failed", ref: "c", step: "code", reason: "cancelled by operator" },
+        { ts: "3", event: "failed", ref: "d", step: "code", reason: "x" },
+        { ts: "4", event: "dismissed", ref: "d", step: "" },
+      ],
+    }),
+  );
+  assert.equal(row(rows, "f").failReason, "tests red");
+  assert.equal(row(rows, "c").failReason, "cancelled by operator");
+  assert.equal(row(rows, "d").failReason, null); // dismissed → idle
+  assert.equal(row(buildRows("p", state({ held: { h: { stepId: "triage", reason: "?", heldAt: "2026-10-08T07:00:00Z" } } })), "h").heldAt, "2026-10-08T07:00:00Z");
+  assert.deepEqual([row(rows, "q0").queuePos, row(rows, "q1").queuePos, row(rows, "f").queuePos], [0, 1, null]);
+});
+
+test("recentRuns: run_end within 48 h with its outcome, oldest first; garbage ts or other events are skipped", () => {
+  const now = Date.parse("2026-10-08T12:00:00Z");
+  const events = [
+    { ts: "2026-10-05T12:00:00Z", event: "run_end", outcome: "advance" }, // too old
+    { ts: "2026-10-07T13:00:00Z", event: "run_end", outcome: "changes" },
+    { ts: "garbage", event: "run_end", outcome: "advance" },
+    { ts: "2026-10-08T11:00:00Z", event: "run_start" },
+    { ts: "2026-10-08T11:30:00Z", event: "run_end" },
+  ];
+  assert.deepEqual(recentRuns(events, now), [
+    { at: "2026-10-07T13:00:00.000Z", outcome: "changes" },
+    { at: "2026-10-08T11:30:00.000Z", outcome: null },
+  ]);
+});
+
+test("profileView: forge is the heartbeat's forge type, else null", () => {
+  assert.equal(profileView({ name: "k", pid: 1, up: true, heartbeat: { forge: "github" } }).forge, "github");
+  assert.equal(profileView({ name: "k", pid: 1, up: true, heartbeat: {} }).forge, null);
 });

@@ -220,6 +220,10 @@ Key files:
   `<registry>-archive/<key>-<UTC stamp>/` (refuses `.`/`..`, a live pid, an existing target, cross-fs)
   + audit line. The engine's control-socket `decommission {when:'idle'}` pauses like `restart`,
   unregisters webhooks (best-effort), exits with no respawn and archives in teardown's tail.
+- `src/identity.js` — a profile's colour + emoji (`ui: {color, emoji}` in config). Import-free so config validation (`identityErrors`),
+  the heartbeat (`ui`), `ui/rows.js` `profileView` (resolved `color`/`emoji`, validated — foreign values never reach the browser) and the
+  browser bundle share one palette (`PROFILE_COLORS`, tokens `--color-profile-<id>` in `ui/src/index.css`) and one curated emoji list.
+  Unset → `deriveIdentity(stateKey)` (FNV-1a), so every profile is distinct with no config.
 - `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
   updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
   `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config

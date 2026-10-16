@@ -20,6 +20,11 @@ function ticket(overrides: Partial<TicketRow> & { ref: string }): TicketRow {
     trackerUrl: null,
     prUrl: null,
     heldReason: null,
+    heldAt: null,
+    failReason: null,
+    prState: null,
+    finishedAt: null,
+    queuePos: null,
     ...overrides,
   };
 }

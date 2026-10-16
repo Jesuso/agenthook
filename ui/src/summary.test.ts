@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarize, NEEDS_YOU } from "./summary";
+import { summarize, scopeToProfile, NEEDS_YOU } from "./summary";
 import type { ProfileView, TicketRow } from "./contract";
 
 function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }): ProfileView {
@@ -10,6 +10,8 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
     tracker: null,
     ingress: null,
     fullAuto: null,
+    color: "sky",
+    emoji: "💻",
     maxConcurrent: null,
     startedAt: null,
     updatedAt: null,
@@ -24,12 +26,14 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
     ghost: false,
     configMissing: false,
     recentCosts: [],
+    forge: null,
+    recentRuns: [],
     ...overrides,
   };
 }
 
 function ticket(ref: string, status: TicketRow["status"]): TicketRow {
-  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null };
+  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null };
 }
 
 // Local time on purpose: "today" is the browser's local day.
@@ -84,5 +88,16 @@ describe("summarize", () => {
 
   it("is all zeros for an empty snapshot", () => {
     expect(summarize({ profiles: [], tickets: [] }, NOW)).toEqual({ active: 0, capacity: 0, needsYou: 0, queued: 0, costToday: 0, up: 0, down: 0 });
+  });
+});
+
+describe("scopeToProfile", () => {
+  it("keeps only one profile's row and tickets, so summarize reads that profile alone", () => {
+    const snap = {
+      profiles: [profile({ name: "a", up: true, active: 1, maxConcurrent: 2 }), profile({ name: "b", up: true, active: 3, maxConcurrent: 4 })],
+      tickets: [ticket("1", "held"), { ...ticket("2", "failed"), profile: "b" }],
+    };
+    const s = summarize(scopeToProfile(snap, "a"), NOW);
+    expect(s).toMatchObject({ active: 1, capacity: 2, needsYou: 1, up: 1, down: 0 });
   });
 });

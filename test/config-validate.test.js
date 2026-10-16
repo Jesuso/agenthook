@@ -216,3 +216,12 @@ test("pipeline step maxConcurrent: a positive integer passes; 0, -1, 1.5, \"2\" 
   const m = validateRawConfig(raw({}, [{ id: "code" }, { id: "done", manual: true, maxConcurrent: 1 }]));
   assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" maxConcurrent has no effect on a manual step (no agent runs).`]);
 });
+
+test("ui identity block: valid values pass, unknown colour / emoji / shape are errors", () => {
+  assert.deepEqual(validateRawConfig(raw({ ui: { color: "teal", emoji: "🚀" } })), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ ui: {} })), { ok: true });
+  const bad = (/** @type {any} */ ui) => /** @type {any} */ (validateRawConfig(raw({ ui }))).errors;
+  assert.match(bad({ color: "red" })[0], /ui\.color must be one of/);
+  assert.match(bad({ emoji: "zz" })[0], /ui\.emoji must be one of/);
+  assert.match(bad("teal")[0], /"ui" must be an object/);
+});

@@ -11,6 +11,8 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     tracker: "github",
     ingress: "ngrok",
     fullAuto: false,
+    color: "sky",
+    emoji: "💻",
     maxConcurrent: 1,
     startedAt: "s",
     updatedAt: "u",
@@ -25,6 +27,8 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     ghost: false,
     configMissing: false,
     recentCosts: [],
+    forge: null,
+    recentRuns: [],
     ...overrides,
   };
 }
@@ -47,8 +51,8 @@ describe("applyEvent", () => {
     const state: Snapshot = {
       profiles: [profile({ name: "a" }), profile({ name: "b" })],
       tickets: [
-        { profile: "a", ref: "1", displayId: "1", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null },
-        { profile: "b", ref: "2", displayId: "2", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null },
+        { profile: "a", ref: "1", displayId: "1", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null },
+        { profile: "b", ref: "2", displayId: "2", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null },
       ],
     };
     const next = applyEvent(state, { type: "profile_removed", name: "a" });
@@ -82,6 +86,11 @@ describe("applyEvent", () => {
       trackerUrl: null,
       prUrl: null,
       heldReason: null,
+      heldAt: null,
+      failReason: null,
+      prState: null,
+      finishedAt: null,
+      queuePos: null,
       ...overrides,
     };
   }

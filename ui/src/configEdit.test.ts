@@ -5,6 +5,7 @@ import {
   boolEdit,
   clientErrors,
   formattingFor,
+  identityEdit,
   moveStep,
   numberEdit,
   readBasics,
@@ -286,5 +287,33 @@ describe("stageSource", () => {
     expect(stageSource(504, null)).toEqual({ kind: "text", hint: "couldn't list stages (receiver timed out)" });
     expect(stageSource(502, { error: "boom" } as any)).toEqual({ kind: "text", hint: "couldn't list stages (receiver error: boom)" });
     expect(stageSource(0, null)).toEqual({ kind: "text", hint: "couldn't list stages (network error)" });
+  });
+});
+
+describe("identityEdit", () => {
+  const base = JSON.stringify({ name: "p", repoPath: "/r" }, null, 2);
+
+  it("creates the ui block, then sets and replaces its fields", () => {
+    const a = identityEdit(base, "color", "teal");
+    expect(JSON.parse(a).ui).toEqual({ color: "teal" });
+    const b = identityEdit(a, "emoji", "🚀");
+    expect(JSON.parse(b).ui).toEqual({ color: "teal", emoji: "🚀" });
+    expect(JSON.parse(identityEdit(b, "color", "pink")).ui).toEqual({ color: "pink", emoji: "🚀" });
+  });
+
+  it("going back to automatic removes the key, and an emptied ui block with it", () => {
+    const both = identityEdit(identityEdit(base, "color", "teal"), "emoji", "🚀");
+    expect(JSON.parse(identityEdit(both, "color", undefined)).ui).toEqual({ emoji: "🚀" });
+    expect(JSON.parse(identityEdit(identityEdit(both, "color", undefined), "emoji", undefined))).toEqual({ name: "p", repoPath: "/r" });
+  });
+
+  it("is a no-op on a config with no ui block when clearing", () => {
+    expect(JSON.parse(identityEdit(base, "emoji", undefined))).toEqual({ name: "p", repoPath: "/r" });
+  });
+
+  it("keeps comment keys and other fields intact", () => {
+    const text = '{\n  "//": "note",\n  "name": "p"\n}';
+    const out = identityEdit(text, "color", "sky");
+    expect(JSON.parse(out)).toEqual({ "//": "note", name: "p", ui: { color: "sky" } });
   });
 });

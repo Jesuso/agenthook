@@ -395,6 +395,7 @@
  * @property {IngressConfig} ingress
  * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
+ * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent

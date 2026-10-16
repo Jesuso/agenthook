@@ -1,5 +1,5 @@
 import type { TicketRow, TicketStatus } from "./contract";
-import { NEEDS_YOU } from "./summary";
+import { isNeedsYou } from "./summary";
 
 export const STATUS_ORDER: TicketStatus[] = ["running", "queued", "held", "interrupted", "stalled", "failed", "cancelled", "done", "idle"];
 
@@ -42,16 +42,26 @@ export function sortTickets(rows: TicketRow[]): TicketRow[] {
   });
 }
 
-/** One status, `"needs-you"` (any of NEEDS_YOU: held + failed), or null for all. */
+/** One status, `"needs-you"` (held, failed, or a ready PR on a forge profile), or null for all. */
 export type StatusFilter = TicketStatus | "needs-you";
 
-export type TicketFilter = { profile: string | null; status: StatusFilter | null; showAll: boolean; now: number };
+export type TicketFilter = {
+  profile: string | null;
+  status: StatusFilter | null;
+  showAll: boolean;
+  now: number;
+  /** Names of profiles with a forge: only there does a ready PR count as Needs you. */
+  forges?: ReadonlySet<string>;
+};
+
+const needsYou = (r: TicketRow, forges?: ReadonlySet<string>) => isNeedsYou(r, !!forges?.has(r.profile));
 
 export function filterTickets(rows: TicketRow[], filter: TicketFilter): TicketRow[] {
   return rows.filter((r) => {
     if (filter.profile && r.profile !== filter.profile) return false;
-    if (filter.status === "needs-you" ? !NEEDS_YOU.includes(r.status) : filter.status && r.status !== filter.status) return false;
-    if (!filter.showAll && isStale(r, filter.now)) return false;
+    if (filter.status === "needs-you" ? !needsYou(r, filter.forges) : filter.status && r.status !== filter.status) return false;
+    // A row that needs a human is never hidden as stale (a PR can wait for days).
+    if (!filter.showAll && isStale(r, filter.now) && !needsYou(r, filter.forges)) return false;
     return true;
   });
 }
@@ -70,7 +80,7 @@ export function statusCounts(rows: TicketRow[], filter: Omit<TicketFilter, "stat
   for (const r of filterTickets(rows, { ...filter, status: null })) {
     counts.all++;
     counts[r.status]++;
-    if (NEEDS_YOU.includes(r.status)) counts["needs-you"]++;
+    if (needsYou(r, filter.forges)) counts["needs-you"]++;
   }
   return counts;
 }
