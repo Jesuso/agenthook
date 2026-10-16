@@ -110,7 +110,7 @@ test("createTools: read-only hides and refuses every write tool; annotations mar
     assert.ok(!names(ro).includes(w), `${w} hidden read-only`);
     await assert.rejects(() => ro.call(w, { ref: "1" }, { signal: new AbortController().signal }), /read-only/);
   }
-  for (const r of ["profiles", "status", "tick", "events", "runs", "board", "prs"]) assert.ok(names(ro).includes(r), `${r} stays read-only`);
+  for (const r of ["profiles", "status", "tick", "events", "runs", "board", "prs", "epics"]) assert.ok(names(ro).includes(r), `${r} stays read-only`);
   const cancel = rw.list().find((t) => t.name === "cancel");
   assert.equal(cancel.annotations.readOnlyHint, false);
   assert.equal(cancel.annotations.destructiveHint, true);

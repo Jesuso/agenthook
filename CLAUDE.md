@@ -195,7 +195,7 @@ Key files:
   `POST /api/release` (same guards; `{profile, ref, comment?}`, 20 s timeout, audited without the comment) answers a held
   ticket via the receiver's `release` op. `GET /api/epics[/<ref>]` (cookie only, like discover; `<ref>` must match
   `EPIC_REF_RE` → else 400; 20 s `epicsTimeoutMs`) relays the receiver's `epics` op; down (503) → 200 `live:false`
-  built locally from `refmeta.epic` via `epics.js` `localEpics` (no tracker call, no write). `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
+  via `agent-api.js` `readLocalEpics` (shared with the MCP `epics` tool/CLI fallback; no tracker call, no write). `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
   read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
   stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
   `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).
@@ -205,7 +205,11 @@ Key files:
   is the pure read model over a state dir (`readStatus` slots/running/queue/held with an `etag`,
   `readEventsSince`/`waitForEvents` byte-offset cursors — `waitForEvents` is `fs.watch`-driven, never
   polling —, `readRuns`/`readRunLogTail`, `readTick`, `pickProfile` multiplexing); reads work with the
-  receiver down. `mcp/server.js` is a zero-dep stdio JSON-RPC MCP transport, `mcp/tools.js` the tool
+  receiver down. `readEpics(entry, {ref?, fresh?, tz?})` is live-then-local: the receiver's `epics` op
+  when up, else `readLocalEpics` (the `ah ui` receiver-down fallback, also used by `GET /api/epics`) —
+  `live()` tags a down socket error `{code:'down'}` so `readEpics` can fall back without string-matching
+  the message. Backs the MCP `epics` tool and `agenthook epics`; `tick {epics:true}` adds its list
+  (minus per-day `velocity.days`) or `epicsError`. `mcp/server.js` is a zero-dep stdio JSON-RPC MCP transport, `mcp/tools.js` the tool
   table (`--read-only` unlists + refuses every write). Live-only reads (`board`, `prs`) and all writes go
   over `control.sock` to `ops.js` (`createOps`, wired in `engine.js`, passed to `startControl({commands})`):
   `pause/resume/set_concurrency/cancel/run/release/reconcile/pull`, each audited to `control-audit.jsonl`

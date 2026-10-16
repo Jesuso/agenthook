@@ -18,6 +18,8 @@ export function digest(t) {
   if (t.boardError) lines.push(`  board: ${t.boardError}`);
   if (t.prs) for (const p of t.prs) lines.push(`  PR #${p.n} ${p.ref} ci=${p.ci}${p.conflict ? " CONFLICT" : ""}${p.state ? ` ${p.state}` : ""}${p.draft ? " draft" : ""}${typeof p.mine === "boolean" ? (p.mine ? " mine" : " not-mine") : ""}`);
   if (t.prsError) lines.push(`  prs: ${t.prsError}`);
+  if (t.epics) for (const e of t.epics) lines.push(`  epic ${e.ref} "${e.name}" ${e.byStage.finished + e.byStage.merged}/${e.total}${e.needsYou.length ? ` needs-you: ${e.needsYou.join(" ")}` : ""}`);
+  if (t.epicsError) lines.push(`  epics: ${t.epicsError}`);
   for (const e of t.events) lines.push(`  ev ${e.ts?.slice(11, 19)} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}${e.pr ? ` PR#${e.pr}` : ""}${e.sha ? ` ${String(e.sha).slice(0, 7)}` : ""}${e.mergeState ? ` ${e.mergeState}` : ""}`);
   lines.push(`  cursor ${t.cursor}`);
   return lines.join("\n");
@@ -32,6 +34,6 @@ export async function tick(args) {
     return;
   }
   const cursor = args.cursor !== undefined ? Number(args.cursor) : undefined;
-  const t = await readTick(picked.entry, { cursor, board: args["no-board"] !== true, prs: args["no-prs"] !== true });
+  const t = await readTick(picked.entry, { cursor, board: args["no-board"] !== true, prs: args["no-prs"] !== true, epics: args.epics === true });
   console.log(args.json ? JSON.stringify(t) : digest(t));
 }

@@ -26,8 +26,9 @@
 // tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic. Nothing
 // else in any state dir is ever written.
 import { readDigest } from "../digest.js";
-import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "../epics.js";
-import { readHistory, readStats } from "./stats.js";
+import { EPIC_REF_RE } from "../epics.js";
+import { readLocalEpics } from "../agent-api.js";
+import { readStats } from "./stats.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -40,7 +41,7 @@ import { readConfigFile, writeConfigFile } from "./config.js";
 import { controlRequest, resolveProfileSock } from "./control-client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
 import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
-import { buildRows, buildSnapshot, readEventsTail, readProfileState } from "./rows.js";
+import { buildSnapshot, readEventsTail } from "./rows.js";
 import { appendAudit, UI_MAX_BYTES } from "./save.js";
 import { createWatcher } from "./watch.js";
 
@@ -333,28 +334,6 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       });
     });
 
-  /**
-   * The receiver-down view of `GET /api/epics[/<ref>]`: the epics the profile's refmeta names
-   * (`epic` per ticket), joined with its local rows and history — no tracker read, `live:false`.
-   * Null when `ref` names none of them (→ 404).
-   * @param {string} profile @param {string} dir @param {string|null} ref @param {number} tz
-   */
-  const localEpicsView = (profile, dir, ref, tz) => {
-    const { heartbeat: hb } = readProfile(profile, registry);
-    const state = readProfileState(dir);
-    const join = {
-      rows: buildRows(profile, state, { repository: hb?.repository ?? null, up: false }),
-      events: readHistory(path.join(dir, "events.jsonl")).events,
-      forge: !!hb?.forge,
-      tzOffset: tz,
-    };
-    const groups = localEpics(state.refmeta);
-    const at = new Date().toISOString();
-    if (ref === null) return { at, live: false, supported: true, epics: groups.map((g) => epicStats(g.epic, g.tickets, join)) };
-    const hit = groups.find((g) => g.epic.ref === ref);
-    return hit ? { at, live: false, supported: true, epic: epicDetail(hit.epic, hit.tickets, join) } : null;
-  };
-
   /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
   const profileConfigPath = (profile) => {
     const p = readProfile(profile, registry);
@@ -568,7 +547,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         if ((ref !== null && !EPIC_REF_RE.test(ref)) || !Number.isFinite(tz) || Math.abs(tz) > 14 * 60) return send(res, 400);
         callControl(sock.sockPath, "epics", { ...(ref !== null ? { ref } : {}), tz }, epicsTimeoutMs).then(({ status, body }) => {
           if (status !== 503) return sendStatusJson(res, status, body);
-          sendJson(res, () => localEpicsView(profile, sock.dir, ref, tz));
+          sendJson(res, () => readLocalEpics(readProfile(profile, registry), { ref, tz }));
         });
         return;
       }

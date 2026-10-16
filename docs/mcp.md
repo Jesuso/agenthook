@@ -57,7 +57,8 @@ Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasse
 |---|---|
 | `board` | per pipeline step: tickets resting in the source stage, and the opt-in backlog lane |
 | `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft, `mine` (true/false/absent — see below), `review` (the newest review-kind step's verdict `summary` + `outcome`/`at`; absent when none — read fresh, not cached). Needs a `forge` block. `mine:true`/`mine:false` filters the rows. Side effect: up to 20 known PRs (`refmeta.pr`) missing from the open list are looked up per cache fill and a merged/closed state is recorded (so the web UI's Needs you drops them) |
-| `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError` |
+| `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError`. Pass `epics:true` to also include `epics` (see below, without per-day `velocity.days`) / `epicsLive` / `epicsError` |
+| `epics {ref?, fresh?}` | hybrid read, not socket-only: every epic's progress (or one epic's tickets with `ref`). `live:true` when the receiver is up (reads the tracker, cached ~30 s); `live:false` when it's down — a fallback built from this profile's own ticket history (`refmeta`), so tickets that never ran here won't show. `supported:false` means the tracker adapter has no epic support |
 
 Writes (control socket → engine; omitted entirely under `--read-only`):
 
@@ -101,6 +102,8 @@ supervisor you trust.
 ```bash
 agenthook tick                  # text digest: slots, RUN/WAIT/HELD rows, board counts, PRs, new events
 agenthook tick --json           # the exact MCP tick payload; pass --cursor <n> from the last run
+agenthook epics                 # every epic's progress (live if the receiver is up, else a local fallback)
+agenthook epics --ref E1 --json # one epic's tickets; the exact MCP epics payload
 agenthook watch --event run_end,failed,blocked --timeout 600   # exit 0 on event, 2 on timeout
 ```
 
