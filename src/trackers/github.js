@@ -94,8 +94,9 @@ export function mapEpics(items, epicType, epicLabel) {
 /** An epic's direct sub-issues mapped to EpicTicket[]. PRs dropped. Same-repo sub-issue
  * (its repository_url matches `repoApiUrl`): ref/displayId `#<n>`, stage = the original
  * casing of the first pipeline label (source/success/failure/hold/queue of any step) it
- * carries, else null. Other-repo sub-issue: ref/displayId `<owner>/<repo>#<n>`, stage
- * always null (so it never joins a local row with the same bare number). Pure — drives
+ * carries, else "" (in this tracker's view, no pipeline label yet → backlog). Other-repo
+ * sub-issue: ref/displayId `<owner>/<repo>#<n>`, stage always null (outside this tracker's
+ * view → untracked; also never joins a local row with the same bare number). Pure — drives
  * listEpicTickets.
  * @param {any[]} items @param {string} repoApiUrl @param {Map<string,string>} stageLabels
  * @returns {import('../types.js').EpicTicket[]} */
@@ -113,6 +114,7 @@ export function mapEpicTickets(items, repoApiUrl, stageLabels) {
       const m = /\/repos\/([^/]+\/[^/]+)$/.exec(String(it.repository_url || ""));
       ref = displayId = `${m ? m[1] : "unknown/unknown"}#${n}`;
     } else {
+      stage = "";
       for (const l of it.labels || []) {
         const name = typeof l === "string" ? l : l?.name;
         if (typeof name !== "string") continue;

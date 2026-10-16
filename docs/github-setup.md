@@ -173,6 +173,11 @@ token requirement.
 See epics in the dashboard ([`docs/web-ui.md`](web-ui.md) epics view) or query them programmatically
 via the MCP `epics` tool / `agenthook epics`.
 
+Bucket meaning for a sub-issue that hasn't run locally yet: an **open same-repo** sub-issue with
+no `agent:*` pipeline label is **backlog** — plain, unstarted work in this tracker's view, not
+hidden from it. A sub-issue in **another repo** is **untracked** — outside this tracker's view,
+since it can never be matched to a local run here. A closed sub-issue is **finished** either way.
+
 ## Routing to multiple repos
 
 Create a **label convention** yourself, e.g. `platform:ios`, `platform:web`. `routeField` is the label **prefix**; the text after it is the route key. Pipeline labels (`agent:*`, etc.) are never used as keys, and agenthook does not create routing labels.
