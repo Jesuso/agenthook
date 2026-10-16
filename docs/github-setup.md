@@ -70,7 +70,7 @@ leaves the issue re-firing rather than stuck).
 ## 3. The webhook is automatic
 
 Unlike Jira, GitHub lets a token create webhooks — so `agenthook start` **creates it for you** on
-the repo (`issues` + `issue_comment` events), scrubbing any of its own stale hooks first. The signing secret is
+the repo (`issues` + `issue_comment` + `sub_issues` events), scrubbing any of its own stale hooks first. The signing secret is
 generated and stored by agenthook; deliveries are verified via `x-hub-signature-256: sha256=<hex>`
 (constant-time HMAC). `GITHUB_TOKEN` is the only secret you supply.
 
@@ -124,6 +124,54 @@ the normal flow closes the issue when its **PR merges** (the agent puts `Closes 
 body), which keeps the issue open — work visible — until the change is actually integrated.
 `closeIssue: true` closes the issue the moment it reaches `done`, i.e. while its PR is still open, so
 turn it on only when auto-release is worth that early close.
+
+## Epics
+
+An **epic** is a parent issue that groups other issues as **direct native sub-issues**. agenthook
+never spawns an agent on an epic, even if it carries a pipeline label.
+
+Identity is type-**or**-label:
+
+- **Issue type** `Epic` (organization repos only — personal accounts don't have issue types) —
+  config key `tracker.epicType`, default `"Epic"`.
+- **Label** `epic` (case-insensitive) — config key `tracker.epicLabel`, default `"epic"`. This is
+  the path for personal accounts.
+
+```jsonc
+"tracker": {
+  "type": "github",
+  "epicType": "Epic",   // optional, this is the default
+  "epicLabel": "epic"   // optional, this is the default
+}
+```
+
+An issue with sub-issues but no matching type or label is **not** treated as an epic.
+
+Membership is the epic's **direct** sub-issues only — nested levels below a direct child are not
+rolled up. Add a sub-issue from the issue's UI, or via the API:
+
+```bash
+curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/<owner>/<repo>/issues/<epic-number>/sub_issues \
+  -d '{"sub_issue_id": <child-issue-id>}'   # the child's id, not its number
+```
+
+GitHub limits: **100 sub-issues per parent**, **8 nesting levels**.
+
+The epic view refreshes live off the `sub_issues` hook event and `issues` `typed`/`untyped`
+actions. A hook created **before** this feature shipped only has `issues` + `issue_comment` and
+needs recreating to pick up `sub_issues`: restart the receiver (`agenthook start` recreates the
+hook on boot) or, for a static/hosted URL, run `agenthook register <url>`.
+
+Token: the Issues **read** scope from [§1](#1-a-token-github_token) is enough — epics add no new
+token requirement.
+
+> The type path (`epicType`) is **untested** — exercising it needs an organization repo, which
+> wasn't available to verify unattended. The label path (`epicLabel`) is the one dogfooded on this
+> repo.
+
+See epics in the dashboard ([`docs/web-ui.md`](web-ui.md) epics view) or query them programmatically
+via the MCP `epics` tool / `agenthook epics`.
 
 ## Routing to multiple repos
 
