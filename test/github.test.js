@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createGithubAdapter, extractRouteKeys } from "../src/trackers/github.js";
+import { createGithubAdapter, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
 
 /** Minimal in-memory Store stub. */
@@ -776,5 +776,205 @@ test("listResting: a closed ticket, and a live read that fails, are not resting 
     assert.deepEqual((await a.listResting()).map((j) => j.ref), ["22"]);
   } finally {
     restore();
+  }
+});
+
+// --- epics (#309): isEpicIssue / mapEpics / mapEpicTickets, fetchTask, list filters ---
+
+test("isEpicIssue: typed, labelled (any case), custom type/label, plain parent is not an epic", () => {
+  assert.equal(isEpicIssue({ type: { name: "Epic" } }, "Epic", "epic"), true);
+  assert.equal(isEpicIssue({ labels: [{ name: "Epic" }] }, "Epic", "epic"), true);
+  assert.equal(isEpicIssue({ labels: ["EPIC"] }, "Epic", "epic"), true);
+  assert.equal(isEpicIssue({ type: { name: "Bug" }, labels: [{ name: "bug" }], sub_issues_summary: { total: 3 } }, "Epic", "epic"), false);
+  assert.equal(isEpicIssue({ type: { name: "Initiative" } }, "Initiative", "big"), true);
+  assert.equal(isEpicIssue({ labels: [{ name: "big" }] }, "Initiative", "big"), true);
+  assert.equal(isEpicIssue({ labels: [{ name: "epic" }] }, "Initiative", "big"), false);
+});
+
+test("mapEpics: typed + labelled fixtures each listed once (dedupe by number), PRs dropped, closed → status/completed", () => {
+  const epics = mapEpics(
+    [
+      { number: 1, title: "A", html_url: "ua", state: "open", type: { name: "Epic" } },
+      { number: 1, title: "A", html_url: "ua", state: "open", type: { name: "Epic" } }, // same epic via the other path
+      { number: 2, title: "B", html_url: "ub", state: "closed", labels: [{ name: "epic" }] },
+      { number: 3, title: "PR", html_url: "up", state: "open", type: { name: "Epic" }, pull_request: {} },
+      { number: 4, title: "Plain", html_url: "u4", state: "open" },
+    ],
+    "Epic",
+    "epic",
+  );
+  assert.deepEqual(epics, [
+    { ref: "1", name: "A", url: "ua", displayId: "#1", status: "open", completed: false },
+    { ref: "2", name: "B", url: "ub", displayId: "#2", status: "closed", completed: true },
+  ]);
+});
+
+test("mapEpicTickets: in-pipeline stage, no-pipeline-label same-repo, other-repo, PR dropped, closed", () => {
+  const stageLabels = new Map([["agent:review", "agent:review"]]);
+  const repoApiUrl = "https://api.github.com/repos/o/r";
+  const tickets = mapEpicTickets(
+    [
+      { number: 10, title: "in pipeline", state: "open", repository_url: repoApiUrl, labels: [{ name: "agent:review" }] },
+      { number: 11, title: "no stage", state: "open", repository_url: repoApiUrl, labels: [{ name: "bug" }] },
+      { number: 12, title: "other repo", state: "closed", repository_url: "https://api.github.com/repos/o/other" },
+      { number: 13, title: "pr", state: "open", repository_url: repoApiUrl, pull_request: {} },
+    ],
+    repoApiUrl,
+    stageLabels,
+  );
+  assert.deepEqual(tickets, [
+    { ref: "10", displayId: "#10", name: "in pipeline", completed: false, stage: "agent:review" },
+    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: null },
+    { ref: "o/other#12", displayId: "o/other#12", name: "other repo", completed: true, stage: null },
+  ]);
+});
+
+test("fetchTask: no parent_issue_url makes exactly 1 call and sets no epic", async () => {
+  const calls = [];
+  const restore = withDeps((u) => {
+    calls.push(u);
+    return u.endsWith("/issues/5") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "t", body: "", html_url: "u", state: "open" }) }) : null;
+  });
+  try {
+    const task = await adapter().fetchTask("5");
+    assert.equal(calls.length, 1);
+    assert.equal(task.epic, undefined);
+    assert.equal(task.isEpic, false);
+  } finally {
+    restore();
+  }
+});
+
+test("fetchTask: epic parent sets Task.epic (2 calls)", async () => {
+  const calls = [];
+  const restore = withDeps((u) => {
+    calls.push(u);
+    if (u.endsWith("/issues/5")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "t", body: "", html_url: "u", state: "open", parent_issue_url: "x" }) });
+    if (u.endsWith("/issues/5/parent")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ number: 7, title: "Epic 7", html_url: "u7", type: { name: "Epic" }, repository_url: "https://api.github.com/repos/o/r" }) });
+    return null;
+  });
+  try {
+    const task = await adapter().fetchTask("5");
+    assert.equal(calls.length, 2);
+    assert.deepEqual(task.epic, { ref: "7", name: "Epic 7", url: "u7", displayId: "#7" });
+  } finally {
+    restore();
+  }
+});
+
+test("fetchTask: parent is a plain (non-epic) issue sets no epic", async () => {
+  const restore = withDeps((u) => {
+    if (u.endsWith("/issues/5")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "t", body: "", html_url: "u", state: "open", parent_issue_url: "x" }) });
+    if (u.endsWith("/issues/5/parent")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ number: 7, title: "Plain parent", html_url: "u7", repository_url: "https://api.github.com/repos/o/r" }) });
+    return null;
+  });
+  try {
+    assert.equal((await adapter().fetchTask("5")).epic, undefined);
+  } finally {
+    restore();
+  }
+});
+
+test("fetchTask: parent 404 sets no epic and does not throw", async () => {
+  const restore = withDeps((u) => {
+    if (u.endsWith("/issues/5")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "t", body: "", html_url: "u", state: "open", parent_issue_url: "x" }) });
+    if (u.endsWith("/issues/5/parent")) return /** @type {any} */ ({ ok: false, status: 404, json: async () => ({}) });
+    return null;
+  });
+  try {
+    assert.equal((await adapter().fetchTask("5")).epic, undefined);
+  } finally {
+    restore();
+  }
+});
+
+test("fetchTask: labelled issue is isEpic:true", async () => {
+  const restore = withDeps((u) => (u.endsWith("/issues/5") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "t", body: "", html_url: "u", state: "open", labels: [{ name: "epic" }] }) }) : null));
+  try {
+    assert.equal((await adapter().fetchTask("5")).isEpic, true);
+  } finally {
+    restore();
+  }
+});
+
+test("listResting drops an epic-labelled and a typed-Epic issue, keeps the rest", async () => {
+  const { a, restore } = restingAdapter({
+    "/dependencies/blocked_by": { body: [] },
+    "/issues?state=open&labels=agent%3Acode": {
+      body: [
+        { number: 1, labels: [{ name: "agent:code" }], assignees: [] },
+        { number: 2, labels: [{ name: "agent:code" }, { name: "epic" }], assignees: [] },
+        { number: 3, labels: [{ name: "agent:code" }], type: { name: "Epic" }, assignees: [] },
+      ],
+    },
+    "/issues/1": { body: { number: 1, state: "open", labels: [{ name: "agent:code" }] } },
+  });
+  try {
+    assert.deepEqual((await a.listResting()).map((j) => j.ref), ["1"]);
+  } finally {
+    restore();
+  }
+});
+
+test("listQueued drops an epic-labelled and a typed-Epic issue, keeps the rest", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    const res = (data) => /** @type {any} */ ({ ok: true, status: 200, json: async () => data });
+    if (u.includes("/dependencies/blocked_by")) return res([]);
+    return res([
+      { number: 1, assignees: [] },
+      { number: 2, assignees: [], labels: [{ name: "epic" }] },
+      { number: 3, assignees: [], type: { name: "Epic" } },
+    ]);
+  };
+  try {
+    assert.deepEqual(await queued({ assigneeFilter: false }).listQueued("code"), ["1"]);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listEpics returns [] (no throw) on an API error", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+  try {
+    assert.deepEqual(await adapter().listEpics(), []);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listEpicTickets returns [] (no throw) on an API error", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+  try {
+    assert.deepEqual(await adapter().listEpicTickets("7"), []);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listEpics merges label-path and type-path results through mapEpics (post-filtered, deduped)", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    const res = (data) => /** @type {any} */ ({ ok: true, status: 200, json: async () => data });
+    if (u.includes("labels=epic")) return res([{ number: 1, title: "A", html_url: "ua", state: "open", labels: [{ name: "epic" }] }]);
+    if (u.includes("type=Epic")) return res([{ number: 1, title: "A", html_url: "ua", state: "open", labels: [{ name: "epic" }] }, { number: 2, title: "B", html_url: "ub", state: "open", type: { name: "Epic" } }]);
+    return res([]);
+  };
+  try {
+    const epics = await adapter().listEpics();
+    assert.deepEqual(
+      epics.map((e) => e.ref),
+      ["1", "2"],
+    );
+  } finally {
+    global.fetch = orig;
   }
 });
