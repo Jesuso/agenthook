@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { deriveIdentity } from "../src/identity.js";
 import { buildRows, buildSnapshot, profileView, readEventsTail, readProfileState, RECENT_COSTS_MS } from "../src/ui/rows.js";
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
@@ -221,6 +222,8 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     tracker: "github",
     ingress: "ngrok",
     fullAuto: true,
+    color: deriveIdentity("live").color,
+    emoji: deriveIdentity("live").emoji,
     maxConcurrent: null,
     startedAt: "s",
     updatedAt: "u",
@@ -449,4 +452,16 @@ test("buildRows: an operator cancel reads cancelled, not failed; dismissed clear
   assert.equal(row(rows, "cd").status, "idle");
   assert.equal(row(rows, "dn").status, "done", "dismiss never touches a done ticket");
   assert.equal(row(rows, "again").status, "failed", "a failure after a dismiss counts again");
+});
+
+test("profileView: colour / emoji come from the heartbeat's ui when valid, else derive from the state key", () => {
+  const view = (/** @type {any} */ heartbeat) => profileView({ name: "k", pid: 1, up: true, heartbeat });
+  const d = deriveIdentity("k");
+  assert.deepEqual([view(null).color, view(null).emoji], [d.color, d.emoji]);
+  assert.deepEqual([view({ ui: { color: "pink", emoji: "🦊" } }).color, view({ ui: { color: "pink", emoji: "🦊" } }).emoji], ["pink", "🦊"]);
+  // invalid / foreign values never reach the browser; null fields fall back per field
+  const odd = view({ ui: { color: "#ff0000", emoji: "<script>" } });
+  assert.deepEqual([odd.color, odd.emoji], [d.color, d.emoji]);
+  assert.equal(view({ ui: { color: null, emoji: "🦊" } }).color, d.color);
+  assert.equal(view({ ui: "nope" }).color, d.color);
 });

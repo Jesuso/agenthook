@@ -10,6 +10,8 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
     tracker: null,
     ingress: null,
     fullAuto: null,
+    color: "sky",
+    emoji: "💻",
     maxConcurrent: null,
     startedAt: null,
     updatedAt: null,

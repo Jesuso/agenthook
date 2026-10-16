@@ -8,6 +8,7 @@ import {
   addStep,
   boolEdit,
   fieldText,
+  identityEdit,
   moveStep,
   numberEdit,
   readBasics,
@@ -19,6 +20,9 @@ import {
   textEdit,
 } from "./configEdit";
 import type { Discover, StageKeys, StageOption, StageSource } from "./configEdit";
+import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
+import { resolveIdentity } from "../../src/identity.js";
+import { ProfileMark } from "./components";
 
 /** The stage-picker feed for the open profile: the discover outcome, `null` before the first fetch. */
 export type StagesState = { source: StageSource; body: Discover | null };
@@ -260,12 +264,95 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <TextField {...edit} label="Resume trigger" hint="trigger" path={["trigger"]} value={b.trigger} placeholder="@agent (default)" />
         <NumberField {...edit} label="Max concurrent agents" hint="maxConcurrent" path={["maxConcurrent"]} value={b.maxConcurrent} placeholder="1 (default)" />
         <NumberField {...edit} label="Local port" hint="port" path={["port"]} value={b.port} placeholder="4123 (default)" />
+        <AppearanceFields text={props.text} onEdit={props.onEdit} ui={b.ui} stateKey={props.stateKey} />
         <div className="col-span-2 flex flex-col gap-1">
           <CheckField {...edit} label="Full auto (skip permissions)" hint="fullAuto" path={["fullAuto"]} value={b.fullAuto} explicitFalse />
           <p className="text-xs text-status-held">
             fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The profile's Appearance: a colour from the palette and an emoji from the curated list
+ * (`ui.color` / `ui.emoji`). "Automatic" removes the key, so the identity derives from the state
+ * key again. The receiver reports it in its heartbeat, so a save shows up after its next restart.
+ */
+export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emoji?: unknown } | undefined; stateKey: string }) {
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const color = typeof props.ui?.color === "string" ? props.ui.color : undefined;
+  const emoji = typeof props.ui?.emoji === "string" ? props.ui.emoji : undefined;
+  const shown = resolveIdentity(props.stateKey, props.ui);
+  const pick = (field: "color" | "emoji", v: string | undefined) => props.onEdit(identityEdit(props.text, field, v));
+  const OPTION = "rounded border px-1.5 py-0.5 text-xs";
+  return (
+    <div className="col-span-2 flex flex-col gap-2" data-appearance>
+      <span className="text-xs text-[var(--color-muted)]">
+        Appearance <span className="ml-1 font-mono opacity-70">ui</span>
+      </span>
+      <div className="flex items-center gap-3">
+        <ProfileMark p={shown} />
+        <span className="text-xs text-[var(--color-muted)]">
+          {color || emoji ? "custom" : "automatic"} · shows on Home and the app bar after the receiver restarts
+        </span>
+      </div>
+      <div role="radiogroup" aria-label="profile colour" className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={color === undefined}
+          className={`${OPTION} ${color === undefined ? "border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}
+          onClick={() => pick("color", undefined)}
+        >
+          automatic
+        </button>
+        {PROFILE_COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={color === c}
+            aria-label={c}
+            title={c}
+            data-color={c}
+            style={accentStyle(c)}
+            className={`size-6 rounded-full bg-[var(--profile-accent)] ring-offset-1 ring-offset-[var(--color-surface)] ${color === c ? "ring-2 ring-[var(--color-fg)]" : "ring-1 ring-[var(--color-border)]"}`}
+            onClick={() => pick("color", c)}
+          />
+        ))}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <button type="button" className={BUTTON} aria-expanded={emojiOpen} onClick={() => setEmojiOpen((o) => !o)}>
+            {emojiOpen ? "Hide emoji" : "Choose emoji"}
+          </button>
+          {emoji !== undefined && (
+            <button type="button" className={BUTTON} onClick={() => pick("emoji", undefined)}>
+              Automatic emoji
+            </button>
+          )}
+        </div>
+        {emojiOpen && (
+          <div role="radiogroup" aria-label="profile emoji" className="grid max-w-md grid-cols-10 gap-1">
+            {PROFILE_EMOJIS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                role="radio"
+                aria-checked={emoji === e}
+                aria-label={e}
+                data-emoji={e}
+                className={`rounded border py-0.5 text-base ${emoji === e ? "border-[var(--color-accent)] bg-[var(--color-surface-raised)]" : "border-transparent hover:border-[var(--color-border)]"}`}
+                onClick={() => pick("emoji", e)}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

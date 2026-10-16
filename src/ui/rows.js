@@ -8,6 +8,7 @@ import { registryDir } from "../config.js";
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { CANCELLED_REASON } from "../events.js";
+import { resolveIdentity } from "../identity.js";
 
 /** Only the last N bytes of events.jsonl are read — the file is append-only and unbounded. */
 export const EVENTS_TAIL_BYTES = 256 * 1024;
@@ -317,6 +318,7 @@ export function profileView(p) {
     tracker: str(hb?.tracker),
     ingress: str(hb?.ingress),
     fullAuto: typeof hb?.fullAuto === "boolean" ? hb.fullAuto : null,
+    ...identityOf(p.name, hb?.ui),
     maxConcurrent: num(hb?.maxConcurrent),
     startedAt: str(hb?.startedAt),
     updatedAt: str(hb?.updatedAt),
@@ -334,6 +336,13 @@ export function profileView(p) {
     configMissing: p.configMissing === true,
     recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now()),
   };
+}
+
+/** The resolved identity for a profile row: the heartbeat's configured colour / emoji (validated), else derived from the state key.
+ * @param {string} key @param {any} ui */
+function identityOf(key, ui) {
+  const { color, emoji } = resolveIdentity(key, isObj(ui) ? ui : null);
+  return { color, emoji };
 }
 
 /** How far back `recentCosts` reaches: enough for the browser's "today" in any timezone. */

@@ -1,6 +1,6 @@
 import { CONNECTION_LABEL } from "./connection";
 import type { ConnectionState } from "./connection";
-import { Pill } from "./components";
+import { Pill, ProfileMark } from "./components";
 import { VIEWS } from "./route";
 import type { View } from "./route";
 import type { ProfileView } from "./contract";
@@ -56,6 +56,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
             >
               ‹ Home
             </button>
+            {nav.profiles.find((p) => p.name === nav.profile) && <ProfileMark p={nav.profiles.find((p) => p.name === nav.profile)!} size="sm" />}
             <select
               aria-label="switch profile"
               data-profile-switcher
@@ -66,7 +67,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
               {!nav.profiles.some((p) => p.name === nav.profile) && <option value={nav.profile}>{nav.profile}</option>}
               {nav.profiles.map((p) => (
                 <option key={p.name} value={p.name}>
-                  {profileLabel(p)}
+                  {p.emoji} {profileLabel(p)}
                 </option>
               ))}
             </select>

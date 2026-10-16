@@ -41,6 +41,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} tracker
  * @property {string|null} ingress
  * @property {boolean|null} fullAuto
+ * @property {string} color               palette id (src/identity.js): the heartbeat's `ui.color` if valid, else derived from `name`
+ * @property {string} emoji               the heartbeat's `ui.emoji` if on the curated list, else derived from `name`
  * @property {number|null} maxConcurrent  configured agent slots (heartbeat.maxConcurrent)
  * @property {string|null} startedAt
  * @property {string|null} updatedAt

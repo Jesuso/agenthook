@@ -426,6 +426,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   through the receiver's control-socket ops — never from the UI process. Not part of the first slice.
 
 ### Build order
+(Steps 1 and 2 are built.)
 1. Hash routing + app bar + plain Home cards. 2. `ui.color`/`ui.emoji` end to end (config schema,
 heartbeat, `ProfileView`, Config form, derived defaults). 3. Overview zones. 4. Polish with Refero.
 

@@ -16,8 +16,8 @@ describe("AppBar", () => {
   });
 
   const profiles = [
-    { name: "dev", label: "dev" },
-    { name: "ops", label: "Ops" },
+    { name: "dev", label: "dev", color: "teal", emoji: "🚀" },
+    { name: "ops", label: "Ops", color: "pink", emoji: "🦊" },
   ] as ProfileView[];
   const nav = (view: "overview" | "instructions" | "config"): ProfileNav => ({
     profile: "dev",
@@ -43,7 +43,13 @@ describe("AppBar", () => {
     const inside = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: nav("overview") }));
     expect(inside).toContain("data-home");
     expect(inside).toContain("data-profile-switcher");
-    expect(inside).toMatch(/<option value="dev" selected="">dev<\/option>/);
+    expect(inside).toMatch(/<option value="dev" selected="">🚀 dev<\/option>/);
+  });
+
+  it("shows the current profile's emoji mark and prefixes switcher options with theirs", () => {
+    const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: nav("overview") }));
+    expect(html).toContain("--profile-accent:var(--color-profile-teal)");
+    expect(html).toMatch(/<option value="ops">🦊 Ops \(ops\)<\/option>/);
   });
 
   it("keeps a switcher entry for a profile that is not in the list (removed / loading)", () => {

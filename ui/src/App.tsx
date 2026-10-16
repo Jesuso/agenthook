@@ -26,7 +26,7 @@ import { HOME, hashFor, parseHash, sameRoute } from "./route";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
-import { FullAutoShield, Menu, Pill } from "./components";
+import { FullAutoShield, Menu, Pill, ProfileMark } from "./components";
 import type { MenuItem } from "./components";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
@@ -415,6 +415,7 @@ function Overview(props: OverviewProps) {
     <div className="xl:flex xl:items-start xl:gap-4">
       <div className="min-w-0 flex-1">
         <div className="mb-4 flex flex-wrap items-center gap-3">
+          <ProfileMark p={profile} />
           <h1 className="text-title font-semibold">
             <ProfileNameCell p={profile} />
           </h1>

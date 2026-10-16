@@ -2,13 +2,15 @@
 
 /*
  * Design tokens (epic #220): a dense ops console, dark-first, light via the media query below.
+ * `@theme static` (not plain `@theme`): the profile palette is only read through inline
+ * `var(--color-profile-<id>)`, and Tailwind v4 drops theme variables no utility references.
  * `@theme` turns them into utilities — `bg-surface`, `text-muted`, `border-border-strong`,
  * `text-status-held`, `bg-status-held-bg`, `text-body`, `rounded-md`, … Text tiers and status
  * foregrounds hold WCAG AA (4.5:1) on every surface tier in both schemes; `faint` is for
  * non-content only (placeholders, separators, disabled) and holds 3:1. src/tokens.test.ts
  * parses this file and enforces both, so keep every colour a 6-digit hex.
  */
-@theme {
+@theme static {
   /* Spacing: Tailwind's scale is multiples of this (p-1 = 4px, p-2 = 8px, …). */
   --spacing: 4px;
 
@@ -76,6 +78,22 @@
   --color-err: var(--color-status-failed);
 
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+
+  /* Profile identity palette (src/identity.js PROFILE_COLORS; ids are the config's `ui.color`).
+   * Identity only — a top bar, a tinted emoji tile, a chip — never a status or a button. Red,
+   * amber and green hues are deliberately absent so a profile's colour never reads as state;
+   * tokens.test.ts holds each to 3:1 on every surface and off the status hues. */
+  --color-profile-sky: #58b4e8;
+  --color-profile-indigo: #8190f5;
+  --color-profile-violet: #a98af0;
+  --color-profile-pink: #ee7fb6;
+  --color-profile-teal: #35c0a8;
+  --color-profile-cyan: #3cc3d8;
+  --color-profile-slate: #8d9db3;
+  --color-profile-stone: #b8a48a;
+
+  --text-stat: 28px;
+  --text-stat--line-height: 32px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -115,6 +133,15 @@
     --color-status-cancelled-bg: #eef1f4;
     --color-status-idle: #57606a;
     --color-status-idle-bg: #eef1f4;
+
+    --color-profile-sky: #0b6fa8;
+    --color-profile-indigo: #4a54c4;
+    --color-profile-violet: #6b45c4;
+    --color-profile-pink: #bf3a82;
+    --color-profile-teal: #0c7f6e;
+    --color-profile-cyan: #0a7d90;
+    --color-profile-slate: #4c5f78;
+    --color-profile-stone: #6f6455;
   }
 }
 

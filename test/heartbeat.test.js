@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { instructionTargets, listProfiles, resolveProfile } from "../src/heartbeat.js";
+import { createHeartbeat, instructionTargets, listProfiles, resolveProfile } from "../src/heartbeat.js";
 
 /** @param {object} overrides */
 function baseCfg(overrides = {}) {
@@ -220,4 +220,16 @@ test("listProfiles: with a heartbeat, lastSeenAt is its updatedAt and configPath
   assert.equal(p.configPath, path.join(reg, "nope.json"));
   assert.equal(p.configMissing, true);
   assert.equal(p.ghost, false);
+});
+
+test("createHeartbeat records the configured ui identity, null when unset", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hb-ui-"));
+  const write = (/** @type {any} */ ui) => {
+    const heartbeatFile = path.join(dir, `${Math.random()}.json`);
+    createHeartbeat(/** @type {any} */ ({ name: "n", stateKey: "n", heartbeatFile, pipeline: [], repoPath: dir, ui }));
+    return JSON.parse(fs.readFileSync(heartbeatFile, "utf8")).ui;
+  };
+  assert.equal(write(undefined), null);
+  assert.deepEqual(write({ color: "teal" }), { color: "teal", emoji: null });
+  assert.deepEqual(write({ color: "teal", emoji: "🚀" }), { color: "teal", emoji: "🚀" });
 });

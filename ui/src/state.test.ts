@@ -11,6 +11,8 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     tracker: "github",
     ingress: "ngrok",
     fullAuto: false,
+    color: "sky",
+    emoji: "💻",
     maxConcurrent: 1,
     startedAt: "s",
     updatedAt: "u",

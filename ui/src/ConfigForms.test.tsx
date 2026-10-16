@@ -114,3 +114,22 @@ describe("summarizeStep", () => {
     expect(summarizeStep(s, keys, null)).toBe("agent:code");
   });
 });
+
+describe("AppearanceFields (in BasicsForm)", () => {
+  const render = (raw: object) => renderToStaticMarkup(createElement(BasicsForm, { text: JSON.stringify(raw), onEdit: () => {}, raw, stateKey: "p" }));
+
+  it("renders the palette, marks 'automatic' when no colour is set and the chosen swatch when one is", () => {
+    const auto = render({ name: "p", repoPath: "/r" });
+    expect(auto).toContain("data-appearance");
+    expect(auto.match(/data-color="/g)).toHaveLength(8);
+    expect(auto).toMatch(/aria-checked="true"[^>]*>automatic</);
+    expect(auto).toContain("automatic · shows on Home");
+    const set = render({ name: "p", repoPath: "/r", ui: { color: "teal" } });
+    expect(set).toMatch(/aria-checked="true"[^>]*aria-label="teal"/);
+    expect(set).toContain("custom · shows on Home");
+  });
+
+  it("previews the configured emoji, else the derived one", () => {
+    expect(render({ name: "p", repoPath: "/r", ui: { emoji: "🦊" } })).toContain(">🦊</span>");
+  });
+});

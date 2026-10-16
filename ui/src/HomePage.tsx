@@ -3,7 +3,8 @@ import { formatAgents, formatCost, formatLastEvent, formatRelative, formatUp, pr
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
-import { FullAutoShield, Menu, Pill } from "./components";
+import { FullAutoShield, Menu, Pill, ProfileMark } from "./components";
+import { accentStyle } from "./identity";
 import type { MenuItem } from "./components";
 
 export type HomePageProps = {
@@ -67,7 +68,11 @@ function NeedsYou({ n, hasFailed }: { n: number; hasFailed: boolean }) {
   return (
     <div data-needs-you={n}>
       <div className="text-label uppercase tracking-wide text-muted">needs you</div>
-      <div className={`font-mono text-[28px] leading-8 font-semibold tabular-nums ${tone}`}>{n === 0 ? "all clear" : n}</div>
+      {n === 0 ? (
+        <div className="text-title leading-8 text-muted">all clear</div>
+      ) : (
+        <div className={`font-mono text-stat font-semibold tabular-nums ${tone}`}>{n}</div>
+      )}
     </div>
   );
 }
@@ -79,12 +84,12 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
   return (
     <article
       data-profile-card={p.name}
-      className="relative rounded-lg border border-border bg-surface p-4 transition-colors hover:border-border-strong hover:bg-surface-raised focus-within:border-border-strong"
+      style={accentStyle(p.color)}
+      className="relative overflow-hidden rounded-lg border border-border bg-surface p-4 transition-colors hover:border-border-strong hover:bg-surface-raised focus-within:border-border-strong"
     >
+      <span aria-hidden="true" data-accent-bar className="absolute inset-x-0 top-0 h-[3px] bg-[var(--profile-accent)]" />
       <div className="flex items-start gap-3">
-        <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-raised font-mono text-title font-semibold uppercase text-muted">
-          {(p.label || p.name).slice(0, 1)}
-        </span>
+        <ProfileMark p={p} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             {/* Stretched link: the whole card opens the profile; the ⋯ menu sits above it. */}
@@ -144,6 +149,7 @@ function InactiveRow({ p, now, items, note }: { p: ProfileView; now: number; ite
   const badge = profileBadge(p);
   return (
     <li data-inactive-row={p.name} className="relative flex items-center gap-3 px-3 py-2 text-body text-muted hover:bg-surface-raised">
+      <ProfileMark p={p} size="sm" />
       <a href={hashFor({ kind: "profile", profile: p.name, view: "overview" })} className="font-mono text-fg after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-accent">
         {profileLabel(p)}
       </a>

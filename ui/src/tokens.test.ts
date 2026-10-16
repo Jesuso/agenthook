@@ -112,3 +112,37 @@ describe("design tokens", () => {
     expect(block("@media (prefers-reduced-motion: reduce)")).toMatch(/\.animate-status-pulse\s*\{\s*animation:\s*none/);
   });
 });
+
+// The profile identity palette (src/identity.js): every id has a token, readable as a non-text
+// mark on every surface in both schemes, and never mistakable for a status hue.
+import { PROFILE_COLORS } from "../../src/identity.js";
+
+function hsv(hex: string): { h: number; s: number } {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: ((h * 60) + 360) % 360, s: max ? d / max : 0 };
+}
+
+describe("profile palette", () => {
+  for (const [scheme, tokens] of Object.entries(SCHEMES)) {
+    it(`holds 3:1 on every surface in ${scheme}`, () => {
+      for (const id of PROFILE_COLORS)
+        for (const surface of SURFACES) expect(contrast(color(tokens, `--color-profile-${id}`), color(tokens, surface)), `${id} on ${surface}`).toBeGreaterThanOrEqual(3);
+    });
+
+    it(`keeps every saturated colour 20° of hue away from held / failed / done in ${scheme}`, () => {
+      const status = ["held", "failed", "done"].map((n) => hsv(color(tokens, `--color-status-${n}`)).h).concat(hsv(color(tokens, "--color-success")).h);
+      for (const id of PROFILE_COLORS) {
+        const { h, s } = hsv(color(tokens, `--color-profile-${id}`));
+        if (s < 0.35) continue; // slate / stone are near-neutral: no hue to confuse
+        for (const sh of status) {
+          const diff = Math.abs(h - sh);
+          expect(Math.min(diff, 360 - diff), `${id} vs status hue ${Math.round(sh)}`).toBeGreaterThanOrEqual(20);
+        }
+      }
+    });
+  }
+});

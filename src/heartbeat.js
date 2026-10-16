@@ -88,6 +88,8 @@ export function createHeartbeat(cfg) {
     tracker: cfg.provider,
     ingress: cfg.ingress?.type || "manual",
     fullAuto: !!cfg.fullAuto,
+    // The configured identity (src/identity.js); the UI derives the rest from the state key.
+    ui: cfg.ui ? { color: cfg.ui.color ?? null, emoji: cfg.ui.emoji ?? null } : null,
     maxConcurrent: cfg.maxConcurrent,
     repoPath: cfg.repoPath,
     configPath: cfg.configPath,

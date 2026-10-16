@@ -13,6 +13,8 @@ const base: ProfileView = {
   tracker: "asana",
   ingress: "ngrok",
   fullAuto: false,
+  color: "sky",
+  emoji: "💻",
   maxConcurrent: 2,
   startedAt: null,
   updatedAt: null,
