@@ -30,8 +30,16 @@
 //     A USER-owned project has no PAT webhook path at all (projects_v2_item is delivered
 //     only by an org webhook or a GitHub App), so it just prints why. The assignee "us"
 //     is the token owner's login (GraphQL `viewer`, cached). Scoping is FAIL CLOSED.
+//   - Epics (ADR 0003/0004): an Issue card whose issue type is `epicType` (default "Epic")
+//     OR that carries `epicLabel` (default "epic", any case) — the `github` tracker's rule,
+//     applied to the GraphQL shape via isEpicGqlIssue. A ticket's epic is its same-repo
+//     native parent issue when that parent is an epic. listEpics lists only epic CARDS on
+//     this board (project scope); listEpicTickets reads the epic's native sub-issues, each
+//     staged by its own card's Status on this board (null off-board). Epics never enter
+//     the pipeline (listResting/listQueued skip them; dispatch skips `isEpic`).
 import crypto from "node:crypto";
 import { MoveRefusedError } from "./owner.js";
+import { isEpicIssue } from "./github.js";
 
 /**
  * Route keys from the routeField single-select's option name → [name] or [].
@@ -42,10 +50,75 @@ export function extractRouteKeys(routeValueName) {
   return typeof routeValueName === "string" && routeValueName.trim() !== "" ? [routeValueName] : [];
 }
 
+/** A GraphQL issue (`issueType{name}`, `labels{nodes{name}}`) in the REST shape
+ * `isEpicIssue` reads (`type{name}`, `labels[{name}]`). Pure.
+ * @param {any} issue @returns {{type: {name: string}|null, labels: Array<{name: string}>}} */
+export function toRestShape(issue) {
+  return { type: issue?.issueType?.name ? { name: issue.issueType.name } : null, labels: Array.isArray(issue?.labels?.nodes) ? issue.labels.nodes : [] };
+}
+
+/** Is a GraphQL issue an epic — typed `epicType` OR labelled `epicLabel` (any case).
+ * @param {any} issue @param {string} epicType @param {string} epicLabel @returns {boolean} */
+export function isEpicGqlIssue(issue, epicType, epicLabel) {
+  return !!issue && isEpicIssue(toRestShape(issue), epicType, epicLabel);
+}
+
+/** @param {any} a @param {any} b → same `nameWithOwner` (case-insensitive), both present */
+const sameRepo = (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+
+/** Board rows (shapeItem) that ARE epic Issue cards, deduped by number → Epic[]. `status`
+ * = the card's Status option name (null when unset); closed epics stay (completed:true).
+ * Pure — drives listEpics.
+ * @param {Array<{issue: any, status: string|null}>} items @param {string} epicType @param {string} epicLabel
+ * @returns {import('../types.js').Epic[]} */
+export function mapProjectEpics(items, epicType, epicLabel) {
+  /** @type {import('../types.js').Epic[]} */
+  const out = [];
+  const seen = new Set();
+  for (const it of Array.isArray(items) ? items : []) {
+    const issue = it?.issue;
+    if (issue?.__typename !== "Issue" || !isEpicGqlIssue(issue, epicType, epicLabel)) continue;
+    const ref = String(issue.number);
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    out.push({ ref, name: issue.title, url: issue.url, displayId: `#${ref}`, status: it.status ?? null, completed: String(issue.state).toUpperCase() === "CLOSED" });
+  }
+  return out;
+}
+
+/** An epic's native sub-issues → EpicTicket[]. Same repo as the epic (`epicRepo`,
+ * case-insensitive): ref/displayId `<n>`/`#<n>`; other repo: both `owner/repo#<n>` (never
+ * collides with a bare number). `stage` = the child's card Status on this board, looked up
+ * by issue node id in `stageByIssueId` (a card with no Status → "" = backlog); a child not
+ * on the board → null (untracked). Pure — drives listEpicTickets.
+ * @param {any[]} children @param {string|null|undefined} epicRepo @param {Map<string, string|null>} stageByIssueId
+ * @returns {import('../types.js').EpicTicket[]} */
+export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
+  /** @type {import('../types.js').EpicTicket[]} */
+  const out = [];
+  for (const c of Array.isArray(children) ? children : []) {
+    if (c?.number == null) continue;
+    const n = String(c.number);
+    const childRepo = c.repository?.nameWithOwner;
+    const ref = sameRepo(childRepo, epicRepo) ? n : `${childRepo || "unknown/unknown"}#${n}`;
+    const onBoard = stageByIssueId.has(c.id);
+    out.push({
+      ref,
+      displayId: ref === n ? `#${n}` : ref,
+      name: c.title,
+      completed: String(c.state).toUpperCase() === "CLOSED",
+      stage: onBoard ? (stageByIssueId.get(c.id) ?? "") : null,
+    });
+  }
+  return out;
+}
+
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubProjectsAdapter(cfg, store) {
   const pc = cfg.providerConfig;
   const token = pc.token; // resolved from env/.env by loadConfig
+  const epicType = pc.epicType || "Epic";
+  const epicLabel = pc.epicLabel || "epic";
 
   /** POST a GraphQL query/mutation. Returns the parsed `{data, errors}` (any) — the
    * caller reads off `.data` and decides how to treat `.errors`. (The project probe
@@ -288,7 +361,10 @@ export function createGithubProjectsAdapter(cfg, store) {
   const shapeItem = (node) => ({ itemId: node.id, issue: node.content, status: node.status?.name ?? null, route: node.route?.name ?? null });
 
   // routeField (optional) names a second single-select field, read in the same query.
-  const ITEM_FIELDS = `id content{ __typename ... on Issue { id number title body url state assignees(first:10){ nodes{ login } } } }
+  // The issue's type/labels/repository/parent back epic identity (isEpic, Task.epic).
+  const ITEM_FIELDS = `id content{ __typename ... on Issue { id number title body url state assignees(first:10){ nodes{ login } }
+      issueType{ name } labels(first:20){ nodes{ name } } repository{ nameWithOwner }
+      parent{ number title url issueType{ name } labels(first:20){ nodes{ name } } repository{ nameWithOwner } } } }
     status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } }${
       pc.routeField ? `\n    route: fieldValueByName(name:${JSON.stringify(String(pc.routeField))}){ ... on ProjectV2ItemFieldSingleSelectValue { name } }` : ""
     }`;
@@ -516,6 +592,13 @@ export function createGithubProjectsAdapter(cfg, store) {
       const it = await findItem(ref);
       if (!it) throw new Error(`issue #${ref} not found in project "${pc.project}"`);
       const issue = it.issue || {};
+      // The epic = the native parent, only when it's an epic in the issue's own repo (refs
+      // are bare numbers, so a cross-repo parent can't be named). Same scan, no extra request.
+      const parent = issue.parent;
+      const epic =
+        parent && sameRepo(parent.repository?.nameWithOwner, issue.repository?.nameWithOwner) && isEpicGqlIssue(parent, epicType, epicLabel)
+          ? { ref: String(parent.number), name: parent.title, url: parent.url, displayId: `#${parent.number}` }
+          : undefined;
       return {
         ref: String(ref),
         name: issue.title,
@@ -524,6 +607,8 @@ export function createGithubProjectsAdapter(cfg, store) {
         completed: norm(issue.state) === "closed",
         assignedToUs: await issueIsOurs(issue),
         displayId: `#${ref}`,
+        isEpic: isEpicGqlIssue(issue, epicType, epicLabel),
+        ...(epic ? { epic } : {}),
         routeKeys: extractRouteKeys(pc.routeField ? it.route : null),
       };
     },
@@ -609,6 +694,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       for (const it of await fetchItems()) {
         if (it.issue?.__typename !== "Issue") continue;
         if (norm(it.issue.state) === "closed") continue; // resting = still-open work
+        if (isEpicGqlIssue(it.issue, epicType, epicLabel)) continue; // never run an agent on an epic
         const step = stepByStatus(it.status);
         if (!step || step.manual) continue;
         const ref = String(it.issue.number);
@@ -633,10 +719,60 @@ export function createGithubProjectsAdapter(cfg, store) {
         if (it.issue?.__typename !== "Issue") continue;
         if (norm(it.issue.state) === "closed") continue;
         if (norm(it.status) !== norm(step.queueStatus)) continue;
+        if (isEpicGqlIssue(it.issue, epicType, epicLabel)) continue; // never run an agent on an epic
         if (!(await issueIsOurs(it.issue))) continue;
         refs.push(String(it.issue.number));
       }
       return refs;
+    },
+
+    // Every epic CARD on this board (project scope, like Asana): one item scan, closed
+    // epics included. Fail-open: warn + [].
+    async listEpics() {
+      try {
+        return mapProjectEpics(await fetchItems(), epicType, epicLabel);
+      } catch (e) {
+        console.warn(`[epics] listEpics failed:`, e instanceof Error ? e.message : e, "— returning []");
+        return [];
+      }
+    },
+
+    // An epic's native sub-issues (ADR 0004), each staged by its own card on this board.
+    // The ref must be a bare issue number (validated before any query); an epic not on the
+    // board, or a card that isn't an epic, has none. Fail-open: warn + [].
+    /** @param {string} epicRef */
+    async listEpicTickets(epicRef) {
+      if (!/^\d+$/.test(String(epicRef))) return [];
+      try {
+        const items = await fetchItems();
+        const epic = items.find((it) => it.issue?.__typename === "Issue" && String(it.issue.number) === String(epicRef));
+        if (!epic || !isEpicGqlIssue(epic.issue, epicType, epicLabel)) return [];
+        /** @type {Map<string, string|null>} */
+        const stageByIssueId = new Map();
+        for (const it of items) if (it.issue?.__typename === "Issue" && it.issue.id) stageByIssueId.set(it.issue.id, it.status);
+        /** @type {any[]} */
+        const children = [];
+        /** @type {string|null} */
+        let after = null;
+        for (;;) {
+          const body = await gql(
+            `query($id:ID!,$after:String){ node(id:$id){ ... on Issue {
+               subIssues(first:100, after:$after){ nodes{ id number title state url repository{ nameWithOwner } } pageInfo{ hasNextPage endCursor } }
+             } } }`,
+            { id: epic.issue.id, after },
+          );
+          if (body.errors?.length) throw new Error(`subIssues: ${JSON.stringify(body.errors)}`);
+          const conn = body.data?.node?.subIssues;
+          if (!conn) break;
+          children.push(...(conn.nodes || []));
+          if (!conn.pageInfo?.hasNextPage) break;
+          after = conn.pageInfo.endCursor;
+        }
+        return mapProjectEpicTickets(children, epic.issue.repository?.nameWithOwner, stageByIssueId);
+      } catch (e) {
+        console.warn(`[epics] listEpicTickets(${epicRef}) failed:`, e instanceof Error ? e.message : e, "— returning []");
+        return [];
+      }
     },
 
     // Projects v2 webhooks are ORG-scoped and tied to a fixed URL (run behind a STABLE

@@ -299,7 +299,10 @@ labels only; Jira / Projects v2 not yet.
   an **org**-owned project (needs `admin:org_hook`), else prints manual setup; a **user-owned**
   project has **no PAT hook path**. URL is fixed → **stable ingress** (like Jira). 'Us' = `viewer`
   login; fail-closed. Token: classic `project`+`repo`(+`admin:org_hook`), or fine-grained Projects RW
-  + Issues R + org Webhooks RW.
+  + Issues R + org Webhooks RW. **Epics**: an Issue card typed `epicType` or labelled `epicLabel`
+  (the `github` rule over the GraphQL shape); tickets = its native sub-issues, staged by their own
+  card's Status (`""` on-board with no Status, `null` off-board); `listEpics` = epic cards on this
+  board only. No `epic_changed` signals yet (the org hook carries no sub-issue events).
 
 ## Typing (JSDoc + checkJs)
 

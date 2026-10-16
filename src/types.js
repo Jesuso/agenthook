@@ -327,8 +327,8 @@
  * @property {string} [project]            github-projects: the Projects v2 board as "owner/number" or its URL, whose Status field drives the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  * @property {string} [routeField]  name of the tracker field whose value(s) become Task.routeKeys (multi-repo routing; read by the adapter)
- * @property {string} [epicType]  Asana/GitHub/Jira: the custom type name (Asana) / issue type name (GitHub, Jira) an epic is tagged with (Asana, GitHub default "Epic"; Jira default = the project issue type at hierarchy level 1)
- * @property {string} [epicLabel]  GitHub: the label name an epic is tagged with (default "epic"); either this OR epicType marks an epic
+ * @property {string} [epicType]  Asana/GitHub/github-projects/Jira: the custom type name (Asana) / issue type name (GitHub, Projects v2, Jira) an epic is tagged with (Asana, GitHub, Projects v2 default "Epic"; Jira default = the project issue type at hierarchy level 1)
+ * @property {string} [epicLabel]  GitHub/github-projects: the label name an epic is tagged with (default "epic"); either this OR epicType marks an epic
  */
 
 /**
