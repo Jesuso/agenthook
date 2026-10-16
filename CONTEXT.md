@@ -12,6 +12,10 @@ _Avoid_: Project, workspace
 A unit of tracker work an agent moves through the pipeline.
 _Avoid_: Task, issue, item
 
+**Epic**:
+A large body of work made of several tickets, tracked as one group so a person can see how the whole is progressing. An epic is itself a tracker item, but is not a ticket: no agent runs on it.
+_Avoid_: Initiative, project, parent ticket
+
 **Finished**:
 A ticket whose agents reached the pipeline's terminal step. Means agents are done, not that the work shipped. "Done today" counts tickets finished since local midnight.
 _Avoid_: Done (ambiguous with merged), completed, shipped
