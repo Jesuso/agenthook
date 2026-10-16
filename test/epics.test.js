@@ -67,6 +67,45 @@ test("epicStats: history fallback finishes a ticket older than the rows tail; a 
   assert.deepEqual(s.byStage, { backlog: 1, running: 0, needsYou: 0, finished: 1, merged: 0, untracked: 0 });
 });
 
+test("epicStats: a cancelled row with an earlier pipeline_done stays backlog, not finished", () => {
+  const tickets = [ticket({ ref: "c1" })];
+  const events = [ev("2026-09-01T00:00:00Z", "pipeline_done", { ref: "c1" })];
+  const rows = [row({ ref: "c1", status: "cancelled" })];
+  const s = epicStats(epic, tickets, { rows, events, forge: false, now: NOW });
+  assert.deepEqual(s.byStage, { backlog: 1, running: 0, needsYou: 0, finished: 0, merged: 0, untracked: 0 });
+});
+
+test("epicStats: needsYou via forge done+ready+prUrl on the full join, not just isNeedsYou directly", () => {
+  const tickets = [ticket({ ref: "pr1" })];
+  const rows = [row({ ref: "pr1", status: "done", prState: "ready", prUrl: "https://x/pull/9" })];
+  const withForge = epicStats(epic, tickets, { rows, events: [], forge: true, now: NOW });
+  assert.deepEqual(withForge.byStage, { backlog: 0, running: 0, needsYou: 1, finished: 0, merged: 0, untracked: 0 });
+  assert.deepEqual(withForge.needsYou, ["pr1"]);
+
+  const noForge = epicStats(epic, tickets, { rows, events: [], forge: false, now: NOW });
+  assert.deepEqual(noForge.byStage, { backlog: 0, running: 0, needsYou: 0, finished: 1, merged: 0, untracked: 0 });
+});
+
+test("epicStats: a startedAt inside the window shortens spanDays and raises perDay", () => {
+  const tickets = Array.from({ length: 10 }, (_, i) => ticket({ ref: `t${i}` }));
+  const s = epicStats(epic, tickets, {
+    rows: [],
+    events: [
+      ev("2026-10-13T00:00:00Z", "run_start", { ref: "t0" }), // startedAt, 3 days before now
+      ev("2026-10-13T00:00:00Z", "pipeline_done", { ref: "t0" }),
+      ev("2026-10-14T00:00:00Z", "pipeline_done", { ref: "t1" }),
+      ev("2026-10-15T00:00:00Z", "pipeline_done", { ref: "t2" }),
+    ],
+    forge: false,
+    now: NOW,
+  });
+  assert.equal(s.startedAt, "2026-10-13T00:00:00Z");
+  // spanDays = 2026-10-13..2026-10-15 inclusive = 3 (vs 14 without startedAt) -> perDay = 3/3 = 1
+  assert.equal(s.velocity.perDay, 1);
+  assert.ok(s.eta);
+  assert.equal(s.eta?.days, 7); // remaining 7 / perDay 1
+});
+
 test("epicStats: untracked vs backlog by ticket.stage, not row presence", () => {
   const tickets = [ticket({ ref: "a", stage: "Backlog" }), ticket({ ref: "b", stage: null })];
   const s = epicStats(epic, tickets, { rows: [], events: [], forge: false, now: NOW });

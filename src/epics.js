@@ -75,7 +75,7 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
       bucket = "finished";
     } else if (ticket.completed) {
       bucket = "finished";
-    } else if (historicallyFinished(eventsByRef.get(ticket.ref))) {
+    } else if ((!row || row.status === "idle") && historicallyFinished(eventsByRef.get(ticket.ref))) {
       bucket = "finished";
     } else if (ticket.stage !== null) {
       bucket = "backlog";
