@@ -191,7 +191,8 @@ Key files:
   timeout) and `POST /api/pause` / `/api/resume` (same guards; `args:{}`) — all map the receiver's
   reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200, and the three POSTs audit their
   outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).
-  `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
+  `POST /api/release` (same guards; `{profile, ref, comment?}`, 20 s timeout, audited without the comment) answers a held
+  ticket via the receiver's `release` op. `POST /api/profile/remove` (same guards; cookie-only `GET /api/profile/remove-preview` is its
   read side) sends `decommission {when:'idle'}` → 202, or — socket down, no live pid — archives the
   stopped profile via `src/archive.js` `archiveStateDir` → 200: the one state-dir change outside
   `save.js`, made from `server.js` (a live pid behind a dead socket → 409, never an archive).

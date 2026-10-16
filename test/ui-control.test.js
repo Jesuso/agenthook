@@ -36,6 +36,9 @@ const FAIL = profile("fail");
 const OK = profile("ok");
 const RESTARTED = profile("restarted");
 const DISMISSED = profile("dismissed");
+const RELEASED = profile("released");
+const RELEASE_REFUSED = profile("release-refused");
+const RELEASE_SLOW = profile("release-slow");
 const TOGGLED = profile("toggled");
 
 /**
@@ -61,8 +64,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[], dismiss: any[], toggle: any[]}} */
-const calls = { restart: [], dismiss: [], toggle: [] };
+/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[]}} */
+const calls = { restart: [], dismiss: [], toggle: [], release: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -81,6 +84,14 @@ test.before(async () => {
       calls.dismiss.push(req);
       s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, dismissed: true } }) + "\n");
     }),
+    await fakeControl(RELEASED.sockPath, (s, req) => {
+      calls.release.push(req);
+      s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, step: "triage", queued: true } }) + "\n");
+    }),
+    // ops.js refuses a ref that is not held / is at its attempt cap with ok:false and its message.
+    await fakeControl(RELEASE_REFUSED.sockPath, (s, req) => s.write(JSON.stringify({ id: req.id, ok: false, error: `${req.args.ref} cannot be released: not held` }) + "\n")),
+    // Replies after the short restart timeout but inside the release one: release must wait.
+    await fakeControl(RELEASE_SLOW.sockPath, (s, req) => setTimeout(() => s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, queued: true } }) + "\n"), RESTART_MS * 3)),
     // Mimics src/ops.js: pause → paused; resume → the locked reply (ok:true + a note).
     await fakeControl(TOGGLED.sockPath, (s, req) => {
       calls.toggle.push(req);
@@ -94,7 +105,7 @@ test.before(async () => {
 });
 test.after(() => Promise.all(fakes.map((f) => new Promise((r) => f.close(r)))));
 
-const server = createUiServer({ port: 0, token: TOKEN, distDir: path.join(root, "dist"), registry, discoverTimeoutMs: DISCOVER_MS, restartTimeoutMs: RESTART_MS });
+const server = createUiServer({ port: 0, token: TOKEN, distDir: path.join(root, "dist"), registry, discoverTimeoutMs: DISCOVER_MS, restartTimeoutMs: RESTART_MS, releaseTimeoutMs: RESTART_MS * 20 });
 /** @type {number} */
 let port;
 test.before(async () => {
@@ -312,6 +323,55 @@ test("POST /api/dismiss: sends {cmd:'dismiss', args:{ref, actor:'ui'}} and retur
   assert.deepEqual(calls.dismiss[0].args, { ref: "42", actor: "ui" });
   assert.equal((await postDismiss({ profile: "down", ref: "42" })).status, 503);
   assert.equal((await request("GET", "/api/dismiss", undefined, {})).status, 405);
+});
+
+const postRelease = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/release", JSON.stringify(body), h);
+const uiAuditLines = (/** @type {string} */ dir) =>
+  fs.existsSync(path.join(dir, "ui-audit.jsonl")) ? fs.readFileSync(path.join(dir, "ui-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
+
+test("POST /api/release: guards and validation never reach the socket", async () => {
+  const ok = { profile: "released", ref: "1" };
+  assert.equal((await postRelease(ok, { cookie: null })).status, 401);
+  assert.equal((await postRelease(ok, { origin: "http://evil.example" })).status, 403);
+  assert.equal((await postRelease(ok, { "x-ah-ui": null })).status, 403);
+  assert.equal((await postRelease({ profile: "released" })).status, 400);
+  assert.equal((await postRelease({ profile: "released", ref: "" })).status, 400);
+  assert.equal((await postRelease({ profile: "released", ref: 5 })).status, 400);
+  assert.equal((await postRelease({ ...ok, comment: 5 })).status, 400);
+  assert.equal((await postRelease({ ...ok, comment: { a: 1 } })).status, 400);
+  assert.equal((await postRelease({ profile: 7, ref: "1" })).status, 400);
+  assert.equal((await postRelease({ profile: "nope", ref: "1" })).status, 404);
+  assert.equal(calls.release.length, 0);
+});
+
+test("POST /api/release: sends {cmd:'release', args:{ref, actor:'ui', comment?}}; a blank comment is omitted; GET → 405", async () => {
+  const res = await postRelease({ profile: "released", ref: "42", comment: "use Postgres" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(res.body), { ref: "42", step: "triage", queued: true });
+  assert.equal(calls.release[0].cmd, "release");
+  assert.deepEqual(calls.release[0].args, { ref: "42", actor: "ui", comment: "use Postgres" });
+  await postRelease({ profile: "released", ref: "43", comment: "" });
+  assert.deepEqual(calls.release[1].args, { ref: "43", actor: "ui" });
+  assert.equal((await postRelease({ profile: "down", ref: "42" })).status, 503);
+  assert.equal((await request("GET", "/api/release", undefined, {})).status, 405);
+});
+
+test("POST /api/release: a refusal is 502 with the receiver's message; the long action waits past the short timeout", async () => {
+  const refused = await postRelease({ profile: "release-refused", ref: "9" });
+  assert.equal(refused.status, 502);
+  assert.match(JSON.parse(refused.body).error, /cannot be released: not held/);
+  const slow = await postRelease({ profile: "release-slow", ref: "9" });
+  assert.equal(slow.status, 200, "release uses releaseTimeoutMs, not restartTimeoutMs");
+  assert.equal((await postRelease({ profile: "timeout", ref: "9" })).status, 504);
+});
+
+test("POST /api/release: audits the outcome without the comment text", async () => {
+  await postRelease({ profile: "released", ref: "77", comment: "SECRET-ANSWER" });
+  const lines = uiAuditLines(RELEASED.dir);
+  const line = lines.find((l) => l.ref === "77");
+  assert.ok(line, "an audit line for ref 77");
+  assert.deepEqual({ action: line.action, profile: line.profile, status: line.status, commented: line.commented }, { action: "release", profile: "released", status: 200, commented: true });
+  assert.ok(!JSON.stringify(lines).includes("SECRET-ANSWER"));
 });
 
 for (const cmd of ["pause", "resume"]) {

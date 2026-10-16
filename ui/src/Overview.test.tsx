@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Overview } from "./Overview";
 import type { OverviewProps } from "./Overview";
+import type { ReleaseOutcome } from "./config";
 import type { ProfileView, TicketRow } from "./contract";
 
 const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
@@ -22,7 +23,7 @@ const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProp
   renderToStaticMarkup(
     createElement(Overview, {
       profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, showAll: false, setShowAll: () => {},
-      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, ...over,
+      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), ...over,
     }),
   );
 
@@ -40,6 +41,28 @@ describe("Overview", () => {
     expect(html).toContain("tests red");
     expect(html).toContain("which db?");
     expect(html.match(/>Dismiss</g)).toHaveLength(1);
+  });
+
+  it("links every ticket id to its tracker page, in Needs you and in Now", () => {
+    const url = "https://app.asana.com/0/1/2";
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x", displayId: "ID-1", trackerUrl: url }), ticket("r", { status: "running", displayId: "ID-2", trackerUrl: url })]);
+    // the All tickets table links them too, so look inside the two zone rows specifically
+    const row = (attr: string) => html.slice(html.indexOf(attr), html.indexOf("</li>", html.indexOf(attr)));
+    for (const [attr, id] of [['data-needs-row="f"', "ID-1"], ['data-now-row="r"', "ID-2"]]) {
+      expect(row(attr), attr).toMatch(new RegExp(`<a[^>]*href="${url}"[^>]*rel="noopener noreferrer"[^>]*>${id}`));
+    }
+  });
+
+  it("shows a plain id when the ticket has no tracker URL", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x", displayId: "ID-9", trackerUrl: null })]);
+    expect(html).toContain(">ID-9</span>");
+    expect(html).not.toMatch(/<a[^>]*>ID-9/);
+  });
+
+  it("offers Release… on held rows only, with the answer panel closed until clicked", () => {
+    const html = render(profile(), [ticket("h", { status: "held", heldReason: "?" }), ticket("f", { status: "failed", failReason: "x" })]);
+    expect(html.match(/data-release-open/g)).toHaveLength(1);
+    expect(html).not.toContain("data-release-panel");
   });
 
   it("counts a ready PR as Needs you only on a forge profile", () => {

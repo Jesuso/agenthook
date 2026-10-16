@@ -20,7 +20,9 @@
 // the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
 // read side (config path, archive pattern, webhook hint). `POST /api/dismiss` (same guards) asks
 // the receiver over its socket to acknowledge a failed/cancelled ticket (a `dismissed` event the
-// receiver itself writes). Nothing else in any state dir is ever written.
+// receiver itself writes). `POST /api/release` (same guards) answers a held ticket: the receiver
+// re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
+// reused as the MCP `release` tool). Nothing else in any state dir is ever written.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -66,6 +68,7 @@ const WRITABLE = new Set([INSTR_FILE, CONFIG]);
 const RESTART = "/api/restart";
 const REMOVE = "/api/profile/remove";
 const DISMISS = "/api/dismiss";
+const RELEASE = "/api/release";
 const PAUSE = "/api/pause";
 const RESUME = "/api/resume";
 
@@ -87,10 +90,10 @@ export function cookieToken(header) {
 
 /**
  * @param {{ port: number, token: string, distDir: string, registry?: string,
- *   discoverTimeoutMs?: number, restartTimeoutMs?: number }} opts
+ *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number }} opts
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000 }) {
+export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000 }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -152,7 +155,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
 
   /**
    * The guard prelude shared by the two PUTs and every POST (`/api/restart`, `/api/pause`,
-   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`), in order: cookie (Host already checked) → 401;
+   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/release`), in order: cookie (Host already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -278,6 +281,30 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       callControl(sock.sockPath, "dismiss", { ref, actor: "ui" }, restartTimeoutMs).then(({ status, body: result }) => sendStatusJson(res, status, result));
     });
 
+  /**
+   * `POST /api/release` — readGuardedJson, then `{profile, ref}` both strings (ref non-empty) and
+   * `comment`, when present, a string → else 400; unknown profile → 404 (socket never contacted);
+   * else sends `{cmd:'release', args:{ref, actor:'ui'[, comment]}}` and maps the reply via
+   * `callControl`. The receiver re-checks everything (held, a non-manual step, under its attempt
+   * cap) and refuses with `ok:false` → 502 `{error}`. `release` waits up to ~15 s for the held
+   * run's cleanup to settle, so it gets its own, longer timeout than the other actions. Audits
+   * `{ts, action:'release', profile, ref, status, commented}` — the comment's text is never logged.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postRelease = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, ref, comment } = body;
+      if (typeof profile !== "string" || typeof ref !== "string" || !ref) return send(res, 400);
+      if (comment !== undefined && typeof comment !== "string") return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      const args = { ref, actor: "ui", ...(comment ? { comment } : {}) };
+      callControl(sock.sockPath, "release", args, releaseTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "release", profile, ref, status, commented: !!comment });
+        sendStatusJson(res, status, result);
+      });
+    });
+
   /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
   const profileConfigPath = (profile) => {
     const p = readProfile(profile, registry);
@@ -398,9 +425,10 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     if (req.method === "POST" && p === RESTART) return postRestart(req, res, host);
     if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
     if (req.method === "POST" && p === DISMISS) return postDismiss(req, res, host);
+    if (req.method === "POST" && p === RELEASE) return postRelease(req, res, host);
     if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
     if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
-    if (p === RESTART || p === REMOVE || p === DISMISS || p === PAUSE || p === RESUME) {
+    if (p === RESTART || p === REMOVE || p === DISMISS || p === RELEASE || p === PAUSE || p === RESUME) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }

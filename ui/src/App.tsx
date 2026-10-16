@@ -10,7 +10,8 @@ import { TicketDrawer } from "./TicketDrawer";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
-import { CONFIG_DISCARD_PROMPT, RESTART_IDLE, dismissRequest, queueToggleRequest, restartRequest, restartText } from "./config";
+import { CONFIG_DISCARD_PROMPT, RESTART_IDLE, dismissRequest, queueToggleRequest, releaseOutcome, releaseRequest, restartRequest, restartText } from "./config";
+import type { ReleaseOutcome } from "./config";
 import type { ConfigSinkEvent } from "./config";
 import { RemoveProfile } from "./RemoveProfile";
 import { pendingText } from "./remove";
@@ -309,6 +310,18 @@ export default function App() {
           displayIdFor={displayIdFor}
           menuItems={menuItems(profile)}
           note={noteFor(profile)}
+          onRelease={(t, comment): Promise<ReleaseOutcome> => {
+            const { url, init } = releaseRequest(t.profile, t.ref, comment);
+            const label = displayIdFor(t.profile, t.ref) ?? t.ref;
+            const settle = (status: number, body: any) => {
+              const out = releaseOutcome(label, status, body);
+              if (out.ok) setToast({ text: out.text, hint: null });
+              return out;
+            };
+            return fetch(url, init)
+              .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
+              .catch(() => settle(0, null));
+          }}
           onDismiss={(t) => {
             const { url, init } = dismissRequest(t.profile, t.ref);
             fetch(url, init)
