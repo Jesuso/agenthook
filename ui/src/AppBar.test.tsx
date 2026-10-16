@@ -3,6 +3,8 @@ import { createElement } from "react";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppBar } from "./AppBar";
+import type { ProfileNav } from "./AppBar";
+import type { ProfileView } from "./contract";
 
 const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 
@@ -13,15 +15,40 @@ describe("AppBar", () => {
     expect(html).toContain(`v${version}`);
   });
 
-  it("marks only the active tab", () => {
-    const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", tab: "config", onTab: () => {} }));
-    expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-    expect(html).toMatch(/<button[^>]*aria-current="page"[^>]*>config<\/button>/);
-    expect(html).toContain(">dashboard</button>");
+  const profiles = [
+    { name: "dev", label: "dev" },
+    { name: "ops", label: "Ops" },
+  ] as ProfileView[];
+  const nav = (view: "overview" | "instructions" | "config"): ProfileNav => ({
+    profile: "dev",
+    profiles,
+    view,
+    onView: () => {},
+    onProfile: () => {},
+    onHome: () => {},
   });
 
-  it("omits the tabs without onTab (loading / error screens)", () => {
-    expect(renderToStaticMarkup(createElement(AppBar, { connection: "reconnecting" }))).not.toContain("<nav");
+  it("marks only the active view tab", () => {
+    const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: nav("config") }));
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+    expect(html).toMatch(/<button[^>]*aria-current="page"[^>]*>config<\/button>/);
+    expect(html).toContain(">overview</button>");
+    expect(html).toContain(">instructions</button>");
+  });
+
+  it("shows Home, the switcher and the tabs only inside a profile", () => {
+    const home = renderToStaticMarkup(createElement(AppBar, { connection: "connected" }));
+    expect(home).not.toContain("<nav");
+    expect(home).not.toContain("data-profile-switcher");
+    const inside = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: nav("overview") }));
+    expect(inside).toContain("data-home");
+    expect(inside).toContain("data-profile-switcher");
+    expect(inside).toMatch(/<option value="dev" selected="">dev<\/option>/);
+  });
+
+  it("keeps a switcher entry for a profile that is not in the list (removed / loading)", () => {
+    const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: { ...nav("overview"), profile: "gone" } }));
+    expect(html).toContain('<option value="gone"');
   });
 
   it("colours and labels the connection dot by state", () => {

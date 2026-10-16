@@ -40,3 +40,8 @@ export function summarize(snapshot: Snapshot, now: number): Summary {
   for (const t of snapshot.tickets) if (NEEDS_YOU.includes(t.status)) s.needsYou++;
   return s;
 }
+
+/** `snapshot` narrowed to one profile — so `summarize` gives that profile's own strip / card numbers. */
+export function scopeToProfile(snapshot: Snapshot, name: string): Snapshot {
+  return { profiles: snapshot.profiles.filter((p) => p.name === name), tickets: snapshot.tickets.filter((t) => t.profile === name) };
+}

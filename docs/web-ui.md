@@ -375,3 +375,85 @@ panel is collapsed on Raw and Basics and expanded on Pipeline — reset on every
 
 Write actions over `control.sock` (catchup, resume a held item, cancel an agent) — each its own
 security review. Engine hot-reload of the pipeline is explicitly out of scope.
+
+## v4 — profile-focused UI (decided, not built)
+
+Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for the structure in
+`docs/adr/0001-ui-focuses-on-one-profile.md`.
+
+### Navigation
+- Hash routes, no router lib: `#/` Home, `#/p/<stateKey>` profile Overview, plus
+  `/instructions` and `/config` sub-views. Replaces the plain tab state and `tabProfile`.
+- App bar: on Home brand + connection dot; in a profile `‹ Home`, profile emoji/name, a profile
+  switcher dropdown, and tabs Overview · Instructions · Config.
+- Last-opened profile remembered in `localStorage` (try/catch, page works without it).
+
+### Home
+- One **large card per profile, ~3 per row**, ordered by Needs-you desc, then running, idle.
+- Card: emoji + color tile, name, status dot (up/down/paused/restarting), **Needs you N** as the
+  headline (red if any failed, amber if only held/PR, calm "all clear" at 0), then
+  `agents · queued · cost today · finished today`, last activity, tracker pill, fullAuto shield, ⋯ menu
+  (restart when idle, pause/resume, remove — kept from today).
+- Down and ghost profiles collapse into a muted **Inactive** strip below; a down profile that still
+  has held/failed tickets keeps a full card.
+- No cross-profile table, activity rail or global totals.
+
+### Needs you
+- Count = held + failed + **PR awaiting merge**.
+- New ticket row field `prState`: `pipeline_done` → `ready`, `merged` → `merged`. A ready PR counts
+  toward Needs you only on a profile with a forge (without one, merged-by-hand PRs can't be told apart).
+
+### Profile Overview
+- Stat tiles: agents (slot pips), queued, cost today, **finished today**, pause/resume.
+- Zone 1 *Needs you* (hidden when empty): failed → held → PR rows, one-line reason (heldReason /
+  verdict summary), inline Release / Dismiss / Open PR / Open ticket.
+- Zone 2 *Now*: running agents per step with elapsed, model, cost, follow-log; free slots as empty
+  pips; queue order below.
+- Zone 3 *Progress*: today + last 48 h only (events tail range): finished today vs yesterday, cost,
+  rework rate; hidden below ~10 runs. A daily rollup for longer ranges is a later, separate change.
+- Activity feed: **collapsed bottom panel** with an unread count. Raw ticket table is an
+  "All tickets" drill-down.
+
+### Profile identity
+- Optional config block `ui: { color, emoji }`: fixed ~10-hue palette tuned for light/dark, curated
+  ~60-emoji list, edited in the Config editor's form (no new write path).
+- Unset → derived deterministically from the state key (hue + emoji).
+- **Image deferred.** If wanted later: `ui.image` as a path/URL in config, no upload endpoint
+  (upload would break "the UI's only file writes are instructions and config").
+
+### Digest agent (separate design pass)
+- On-demand only (button; result cached), per-profile SOUL file, read-only on the board, spawned
+  through the receiver's control-socket ops — never from the UI process. Not part of the first slice.
+
+### Build order
+1. Hash routing + app bar + plain Home cards. 2. `ui.color`/`ui.emoji` end to end (config schema,
+heartbeat, `ProfileView`, Config form, derived defaults). 3. Overview zones. 4. Polish with Refero.
+
+### v4 reference lock (Refero research)
+
+Research: Linear style (`554b801c…`, full tokens read) plus screenshots of Arcade Software's workspace
+grid, Linear's inbox, Jace AI's dark inbox and Fernand's dark Inbox insights. Our existing tokens
+(`ui/src/index.css`) already match Linear's language, so **no restyle**: the lock covers only the new
+surfaces (Home card, Needs-you rows, stat tiles, slot pips).
+
+**Primary direction: Linear's "midnight command center", expressed through our existing tokens.**
+Traits to preserve: depth from surface tiers + 1px borders, not shadows; one restrained accent;
+compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px for cards).
+
+**Borrowed details (one each):**
+- *Arcade* — card grid anatomy: identity region on top, meta footer row below, selected/hover state on the whole card.
+- *Jace* — list rows with quiet metadata and **inline actions revealed on hover/focus**; zone headings; toast with Undo (Release/Dismiss feedback).
+- *Fernand dark* — stat tile: small uppercase label over one large number; a soft green banner reserved for the "all clear" state.
+
+**Explicit rejects:**
+- Linear's neon-lime CTA accent: in Linear it is CTA-only; our accent stays `--color-accent` blue. Profile color is a *different role* (identity), never a button or status color.
+- Gradients, promo/upgrade panels, illustrated empty states, decorative imagery (Arcade, Fernand).
+- Kanban columns (Marathon/Workflow/Todoist): our pipeline is not a board.
+- Linear's negative letter-spacing and 14px body: ours is 13px, tests enforce its contrast.
+
+**Token commitments (additions only):**
+- `--profile-accent`: set inline per card / profile page from the palette; used for a 3px top bar on the Home card, the emoji tile tint (`color-mix` ~15% over `surface`) and the app-bar profile chip. Nothing else.
+- Profile palette: ~8 hues tuned for both schemes that **exclude the status hues** (red, amber, green) so identity never reads as state: sky, indigo, violet, pink, teal, cyan, slate, stone.
+- `--text-stat`: 28px / 32px, mono, tabular numerals, for the Needs-you and stat-tile numbers.
+- Home card = `surface` + `border`; hover → `surface-raised` + `border-strong`. No new shadow tier.
+- Needs-you number colors reuse `status-failed` / `status-held`; 0 → muted "all clear".
