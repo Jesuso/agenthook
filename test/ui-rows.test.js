@@ -534,3 +534,15 @@ test("profileView: forge is the heartbeat's forge type, else null", () => {
   assert.equal(profileView({ name: "k", pid: 1, up: true, heartbeat: { forge: "github" } }).forge, "github");
   assert.equal(profileView({ name: "k", pid: 1, up: true, heartbeat: {} }).forge, null);
 });
+
+test("buildRows: summary comes from refmeta, is bounded, and is null for non-strings/absent", () => {
+  const rows = buildRows(
+    "p",
+    state({ refmeta: { a: { summary: "What it is about." }, b: { summary: "x".repeat(900) }, c: { summary: 7 }, d: { title: "T" } } }),
+  );
+  const by = Object.fromEntries(rows.map((r) => [r.ref, r.summary]));
+  assert.equal(by.a, "What it is about.");
+  assert.equal(by.b?.length, 300);
+  assert.equal(by.c, null);
+  assert.equal(by.d, null);
+});

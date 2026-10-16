@@ -421,6 +421,15 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - **Image deferred.** If wanted later: `ui.image` as a path/URL in config, no upload endpoint
   (upload would break "the UI's only file writes are instructions and config").
 
+### What a ticket is about (built)
+- `refmeta.json` gains `summary`: the first prose paragraph of the tracker description, markdown
+  stripped, clipped to 240 chars (`src/ticket-summary.js`, written by dispatch when it fetches the
+  ticket, so it appears the next time a ticket runs; older tickets show none until then). It is
+  `TicketRow.summary`.
+- Now rows: a muted second line. Needs-you rows: the reason (held/failed) takes the second line, the
+  summary otherwise; either way the summary is in the title tooltip. The drawer shows it under the
+  header; the All-tickets table has it as a tooltip. Full descriptions stay in the tracker (the id links there).
+
 ### Digest agent (built)
 A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up"). Decisions:
 - **Trigger**: a button on the Overview only (never Home: one profile at a time). Never automatic, never on a timer.

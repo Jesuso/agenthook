@@ -160,7 +160,7 @@ function Row({ t, now, selected, onOpen, onDismiss }: { t: TicketRow; now: numbe
         )}
       </td>
       <td className={CELL}>
-        <div title={t.title ?? undefined} className={`min-w-40 max-w-md truncate max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 ${title.unknown ? "text-muted" : ""}`}>
+        <div title={t.summary ? `${t.title ?? t.displayId} — ${t.summary}` : t.title ?? undefined} className={`min-w-40 max-w-md truncate max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 ${title.unknown ? "text-muted" : ""}`}>
           {title.text}
         </div>
       </td>

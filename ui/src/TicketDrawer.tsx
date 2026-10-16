@@ -131,6 +131,11 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             ×
           </IconButton>
         </header>
+        {ticket?.summary && (
+          <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
+            {ticket.summary}
+          </p>
+        )}
         <div className="flex min-h-0 flex-1 flex-col p-4">
           {runs.kind === "loading" && <p className="text-label text-muted">Loading runs…</p>}
           {runs.kind === "error" && <p className="text-label text-status-failed">Failed to load runs (status {runs.status}).</p>}

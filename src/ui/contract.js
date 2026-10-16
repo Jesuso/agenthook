@@ -81,6 +81,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} ref
  * @property {string} displayId           refmeta.displayId, else ref
  * @property {string|null} title
+ * @property {string|null} summary        refmeta.summary: what the ticket is about, one plain-text paragraph (≤240 chars); null until a run has fetched the ticket
  * @property {string|null} step           current / last step id
  * @property {TicketStatus} status
  * @property {string|null} model          from running.json, else the last run_start

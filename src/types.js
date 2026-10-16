@@ -120,6 +120,7 @@
  * @property {string} [title]      the task title
  * @property {number} [pr]         the PR number for the ref's branch, once one exists
  * @property {string} [url]        the item's tracker web URL (Task.url)
+ * @property {string} [summary]    the first prose paragraph of the description, plain and clipped (src/ticket-summary.js); what `ah ui` shows as "what is this about"
  */
 
 /** A ref parked by a `hold` verdict (store.held) — the step an owner's `@agent` reply resumes.

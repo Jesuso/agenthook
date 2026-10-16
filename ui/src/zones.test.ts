@@ -4,7 +4,7 @@ import type { TicketRow } from "./contract";
 
 const t = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "p", ref, displayId: ref, title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null,
-  heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, ...over,
+  summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, ...over,
 });
 
 // Local time on purpose: "today" is the browser's local day.
@@ -18,7 +18,7 @@ describe("needsYouItems", () => {
         t("h-old", { status: "held", heldReason: "which db?", startedAt: local(8) }),
         t("pr", { status: "done", prState: "ready", finishedAt: local(11) }),
         t("f", { status: "failed", failReason: "tests red", startedAt: local(9) }),
-        t("h-new", { status: "held", heldReason: null, startedAt: local(10) }),
+        t("h-new", { status: "held", summary: null, heldReason: null, startedAt: local(10) }),
         t("running", { status: "running" }),
       ],
       true,

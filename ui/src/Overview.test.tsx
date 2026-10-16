@@ -16,7 +16,7 @@ const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, trackerUrl: null,
-  prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, ...over,
+  prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, ...over,
 });
 
 const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProps> = {}) =>
@@ -51,6 +51,40 @@ describe("Overview", () => {
     for (const [attr, id] of [['data-needs-row="f"', "ID-1"], ['data-now-row="r"', "ID-2"]]) {
       expect(row(attr), attr).toMatch(new RegExp(`<a[^>]*href="${url}"[^>]*rel="noopener noreferrer"[^>]*>${id}`));
     }
+  });
+
+  it("says what a ticket is about: Now rows show the summary, Needs you shows the reason first and the summary when there is none", () => {
+    const html = render(profile({ forge: "github" }), [
+      ticket("r", { status: "running", summary: "Cap triage runs so they cannot take every slot." }),
+      ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8), summary: "Held ticket summary." }),
+      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), summary: "PR-ready summary." }),
+    ]);
+    const row = (attr: string) => html.slice(html.indexOf(attr), html.indexOf("</li>", html.indexOf(attr)));
+    expect(row('data-now-row="r"')).toContain("Cap triage runs so they cannot take every slot.");
+    expect(row('data-needs-row="h"')).toContain("which db?");
+    expect(row('data-needs-row="h"')).toContain("Held ticket summary."); // tooltip only
+    expect(row('data-needs-row="h"')).not.toMatch(/data-needs-sub[^>]*>Held ticket summary/);
+    expect(row('data-needs-row="p"')).toMatch(/data-needs-sub[^>]*>PR-ready summary\./);
+  });
+
+  it("keeps each row's primary action visible in one fixed slot (PR link on PR ready, Release on held, Dismiss on failed)", () => {
+    const html = render(profile({ forge: "github" }), [
+      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8114" }),
+      ticket("n", { status: "done", prState: "ready", finishedAt: local(9), prUrl: null }),
+      ticket("h", { status: "held", heldReason: "q?", heldAt: local(8) }),
+      ticket("f", { status: "failed", failReason: "x" }),
+    ]);
+    const row = (ref: string) => html.slice(html.indexOf(`data-needs-row="${ref}"`), html.indexOf("</li>", html.indexOf(`data-needs-row="${ref}"`)));
+    expect(row("p")).toMatch(/data-needs-primary[^>]*><a[^>]*href="https:\/\/github.com\/o\/r\/pull\/8114"[^>]*>PR #8114/);
+    expect(row("h")).toMatch(/data-needs-primary[^>]*><button[^>]*data-release-open/);
+    expect(row("f")).toMatch(/data-needs-primary[^>]*><button[^>]*>Dismiss/);
+    expect(row("n")).toMatch(/data-needs-primary[^>]*><\/span>/); // no PR known: empty, same width
+    for (const r of ["p", "n", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
+  });
+
+  it("shows no second line for a ticket without a summary", () => {
+    const html = render(profile(), [ticket("r", { status: "running", summary: null })]);
+    expect(html).not.toContain("data-now-sub");
   });
 
   it("shows a plain id when the ticket has no tracker URL", () => {
