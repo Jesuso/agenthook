@@ -219,9 +219,9 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
               <div className="group flex items-center gap-3 px-3 py-2">
                 <span className="w-[4.5rem] shrink-0"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
-                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title="open details" onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
                   <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
-                  {reason && <span className="block truncate text-label text-muted" title={reason}>{reason}</span>}
+                  {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
                 </button>
                 <span className="whitespace-nowrap text-label text-muted">
                   {t.step ? `${t.step} · ` : ""}
@@ -265,8 +265,9 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
       <TicketId id={t.displayId} url={t.trackerUrl} />
-      <button type="button" className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+      <button type="button" className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
         <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
+        {t.summary && <span className="block truncate text-label text-muted" data-now-sub>{t.summary}</span>}
       </button>
       {t.step && <Pill>{t.step}</Pill>}
       {queuedAt === undefined && (

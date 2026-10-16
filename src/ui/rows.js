@@ -292,6 +292,7 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
       ref,
       displayId: str(meta.displayId) ?? ref,
       title: str(meta.title) ?? lastName,
+      summary: str(meta.summary)?.slice(0, 300) ?? null,
       step: str(run?.stepId) ?? str(queued?.stepId) ?? str(held?.stepId) ?? lastStep,
       status,
       model: run ? str(run.model) : str(lastStart?.model),

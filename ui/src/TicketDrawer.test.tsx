@@ -16,7 +16,7 @@ const row: TicketRow = {
   costUsd: 1.25,
   trackerUrl: "https://github.com/Jesuso/agenthook/issues/221",
   prUrl: "https://github.com/Jesuso/agenthook/pull/230",
-  heldReason: null,
+  summary: null, heldReason: null,
   heldAt: null,
   failReason: null,
   prState: null,
@@ -28,6 +28,11 @@ const render = (ticket: TicketRow | undefined) =>
   renderToStaticMarkup(createElement(TicketDrawer, { profile: "agenthook", ticketRef: "221", ticket, runsNonce: 0, onClose: () => {} }));
 
 describe("TicketDrawer", () => {
+  it("shows the ticket's summary under the header, and nothing when it has none", () => {
+    expect(render({ ...row, summary: "Why this ticket exists." })).toMatch(/data-drawer-summary[^>]*>Why this ticket exists\.</);
+    expect(render(row)).not.toContain("data-drawer-summary");
+  });
+
   it("is a labelled modal dialog over a backdrop", () => {
     const html = render(row);
     expect(html).toMatch(/^<div class="fixed inset-0 z-40 bg-black\/40">/);

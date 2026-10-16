@@ -51,8 +51,8 @@ describe("applyEvent", () => {
     const state: Snapshot = {
       profiles: [profile({ name: "a" }), profile({ name: "b" })],
       tickets: [
-        { profile: "a", ref: "1", displayId: "1", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null },
-        { profile: "b", ref: "2", displayId: "2", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null },
+        { profile: "a", ref: "1", displayId: "1", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null },
+        { profile: "b", ref: "2", displayId: "2", title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null },
       ],
     };
     const next = applyEvent(state, { type: "profile_removed", name: "a" });
@@ -85,7 +85,7 @@ describe("applyEvent", () => {
       costUsd: 0,
       trackerUrl: null,
       prUrl: null,
-      heldReason: null,
+      summary: null, heldReason: null,
       heldAt: null,
       failReason: null,
       prState: null,
