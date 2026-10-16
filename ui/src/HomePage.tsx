@@ -125,12 +125,14 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
       <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">
         <Stat label="agents">{formatAgents(p)}</Stat>
         <Stat label="queued">{p.queued ?? "—"}</Stat>
-        <Stat label="cost today">{formatCost(summary.costToday)}</Stat>
+        {summary.costToday > 0 && <Stat label="cost today">{formatCost(summary.costToday)}</Stat>}
       </dl>
 
-      <p className="mt-3 truncate text-label text-muted" title={last.title}>
-        {last.text}
-      </p>
+      {p.lastEvent && (
+        <p className="mt-3 truncate text-label text-muted" title={last.title}>
+          {last.text}
+        </p>
+      )}
       {note && <p className="mt-1 text-label text-status-held">{note}</p>}
     </article>
   );

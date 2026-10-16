@@ -149,21 +149,3 @@ function minuteLabel(ts: unknown): string {
   return t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-const RAIL_OPEN_KEY = "ah.activity.open";
-
-/** The activity rail's open/closed state, persisted per browser; on unless explicitly closed. */
-export function readRailOpen(store: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): boolean {
-  try {
-    return store?.getItem(RAIL_OPEN_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-export function writeRailOpen(on: boolean, store: Pick<Storage, "setItem"> | undefined = globalThis.localStorage): void {
-  try {
-    store?.setItem(RAIL_OPEN_KEY, on ? "1" : "0");
-  } catch {
-    /* storage disabled — the toggle just won't persist */
-  }
-}

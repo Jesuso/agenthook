@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { appendFeed, formatFeedEvent, isHiddenFeedEvent, ticketLabel, groupByMinute, readRailOpen, writeRailOpen, FEED_MAX } from "./feed";
+import { appendFeed, formatFeedEvent, isHiddenFeedEvent, ticketLabel, groupByMinute, FEED_MAX } from "./feed";
 import type { FeedEntry } from "./feed";
 
 function entry(ref: string, event: Record<string, any> = {}): FeedEntry {
@@ -108,35 +108,5 @@ describe("groupByMinute", () => {
     expect(groups.length).toBe(1);
     expect(groups[0].key).toBe("—");
     expect(groups[0].minute).toBe("—");
-  });
-});
-
-describe("readRailOpen / writeRailOpen", () => {
-  it("defaults open and round-trips through storage", () => {
-    const data: Record<string, string> = {};
-    const store = {
-      getItem: (k: string) => data[k] ?? null,
-      setItem: (k: string, v: string) => {
-        data[k] = v;
-      },
-    };
-    expect(readRailOpen(store)).toBe(true);
-    writeRailOpen(false, store);
-    expect(readRailOpen(store)).toBe(false);
-    writeRailOpen(true, store);
-    expect(readRailOpen(store)).toBe(true);
-  });
-
-  it("defaults open and no-ops when storage throws", () => {
-    const store = {
-      getItem: () => {
-        throw new Error("disabled");
-      },
-      setItem: () => {
-        throw new Error("disabled");
-      },
-    };
-    expect(readRailOpen(store)).toBe(true);
-    expect(() => writeRailOpen(false, store)).not.toThrow();
   });
 });
