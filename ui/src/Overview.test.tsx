@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Overview } from "./Overview";
 import type { OverviewProps } from "./Overview";
+import type { ReleaseOutcome } from "./config";
 import type { ProfileView, TicketRow } from "./contract";
 
 const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
@@ -22,7 +23,7 @@ const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProp
   renderToStaticMarkup(
     createElement(Overview, {
       profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, showAll: false, setShowAll: () => {},
-      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, ...over,
+      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), ...over,
     }),
   );
 
@@ -40,6 +41,12 @@ describe("Overview", () => {
     expect(html).toContain("tests red");
     expect(html).toContain("which db?");
     expect(html.match(/>Dismiss</g)).toHaveLength(1);
+  });
+
+  it("offers Release… on held rows only, with the answer panel closed until clicked", () => {
+    const html = render(profile(), [ticket("h", { status: "held", heldReason: "?" }), ticket("f", { status: "failed", failReason: "x" })]);
+    expect(html.match(/data-release-open/g)).toHaveLength(1);
+    expect(html).not.toContain("data-release-panel");
   });
 
   it("counts a ready PR as Needs you only on a forge profile", () => {

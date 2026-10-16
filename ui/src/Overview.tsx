@@ -11,6 +11,7 @@ import { TicketsTable } from "./TicketsTable";
 import { Menu, Pill, ProfileMark } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
+import type { ReleaseOutcome } from "./config";
 
 type Ref = { profile: string; ref: string };
 
@@ -30,6 +31,8 @@ export type OverviewProps = {
   menuItems: MenuItem[];
   note: string;
   onDismiss: (t: Ref) => void;
+  /** Answer a held ticket (optional comment for the agent); resolves with what happened. */
+  onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>;
 };
 
 /**
@@ -67,7 +70,7 @@ export function Overview(props: OverviewProps) {
         </Tile>
       </div>
 
-      {needs.length > 0 && <NeedsYouZone items={needs} now={now} onOpen={onOpen} onDismiss={props.onDismiss} />}
+      {needs.length > 0 && <NeedsYouZone items={needs} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />}
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
@@ -149,44 +152,104 @@ const KIND: Record<NeedsItem["kind"], { text: string; tone: "failed" | "held" | 
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
-function NeedsYouZone({ items, now, onOpen, onDismiss }: { items: NeedsItem[]; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void }) {
+/** The inline answer form under a held row: an optional comment for the agent, then Release. */
+function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease: OverviewProps["onRelease"]; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const t = item.ticket;
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const out = await onRelease({ profile: t.profile, ref: t.ref }, text);
+    if (out.ok) return onClose();
+    setBusy(false);
+    setError(out.error);
+  };
+  return (
+    <div data-release-panel={t.ref} className="flex flex-col gap-2 border-t border-border-subtle bg-surface-raised px-3 py-3">
+      <label className="flex flex-col gap-1 text-label text-muted">
+        Answer for the agent (optional) — added to its prompt when it re-runs {t.step ?? "the step"}
+        <textarea
+          autoFocus
+          rows={3}
+          maxLength={8000}
+          value={text}
+          disabled={busy}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onClose();
+            else if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy) void submit();
+          }}
+          className="rounded border border-border bg-surface px-2 py-1 text-body text-fg focus-visible:outline-2 focus-visible:outline-accent"
+        />
+      </label>
+      {error && (
+        <p role="alert" className="text-label text-status-failed">
+          {error}
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <button type="button" disabled={busy} onClick={() => void submit()} className="rounded-md bg-accent px-3 py-1 text-label font-medium text-accent-fg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
+          {busy ? "Releasing…" : "Release"}
+        </button>
+        <button type="button" disabled={busy} onClick={onClose} className={LINK}>
+          Cancel
+        </button>
+        <span className="ml-auto text-meta text-faint">⌘/Ctrl + Enter to release</span>
+      </div>
+    </div>
+  );
+}
+
+function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: NeedsItem[]; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"] }) {
+  const [releasing, setReleasing] = useState<string | null>(null);
   return (
     <Zone title="Needs you" count={items.length}>
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
-        {items.map(({ ticket: t, kind, reason, since }) => {
+        {items.map((item) => {
+          const { ticket: t, kind, reason, since } = item;
           const title = ticketTitle(t);
           const pr = prNumber(t.prUrl);
           return (
-            <li key={t.ref} data-needs-row={t.ref} data-kind={kind} className="group flex items-center gap-3 px-3 py-2">
-              <Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill>
-              <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-                <span className="font-mono text-label text-muted">{t.displayId}</span> <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
-                {reason && <span className="block truncate text-label text-muted" title={reason}>{reason}</span>}
-              </button>
-              <span className="whitespace-nowrap text-label text-muted">
-                {t.step ? `${t.step} · ` : ""}
-                {formatRelative(since, now)}
-              </span>
-              <span className={`flex items-center gap-0.5 ${REVEAL}`}>
-                {t.trackerUrl && (
-                  <a className={LINK} href={t.trackerUrl} target="_blank" rel="noreferrer">
-                    Ticket ↗
-                  </a>
-                )}
-                {t.prUrl && (
-                  <a className={LINK} href={t.prUrl} target="_blank" rel="noreferrer">
-                    PR {pr ? `#${pr}` : ""} ↗
-                  </a>
-                )}
-                <button type="button" className={LINK} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-                  Details
+            <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
+              <div className="group flex items-center gap-3 px-3 py-2">
+                <Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill>
+                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                  <span className="font-mono text-label text-muted">{t.displayId}</span> <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
+                  {reason && <span className="block truncate text-label text-muted" title={reason}>{reason}</span>}
                 </button>
-                {kind === "failed" && (
-                  <button type="button" className={LINK} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
-                    Dismiss
+                <span className="whitespace-nowrap text-label text-muted">
+                  {t.step ? `${t.step} · ` : ""}
+                  {formatRelative(since, now)}
+                </span>
+                {kind === "held" && releasing !== t.ref && (
+                  <button type="button" data-release-open className="rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => setReleasing(t.ref)}>
+                    Release…
                   </button>
                 )}
-              </span>
+                <span className={`flex items-center gap-0.5 ${REVEAL}`}>
+                  {t.trackerUrl && (
+                    <a className={LINK} href={t.trackerUrl} target="_blank" rel="noreferrer">
+                      Ticket ↗
+                    </a>
+                  )}
+                  {t.prUrl && (
+                    <a className={LINK} href={t.prUrl} target="_blank" rel="noreferrer">
+                      PR {pr ? `#${pr}` : ""} ↗
+                    </a>
+                  )}
+                  <button type="button" className={LINK} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                    Details
+                  </button>
+                  {kind === "failed" && (
+                    <button type="button" className={LINK} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
+                      Dismiss
+                    </button>
+                  )}
+                </span>
+              </div>
+              {kind === "held" && releasing === t.ref && <ReleasePanel item={item} onRelease={onRelease} onClose={() => setReleasing(null)} />}
             </li>
           );
         })}

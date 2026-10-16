@@ -470,8 +470,15 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   `heldAt`, `queuePos`. New profile fields: `forge` (heartbeat) and `recentRuns` (`run_end` outcomes,
   last 48 h). A ready PR counts as Needs you **only** on a profile with a forge.
 - Needs-you rows show kind, id + title, the one-line reason, step and age; **Ticket ↗ / PR ↗ /
-  Details / Dismiss** appear on hover or focus (always on touch). **Release is not inline yet**: it
-  needs its own guarded `POST /api/release` (a write path, so its own security review); until then a
-  held ticket is released from its tracker (`@agent` reply) or the MCP `release` tool.
+  Details / Dismiss** appear on hover or focus (always on touch). A held row has an always-visible
+  **Release…** that opens an inline answer form (optional comment, added to the agent's prompt;
+  ⌘/Ctrl+Enter submits, Esc cancels). It posts `POST /api/release` — same guard chain as the other
+  writes (cookie → Origin → `X-AH-UI` → JSON ≤ 256 KB) — which sends `{cmd:'release', args:{ref, actor:'ui',
+  comment?}}` over `control.sock`. The receiver re-checks everything (held, non-manual step, under
+  its attempt cap) and refuses with 502 `{error}`; the UI shows that text in the form. `release`
+  waits up to ~15 s for the held run's cleanup, so it has its own 20 s timeout (`releaseTimeoutMs`);
+  504 means "check the feed before retrying". The outcome lands in `ui-audit.jsonl` as `{action:'release',
+  profile, ref, status, commented}` — the comment text is never logged (the receiver's
+  `control-audit.jsonl` omits it too).
 - Progress is today vs yesterday (browser-local days) over the tail, plus the rework rate
   (`changes` / runs), hidden under 10 runs. Longer ranges need a daily rollup (later, separate change).

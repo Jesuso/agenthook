@@ -36,6 +36,25 @@ export function dismissRequest(profile: string, ref: string): { url: string; ini
   return { url: "/api/dismiss", init: guarded("POST", { profile, ref }) };
 }
 
+/** Answer a held ticket: the receiver re-runs its held step, `comment` (optional) added to the agent's prompt. */
+export function releaseRequest(profile: string, ref: string, comment: string): { url: string; init: RequestInit } {
+  const body = comment.trim() ? { profile, ref, comment } : { profile, ref };
+  return { url: "/api/release", init: guarded("POST", body) };
+}
+
+/** What a release attempt means for the UI: `ok` closes the panel, otherwise `error` is shown beside it. */
+export type ReleaseOutcome = { ok: true; text: string } | { ok: false; error: string };
+
+/** Map `POST /api/release`'s status + body (0 = network error) to its outcome. */
+export function releaseOutcome(label: string, status: number, body: any): ReleaseOutcome {
+  if (status === 200) return { ok: true, text: `Released ${label}${typeof body?.step === "string" ? ` → re-running ${body.step}` : ""}` };
+  if (status === 502) return { ok: false, error: typeof body?.error === "string" ? body.error : "the receiver refused" };
+  if (status === 503) return { ok: false, error: "the receiver is not running" };
+  if (status === 504) return { ok: false, error: "the receiver didn't answer in time — check the activity feed before retrying" };
+  if (status === 0) return { ok: false, error: "network error" };
+  return { ok: false, error: `release failed (status ${status})` };
+}
+
 /**
  * The state key a "Move state dir to match name" would move to: the loaded config's label when it
  * differs from the open profile's state key, else null (nothing to move; unparseable config too).

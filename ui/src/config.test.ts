@@ -8,6 +8,8 @@ import {
   moveTarget,
   parseCheck,
   queueToggleRequest,
+  releaseOutcome,
+  releaseRequest,
   restartErrorText,
   restartReducer,
   restartRequest,
@@ -25,6 +27,28 @@ const cfg = (over: Record<string, unknown> = {}) =>
     sinks: [{ url: "${HOOK_URL}" }, { botToken: "${BOT}" }],
     ...over,
   });
+
+describe("release", () => {
+  it("posts {profile, ref} and adds a comment only when it has text", () => {
+    const body = (c: string) => JSON.parse(String(releaseRequest("p", "42", c).init.body));
+    expect(releaseRequest("p", "42", "").url).toBe("/api/release");
+    expect(body("")).toEqual({ profile: "p", ref: "42" });
+    expect(body("  \n ")).toEqual({ profile: "p", ref: "42" });
+    expect(body("use Postgres")).toEqual({ profile: "p", ref: "42", comment: "use Postgres" });
+    expect(releaseRequest("p", "42", "x").init.method).toBe("POST");
+  });
+
+  it("maps every status to an outcome", () => {
+    expect(releaseOutcome("#42", 200, { step: "triage" })).toEqual({ ok: true, text: "Released #42 → re-running triage" });
+    expect(releaseOutcome("#42", 200, {})).toEqual({ ok: true, text: "Released #42" });
+    expect(releaseOutcome("#42", 502, { error: "42 cannot be released: not held" })).toEqual({ ok: false, error: "42 cannot be released: not held" });
+    expect(releaseOutcome("#42", 502, null)).toEqual({ ok: false, error: "the receiver refused" });
+    expect(releaseOutcome("#42", 503, null)).toMatchObject({ ok: false, error: expect.stringContaining("not running") });
+    expect(releaseOutcome("#42", 504, null)).toMatchObject({ ok: false, error: expect.stringContaining("in time") });
+    expect(releaseOutcome("#42", 0, null)).toEqual({ ok: false, error: "network error" });
+    expect(releaseOutcome("#42", 418, null)).toEqual({ ok: false, error: "release failed (status 418)" });
+  });
+});
 
 describe("requests", () => {
   it("configUrl encodes the profile", () => {
