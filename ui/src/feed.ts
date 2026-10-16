@@ -16,7 +16,7 @@ const RUN_END_WORD: Record<string, string> = { advance: "passed", hold: "held", 
 const PLAIN_EVENTS = new Set(["restart_requested", "restarting", "decommission_requested", "decommissioning"]);
 
 /** Event names hidden from the activity feed by default (src/events.js HIDDEN_BY_DEFAULT). */
-const HIDDEN_FEED_EVENTS = new Set(["coalesced", "digest_start", "digest_end"]);
+const HIDDEN_FEED_EVENTS = new Set(["coalesced", "digest_start", "digest_end", "epic_changed"]);
 
 /** Whether `name` (events.jsonl's `event` field) should not be appended to the activity feed. */
 export function isHiddenFeedEvent(name: string): boolean {
@@ -101,6 +101,11 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
     }
     case "epic_skipped": {
       text = "epic — skipped";
+      tone = "idle";
+      break;
+    }
+    case "epic_changed": {
+      text = "epic changed";
       tone = "idle";
       break;
     }

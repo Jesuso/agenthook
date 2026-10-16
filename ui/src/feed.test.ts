@@ -66,6 +66,10 @@ describe("formatFeedEvent", () => {
     expect(formatFeedEvent({ event: "run_start", ref: "", step: "code" }, null).ticket).toBe(false);
   });
 
+  it("maps epic_changed to an idle-toned render, in case it's ever shown", () => {
+    expect(formatFeedEvent({ event: "epic_changed", ref: "12", step: "" }, null)).toMatchObject({ text: "epic changed", tone: "idle" });
+  });
+
   it("maps coalesced to a sensible idle-toned render, in case it's ever shown", () => {
     expect(formatFeedEvent({ event: "coalesced", ref: "1", step: "code" }, null)).toMatchObject({ text: "duplicate dropped", tone: "idle" });
   });
@@ -74,6 +78,7 @@ describe("formatFeedEvent", () => {
 describe("isHiddenFeedEvent", () => {
   it("hides coalesced, nothing else", () => {
     expect(isHiddenFeedEvent("coalesced")).toBe(true);
+    expect(isHiddenFeedEvent("epic_changed")).toBe(true);
     expect(isHiddenFeedEvent("enqueued")).toBe(false);
     expect(isHiddenFeedEvent("run_end")).toBe(false);
   });

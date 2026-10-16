@@ -21,7 +21,9 @@
 //     (so no login is pasted). Scoping is FAIL CLOSED — see scopeToUser below.
 //   - Epics: an issue is an epic when its custom type matches tracker.epicType (default
 //     "Epic") or it carries tracker.epicLabel (default "epic"); its tickets are its
-//     native GitHub sub-issues (ADR 0004).
+//     native GitHub sub-issues (ADR 0004). The same hook's `sub_issues` event and the
+//     `issues` `typed`/`untyped` actions become a read-only `epic_changed` signal job
+//     (see epicChangeFromEvent) — never a pipeline job, never a board write.
 import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
@@ -35,6 +37,33 @@ export function isEpicIssue(issue, epicType, epicLabel) {
   const want = String(epicLabel || "").trim().toLowerCase();
   if (!want) return false;
   return (issue?.labels || []).some((/** @type {any} */ l) => String(typeof l === "string" ? l : l?.name).trim().toLowerCase() === want);
+}
+
+const SUB_ISSUE_ACTIONS = new Set(["sub_issue_added", "sub_issue_removed", "parent_issue_added", "parent_issue_removed"]);
+
+/** The epic whose structure a delivery changed, or null. Pure — drives the `epic_changed`
+ * signal. `sub_issues` (any of its four actions) → the parent, only when it lives in our repo
+ * AND is an epic (a plain or cross-repo parent is not an epic we list); `issues`
+ * `typed`/`untyped` → the issue, when the (added/removed) type is `epicType` or the issue is
+ * still an epic (e.g. via its label).
+ * @param {string} kind  the `x-github-event` header @param {any} ev  the parsed payload
+ * @param {{epicType: string, epicLabel: string, repoApiUrl: string}} o
+ * @returns {string|null} */
+export function epicChangeFromEvent(kind, ev, { epicType, epicLabel, repoApiUrl }) {
+  if (kind === "sub_issues") {
+    if (!SUB_ISSUE_ACTIONS.has(ev?.action)) return null;
+    const parent = ev.parent_issue;
+    if (parent?.number == null) return null;
+    const parentRepo = parent.repository_url ?? ev.parent_issue_repo?.url;
+    if (typeof parentRepo !== "string" || parentRepo.toLowerCase() !== repoApiUrl.toLowerCase()) return null;
+    return isEpicIssue(parent, epicType, epicLabel) ? String(parent.number) : null;
+  }
+  if (kind === "issues" && (ev?.action === "typed" || ev?.action === "untyped")) {
+    const issue = ev.issue;
+    if (issue?.number == null || issue.pull_request) return null;
+    if (ev.type?.name === epicType || isEpicIssue(issue, epicType, epicLabel)) return String(issue.number);
+  }
+  return null;
 }
 
 /** Rows that ARE epics (typed or labelled), PRs dropped, deduped by number. Pure —
@@ -462,15 +491,27 @@ export function createGithubAdapter(cfg, store) {
     //                              re-add of the same label fires again; retries dedup).
     //   issue_comment created    → the `@agent` resume of the issue's held step
     //                              (key `trigger:<comment.id>`; see resumeFromComment).
+    //   sub_issues (all actions),
+    //   issues typed/untyped     → a read-only `epic_changed` signal for the epic (key
+    //                              `epic:<delivery>`; see epicChangeFromEvent) — the engine
+    //                              emits it outside the queue. Never a pipeline job.
     async processEvents({ headers, rawBody }) {
       const kind = norm(Array.isArray(headers["x-github-event"]) ? headers["x-github-event"][0] : headers["x-github-event"]);
-      if (kind !== "issues" && kind !== "issue_comment") return [];
+      if (kind !== "issues" && kind !== "issue_comment" && kind !== "sub_issues") return [];
       let ev;
       try {
         ev = JSON.parse(rawBody);
       } catch (e) {
         console.error("[parse]", e instanceof Error ? e.message : e);
         return [];
+      }
+      // Before the `ev.issue` check: a sub_issues payload carries parent_issue/sub_issue, no issue.
+      if (kind === "sub_issues" || (kind === "issues" && (ev.action === "typed" || ev.action === "untyped"))) {
+        const epicRef = epicChangeFromEvent(kind, ev, { epicType, epicLabel, repoApiUrl: repoApiUrl() });
+        if (!epicRef) return [];
+        const delivery = Array.isArray(headers["x-github-delivery"]) ? headers["x-github-delivery"][0] : headers["x-github-delivery"];
+        const dedupKey = `epic:${delivery || `${epicRef}:${ev.action}:${ev.sub_issue?.id ?? ""}`}`;
+        return [{ kind: "epic_changed", ref: epicRef, stepId: "", dedupKey }];
       }
       const issue = ev.issue;
       if (issue?.number == null) return [];
@@ -749,7 +790,8 @@ export function createGithubAdapter(cfg, store) {
 
     // Auto-create the repo webhook (GitHub, unlike Jira, allows it with a token). Scrub
     // our stale hooks first (the tunnel URL rotates each boot on an ephemeral ingress),
-    // then create one `issues` + `issue_comment` hook signed with the generated secret.
+    // then create one `issues` + `issue_comment` + `sub_issues` hook signed with the generated
+    // secret. No update path: a changed events list applies on the next start/register.
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/github/`;
       await deleteOurHooks();
@@ -759,7 +801,7 @@ export function createGithubAdapter(cfg, store) {
         body: JSON.stringify({
           name: "web",
           active: true,
-          events: ["issues", "issue_comment"],
+          events: ["issues", "issue_comment", "sub_issues"],
           config: { url: target, content_type: "json", insecure_ssl: "0", ...(secret ? { secret } : {}) },
         }),
       });

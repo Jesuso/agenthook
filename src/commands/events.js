@@ -11,7 +11,7 @@ import { loadConfig } from "../config.js";
 import { neverStarted } from "../profile.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
 
-const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed", "coalesced"]);
+const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed", "coalesced", "epic_changed"]);
 
 /**
  * Parse an event line as JSON; return null on failure.

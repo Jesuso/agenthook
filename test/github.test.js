@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createGithubAdapter, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
+import { createGithubAdapter, epicChangeFromEvent, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
 
 /** Minimal in-memory Store stub. */
@@ -564,7 +564,7 @@ test("issue_comment: an unresolvable login fails closed (no job)", async () => {
   }
 });
 
-test("registerWebhook subscribes the hook to issues + issue_comment", async () => {
+test("registerWebhook subscribes the hook to issues + issue_comment + sub_issues", async () => {
   /** @type {any} */
   let posted;
   const orig = global.fetch;
@@ -578,7 +578,7 @@ test("registerWebhook subscribes the hook to issues + issue_comment", async () =
   } finally {
     global.fetch = orig;
   }
-  assert.deepEqual(posted?.events, ["issues", "issue_comment"]);
+  assert.deepEqual(posted?.events, ["issues", "issue_comment", "sub_issues"]);
 });
 
 test("advance on a resumed step drops the hold label too (issue ends with only the target label)", async () => {
@@ -977,4 +977,59 @@ test("listEpics merges label-path and type-path results through mapEpics (post-f
   } finally {
     global.fetch = orig;
   }
+});
+
+// --- epic_changed (#310): sub_issues + issues typed/untyped → a signal job, never a pipeline job ---
+
+const OUR_REPO = "https://api.github.com/repos/o/r";
+const epicParent = { number: 12, repository_url: OUR_REPO, type: { name: "Epic" }, labels: [] };
+const subIssue = { id: 9001, number: 40, repository_url: OUR_REPO, labels: [{ name: "agent:code" }], assignees: [] };
+/** @param {string} action @param {object} [over] */
+const subIssuesEvt = (action, over = {}) => ({ action, parent_issue: epicParent, parent_issue_repo: { url: OUR_REPO, full_name: "o/r" }, sub_issue: subIssue, sub_issue_repo: { url: OUR_REPO }, ...over });
+
+for (const action of ["sub_issue_added", "sub_issue_removed", "parent_issue_added", "parent_issue_removed"]) {
+  test(`sub_issues ${action} on an epic parent → one epic_changed for the parent, no pipeline job`, async () => {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt(subIssuesEvt(action), { "x-github-event": "sub_issues", "x-github-delivery": "d-1" })));
+    assert.deepEqual(jobs, [{ kind: "epic_changed", ref: "12", stepId: "", dedupKey: "epic:d-1" }]);
+  });
+}
+
+test("issues typed → Epic, and untyped from Epic → one epic_changed for the issue (assignee gate not consulted)", async () => {
+  const typed = { action: "typed", type: { name: "Epic" }, issue: { number: 12, type: { name: "Epic" }, labels: [], assignees: [] } };
+  const untyped = { action: "untyped", type: { name: "Epic" }, issue: { number: 12, type: null, labels: [], assignees: [] } };
+  const a = adapter({ assigneeFilter: true, assigneeLogin: "someone-else" });
+  assert.deepEqual(await a.processEvents(/** @type {any} */ (evt(typed, { "x-github-delivery": "d-2" }))), [{ kind: "epic_changed", ref: "12", stepId: "", dedupKey: "epic:d-2" }]);
+  assert.deepEqual(await a.processEvents(/** @type {any} */ (evt(untyped, { "x-github-delivery": "d-3" }))), [{ kind: "epic_changed", ref: "12", stepId: "", dedupKey: "epic:d-3" }]);
+});
+
+test("epic_changed without a delivery header falls back to ref:action:sub_issue.id", async () => {
+  const jobs = await adapter().processEvents(/** @type {any} */ (evt(subIssuesEvt("sub_issue_added"), { "x-github-event": "sub_issues" })));
+  assert.deepEqual(jobs, [{ kind: "epic_changed", ref: "12", stepId: "", dedupKey: "epic:12:sub_issue_added:9001" }]);
+});
+
+test("a non-epic parent, a cross-repo parent, a non-epic type change, a labelled epic retyped → as expected", async () => {
+  const hdr = { "x-github-event": "sub_issues", "x-github-delivery": "d-4" };
+  const plain = { ...epicParent, type: null };
+  assert.deepEqual(await adapter().processEvents(/** @type {any} */ (evt(subIssuesEvt("sub_issue_added", { parent_issue: plain }), hdr))), []);
+  const foreign = { ...epicParent, repository_url: "https://api.github.com/repos/x/y" };
+  assert.deepEqual(await adapter().processEvents(/** @type {any} */ (evt(subIssuesEvt("sub_issue_added", { parent_issue: foreign, parent_issue_repo: { url: "https://api.github.com/repos/x/y" } }), hdr))), []);
+  const bug = { action: "typed", type: { name: "Bug" }, issue: { number: 5, type: { name: "Bug" }, labels: [], assignees: [] } };
+  assert.deepEqual(await adapter().processEvents(/** @type {any} */ (evt(bug))), []);
+  const labelled = { action: "typed", type: { name: "Bug" }, issue: { number: 6, type: { name: "Bug" }, labels: [{ name: "epic" }], assignees: [] } };
+  assert.deepEqual((await adapter().processEvents(/** @type {any} */ (evt(labelled, { "x-github-delivery": "d-5" })))).map((j) => [j.kind, j.ref]), [["epic_changed", "6"]]);
+});
+
+test("epicChangeFromEvent: unknown sub_issues action / missing repo evidence / repo URL case → null|ref", () => {
+  const o = { epicType: "Epic", epicLabel: "epic", repoApiUrl: OUR_REPO };
+  assert.equal(epicChangeFromEvent("sub_issues", subIssuesEvt("something_else"), o), null);
+  assert.equal(epicChangeFromEvent("sub_issues", subIssuesEvt("sub_issue_added", { parent_issue: { ...epicParent, repository_url: undefined }, parent_issue_repo: undefined }), o), null);
+  assert.equal(epicChangeFromEvent("sub_issues", subIssuesEvt("sub_issue_added", { parent_issue: { ...epicParent, repository_url: OUR_REPO.toUpperCase() } }), o), "12");
+  assert.equal(epicChangeFromEvent("issues", { action: "labeled", issue: epicParent }, o), null);
+});
+
+test("a sub_issues delivery with a bad / absent signature is rejected", () => {
+  const a = adapter({ webhookSecret: "s3cr3t" });
+  const body = JSON.stringify(subIssuesEvt("sub_issue_added"));
+  assert.equal(a.authenticate(/** @type {any} */ ({ rawBody: body, headers: { "x-github-event": "sub_issues", "x-hub-signature-256": "sha256=deadbeef" } })).type, "reject");
+  assert.equal(a.authenticate(/** @type {any} */ ({ rawBody: body, headers: { "x-github-event": "sub_issues" } })).type, "reject");
 });

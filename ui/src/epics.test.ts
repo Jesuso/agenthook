@@ -1,8 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { epicsError, epicsUrl, etaLabel, fetchEpic, fetchEpics, groupTickets, perDayLabel, progressOf, safeUrl, splitCompleted, stageSegments } from "./epics";
+import { epicChangedRefetches, epicsError, epicsUrl, etaLabel, fetchEpic, fetchEpics, groupTickets, perDayLabel, progressOf, safeUrl, splitCompleted, stageSegments } from "./epics";
 import { epicStats, epicTicket } from "./epicsFixtures";
 
 const reply = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+
+describe("epicChangedRefetches", () => {
+  const ev = { event: "epic_changed", ref: "12", step: "" };
+  it("the profile's Epics list refetches on any epic_changed", () => {
+    expect(epicChangedRefetches({ kind: "profile", profile: "dev", view: "epics" }, "dev", ev)).toBe(true);
+    expect(epicChangedRefetches({ kind: "profile", profile: "dev", view: "epics" }, "dev", { ...ev, ref: "99" })).toBe(true);
+  });
+  it("one epic's page refetches only for that epic", () => {
+    expect(epicChangedRefetches({ kind: "profile", profile: "dev", view: "epics", epic: "12" }, "dev", ev)).toBe(true);
+    expect(epicChangedRefetches({ kind: "profile", profile: "dev", view: "epics", epic: "7" }, "dev", ev)).toBe(false);
+  });
+  it("another profile, another view, Home, or another event → no refetch", () => {
+    expect(epicChangedRefetches({ kind: "profile", profile: "other", view: "epics" }, "dev", ev)).toBe(false);
+    expect(epicChangedRefetches({ kind: "profile", profile: "dev", view: "overview" }, "dev", ev)).toBe(false);
+    expect(epicChangedRefetches({ kind: "home" }, "dev", ev)).toBe(false);
+    expect(epicChangedRefetches({ kind: "profile", profile: "dev", view: "epics" }, "dev", { ...ev, event: "run_end" })).toBe(false);
+  });
+});
 
 describe("epicsUrl", () => {
   it("list and detail URLs with profile + the browser tz (as /api/stats)", () => {

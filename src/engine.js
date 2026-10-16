@@ -30,6 +30,7 @@ import { createAdapter } from "./trackers/index.js";
 import { createIngress } from "./ingress/index.js";
 import { createForge, isForgePath } from "./forges/index.js";
 import { createCiGreen } from "./ci-green.js";
+import { createEpicChanged } from "./epic-changed.js";
 import { createQueue, planRestore } from "./queue.js";
 import { createPuller } from "./pull.js";
 import { queueStageOf } from "./pipeline.js";
@@ -389,6 +390,9 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // overlapGuard only: undefined when off, so nothing downstream touches the overlap files.
   const releaseOverlap = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
   const ciGreen = createCiGreen({ adapter, forge, store, emit });
+  /** ops' epics-cache reset, handed over via `onEpicChanged` (never an own property of ops — that would be a control op). @type {(() => void) | undefined} */
+  let resetEpics;
+  const epicChanged = createEpicChanged({ store, emit, invalidate: () => resetEpics?.() });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap);
   // Per-step caps (`maxConcurrent` on a step), counted inside the global cap.
   /** @type {Record<string, number>} */
@@ -505,15 +509,20 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       res.end();
       Promise.resolve(source.processEvents(ctx))
         .then((jobs) => {
-          // `ci_green` is a signal, not work: skip the queue (see src/ci-green.js).
-          for (const j of jobs || []) if (j.kind === "ci_green") ciGreen(j);
-          return intake((jobs || []).filter((j) => j.kind !== "ci_green"));
+          // `ci_green` / `epic_changed` are signals, not work: skip the queue (see
+          // src/ci-green.js, src/epic-changed.js).
+          for (const j of jobs || []) {
+            if (j.kind === "ci_green") ciGreen(j);
+            else if (j.kind === "epic_changed") epicChanged(j);
+          }
+          return intake((jobs || []).filter((j) => j.kind !== "ci_green" && j.kind !== "epic_changed"));
         }).catch((e) => console.error("[events]", e.message));
     });
   });
 
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat,
+    onEpicChanged: (reset) => { resetEpics = reset; },
     digester: createDigester({
       cfg, emit, repository: repositoryOf(cfg),
       // Declared before `ops` is assigned but only called from inside the digester, by which
