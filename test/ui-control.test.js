@@ -40,6 +40,7 @@ const RELEASED = profile("released");
 const RELEASE_REFUSED = profile("release-refused");
 const RELEASE_SLOW = profile("release-slow");
 const TOGGLED = profile("toggled");
+const DIGESTED = profile("digested");
 
 /**
  * Starts a fake control socket at `sockPath`: writes the `hello` line on connect, then calls
@@ -64,8 +65,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[]}} */
-const calls = { restart: [], dismiss: [], toggle: [], release: [] };
+/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[]}} */
+const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -92,6 +93,10 @@ test.before(async () => {
     await fakeControl(RELEASE_REFUSED.sockPath, (s, req) => s.write(JSON.stringify({ id: req.id, ok: false, error: `${req.args.ref} cannot be released: not held` }) + "\n")),
     // Replies after the short restart timeout but inside the release one: release must wait.
     await fakeControl(RELEASE_SLOW.sockPath, (s, req) => setTimeout(() => s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, queued: true } }) + "\n"), RESTART_MS * 3)),
+    await fakeControl(DIGESTED.sockPath, (s, req) => {
+      calls.digest.push(req);
+      s.write(JSON.stringify({ id: req.id, ok: true, result: { text: "All quiet.", generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 0, needsYou: 0 } }) + "\n");
+    }),
     // Mimics src/ops.js: pause → paused; resume → the locked reply (ok:true + a note).
     await fakeControl(TOGGLED.sockPath, (s, req) => {
       calls.toggle.push(req);
@@ -443,3 +448,25 @@ for (const cmd of ["pause", "resume"]) {
     }
   });
 }
+
+test("POST /api/digest: guards, validation, then {cmd:'digest', args:{actor:'ui'}}; audited; GET reads the cached digest", async () => {
+  const post = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/digest", JSON.stringify(body), h);
+  assert.equal((await post({ profile: "digested" }, { cookie: null })).status, 401);
+  assert.equal((await post({ profile: "digested" }, { origin: "http://evil.example" })).status, 403);
+  assert.equal((await post({ profile: "digested" }, { "x-ah-ui": null })).status, 403);
+  assert.equal((await post({ profile: 7 })).status, 400);
+  assert.equal((await post({ profile: "nope" })).status, 404);
+  assert.equal(calls.digest.length, 0);
+  const res = await post({ profile: "digested" });
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).text, "All quiet.");
+  assert.equal(calls.digest[0].cmd, "digest");
+  assert.deepEqual(calls.digest[0].args, { actor: "ui" });
+  assert.ok(uiAuditLines(DIGESTED.dir).some((l) => l.action === "digest" && l.status === 200));
+  assert.equal((await post({ profile: "down" })).status, 503);
+
+  assert.deepEqual(JSON.parse((await request("GET", "/api/digest?profile=digested", undefined, {})).body), { digest: null });
+  fs.writeFileSync(path.join(DIGESTED.dir, "digest.json"), JSON.stringify({ text: "Hi", generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 1, needsYou: 0 }));
+  assert.equal(JSON.parse((await request("GET", "/api/digest?profile=digested", undefined, {})).body).digest.text, "Hi");
+  assert.equal((await request("GET", "/api/digest?profile=nope", undefined, {})).status, 404);
+});

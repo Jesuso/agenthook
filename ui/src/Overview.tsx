@@ -5,6 +5,7 @@ import { formatCost, formatDuration, formatModel, formatRelative, ticketTitle } 
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
+import { DigestPanel } from "./DigestPanel";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
@@ -69,6 +70,8 @@ export function Overview(props: OverviewProps) {
           <span className="font-mono">{profile.up ? profile.queued ?? 0 : "—"}</span>
         </Tile>
       </div>
+
+      <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
 
       {needs.length > 0 && <NeedsYouZone items={needs} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />}
 

@@ -23,6 +23,7 @@
 // receiver itself writes). `POST /api/release` (same guards) answers a held ticket: the receiver
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
 // reused as the MCP `release` tool). Nothing else in any state dir is ever written.
+import { readDigest } from "../digest.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -69,6 +70,7 @@ const RESTART = "/api/restart";
 const REMOVE = "/api/profile/remove";
 const DISMISS = "/api/dismiss";
 const RELEASE = "/api/release";
+const DIGEST = "/api/digest";
 const PAUSE = "/api/pause";
 const RESUME = "/api/resume";
 
@@ -90,10 +92,10 @@ export function cookieToken(header) {
 
 /**
  * @param {{ port: number, token: string, distDir: string, registry?: string,
- *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number }} opts
+ *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number }} opts
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000 }) {
+export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000 }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -305,6 +307,25 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       });
     });
 
+  /**
+   * `POST /api/digest` — readGuardedJson, then `{profile}` a string → else 400; unknown profile →
+   * 404. Sends `{cmd:'digest', args:{actor:'ui'}}` and waits (the agent takes up to a few
+   * minutes; a request while one runs joins it). 200 = the new DigestView. Audits
+   * `{ts, action:'digest', profile, status}`. The UI never spawns the agent itself.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postDigest = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile } = body;
+      if (typeof profile !== "string") return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "digest", { actor: "ui" }, digestTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "digest", profile, status });
+        sendStatusJson(res, status, result);
+      });
+    });
+
   /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
   const profileConfigPath = (profile) => {
     const p = readProfile(profile, registry);
@@ -426,6 +447,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
     if (req.method === "POST" && p === DISMISS) return postDismiss(req, res, host);
     if (req.method === "POST" && p === RELEASE) return postRelease(req, res, host);
+    if (req.method === "POST" && p === DIGEST) return postDigest(req, res, host);
     if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
     if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
     if (p === RESTART || p === REMOVE || p === DISMISS || p === RELEASE || p === PAUSE || p === RESUME) {
@@ -488,6 +510,11 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         }
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
         return res.end(body);
+      }
+      if (p === DIGEST) {
+        const dir = profileDir(registry, params.get("profile") || "");
+        if (!dir) return send(res, 404);
+        return sendJson(res, () => ({ digest: readDigest(dir) }));
       }
       if (p === "/api/discover") {
         const sock = resolveProfileSock(registry, params.get("profile") || "");

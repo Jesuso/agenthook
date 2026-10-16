@@ -154,7 +154,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * `step`/`default` scope and repo ids for `repo`.
  * @typedef {object} InstructionFileView
  * @property {string} path                absolute — the `path` param of /api/instructions/file
- * @property {'step'|'default'|'repo'} scope
+ * @property {'step'|'default'|'repo'|'soul'} scope   `soul`: the Digest's SOUL file (ids: `digest`)
  * @property {string[]} ids
  * @property {string|null} hash           sha256 hex of the content; null when missing
  * @property {number} bytes
@@ -201,4 +201,17 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} configPath
  * @property {string} archivePattern      `<registry>-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/`
  * @property {string|null} webhookHint    `agenthook unregister --config <configPath>`
+ */
+
+/**
+ * `GET /api/digest` body (src/digest.js): the profile's latest Digest, or `{ digest: null }`
+ * before the first one. `basedOnEvents` = runs in the last 24 h it saw; `needsYou` = tickets it
+ * flagged. The UI compares `generatedAt` with the live feed to say how stale it is.
+ * @typedef {object} DigestView
+ * @property {string} text                markdown written by the digest agent
+ * @property {string} generatedAt         ISO
+ * @property {number} [costUsd]
+ * @property {string} [model]
+ * @property {number} basedOnEvents
+ * @property {number} needsYou
  */

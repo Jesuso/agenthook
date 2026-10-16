@@ -421,9 +421,32 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - **Image deferred.** If wanted later: `ui.image` as a path/URL in config, no upload endpoint
   (upload would break "the UI's only file writes are instructions and config").
 
-### Digest agent (separate design pass)
-- On-demand only (button; result cached), per-profile SOUL file, read-only on the board, spawned
-  through the receiver's control-socket ops — never from the UI process. Not part of the first slice.
+### Digest agent (built)
+A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up"). Decisions:
+- **Trigger**: a button on the Overview only (never Home: one profile at a time). Never automatic, never on a timer.
+- **Spawn**: the UI sends a `digest` op over the receiver's control socket (same guards as the other
+  POSTs, audited to `ui-audit.jsonl` and `control-audit.jsonl`). The UI process never spawns anything.
+- **Access, default `snapshot`**: the receiver assembles a text payload (tickets with status and held
+  reasons, PRs, verdict summaries, recent events, cost) plus the SOUL, and runs `claude -p` with every
+  tool disabled. Read-only by construction. Config `digest.access` may later widen it
+  (`snapshot` | `mcp-readonly` | `repo-plan`); only `snapshot` is in the first slice.
+- **Slots and cost**: outside the `maxConcurrent` pool, one digest in flight per profile (a second
+  request returns the running one). Cost goes in a `digest_end` event (`costUsd`) and is shown on the
+  digest; it is not counted in ticket cost or "cost today".
+- **SOUL**: markdown file, `digest.soul` in config (default `SOUL.md` beside the config), added to the
+  instructions allowlist so the Instructions tab edits it through the existing hash/backup/audit path.
+  Missing file means a built-in neutral default.
+- **Result**: only the latest per profile, written by the receiver to `<stateDir>/digest.json`
+  (`text, generatedAt, costUsd, model, basedOnEventOffset`) and pushed to the UI by SSE. The Overview
+  panel shows age, an "N events since" stale hint and a Refresh button.
+- **As built**: `src/digest.js` (snapshot, prompt, argv, single-flight runner), `src/digest-config.js`
+  (validation), the receiver op `digest` (`ops.js`, audited), `GET`/`POST /api/digest` (POST waits up to
+  200 s for the agent), `DigestPanel.tsx` in the Overview. The agent runs with `--tools ""`,
+  `--strict-mcp-config`, `--no-session-persistence` and `--setting-sources project`, so the owner's
+  user-level CLAUDE.md and hooks never shape the text (found in a live run: they did). `digest.access`
+  accepts only `snapshot` for now; `mcp-readonly` / `repo-plan` are the reserved widenings. A live
+  run on a busy profile cost about 2.5¢. A digest sent while a receiver runs old code fails with
+  "unknown command": restart the receiver (at 0 agents) after updating.
 
 ### Build order
 (Steps 1–3 are built.)

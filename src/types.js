@@ -396,6 +396,7 @@
  * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
+ * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent

@@ -131,15 +131,15 @@ function tail(file, maxBytes, wholeLines) {
  * `instructionTargets`): well-formed entries with an absolute path only. No heartbeat / no
  * list → []. Shared by the `/api/instructions*` routes and the watcher's dir set.
  * @param {any} heartbeat
- * @returns {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[]}
+ * @returns {{ path: string, scope: 'step'|'default'|'repo'|'soul', ids: string[] }[]}
  */
 export function instructionEntries(heartbeat) {
   if (!isObj(heartbeat) || !Array.isArray(heartbeat.instructions)) return [];
-  /** @type {{ path: string, scope: 'step'|'default'|'repo', ids: string[] }[]} */
+  /** @type {{ path: string, scope: 'step'|'default'|'repo'|'soul', ids: string[] }[]} */
   const out = [];
   for (const e of heartbeat.instructions) {
     if (!isObj(e) || typeof e.path !== "string" || !path.isAbsolute(e.path)) continue;
-    if (e.scope !== "step" && e.scope !== "default" && e.scope !== "repo") continue;
+    if (e.scope !== "step" && e.scope !== "default" && e.scope !== "repo" && e.scope !== "soul") continue;
     const ids = Array.isArray(e.ids) ? e.ids.filter((/** @type {any} */ i) => typeof i === "string") : [];
     out.push({ path: e.path, scope: e.scope, ids });
   }
