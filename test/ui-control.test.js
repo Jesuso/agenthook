@@ -470,3 +470,25 @@ test("POST /api/digest: guards, validation, then {cmd:'digest', args:{actor:'ui'
   assert.equal(JSON.parse((await request("GET", "/api/digest?profile=digested", undefined, {})).body).digest.text, "Hi");
   assert.equal((await request("GET", "/api/digest?profile=nope", undefined, {})).status, 404);
 });
+
+test("GET /api/stats: cookie-only, validates days/tz, buckets the whole events history", async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  fs.writeFileSync(
+    path.join(DIGESTED.dir, "events.jsonl"),
+    [
+      { ts: new Date().toISOString(), event: "pipeline_done", ref: "A" },
+      { ts: new Date().toISOString(), event: "pipeline_done", ref: "A" },
+      { ts: new Date().toISOString(), event: "run_end", ref: "A", outcome: "advance", costUsd: 1.5 },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
+  assert.equal((await request("GET", "/api/stats?profile=digested", undefined, { cookie: null })).status, 401);
+  assert.equal((await request("GET", "/api/stats?profile=nope", undefined, {})).status, 404);
+  assert.equal((await request("GET", "/api/stats?profile=digested&days=abc", undefined, {})).status, 400);
+  assert.equal((await request("GET", "/api/stats?profile=digested&tz=99999", undefined, {})).status, 400);
+  const res = await request("GET", "/api/stats?profile=digested&days=3&tz=0", undefined, {});
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.days.length, 3);
+  assert.deepEqual(body.days.at(-1), { date: day, finished: 1, merged: 0, runs: 1, rework: 0, failedRuns: 0, costUsd: 1.5 });
+  assert.ok(body.since);
+});

@@ -1,0 +1,93 @@
+import "./_setup.js";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { dailyStats, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/ui/stats.js";
+
+const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC; tzOffset 0 unless a test says otherwise
+const at = (/** @type {string} */ iso) => iso;
+const ev = (/** @type {string} */ ts, /** @type {string} */ event, /** @type {any} */ x = {}) => ({ ts, event, ref: "1", step: "s", ...x });
+
+test("dailyStats: zero-filled, oldest first, last bucket is today", () => {
+  const d = dailyStats([], { now: NOW, days: 3 });
+  assert.deepEqual(d.map((x) => x.date), ["2026-10-13", "2026-10-14", "2026-10-15"]);
+  assert.ok(d.every((x) => x.finished === 0 && x.runs === 0 && x.costUsd === 0));
+});
+
+test("dailyStats: finished counts distinct tickets per day (repeated pipeline_done is one)", () => {
+  const events = [
+    ev(at("2026-10-15T01:28:29Z"), "pipeline_done", { ref: "A" }),
+    ev(at("2026-10-15T01:28:31Z"), "pipeline_done", { ref: "A" }),
+    ev(at("2026-10-15T01:28:32Z"), "pipeline_done", { ref: "A" }),
+    ev(at("2026-10-15T02:00:00Z"), "pipeline_done", { ref: "B" }),
+    ev(at("2026-10-14T02:00:00Z"), "pipeline_done", { ref: "A" }), // same ticket, another day: counts there too
+  ];
+  const [y, t] = dailyStats(events, { now: NOW, days: 2 });
+  assert.equal(t.finished, 2);
+  assert.equal(y.finished, 1);
+});
+
+test("dailyStats: runs, rework, failed runs and cost from run_end; merged is distinct refs", () => {
+  const events = [
+    ev("2026-10-15T10:00:00Z", "run_end", { outcome: "advance", costUsd: 1.234 }),
+    ev("2026-10-15T11:00:00Z", "run_end", { outcome: "changes", costUsd: 2 }),
+    ev("2026-10-15T12:00:00Z", "run_end", { outcome: "fail" }), // no cost
+    ev("2026-10-15T12:00:00Z", "run_end", { outcome: "advance", costUsd: "x" }), // junk cost ignored
+    ev("2026-10-15T13:00:00Z", "merged", { ref: "A" }),
+    ev("2026-10-15T13:00:01Z", "merged", { ref: "A" }),
+  ];
+  const [t] = dailyStats(events, { now: NOW, days: 1 });
+  assert.deepEqual({ runs: t.runs, rework: t.rework, failedRuns: t.failedRuns, merged: t.merged, costUsd: t.costUsd }, { runs: 4, rework: 1, failedRuns: 1, merged: 1, costUsd: 3.23 });
+});
+
+test("dailyStats: days are cut at the caller's midnight (tzOffset = getTimezoneOffset minutes)", () => {
+  // 23:30 UTC on the 14th is 17:30 on the 14th in UTC-6, but 05:30 on the 15th in UTC+6.
+  const e = [ev("2026-10-14T23:30:00Z", "pipeline_done", { ref: "A" })];
+  const west = dailyStats(e, { now: Date.parse("2026-10-15T12:00:00Z"), days: 2, tzOffset: 360 });
+  assert.deepEqual(west.map((d) => [d.date, d.finished]), [["2026-10-14", 1], ["2026-10-15", 0]]);
+  const east = dailyStats(e, { now: Date.parse("2026-10-15T12:00:00Z"), days: 2, tzOffset: -360 });
+  assert.deepEqual(east.map((d) => [d.date, d.finished]), [["2026-10-14", 0], ["2026-10-15", 1]]);
+});
+
+test("dailyStats: ignores out-of-window events, junk timestamps, and clamps days", () => {
+  const events = [ev("2020-01-01T00:00:00Z", "run_end", { costUsd: 9 }), ev("garbage", "run_end"), ev("2026-10-15T00:00:00Z", "run_end", { costUsd: 1 })];
+  assert.equal(dailyStats(events, { now: NOW, days: 2 }).reduce((n, d) => n + d.runs, 0), 1);
+  assert.equal(dailyStats([], { now: NOW, days: 9999 }).length, STATS_MAX_DAYS);
+  assert.equal(dailyStats([], { now: NOW, days: 0 }).length, 1);
+});
+
+function file() {
+  resetStatsCache();
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ah-stats-")), "events.jsonl");
+}
+const line = (/** @type {any} */ e) => JSON.stringify(e) + "\n";
+
+test("readStats: a missing file is an empty history", () => {
+  const v = readStats(file(), { now: NOW, days: 2 });
+  assert.equal(v.since, null);
+  assert.equal(v.days.length, 2);
+});
+
+test("readStats: reads only appended bytes, keeps `since`, waits for a half-written line", () => {
+  const f = file();
+  fs.writeFileSync(f, line(ev("2026-09-01T00:00:00Z", "enqueued")) + line(ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "A" })));
+  let v = readStats(f, { now: NOW, days: 1 });
+  assert.equal(v.since, "2026-09-01T00:00:00Z");
+  assert.equal(v.days[0].finished, 1);
+  const half = JSON.stringify(ev("2026-10-15T11:00:00Z", "pipeline_done", { ref: "B" }));
+  fs.appendFileSync(f, half.slice(0, 20));
+  assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 1, "torn tail not counted");
+  fs.appendFileSync(f, half.slice(20) + "\n");
+  v = readStats(f, { now: NOW, days: 1 });
+  assert.equal(v.days[0].finished, 2, "picked up whole once complete");
+});
+
+test("readStats: a replaced (shorter) file restarts the read; garbage lines are skipped", () => {
+  const f = file();
+  fs.writeFileSync(f, line(ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "A" })) + line(ev("2026-10-15T10:01:00Z", "pipeline_done", { ref: "B" })));
+  assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 2);
+  fs.writeFileSync(f, "not json\n" + line(ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "C" })));
+  assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 1);
+});
