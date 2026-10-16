@@ -27,6 +27,103 @@
 import crypto from "node:crypto";
 import { checkOwner, MoveRefusedError } from "./owner.js";
 
+// Epics (ADR 0005): Jira has them natively. An issue IS an epic when its issue type sits at
+// hierarchy level 1 (Jira's own "Epic" level; `tracker.epicType` pins a type by name instead);
+// its tickets are the issues whose `parent` is it. A parent link on a Story/Task is the only
+// membership — a Subtask's parent (a Story) is never an epic.
+const EPIC_LEVEL = 1;
+const ISSUE_KEY_RE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+
+/** Does `issuetype` (a Jira issuetype object) mark an epic? Name match when `epicType` is set
+ * (case-insensitive), else Jira's hierarchy level 1.
+ * @param {any} issuetype @param {string|undefined} epicType @returns {boolean} */
+export function isEpicType(issuetype, epicType) {
+  if (!issuetype) return false;
+  const want = (epicType || "").trim().toLowerCase();
+  if (want) return String(issuetype.name || "").trim().toLowerCase() === want;
+  return issuetype.hierarchyLevel === EPIC_LEVEL;
+}
+
+/** Whether an issue's `fields` IS an epic, and the epic it belongs to (its `parent`, only when the
+ * parent's type is an epic type). Pure. The parent object carries `fields.issuetype`, so this needs
+ * no second request.
+ * @param {any} fields @param {string|undefined} epicType @param {string} baseUrl
+ * @returns {{isEpic: boolean, epic?: import('../types.js').EpicRef}} */
+export function mapEpicFields(fields, epicType, baseUrl) {
+  const isEpic = isEpicType(fields?.issuetype, epicType);
+  const parent = fields?.parent;
+  if (!parent?.key || !isEpicType(parent.fields?.issuetype, epicType)) return { isEpic };
+  return { isEpic, epic: { ref: parent.key, name: parent.fields?.summary ?? parent.key, url: `${baseUrl}/browse/${parent.key}`, displayId: parent.key } };
+}
+
+/** Search results → Epic[]. Status shown as Jira names it; completed = a done-category status. Pure.
+ * @param {any[]} issues @param {string} baseUrl @returns {import('../types.js').Epic[]} */
+export function mapEpics(issues, baseUrl) {
+  return (Array.isArray(issues) ? issues : []).map((it) => ({
+    ref: it.key,
+    name: it.fields?.summary ?? it.key,
+    url: `${baseUrl}/browse/${it.key}`,
+    displayId: it.key,
+    status: it.fields?.status?.name ?? null,
+    completed: it.fields?.status?.statusCategory?.key === "done",
+  }));
+}
+
+/** An epic's children (search of `parent = KEY`) → EpicTicket[]. Subtasks (hierarchy level < 0)
+ * are dropped; stage = the issue's status name. Pure.
+ * @param {any[]} issues @returns {import('../types.js').EpicTicket[]} */
+export function mapEpicTickets(issues) {
+  /** @type {import('../types.js').EpicTicket[]} */
+  const out = [];
+  for (const it of Array.isArray(issues) ? issues : []) {
+    if (it.fields?.issuetype?.subtask === true || (it.fields?.issuetype?.hierarchyLevel ?? 0) < 0) continue;
+    out.push({
+      ref: it.key,
+      displayId: it.key,
+      name: it.fields?.summary ?? it.key,
+      completed: it.fields?.status?.statusCategory?.key === "done",
+      stage: it.fields?.status?.name ?? null,
+    });
+  }
+  return out;
+}
+
+/** The epic keys a webhook delivery changed the structure of; [] when none. Pure. A child gaining
+ * or losing its parent shows up as a changelog item `IssueParentAssociation` (`toString` = the new
+ * parent key, `fromString` = the old one); an issue created/deleted under an epic names it in
+ * `fields.parent`; an epic created, or an issue turned into / out of an epic (`issuetype` change),
+ * is itself the epic. Subtasks are skipped: their parent is a Story, never an epic.
+ * @param {any} ev @param {string|undefined} epicType @returns {string[]} */
+export function epicChangesFromEvent(ev, epicType) {
+  const issue = ev?.issue;
+  const key = issue?.key;
+  if (!key || issue.fields?.issuetype?.subtask === true) return [];
+  /** @type {Set<string>} */
+  const out = new Set();
+  const parent = issue.fields?.parent;
+  const parentIsEpic = !!parent?.key && isEpicType(parent.fields?.issuetype, epicType);
+  switch (ev.webhookEvent) {
+    case "jira:issue_created":
+      if (isEpicType(issue.fields?.issuetype, epicType)) out.add(key);
+      if (parentIsEpic) out.add(parent.key);
+      break;
+    case "jira:issue_deleted":
+      if (isEpicType(issue.fields?.issuetype, epicType)) out.add(key);
+      if (parentIsEpic) out.add(parent.key);
+      break;
+    case "jira:issue_updated":
+      for (const i of ev.changelog?.items || []) {
+        if (i.field === "IssueParentAssociation") {
+          for (const k of [i.toString, i.fromString]) if (typeof k === "string" && ISSUE_KEY_RE.test(k)) out.add(k);
+        } else if ((i.field === "issuetype" || i.fieldId === "issuetype") && (isEpicType(issue.fields?.issuetype, epicType) || /epic/i.test(`${i.fromString} ${i.toString}`))) {
+          out.add(key);
+        }
+      }
+      break;
+  }
+  return [...out];
+}
+
 /**
  * How `routeField` resolves: components | labels | customfield_N, else null.
  * @param {string | undefined} routeField
@@ -75,6 +172,50 @@ export function createJiraAdapter(cfg, store) {
 
   /** @param {string|null|undefined} s */
   const norm = (s) => (s || "").trim().toLowerCase();
+
+  /** `tracker.epicType` — pin the epic issue type by name; unset = Jira's hierarchy level 1. @type {string|undefined} */
+  const epicType = typeof pc.epicType === "string" && pc.epicType.trim() ? pc.epicType.trim() : undefined;
+
+  /** Page a `/search/jql` query (nextPageToken), capped at 10 pages of 100.
+   * @param {string} jql @param {string} fields @returns {Promise<any[]>} */
+  async function searchAll(jql, fields) {
+    /** @type {any[]} */
+    const out = [];
+    let token = "";
+    for (let page = 0; page < 10; page++) {
+      const res = await api(`/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=100${token ? `&nextPageToken=${encodeURIComponent(token)}` : ""}`);
+      if (!res.ok) throw new Error(`search ${res.status}`);
+      const body = await json(res);
+      out.push(...(body.issues || []));
+      if (body.isLast !== false || !body.nextPageToken) break;
+      token = body.nextPageToken;
+    }
+    return out;
+  }
+
+  /** The project's epic issue type NAMES (JQL can't filter by hierarchy level): the configured
+   * `epicType`, else every type of the project at level 1. Memoized; [] when none or on error.
+   * @type {Promise<string[]>|null} */
+  let epicTypeNames = null;
+  function findEpicTypeNames() {
+    if (epicType) return Promise.resolve([epicType]);
+    if (!epicTypeNames) {
+      epicTypeNames = (async () => {
+        try {
+          const res = await api(`/project/${encodeURIComponent(String(pc.projectKey))}`);
+          if (!res.ok) throw new Error(`project ${res.status}`);
+          const names = ((await json(res)).issueTypes || []).filter((/** @type {any} */ t) => t.hierarchyLevel === EPIC_LEVEL).map((/** @type {any} */ t) => String(t.name));
+          if (!names.length) console.log(`[epics] project ${pc.projectKey} has no hierarchy-level-1 issue type — epics not configured`);
+          return names;
+        } catch (e) {
+          console.warn(`[epics] could not read ${pc.projectKey}'s issue types: ${e.message} — treating as no epics`);
+          epicTypeNames = null; // retry on the next call
+          return [];
+        }
+      })();
+    }
+    return epicTypeNames;
+  }
 
   /** Verify Jira's `x-hub-signature: sha256=<hex>` HMAC over the raw body.
    * @param {string|undefined} secret @param {string} raw @param {string|string[]|undefined} sig */
@@ -256,35 +397,40 @@ export function createJiraAdapter(cfg, store) {
       const issue = ev.issue;
       const key = issue?.key;
       if (!key) return [];
+      // Read-only `epic_changed` signals (a child gained/lost its parent, an epic was created or
+      // retyped): never a pipeline job and never a board write, so they sit before the assignee gate.
+      const delivery = ev.changelog?.id ?? `${ev.webhookEvent}:${key}:${ev.timestamp ?? ""}`;
+      /** @type {import('../types.js').Job[]} */
+      const epicJobs = epicChangesFromEvent(ev, epicType).map((epicKey) => ({ kind: "epic_changed", ref: epicKey, stepId: "", dedupKey: `epic:${delivery}:${epicKey}` }));
       if (!(await isOurs(issue.fields?.assignee?.accountId))) {
-        console.log(`[assignee] skip ${key} — not assigned to us`);
-        return [];
+        if (epicJobs.length === 0) console.log(`[assignee] skip ${key} — not assigned to us`);
+        return epicJobs;
       }
 
       if (ev.webhookEvent === "jira:issue_created") {
         const step = stepByStatus(issue.fields?.status?.name);
-        if (!step) return [];
-        return [{ kind: "pipeline", ref: key, stepId: step.id, dedupKey: `step:${step.id}:${key}` }];
+        if (!step) return epicJobs;
+        return [...epicJobs, { kind: "pipeline", ref: key, stepId: step.id, dedupKey: `step:${step.id}:${key}` }];
       }
 
       if (ev.webhookEvent === "jira:issue_updated") {
         const item = (ev.changelog?.items || []).find((/** @type {any} */ i) => i.field === "status" || i.fieldId === "status");
-        if (!item) return []; // an update that didn't change status — ignore
+        if (!item) return epicJobs; // an update that didn't change status — ignore
         const step = stepByStatus(item.toString);
-        if (!step) return [];
+        if (!step) return epicJobs;
         // changelog.id is unique per change → dedups webhook retries yet lets a later
         // re-entry into the same status fire again (different changelog id).
         const dedupKey = `secmove:${ev.changelog?.id ?? `${key}:${norm(item.toString)}`}`;
-        return [{ kind: "pipeline", ref: key, stepId: step.id, dedupKey }];
+        return [...epicJobs, { kind: "pipeline", ref: key, stepId: step.id, dedupKey }];
       }
-      return [];
+      return epicJobs;
     },
 
     async fetchTask(ref) {
       const routeField = cfg.providerConfig?.routeField;
       const src = routeSource(routeField);
       if (routeField && !src) console.log(`[route] ${ref}: routeField "${routeField}" is not components|labels|customfield_N`);
-      const res = await api(`/issue/${ref}?fields=summary,description,status,assignee${src ? `,${src.field}` : ""}`);
+      const res = await api(`/issue/${ref}?fields=summary,description,status,assignee,issuetype,parent${src ? `,${src.field}` : ""}`);
       if (!res.ok) throw new Error(`issue fetch ${res.status}`);
       const f = (await json(res)).fields || {};
       if (src) console.log(`[route] ${ref}: routeField "${routeField}" → ${src.kind}`);
@@ -300,6 +446,7 @@ export function createJiraAdapter(cfg, store) {
         assignedToUs: await isOurs(f.assignee?.accountId),
         displayId: ref, // the issue key is already human-readable
         routeKeys: extractRouteKeys(f, routeField),
+        ...mapEpicFields(f, epicType, baseUrl),
       };
     },
 
@@ -377,10 +524,11 @@ export function createJiraAdapter(cfg, store) {
         if (!step.sourceStatus || step.manual) continue;
         const jql = `${project ? `project = "${project}" AND ` : ""}status = "${step.sourceStatus}"${assigneeClause}`;
         // Jira Cloud's enhanced JQL search (the legacy /search is being retired).
-        const res = await api(`/search/jql?jql=${encodeURIComponent(jql)}&fields=status,assignee&maxResults=100`);
+        const res = await api(`/search/jql?jql=${encodeURIComponent(jql)}&fields=status,assignee,issuetype&maxResults=100`);
         if (!res.ok) throw new Error(`search "${step.sourceStatus}" ${res.status}`);
         for (const it of (await json(res)).issues || []) {
           if (seen.has(it.key)) continue;
+          if (isEpicType(it.fields?.issuetype, epicType)) continue; // never run an agent on an epic
           if (!(await isOurs(it.fields?.assignee?.accountId))) continue;
           seen.add(it.key);
           jobs.push({ kind: "pipeline", ref: it.key, stepId: step.id, dedupKey: `reconcile:${step.id}:${it.key}` });
@@ -400,12 +548,13 @@ export function createJiraAdapter(cfg, store) {
       const project = pc.projectKey;
       const assigneeClause = scopeToUser ? ` AND assignee = "${await ourAccountId()}"` : "";
       const jql = `${project ? `project = "${project}" AND ` : ""}status = "${step.queueStatus}"${assigneeClause} ORDER BY Rank ASC`;
-      const res = await api(`/search/jql?jql=${encodeURIComponent(jql)}&fields=status,assignee&maxResults=100`);
+      const res = await api(`/search/jql?jql=${encodeURIComponent(jql)}&fields=status,assignee,issuetype&maxResults=100`);
       if (!res.ok) throw new Error(`search "${step.queueStatus}" ${res.status}`);
       /** @type {string[]} */
       const refs = [];
       for (const it of (await json(res)).issues || []) {
         if (it.fields?.status?.statusCategory?.key === "done") continue;
+        if (isEpicType(it.fields?.issuetype, epicType)) continue; // never run an agent on an epic
         if (!(await isOurs(it.fields?.assignee?.accountId))) continue;
         refs.push(it.key);
       }
@@ -413,6 +562,35 @@ export function createJiraAdapter(cfg, store) {
     },
 
     ownership: ownedByUs,
+
+    // Every epic of the project (issue type at hierarchy level 1, or `tracker.epicType`), any
+    // status. Read-only, so not assignee-scoped. [] when the project has no epic type or on an API
+    // error (fail-open, logged).
+    async listEpics() {
+      const names = await findEpicTypeNames();
+      if (!names.length) return [];
+      try {
+        const types = names.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(", ");
+        const jql = `${pc.projectKey ? `project = "${pc.projectKey}" AND ` : ""}issuetype in (${types}) ORDER BY created DESC`;
+        return mapEpics(await searchAll(jql, "summary,status,issuetype"), baseUrl);
+      } catch (e) {
+        console.warn(`[epics] listEpics failed: ${e.message} — returning []`);
+        return [];
+      }
+    },
+
+    // An epic's tickets: the issues whose `parent` is it (direct children only; Jira's `parent`
+    // clause does not recurse into a child's subtasks). Fail-open.
+    /** @param {string} epicRef */
+    async listEpicTickets(epicRef) {
+      if (!ISSUE_KEY_RE.test(epicRef)) return [];
+      try {
+        return mapEpicTickets(await searchAll(`parent = "${epicRef}" ORDER BY created ASC`, "summary,status,issuetype"));
+      } catch (e) {
+        console.warn(`[epics] listEpicTickets(${epicRef}) failed: ${e.message} — returning []`);
+        return [];
+      }
+    },
 
     // Jira Cloud forbids creating webhooks with an API token (Connect/Forge apps
     // only), so there is nothing to auto-register or scrub. Print one-time manual
@@ -426,7 +604,7 @@ export function createJiraAdapter(cfg, store) {
           `       Create it ONCE, by hand, as a Jira admin:`,
           `         Settings → System → WebHooks → Create a WebHook`,
           `           URL:    ${target}`,
-          `           Events: Issue → created, updated`,
+          `           Events: Issue → created, updated, deleted (deleted only feeds the epic view)`,
           secret
             ? `           Secret: ${secret}`
             : `           Secret: (none — verification disabled via "webhookSecret": false)`,

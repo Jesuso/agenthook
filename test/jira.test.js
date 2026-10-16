@@ -8,7 +8,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createJiraAdapter, extractRouteKeys } from "../src/trackers/jira.js";
+import { createJiraAdapter, extractRouteKeys, isEpicType, mapEpicFields, mapEpics, mapEpicTickets, epicChangesFromEvent } from "../src/trackers/jira.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -320,8 +320,165 @@ test("fetchTask requests the routed field only when routeField is set", async ()
   } finally {
     global.fetch = orig;
   }
-  assert.ok(urls[0].endsWith("fields=summary,description,status,assignee,components"), urls[0]);
-  assert.ok(urls[1].endsWith("fields=summary,description,status,assignee,customfield_10010"), urls[1]);
-  assert.ok(urls[2].endsWith("fields=summary,description,status,assignee"), urls[2]);
-  assert.ok(urls[3].endsWith("fields=summary,description,status,assignee"), urls[3]);
+  assert.ok(urls[0].endsWith("fields=summary,description,status,assignee,issuetype,parent,components"), urls[0]);
+  assert.ok(urls[1].endsWith("fields=summary,description,status,assignee,issuetype,parent,customfield_10010"), urls[1]);
+  assert.ok(urls[2].endsWith("fields=summary,description,status,assignee,issuetype,parent"), urls[2]);
+  assert.ok(urls[3].endsWith("fields=summary,description,status,assignee,issuetype,parent"), urls[3]);
+});
+
+// --- epics (ADR 0005): hierarchy-level identity, `parent` membership, read-only epic_changed signals.
+
+const EPIC = { name: "Epic", hierarchyLevel: 1 };
+const STORY = { name: "Story", hierarchyLevel: 0 };
+const SUBTASK = { name: "Subtask", hierarchyLevel: -1, subtask: true };
+
+test("isEpicType: hierarchy level 1 by default; epicType pins a name (case-insensitive)", () => {
+  assert.equal(isEpicType(EPIC, undefined), true);
+  assert.equal(isEpicType(STORY, undefined), false);
+  assert.equal(isEpicType(SUBTASK, undefined), false);
+  assert.equal(isEpicType({ name: "Initiative", hierarchyLevel: 2 }, undefined), false);
+  assert.equal(isEpicType({ name: "Initiative", hierarchyLevel: 2 }, "initiative"), true);
+  assert.equal(isEpicType(EPIC, "Initiative"), false);
+  assert.equal(isEpicType(undefined, undefined), false);
+});
+
+test("mapEpicFields: an Epic is itself an epic; a Story under an Epic gets .epic; a plain parent never does", () => {
+  const base = "https://acme.atlassian.net";
+  assert.deepEqual(mapEpicFields({ issuetype: EPIC }, undefined, base), { isEpic: true });
+  const child = { issuetype: STORY, parent: { key: "A-1", fields: { summary: "The epic", issuetype: EPIC } } };
+  assert.deepEqual(mapEpicFields(child, undefined, base), {
+    isEpic: false,
+    epic: { ref: "A-1", name: "The epic", url: `${base}/browse/A-1`, displayId: "A-1" },
+  });
+  // a Subtask's parent is a Story: not an epic
+  const sub = { issuetype: SUBTASK, parent: { key: "A-2", fields: { summary: "A story", issuetype: STORY } } };
+  assert.deepEqual(mapEpicFields(sub, undefined, base), { isEpic: false });
+});
+
+test("mapEpics / mapEpicTickets: status, done-category completion, subtasks dropped", () => {
+  const base = "https://acme.atlassian.net";
+  assert.deepEqual(
+    mapEpics([{ key: "A-1", fields: { summary: "E", status: { name: "In Progress", statusCategory: { key: "indeterminate" } } } }, { key: "A-9", fields: { summary: "Old", status: { name: "Done", statusCategory: { key: "done" } } } }], base),
+    [
+      { ref: "A-1", name: "E", url: `${base}/browse/A-1`, displayId: "A-1", status: "In Progress", completed: false },
+      { ref: "A-9", name: "Old", url: `${base}/browse/A-9`, displayId: "A-9", status: "Done", completed: true },
+    ],
+  );
+  assert.deepEqual(
+    mapEpicTickets([
+      { key: "A-2", fields: { summary: "S", issuetype: STORY, status: { name: "QA", statusCategory: { key: "indeterminate" } } } },
+      { key: "A-3", fields: { summary: "Sub", issuetype: SUBTASK, status: { name: "To Do", statusCategory: { key: "new" } } } },
+      { key: "A-4", fields: { summary: "B", issuetype: { name: "Bug", hierarchyLevel: 0 }, status: { name: "Done", statusCategory: { key: "done" } } } },
+    ]),
+    [
+      { ref: "A-2", displayId: "A-2", name: "S", completed: false, stage: "QA" },
+      { ref: "A-4", displayId: "A-4", name: "B", completed: true, stage: "Done" },
+    ],
+  );
+});
+
+test("epicChangesFromEvent: parent association (to + from), created/deleted under an epic, retype, subtasks skipped", () => {
+  const epicParent = { key: "A-1", fields: { issuetype: EPIC } };
+  assert.deepEqual(
+    epicChangesFromEvent({ webhookEvent: "jira:issue_updated", issue: { key: "A-5", fields: { issuetype: STORY } }, changelog: { items: [{ field: "IssueParentAssociation", fromString: "A-1", toString: "A-2" }] } }, undefined).sort(),
+    ["A-1", "A-2"],
+  );
+  assert.deepEqual(epicChangesFromEvent({ webhookEvent: "jira:issue_created", issue: { key: "A-6", fields: { issuetype: STORY, parent: epicParent } } }, undefined), ["A-1"]);
+  assert.deepEqual(epicChangesFromEvent({ webhookEvent: "jira:issue_deleted", issue: { key: "A-6", fields: { issuetype: STORY, parent: epicParent } } }, undefined), ["A-1"]);
+  assert.deepEqual(epicChangesFromEvent({ webhookEvent: "jira:issue_created", issue: { key: "A-7", fields: { issuetype: EPIC } } }, undefined), ["A-7"]);
+  assert.deepEqual(epicChangesFromEvent({ webhookEvent: "jira:issue_updated", issue: { key: "A-8", fields: { issuetype: EPIC } }, changelog: { items: [{ field: "issuetype", fromString: "Story", toString: "Epic" }] } }, undefined), ["A-8"]);
+  // a Subtask changing its Story parent is not an epic change
+  assert.deepEqual(epicChangesFromEvent({ webhookEvent: "jira:issue_updated", issue: { key: "A-9", fields: { issuetype: SUBTASK } }, changelog: { items: [{ field: "IssueParentAssociation", fromString: "A-2", toString: "A-3" }] } }, undefined), []);
+  // an unrelated status change is not an epic change
+  assert.deepEqual(epicChangesFromEvent({ webhookEvent: "jira:issue_updated", issue: { key: "A-5", fields: { issuetype: STORY } }, changelog: { items: [{ field: "status", toString: "Done" }] } }, undefined), []);
+});
+
+test("processEvents: a parent association becomes epic_changed jobs (signal only, before the assignee gate)", async () => {
+  const body = JSON.stringify({
+    webhookEvent: "jira:issue_updated",
+    changelog: { id: "900", items: [{ field: "IssueParentAssociation", fromString: null, toString: "A-1" }] },
+    issue: { key: "A-5", fields: { issuetype: STORY, status: { name: "Backlog" }, assignee: { accountId: "someone-else" } } },
+  });
+  const a = routed({ assigneeFilter: true, assigneeAccountId: "me" });
+  const jobs = await a.processEvents({ rawBody: body, headers: {}, pathname: "/jira/" });
+  assert.deepEqual(jobs, [{ kind: "epic_changed", ref: "A-1", stepId: "", dedupKey: "epic:900:A-1" }]);
+});
+
+test("fetchTask returns isEpic and epic from the one issue fetch", async () => {
+  const orig = global.fetch;
+  /** @type {string[]} */
+  const urls = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => (urls.push(String(url)), /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ fields: { summary: "s", issuetype: STORY, parent: { key: "A-1", fields: { summary: "Epic one", issuetype: EPIC } } } }) }));
+  try {
+    const t = await routed().fetchTask("A-5");
+    assert.equal(t.isEpic, false);
+    assert.deepEqual(t.epic, { ref: "A-1", name: "Epic one", url: "https://acme.atlassian.net/browse/A-1", displayId: "A-1" });
+  } finally {
+    global.fetch = orig;
+  }
+  assert.equal(urls.length, 1);
+});
+
+test("listResting / listQueued skip epics", async () => {
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ isLast: true, issues: [
+    { key: "A-1", fields: { issuetype: EPIC, status: { statusCategory: { key: "new" } } } },
+    { key: "A-2", fields: { issuetype: STORY, status: { statusCategory: { key: "new" } } } },
+  ] }) });
+  try {
+    assert.deepEqual((await routed().listResting()).map((j) => j.ref), ["A-2"]);
+    const q = createJiraAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: [{ id: "code", sourceStatus: "To Do", queueStatus: "Backlog" }], providerConfig: { type: "jira", token: "t", site: "acme", email: "e", assigneeFilter: false } }), /** @type {any} */ (makeStore()));
+    assert.deepEqual(await q.listQueued("code"), ["A-2"]);
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listEpics finds the level-1 type names, then searches them (paged); listEpicTickets searches parent = KEY", async () => {
+  const orig = global.fetch;
+  /** @type {string[]} */
+  const urls = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = decodeURIComponent(String(url));
+    urls.push(u);
+    if (u.includes("/project/PROJ")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ issueTypes: [EPIC, STORY, SUBTASK] }) });
+    if (u.includes("issuetype in")) {
+      const second = u.includes("nextPageToken=tok2");
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ isLast: second, nextPageToken: second ? undefined : "tok2", issues: [{ key: second ? "PROJ-2" : "PROJ-1", fields: { summary: "E", status: { name: "Idea", statusCategory: { key: "new" } } } }] }) });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ isLast: true, issues: [{ key: "PROJ-7", fields: { summary: "T", issuetype: STORY, status: { name: "QA", statusCategory: { key: "indeterminate" } } } }] }) });
+  };
+  try {
+    const a = routed({ projectKey: "PROJ" });
+    assert.deepEqual((await a.listEpics?.())?.map((e) => e.ref), ["PROJ-1", "PROJ-2"]);
+    assert.ok(urls.some((u) => u.includes('issuetype in ("Epic")')), urls.join("\n"));
+    assert.deepEqual((await a.listEpicTickets?.("PROJ-1"))?.map((t) => t.ref), ["PROJ-7"]);
+    assert.ok(urls.some((u) => u.includes('parent = "PROJ-1"')));
+    assert.deepEqual(await a.listEpicTickets?.('x" OR project = "OTHER'), [], "a ref that is not an issue key is refused (JQL injection)");
+  } finally {
+    global.fetch = orig;
+  }
+});
+
+test("listEpics is [] when the project has no level-1 type, and on an API error (fail-open)", async () => {
+  const orig = global.fetch;
+  const warn = console.warn;
+  console.warn = () => {};
+  const log = console.log;
+  console.log = () => {};
+  try {
+    // @ts-ignore - test stub
+    global.fetch = async () => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ issueTypes: [STORY] }) });
+    assert.deepEqual(await routed({ projectKey: "PROJ" }).listEpics?.(), []);
+    // @ts-ignore - test stub
+    global.fetch = async () => /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) });
+    assert.deepEqual(await routed({ projectKey: "PROJ" }).listEpics?.(), []);
+  } finally {
+    global.fetch = orig;
+    console.warn = warn;
+    console.log = log;
+  }
 });
