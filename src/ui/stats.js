@@ -9,7 +9,7 @@ import fs from "node:fs";
 export const STATS_MAX_DAYS = 366;
 const READ_CAP_BYTES = 64 * 1024 * 1024; // a bigger history is read from its last 64 MB
 const DAY_MS = 24 * 3600 * 1000;
-const KEEP = new Set(["pipeline_done", "merged", "run_end"]);
+const KEEP = new Set(["pipeline_done", "merged", "run_end", "run_start"]);
 const OUTCOMES = ["advance", "changes", "hold", "fail"];
 
 /**
@@ -120,18 +120,18 @@ export function resetStatsCache() {
 }
 
 /**
- * The profile's day stats from `file` (its events.jsonl), reading only what was appended since
- * the last call. A missing file reads as an empty history.
- * @param {string} file @param {{ now?: number, days?: number, tzOffset?: number }} [o]
- * @returns {StatsView}
+ * The kept events from `file` (its events.jsonl), reading only what was appended since the last
+ * call. A missing file reads as an empty history.
+ * @param {string} file
+ * @returns {{ events: Record<string, any>[], since: string|null }}
  */
-export function readStats(file, o = {}) {
+export function readHistory(file) {
   let size = 0;
   try {
     size = fs.statSync(file).size;
   } catch {
     cache.delete(file);
-    return { days: dailyStats([], o), since: null };
+    return { events: [], since: null };
   }
   let c = cache.get(file);
   if (!c || size < c.offset) {
@@ -168,5 +168,16 @@ export function readStats(file, o = {}) {
       fs.closeSync(fd);
     }
   }
-  return { days: dailyStats(c.events, o), since: c.since };
+  return { events: c.events, since: c.since };
+}
+
+/**
+ * The profile's day stats from `file` (its events.jsonl), reading only what was appended since
+ * the last call. A missing file reads as an empty history.
+ * @param {string} file @param {{ now?: number, days?: number, tzOffset?: number }} [o]
+ * @returns {StatsView}
+ */
+export function readStats(file, o = {}) {
+  const { events, since } = readHistory(file);
+  return { days: dailyStats(events, o), since };
 }

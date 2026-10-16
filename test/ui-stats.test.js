@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dailyStats, quantile, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/ui/stats.js";
+import { dailyStats, quantile, readHistory, readStats, resetStatsCache, STATS_MAX_DAYS } from "../src/ui/stats.js";
 
 const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC; tzOffset 0 unless a test says otherwise
 const at = (/** @type {string} */ iso) => iso;
@@ -90,6 +90,21 @@ test("readStats: a replaced (shorter) file restarts the read; garbage lines are 
   assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 2);
   fs.writeFileSync(f, "not json\n" + line(ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "C" })));
   assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 1);
+});
+
+test("readHistory: keeps run_start, and readStats output is unchanged by its presence", () => {
+  const f = file();
+  const withoutRunStart = line(ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "A" }));
+  fs.writeFileSync(f, withoutRunStart);
+  const baseline = readStats(f, { now: NOW, days: 1 });
+
+  const f2 = file();
+  fs.writeFileSync(f2, line(ev("2026-10-15T09:00:00Z", "run_start", { ref: "A" })) + withoutRunStart);
+  const withRunStart = readStats(f2, { now: NOW, days: 1 });
+  assert.deepEqual(withRunStart.days, baseline.days);
+
+  const h = readHistory(f2);
+  assert.ok(h.events.some((e) => e.event === "run_start"));
 });
 
 test("quantile: linear interpolation on a sorted list; empty is 0", () => {
