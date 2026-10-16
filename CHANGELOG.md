@@ -6,6 +6,46 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **Epics** — insight into large groups of tickets, on all four trackers. An **epic** is a tracker
+  item that groups tickets; no agent ever runs on one (an epic dropped into a pipeline stage is
+  skipped with an `epic_skipped` event and never counted by `reconcile` or the queue pull). Each
+  tracker uses its own native marker (ADR 0003–0006):
+  - **Asana**: a task with the custom task type `Epic` (`tracker.epicType`); tickets are its
+    subtasks that are also in the project. Create the type by hand — Asana's API can't.
+  - **GitHub (labels) and GitHub Projects v2**: an issue typed `Epic` (organization repos) or
+    labelled `epic` (`tracker.epicType` / `tracker.epicLabel`); tickets are its native sub-issues.
+    On Projects v2 only epic cards on the board are listed, each child staged by its card's Status.
+  - **Jira**: an issue type at hierarchy level 1 (or `tracker.epicType` by name); tickets are the
+    issues whose `parent` is it. The deprecated *Epic Link* field is not read.
+- **Epics view** in `ah ui` — an Epics tab (progress bar by stage with a sliding stripe on the running
+  part, needs-you count, velocity and ETA when there is enough history), an epic page, and an epic
+  chip and filter on tickets. Live from the receiver, with a receiver-down fallback built from local
+  history. `GET /api/epics[/<ref>]`.
+- `agenthook epics [name] [--ref <epic>] [--fresh] [--json]`, the MCP `epics` tool and
+  `tick --epics` give agents and terminals the same payload; the **Digest** mentions epics that need
+  you or have progress worth noting.
+- `epic_changed` event (GitHub and Jira): the tracker delivered an epic-structure change (a child
+  gained or lost its parent, an epic created or retyped). Read-only signal that refreshes the Epics
+  view; hidden by default like `coalesced`. Asana sends nothing for these changes, so its view
+  refreshes on ticket events and the Refresh button.
+
+### Changed
+
+- The GitHub hook now also subscribes to `sub_issues`. An existing hook needs recreating: restart the
+  receiver (it recreates the hook on boot) or `agenthook register <url>`.
+- Jira: ticking **Issue deleted** on the hand-made webhook is now optional-but-useful (it only feeds
+  the Epics view).
+- `ui/dist` is not in git — after pulling, run `npm run build:ui` (and restart `ah ui`) to get the
+  new dashboard.
+
+### Known limits
+
+- Epics on the GitHub issue-type path and on an org-owned Projects v2 board (including its webhook)
+  are untested; the label path and a user-owned board are verified live. Jira higher hierarchy levels
+  (Premium initiatives) are ignored.
+
 ## [0.5.0] — 2026-10-15
 
 ### Added
