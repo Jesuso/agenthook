@@ -484,6 +484,11 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
 - **Result**: only the latest per profile, written by the receiver to `<stateDir>/digest.json`
   (`text, generatedAt, costUsd, model, basedOnEventOffset`) and pushed to the UI by SSE. The Overview
   panel shows age, an "N events since" stale hint and a Refresh button.
+- **Epics**: the snapshot's `epics` (top 5, ranked by needs-you then activity, needs-you refs only,
+  no raw `velocity.days`/tickets/url) comes from the live `epics` op while the receiver is up, else
+  the `refmeta.epic` local fallback (same join as the UI's receiver-down view); either way a failed
+  or slow (>15 s) epic read falls back to local rather than failing the digest. `epicsLive` on the
+  snapshot says which source was used.
 - **CLI path**: `agenthook digest [name] [--json]` runs the same `createDigester` in the CLI
   process, against the profile's own config + state dir — no control socket, works whether the
   receiver is up or down. Not audited to `control-audit.jsonl` (only the receiver's `digest` op

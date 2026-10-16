@@ -514,7 +514,15 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
 
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat,
-    digester: createDigester({ cfg, emit, repository: repositoryOf(cfg) }),
+    digester: createDigester({
+      cfg, emit, repository: repositoryOf(cfg),
+      // Declared before `ops` is assigned but only called from inside the digester, by which
+      // point `ops` has already been assigned — safe.
+      readEpics: async () => {
+        const r = await ops.epics({});
+        return r.supported ? r.epics : null;
+      },
+    }),
     cancelRun: runClaude.cancel,
     pull: () => puller.pull(),
     // mirrors dispatch's leavePipeline: a ref abandoned by `cancel` must not keep an overlap lock

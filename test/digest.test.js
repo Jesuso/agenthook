@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildSnapshot, buildDigestPrompt, buildDigestArgs, createDigester, readDigest, readSoul, DEFAULT_SOUL, digestErrors } from "../src/digest.js";
+import { buildSnapshot, buildDigestPrompt, buildDigestArgs, createDigester, readDigest, readSoul, DEFAULT_SOUL, digestErrors, compactEpics } from "../src/digest.js";
 import { instructionTargets } from "../src/heartbeat.js";
 
 const NOW = Date.parse("2026-10-15T12:00:00Z");
@@ -144,4 +144,129 @@ test("digester: a failed or garbled run keeps the previous digest and emits dige
   const err = make({ cfg: { name: "dev", stateDir: ok.dir, claudeBin: "claude", digest: {} }, run: async () => JSON.stringify({ is_error: true, result: "boom" }), now: () => NOW });
   await assert.rejects(err.request(), /boom/);
   assert.equal(err.running, false, "a failure frees the slot for a retry");
+});
+
+/** A state dir whose two tickets both belong to epic E1: one held, one finished, no epic op. */
+function epicStateDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-digest-epic-"));
+  const w = (/** @type {string} */ f, /** @type {any} */ v) => fs.writeFileSync(path.join(dir, f), typeof v === "string" ? v : JSON.stringify(v));
+  w("refmeta.json", {
+    10: { displayId: "#10", title: "Held ticket", epic: { ref: "E1", name: "Epic One" } },
+    11: { displayId: "#11", title: "Done ticket", epic: { ref: "E1", name: "Epic One" } },
+  });
+  w("held.json", { 10: { stepId: "code", reason: "need input", heldAt: ago(10) } });
+  w("events.jsonl", [
+    { ts: ago(50), event: "run_start", ref: "11", step: "code" },
+    { ts: ago(40), event: "pipeline_done", ref: "11", step: "review" },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  return dir;
+}
+
+test("buildSnapshot: no epic data (plain fixture) → epics: [], not live", () => {
+  const s = buildSnapshot(stateDir(), { repository: "o/r", now: NOW });
+  assert.deepEqual(s.epics, []);
+  assert.equal(s.epicsLive, false);
+});
+
+test("buildSnapshot: local fallback joins refmeta.epic with rows/history", () => {
+  const s = buildSnapshot(epicStateDir(), { now: NOW });
+  assert.equal(s.epicsLive, false);
+  assert.equal(s.epics.length, 1);
+  const e = s.epics[0];
+  assert.equal(e.total, 2);
+  assert.equal(e.done, 1);
+  assert.equal(e.progressPct, 50);
+  assert.deepEqual(e.needsYou, ["#10"]);
+  assert.equal(e.needsYouCount, 1);
+});
+
+test("buildSnapshot: a passed live `epics` list is used verbatim, refmeta ignored", () => {
+  const live = [
+    { ref: "E9", name: "Live epic", url: "", status: "open", completed: false, total: 4, byStage: { backlog: 1, running: 1, needsYou: 1, finished: 1, merged: 0, untracked: 0 }, needsYou: ["77"], startedAt: null, velocity: { days: [], finished14: 1, activeDays: 1, perDay: 0.5 }, eta: null },
+  ];
+  const s = buildSnapshot(epicStateDir(), { now: NOW, epics: live });
+  assert.equal(s.epicsLive, true);
+  assert.equal(s.epics.length, 1);
+  assert.equal(s.epics[0].epic, 'E9 "Live epic"');
+  assert.deepEqual(s.epics[0].needsYou, ["77"], "ref 77 has no local row so falls back to the raw ref");
+});
+
+test("compactEpics: size cap — 50 epics x 50 needs-you refs stays small", () => {
+  /** @type {any[]} */
+  const stats = [];
+  for (let i = 0; i < 50; i++) {
+    stats.push({
+      ref: `E${i}`, name: `Epic number ${i} with a fairly long descriptive name for padding`, url: "", status: "open", completed: false,
+      total: 50, byStage: { backlog: 10, running: 5, needsYou: 50, finished: 5, merged: 0, untracked: 0 },
+      needsYou: Array.from({ length: 50 }, (_, j) => `ref-${i}-${j}`),
+      startedAt: null, velocity: { days: [], finished14: 5, activeDays: 3, perDay: 1 }, eta: { days: 10, date: "2026-10-20" },
+    });
+  }
+  const out = compactEpics(stats, []);
+  assert.equal(out.length, 5);
+  for (const e of out) {
+    assert.ok(e.needsYou.length <= 5);
+    assert.ok(!("velocity" in e));
+    assert.ok(!("days" in e));
+    assert.ok(!("tickets" in e));
+    assert.ok(!("url" in e));
+    assert.ok(!("startedAt" in e));
+  }
+  assert.ok(JSON.stringify(out).length < 4096);
+});
+
+test("compactEpics: ranks more needs-you first, drops a completed epic with none", () => {
+  /** @type {any} */
+  const base = { url: "", status: "open", startedAt: null, velocity: { days: [], finished14: 0, activeDays: 0, perDay: null }, eta: null };
+  const stats = [
+    { ...base, ref: "A", name: "A", completed: false, total: 3, byStage: { backlog: 1, running: 0, needsYou: 1, finished: 1, merged: 0, untracked: 0 }, needsYou: ["x"] },
+    { ...base, ref: "B", name: "B", completed: false, total: 5, byStage: { backlog: 0, running: 0, needsYou: 3, finished: 2, merged: 0, untracked: 0 }, needsYou: ["x", "y", "z"] },
+    { ...base, ref: "C", name: "C (done, nothing to see)", completed: true, total: 2, byStage: { backlog: 0, running: 0, needsYou: 0, finished: 1, merged: 1, untracked: 0 }, needsYou: [] },
+  ];
+  const out = compactEpics(stats, []);
+  assert.deepEqual(out.map((e) => e.epic.split(' "')[0]), ["B", "A"], "completed-with-nothing-needed epic dropped; more needsYou ranks first");
+});
+
+test("createDigester: a rejecting or hanging readEpics still writes the digest from local epics", async () => {
+  const dir = epicStateDir();
+  /** @type {any[]} */ const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (/** @type {any} */ m) => warnings.push(m);
+  try {
+    const d = createDigester({
+      cfg: { name: "dev", stateDir: dir, claudeBin: "claude", digest: {} },
+      run: async () => JSON.stringify({ result: "digest text" }),
+      now: () => NOW,
+      readEpics: async () => {
+        throw new Error("tracker down");
+      },
+    });
+    const rec = await d.request();
+    assert.equal(rec.text, "digest text");
+    assert.ok(readDigest(dir), "digest.json still written on an epics-read failure");
+    assert.ok(warnings.length > 0);
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+test("createDigester: a resolving readEpics feeds its epics into the prompt snapshot", async () => {
+  const dir = epicStateDir();
+  const live = [{ ref: "E9", name: "Live", url: "", status: "open", completed: false, total: 1, byStage: { backlog: 0, running: 0, needsYou: 1, finished: 0, merged: 0, untracked: 0 }, needsYou: ["10"], startedAt: null, velocity: { days: [], finished14: 0, activeDays: 0, perDay: null }, eta: null }];
+  /** @type {string} */ let prompt = "";
+  const d = createDigester({
+    cfg: { name: "dev", stateDir: dir, claudeBin: "claude", digest: {} },
+    run: async (_b, args) => ((prompt = args[1]), JSON.stringify({ result: "ok" })),
+    now: () => NOW,
+    readEpics: async () => live,
+  });
+  await d.request();
+  assert.match(prompt, /E9/);
+  assert.match(prompt, /"epicsLive": true/);
+});
+
+test("buildDigestPrompt: mentions epics guidance and the no-invented-ETA rule", () => {
+  const p = buildDigestPrompt({ soul: "S", snapshot: { epics: [] }, profile: "dev" });
+  assert.match(p, /snapshot\.epics/);
+  assert.match(p, /never estimate one yourself/);
 });
