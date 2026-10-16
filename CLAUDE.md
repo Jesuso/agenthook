@@ -276,7 +276,7 @@ labels only; Jira / Projects v2 not yet.
   is on the issue's status. `advance` has no "set status" — it executes the **transition** whose
   `to` matches the target (an unreachable status is a logged no-op). Webhook is **by hand** (Jira
   Cloud forbids token-created hooks); agenthook generates the signing secret + prints setup. Run
-  behind a **stable** ingress. Dedup: `step:<id>:<key>` (created), `secmove:<changelogId>` (status move).
+  behind a **stable** ingress. Dedup: `step:<id>:<key>` (created), `secmove:<changelogId>` (status move). **Epics** (ADR 0005): an issue whose type is at `hierarchyLevel` 1 (or `tracker.epicType` by name); its tickets are the issues with `parent` = it (`/search/jql`, `nextPageToken` paging); `epic_changed` signals come from the changelog item `IssueParentAssociation` (old + new parent key) and issue created/deleted under an epic.
 - **GitHub** — issues have no board sections, so steps bind **labels** (`sourceLabel`): an issue
   carrying it fires the step. `advance` swaps the label — **add target, then remove source** (crash
   between the two leaves the issue re-firing, not stuck). One repo webhook on the `issues` event,

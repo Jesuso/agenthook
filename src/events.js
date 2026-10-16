@@ -29,7 +29,7 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | epic_skipped (a pipeline job reached an item that is an epic; no agent ran, nothing moved; `name`, `url`)
  *           | epic_changed (the tracker delivered an epic-structure change — GitHub: a sub-issue added/removed, an issue
- *             typed/untyped; `ref` = the epic, step ""; signal only, src/epic-changed.js; hidden by default, not in the sinks' default set)
+ *             typed/untyped; Jira: a child's parent changed, an issue created/deleted under an epic, an epic created/retyped; `ref` = the epic, step ""; signal only, src/epic-changed.js; hidden by default, not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
  *   ref   — task ref (provider-native id)

@@ -181,7 +181,7 @@ mergeState}` (all of a PR head's checks passed — wake up and merge; once per s
 Housekeeping: `restart_requested`, `restarting`, `overlap_held`, `overlap_released`, `epic_skipped`
 (an epic reached a step; no agent ran, nothing moved). There's also
 `coalesced` (a duplicate webhook dropped), hidden unless you pass `types:["coalesced"]`, and
-`epic_changed` (GitHub only: an epic's sub-issues or type changed; `ref` = the epic — re-read
+`epic_changed` (GitHub and Jira: an epic's children or type changed; `ref` = the epic — re-read
 `epics`), hidden unless you pass `types:["epic_changed"]`. Full
 catalog with fields: [events.md](events.md).
 

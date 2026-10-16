@@ -76,17 +76,46 @@ secret it generated and stored for you:
        Create it ONCE, by hand, as a Jira admin:
          Settings → System → WebHooks → Create a WebHook
            URL:    https://<your-stable-url>/jira/
-           Events: Issue → created, updated
+           Events: Issue → created, updated, deleted (deleted only feeds the epic view)
            Secret: <agenthook-generated-secret>
          ↑ agenthook generated + stored this. Paste it verbatim into the webhook's Secret field.
 ```
 
-Paste the URL, tick **Issue created** + **Issue updated**, paste the **Secret**, save. agenthook
+Paste the URL, tick **Issue created** + **Issue updated** (+ **Issue deleted** if you use [epics](#epics)), paste the **Secret**, save. agenthook
 verifies each delivery via `x-hub-signature: sha256=<hex>` (constant-time HMAC). The token stays
 the only secret *you* supply; the webhook secret is agenthook's to own.
 
 If you'd rather supply your own secret, set `"webhookSecret": "..."` in the config; `false` accepts
 unsigned deliveries (don't, outside local testing).
+
+## Epics
+
+Jira has epics natively, so there is nothing to invent. An issue **is an epic** when its issue type
+sits at **hierarchy level 1** (the built-in `Epic`; also what Jira Premium's Advanced Planning calls
+the epic level), and its **tickets are the issues whose `parent` is it** — Jira's own parent link,
+the same one the board and roadmap use. agenthook never spawns an agent on an epic, even if it sits
+in a pipeline status. Not an epic: a Story with sub-tasks (a Subtask's parent is a Story, level 0),
+or any issue that merely has children.
+
+```jsonc
+"tracker": {
+  "type": "jira",
+  // optional: pin the epic issue type by NAME instead of "hierarchy level 1"
+  "epicType": "Epic"
+}
+```
+
+- Membership is **direct children only** (`parent = KEY`); sub-tasks of a child are not rolled up.
+  Children of any assignee count — viewing an epic never acts on it, so assignee scoping does not apply.
+- A ticket's stage in the epic view is its **status name**; an epic is finished when its status is in
+  a done category.
+- Children are linked from the issue's **Parent** field (board, issue view, or the API:
+  `"parent": {"key": "PROJ-1"}`). The deprecated *Epic Link* custom field is not read.
+- The epic view stays fresh from the webhook: tick **Issue deleted** too (optional). A parent change
+  (`IssueParentAssociation` in the changelog), or an issue created/deleted under an epic, emits
+  `epic_changed` for the old and new epic — read-only, no agent, no move.
+- Token: the same read access as above; epics add no new permission.
+- See epics in the dashboard ([`web-ui.md`](web-ui.md)) or via the MCP `epics` tool / `agenthook epics`.
 
 ## 4. Use a STABLE ingress
 
