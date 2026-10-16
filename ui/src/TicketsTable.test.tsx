@@ -24,7 +24,7 @@ function ticket(overrides: Partial<TicketRow> & { ref: string }): TicketRow {
     failReason: null,
     prState: null,
     finishedAt: null,
-    queuePos: null,
+    queuePos: null, epic: null,
     ...overrides,
   };
 }
@@ -38,6 +38,8 @@ const render = (tickets: TicketRow[], over: Partial<TicketsTableProps> = {}) =>
       profileFilter: "",
       onProfileFilter: () => {},
       statusFilter: "",
+      epicFilter: "",
+      onEpicFilter: () => {},
       onStatusFilter: () => {},
       showAll: false,
       onShowAll: () => {},
@@ -121,5 +123,20 @@ describe("TicketsTable", () => {
   it("shows a dismiss button only on failed and cancelled rows", () => {
     const html = render([ticket({ ref: "1", status: "failed" }), ticket({ ref: "2", status: "cancelled" }), ticket({ ref: "3", status: "done" }), ticket({ ref: "4", status: "held" })], { showAll: true });
     expect((html.match(/>dismiss</g) ?? []).length).toBe(2);
+  });
+
+  it("epics: a chip on rows with an epic, a select only when some row has one, the filter narrows rows", () => {
+    const e1 = { ref: "E1", name: "Checkout revamp", url: null };
+    const e2 = { ref: "E2", name: "Search", url: null };
+    const rows = [ticket({ ref: "1", epic: e1 }), ticket({ ref: "2", epic: e2 }), ticket({ ref: "3" })];
+    expect(render([ticket({ ref: "3" })])).not.toContain("data-epic-filter");
+    const html = render(rows);
+    expect(html).toContain("data-epic-filter");
+    expect(html).toMatch(/<option value="" selected="">All epics<\/option><option value="E1">Checkout revamp<\/option><option value="E2">Search<\/option>/);
+    expect(html).toMatch(/data-epic-chip="E1" title="epic: Checkout revamp[^"]*"[^>]*truncate[^>]*>Checkout revamp<\/button>/);
+    expect((html.match(/data-epic-chip=/g) ?? []).length).toBe(2);
+    const filtered = render(rows, { epicFilter: "E1" });
+    expect([...filtered.matchAll(/data-ticket-row="(\d+)"/g)].map((m) => m[1])).toEqual(["1"]);
+    expect(filtered).toMatch(/role="radio"[^>]*>all <span class="font-mono opacity-70">1<\/span>/);
   });
 });

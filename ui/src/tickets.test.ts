@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortTickets, filterTickets, isStale, prNumber, statusCounts, pageLimit, showMore, PAGE_SIZE } from "./tickets";
+import { sortTickets, filterTickets, isStale, prNumber, statusCounts, ticketEpics, pageLimit, showMore, PAGE_SIZE } from "./tickets";
 import type { TicketRow } from "./contract";
 
 function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; status: TicketRow["status"] }): TicketRow {
@@ -17,7 +17,7 @@ function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; 
     failReason: null,
     prState: null,
     finishedAt: null,
-    queuePos: null,
+    queuePos: null, epic: null,
     ...overrides,
   };
 }
@@ -133,6 +133,33 @@ describe("filterTickets", () => {
     expect(filterTickets(rows, { profile: null, status: null, showAll: false, now: NOW }).map((r) => r.ref)).toEqual(["1", "3"]);
     expect(filterTickets(rows, { profile: null, status: null, showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["1", "2", "3"]);
   });
+
+  it("filters by epic ref; null/absent keeps every row", () => {
+    const epic = (ref: string) => ({ ref, name: `Epic ${ref}`, url: null });
+    const tagged = [
+      ticket({ profile: "a", ref: "1", status: "running", epic: epic("E1") }),
+      ticket({ profile: "a", ref: "2", status: "held", epic: epic("E2") }),
+      ticket({ profile: "a", ref: "3", status: "failed", epic: epic("E1") }),
+      ticket({ profile: "a", ref: "4", status: "running" }),
+    ];
+    expect(filterTickets(tagged, { profile: null, status: null, epic: "E1", showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["1", "3"]);
+    expect(filterTickets(tagged, { profile: null, status: "failed", epic: "E1", showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["3"]);
+    expect(filterTickets(tagged, { profile: null, status: null, epic: null, showAll: true, now: NOW })).toHaveLength(4);
+    expect(filterTickets(tagged, { profile: null, status: null, epic: "nope", showAll: true, now: NOW })).toEqual([]);
+  });
+});
+
+describe("ticketEpics", () => {
+  it("lists distinct epics by name, first name per ref", () => {
+    const rows = [
+      ticket({ profile: "a", ref: "1", status: "idle", epic: { ref: "E2", name: "Zeta", url: null } }),
+      ticket({ profile: "a", ref: "2", status: "idle", epic: { ref: "E1", name: "Alpha", url: null } }),
+      ticket({ profile: "a", ref: "3", status: "idle", epic: { ref: "E2", name: "Zeta (renamed)", url: null } }),
+      ticket({ profile: "a", ref: "4", status: "idle" }),
+    ];
+    expect(ticketEpics(rows)).toEqual([{ ref: "E1", name: "Alpha" }, { ref: "E2", name: "Zeta" }]);
+    expect(ticketEpics([])).toEqual([]);
+  });
 });
 
 describe("prNumber", () => {
@@ -170,6 +197,14 @@ describe("statusCounts", () => {
     expect(c.done).toBe(0);
     expect(c.failed).toBe(0);
     expect(c["needs-you"]).toBe(1);
+  });
+
+  it("applies the epic filter first", () => {
+    const tagged = rows.map((r) => (r.ref === "2" || r.ref === "4" ? { ...r, epic: { ref: "E1", name: "E1", url: null } } : r));
+    const c = statusCounts(tagged, { profile: null, epic: "E1", showAll: true, now: NOW });
+    expect(c.all).toBe(2);
+    expect([c.held, c.failed, c.running]).toEqual([1, 1, 0]);
+    expect(c["needs-you"]).toBe(2);
   });
 });
 

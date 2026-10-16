@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ProfileView, TicketRow, TicketStatus } from "./contract";
 import { formatCost, formatModel, formatRelative, profileLabel, ticketTitle } from "./format";
-import { filterTickets, pageLimit, prNumber, showMore, sortTickets, statusCounts, PAGE_SIZE, STATUS_ORDER } from "./tickets";
+import { filterTickets, pageLimit, prNumber, showMore, sortTickets, statusCounts, ticketEpics, PAGE_SIZE, STATUS_ORDER } from "./tickets";
 import type { Page, StatusFilter } from "./tickets";
 import { Segmented, StatusBadge, Tooltip } from "./components";
 
@@ -31,6 +31,9 @@ export type TicketsTableProps = {
   /** `""` = all statuses. */
   statusFilter: string;
   onStatusFilter: (v: string) => void;
+  /** An epic ref, `""` = every epic. */
+  epicFilter: string;
+  onEpicFilter: (v: string) => void;
   showAll: boolean;
   onShowAll: (v: boolean) => void;
   /** The ticket whose drawer is open (highlighted), if any. */
@@ -42,13 +45,14 @@ export type TicketsTableProps = {
 
 /** The dashboard's tickets section: a one-row filter toolbar over a paged table in its own scroll region. */
 export function TicketsTable(props: TicketsTableProps) {
-  const { tickets, profiles, now, profileFilter, statusFilter, showAll, open } = props;
+  const { tickets, profiles, now, profileFilter, statusFilter, epicFilter, showAll, open } = props;
   const forges = new Set(profiles.filter((p) => p.forge).map((p) => p.name));
-  const base = { profile: profileFilter || null, showAll, now, forges };
+  const base = { profile: profileFilter || null, epic: epicFilter || null, showAll, now, forges };
+  const epics = ticketEpics(profileFilter ? tickets.filter((t) => t.profile === profileFilter) : tickets);
   const counts = statusCounts(tickets, base);
   const rows = sortTickets(filterTickets(tickets, { ...base, status: (statusFilter || null) as StatusFilter | null }));
   // Grown pages reset to one whenever a filter changes (the key no longer matches).
-  const key = `${profileFilter}\u0000${statusFilter}\u0000${showAll}`;
+  const key = `${profileFilter}\u0000${statusFilter}\u0000${epicFilter}\u0000${showAll}`;
   const [page, setPage] = useState<Page>({ key, limit: PAGE_SIZE });
   const limit = pageLimit(page, key);
   const shown = rows.slice(0, limit);
@@ -79,6 +83,23 @@ export function TicketsTable(props: TicketsTableProps) {
           ))}
         </select>
         )}
+        {(epics.length > 0 || epicFilter) && (
+          <select
+            aria-label="epic"
+            data-epic-filter
+            className="max-w-48 border border-border rounded px-1.5 py-0.5 bg-transparent"
+            value={epicFilter}
+            onChange={(e) => props.onEpicFilter(e.target.value)}
+          >
+            <option value="">All epics</option>
+            {epicFilter && !epics.some((e) => e.ref === epicFilter) && <option value={epicFilter}>{epicFilter}</option>}
+            {epics.map((e) => (
+              <option key={e.ref} value={e.ref}>
+                {e.name}
+              </option>
+            ))}
+          </select>
+        )}
         <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={showAll} onChange={(e) => props.onShowAll(e.target.checked)} />
@@ -107,7 +128,7 @@ export function TicketsTable(props: TicketsTableProps) {
           </thead>
           <tbody>
             {shown.map((t) => (
-              <Row key={`${t.profile}\u0000${t.ref}`} t={t} now={now} selected={open?.profile === t.profile && open.ref === t.ref} onOpen={props.onOpen} onDismiss={props.onDismiss} />
+              <Row key={`${t.profile}\u0000${t.ref}`} t={t} now={now} selected={open?.profile === t.profile && open.ref === t.ref} onOpen={props.onOpen} onDismiss={props.onDismiss} onEpic={props.onEpicFilter} />
             ))}
           </tbody>
         </table>
@@ -135,7 +156,7 @@ function ChipLabel({ text, count }: { text: string; count: number }) {
   );
 }
 
-function Row({ t, now, selected, onOpen, onDismiss }: { t: TicketRow; now: number; selected: boolean; onOpen: TicketsTableProps["onOpen"]; onDismiss: TicketsTableProps["onDismiss"] }) {
+function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; now: number; selected: boolean; onOpen: TicketsTableProps["onOpen"]; onDismiss: TicketsTableProps["onDismiss"]; onEpic: (ref: string) => void }) {
   const title = ticketTitle(t);
   const model = formatModel(t.model);
   const pr = prNumber(t.prUrl);
@@ -144,8 +165,8 @@ function Row({ t, now, selected, onOpen, onDismiss }: { t: TicketRow; now: numbe
       data-ticket-row={t.ref}
       className={`cursor-pointer border-b border-border-subtle hover:bg-surface-raised ${selected ? "bg-border" : PINNED_TINT[t.status] ?? ""}`}
       onClick={(e) => {
-        // Links in the row (tracker, PR) keep their own behavior.
-        if ((e.target as HTMLElement).closest("a")) return;
+        // Links in the row (tracker, PR) and the epic chip keep their own behavior.
+        if ((e.target as HTMLElement).closest("a, [data-epic-chip]")) return;
         onOpen({ profile: t.profile, ref: t.ref });
       }}
     >
@@ -160,6 +181,17 @@ function Row({ t, now, selected, onOpen, onDismiss }: { t: TicketRow; now: numbe
         )}
       </td>
       <td className={CELL}>
+        {t.epic && (
+          <button
+            type="button"
+            data-epic-chip={t.epic.ref}
+            title={`epic: ${t.epic.name} — show only its tickets`}
+            className="mb-0.5 block max-w-48 truncate rounded-full border border-border bg-surface-raised px-2 text-meta text-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+            onClick={() => onEpic(t.epic!.ref)}
+          >
+            {t.epic.name}
+          </button>
+        )}
         <div title={t.summary ? `${t.title ?? t.displayId} — ${t.summary}` : t.title ?? undefined} className={`min-w-40 max-w-md truncate max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 ${title.unknown ? "text-muted" : ""}`}>
           {title.text}
         </div>

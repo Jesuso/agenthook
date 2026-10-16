@@ -13,7 +13,7 @@ const profile = (name: string, over: Partial<ProfileView> = {}): ProfileView => 
 });
 const held = (p: string, ref: string): TicketRow => ({
   profile: p, ref, displayId: ref, title: null, step: null, status: "held", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null,
-  summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null,
+  summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null,
 });
 
 const render = (snapshot: Snapshot) => renderToStaticMarkup(createElement(HomePage, { snapshot, now: NOW, menuItems: () => [], note: () => "" }));

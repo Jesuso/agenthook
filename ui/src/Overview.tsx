@@ -25,6 +25,9 @@ export type OverviewProps = {
   feed: FeedEntry[];
   statusFilter: string;
   setStatusFilter: (v: string) => void;
+  /** An epic ref, `""` = every epic. */
+  epicFilter: string;
+  setEpicFilter: (v: string) => void;
   showAll: boolean;
   setShowAll: (v: boolean) => void;
   open: Ref | null;
@@ -80,7 +83,7 @@ export function Overview(props: OverviewProps) {
 
       <ProgressZone prog={prog} profile={profile.name} feed={feed} />
 
-      <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== ""}>
+      <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== "" || props.epicFilter !== ""}>
         <summary className="cursor-pointer select-none px-3 py-2 text-label font-semibold uppercase tracking-wide text-muted">
           All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
         </summary>
@@ -94,6 +97,8 @@ export function Overview(props: OverviewProps) {
             lockProfile
             statusFilter={props.statusFilter}
             onStatusFilter={props.setStatusFilter}
+            epicFilter={props.epicFilter}
+            onEpicFilter={props.setEpicFilter}
             showAll={props.showAll}
             onShowAll={props.setShowAll}
             open={props.open}

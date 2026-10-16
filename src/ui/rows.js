@@ -206,6 +206,19 @@ export function readProfileState(dir, events) {
 const str = (v) => (typeof v === "string" && v ? v : null);
 
 /**
+ * refmeta.epic → TicketRow.epic: an object with a non-empty string `ref`, else null; `name`
+ * falls back to `ref`, `url` survives only as http(s) (like `trackerUrl`).
+ * @param {any} e
+ * @returns {import('./contract.js').TicketEpic|null}
+ */
+const ticketEpic = (e) => {
+  const ref = e && typeof e === "object" ? str(e.ref) : null;
+  if (!ref) return null;
+  const url = str(e.url);
+  return { ref, name: str(e.name) ?? ref, url: url && /^https?:\/\//i.test(url) ? url : null };
+};
+
+/**
  * One TicketRow per ref. Status precedence: running > queued > held > the last terminal
  * event in the tail (pipeline_done/merged → done, failed → failed, or cancelled when the reason is
  * an operator cancel) > idle. A terminal event followed by a later `enqueued`/`run_start` for the
@@ -309,6 +322,7 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
       prState: terminal === "done" && status === "done" ? prState : null,
       finishedAt: terminal === "done" && status === "done" ? finishedAt : null,
       queuePos: queued ? state.queue.indexOf(queued) : null,
+      epic: ticketEpic(meta.epic),
     });
   }
   return rows;
