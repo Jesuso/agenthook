@@ -426,7 +426,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   through the receiver's control-socket ops — never from the UI process. Not part of the first slice.
 
 ### Build order
-(Steps 1 and 2 are built.)
+(Steps 1–3 are built.)
 1. Hash routing + app bar + plain Home cards. 2. `ui.color`/`ui.emoji` end to end (config schema,
 heartbeat, `ProfileView`, Config form, derived defaults). 3. Overview zones. 4. Polish with Refero.
 
@@ -458,3 +458,20 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
 - `--text-stat`: 28px / 32px, mono, tabular numerals, for the Needs-you and stat-tile numbers.
 - Home card = `surface` + `border`; hover → `surface-raised` + `border-strong`. No new shadow tier.
 - Needs-you number colors reuse `status-failed` / `status-held`; 0 → muted "all clear".
+
+### v4 step 3 as built (profile Overview)
+
+- Zones: **Needs you** (hidden when empty) → **Now** → **Progress**, then collapsed drill-downs:
+  *All tickets* (the old table, auto-opens while a status filter is active) and an *Activity* panel
+  with an "N new" badge for events that arrived while it was collapsed. The right-hand rail is gone.
+- New ticket-row fields (`src/ui/rows.js`, from the events tail / state files): `prState`
+  (`ready` after `pipeline_done`, `merged` after a forge's `merged`, cleared by a re-run),
+  `finishedAt` (the first finish since the last run — a later merge doesn't move it), `failReason`,
+  `heldAt`, `queuePos`. New profile fields: `forge` (heartbeat) and `recentRuns` (`run_end` outcomes,
+  last 48 h). A ready PR counts as Needs you **only** on a profile with a forge.
+- Needs-you rows show kind, id + title, the one-line reason, step and age; **Ticket ↗ / PR ↗ /
+  Details / Dismiss** appear on hover or focus (always on touch). **Release is not inline yet**: it
+  needs its own guarded `POST /api/release` (a write path, so its own security review); until then a
+  held ticket is released from its tracker (`@agent` reply) or the MCP `release` tool.
+- Progress is today vs yesterday (browser-local days) over the tail, plus the rework rate
+  (`changes` / runs), hidden under 10 runs. Longer ranges need a daily rollup (later, separate change).

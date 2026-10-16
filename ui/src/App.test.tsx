@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProfileView } from "./contract";
-import { ProfileNameCell } from "./App";
+import { ProfileNameCell } from "./ProfileNameCell";
 
 const base: ProfileView = {
   name: "k",
@@ -29,6 +29,8 @@ const base: ProfileView = {
   ghost: false,
   configMissing: false,
   recentCosts: [],
+  forge: null,
+  recentRuns: [],
 };
 
 describe("ProfileNameCell", () => {

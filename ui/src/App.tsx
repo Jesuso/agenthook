@@ -1,16 +1,12 @@
 import { Suspense, lazy, useEffect, useReducer, useRef, useState } from "react";
 import type { ProfileView, Snapshot } from "./contract";
-import { formatCost, formatDate, profileLabel, profileBadge } from "./format";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
-import { scopeToProfile, summarize } from "./summary";
-import { appendFeed, isHiddenFeedEvent, readRailOpen, writeRailOpen } from "./feed";
+import { appendFeed, isHiddenFeedEvent } from "./feed";
 import type { FeedEntry } from "./feed";
-import { ActivityRail } from "./ActivityRail";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
 import { TicketDrawer } from "./TicketDrawer";
-import { TicketsTable } from "./TicketsTable";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
@@ -26,8 +22,8 @@ import { HOME, hashFor, parseHash, sameRoute } from "./route";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
-import { FullAutoShield, Menu, Pill, ProfileMark } from "./components";
 import type { MenuItem } from "./components";
+import { Overview } from "./Overview";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
 const InstructionsView = lazy(() => import("./InstructionsView"));
@@ -44,7 +40,6 @@ export default function App() {
   // Only the latest fetch's response may land — see snapshotFetch.ts.
   const fetchState = useRef<FetchState>(initFetchState());
   const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [railOpen, setRailOpen] = useState<boolean>(() => readRailOpen());
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
   // The ticket whose runs/log panel is open. The stream callback reads it via a ref.
@@ -305,18 +300,12 @@ export default function App() {
           snapshot={snapshot}
           now={now}
           feed={feed.filter((f) => f.profile === profile.name)}
-          railOpen={railOpen}
-          toggleRail={() => {
-            const next = !railOpen;
-            setRailOpen(next);
-            writeRailOpen(next);
-          }}
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
           showAll={showAll}
           setShowAll={setShowAll}
           open={open}
-          setOpen={setOpen}
+          onOpen={setOpen}
           displayIdFor={displayIdFor}
           menuItems={menuItems(profile)}
           note={noteFor(profile)}
@@ -379,164 +368,6 @@ export default function App() {
         </div>
       )}
     </Shell>
-  );
-}
-
-type OverviewProps = {
-  profile: ProfileView;
-  snapshot: Snapshot;
-  now: number;
-  feed: FeedEntry[];
-  railOpen: boolean;
-  toggleRail: () => void;
-  statusFilter: string;
-  setStatusFilter: (v: string) => void;
-  showAll: boolean;
-  setShowAll: (v: boolean) => void;
-  open: { profile: string; ref: string } | null;
-  setOpen: (v: { profile: string; ref: string } | null) => void;
-  displayIdFor: (profile: string, ref: string) => string | null;
-  menuItems: MenuItem[];
-  note: string;
-  onDismiss: (t: { profile: string; ref: string }) => void;
-};
-
-/**
- * One profile's dashboard. Step 1 of the profile-focused UI keeps today's content (summary strip,
- * tickets table, activity rail) scoped to this profile; the Needs-you / Now / Progress zones replace it.
- */
-function Overview(props: OverviewProps) {
-  const { profile, snapshot, now, feed, railOpen, toggleRail, statusFilter, setStatusFilter, open, setOpen, displayIdFor } = props;
-  const scoped = scopeToProfile(snapshot, profile.name);
-  const summary = summarize(scoped, now);
-  const needsYouActive = statusFilter === "needs-you";
-  const needsYouTone = scoped.tickets.some((t) => t.status === "failed") ? "text-status-failed" : "text-status-held";
-  return (
-    <div className="xl:flex xl:items-start xl:gap-4">
-      <div className="min-w-0 flex-1">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <ProfileMark p={profile} />
-          <h1 className="text-title font-semibold">
-            <ProfileNameCell p={profile} />
-          </h1>
-          <div className="ml-auto flex items-center gap-2">
-            {props.note && <span className="text-label text-status-held">{props.note}</span>}
-            <Menu label="profile actions" items={props.menuItems} />
-          </div>
-        </div>
-        <div className="mb-4 flex flex-wrap gap-2" data-summary>
-          <SummaryTile label="agents running">
-            <span className="font-mono">
-              {summary.active} <span className="text-muted">/ {summary.capacity}</span>
-            </span>
-          </SummaryTile>
-          <button
-            type="button"
-            aria-pressed={needsYouActive}
-            title={needsYouActive ? "show all statuses" : "show only held + failed tickets"}
-            className={`min-w-32 rounded-lg border bg-surface px-3 py-2 text-left hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${
-              needsYouActive ? "border-accent" : "border-border"
-            }`}
-            onClick={() => setStatusFilter(needsYouActive ? "" : "needs-you")}
-          >
-            <div className="text-label uppercase tracking-wide text-muted">needs you</div>
-            <div className={`text-title font-semibold font-mono ${summary.needsYou > 0 ? needsYouTone : ""}`}>{summary.needsYou}</div>
-          </button>
-          <SummaryTile label="queued">
-            <span className="font-mono">{summary.queued}</span>
-          </SummaryTile>
-          <SummaryTile label="cost today (approx.)" title="sum of run_end costs in the profile's last 256 KB of events">
-            <span className="font-mono">{formatCost(summary.costToday)}</span>
-          </SummaryTile>
-        </div>
-
-        <div className="mb-6 xl:hidden">
-          <ActivityRail feed={feed} displayIdFor={displayIdFor} open={railOpen} onToggle={toggleRail} onOpen={setOpen} variant="panel" />
-        </div>
-
-        <TicketsTable
-          tickets={scoped.tickets}
-          profiles={scoped.profiles}
-          now={now}
-          profileFilter={profile.name}
-          onProfileFilter={() => {}}
-          lockProfile
-          statusFilter={statusFilter}
-          onStatusFilter={setStatusFilter}
-          showAll={props.showAll}
-          onShowAll={props.setShowAll}
-          open={open}
-          onOpen={setOpen}
-          onDismiss={props.onDismiss}
-        />
-      </div>
-
-      {railOpen ? (
-        <aside
-          data-activity-rail-wrap
-          className="hidden xl:sticky xl:top-11 xl:block xl:h-[calc(100vh-2.75rem)] xl:w-90 xl:shrink-0 xl:rounded-lg xl:border xl:border-border xl:bg-surface"
-        >
-          <ActivityRail feed={feed} displayIdFor={displayIdFor} open={true} onToggle={toggleRail} onOpen={setOpen} variant="rail" />
-        </aside>
-      ) : (
-        <aside data-activity-rail-wrap className="hidden xl:sticky xl:top-11 xl:block xl:shrink-0">
-          <button
-            type="button"
-            data-activity-toggle
-            aria-expanded={false}
-            onClick={toggleRail}
-            className="rounded-md border border-border bg-surface px-2 py-2 text-label text-muted hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            Activity <span className="font-mono">{feed.length}</span>
-          </button>
-        </aside>
-      )}
-    </div>
-  );
-}
-
-/** One summary-strip tile: a small uppercase label over a value. */
-function SummaryTile({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
-  return (
-    <div title={title} className="min-w-32 rounded-lg border border-border bg-surface px-3 py-2">
-      <div className="text-label uppercase tracking-wide text-muted">{label}</div>
-      <div className="text-title font-semibold">{children}</div>
-    </div>
-  );
-}
-
-/** A profile's name cell: label, fullAuto shield, ghost/config-missing badge, and the visible (tildified) config path. */
-export function ProfileNameCell({ p }: { p: ProfileView }) {
-  const badge = profileBadge(p);
-  return (
-    <>
-      <div className="flex items-center gap-1.5 whitespace-nowrap">
-        <span className="font-mono" title={p.configPath ?? undefined}>
-          {profileLabel(p)}
-        </span>
-        {p.fullAuto && <FullAutoShield />}
-        {p.paused === true && (
-          <Pill tone="held" title="operator pause: no new runs start; running agents finish (a restart clears it)">
-            paused
-          </Pill>
-        )}
-        {badge && (
-          <Pill tone={badge.kind === "missing" ? "held" : "neutral"} title={badge.title}>
-            {badge.text}
-          </Pill>
-        )}
-        {badge?.kind === "ghost" && (
-          <span className="text-label text-muted" title={badge.title}>
-            created {formatDate(p.createdAt)}
-          </span>
-        )}
-      </div>
-      {p.configPath && (
-        <div className="block max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title={p.configPath}>
-          {p.configPath}
-        </div>
-      )}
-    </>
   );
 }
 

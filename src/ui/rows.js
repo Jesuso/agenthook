@@ -257,12 +257,27 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
     /** @type {string|null} */
     let lastName = null;
     let costUsd = 0;
+    /** @type {'ready'|'merged'|null} */
+    let prState = null;
+    /** @type {string|null} */
+    let finishedAt = null;
+    /** @type {string|null} */
+    let failReason = null;
     for (const e of events) {
       if (e.event === "run_start") lastStart = e;
-      if (e.event === "run_start" || e.event === "enqueued") terminal = null;
-      else if (e.event === "pipeline_done" || e.event === "merged") terminal = "done";
-      else if (e.event === "failed") terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
-      else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
+      if (e.event === "run_start" || e.event === "enqueued") {
+        terminal = null;
+        prState = null; // a re-run: the earlier finish / PR no longer stands
+        finishedAt = null;
+        failReason = null;
+      } else if (e.event === "pipeline_done" || e.event === "merged") {
+        terminal = "done";
+        prState = e.event === "merged" ? "merged" : "ready";
+        finishedAt = finishedAt ?? str(e.ts); // the first finish since the last run, so a later merge doesn't move it
+      } else if (e.event === "failed") {
+        terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
+        failReason = str(e.reason);
+      } else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
       if (e.event === "run_end" && typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
       lastStep = str(e.step) ?? lastStep;
       lastName = str(e.name) ?? lastName;
@@ -285,6 +300,11 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
       trackerUrl: trackerUrl && /^https?:\/\//i.test(trackerUrl) ? trackerUrl : null,
       prUrl: repo && Number.isInteger(pr) && pr > 0 ? `https://github.com/${repo}/pull/${pr}` : null,
       heldReason: str(held?.reason),
+      heldAt: str(held?.heldAt),
+      failReason: !run && !queued && !held && (terminal === "failed" || terminal === "cancelled") ? failReason : null,
+      prState: terminal === "done" && status === "done" ? prState : null,
+      finishedAt: terminal === "done" && status === "done" ? finishedAt : null,
+      queuePos: queued ? state.queue.indexOf(queued) : null,
     });
   }
   return rows;
@@ -319,6 +339,7 @@ export function profileView(p) {
     ingress: str(hb?.ingress),
     fullAuto: typeof hb?.fullAuto === "boolean" ? hb.fullAuto : null,
     ...identityOf(p.name, hb?.ui),
+    forge: str(hb?.forge),
     maxConcurrent: num(hb?.maxConcurrent),
     startedAt: str(hb?.startedAt),
     updatedAt: str(hb?.updatedAt),
@@ -335,6 +356,7 @@ export function profileView(p) {
     ghost: p.ghost === true,
     configMissing: p.configMissing === true,
     recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now()),
+    recentRuns: recentRuns(p.events ?? [], p.now ?? Date.now()),
   };
 }
 
@@ -360,6 +382,22 @@ export function recentCosts(events, now) {
     const t = typeof e.ts === "string" ? Date.parse(e.ts) : NaN;
     if (Number.isNaN(t) || now - t > RECENT_COSTS_MS) continue;
     out.push({ at: new Date(t).toISOString(), costUsd: e.costUsd });
+  }
+  return out;
+}
+
+/** Every `run_end` within RECENT_COSTS_MS of `now`, oldest first, with its outcome — what the
+ * Overview's rework rate counts (a `changes` outcome is a rework loop).
+ * @param {Record<string, any>[]} events @param {number} now
+ * @returns {import('./contract.js').RecentRun[]} */
+export function recentRuns(events, now) {
+  /** @type {import('./contract.js').RecentRun[]} */
+  const out = [];
+  for (const e of events) {
+    if (e.event !== "run_end") continue;
+    const t = typeof e.ts === "string" ? Date.parse(e.ts) : NaN;
+    if (Number.isNaN(t) || now - t > RECENT_COSTS_MS) continue;
+    out.push({ at: new Date(t).toISOString(), outcome: str(e.outcome) });
   }
   return out;
 }

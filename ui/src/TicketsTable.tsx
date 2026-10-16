@@ -43,7 +43,8 @@ export type TicketsTableProps = {
 /** The dashboard's tickets section: a one-row filter toolbar over a paged table in its own scroll region. */
 export function TicketsTable(props: TicketsTableProps) {
   const { tickets, profiles, now, profileFilter, statusFilter, showAll, open } = props;
-  const base = { profile: profileFilter || null, showAll, now };
+  const forges = new Set(profiles.filter((p) => p.forge).map((p) => p.name));
+  const base = { profile: profileFilter || null, showAll, now, forges };
   const counts = statusCounts(tickets, base);
   const rows = sortTickets(filterTickets(tickets, { ...base, status: (statusFilter || null) as StatusFilter | null }));
   // Grown pages reset to one whenever a filter changes (the key no longer matches).

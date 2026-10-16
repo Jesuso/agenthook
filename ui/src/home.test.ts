@@ -8,11 +8,11 @@ function profile(name: string, over: Partial<ProfileView> = {}): ProfileView {
   return {
     name, label: name, up: true, pid: 1, port: null, tracker: null, ingress: null, fullAuto: null, color: "sky", emoji: "💻", maxConcurrent: 2, startedAt: null,
     updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-    lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], ...over,
+    lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], forge: null, recentRuns: [], ...over,
   };
 }
 const ticket = (profileName: string, ref: string, status: TicketRow["status"]): TicketRow => ({
-  profile: profileName, ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null,
+  profile: profileName, ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null,
 });
 
 describe("buildHome", () => {

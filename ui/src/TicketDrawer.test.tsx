@@ -17,6 +17,11 @@ const row: TicketRow = {
   trackerUrl: "https://github.com/Jesuso/agenthook/issues/221",
   prUrl: "https://github.com/Jesuso/agenthook/pull/230",
   heldReason: null,
+  heldAt: null,
+  failReason: null,
+  prState: null,
+  finishedAt: null,
+  queuePos: null,
 };
 
 const render = (ticket: TicketRow | undefined) =>
