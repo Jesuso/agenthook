@@ -1,6 +1,6 @@
-/** The views inside one profile; `overview` is the profile's dashboard. */
-export type View = "overview" | "instructions" | "config";
-export const VIEWS: View[] = ["overview", "instructions", "config"];
+/** The views inside one profile; `overview` is the profile's dashboard, `stats` its deeper history. */
+export type View = "overview" | "stats" | "instructions" | "config";
+export const VIEWS: View[] = ["overview", "stats", "instructions", "config"];
 
 /** Where the app is: the Home grid of profile cards, or one profile's view. */
 export type Route = { kind: "home" } | { kind: "profile"; profile: string; view: View };

@@ -13,6 +13,7 @@ describe("parseHash", () => {
     expect(parseHash("#/p/dev")).toEqual({ kind: "profile", profile: "dev", view: "overview" });
     expect(parseHash("#/p/dev/instructions")).toEqual({ kind: "profile", profile: "dev", view: "instructions" });
     expect(parseHash("#/p/dev/config")).toEqual({ kind: "profile", profile: "dev", view: "config" });
+    expect(parseHash("#/p/dev/stats")).toEqual({ kind: "profile", profile: "dev", view: "stats" });
   });
 
   it("decodes the state key", () => {
@@ -34,6 +35,7 @@ describe("hashFor", () => {
       HOME,
       { kind: "profile", profile: "dev", view: "overview" },
       { kind: "profile", profile: "dev", view: "instructions" },
+      { kind: "profile", profile: "dev", view: "stats" },
       { kind: "profile", profile: "a/b c", view: "config" },
     ];
     for (const r of routes) expect(parseHash(hashFor(r))).toEqual(r);

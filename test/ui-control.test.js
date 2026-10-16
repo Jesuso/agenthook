@@ -476,9 +476,9 @@ test("GET /api/stats: cookie-only, validates days/tz, buckets the whole events h
   fs.writeFileSync(
     path.join(DIGESTED.dir, "events.jsonl"),
     [
-      { ts: new Date().toISOString(), event: "pipeline_done", ref: "A" },
-      { ts: new Date().toISOString(), event: "pipeline_done", ref: "A" },
       { ts: new Date().toISOString(), event: "run_end", ref: "A", outcome: "advance", costUsd: 1.5 },
+      { ts: new Date().toISOString(), event: "pipeline_done", ref: "A" },
+      { ts: new Date().toISOString(), event: "pipeline_done", ref: "A" },
     ].map((e) => JSON.stringify(e)).join("\n") + "\n",
   );
   assert.equal((await request("GET", "/api/stats?profile=digested", undefined, { cookie: null })).status, 401);
@@ -489,6 +489,8 @@ test("GET /api/stats: cookie-only, validates days/tz, buckets the whole events h
   assert.equal(res.status, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.days.length, 3);
-  assert.deepEqual(body.days.at(-1), { date: day, finished: 1, merged: 0, runs: 1, rework: 0, failedRuns: 0, costUsd: 1.5 });
+  const today = body.days.at(-1);
+  assert.deepEqual({ date: today.date, finished: today.finished, runs: today.runs, costUsd: today.costUsd }, { date: day, finished: 1, runs: 1, costUsd: 1.5 });
+  assert.deepEqual(today.ticketCost, { n: 1, p10: 1.5, p50: 1.5, p90: 1.5 }, "the ticket's spend, counted once despite the duplicate pipeline_done");
   assert.ok(body.since);
 });

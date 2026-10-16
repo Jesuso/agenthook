@@ -441,9 +441,18 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   `d3-scale`/`d3-shape`/`d3-array` compute scales and paths (`ui/src/statsChart.ts`, pure and tested);
   React renders the SVG (`StatsChart.tsx`), no d3 DOM manipulation. It loads as its own chunk (~12 KB
   gzipped), so the main bundle is unchanged. The line breaks on days that finished nothing.
-- Next, on a separate Stats view (`#/p/<key>/stats`) rather than the Overview: stacked cost by step,
-  diverging runs (advance vs changes/fail), a calendar heatmap, a median/p10–p90 range per ticket.
-  A candlestick has no open/close in our data, so the range chart stands in for it.
+- **Stats view** (`#/p/<key>/stats`, the second tab): four charts over the same day buckets, each a pure
+  d3 model (`ui/src/statsModels.ts`) drawn by `StatsView.tsx`, all in one lazy chunk (~6 KB gzipped on top
+  of the shared d3 chunk). Range toggle 14 / 30 / 90 days for the time series; the calendar is always 26 weeks.
+  1. *Finished per day* — GitHub-style calendar heatmap, shade ∝ √tickets finished.
+  2. *Spend by step* — stacked bars; steps ranked by total spend, beyond 8 folded into "other".
+  3. *How runs ended* — diverging bars: advances above the baseline; changes, holds and failures below
+     (same tones as the activity feed).
+  4. *What a finished ticket cost* — median and p10–p90 spread of the agent spend on the tickets finished
+     each day (spend since the ticket's previous finish, counted once even if `pipeline_done` repeats;
+     hand-finished tickets have no agent spend and are not sampled). A candlestick has no open/close in
+     our data, so this range chart stands in for it.
+  Day payload (`DayStats`) gained `byStep`, `outcomes` and `ticketCost`; `days` may now be up to 366.
 - Out of scope: anything cross-profile (ADR 0001).
 
 ### What a ticket is about (built)

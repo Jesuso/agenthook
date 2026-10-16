@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { latestChange, shortDate, statsUrl, summarizeStats, weekdayLetter } from "./stats";
-import type { DayStats } from "./contract";
+import { day } from "./statsFixtures";
 import type { FeedEntry } from "./feed";
 
-const day = (date: string, over: Partial<DayStats> = {}): DayStats => ({ date, finished: 0, merged: 0, runs: 0, rework: 0, failedRuns: 0, costUsd: 0, ...over });
 const ev = (event: string, ts: string): FeedEntry => ({ type: "event", profile: "p", event: { event, ts, ref: "1" } });
 
 describe("statsUrl", () => {
