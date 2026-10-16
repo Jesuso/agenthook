@@ -91,6 +91,29 @@ replay (`catchup` / `reconcile`) for the gaps.
 > [docs/architecture.md#security-posture](docs/architecture.md#security-posture) and report issues
 > per [SECURITY.md](SECURITY.md) before you point this at anything real.
 
+## Build your pipeline, small first
+
+A pipeline is just an ordered list of stages in the config — as many as you want. Start with a
+single `code` stage, watch it work, then add stages as you get comfortable: a `triage` stage that
+asks questions before any code is written, a `review` stage that sends work back, a security pass.
+
+**Day one — one stage:**
+
+![A one-stage pipeline in the config editor](docs/img/ui-pipeline-small.png)
+
+**Later — triage, code, review, security:**
+
+![A four-stage pipeline with rework and hold lanes](docs/img/ui-pipeline.png)
+
+Every stage has its own standing instructions, optional model and reasoning effort, attempt and
+time limits, and where a ticket goes on success, failure or hold. The config editor draws the
+graph as you type and validates before it saves.
+
+![Editing a stage in the config editor](docs/img/ui-config-pipeline.png)
+
+Stage-by-stage setup for your tracker is in the [Getting Started guide](docs/getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters);
+every field is in [docs/configuration.md](docs/configuration.md).
+
 ## Install
 
 Requires Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
@@ -145,6 +168,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 - **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
 - [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics
 - [Web UI](docs/web-ui.md) — the `agenthook ui` dashboard: Home, Overview, Stats, editors
+- [Profiles](docs/profiles.md) · [Configuration & ingress](docs/configuration.md) · [Operating agents](docs/operating.md) — day-to-day reference
 - [Troubleshooting](docs/troubleshooting.md) — symptom → fix
 - [Architecture](docs/architecture.md) — how the engine works + the honest tradeoffs
 - [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely
@@ -153,167 +177,28 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 
 ## Profiles & parallel runs
 
-A **profile** is one config = one process = one isolated state dir. Run as many as you like
-side by side; nothing is shared.
+A **profile** is one config = one process = one isolated state dir (`~/.agenthook/<name>/`). Run as
+many side by side as you like — nothing is shared. `agenthook ls` shows them all; `agenthook
+status <name>` shows one in detail; rename, move, or archive a profile without losing its history.
+Full guide: **[docs/profiles.md](docs/profiles.md)**.
 
-```bash
-agenthook start --config ~/proj-a/agenthook.config.json   # port 4123
-agenthook start --config ~/proj-b/agenthook.config.json   # port 4124 (set in its config)
+## Ingress and configuration
 
-agenthook ls              # every profile + live status
-# NAME    UP  PORT  TRACKER  INGRESS  AGENTS  QUEUE  LAST EVENT
-# proj-a  *   4123  asana    ngrok    1       0      2m ago
-# proj-b  *   4124  asana    hosted   0       0      1h ago
+`ingress.type` decides how the webhook reaches the receiver: **`ngrok`** (managed tunnel, zero
+setup) or **`hosted`** (your own stable HTTPS URL, best for production). The config file holds
+non-secret wiring plus `${ENV}` secret refs; `init` writes it for you and `agenthook ui` edits it
+with validation and backups. Every field and both ingress types are documented in
+**[docs/configuration.md](docs/configuration.md)**; start from
+[`agenthook.config.example.json`](agenthook.config.example.json).
 
-agenthook status proj-a   # one profile in detail (url, queue, recent runs)
-```
+## Starting work and operating agents
 
-Each command auto-discovers `./agenthook.config.json` (walking up from the cwd); `--config`
-selects one explicitly.
-
-### Renaming a profile
-
-```bash
-agenthook rename proj-b2          # relabel only: inserts "stateId": "proj-b", state dir stays put
-agenthook rename proj-b2 --move   # relabel AND move ~/.agenthook/proj-b/ → ~/.agenthook/proj-b2/
-```
-
-`--move` drops `stateId` from the config once the dir follows the name. A **running** receiver
-does the move itself on a restart-when-idle (new runs pause, running agents finish, the dir is
-renamed, the config rewritten, and it comes back up on the new key with all its history); a
-**stopped** one has it moved directly by the CLI. The web UI's Config view offers the same as
-"Move state dir to match name" whenever the label and the state key differ.
-
-- **Crash safety:** the dir is moved first, then the config written (a failed write moves the dir
-  back). If the process dies between the two, the next `start` is refused with the exact
-  `"stateId": "<new>"` to add — or move the dir back by hand.
-- **Same filesystem only:** a state dir on a different filesystem than `~/.agenthook` is refused
-  ("move by hand") — the move is always a plain rename, never a copy.
-- **Windows:** the control pipe is keyed by the state key, so it follows the move. A handle still
-  open on the dir can make the rename fail (`EPERM`/`EBUSY`); the receiver then restarts on the
-  old key unchanged — retry later.
-
-### Removing a profile
-
-```bash
-agenthook remove proj-b           # archive ~/.agenthook/proj-b/ → ~/.agenthook-archive/proj-b-<stamp>/
-agenthook remove proj-b --purge   # stopped only: archive, then permanently delete the archived copy
-```
-
-`remove` takes a label or state key (never the cwd config) and asks you to type the profile name
-(`--yes` skips the prompt; required on a non-interactive stdin). A **running** receiver does it
-itself: it finishes its running agents, unregisters its webhooks (`--keep-hooks` keeps them),
-exits and archives its own state dir. A **stopped** one is archived directly, but its webhooks
-can't be unregistered without it — run `agenthook unregister --config <path>` **before**
-removing. The config file and agent worktrees are never touched (`agenthook cleanup` prunes the
-latter); undo an archive by moving the dir back.
-
-From the web UI: the web UI (`agenthook ui`) has a **Remove…** action on each dashboard profile row. It never
-hard-deletes: the state dir moves to `~/.agenthook-archive/<key>-<YYYY-MM-DDTHH-MM-SS>/`
-(`$AGENTHOOK_HOME-archive/…` under a custom `AGENTHOOK_HOME`), keeping history, dedup, logs and
-webhook secrets — **reversible** by moving the dir back. Confirm by typing the profile's label.
-
-- **Running receiver:** it decommissions itself at idle — new runs pause, running agents finish,
-  it unregisters its webhooks (an opt-out checkbox), exits and archives its dir.
-- **Stopped receiver:** the UI archives the dir directly. Webhooks can't be unregistered without
-  the receiver, so it shows the exact `agenthook unregister --config <path>` to run (skip it if the
-  profile never registered one).
-- **Not touched:** the config file, and agent worktrees — clean those with `agenthook cleanup` in
-  the repo.
-
-## Ingress (how the webhook reaches you)
-
-Set by `ingress.type` in the config; the server owns its lifecycle (brings the tunnel up on
-`start`, tears it down on `stop`).
-
-- **`ngrok`** — managed tunnel, URL rotates each boot (so agenthook scrubs + re-registers the
-  webhook on every `start`). A reserved `domain` makes it stable. Needs `NGROK_AUTHTOKEN`.
-- **`hosted`** (alias `manual`) — you front the receiver (`127.0.0.1:<port>`) with anything
-  giving a stable HTTPS URL (Caddy, Cloudflare Tunnel, a load balancer) and set
-  `ingress.url`. Stable URL → no re-register churn. Best for parallel/production.
-
-## Configuration
-
-`agenthook.config.json` holds non-secret wiring + `${ENV}` secret refs. State (dedup set,
-handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<stateId ?? name>/`.
-
-| Field | Meaning |
-|-------|---------|
-| `name` | Profile name; keys the state dir unless `stateId` is set. Must be unique across running profiles. |
-| `stateId` | Optional stable state key (`[A-Za-z0-9._-]+`): the state dir is `~/.agenthook/<stateId>`, so `name` can be relabelled without moving state (`agenthook rename <new>`; `--move` moves the dir too and drops it). Renaming a profile *without* it makes `start` refuse (its config already owns another state dir — see `profile.json` there) rather than silently start on an empty dir. |
-| `repoPath` | The repo agents work in (worktrees are siblings). Relative paths resolve against the config. |
-| `port` | Local receiver port. Distinct per parallel profile. |
-| `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
-| `maxConcurrent` | How many agents run at once (each in its own worktree). |
-| `overlapGuard` | **Off by default.** `true` holds a task's worktree step while the files its triage predicted overlap files another in-flight agent task has locked; it is released when that task drains, fails, or merges. See [File-overlap guard](docs/architecture.md#file-overlap-guard-overlapguard-opt-in). |
-| `ui` | Optional profile identity for `ah ui`: `{ "color": "teal", "emoji": "🚀" }`. `color` is one of `sky`, `indigo`, `violet`, `pink`, `teal`, `cyan`, `slate`, `stone`; `emoji` comes from a curated list (the config editor's Appearance picker). Unset values are derived from the state key, so profiles are distinct without any config. Shown after the receiver restarts. |
-| `digest` | Optional settings for the web UI's on-demand "Catch me up" summary: `{ "soul": "./SOUL.md", "access": "snapshot", "model": "…", "maxBudgetUsd": 0.5 }`. `soul` (default `SOUL.md` beside the config) is a markdown file describing what matters to you and how the digest should sound; edit it in the Instructions tab. The digest agent only reads a snapshot the receiver builds (no tools, no board access), runs outside the agent slots, and is never started automatically. |
-| `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
-| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), or `github-projects` (Projects v2 board columns); `pipeline` is the ordered steps (required). |
-| `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
-
-See [`agenthook.config.example.json`](agenthook.config.example.json) for a fully-commented
-template and [`.env.example`](.env.example) for the env vars each tracker/ingress needs.
-
-## Starting vs replaying work
-
-A step's **source stage** — its label (GitHub), section (Asana), or status (Jira) — is its
-**inbox**. Forward motion is event-driven: an item **entering** a source stage fires that step.
-Nothing in agenthook moves an item *into* an inbox on its own — `catchup`/`reconcile` only
-**replay** items already resting in one. To *start* new work, you put it in the inbox.
-
-| Action | What it does | When you reach for it |
-|--------|--------------|-----------------------|
-| **trigger** (live) | a label/section/status move into a source stage fires that step | the hot path — you, or a prior step's `advance`, move an item in |
-| **`run <ref>`** | inject a *new* item: assign it to you + move it into a step's source stage | start a backlog item that has never entered the pipeline ([#11](https://github.com/Jesuso/agenthook/issues/11)) |
-| **`reconcile`** | replay *every* item currently resting in a source stage (the one explicit poll) | recover items that entered while the server was down |
-| **`catchup <ref>`** | replay *one* such resting item | recover a single missed item |
-
-`reconcile`/`catchup` are **downtime replay only**: they re-fire the step a resting item already
-maps to — they never move an item into a stage. If an item isn't in any source stage there's
-nothing to replay; use `run` (or move it in by hand) to start it.
-
-**Start a new item.** There's no event for a backlog item *until* it enters a step's source
-stage. `run` assigns it to you (fail-closed scoping) and moves it in; the live webhook then fires
-the step normally:
-
-```bash
-agenthook run <ref>             # assign + enter the FIRST step's source stage (alias: kick)
-agenthook run <ref> review      # target a named step's source stage
-agenthook run <ref> --no-assign # skip the assign (only if it's already assigned to you)
-```
-
-If no server is up, the item just rests in the stage; `agenthook reconcile` picks it up once
-it's running.
-
-**Replay a missed item.** Webhooks are push-only and fire on a *transition* (an item moving into a
-stage), not a state — so a move missed while the receiver was down can't be recovered by polling
-alone. Replay it explicitly through the running server:
-
-```bash
-agenthook catchup <ref>           # forge + POST the exact signed event for one resting item
-agenthook catchup <ref> --force   # re-run even if already handled
-agenthook reconcile               # re-fire every item resting in a source stage (the one explicit poll)
-```
-
-## Operating running agents
-
-Each run is a plain `claude -p` OS process working in its own git worktree.
-
-```bash
-agenthook agents [name]           # list running agents (pid, runtime, ref, live token tally); no secrets needed
-agenthook follow [session-id] [--repo <id>]  # tail a live agent read-only (no second process)
-agenthook usage                   # per-run token & cost table (--ref <n>, --day, --week)
-agenthook cleanup                 # dry run: which worktrees are done and safe to remove
-agenthook cleanup --apply         #   remove them (add --force for dirty ones)
-```
-
-Every `claude -p` run's token counts and cost are captured to `usage.jsonl` and surfaced by
-`agenthook usage` (with `--day`/`--week` rollups) plus token/cost columns on `agents`, `status`,
-and `ls`. See [Token & cost tracking](docs/usage.md).
-
-Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
-does, and only once the PR is merged/closed or the tracker item is completed.
+Work starts when a ticket **enters a stage's inbox** (a section, status, label or board column).
+`agenthook run <ref>` injects a backlog item; `catchup` / `reconcile` replay items missed while the
+receiver was down. Running agents are plain `claude -p` processes: list them with
+`agenthook agents`, tail one with `agenthook follow`, see tokens and cost with `agenthook usage`,
+and tear down finished worktrees with `agenthook cleanup`. Details:
+**[docs/operating.md](docs/operating.md)**.
 
 ## Let other agents run it (MCP)
 
