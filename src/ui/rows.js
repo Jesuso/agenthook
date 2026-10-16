@@ -257,7 +257,7 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
     /** @type {string|null} */
     let lastName = null;
     let costUsd = 0;
-    /** @type {'ready'|'merged'|null} */
+    /** @type {'ready'|'merged'|'closed'|null} */
     let prState = null;
     /** @type {string|null} */
     let finishedAt = null;
@@ -285,6 +285,9 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
 
     /** @type {import('./contract.js').TicketStatus} */
     const status = run ? (up ? "running" : "interrupted") : queued ? (up ? "queued" : "stalled") : held ? "held" : terminal ?? "idle";
+    // A PR the receiver later learned is merged/closed (refmeta.prState, from the `prs` op or a
+    // merge job) outranks the event-derived `ready` — no forge hook needed for it to leave Needs you.
+    if (prState === "ready" && (meta.prState === "merged" || meta.prState === "closed")) prState = meta.prState;
     const pr = meta.pr;
     const trackerUrl = str(meta.url);
     rows.push({

@@ -412,6 +412,49 @@ test("prs: marks mine from adapter.ownership; a non-fresh repeat within 5 min do
   assert.deepEqual(calls, ["1", "2", "1", "2"], "fresh:true clears the ownership cache and re-resolves");
 });
 
+test("prs: learns merged/closed for known PRs missing from the open list; open ones are not looked up; a failed lookup changes nothing", async () => {
+  /** @type {number[]} */
+  const looked = [];
+  const forge = {
+    listAgentPrs: async () => [{ number: 1, ref: "1", ci: "success" }],
+    prState: async (/** @type {number} */ n) => {
+      looked.push(n);
+      if (n === 4) throw new Error("boom");
+      return n === 2 ? "merged" : n === 3 ? "closed" : "open";
+    },
+  };
+  const s = setup({ forge });
+  s.store.setRefMeta("1", { pr: 1, title: "open one" });
+  s.store.setRefMeta("2", { pr: 2, title: "merged one" });
+  s.store.setRefMeta("3", { pr: 3 });
+  s.store.setRefMeta("4", { pr: 4, title: "lookup fails" });
+  s.store.setRefMeta("5", { pr: 5 });
+  s.store.setRefMeta("6", { pr: 6, prState: "merged" });
+  s.store.setRefMeta("7", { title: "no PR" });
+  const r = await s.ops.prs({});
+  assert.deepEqual(r.prs.map((/** @type {any} */ p) => p.number), [1]);
+  assert.deepEqual(looked.sort(), [2, 3, 4, 5], "open (#1), already-terminal (#6) and PR-less refs are not looked up");
+  const meta = s.store.listRefMeta();
+  assert.deepEqual(meta["2"], { pr: 2, title: "merged one", prState: "merged" });
+  assert.equal(meta["3"].prState, "closed");
+  assert.deepEqual(meta["4"], { pr: 4, title: "lookup fails" });
+  assert.equal(meta["5"].prState, undefined, "still open → nothing written");
+  looked.length = 0;
+  await s.ops.prs({ fresh: true });
+  assert.deepEqual(looked.sort(), [4, 5], "terminal states are not re-looked up");
+});
+
+test("prs: a forge without prState still lists PRs; lookups are bounded per fill", async () => {
+  const plain = setup({ forge: { listAgentPrs: async () => [] } });
+  plain.store.setRefMeta("1", { pr: 1 });
+  assert.deepEqual((await plain.ops.prs({})).prs, []);
+  let n = 0;
+  const s = setup({ forge: { listAgentPrs: async () => [], prState: async () => (n++, "open") } });
+  for (let i = 1; i <= 30; i++) s.store.setRefMeta(String(i), { pr: i });
+  await s.ops.prs({});
+  assert.equal(n, 20);
+});
+
 test("prs: fresh:true clears the ownership cache so a reassignment is re-resolved", async () => {
   /** @type {string[]} */
   const calls = [];

@@ -4,7 +4,7 @@ import { isNeedsYou } from "./summary";
 /** One row of the Overview's Needs-you zone. */
 export type NeedsItem = {
   ticket: TicketRow;
-  /** `pr`: finished, its PR awaits merge (forge profiles only). */
+  /** `pr`: finished, its known PR (`prUrl`) awaits merge (forge profiles only). */
   kind: "failed" | "held" | "pr";
   /** The one-line why: the failure / hold reason, null when the agent gave none. */
   reason: string | null;

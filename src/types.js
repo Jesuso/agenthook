@@ -119,6 +119,7 @@
  * @property {string} [displayId]  the tracker's human id (Asana custom field, "#94", Jira key)
  * @property {string} [title]      the task title
  * @property {number} [pr]         the PR number for the ref's branch, once one exists
+ * @property {'merged'|'closed'} [prState]  that PR's terminal state once learned (the `prs` op's `forge.prState` lookup, or a merge job); unset while open/unknown
  * @property {string} [url]        the item's tracker web URL (Task.url)
  * @property {string} [summary]    the first prose paragraph of the description, plain and clipped (src/ticket-summary.js); what `ah ui` shows as "what is this about"
  */
@@ -353,6 +354,7 @@
  * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup
  * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
  * @property {(prNumber: number|null, ref: string) => Promise<{number: number, sha: string, open: boolean}|null>} [prHead]  the ref's agent-branch PR (by number, else the open one), or null
+ * @property {(prNumber: number) => Promise<'open'|'merged'|'closed'>} [prState]  one PR's state by number (any branch); throws on a non-2xx
  * @property {() => Promise<AgentPr[]>} [listAgentPrs]  open PRs on receiver-made `agent/<ref>` branches of this repo, with CI + mergeability (read-only; the MCP `prs` tool)
  * @property {(prNumber: number, sha: string) => Promise<{mergeable: boolean|null, mergeState: string|null, ci: AgentPr['ci']}>} [ciStatus]  CI roll-up for one PR head + its mergeability (backs `ci_green`)
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run

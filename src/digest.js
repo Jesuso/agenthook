@@ -46,7 +46,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now() } = {})
 
   const held = rows.filter((r) => r.status === "held").map((r) => ({ ticket: id(r), step: r.step, why: clip(r.heldReason, REASON_MAX), waitingMin: since(r.heldAt) }));
   const failed = rows.filter((r) => r.status === "failed").map((r) => ({ ticket: id(r), step: r.step, why: clip(r.failReason, REASON_MAX) }));
-  const prWaiting = rows.filter((r) => r.status === "done" && r.prState === "ready").map((r) => ({ ticket: id(r), pr: r.prUrl, finishedMinAgo: since(r.finishedAt) }));
+  const prWaiting = rows.filter((r) => r.status === "done" && r.prState === "ready" && r.prUrl).map((r) => ({ ticket: id(r), pr: r.prUrl, finishedMinAgo: since(r.finishedAt) }));
   const running = rows.filter((r) => r.status === "running").map((r) => ({ ticket: id(r), step: r.step, runningMin: since(r.startedAt) }));
   const queued = rows.filter((r) => r.status === "queued").length;
   const finished = rows.filter((r) => r.status === "done" && r.finishedAt && now - Date.parse(r.finishedAt) <= DAY_MS);
@@ -57,7 +57,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now() } = {})
 
   // Per-step verdict summaries the agents left, for the tickets that need a human.
   const summaries = readJsonObject(path.join(dir, "summaries.json"));
-  const needs = new Set([...rows.filter((r) => ["held", "failed"].includes(r.status) || (r.status === "done" && r.prState === "ready")).map((r) => r.ref)]);
+  const needs = new Set([...rows.filter((r) => ["held", "failed"].includes(r.status) || (r.status === "done" && r.prState === "ready" && r.prUrl)).map((r) => r.ref)]);
   /** @type {Record<string, unknown>} */
   const notes = {};
   for (const r of rows) {

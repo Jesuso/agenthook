@@ -399,9 +399,11 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - No cross-profile table, activity rail or global totals.
 
 ### Needs you
-- Count = held + failed + **PR awaiting merge**.
-- New ticket row field `prState`: `pipeline_done` → `ready`, `merged` → `merged`. A ready PR counts
-  toward Needs you only on a profile with a forge (without one, merged-by-hand PRs can't be told apart).
+- Count = held + failed + **PR awaiting merge** (with a known PR).
+- New ticket row field `prState`: `pipeline_done` → `ready`, `merged` → `merged`; a `ready` is
+  overridden by `refmeta.prState` `merged`/`closed`. A ready PR counts toward Needs you only on a
+  profile with a forge (without one, merged-by-hand PRs can't be told apart) **and** only with a
+  `prUrl` (`refmeta.pr` known) — a ticket finished by hand on another branch is just Finished.
 
 ### Profile Overview
 - Stat tiles: agents (slot pips), queued, cost today, **finished today**, pause/resume.
@@ -502,10 +504,14 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   *All tickets* (the old table, auto-opens while a status filter is active) and an *Activity* panel
   with an "N new" badge for events that arrived while it was collapsed. The right-hand rail is gone.
 - New ticket-row fields (`src/ui/rows.js`, from the events tail / state files): `prState`
-  (`ready` after `pipeline_done`, `merged` after a forge's `merged`, cleared by a re-run),
+  (`ready` after `pipeline_done`, `merged` after a forge's `merged`, cleared by a re-run; a `ready`
+  yields to `refmeta.prState` `merged`/`closed` — written by a merge job, or by the `prs` op, which
+  looks up up to 20 known PRs missing from the open list per cache fill via `forge.prState(n)`;
+  explicit call only, no timer),
   `finishedAt` (the first finish since the last run — a later merge doesn't move it), `failReason`,
   `heldAt`, `queuePos`. New profile fields: `forge` (heartbeat) and `recentRuns` (`run_end` outcomes,
-  last 48 h). A ready PR counts as Needs you **only** on a profile with a forge.
+  last 48 h). A ready PR counts as Needs you **only** on a profile with a forge and a known PR
+  (`prUrl`); `merged`/`closed` are Finished, with no PR action.
 - Needs-you rows show kind, id + title, the one-line reason, step and age; **Ticket ↗ / PR ↗ /
   Details / Dismiss** appear on hover or focus (always on touch). A held row has an always-visible
   **Release…** that opens an inline answer form (optional comment, added to the agent's prompt;

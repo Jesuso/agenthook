@@ -40,6 +40,15 @@ test("buildSnapshot: groups what needs a human, what runs, what finished, cost",
   assert.ok(Object.values(s.agentNotes).some((n) => String(n).includes("DB choice")), "verdict summary of a held ticket rides along");
 });
 
+test("buildSnapshot: a finished ticket awaits merge only with a known PR", () => {
+  const dir = stateDir();
+  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge, [], "no refmeta.pr → just finished");
+  const meta = JSON.parse(fs.readFileSync(path.join(dir, "refmeta.json"), "utf8"));
+  meta[4].pr = 9;
+  fs.writeFileSync(path.join(dir, "refmeta.json"), JSON.stringify(meta));
+  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge.map((p) => p.pr), ["https://github.com/o/r/pull/9"]);
+});
+
 test("buildSnapshot: an empty state dir is an all-zero snapshot, not a throw", () => {
   const s = buildSnapshot(fs.mkdtempSync(path.join(os.tmpdir(), "ah-digest-")), { now: NOW });
   assert.deepEqual(s.needsYou, { held: [], failed: [], prAwaitingMerge: [] });

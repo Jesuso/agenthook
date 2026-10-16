@@ -4,12 +4,13 @@ import type { Snapshot, TicketRow, TicketStatus } from "./contract";
 export const NEEDS_YOU: TicketStatus[] = ["held", "failed"];
 
 /**
- * Whether a ticket is Needs you (CONTEXT.md): held, failed, or a finished ticket whose PR awaits
- * merge. The PR clause needs `forge` — without one `merged` is never observed, so a PR merged by
- * hand would read as awaiting forever.
+ * Whether a ticket is Needs you (CONTEXT.md): held, failed, or a finished ticket whose known PR
+ * awaits merge. The PR clause needs `forge` — without one `merged` is never observed, so a PR merged
+ * by hand would read as awaiting forever — and a `prUrl`: a ticket finished with no recorded PR
+ * (work shipped by hand on another branch) is simply Finished.
  */
-export function isNeedsYou(t: Pick<TicketRow, "status" | "prState">, forge: boolean): boolean {
-  return NEEDS_YOU.includes(t.status) || (forge && t.status === "done" && t.prState === "ready");
+export function isNeedsYou(t: Pick<TicketRow, "status" | "prState" | "prUrl">, forge: boolean): boolean {
+  return NEEDS_YOU.includes(t.status) || (forge && t.status === "done" && t.prState === "ready" && !!t.prUrl);
 }
 
 export type Summary = {

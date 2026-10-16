@@ -641,6 +641,7 @@ function mergeHarness(o = {}) {
     clearFindings: (ref) => calls.push(`clearFindings ${ref}`),
     clearDifficulty: (ref) => calls.push(`clearDifficulty ${ref}`),
     clearSummaries: (ref) => calls.push(`clearSummaries ${ref}`),
+    setRefMeta: (ref, patch) => calls.push(`refmeta ${ref} ${JSON.stringify(patch)}`),
   };
   const emit = (event, ref, step, extra) => events.push({ event, ref, step, ...extra });
   const run = createDispatcher(/** @type {any} */ (cfg), adapter, undefined, /** @type {any} */ (store), emit);
@@ -650,7 +651,7 @@ function mergeHarness(o = {}) {
 test("merge: moves into the completeOnMerge step (assign:false) BEFORE completing, emits merged", async () => {
   const h = mergeHarness();
   const out = await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "complete G1", "clearSummaries G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "complete G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
   assert.equal(out.code, 0);
   assert.equal(out.name, "Task G1");
@@ -673,14 +674,14 @@ test("merge: fetch error fails closed (skip)", async () => {
 test("merge: no completeOnMerge step → complete + direct cleanup (attempts/findings/difficulty)", async () => {
   const h = mergeHarness({ pipeline: [{ id: "code" }] });
   await h.run({ kind: "merge", ref: "G1", stepId: "", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "complete G1", "clearAttempts G1", "clearFindings G1", "clearDifficulty G1", "clearSummaries G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", "complete G1", "clearAttempts G1", "clearFindings G1", "clearDifficulty G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "", name: "Task G1", url: "u/G1" }]);
 });
 
 test("merge: tracker without complete() is a logged no-op; still moves + emits", async () => {
   const h = mergeHarness({ complete: false });
   await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "clearSummaries G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
 });
 

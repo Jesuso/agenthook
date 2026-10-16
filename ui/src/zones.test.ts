@@ -16,7 +16,7 @@ describe("needsYouItems", () => {
     const items = needsYouItems(
       [
         t("h-old", { status: "held", heldReason: "which db?", startedAt: local(8) }),
-        t("pr", { status: "done", prState: "ready", finishedAt: local(11) }),
+        t("pr", { status: "done", prState: "ready", prUrl: "https://github.com/o/r/pull/1", finishedAt: local(11) }),
         t("f", { status: "failed", failReason: "tests red", startedAt: local(9) }),
         t("h-new", { status: "held", summary: null, heldReason: null, startedAt: local(10) }),
         t("running", { status: "running" }),
@@ -37,9 +37,14 @@ describe("needsYouItems", () => {
   });
 
   it("leaves a ready PR out without a forge, and a merged one always", () => {
-    const tickets = [t("a", { status: "done", prState: "ready" }), t("b", { status: "done", prState: "merged" })];
+    const prUrl = "https://github.com/o/r/pull/1";
+    const tickets = [t("a", { status: "done", prState: "ready", prUrl }), t("b", { status: "done", prState: "merged", prUrl }), t("c", { status: "done", prState: "closed", prUrl })];
     expect(needsYouItems(tickets, false)).toEqual([]);
     expect(needsYouItems(tickets, true).map((i) => i.ticket.ref)).toEqual(["a"]);
+  });
+
+  it("leaves a finished ticket with no known PR out — it is just Finished", () => {
+    expect(needsYouItems([t("a", { status: "done", prState: "ready", prUrl: null })], true)).toEqual([]);
   });
 });
 
