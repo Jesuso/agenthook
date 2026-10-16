@@ -23,3 +23,11 @@ _Avoid_: Shipped, landed
 **Needs you**:
 A ticket that is blocked on a human: held, failed, or a PR awaiting merge. The headline number of a profile.
 _Avoid_: Attention, alerts, pending
+
+**Digest**:
+An on-demand, agent-written summary of one profile's recent activity, boiled down to what needs a human. Only the latest is kept.
+_Avoid_: Report, briefing, summary (ambiguous with a run's verdict summary)
+
+**SOUL**:
+A profile's standing description of what matters to its owner and how its digest should sound. A markdown file the owner edits.
+_Avoid_: Persona, prompt

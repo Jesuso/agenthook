@@ -421,9 +421,27 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - **Image deferred.** If wanted later: `ui.image` as a path/URL in config, no upload endpoint
   (upload would break "the UI's only file writes are instructions and config").
 
-### Digest agent (separate design pass)
-- On-demand only (button; result cached), per-profile SOUL file, read-only on the board, spawned
-  through the receiver's control-socket ops — never from the UI process. Not part of the first slice.
+### Digest agent (designed; not built)
+A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up"). Decisions:
+- **Trigger**: a button on the Overview only (never Home: one profile at a time). Never automatic, never on a timer.
+- **Spawn**: the UI sends a `digest` op over the receiver's control socket (same guards as the other
+  POSTs, audited to `ui-audit.jsonl` and `control-audit.jsonl`). The UI process never spawns anything.
+- **Access, default `snapshot`**: the receiver assembles a text payload (tickets with status and held
+  reasons, PRs, verdict summaries, recent events, cost) plus the SOUL, and runs `claude -p` with every
+  tool disabled. Read-only by construction. Config `digest.access` may later widen it
+  (`snapshot` | `mcp-readonly` | `repo-plan`); only `snapshot` is in the first slice.
+- **Slots and cost**: outside the `maxConcurrent` pool, one digest in flight per profile (a second
+  request returns the running one). Cost goes in a `digest_end` event (`costUsd`) and is shown on the
+  digest; it is not counted in ticket cost or "cost today".
+- **SOUL**: markdown file, `digest.soul` in config (default `SOUL.md` beside the config), added to the
+  instructions allowlist so the Instructions tab edits it through the existing hash/backup/audit path.
+  Missing file means a built-in neutral default.
+- **Result**: only the latest per profile, written by the receiver to `<stateDir>/digest.json`
+  (`text, generatedAt, costUsd, model, basedOnEventOffset`) and pushed to the UI by SSE. The Overview
+  panel shows age, an "N events since" stale hint and a Refresh button.
+- **Build slices**: (1) config schema + SOUL allowlist + payload builder (pure, tested);
+  (2) receiver `digest` op + `digest.json` + events; (3) UI panel + `POST /api/digest`;
+  (4) `digest.access` widening, if wanted.
 
 ### Build order
 (Steps 1–3 are built.)
