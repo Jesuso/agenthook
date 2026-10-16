@@ -172,3 +172,16 @@ test("events --json: coalesced hidden by default, shown with --event coalesced, 
   const filteredEvents = filtered.trim().split("\n").map((l) => JSON.parse(l).event);
   assert.deepEqual(filteredEvents, ["coalesced"]);
 });
+
+test("events --json: epic_changed hidden by default, shown with --event epic_changed (a VALID_EVENTS name)", async () => {
+  const config = startedProfile([
+    { ts: "t", event: "enqueued", ref: "1", step: "code" },
+    { ts: "t", event: "epic_changed", ref: "12", step: "" },
+  ]);
+
+  const defaultOut = await captureStdout(() => events({ _: [], config, json: true }));
+  assert.deepEqual(defaultOut.trim().split("\n").map((l) => JSON.parse(l).event), ["enqueued"]);
+
+  const filtered = await captureStdout(() => events({ _: [], config, json: true, event: "epic_changed" }));
+  assert.deepEqual(filtered.trim().split("\n").map((l) => JSON.parse(l).event), ["epic_changed"]);
+});

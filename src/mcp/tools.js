@@ -88,7 +88,7 @@ const TOOLS = {
   },
   events: {
     def: schema(
-      "Pipeline events after `cursor` (enqueued, run_start, run_end{outcome,costUsd}, failed, blocked, move_refused{outcome,reason,detail}, merged, ci_red, ci_green, pulled, pipeline_done, …). move_refused = a verdict's move did not happen (owner check refused/failed, or the move threw): the ticket is still in its stage and the next step will not fire. With `waitS` it blocks until a matching event arrives or the timeout — event-driven (no polling), so prefer one waiting call over a loop of status calls. First call: omit cursor (returns the current cursor, or the last N events with `last`).",
+      "Pipeline events after `cursor` (enqueued, run_start, run_end{outcome,costUsd}, failed, blocked, move_refused{outcome,reason,detail}, merged, ci_red, ci_green, pulled, pipeline_done, …). epic_changed (GitHub: an epic's sub-issues or type changed; ref = the epic) is hidden unless named in `types`. move_refused = a verdict's move did not happen (owner check refused/failed, or the move threw): the ticket is still in its stage and the next step will not fire. With `waitS` it blocks until a matching event arrives or the timeout — event-driven (no polling), so prefer one waiting call over a loop of status calls. First call: omit cursor (returns the current cursor, or the last N events with `last`).",
       {
         profile: PROFILE,
         cursor: { type: "integer", description: "byte offset returned by a previous call" },

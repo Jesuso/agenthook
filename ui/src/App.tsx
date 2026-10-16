@@ -3,6 +3,7 @@ import type { ProfileView, Snapshot } from "./contract";
 import { subscribe } from "./stream";
 import { applyEvent, clearRemovedProfile } from "./state";
 import { appendFeed, isHiddenFeedEvent } from "./feed";
+import { epicChangedRefetches } from "./epics";
 import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
@@ -180,6 +181,7 @@ export default function App() {
           if (!isHiddenFeedEvent(ev.event.event)) setFeed((f) => appendFeed(f, ev));
           const o = openRef.current;
           if (o && affectsRuns(ev, o.profile, o.ref)) setRunsNonce((n) => n + 1);
+          if (epicChangedRefetches(routeRef.current, ev.profile, ev.event)) setTicketsNonce((n) => n + 1);
           return;
         }
         // Navigate away from a removed profile whether or not the snapshot is mid-fetch.

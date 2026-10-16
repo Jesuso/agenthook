@@ -5,13 +5,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createOps, ttlCache } from "../src/ops.js";
+import { createEpicChanged } from "../src/epic-changed.js";
 import { createStore } from "../src/store.js";
 import { createQueue } from "../src/queue.js";
 import { startControl } from "../src/control.js";
 import { controlRequest } from "../src/ui/control-client.js";
 
-/** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any}} [o] */
-function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker } = {}) {
+/** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any, onEpicChanged?: (reset: () => void) => void}} [o] */
+function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker, onEpicChanged } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
   const cfg = /** @type {any} */ ({
     name: "t",
@@ -38,6 +39,7 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
     heartbeat: { update: (p) => beats.push(p) },
     pull: async () => void pulls.push("pull"),
     isLocked: () => locked,
+    onEpicChanged,
   });
   const audit = () => fs.readFileSync(path.join(dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   return { dir, cfg, store, queue, ops, intaken, events, beats, audit, pulls, left };
@@ -602,6 +604,42 @@ test("epics: cached within the TTL, fresh refetches, a write invalidates", async
   await ops.pause({});
   await ops.epics({});
   assert.equal(calls.listEpics, 3, "a write drops the cached read");
+});
+
+test("epics: onEpicChanged hands over a cache reset that is not a control op", async () => {
+  const { adapter, calls } = epicAdapter();
+  /** @type {(() => void) | undefined} */
+  let reset;
+  const { ops } = setup({ adapter, onEpicChanged: (r) => { reset = r; } });
+  assert.equal(typeof reset, "function");
+  assert.ok(!Object.keys(ops).some((k) => /epic_?changed|reset|invalidate/i.test(k)), "no invalidation own property on the commands map");
+  await ops.epics({});
+  await ops.epics({});
+  assert.equal(calls.listEpics, 1);
+  reset?.();
+  await ops.epics({});
+  assert.equal(calls.listEpics, 2, "the next epics call refetches from the tracker");
+});
+
+test("epic_changed (engine wiring): one emit, never queued, redelivery deduped, next epics call refetches, no tracker write", async () => {
+  const { adapter, calls } = epicAdapter();
+  /** @type {string[]} */ const writes = [];
+  for (const m of ["advance", "enterStage", "complete", "registerWebhook"]) /** @type {any} */ (adapter)[m] = async () => void writes.push(m);
+  /** @type {(() => void) | undefined} */
+  let reset;
+  const { ops, store, queue, events } = setup({ adapter, onEpicChanged: (r) => { reset = r; } });
+  const epicChanged = createEpicChanged({ store, emit: (e, ref, step, x) => events.push([e, ref, step, x]), invalidate: () => reset?.() });
+  await ops.epics({});
+  const job = { kind: /** @type {const} */ ("epic_changed"), ref: "E1", stepId: "", dedupKey: "epic:guid-1" };
+  assert.equal(epicChanged(job), true);
+  assert.equal(epicChanged({ ...job }), false, "a redelivery with the same dedupKey emits nothing");
+  assert.deepEqual(events, [["epic_changed", "E1", "", undefined]]);
+  assert.equal(queue.state().queued, 0);
+  assert.equal(queue.state().active, 0);
+  assert.equal(store.listQueued().length, 0);
+  await ops.epics({});
+  assert.equal(calls.listEpics, 2, "the cached epics read was dropped");
+  assert.deepEqual(writes, []);
 });
 
 test("epics: the local join is fresh on every call (outside the cache)", async () => {

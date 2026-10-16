@@ -90,7 +90,10 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   isLocked: () => boolean,
  *   now?: () => number,
  *   digester?: { request(): Promise<any> },
- * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it
+ *   onEpicChanged?: (reset: () => void) => void,
+ * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it.
+ *   onEpicChanged: handed the epics-cache reset so the engine can drop it on an `epic_changed`
+ *   signal — a callback, not a property of the returned map (every own property is a control op)
  * @returns {Record<string, (args: any) => Promise<any>>}
  */
 export function createOps(deps) {
@@ -242,6 +245,7 @@ export function createOps(deps) {
     BOARD_TTL_MS,
     now,
   );
+  deps.onEpicChanged?.(() => epics.reset());
 
   /**
    * `review` = the newest stored summary among the pipeline's review-kind steps for the PR's

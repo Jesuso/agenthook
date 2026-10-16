@@ -1,9 +1,18 @@
 import type { EpicBucket, EpicDetailTicket, EpicResponse, EpicStats, EpicsResponse } from "./contract";
 import { shortDate } from "./stats";
+import type { Route } from "./route";
 
 /** A ticket SSE event for the profile refetches the open epics view after this quiet period — a
  * debounce, not a poll: nothing fires without an event. */
 export const REFETCH_DEBOUNCE_MS = 2000;
+
+/** Whether an `epic_changed` event (events.jsonl line) from `profile` refetches the open view: the
+ * profile's Epics list on any epic, one epic's page only when it is that epic. */
+export function epicChangedRefetches(route: Route, profile: string, event: Record<string, unknown>): boolean {
+  if (event.event !== "epic_changed") return false;
+  if (route.kind !== "profile" || route.view !== "epics" || route.profile !== profile) return false;
+  return route.epic === undefined || route.epic === String(event.ref ?? "");
+}
 
 /** `GET /api/epics[/<ref>]` for the profile; `tz` as `/api/stats` (statsUrl): this browser's
  * `getTimezoneOffset()`, so velocity days cut at local midnight. */

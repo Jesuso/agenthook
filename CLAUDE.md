@@ -283,7 +283,9 @@ labels only; Jira / Projects v2 not yet.
   **auto-created via REST** (unlike Jira) and signed with an agenthook-generated secret →
   `x-hub-signature-256`. Routes `opened`/`reopened`/`assigned` by the issue's current labels
   (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). The hook also takes
-  `issue_comment` (`created` only, PRs skipped) for the `@agent` resume (dedup `trigger:<comment.id>`);
+  `issue_comment` (`created` only, PRs skipped) for the `@agent` resume (dedup `trigger:<comment.id>`),
+  and `sub_issues` + `issues` `typed`/`untyped` → a read-only `{kind:'epic_changed', ref:<epic>}` signal
+  (dedup `epic:<delivery>`) that `src/epic-changed.js` emits outside the queue, dropping ops' epics cache;
   since a resumed issue carries the step's `holdLabel`, `advance` removes that too. 'Us' = the token's login
   from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues + Webhooks RW (fine-grained).
 - **GitHub Projects v2** — the *other* GitHub tracker: steps bind a board's **Status single-select

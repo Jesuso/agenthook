@@ -139,6 +139,15 @@ test("readEventsSince: coalesced is hidden with no types filter, returned when e
   assert.deepEqual(readEventsSince(dir, 0, { types: new Set(["coalesced"]) }).events.map((e) => e.event), ["coalesced"]);
 });
 
+test("readEventsSince: epic_changed is hidden with no types filter, returned when explicitly requested", () => {
+  const dir = registry();
+  const f = path.join(dir, "events.jsonl");
+  const ev = (event, ref) => JSON.stringify({ ts: "t", event, ref, step: "" }) + "\n";
+  fs.writeFileSync(f, ev("enqueued", "1") + ev("epic_changed", "12"));
+  assert.deepEqual(readEventsSince(dir, 0).events.map((e) => e.event), ["enqueued"]);
+  assert.deepEqual(readEventsSince(dir, 0, { types: new Set(["epic_changed"]) }).events.map((e) => e.event), ["epic_changed"]);
+});
+
 test("waitForEvents: wakes on an append, ignores non-matching lines, times out empty", async () => {
   const dir = registry();
   const f = path.join(dir, "events.jsonl");
