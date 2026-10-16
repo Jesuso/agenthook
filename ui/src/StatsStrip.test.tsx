@@ -10,7 +10,6 @@ describe("StatsStrip", () => {
     expect(html).toContain("History");
     for (const r of ["7d", "14d", "30d"]) expect(html).toContain(r);
     expect(html).toContain('aria-checked="true"'); // one range selected
-    expect(html).toContain('data-bars="finished"');
-    expect(html).toContain('data-bars="cost"');
+    expect(html).toContain("data-stats-total");
   });
 });

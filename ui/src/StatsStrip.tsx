@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
-import type { DayStats, StatsView } from "./contract";
+import { Suspense, lazy, useEffect, useState } from "react";
+import type { StatsView } from "./contract";
 import { Segmented } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatCost } from "./format";
-import { DEFAULT_RANGE, RANGES, barHeights, latestChange, shortDate, statsUrl, summarizeStats, weekdayLetter } from "./stats";
+import { DEFAULT_RANGE, RANGES, latestChange, shortDate, statsUrl, summarizeStats } from "./stats";
 import type { Range } from "./stats";
+
+// d3 (scales + shapes) ships in its own chunk, not the main bundle.
+const StatsChart = lazy(() => import("./StatsChart"));
 
 /**
  * Day-by-day history under the Progress tiles (docs/web-ui.md § Daily stats): tickets finished
@@ -43,8 +46,13 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
         <p className="text-label text-muted">Couldn&apos;t load the history.</p>
       ) : (
         <>
-          <Bars title="Finished" days={days} value={(d) => d.finished} format={(n) => String(n)} total={`${sum.finished} · ${sum.avgFinished.toFixed(1)}/day`} />
-          <Bars title="Cost" days={days} value={(d) => d.costUsd} format={(n) => (n ? formatCost(n) : "$0")} total={sum.costUsd ? formatCost(sum.costUsd) : "—"} />
+          <p className="mb-1 font-mono text-label" data-stats-total>
+            {sum.finished} finished <span className="text-muted">({sum.avgFinished.toFixed(1)}/day)</span> · {sum.costUsd ? formatCost(sum.costUsd) : "$0"}
+            {sum.finished > 0 && sum.costUsd > 0 && <span className="text-muted"> ({formatCost(sum.costUsd / sum.finished)}/ticket)</span>}
+          </p>
+          <Suspense fallback={<div className="h-[210px]" aria-hidden="true" />}>
+            <StatsChart days={days} />
+          </Suspense>
           <p className="mt-2 text-meta text-faint" data-stats-foot>
             {sum.reworkRate !== null ? `Rework ${Math.round(sum.reworkRate * 100)}% of ${sum.runs} runs` : `${sum.runs} runs`}
             {sum.bestDay ? ` · best day ${shortDate(sum.bestDay.date)} (${sum.bestDay.finished})` : ""}
@@ -52,37 +60,6 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
           </p>
         </>
       )}
-    </div>
-  );
-}
-
-function Bars({ title, days, value, format, total }: { title: string; days: DayStats[]; value: (d: DayStats) => number; format: (n: number) => string; total: string }) {
-  const heights = barHeights(days.map(value));
-  const today = days.length ? days[days.length - 1].date : "";
-  return (
-    <div className="mb-2 last:mb-0" data-bars={title.toLowerCase()}>
-      <div className="mb-1 flex items-baseline justify-between text-label">
-        <span className="text-muted">{title}</span>
-        <span className="font-mono">{total}</span>
-      </div>
-      <div className="flex h-14 items-end gap-0.5" role="img" aria-label={`${title} per day`}>
-        {days.map((d, i) => (
-          <div key={d.date} className="flex h-full min-w-0 flex-1 flex-col justify-end" title={`${shortDate(d.date)}: ${format(value(d))}${d.date === today ? " (so far today)" : ""}`}>
-            <div
-              data-bar={d.date}
-              className={`w-full rounded-sm ${d.date === today ? "opacity-60" : ""} ${heights[i] > 0 ? "bg-[var(--profile-accent,var(--color-accent))]" : "bg-border"}`}
-              style={{ height: heights[i] > 0 ? `${heights[i]}%` : "2px" }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="mt-0.5 flex gap-0.5 text-meta text-faint" aria-hidden="true">
-        {days.map((d) => (
-          <span key={d.date} className="min-w-0 flex-1 text-center">
-            {days.length <= 14 || d.date.endsWith("-01") || d.date.endsWith("-15") ? weekdayLetter(d.date) : ""}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }

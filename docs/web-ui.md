@@ -436,7 +436,15 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   `run_end` counts and sums. Merged is only meaningful on a profile with a forge.
 - `GET /api/stats?profile=&days=&tz=` (cookie only, days ≤ 90) → `{ days: DayStats[], since }`.
   Refetched when a meaningful live event arrives (`run_end`, `pipeline_done`, `failed`, `blocked`, `merged`).
-- Out of scope: per-step or per-model breakdowns, anything cross-profile (ADR 0001).
+- **One chart, d3 for the maths:** finished tickets per day as bars (left axis) and spend per finished
+  ticket (day's cost ÷ tickets finished that day) as a line (right axis), with a hover tooltip.
+  `d3-scale`/`d3-shape`/`d3-array` compute scales and paths (`ui/src/statsChart.ts`, pure and tested);
+  React renders the SVG (`StatsChart.tsx`), no d3 DOM manipulation. It loads as its own chunk (~12 KB
+  gzipped), so the main bundle is unchanged. The line breaks on days that finished nothing.
+- Next, on a separate Stats view (`#/p/<key>/stats`) rather than the Overview: stacked cost by step,
+  diverging runs (advance vs changes/fail), a calendar heatmap, a median/p10–p90 range per ticket.
+  A candlestick has no open/close in our data, so the range chart stands in for it.
+- Out of scope: anything cross-profile (ADR 0001).
 
 ### What a ticket is about (built)
 - `refmeta.json` gains `summary`: the first prose paragraph of the tracker description, markdown

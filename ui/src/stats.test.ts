@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { barHeights, latestChange, shortDate, statsUrl, summarizeStats, weekdayLetter } from "./stats";
+import { latestChange, shortDate, statsUrl, summarizeStats, weekdayLetter } from "./stats";
 import type { DayStats } from "./contract";
 import type { FeedEntry } from "./feed";
 
@@ -27,15 +27,6 @@ describe("summarizeStats", () => {
     expect(s.reworkRate).toBeCloseTo(0.3);
     expect(s.bestDay).toBeNull();
     expect(summarizeStats([])).toMatchObject({ finished: 0, avgFinished: 0, bestDay: null });
-  });
-});
-
-describe("barHeights", () => {
-  it("scales to the tallest, floors small non-zero values, keeps zero at zero", () => {
-    expect(barHeights([0, 1, 100])).toEqual([0, 6, 100]);
-    expect(barHeights([5, 10])).toEqual([50, 100]);
-    expect(barHeights([0, 0])).toEqual([0, 0]);
-    expect(barHeights([])).toEqual([]);
   });
 });
 

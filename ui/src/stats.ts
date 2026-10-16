@@ -48,13 +48,6 @@ export function summarizeStats(days: DayStats[]): StatsSummary {
   };
 }
 
-/** Bar heights as percentages of the tallest; a non-zero value is never thinner than `floor`, zero is 0. */
-export function barHeights(values: number[], floor = 6): number[] {
-  const max = Math.max(0, ...values);
-  if (max <= 0) return values.map(() => 0);
-  return values.map((v) => (v > 0 ? Math.max(floor, (v / max) * 100) : 0));
-}
-
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 /** "M" / "T" / … for a local YYYY-MM-DD (parsed as a calendar date, so no timezone shift). */
