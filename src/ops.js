@@ -1,6 +1,6 @@
 // Operator commands served over the control socket (src/control.js) — the live half of the
 // agent-facing surface (`agenthook mcp`, docs/mcp.md). Reads that need the tracker/forge
-// (`board`, `prs`) and writes that need the engine (`pause`, `cancel`, `run`, …) live here;
+// (`board`, `prs`, `epics`) and writes that need the engine (`pause`, `cancel`, `run`, …) live here;
 // everything readable from the state dir is read by the MCP process directly, receiver up or not.
 //
 // Every write is audited to <stateDir>/control-audit.jsonl (0600) with the caller's `actor`.
@@ -14,6 +14,10 @@ import { entryBlock } from "./commands/run.js";
 import { runReconcile } from "./commands/reconcile.js";
 import { isStateDedupKey } from "./store.js";
 import { CANCELLED_REASON } from "./events.js";
+import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
+import { repositoryOf } from "./heartbeat.js";
+import { buildRows, readProfileState } from "./ui/rows.js";
+import { readHistory } from "./ui/stats.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
@@ -118,6 +122,7 @@ export function createOps(deps) {
       const result = await fn(args ?? {});
       board.reset();
       prs.reset();
+      epics.reset();
       audit(cmd, args, { ok: true });
       return result;
     } catch (e) {
@@ -225,6 +230,19 @@ export function createOps(deps) {
     now,
   );
 
+  // Every epic and its tickets, one fan-out per fill (listEpicTickets for each epic). Only the
+  // `epics` op calls it — no timer. The local join (rows/events) runs outside, on every call.
+  const epics = ttlCache(
+    async () => {
+      const list = await /** @type {NonNullable<typeof adapter.listEpics>} */ (adapter.listEpics)();
+      const listTickets = /** @type {NonNullable<typeof adapter.listEpicTickets>} */ (adapter.listEpicTickets);
+      const entries = await Promise.all(list.map(async (epic) => ({ epic, tickets: await listTickets(epic.ref) })));
+      return { at: new Date(now()).toISOString(), epics: entries };
+    },
+    BOARD_TTL_MS,
+    now,
+  );
+
   /**
    * `review` = the newest stored summary among the pipeline's review-kind steps for the PR's
    * ref; `outcome`/`at` are spread last so the agent's keys can't override them. No summary →
@@ -259,6 +277,30 @@ export function createOps(deps) {
       const out = { ...cached, prs: cached.prs.map(withReview) };
       if (typeof args?.mine !== "boolean") return out;
       return { ...out, prs: out.prs.filter((r) => r.mine === args.mine) };
+    },
+    async epics(/** @type {any} */ args) {
+      const ref = args?.ref;
+      if (ref !== undefined && (typeof ref !== "string" || !EPIC_REF_RE.test(ref))) throw new Error("invalid epic ref");
+      const tz = args?.tz ?? 0;
+      if (typeof tz !== "number" || !Number.isFinite(tz) || Math.abs(tz) > 14 * 60) throw new Error("invalid tz");
+      if (typeof adapter.listEpics !== "function" || typeof adapter.listEpicTickets !== "function") {
+        const at = new Date(now()).toISOString();
+        return ref !== undefined ? { at, live: true, supported: false, epic: null } : { at, live: true, supported: false, epics: [] };
+      }
+      if (args?.fresh) epics.reset();
+      const cached = await epics();
+      // The local join is fresh on every call, like `prs`' review summaries.
+      const join = {
+        rows: buildRows(cfg.name, readProfileState(cfg.stateDir), { repository: repositoryOf(cfg) }),
+        events: readHistory(path.join(cfg.stateDir, "events.jsonl")).events,
+        forge: !!forge,
+        now: now(),
+        tzOffset: tz,
+      };
+      if (ref === undefined) return { at: cached.at, live: true, supported: true, epics: cached.epics.map((e) => epicStats(e.epic, e.tickets, join)) };
+      const hit = cached.epics.find((e) => e.epic.ref === ref);
+      if (!hit) throw new Error(`no epic ${ref}`);
+      return { at: cached.at, live: true, supported: true, epic: epicDetail(hit.epic, hit.tickets, join) };
     },
 
     // ---- writes ----

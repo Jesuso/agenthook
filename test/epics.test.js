@@ -2,7 +2,7 @@ import "./_setup.js";
 // Pure stats over an epic + its tickets: bucket precedence, needs-you, velocity, ETA.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { epicStats, isNeedsYou } from "../src/epics.js";
+import { EPIC_REF_RE, epicDetail, epicStats, isNeedsYou, localEpics, ticketBucket } from "../src/epics.js";
 
 const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC, tzOffset 0 unless noted
 
@@ -202,4 +202,47 @@ test("epicStats: epic status/completed/ref/name/url/displayId pass through verba
   assert.equal(s.status, epic.status);
   assert.equal(s.completed, epic.completed);
   assert.equal(s.total, 0);
+});
+
+test("ticketBucket: the per-ticket decision epicStats counts (row > history > tracker stage)", () => {
+  assert.equal(ticketBucket(ticket({}), row({ status: "done", prState: "merged" }), undefined, false), "merged");
+  assert.equal(ticketBucket(ticket({ completed: true }), row({ status: "held" }), undefined, false), "needsYou");
+  assert.equal(ticketBucket(ticket({}), row({ status: "stalled" }), undefined, false), "running");
+  assert.equal(ticketBucket(ticket({}), row({ status: "done", prState: "ready" }), undefined, false), "finished");
+  assert.equal(ticketBucket(ticket({ completed: true }), null, undefined, false), "finished");
+  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "pipeline_done")], false), "finished");
+  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "pipeline_done"), ev("2026-10-14T01:00:00Z", "run_start")], false), "backlog");
+  assert.equal(ticketBucket(ticket({ stage: null }), null, undefined, false), "untracked");
+});
+
+test("epicDetail: epicStats plus each ticket's bucket and local status (null when it never ran here)", () => {
+  const tickets = [ticket({ ref: "1" }), ticket({ ref: "2", stage: null })];
+  const o = { rows: [row({ ref: "1", status: "held" })], events: [], forge: false, now: NOW };
+  const d = epicDetail(epic, tickets, o);
+  const { tickets: detailTickets, ...stats } = d;
+  assert.deepEqual(stats, epicStats(epic, tickets, o));
+  assert.deepEqual(detailTickets.map((t) => [t.ref, t.bucket, t.status]), [["1", "needsYou", "held"], ["2", "untracked", null]]);
+});
+
+test("localEpics: refmeta grouped by epic.ref; null/absent/garbage epics skipped", () => {
+  const groups = localEpics({
+    a: { title: "A", displayId: "#a", epic: { ref: "E1", name: "One", url: "u1" } },
+    b: { title: "B", epic: { ref: "E1", name: "One" } },
+    c: { epic: { ref: "E2", name: "Two" } },
+    d: { title: "D", epic: null },
+    e: { title: "E" },
+    f: { epic: { name: "no ref" } },
+  });
+  assert.deepEqual(
+    groups.map((g) => [g.epic, g.tickets]),
+    [
+      [{ ref: "E1", name: "One", url: "u1", status: null, completed: false }, [{ ref: "a", displayId: "#a", name: "A", completed: false, stage: null }, { ref: "b", name: "B", completed: false, stage: null }]],
+      [{ ref: "E2", name: "Two", url: "", status: null, completed: false }, [{ ref: "c", name: "c", completed: false, stage: null }]],
+    ],
+  );
+});
+
+test("EPIC_REF_RE: tracker ids pass; path/URL metacharacters and overlong refs fail", () => {
+  for (const ok of ["1203456789", "CAHUI-7", "a.b_c"]) assert.ok(EPIC_REF_RE.test(ok), ok);
+  for (const bad of ["", "../x", "a/b", "a?b", "a b", "x".repeat(65)]) assert.ok(!EPIC_REF_RE.test(bad), bad);
 });

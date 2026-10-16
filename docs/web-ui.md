@@ -498,6 +498,29 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
   run on a busy profile cost about 2.5¢. A digest sent while a receiver runs old code fails with
   "unknown command": restart the receiver (at 0 agents) after updating.
 
+### Epics data (built; views in #301)
+Live epic data for the UI (epic #304, ADR 0003). Only the receiver holds the tracker credential, so
+the tracker read is the receiver's `epics` control op (`src/ops.js`); the UI server only relays it.
+- `GET /api/epics?profile=&tz=` → `{ at, live, supported, epics: EpicStats[] }` — every epic with
+  `total`, `byStage` (backlog / running / needsYou / finished / merged / untracked), `needsYou` refs,
+  `velocity` and `eta` (`src/epics.js` `epicStats`).
+- `GET /api/epics/<ref>?profile=&tz=` → `{ at, live, supported, epic }`, where `epic` is an
+  `EpicStats` plus `tickets: (EpicTicket & { bucket, status })[]` — `status` is the ticket's local
+  `TicketRow.status`, null when it never ran on this profile.
+- Guards like `/api/discover`: cookie only; unknown profile → 404; a `<ref>` not matching
+  `^[A-Za-z0-9._-]{1,64}$` (it ends up in a tracker URL path), or a bad `tz` (as `/api/stats`) → 400.
+  Receiver answers → 200; `ok:false` (e.g. `no epic <ref>`) → 502; no reply in 20 s
+  (`epicsTimeoutMs`; the op lists every epic's tickets) → 504.
+- `supported:false` (with `epics: []` / `epic: null`) = the tracker has no epic readers
+  (`listEpics`/`listEpicTickets`); not an error.
+- **Caching, no polling:** the receiver caches the tracker read (every epic + its tickets) for
+  ~30 s like `board`/`prs`; `fresh:true` and any write op reset it. The join with local rows and
+  `events.jsonl` history runs on every call, so ticket status is never stale.
+- **Receiver down** (503 from the socket) → 200 with `live:false`, built from the profile dir alone:
+  the `refmeta.json` entries grouped by their `epic` (dispatch records it per run), each epic with
+  `status:null`, tickets with `stage:null` (so a ticket that never reached a row reads `untracked`).
+  Only epics a ticket here has run under appear; detail of any other ref → 404. Not a file write.
+
 ### Build order
 (Steps 1–3 are built.)
 1. Hash routing + app bar + plain Home cards. 2. `ui.color`/`ui.emoji` end to end (config schema,

@@ -548,3 +548,92 @@ test("digest: delegates to the digester, audited; no digester → refused; not a
   const lines = fs.readFileSync(path.join(dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.deepEqual(lines.map((l) => [l.cmd, l.ok, l.actor]), [["digest", true, "ui"], ["digest", false, "unknown"]]);
 });
+
+/** A fake epic-capable adapter counting its tracker reads. */
+function epicAdapter() {
+  const calls = { listEpics: 0, listEpicTickets: /** @type {string[]} */ ([]) };
+  /** @type {Record<string, any[]>} */
+  const members = {
+    E1: [
+      { ref: "11", name: "a", completed: false, stage: "Backlog" },
+      { ref: "12", name: "b", completed: true, stage: "Done" },
+    ],
+    E2: [{ ref: "21", name: "c", completed: false, stage: null }],
+  };
+  return {
+    calls,
+    adapter: {
+      async listEpics() {
+        calls.listEpics++;
+        return [
+          { ref: "E1", name: "Epic one", url: "u1", status: null, completed: false },
+          { ref: "E2", name: "Epic two", url: "u2", status: "On track", completed: false },
+        ];
+      },
+      /** @param {string} ref */
+      async listEpicTickets(ref) {
+        calls.listEpicTickets.push(ref);
+        return members[ref];
+      },
+    },
+  };
+}
+
+test("epics: one EpicStats per listed epic, total = its listEpicTickets length", async () => {
+  const { adapter, calls } = epicAdapter();
+  const { ops } = setup({ adapter });
+  const r = await ops.epics({});
+  assert.equal(r.live, true);
+  assert.equal(r.supported, true);
+  assert.deepEqual(r.epics.map((/** @type {any} */ e) => [e.ref, e.total]), [["E1", 2], ["E2", 1]]);
+  assert.deepEqual(r.epics[0].byStage, { backlog: 1, running: 0, needsYou: 0, finished: 1, merged: 0, untracked: 0 });
+  assert.equal(r.epics[1].status, "On track");
+  assert.deepEqual(calls.listEpicTickets.sort(), ["E1", "E2"], "fans out to every epic");
+});
+
+test("epics: cached within the TTL, fresh refetches, a write invalidates", async () => {
+  const { adapter, calls } = epicAdapter();
+  const { ops } = setup({ adapter });
+  await ops.epics({});
+  await ops.epics({ ref: "E1" });
+  assert.equal(calls.listEpics, 1, "second call is served from the cache");
+  await ops.epics({ fresh: true });
+  assert.equal(calls.listEpics, 2);
+  await ops.pause({});
+  await ops.epics({});
+  assert.equal(calls.listEpics, 3, "a write drops the cached read");
+});
+
+test("epics: the local join is fresh on every call (outside the cache)", async () => {
+  const { adapter } = epicAdapter();
+  const { ops, store } = setup({ adapter });
+  assert.equal((await ops.epics({})).epics[0].byStage.running, 0);
+  store.setRunning("11", { stepId: "code", dedupKey: "k", startedAt: new Date().toISOString() });
+  const r = await ops.epics({});
+  assert.equal(r.epics[0].byStage.running, 1);
+  assert.equal(r.epics[0].byStage.backlog, 0);
+});
+
+test("epics: an adapter without epic readers → supported:false, no throw", async () => {
+  const { ops } = setup({ adapter: {} });
+  const list = await ops.epics({});
+  assert.deepEqual({ ...list, at: undefined }, { at: undefined, live: true, supported: false, epics: [] });
+  const one = await ops.epics({ ref: "E1" });
+  assert.deepEqual({ ...one, at: undefined }, { at: undefined, live: true, supported: false, epic: null });
+});
+
+test("epics {ref}: per-ticket bucket + status; unknown ref → no epic; unsafe ref never reaches the adapter", async () => {
+  const { adapter, calls } = epicAdapter();
+  const { ops, store } = setup({ adapter });
+  store.setRunning("11", { stepId: "code", dedupKey: "k", startedAt: new Date().toISOString() });
+  const r = await ops.epics({ ref: "E1" });
+  assert.equal(r.epic.ref, "E1");
+  assert.equal(r.epic.total, 2);
+  assert.deepEqual(r.epic.tickets.map((/** @type {any} */ t) => [t.ref, t.bucket, t.status]), [["11", "running", "running"], ["12", "finished", null]]);
+  await assert.rejects(ops.epics({ ref: "E9" }), /no epic E9/);
+  const before = calls.listEpics;
+  await assert.rejects(ops.epics({ ref: "../x" }), /invalid epic ref/);
+  await assert.rejects(ops.epics({ ref: 7 }), /invalid epic ref/);
+  await assert.rejects(ops.epics({ tz: 9999 }), /invalid tz/);
+  assert.equal(calls.listEpics, before, "adapter never called for a bad ref");
+});
