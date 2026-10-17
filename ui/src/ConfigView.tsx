@@ -6,7 +6,7 @@ import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
-import { BasicsForm, ForgeForm, IngressForm, IntegrationsForm, PipelineForm, TrackerForm } from "./ConfigForms";
+import { BasicsForm, ForgeForm, IngressForm, IntegrationsForm, PipelineForm, ReposForm, TrackerForm } from "./ConfigForms";
 import type { StagesState } from "./ConfigForms";
 import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
 import { layoutPipeline } from "./pipelineGraph";
@@ -33,9 +33,9 @@ import type { ConfigSinkEvent, SensitiveChange } from "./config";
 // is live, this is not.
 type Meta = { errors: string[]; literalSecrets: string[]; as: "load" | "save" | "rejected" };
 type FileState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; doc: SaveState; meta: Meta };
-type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress" | "integrations";
+type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress" | "integrations" | "repos";
 
-const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "raw"];
+const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "repos", "raw"];
 
 const JSON_LANG = json();
 const OVERWRITE_PROMPT = "Overwrite the on-disk config with your buffer? The on-disk changes will be replaced (the previous content is kept as a backup).";
@@ -619,6 +619,8 @@ export default function ConfigView(props: {
                 <IngressForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
               ) : pane === "integrations" ? (
                 <IntegrationsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+              ) : pane === "repos" ? (
+                <ReposForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
               ) : (
                 <PipelineForm
                   text={doc.buffer}

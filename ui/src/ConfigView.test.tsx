@@ -53,10 +53,10 @@ const tabs = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>
 const activeTab = (root: HTMLElement) => tabs(root).find((t) => t.className.includes("border-[var(--color-accent)]"))?.dataset.configPane;
 
 describe("ConfigView panes", () => {
-  it("renders Basics, Pipeline, Tracker, Forge, Ingress, Integrations, Raw in that order and opens a valid config on Pipeline with the graph expanded", async () => {
+  it("renders Basics, Pipeline, Tracker, Forge, Ingress, Integrations, Repos, Raw in that order and opens a valid config on Pipeline with the graph expanded", async () => {
     m = await mount(view());
     await until(() => m!.root.querySelector("[data-step-card]"));
-    expect(tabs(m.root).map((t) => t.dataset.configPane)).toEqual(["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "raw"]);
+    expect(tabs(m.root).map((t) => t.dataset.configPane)).toEqual(["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "repos", "raw"]);
     expect(activeTab(m.root)).toBe("pipeline");
     expect(m.root.querySelector('svg[aria-label="pipeline graph"]')).not.toBeNull();
     expect([...m.root.querySelectorAll<HTMLElement>("[data-step-card]")].every((c) => c.dataset.open === "false")).toBe(true);

@@ -218,14 +218,15 @@ Edits `agenthook.config.json` — the one file at the receiver-published `heartb
 literal-secret warnings, diff → confirm with a second ack for changed sensitive fields — secret
 values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and **Restart when idle**
 after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid), and the
-**Basics** / **Pipeline** / **Tracker** / **Forge** / **Ingress** form tabs beside Raw (one shared
+**Basics** / **Pipeline** / **Tracker** / **Forge** / **Ingress** / **Integrations** / **Repos**
+form tabs beside Raw (one shared
 buffer; every change a `jsonc-parser` edit, reorder swaps the steps' exact text) with **stage
 pickers** fed by `GET /api/discover` on first form-tab open and on Refresh, and a collapsible
 **pipeline graph** panel above every pane, re-deriving from the live buffer on every edit — form or raw text — without
 a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
 
 **Reading order.** The tabs read **Basics · Pipeline · Tracker · Forge · Ingress · Integrations ·
-Raw**; a config that parses opens on **Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs
+Repos · Raw**; a config that parses opens on **Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs
 disabled with "fix the JSON in Raw first"). Raw stays the escape hatch — nothing forces a hand edit.
 Every Pipeline stage card starts **collapsed** to its header: `#n`, the step id and a one-line
 summary (`summarizeStep`) — `kind · <source> → <success> / <failure> · manual · worktree · drain ·
@@ -266,15 +267,26 @@ with the same Clear / replace controls and is never rewritten unless you act.
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
-`manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor; the tracker's stage bindings), the **top-level basics** (`name`,
-`maxConcurrent`, `fullAuto`, `port`, `trigger`), every `tracker` / `forge` / `ingress` key, and the
+`manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor; the tracker's stage
+bindings), the **top-level basics** (`name`, `maxConcurrent`, `fullAuto`, `port`, `trigger`,
+`instructionsFile`, and — under Advanced — `claudeBin` and a read-only `stateId`, since the server
+422s any save that changes it; use `agenthook rename --move` instead), every `tracker` / `forge` /
+`ingress` key, the
 **Integrations** tab: `sinks[]` (add / remove / reorder; per-type fields — `url` for slack/webhook,
 `botToken` + `chatId` for telegram; an event filter whose absent `events` shows the defaults, any
 toggle writes an explicit list, "Use default" removes it, unlisted names are kept; an unknown sink
 type is a read-only card, never rewritten), `digest` (`soul`, `access`, `model`, `maxBudgetUsd`; an
-emptied block is removed) and `overlapGuard`. Sink and digest rules come from the import-free
-`src/sinks-config.js` / `src/digest-config.js` the server validates with, shown as client checks.
-Everything else (`repos`, …) through a **raw JSON editor** with the same validation and diff.
+emptied block is removed) and `overlapGuard`, and the **Repos** tab: `repoPath` / `worktreePrefix`
+plus `repos[]` cards (add / remove / reorder; `id`, `path`, `match` as a chip list, `default` —
+checking it on one card clears every other card's in the same edit — and, under Advanced,
+`instructionsFile` / `worktreePrefix`; absent `repos` shows a "+ Add repo" that seeds the same
+default repo `src/config.js` synthesizes on its own, so routing doesn't change — but it does switch
+the profile into multi-repo mode, which nests worktrees under `worktreePrefix/<id>/`, so finish or
+drain in-flight tickets before declaring `repos`). Sink, digest and repos rules come from the
+import-free `src/sinks-config.js` / `src/digest-config.js` / `src/repos-config.js` the server
+validates with, shown as client checks. Every schema key has a form now (`src/config-schema.js`'s
+drift test asserts no entry is left `editor: "pending"`); Raw stays the escape hatch for sharing
+whole blocks, `//` comment keys, unknown/future keys, and fixing invalid JSON.
 
 **Formatting-preserving edits, zero-dep server.** The browser turns form changes into minimal text
 edits with `jsonc-parser` (`modify` + `applyEdits`, MIT) so `//` comment keys, key order and the

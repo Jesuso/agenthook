@@ -143,7 +143,7 @@ test("invalid repos blocks are rejected at load", () => {
   assert.throws(bad([{ id: "a", path: "./a" }, { id: "a", path: "./b" }]), /duplicate repos id "a"/);
   assert.throws(bad([{ id: "a", path: "./x" }, { id: "b", path: "x/" }]), /"b" and "a" share the path/);
   assert.throws(bad([{ id: "a", path: "./a", match: ["iOS"] }, { id: "b", path: "./b", match: [" ios"] }]), /route key "ios" is claimed by both repos "a" and "b"/);
-  assert.throws(bad([{ id: "a", path: "./a", default: true }, { id: "b", path: "./b", default: true }]), /at most one repo may set default:true \(found a, b\)/);
+  assert.throws(bad([{ id: "a", path: "./a", default: true }, { id: "b", path: "./b", default: true }]), /at most one repo may set default:true \(found "a", "b"\)/);
   assert.throws(bad([{ id: "a", path: "./a", match: [7] }]), /match entries must be non-empty strings/);
   assert.throws(bad([{ id: "a", path: "./a", match: "ios" }]), /match must be an array/);
 });
