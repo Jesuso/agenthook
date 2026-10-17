@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BasicsForm, ModelField, modelSelectState, summarizeStep } from "./ConfigForms";
+import { BasicsForm, ModelField, modelSelectState, openAfterMove, openAfterRemove, summarizeStep } from "./ConfigForms";
 
 /** Depth-first search of a React element tree for a node whose `props[key] === value`. */
 function findByProp(node: any, key: string, value: string): any {
@@ -93,25 +93,67 @@ describe("ModelField", () => {
 });
 
 describe("summarizeStep", () => {
-  it("omits absent parts and joins the rest with · ", () => {
-    expect(summarizeStep({ kind: "implement", model: "claude-opus-5-5" }, null, null)).toBe("implement · claude-opus-5-5");
-  });
+  const asana = { source: "sourceSectionGid", success: "successSectionGid", failure: "failureSectionGid", hold: "holdSectionGid", queue: "queueSectionGid" };
+  const jira = { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" };
+  const github = { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" };
 
   it("returns empty string when nothing is set", () => {
     expect(summarizeStep({}, null, null)).toBe("");
+    expect(summarizeStep({}, github, null)).toBe("");
   });
 
-  it("renders a source → success transition via the discovered label when available", () => {
-    const keys = { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" };
-    const stageList = [{ id: "agent:code", label: "Code" }, { id: "agent:review", label: "Review" }];
-    const s = { kind: "implement", sourceLabel: "agent:code", successLabel: "agent:review" };
-    expect(summarizeStep(s, keys, stageList)).toBe("implement · Code → Review");
+  it("asana: resolves section gids to their names through the stage list", () => {
+    const stageList = [
+      { id: "1201", label: "Ready" },
+      { id: "1202", label: "In review" },
+      { id: "1203", label: "Blocked" },
+    ];
+    const s = { kind: "implement", sourceSectionGid: "1201", successSectionGid: "1202", failureSectionGid: "1203" };
+    expect(summarizeStep(s, asana, stageList)).toBe("implement · Ready → In review / Blocked");
   });
 
-  it("falls back to the raw id when the stage isn't in the discovered list", () => {
-    const keys = { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" };
-    const s = { sourceLabel: "agent:code" };
-    expect(summarizeStep(s, keys, null)).toBe("agent:code");
+  it("jira: statuses, with the failure lane only when set", () => {
+    const stageList = [
+      { id: "To Do", label: "To Do" },
+      { id: "In Review", label: "In Review" },
+    ];
+    expect(summarizeStep({ kind: "review", sourceStatus: "In Review", successStatus: "Done" }, jira, stageList)).toBe("review · In Review → Done");
+    expect(summarizeStep({ sourceStatus: "To Do", successStatus: "In Review", failureStatus: "Failed" }, jira, stageList)).toBe("To Do → In Review / Failed");
+  });
+
+  it("github: labels, raw values when there is no stage list", () => {
+    const s = { kind: "implement", sourceLabel: "agent:code", successLabel: "agent:review", failureLabel: "agent:failed" };
+    expect(summarizeStep(s, github, null)).toBe("implement · agent:code → agent:review / agent:failed");
+    expect(summarizeStep({ sourceLabel: "agent:code" }, github, null)).toBe("agent:code");
+    expect(summarizeStep({ successLabel: "agent:review" }, github, null)).toBe("→ agent:review");
+    expect(summarizeStep({ failureLabel: "agent:failed" }, github, null)).toBe("→ — / agent:failed");
+  });
+
+  it("uses the discovered label when known and the raw value otherwise", () => {
+    const stageList = [{ id: "agent:code", label: "Code" }];
+    expect(summarizeStep({ sourceLabel: "agent:code", successLabel: "agent:review" }, github, stageList)).toBe("Code → agent:review");
+  });
+
+  it("flags follow the lanes; model / effort only when the step overrides them", () => {
+    const s = { kind: "triage", sourceLabel: "a", successLabel: "b", manual: true, createsWorktree: true, drainWorktree: true, model: "claude-opus-5-5", effort: "high" };
+    expect(summarizeStep(s, github, null)).toBe("triage · a → b · manual · worktree · drain · claude-opus-5-5 · high");
+    expect(summarizeStep({ kind: "implement", manual: false, createsWorktree: false }, github, null)).toBe("implement");
+    expect(summarizeStep({ kind: "implement", effort: "low" }, null, null)).toBe("implement · low");
+  });
+
+  it("does not repeat the step id", () => {
+    expect(summarizeStep({ id: "code", kind: "implement" }, null, null)).toBe("implement");
+  });
+});
+
+describe("openAfterMove / openAfterRemove", () => {
+  it("swaps the two moved cards' open state", () => {
+    expect([...openAfterMove(new Set([0, 3]), 0, 1)].sort()).toEqual([1, 3]);
+    expect([...openAfterMove(new Set([1, 2]), 2, -1)].sort()).toEqual([1, 2]);
+  });
+
+  it("drops the removed card and shifts the later ones up", () => {
+    expect([...openAfterRemove(new Set([0, 2, 4]), 2)].sort()).toEqual([0, 3]);
   });
 });
 

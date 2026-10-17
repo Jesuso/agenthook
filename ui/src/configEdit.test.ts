@@ -15,6 +15,7 @@ import {
   setPath,
   stageKeysFor,
   stageSource,
+  stepErrors,
   stepPath,
   textEdit,
 } from "./configEdit";
@@ -274,6 +275,55 @@ describe("clientErrors", () => {
     expect(clientErrors({ tracker: { pipeline: [{ id: "x", maxMinutes: "5" }] } })).toEqual([
       'config: pipeline step "x" maxMinutes must be a number >= 0 (0 disables the cap).',
     ]);
+  });
+});
+
+describe("stepErrors", () => {
+  const obj = (m: Map<number, string[]>) => Object.fromEntries(m);
+
+  it("the example is clean", () => {
+    expect(stepErrors(raw(), []).size).toBe(0);
+  });
+
+  it("attributes a missing id to its own index and a duplicate id to the later step", () => {
+    const pipeline = [{ id: "a" }, {}, { id: "a" }];
+    expect(obj(stepErrors({ tracker: { pipeline } }, []))).toEqual({
+      1: ['config: every pipeline step needs an "id".'],
+      2: ['config: duplicate pipeline step id "a".'],
+    });
+  });
+
+  it("attributes a numeric-field error to its step", () => {
+    const pipeline = [{ id: "a" }, { id: "b", maxAttempts: 0, idleMinutes: 0 }];
+    expect(obj(stepErrors({ tracker: { pipeline } }, []))).toEqual({
+      1: ['config: pipeline step "b" maxAttempts must be a positive integer.', 'config: pipeline step "b" idleMinutes must be a number > 0.'],
+    });
+  });
+
+  it("attributes server messages by step id (first match) and by pipeline[i]; unmatched ones are left out", () => {
+    const pipeline = [{ id: "triage" }, { id: "code" }, "oops"];
+    const server = [
+      'config: pipeline step "code" completeOnMerge requires manual:true (no agent runs on a merge).',
+      "config: tracker.pipeline[2] must be an object.",
+      'config: pipeline step "ghost" maxConcurrent must be a positive integer.',
+      "config: tracker.pipeline[9] must be an object.",
+      'config: "repoPath" is required.',
+    ];
+    expect(obj(stepErrors({ tracker: { pipeline } }, server))).toEqual({
+      1: ['config: pipeline step "code" completeOnMerge requires manual:true (no agent runs on a merge).'],
+      2: ["config: tracker.pipeline[2] must be an object."],
+    });
+  });
+
+  it("lists an error once when the client check and the server agree", () => {
+    const pipeline = [{ id: "a", maxAttempts: 0 }];
+    const msg = 'config: pipeline step "a" maxAttempts must be a positive integer.';
+    expect(obj(stepErrors({ tracker: { pipeline } }, [msg]))).toEqual({ 0: [msg] });
+  });
+
+  it("clientErrors is the flat view of the same checks", () => {
+    const pipeline = [{ id: "a" }, {}, { id: "a", maxMinutes: -1 }];
+    expect(clientErrors({ tracker: { pipeline } })).toEqual([...stepErrors({ tracker: { pipeline } }, []).values()].flat());
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JSONPath } from "jsonc-parser";
 import {
   KNOWN_MODELS,
@@ -224,19 +224,29 @@ function StageField(props: EditProps & { label: string; stageKey: string; path: 
 
 const labelFor = (id: string, list: StageOption[] | null): string => list?.find((s) => s.id === id)?.label ?? id;
 
-/** Pure: a step's one-line collapsed summary — `kind · model · effort · <source> → <success>`, each part omitted when absent. */
+/**
+ * Pure: a step's one-line summary, shown in every card's header —
+ * `kind · <source> → <success> / <failure> · manual · worktree · drain · model · effort`, each part
+ * omitted when absent (model / effort only when the step overrides them). Lanes read as the discovered
+ * stage names, else the raw value. The id sits beside it in the header, so it isn't repeated here.
+ */
 export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null, stageList: StageOption[] | null): string {
   const parts: string[] = [];
-  for (const k of ["kind", "model", "effort"] as const) {
+  const kind = fieldText(s.kind);
+  if (kind) parts.push(kind);
+  if (keys) {
+    const [src, succ, fail] = [keys.source, keys.success, keys.failure].map((k) => fieldText(s[k]));
+    let lane = src ? labelFor(src, stageList) : "";
+    if (succ || fail) lane += `${lane ? " " : ""}→ ${succ ? labelFor(succ, stageList) : "—"}`;
+    if (fail) lane += ` / ${labelFor(fail, stageList)}`;
+    if (lane) parts.push(lane);
+  }
+  if (s.manual === true) parts.push("manual");
+  if (s.createsWorktree === true) parts.push("worktree");
+  if (s.drainWorktree === true) parts.push("drain");
+  for (const k of ["model", "effort"] as const) {
     const v = fieldText(s[k]);
     if (v) parts.push(v);
-  }
-  if (keys) {
-    const src = fieldText(s[keys.source]);
-    const succ = fieldText(s[keys.success]);
-    if (src && succ) parts.push(`${labelFor(src, stageList)} → ${labelFor(succ, stageList)}`);
-    else if (src) parts.push(labelFor(src, stageList));
-    else if (succ) parts.push(`→ ${labelFor(succ, stageList)}`);
   }
   return parts.join(" · ");
 }
@@ -353,26 +363,65 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
   );
 }
 
+/** Pure: the open-card set after `moveStep(i, dir)` — the two swapped cards keep their own state. */
+export function openAfterMove(open: ReadonlySet<number>, i: number, dir: -1 | 1): Set<number> {
+  const j = i + dir;
+  return new Set([...open].map((k) => (k === i ? j : k === j ? i : k)));
+}
+
+/** Pure: the open-card set after `removeStep(i)` — later cards shift up one. */
+export function openAfterRemove(open: ReadonlySet<number>, i: number): Set<number> {
+  return new Set([...open].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k)));
+}
+
 /**
  * The ordered step list: ↑/↓/remove per card and "+ Add step". Only the listed fields are shown;
  * every other step key (escalate, lite, completeOnMerge, `//` comments, …) is preserved and edited in Raw.
- * Each card collapses to a one-line summary (local `useState`, default expanded — a newly added
- * step should be visible); ↑/↓ may reset a card's collapse state since it's keyed by index.
+ * Every card starts collapsed to its header (id + `summarizeStep`); "+ Add step" opens the new one,
+ * a card whose step gains an error (`errors`, from `stepErrors`) opens itself and keeps a red badge,
+ * and `focus` (a graph click) opens + scrolls to the step with that id. All of it is view state —
+ * nothing here edits the buffer except the fields and the ↑/↓/remove/add buttons.
  */
-export function PipelineForm(props: EditProps & { raw: unknown; stages: StagesState | null; onRefresh: () => void }) {
+export function PipelineForm(
+  props: EditProps & {
+    raw: unknown;
+    stages: StagesState | null;
+    onRefresh: () => void;
+    errors?: Map<number, string[]>;
+    focus?: { id: string; nonce: number } | null;
+  },
+) {
   const steps = readSteps(props.raw);
   const tracker = (props.raw as any)?.tracker?.type;
   const keys = stageKeysFor(props.stages?.body ?? null, tracker);
   const stageList = props.stages?.source.kind === "list" ? props.stages.source.stages : null;
   const edit = { text: props.text, onEdit: props.onEdit };
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const errors = props.errors ?? new Map<number, string[]>();
+  const [open, setOpen] = useState<Set<number>>(new Set());
   const toggle = (i: number) =>
-    setCollapsed((prev) => {
+    setOpen((prev) => {
       const next = new Set(prev);
       if (next.has(i)) next.delete(i);
       else next.add(i);
       return next;
     });
+  const cards = useRef<(HTMLElement | null)[]>([]);
+  // A step that goes from no errors to some opens itself (once — the user may collapse it again).
+  const errored = useRef<Set<number>>(new Set());
+  const errorKey = [...errors.keys()].sort((x, y) => x - y).join(",");
+  useEffect(() => {
+    const now = new Set(errors.keys());
+    const fresh = [...now].filter((i) => !errored.current.has(i));
+    errored.current = now;
+    if (fresh.length) setOpen((prev) => new Set([...prev, ...fresh]));
+  }, [errorKey]);
+  useEffect(() => {
+    if (!props.focus) return;
+    const i = steps.findIndex((s) => fieldText(s.id) === props.focus!.id);
+    if (i < 0) return;
+    setOpen((prev) => (prev.has(i) ? prev : new Set([...prev, i])));
+    cards.current[i]?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [props.focus?.nonce]);
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
@@ -382,43 +431,90 @@ export function PipelineForm(props: EditProps & { raw: unknown; stages: StagesSt
         <button className={BUTTON} disabled={props.stages?.source.kind === "loading"} onClick={props.onRefresh}>
           Refresh stages
         </button>
+        <button className={BUTTON} data-expand-all disabled={!steps.length} onClick={() => setOpen(new Set(steps.map((_, i) => i)))}>
+          Expand all
+        </button>
+        <button className={BUTTON} data-collapse-all disabled={!steps.length} onClick={() => setOpen(new Set())}>
+          Collapse all
+        </button>
       </div>
       {steps.map((s, i) => {
         const at = (k: string) => stepPath(i, k);
-        const isCollapsed = collapsed.has(i);
+        const isOpen = open.has(i);
+        const errs = errors.get(i) ?? [];
         return (
-          <section key={i} data-step-card className="rounded border border-[var(--color-border)] p-3">
-            <div className={isCollapsed ? "flex items-center gap-2" : "mb-2 flex items-center gap-2"}>
-              <button className={BUTTON} aria-label={isCollapsed ? "expand step" : "collapse step"} onClick={() => toggle(i)}>
-                {isCollapsed ? "▸" : "▾"}
+          <section
+            key={i}
+            ref={(el) => {
+              cards.current[i] = el;
+            }}
+            data-step-card={fieldText(s.id)}
+            data-open={isOpen}
+            className={`rounded border p-3 ${errs.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
+          >
+            <div className={isOpen ? "mb-2 flex items-center gap-2" : "flex items-center gap-2"}>
+              <button className={BUTTON} aria-label={isOpen ? "collapse step" : "expand step"} aria-expanded={isOpen} onClick={() => toggle(i)}>
+                {isOpen ? "▾" : "▸"}
               </button>
               <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
               <span className="font-mono text-sm">{fieldText(s.id) || "(no id)"}</span>
-              <span className="ml-auto flex gap-1">
-                <button className={BUTTON} aria-label="move up" disabled={i === 0} onClick={() => props.onEdit(moveStep(props.text, i, -1))}>
+              <span data-step-summary className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)]" title={summarizeStep(s, keys, stageList)}>
+                {summarizeStep(s, keys, stageList) || "—"}
+              </span>
+              {errs.length > 0 && (
+                <span
+                  data-step-error={errs.length}
+                  title={errs.join("\n")}
+                  className="shrink-0 rounded-full border border-status-failed bg-status-failed-bg px-1.5 text-xs text-status-failed"
+                >
+                  ! {errs.length}
+                </span>
+              )}
+              <span className="ml-auto flex shrink-0 gap-1">
+                <button
+                  className={BUTTON}
+                  aria-label="move up"
+                  disabled={i === 0}
+                  onClick={() => {
+                    setOpen((prev) => openAfterMove(prev, i, -1));
+                    props.onEdit(moveStep(props.text, i, -1));
+                  }}
+                >
                   ↑
                 </button>
                 <button
                   className={BUTTON}
                   aria-label="move down"
                   disabled={i === steps.length - 1}
-                  onClick={() => props.onEdit(moveStep(props.text, i, 1))}
+                  onClick={() => {
+                    setOpen((prev) => openAfterMove(prev, i, 1));
+                    props.onEdit(moveStep(props.text, i, 1));
+                  }}
                 >
                   ↓
                 </button>
                 <button
                   className={BUTTON}
                   onClick={() => {
-                    if (window.confirm(`Remove step "${fieldText(s.id) || i + 1}"? Its comment keys go with it.`)) props.onEdit(removeStep(props.text, i));
+                    if (!window.confirm(`Remove step "${fieldText(s.id) || i + 1}"? Its comment keys go with it.`)) return;
+                    setOpen((prev) => openAfterRemove(prev, i));
+                    props.onEdit(removeStep(props.text, i));
                   }}
                 >
                   remove
                 </button>
               </span>
             </div>
-            {isCollapsed ? (
-              <p className="mt-2 font-mono text-xs text-[var(--color-muted)]">{summarizeStep(s, keys, stageList) || "—"}</p>
-            ) : (
+            {isOpen && errs.length > 0 && (
+              <ul className="mb-2 list-disc pl-4 text-xs text-status-failed">
+                {errs.map((e, k) => (
+                  <li key={k} className="break-words">
+                    {e}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {isOpen && (
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-3 gap-3">
                   <TextField {...edit} label="Step id" hint="id" path={at("id")} value={s.id} />
@@ -456,7 +552,13 @@ export function PipelineForm(props: EditProps & { raw: unknown; stages: StagesSt
         );
       })}
       <div>
-        <button className={BUTTON} onClick={() => props.onEdit(addStep(props.text))}>
+        <button
+          className={BUTTON}
+          onClick={() => {
+            setOpen((prev) => new Set([...prev, steps.length]));
+            props.onEdit(addStep(props.text));
+          }}
+        >
           + Add step
         </button>
       </div>

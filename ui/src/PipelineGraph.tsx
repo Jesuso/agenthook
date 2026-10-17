@@ -82,12 +82,29 @@ function EdgePath(props: { edge: GraphEdge; route: EdgeRoute; hover: boolean; on
   );
 }
 
-function StepCard(props: { node: StepNode }) {
+/** A step node; with `onSelect` it's a button (click / Enter) that opens the step's form card. */
+function StepCard(props: { node: StepNode; onSelect?: (id: string) => void }) {
   const n = props.node;
+  const { onSelect } = props;
   const badges = [n.manual && "manual", n.createsWorktree && "worktree", n.drainWorktree && "drain"].filter(Boolean) as string[];
   const meta = [n.stepKind, n.model, n.effort].filter(Boolean).join(" · ");
+  const select = onSelect
+    ? {
+        role: "button",
+        tabIndex: 0,
+        "aria-label": `edit step ${n.id}`,
+        "data-graph-step": n.id,
+        className: "cursor-pointer",
+        onClick: () => onSelect(n.id),
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          onSelect(n.id);
+        },
+      }
+    : {};
   return (
-    <g transform={`translate(${n.x},${n.y})`}>
+    <g transform={`translate(${n.x},${n.y})`} {...select}>
       <title>{`${n.id}\n${meta}`}</title>
       <rect
         width={STEP_W}
@@ -145,7 +162,8 @@ function Legend() {
   );
 }
 
-export function PipelineGraph(props: { layout: PipelineLayout }) {
+/** `onSelectStep` makes the step nodes clickable (the config editor opens that step's card); stage pills never are. */
+export function PipelineGraph(props: { layout: PipelineLayout; onSelectStep?: (id: string) => void }) {
   const { layout } = props;
   const [hovered, setHovered] = useState<number | null>(null);
   if (!layout.nodes.length) return <p className="text-sm text-[var(--color-muted)]">no pipeline steps yet</p>;
@@ -166,7 +184,7 @@ export function PipelineGraph(props: { layout: PipelineLayout }) {
           {layout.edges.map((e, i) => (
             <EdgePath key={i} edge={e} route={layout.routes[i]} hover={hovered === i} onHover={(on) => setHovered((h) => (on ? i : h === i ? null : h))} />
           ))}
-          {layout.nodes.map((n) => (isStep(n) ? <StepCard key={`s:${n.id}`} node={n} /> : <StagePill key={`g:${n.id}`} node={n} />))}
+          {layout.nodes.map((n) => (isStep(n) ? <StepCard key={`s:${n.id}`} node={n} onSelect={props.onSelectStep} /> : <StagePill key={`g:${n.id}`} node={n} />))}
           {/* Labels last, over the cards: the `changes` arc's short label is persistent; hover shows the full one. */}
           {layout.edges.map((e, i) =>
             hovered === i ? (
