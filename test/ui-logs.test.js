@@ -118,6 +118,9 @@ test("listRuns: step with '-', safeRef mapping, repeated step, other refs + non-
     runs.map((r) => r.endedAt),
     [null, "2026-10-08T10:15:00.000Z", "2026-10-08T10:06:00.000Z", "2026-10-08T10:04:00.000Z"],
   );
+  assert.deepEqual(runs.map((r) => r.unpriced), [false, false, false, false]);
+  const local = listRuns(reg, "q", ref, events.map((e) => (e.costUsd === 2 ? { ...e, costUsd: undefined, unpriced: true } : e)));
+  assert.deepEqual(local.map((r) => [r.costUsd, r.unpriced]), [[null, false], [null, true], [0.25, false], [1.5, false]]);
   assert.deepEqual(listRuns(reg, "nope", ref, events), []);
   assert.deepEqual(listRuns(reg, "q", "missing", events), []);
 });

@@ -1,4 +1,5 @@
 import type { LogFrame, RunView, TicketStatus, UiEvent } from "./contract";
+import { formatCost } from "./format";
 
 /** Retained-line cap: the oldest lines drop past this so a huge log can't exhaust memory. */
 export const MAX_LINES = 50_000;
@@ -93,6 +94,11 @@ export function logStreamUrl(profile: string, run: string): string {
 /** "advance" / "running" / "—" */
 export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
   return r.outcome ?? (r.running ? "running" : "—");
+}
+
+/** A run's cost cell: "local" for an unpriced (local-model) run, else its cost ("—" when none). */
+export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced">): string {
+  return r.unpriced ? "local" : formatCost(r.costUsd ?? 0);
 }
 
 /** A run's outcome in the status colour language. */

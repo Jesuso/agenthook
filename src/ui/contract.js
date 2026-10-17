@@ -144,6 +144,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} endedAt        run_end.ts; null while it runs or once run_end left the tail
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
  * @property {number|null} costUsd
+ * @property {boolean} unpriced           run_end.unpriced: a local-model run, no real cost (costUsd null)
  * @property {boolean} running            no outcome yet, newest run, and running.json has it
  * @property {number} bytes               log size when listed
  */

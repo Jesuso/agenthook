@@ -42,6 +42,24 @@ test("dailyStats: runs, rework, failed runs and cost from run_end; merged is dis
   assert.deepEqual({ runs: t.runs, rework: t.rework, failedRuns: t.failedRuns, merged: t.merged, costUsd: t.costUsd }, { runs: 4, rework: 1, failedRuns: 1, merged: 1, costUsd: 3.23 });
 });
 
+test("dailyStats: an unpriced run_end counts as a run but adds no spend; a local-only ticket has no ticketCost", () => {
+  const events = [
+    ev("2026-10-15T09:00:00Z", "run_end", { ref: "L", step: "triage", outcome: "advance", unpriced: true }),
+    ev("2026-10-15T09:30:00Z", "run_end", { ref: "L", step: "review", outcome: "advance", unpriced: true }),
+    ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "L" }),
+    ev("2026-10-15T11:00:00Z", "run_end", { ref: "P", step: "code", outcome: "advance", costUsd: 2 }),
+    ev("2026-10-15T11:30:00Z", "run_end", { ref: "P", step: "triage", outcome: "advance", unpriced: true }),
+    ev("2026-10-15T12:00:00Z", "pipeline_done", { ref: "P" }),
+  ];
+  const [t] = dailyStats(events, { now: NOW, days: 1 });
+  assert.equal(t.runs, 4);
+  assert.equal(t.costUsd, 2);
+  assert.deepEqual(t.byStep.triage, { runs: 2, costUsd: 0 });
+  assert.deepEqual(t.byStep.code, { runs: 1, costUsd: 2 });
+  assert.equal(t.finished, 2);
+  assert.deepEqual(t.ticketCost, { n: 1, p10: 2, p50: 2, p90: 2 }, "the local-only ticket never enters ticketCost");
+});
+
 test("dailyStats: days are cut at the caller's midnight (tzOffset = getTimezoneOffset minutes)", () => {
   // 23:30 UTC on the 14th is 17:30 on the 14th in UTC-6, but 05:30 on the 15th in UTC+6.
   const e = [ev("2026-10-14T23:30:00Z", "pipeline_done", { ref: "A" })];

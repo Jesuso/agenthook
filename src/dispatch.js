@@ -188,19 +188,44 @@ function firstModel(mu) {
   return keys.length ? keys[0] : undefined;
 }
 
+/** `claude --model` aliases (case-insensitive, optional `[1m]` suffix) that name a Claude model. */
+const CLAUDE_ALIAS_RE = /^(default|opus|sonnet|haiku|opusplan|best)(\[1m\])?$/i;
+
+/**
+ * Whether a run's `total_cost_usd` is meaningless because it did not run on Claude: the step
+ * overrides the agent `bin` (e.g. `claude-local`), or the resolved model is not a Claude model
+ * (e.g. `qwen3-coder` behind `ANTHROPIC_BASE_URL`). `claude` prices every run from its own
+ * Claude price table, so an unpriced run keeps its tokens but its dollars are left out of every
+ * spend sum. Claude = unset (CLI default), `claude-…`, a Bedrock/Vertex id holding
+ * `anthropic.claude-`, or an alias. Pure; exported for tests.
+ * @param {{model?: string, bin?: string, claudeBin?: string}} o
+ * @returns {boolean}
+ */
+export function isUnpriced({ model, bin, claudeBin }) {
+  if (bin && bin !== claudeBin) return true;
+  if (!model) return false;
+  const m = model.trim().toLowerCase();
+  return !(m.startsWith("claude") || m.includes("anthropic.claude-") || CLAUDE_ALIAS_RE.test(m));
+}
+
 /**
  * Build a UsageRecord from a captured stream-json `result` event. Pure; exported for
  * tests. Totals come straight from `result.usage` + `total_cost_usd`; the model falls
- * back to the first `modelUsage` key when the step set no explicit `--model`.
- * @param {{ref:string, stepId:string, model?:string, startedAt:string, endedAt:string, result:any}} o
+ * back to the first `modelUsage` key when the step set no explicit `--model`. A run that
+ * `isUnpriced` keeps its raw `costUsd` (audit) but is tagged `unpriced: true` (+ `bin` when
+ * it overrides `claudeBin`) so readers leave it out of spend; priced records keep the old shape.
+ * @param {{ref:string, stepId:string, model?:string, bin?:string, claudeBin?:string, startedAt:string, endedAt:string, result:any}} o
  * @returns {import('./types.js').UsageRecord}
  */
-export function buildUsageRecord({ ref, stepId, model, startedAt, endedAt, result }) {
+export function buildUsageRecord({ ref, stepId, model, bin, claudeBin, startedAt, endedAt, result }) {
   const u = (result && result.usage) || {};
+  const resolved = model || firstModel(result && result.modelUsage);
+  const unpriced = isUnpriced({ model: resolved, bin, claudeBin });
   return {
     ref,
     stepId,
-    model: model || firstModel(result && result.modelUsage),
+    model: resolved,
+    ...(bin && bin !== claudeBin ? { bin } : {}),
     startedAt,
     endedAt,
     durationMs: typeof result?.duration_ms === "number" ? result.duration_ms : undefined,
@@ -210,6 +235,7 @@ export function buildUsageRecord({ ref, stepId, model, startedAt, endedAt, resul
     cacheCreate: u.cache_creation_input_tokens || 0,
     costUsd: typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined,
     sessionId: typeof result?.session_id === "string" ? result.session_id : undefined,
+    ...(unpriced ? { unpriced: true } : {}),
   };
 }
 
@@ -1044,9 +1070,12 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
 
     // Persist the final per-run usage record from the captured `result` event (token
     // totals + cost). Append-only usage.jsonl, distinct from the rewritten state files.
+    // A local-model run (step `bin`, or a non-Claude model) is unpriced: `claude`'s dollar
+    // figure is made up, so run_end drops it and the usage record is tagged.
+    const unpriced = isUnpriced({ model: model || firstModel(result?.modelUsage), bin: step.bin, claudeBin: cfg.claudeBin });
     if (store && result) {
       store.recordUsage(
-        buildUsageRecord({ ref: job.ref, stepId: step.id, model, startedAt, endedAt: new Date().toISOString(), result }),
+        buildUsageRecord({ ref: job.ref, stepId: step.id, model, bin: step.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString(), result }),
       );
     }
 
@@ -1064,8 +1093,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       /* best effort */
     }
 
-    const costUsd = typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
-    emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}) });
+    const costUsd = !unpriced && typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
+    emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}), ...(unpriced ? { unpriced: true } : {}) });
     if (verdict.outcome === "hold") {
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the
       // adapters' comment trigger), with the reply appended to the prompt.

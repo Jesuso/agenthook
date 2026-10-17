@@ -60,7 +60,7 @@ function usageOf(dir) {
     let hasCost = false;
     for (const r of records) {
       totalTokens += (r.input || 0) + (r.output || 0);
-      if (r.costUsd != null) { totalCost += r.costUsd; hasCost = true; }
+      if (r.costUsd != null && !r.unpriced) { totalCost += r.costUsd; hasCost = true; }
     }
     return { tokens: fmtTokens(totalTokens), cost: hasCost ? `$${totalCost.toFixed(2)}` : "" };
   } catch {

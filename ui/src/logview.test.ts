@@ -6,6 +6,7 @@ import {
   chunkRanges,
   emptyLog,
   formatOutcome,
+  formatRunCost,
   isAtBottom,
   lineAt,
   lineCount,
@@ -105,6 +106,14 @@ describe("urls + formatOutcome", () => {
     expect(formatOutcome({ outcome: "advance", running: false })).toBe("advance");
     expect(formatOutcome({ outcome: null, running: true })).toBe("running");
     expect(formatOutcome({ outcome: null, running: false })).toBe("—");
+  });
+});
+
+describe("formatRunCost", () => {
+  it("local for an unpriced run, else its dollars, else a dash", () => {
+    expect(formatRunCost({ costUsd: null, unpriced: true })).toBe("local");
+    expect(formatRunCost({ costUsd: 1.5, unpriced: false })).toMatch(/^\$1\.5/);
+    expect(formatRunCost({ costUsd: null, unpriced: false })).toBe("—");
   });
 });
 

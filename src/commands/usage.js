@@ -8,7 +8,8 @@ import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 
 /**
- * Aggregate an array of UsageRecords into summed totals.
+ * Aggregate an array of UsageRecords into summed totals. Tokens sum every record; `costUsd`
+ * sums only priced ones (an `unpriced` local-model run's figure is not real spend).
  * @param {import('../types.js').UsageRecord[]} recs
  * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined }}
  */
@@ -19,7 +20,7 @@ export function sumRecords(recs) {
     output += r.output;
     cacheRead += r.cacheRead;
     cacheCreate += r.cacheCreate;
-    if (typeof r.costUsd === "number") costUsd = (costUsd ?? 0) + r.costUsd;
+    if (!r.unpriced && typeof r.costUsd === "number") costUsd = (costUsd ?? 0) + r.costUsd;
   }
   return { input, output, cacheRead, cacheCreate, costUsd };
 }
@@ -86,6 +87,11 @@ function fmtCost(usd) {
   return typeof usd === "number" ? `$${usd.toFixed(4)}` : "—";
 }
 
+/** A per-run cost cell: `local` for an unpriced run. Exported for tests. @param {import('../types.js').UsageRecord} r */
+export function runCost(r) {
+  return r.unpriced ? "local" : fmtCost(r.costUsd);
+}
+
 /** @param {number} n */
 function tok(n) {
   return n.toLocaleString("en-US");
@@ -137,7 +143,7 @@ export async function usage(args) {
   const header = ["Ref", "Step", "Model", "Input", "Output", "CacheRead", "CacheCreate", "$"];
   const rows = [header];
   for (const r of slice) {
-    rows.push([r.ref, r.stepId, r.model ?? "—", tok(r.input), tok(r.output), tok(r.cacheRead), tok(r.cacheCreate), fmtCost(r.costUsd)]);
+    rows.push([r.ref, r.stepId, r.model ?? "—", tok(r.input), tok(r.output), tok(r.cacheRead), tok(r.cacheCreate), runCost(r)]);
   }
   // Totals always over full filtered set (not just the slice)
   const tot = sumRecords(recs);

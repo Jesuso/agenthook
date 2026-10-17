@@ -2,7 +2,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // Pure-unit tests for usage aggregation helpers (no I/O, no network).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sumRecords, groupBy, utcDay, isoWeek, modelSplit } from "../src/commands/usage.js";
+import { sumRecords, groupBy, utcDay, isoWeek, modelSplit, runCost } from "../src/commands/usage.js";
 
 /** @type {() => import('../src/types.js').UsageRecord} */
 function rec(overrides = {}) {
@@ -41,6 +41,21 @@ test("sumRecords all missing costUsd → undefined", () => {
   const recs = [rec({ costUsd: undefined }), rec({ costUsd: undefined })];
   const t = sumRecords(recs);
   assert.equal(t.costUsd, undefined);
+});
+
+test("sumRecords: tokens sum every record, costUsd only priced + old (no-field) ones", () => {
+  const recs = [rec({ costUsd: 0.25 }), rec({ costUsd: 9, unpriced: true }), rec({ costUsd: 0.5, unpriced: undefined })];
+  const t = sumRecords(recs);
+  assert.equal(t.input, 300);
+  assert.equal(t.output, 600);
+  assert.ok(Math.abs(t.costUsd - 0.75) < 1e-9);
+  assert.equal(sumRecords([rec({ unpriced: true }), rec({ unpriced: true })]).costUsd, undefined, "all unpriced → no cost");
+});
+
+test("runCost: an unpriced run prints local, a priced one its dollars", () => {
+  assert.equal(runCost(rec({ costUsd: 9, unpriced: true })), "local");
+  assert.equal(runCost(rec({ costUsd: 0.01 })), "$0.0100");
+  assert.equal(runCost(rec({ costUsd: undefined })), "—");
 });
 
 test("groupBy groups records by key", () => {
