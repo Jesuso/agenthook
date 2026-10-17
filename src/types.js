@@ -373,6 +373,7 @@
  * @property {{input: number, output: number, cacheRead: number, cacheCreate: number}} tally  live token estimate
  * @property {any} result                       the agent's final result record (null until seen); passed to `usageRecord`
  * @property {string|undefined} sessionId       the run's session id, once known
+ * @property {(chunk: string) => void} [pushStderr]  stderr reaches the parser only through this (e.g. hermes' session id)
  */
 
 /** Context for an agent's usage record (everything but the result).
@@ -397,8 +398,8 @@
 /** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
  * resume reach the CLI only through it.
  * @typedef {object} AgentAdapter
- * @property {() => {name: string, stdout: string}} describe
- * @property {(o: {prompt: string, model?: string, effort?: string, fullAuto?: boolean}) => string[]} buildArgs  argv after the executable
+ * @property {() => {name: string, stdout: string, promptFile?: boolean}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv
+ * @property {(o: {prompt: string, model?: string, effort?: string, fullAuto?: boolean, promptFile?: string}) => string[]} buildArgs  argv after the executable
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume

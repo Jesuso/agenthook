@@ -296,19 +296,27 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   /**
    * Spawn the step's agent with a prompt. The adapter builds the argv and parses stdout:
    * its parser renders log text and accumulates the token tally + final result record;
-   * stderr is piped raw. `onTally` fires when the running token count changes (i.e. per
-   * assistant/result event, NOT per token) so the live record isn't rewritten per token.
-   * `maxMs` caps the run's wall clock; `idleMs` caps the gap between stdout chunks. Past
-   * either the child gets SIGTERM, then SIGKILL after the grace, and `timedOut` says which.
+   * stderr also reaches the parser (`pushStderr`) and the log, raw. `onTally` fires when the
+   * running token count changes (i.e. per assistant/result event, NOT per token) so the live
+   * record isn't rewritten per token. `maxMs` caps the run's wall clock; `idleMs` caps the gap
+   * between any output chunk, stdout or stderr. Past either the child gets SIGTERM, then
+   * SIGKILL after the grace, and `timedOut` says which.
    * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
    * default bin, else cfg.claudeBin, and the receiver's env); the verdict-file variable is set last
    * so a step can't override it.
-   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
    */
-  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, bin, env, verdictFile, maxMs, idleMs, onPid, onTally }) {
+  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, bin, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
-    const args = agent.buildArgs({ prompt, model, effort, fullAuto: cfg.fullAuto });
+    if (promptFile) {
+      try {
+        fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
+      } catch (e) {
+        console.error(`[dispatch] prompt file write failed (${promptFile}):`, e.message);
+      }
+    }
+    const args = agent.buildArgs({ prompt, model, effort, fullAuto: cfg.fullAuto, promptFile });
     const parser = agent.createParser();
     return new Promise((resolve) => {
       const child = spawn(bin || agent.defaults.bin || cfg.claudeBin, args, {
@@ -362,7 +370,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         else drainTimer = setTimeout(dropPipes, killGraceMs);
       });
 
-      let lastOut = -1;
+      let lastOut = 0;
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk) => {
         armIdle();
@@ -373,7 +381,12 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
           onTally(parser.tally);
         }
       });
-      child.stderr.pipe(logStream);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        armIdle();
+        parser.pushStderr?.(chunk);
+        logStream.write(chunk);
+      });
       child.on("close", (c) => {
         clearTimeout(maxTimer);
         clearTimeout(idleTimer);
@@ -383,6 +396,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         if (tail) logStream.write(tail);
         children?.delete(child);
         logStream.end();
+        if (promptFile) {
+          try {
+            fs.rmSync(promptFile, { force: true });
+          } catch {
+            /* best effort */
+          }
+        }
         resolve({ code: c ?? 1, result: parser.result, ...(timedOut ? { timedOut } : {}) });
       });
     });
@@ -403,6 +423,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     fs.mkdirSync(dir, { recursive: true });
     const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
     return path.join(dir, `${safeRef}-${stepId}.json`);
+  }
+
+  /** The path an agent whose CLI takes the prompt from a file (`describe().promptFile`,
+   * e.g. hermes' `--query-file`) reads it from — one per run, under the state dir;
+   * `spawnAgent` removes it once the run exits. @param {string} stepId @param {string} ref */
+  function promptFilePathFor(stepId, ref) {
+    const dir = path.join(cfg.dataDir, "prompts");
+    fs.mkdirSync(dir, { recursive: true });
+    const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+    return path.join(dir, `${safeRef}-${stepId}.md`);
   }
 
   /** @param {number} code @param {string} verdictFile @param {import('./types.js').Step} step
@@ -858,11 +888,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     let pid;
     const maxMinutes = step.maxMinutes ?? DEFAULT_MAX_MINUTES;
     const agent = agentFor(cfg, step);
+    const promptFile = agent.describe().promptFile ? promptFilePathFor(step.id, job.ref) : undefined;
     const { code, result, timedOut } = await spawnAgent({
       agent,
       prompt,
       cwd,
       logPath,
+      promptFile,
       model,
       effort,
       bin: step.bin,
