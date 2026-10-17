@@ -144,6 +144,12 @@ describe("summarizeStep", () => {
   it("does not repeat the step id", () => {
     expect(summarizeStep({ id: "code", kind: "implement" }, null, null)).toBe("implement");
   });
+
+  it("appends +N advanced only when N > 0; leaves the summary unchanged when N is 0 or omitted", () => {
+    expect(summarizeStep({ kind: "implement" }, null, null, 0)).toBe("implement");
+    expect(summarizeStep({ kind: "implement" }, null, null)).toBe("implement");
+    expect(summarizeStep({ kind: "implement" }, null, null, 2)).toBe("implement · +2 advanced");
+  });
 });
 
 describe("openAfterMove / openAfterRemove", () => {

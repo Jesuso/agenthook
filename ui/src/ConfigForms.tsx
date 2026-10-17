@@ -4,6 +4,7 @@ import {
   KNOWN_MODELS,
   STAGE_ROLES,
   addStep,
+  advancedSet,
   boolEdit,
   fieldText,
   identityEdit,
@@ -271,8 +272,10 @@ const labelFor = (id: string, list: StageOption[] | null): string => list?.find(
  * `kind · <source> → <success> / <failure> · manual · worktree · drain · model · effort`, each part
  * omitted when absent (model / effort only when the step overrides them). Lanes read as the discovered
  * stage names, else the raw value. The id sits beside it in the header, so it isn't repeated here.
+ * `advancedCount` (from `advancedSet`), when > 0, appends "+N advanced"; 0/omitted leaves the
+ * summary unchanged from before the Advanced section existed.
  */
-export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null, stageList: StageOption[] | null): string {
+export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null, stageList: StageOption[] | null, advancedCount = 0): string {
   const parts: string[] = [];
   const kind = fieldText(s.kind);
   if (kind) parts.push(kind);
@@ -290,6 +293,7 @@ export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null
     const v = fieldText(s[k]);
     if (v) parts.push(v);
   }
+  if (advancedCount > 0) parts.push(`+${advancedCount} advanced`);
   return parts.join(" · ");
 }
 
@@ -432,8 +436,9 @@ export function openAfterRemove(open: ReadonlySet<number>, i: number): Set<numbe
 }
 
 /**
- * The ordered step list: ↑/↓/remove per card and "+ Add step". Only the listed fields are shown;
- * every other step key (escalate, lite, completeOnMerge, `//` comments, …) is preserved and edited in Raw.
+ * The ordered step list: ↑/↓/remove per card and "+ Add step". Only `lite`/`escalate`, `//`
+ * comment keys and unknown keys are left to Raw; every other step key has a field, split into the
+ * common section and a collapsed `<details data-step-advanced>` per the schema's `advanced` flag.
  * Every card starts collapsed to its header (id + `summarizeStep`); "+ Add step" opens the new one,
  * a card whose step gains an error (`errors`, from `stepErrors`) opens itself and keeps a red badge,
  * and `focus` (a graph click) opens + scrolls to the step with that id. All of it is view state —
@@ -452,6 +457,14 @@ export function PipelineForm(
   const tracker = (props.raw as any)?.tracker?.type;
   const keys = stageKeysFor(props.stages?.body ?? null, tracker);
   const stageList = props.stages?.source.kind === "list" ? props.stages.source.stages : null;
+  const roleAdvanced = (role: (typeof STAGE_ROLES)[number]) => !!keys && fieldMeta(["tracker", "pipeline", "*", keys[role]]).entry?.advanced === true;
+  const commonRoles = STAGE_ROLES.filter((role) => !roleAdvanced(role));
+  const advancedRoles = STAGE_ROLES.filter((role) => roleAdvanced(role));
+  const closeIssueEntry = fieldMeta(["tracker", "pipeline", "*", "closeIssue"]).entry;
+  const completeTaskEntry = fieldMeta(["tracker", "pipeline", "*", "completeTask"]).entry;
+  const trackerStr = String(tracker);
+  const showCloseIssue = !closeIssueEntry?.scope || closeIssueEntry.scope.includes(trackerStr);
+  const showCompleteTask = !completeTaskEntry?.scope || completeTaskEntry.scope.includes(trackerStr);
   const edit = { text: props.text, onEdit: props.onEdit };
   const errors = props.errors ?? new Map<number, string[]>();
   const [open, setOpen] = useState<Set<number>>(new Set());
@@ -515,8 +528,12 @@ export function PipelineForm(
               </button>
               <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
               <span className="font-mono text-sm">{fieldText(s.id) || "(no id)"}</span>
-              <span data-step-summary className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)]" title={summarizeStep(s, keys, stageList)}>
-                {summarizeStep(s, keys, stageList) || "—"}
+              <span
+                data-step-summary
+                className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)]"
+                title={summarizeStep(s, keys, stageList, advancedSet(s, tracker, keys).length)}
+              >
+                {summarizeStep(s, keys, stageList, advancedSet(s, tracker, keys).length) || "—"}
               </span>
               {errs.length > 0 && (
                 <span
@@ -582,7 +599,7 @@ export function PipelineForm(
                 </div>
                 <Group title="Triggers & lanes">
                   {keys ? (
-                    STAGE_ROLES.map((role) => (
+                    commonRoles.map((role) => (
                       <StageField key={role} {...edit} label={ROLE_LABEL[role]} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
                     ))
                   ) : (
@@ -596,13 +613,46 @@ export function PipelineForm(
                 </Group>
                 <Group title="Limits">
                   <NumberField {...edit} path={at("maxAttempts")} value={s.maxAttempts} />
-                  <NumberField {...edit} path={at("maxMinutes")} value={s.maxMinutes} />
-                  <NumberField {...edit} path={at("idleMinutes")} value={s.idleMinutes} />
                 </Group>
                 <Group title="Worktree">
                   <CheckField {...edit} path={at("createsWorktree")} value={s.createsWorktree} />
                   <CheckField {...edit} path={at("drainWorktree")} value={s.drainWorktree} />
                 </Group>
+                <details data-step-advanced>
+                  <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
+                    Advanced · {advancedSet(s, tracker, keys).length} set
+                  </summary>
+                  <div className="mt-2 flex flex-col gap-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      <NumberField {...edit} path={at("maxMinutes")} value={s.maxMinutes} />
+                      <NumberField {...edit} path={at("idleMinutes")} value={s.idleMinutes} />
+                      <NumberField {...edit} path={at("maxConcurrent")} value={s.maxConcurrent} />
+                    </div>
+                    {keys && advancedRoles.length > 0 && (
+                      <div className="grid grid-cols-3 gap-3">
+                        {advancedRoles.map((role) => (
+                          <StageField key={role} {...edit} label={ROLE_LABEL[role]} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-3">
+                      {(s.manual === true || s.completeOnMerge !== undefined) && (
+                        <div className="flex flex-col gap-1">
+                          <CheckField {...edit} path={at("completeOnMerge")} value={s.completeOnMerge} />
+                          <span className="text-xs text-[var(--color-muted)]">
+                            Manual steps only; at most one step may set it.
+                            {(() => {
+                              const owner = steps.findIndex((st, idx) => idx !== i && st.completeOnMerge === true);
+                              return owner >= 0 ? ` Already set on step "${fieldText(steps[owner].id) || owner + 1}".` : "";
+                            })()}
+                          </span>
+                        </div>
+                      )}
+                      {showCloseIssue && <CheckField {...edit} path={at("closeIssue")} value={s.closeIssue} />}
+                      {showCompleteTask && <CheckField {...edit} path={at("completeTask")} value={s.completeTask} />}
+                    </div>
+                  </div>
+                </details>
               </div>
             )}
           </section>
