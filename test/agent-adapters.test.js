@@ -344,11 +344,15 @@ test("dispatch: a promptFile agent — prompt delivered via file + cleaned up, s
   const poll = (async () => {
     for (let i = 0; i < 60; i++) {
       if (fs.existsSync(promptFile)) sawPromptFile = true;
-      const r = store.listRunning()["42"];
-      if (r && "output" in r) sawOutputField = true;
       await new Promise((res) => setTimeout(res, 10));
     }
   })();
+
+  const setRunning = store.setRunning.bind(store);
+  store.setRunning = (/** @type {string} */ ref, /** @type {any} */ rec) => {
+    if (rec && "output" in rec) sawOutputField = true;
+    return setRunning(ref, rec);
+  };
 
   const log = console.log;
   console.log = () => {};
@@ -356,6 +360,7 @@ test("dispatch: a promptFile agent — prompt delivered via file + cleaned up, s
     await Promise.all([run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" }), poll]);
   } finally {
     console.log = log;
+    store.setRunning = setRunning;
   }
 
   assert.ok(sawPromptFile, "the prompt file existed while the run was in flight");
