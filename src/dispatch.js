@@ -296,10 +296,11 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   /**
    * Spawn the step's agent with a prompt. The adapter builds the argv and parses stdout:
    * its parser renders log text and accumulates the token tally + final result record;
-   * stderr is piped raw. `onTally` fires when the running token count changes (i.e. per
-   * assistant/result event, NOT per token) so the live record isn't rewritten per token.
-   * `maxMs` caps the run's wall clock; `idleMs` caps the gap between stdout chunks. Past
-   * either the child gets SIGTERM, then SIGKILL after the grace, and `timedOut` says which.
+   * stderr also reaches the parser (`pushStderr`) and the log, raw. `onTally` fires when the
+   * running token count changes (i.e. per assistant/result event, NOT per token) so the live
+   * record isn't rewritten per token. `maxMs` caps the run's wall clock; `idleMs` caps the gap
+   * between any output chunk, stdout or stderr. Past either the child gets SIGTERM, then
+   * SIGKILL after the grace, and `timedOut` says which.
    * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
    * default bin, else cfg.claudeBin, and the receiver's env); the verdict-file variable is set last
    * so a step can't override it.

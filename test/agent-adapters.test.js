@@ -340,12 +340,12 @@ test("dispatch: a promptFile agent — prompt delivered via file + cleaned up, s
 
   const promptFile = path.join(dir, "prompts", "42-code.md");
   let sawPromptFile = false;
-  let sawNoOutputField = false;
+  let sawOutputField = false;
   const poll = (async () => {
     for (let i = 0; i < 60; i++) {
       if (fs.existsSync(promptFile)) sawPromptFile = true;
       const r = store.listRunning()["42"];
-      if (r && !("output" in r)) sawNoOutputField = true;
+      if (r && "output" in r) sawOutputField = true;
       await new Promise((res) => setTimeout(res, 10));
     }
   })();
@@ -360,7 +360,7 @@ test("dispatch: a promptFile agent — prompt delivered via file + cleaned up, s
 
   assert.ok(sawPromptFile, "the prompt file existed while the run was in flight");
   assert.equal(fs.existsSync(promptFile), false, "the prompt file is removed after the run");
-  assert.ok(sawNoOutputField, "a text-only run's running record never gets an output field");
+  assert.equal(sawOutputField, false, "a text-only run's running record never gets an output field");
 
   const runLog = fs.readdirSync(dir).find((f) => /-step-code-42\.log$/.test(f));
   assert.ok(runLog, "a run log was written");
@@ -413,4 +413,98 @@ test("dispatch: a promptFile agent with no verdict file holds via requireVerdict
   assert.deepEqual(advanced, [["42", "code", "hold"]]);
   assert.equal(store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
   assert.equal(fs.existsSync(path.join(dir, "prompts", "42-code.md")), false, "prompt file cleaned up even on a hold");
+});
+
+// --- a token-streaming (claude-like) adapter, to prove the lastOut:0 fix didn't break live tally ---
+
+/** A node "agent" that writes two stdout chunks a beat apart, each bumping a token count. @param {string} dir */
+function fakeStreamScript(dir) {
+  const file = path.join(dir, "fake-stream-agent.mjs");
+  fs.writeFileSync(
+    file,
+    `process.stdout.write("tok\\n");\n` +
+      `await new Promise((r) => setTimeout(r, 60));\n` +
+      `process.stdout.write("tok\\n");\n`,
+  );
+  return file;
+}
+
+/** @param {string} script @returns {import('../src/types.js').AgentAdapter} */
+function fakeStreamAdapter(script) {
+  return {
+    describe: () => ({ name: "fakestream", stdout: "lines" }),
+    buildArgs: () => [script],
+    createParser() {
+      let output = 0;
+      return {
+        push(chunk) {
+          output += (chunk.match(/tok/g) || []).length * 5;
+          return chunk;
+        },
+        flush() {
+          return "";
+        },
+        tally: { input: 0, get output() { return output; }, cacheRead: 0, cacheCreate: 0 },
+        result: null,
+        sessionId: undefined,
+      };
+    },
+    usageRecord: (_result, ctx) => ({
+      ref: ctx.ref,
+      stepId: ctx.stepId,
+      model: ctx.model,
+      startedAt: ctx.startedAt,
+      endedAt: ctx.endedAt,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreate: 0,
+      costUsd: undefined,
+      sessionId: undefined,
+      unpriced: true,
+    }),
+    sessions: null,
+    defaults: { bin: process.execPath, requireVerdict: false },
+  };
+}
+
+test("dispatch: a token-streaming agent's live tally still updates the running record (lastOut:0 didn't break it)", async (t) => {
+  const dir = tmpDir();
+  AGENTS.fakestream = fakeStreamAdapter(fakeStreamScript(dir));
+  t.after(() => {
+    delete AGENTS.fakestream;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", agent: "fakestream" }, { id: "done", manual: true }],
+    claudeBin: path.join(dir, "no-such-claude"),
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {},
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store);
+  let sawPositiveOutput = false;
+  const poll = (async () => {
+    for (let i = 0; i < 60; i++) {
+      const r = store.listRunning()["42"];
+      if (r && r.output > 0) sawPositiveOutput = true;
+      await new Promise((res) => setTimeout(res, 10));
+    }
+  })();
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await Promise.all([run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" }), poll]);
+  } finally {
+    console.log = log;
+  }
+  assert.ok(sawPositiveOutput, "a claude-style stream still writes a positive output onto the running record while in flight");
 });
