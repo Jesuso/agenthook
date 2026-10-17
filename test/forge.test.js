@@ -9,7 +9,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { verifyHubSignature } from "../src/hmac.js";
-import { createGithubForge, refFromBranch, isForgePath, fenceLog } from "../src/forges/github.js";
+import {
+  createGithubForge,
+  refFromBranch,
+  isForgePath,
+  fenceLog,
+  parseGithubRemote,
+  forgeOffer,
+  mergeStepCandidates,
+  forgeBlock,
+} from "../src/forges/github.js";
 import { createForge } from "../src/forges/index.js";
 
 /** Minimal in-memory Store stub (only secrets are used). */
@@ -66,6 +75,64 @@ test("verifyHubSignature rejects bad, missing, or secretless input", () => {
 
 test("verifyHubSignature takes the first value of an array header", () => {
   assert.equal(verifyHubSignature("k", "body", [sign("body", "k")]), true);
+});
+
+// --- init helpers (parseGithubRemote, forgeOffer, mergeStepCandidates, forgeBlock) ---
+
+test("parseGithubRemote handles the three URL forms, with and without .git", () => {
+  assert.equal(parseGithubRemote("git@github.com:Jesuso/agenthook.git"), "Jesuso/agenthook");
+  assert.equal(parseGithubRemote("git@github.com:Jesuso/agenthook"), "Jesuso/agenthook");
+  assert.equal(parseGithubRemote("https://github.com/Jesuso/agenthook.git"), "Jesuso/agenthook");
+  assert.equal(parseGithubRemote("https://github.com/Jesuso/agenthook"), "Jesuso/agenthook");
+  assert.equal(parseGithubRemote("ssh://git@github.com/Jesuso/agenthook.git"), "Jesuso/agenthook");
+  assert.equal(parseGithubRemote("ssh://git@github.com/Jesuso/agenthook"), "Jesuso/agenthook");
+});
+
+test("parseGithubRemote rejects non-github.com hosts or garbage", () => {
+  assert.equal(parseGithubRemote("git@gitlab.com:o/r.git"), null);
+  assert.equal(parseGithubRemote("https://gitlab.com/o/r"), null);
+  assert.equal(parseGithubRemote("not a url"), null);
+  assert.equal(parseGithubRemote(""), null);
+  assert.equal(parseGithubRemote(undefined), null);
+  assert.equal(parseGithubRemote(null), null);
+});
+
+test("forgeOffer: github tracker defaults yes with the tracker's own repo", () => {
+  assert.deepEqual(forgeOffer({ trackerType: "github", trackerRepository: "o/r", remoteUrl: "" }), {
+    defaultYes: true,
+    repository: "o/r",
+  });
+});
+
+test("forgeOffer: non-github tracker with a github.com remote defaults yes with the parsed repo", () => {
+  assert.deepEqual(forgeOffer({ trackerType: "asana", trackerRepository: undefined, remoteUrl: "git@github.com:o/r.git" }), {
+    defaultYes: true,
+    repository: "o/r",
+  });
+});
+
+test("forgeOffer: non-github tracker with a non-github remote (or none) defaults no", () => {
+  assert.deepEqual(forgeOffer({ trackerType: "jira", trackerRepository: undefined, remoteUrl: "git@gitlab.com:o/r.git" }), {
+    defaultYes: false,
+    repository: null,
+  });
+  assert.deepEqual(forgeOffer({ trackerType: "jira", remoteUrl: "" }), { defaultYes: false, repository: null });
+  assert.deepEqual(forgeOffer(), { defaultYes: false, repository: null });
+});
+
+test("mergeStepCandidates: only manual step ids, empty for init's generated pipeline", () => {
+  assert.deepEqual(mergeStepCandidates(pipeline), ["done"]);
+  assert.deepEqual(mergeStepCandidates([{ id: "code", createsWorktree: true }]), []);
+  assert.deepEqual(mergeStepCandidates([]), []);
+  assert.deepEqual(mergeStepCandidates(undefined), []);
+});
+
+test("forgeBlock: exactly type/repository/token, no other defaults", () => {
+  assert.deepEqual(forgeBlock({ repository: "o/r", tokenEnv: "GITHUB_TOKEN" }), {
+    type: "github",
+    repository: "o/r",
+    token: "${GITHUB_TOKEN}",
+  });
 });
 
 // --- branch → ref ---

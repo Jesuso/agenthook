@@ -50,6 +50,39 @@ export function refFromBranch(branch) {
   return ref || null;
 }
 
+/** Parse a git remote URL into "owner/name", or null for anything that isn't a
+ * github.com remote (ssh, https, scp-like `git@`, with or without `.git`).
+ * @param {string|null|undefined} url @returns {string|null} */
+export function parseGithubRemote(url) {
+  if (typeof url !== "string" || !url) return null;
+  const m = url.match(/^(?:https?:\/\/|ssh:\/\/git@|git@)github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/** What `init` should offer for the forge question: default yes when the tracker
+ * is already `github` (reuse its repo) or the repo's remote is github.com (parse
+ * it); default no (and no repository) otherwise.
+ * @param {{trackerType?: string, trackerRepository?: string, remoteUrl?: string}} opts
+ * @returns {{defaultYes: boolean, repository: string|null}} */
+export function forgeOffer({ trackerType, trackerRepository, remoteUrl } = {}) {
+  if (trackerType === "github" && trackerRepository) return { defaultYes: true, repository: trackerRepository };
+  const parsed = parseGithubRemote(remoteUrl);
+  return parsed ? { defaultYes: true, repository: parsed } : { defaultYes: false, repository: null };
+}
+
+/** `manual` step ids in a pipeline — the only candidates for `completeOnMerge`.
+ * @param {import('../types.js').Step[]|undefined|null} pipeline @returns {string[]} */
+export function mergeStepCandidates(pipeline) {
+  return (pipeline || []).filter((s) => s && s.manual).map((s) => s.id);
+}
+
+/** The forge config block `init` writes: just enough to make the forge work.
+ * @param {{repository: string, tokenEnv: string}} opts
+ * @returns {import('../types.js').ForgeConfig} */
+export function forgeBlock({ repository, tokenEnv }) {
+  return { type: "github", repository, token: `\${${tokenEnv}}` };
+}
+
 /** Wrap untrusted log text in a `~` fence longer than any `~` run inside it, so
  * nothing in the log can close the fence early. @param {string} text */
 export function fenceLog(text) {
@@ -395,6 +428,40 @@ export function createGithubForge(cfg, store) {
       const text = log ? `${body}\n\n${fenceLog(log)}` : body;
       const res = await api(`${repoPath()}/issues/${prNumber}/comments`, { method: "POST", body: JSON.stringify({ body: text }) });
       if (!res.ok) throw new Error(`comment on PR #${prNumber} ${res.status}`);
+    },
+
+    // `agenthook init` discovery: offer the forge, default yes when the tracker is
+    // already github or the repo's remote is github.com (both are `answers._offer`,
+    // computed by init before calling this). A `completeOnMerge` pick only appears
+    // when the generated pipeline has a manual step to put it on (none today).
+    /** @param {Record<string,any>} answers */
+    wizardSteps: (answers) => {
+      const offer = /** @type {{defaultYes:boolean, repository:string|null}} */ (answers._forgeOffer || { defaultYes: false, repository: null });
+      const candidates = /** @type {string[]} */ (answers._mergeStepCandidates || []);
+      return [
+        { key: "_useForge", message: "Track merges and CI with the GitHub forge?", type: "confirm", default: offer.defaultYes },
+        {
+          key: "repository",
+          message: "Repository whose PRs complete tasks",
+          default: offer.repository || "",
+          when: (a) => !!a._useForge,
+          validate: (v) => (/^[^/\s]+\/[^/\s]+$/.test(v) ? true : "use owner/name"),
+        },
+        {
+          key: "tokenEnv",
+          message: "Env var holding the GitHub token",
+          default: answers._defaultTokenEnv || "GITHUB_TOKEN",
+          when: (a) => !!a._useForge,
+        },
+        {
+          key: "_completeOnMerge",
+          message: "Step to complete on PR merge",
+          type: "select",
+          when: (a) => !!a._useForge && candidates.length > 0,
+          default: candidates[candidates.length - 1],
+          choices: candidates.map((id) => ({ title: id, value: id })),
+        },
+      ];
     },
   };
 }

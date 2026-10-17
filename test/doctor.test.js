@@ -5,7 +5,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { unfilledBindings, repoLints, legacyOrphans } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
 
 test("unfilledBindings: clean pipeline has no offenders", () => {
@@ -93,6 +93,20 @@ test("repoLints: a non-manual step with no hold binding → warn naming it", () 
 test("repoLints: a single-repo cfg produces no repo lints", () => {
   const cfg = /** @type {any} */ ({ repoPath: "/a/repo", multiRepo: false, repos: [{ id: "default", path: "/a/repo", match: [], default: true }], providerConfig: {}, pipeline: [{ id: "code" }] });
   assert.deepEqual(repoLints(cfg), []);
+});
+
+test("forgeLints: github tracker with no forge block → one warning", () => {
+  const lints = forgeLints(/** @type {any} */ ({ provider: "github", forge: undefined }));
+  assert.deepEqual(labels(lints), ["warn:forge configured"]);
+});
+
+test("forgeLints: github tracker with a forge block → none", () => {
+  assert.deepEqual(forgeLints(/** @type {any} */ ({ provider: "github", forge: { type: "github" } })), []);
+});
+
+test("forgeLints: non-github tracker with no forge → none", () => {
+  assert.deepEqual(forgeLints(/** @type {any} */ ({ provider: "asana", forge: undefined })), []);
+  assert.deepEqual(forgeLints(/** @type {any} */ ({ provider: "jira", forge: undefined })), []);
 });
 
 test("legacyOrphans: flags <base>/42, not <base>/ios/42", () => {

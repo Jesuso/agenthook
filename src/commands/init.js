@@ -5,9 +5,12 @@
 // file stays shareable; the live token (read from that env var now) powers discovery.
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { runWizard } from "../wizard.js";
 import { TRACKERS, createAdapter } from "../trackers/index.js";
 import { INGRESS } from "../ingress/index.js";
+import { FORGES } from "../forges/index.js";
+import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
 import { installAh } from "./alias.js";
 
 /** @type {Record<string, string>} */
@@ -116,12 +119,39 @@ export async function init(args) {
   const ingress = ingressFactory({ ingress: { type: ingressAns.type }, port: Number(core.port) });
   if (ingress.wizardSteps) await runWizard(ingress.wizardSteps(), ingressAns);
 
-  // --- assemble + write ---
-  const tracker = blockFromAnswers(trackerAns.type, trackerAns);
   // The adapter turns its wizard's live stage picks (the `_*Stage` answers) into real
   // step bindings; only when it can't do we fall back to the editable TODO_* skeleton.
   const bindings = adapter.pipelineBindings?.(trackerAns);
-  tracker.pipeline = bindings ? [{ ...base, ...bindings }] : PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
+  const pipeline = bindings ? [{ ...base, ...bindings }] : PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
+
+  // --- forge (optional third axis: what happened to the code — e.g. a PR merged) ---
+  // Only offered when some forge adapter has wizardSteps (today: github, always). A
+  // forge with no manual step to complete-on-merge still drains + cleans up (see the
+  // issue's Evidence) — mergeStepCandidates is empty for init's single-`code` pipeline.
+  /** @type {any} */
+  const forgeKey = Object.keys(FORGES).find((k) => typeof FORGES[k](/** @type {any} */ ({ forge: { type: k } }), stubStore).wizardSteps === "function");
+  /** @type {Record<string, any>} */
+  let forgeAns = {};
+  if (!forgeKey) {
+    console.log(`\n(no forge adapter offers setup for this tracker yet — skipping)`);
+  } else {
+    let remoteUrl = "";
+    try {
+      remoteUrl = execFileSync("git", ["-C", core.repoPath, "remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+    } catch {
+      // no origin remote — forgeOffer falls back to defaultYes:false
+    }
+    const forge = FORGES[forgeKey](/** @type {any} */ ({ forge: { type: forgeKey } }), stubStore);
+    forgeAns._forgeOffer = forgeOffer({ trackerType: trackerAns.type, trackerRepository: trackerAns.repository, remoteUrl });
+    forgeAns._mergeStepCandidates = mergeStepCandidates(pipeline);
+    forgeAns._defaultTokenEnv = trackerAns.type === "github" || trackerAns.type === "github-projects" ? tokenEnv : DEFAULT_TOKEN_ENV.github;
+    await runWizard(/** @type {any} */ (forge.wizardSteps)(forgeAns), forgeAns);
+  }
+
+  // --- assemble + write ---
+  const tracker = blockFromAnswers(trackerAns.type, trackerAns);
+  tracker.pipeline = pipeline;
+  /** @type {Record<string, any>} */
   const config = {
     name: core.name,
     repoPath: core.repoPath,
@@ -134,6 +164,16 @@ export async function init(args) {
     ingress: blockFromAnswers(ingressAns.type, ingressAns),
   };
 
+  let forgeTokenEnv = "";
+  if (forgeAns._useForge) {
+    forgeTokenEnv = forgeAns.tokenEnv;
+    config.forge = forgeBlock({ repository: forgeAns.repository, tokenEnv: forgeAns.tokenEnv });
+    if (forgeAns._completeOnMerge) {
+      const step = pipeline.find((s) => s.id === forgeAns._completeOnMerge);
+      if (step) step.completeOnMerge = true;
+    }
+  }
+
   fs.writeFileSync(out, JSON.stringify(config, null, 2) + "\n");
   console.log(`\nwrote ${out}`);
   console.log(`state dir will be ~/.agenthook/${config.name}`);
@@ -143,9 +183,16 @@ export async function init(args) {
   if (ah) console.log(installAh().message);
 
   console.log(`\nNext:`);
-  console.log(`  - ensure ${tokenEnv}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
+  const envs = [tokenEnv, ...(forgeTokenEnv && forgeTokenEnv !== tokenEnv ? [forgeTokenEnv] : [])];
+  console.log(`  - ensure ${envs.join(", ")}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
   if (bindings) console.log(`  - tracker.pipeline is bound to the stages you picked — add more steps for a longer pipeline`);
   else console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
   console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);
+  if (config.forge) {
+    console.log(`  - forge webhook is served on /forge (auto-created on start; needs ngrok or a stable ingress URL)`);
+    if (trackerAns.type !== "github" && trackerAns.type !== "github-projects") {
+      console.log(`  - forge token scopes: repo + admin:repo_hook (classic), or Webhooks + Actions + Pull requests RW (fine-grained)`);
+    }
+  }
   console.log(`  - agenthook start            # boot this profile`);
 }

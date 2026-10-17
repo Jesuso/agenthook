@@ -86,6 +86,15 @@ export function repoLints(cfg) {
   return out;
 }
 
+/** Warn when a `github` tracker has no forge block — merge/CI events never arrive
+ * and the event-driven loop quietly falls back to polling. Pure (config only).
+ * @param {import('../types.js').Config} cfg
+ * @returns {{level: 'warn', label: string, note: string}[]} */
+export function forgeLints(cfg) {
+  if (cfg.provider !== "github" || cfg.forge) return [];
+  return [{ level: "warn", label: "forge configured", note: "no forge block — merge/CI events will not arrive" }];
+}
+
 /** @param {any} args */
 export async function doctor(args) {
   /** @type {{ok:boolean, warn?:boolean, info?:boolean, label:string, note?:string}[]} */
@@ -140,6 +149,8 @@ export async function doctor(args) {
 
   const unfilled = unfilledBindings(cfg.pipeline);
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "");
+
+  for (const l of forgeLints(cfg)) warn(l.label, l.note);
 
   if (process.platform === "linux") {
     const scopeOn = systemdScopeAvailable();

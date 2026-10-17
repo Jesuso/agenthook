@@ -33,3 +33,24 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.
+
+## Forge (optional — what happened to the code)
+
+A tracker says where work comes from; a forge says what happened to the code (a PR merged, CI
+went red). It's optional: no `forge` block = no PR awareness, nothing else changes. Today the
+only forge is `github`:
+
+```json
+"forge": { "type": "github", "repository": "owner/name", "token": "${GITHUB_TOKEN}" }
+```
+
+- `repository` is **required** — the forge never falls back to the tracker's repo.
+- `completeOnMerge` lives on a **manual pipeline step**, not here (`Step.completeOnMerge`): a
+  merged PR moves the task into that step, which then marks it complete. No candidate step →
+  a merge still drains the worktree and cleans up, it just doesn't mark the tracker item done.
+- `redCi` / `greenCi` / `ciTarget` keep their defaults (react to red CI, emit a `ci_green`
+  signal, bounce red CI to the `createsWorktree` step) unless overridden.
+
+`agenthook init` offers to write this block (defaulting to yes when the tracker is `github` or
+the repo's `origin` remote is a github.com URL); `agenthook doctor` warns when a `github` tracker
+has no forge configured.
