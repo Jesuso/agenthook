@@ -306,3 +306,11 @@ describe("layoutPipeline — geometry", () => {
     expect(rectOf(plain, "triage", "step").y).toBeLessThan(triage.y);
   });
 });
+
+describe("layoutPipeline — step agent", () => {
+  it("takes the step's agent, else the profile's, else none", () => {
+    const steps = [{ id: "code" }, { id: "review", agent: "cursor" }];
+    expect(stepNodes(layoutPipeline(steps, GITHUB).nodes).map((n) => n.agent)).toEqual([undefined, "cursor"]);
+    expect(stepNodes(layoutPipeline(steps, GITHUB, null, "hermes").nodes).map((n) => n.agent)).toEqual(["hermes", "cursor"]);
+  });
+});

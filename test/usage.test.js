@@ -52,8 +52,8 @@ test("sumRecords: tokens sum every record, costUsd only priced + old (no-field) 
   assert.equal(sumRecords([rec({ unpriced: true }), rec({ unpriced: true })]).costUsd, undefined, "all unpriced → no cost");
 });
 
-test("runCost: an unpriced run prints local, a priced one its dollars", () => {
-  assert.equal(runCost(rec({ costUsd: 9, unpriced: true })), "local");
+test("runCost: an unpriced run prints unpriced, a priced one its dollars", () => {
+  assert.equal(runCost(rec({ costUsd: 9, unpriced: true })), "unpriced");
   assert.equal(runCost(rec({ costUsd: 0.01 })), "$0.0100");
   assert.equal(runCost(rec({ costUsd: undefined })), "—");
 });

@@ -18,6 +18,8 @@ export type StepNode = {
   stepKind: string;
   model?: string;
   effort?: string;
+  /** The step's agent (its own, else the profile's); unset = the default (claude). */
+  agent?: string;
   manual: boolean;
   createsWorktree: boolean;
   drainWorktree: boolean;
@@ -171,7 +173,7 @@ export function quadAt(a: Point, c: Point, b: Point, t: number): Point {
 /** Where an edge's endpoints are: a step index, or a stage node. */
 type End = { step: number } | { stage: StageNode };
 
-export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys | null, stages?: StageOption[] | null): PipelineLayout {
+export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys | null, stages?: StageOption[] | null, defaultAgent?: unknown): PipelineLayout {
   const ids = steps.map((s, i) => str(s.id) ?? `step-${i}`);
   const manual = steps.map((s) => s.manual === true);
   const success = keys ? steps.map((s) => str(s[keys.success])) : steps.map(() => undefined);
@@ -249,6 +251,7 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
     stepKind: str(s.kind) ?? "implement",
     model: str(s.model),
     effort: str(s.effort),
+    agent: str(s.agent) ?? str(defaultAgent),
     manual: manual[i],
     createsWorktree: s.createsWorktree === true,
     drainWorktree: s.drainWorktree === true,

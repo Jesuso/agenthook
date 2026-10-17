@@ -43,7 +43,8 @@ agenthook reconcile               # re-fire every item resting in a source stage
 
 ## Operating running agents
 
-Each run is a plain `claude -p` OS process working in its own git worktree.
+Each run is a plain agent OS process (`claude -p`, or the step's [agent](agents.md): Cursor's
+`agent -p`, `hermes chat`) working in its own git worktree.
 
 ```bash
 agenthook agents [name]           # list running agents (pid, runtime, ref, live token tally); no secrets needed

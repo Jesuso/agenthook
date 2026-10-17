@@ -1,4 +1,4 @@
-// `agenthook agents` — list running headless `claude -p` agent processes (human id,
+// `agenthook agents` — list running headless agent processes (`claude -p`, cursor, hermes) (human id,
 // step, PR, runtime, title). These are plain OS processes the receiver spawns; no claude
 // subcommand tracks them. Cross-platform via `ps` (-ww avoids arg truncation).
 // The id/title/PR come from the profile's refmeta.json (written by dispatch);
@@ -77,20 +77,23 @@ export function fmtCtx(input, cacheRead, cacheCreate, output, costUsd) {
 // loose substring counts any process whose argv merely MENTIONS "claude -p" (a shell
 // grepping for it, an echo, …). `cfg.claudeBin` defaults to "claude", so the receiver's
 // spawn is `[node …/]claude -p <prompt>`; a step `bin` (e.g. `claude-local`) is matched by
-// its basename the same way.
+// its basename the same way. Each adapter's invocation shape counts: `<bin> -p` (claude,
+// cursor) or `<bin> chat … --query-file` (hermes, whose prompt is in a file, not argv).
 
-/** The path-anchored `<bin> -p` matcher for a set of agent binaries (matched by basename).
+/** The path-anchored agent-invocation matcher for a set of agent binaries (matched by basename).
  * @param {string[]} bins @returns {RegExp} */
 export function agentMatcher(bins) {
   const names = [...new Set(bins.map((b) => path.basename(b)).filter(Boolean))];
   const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  return new RegExp(`(^|\\/)(${alt || "claude"})\\s+-p\\b`);
+  return new RegExp(`(^|\\/)(${alt || "claude"})\\s+(-p\\b|chat\\s.*--query-file\\b)`);
 }
 
 /** Parse `ps -eo pid=,etime=,args=` output into the agent rows (receiver-spawned only).
  * @param {string} stdout @param {string[]} [bins] the agent binaries to recognise (cfg.claudeBin + step bins)
+ * @param {Map<string, { ref: string, stepId?: string }>} [runningByPid] pid → its running.json entry, for
+ *   agents whose argv carries no prompt (hermes' --query-file)
  * @returns {AgentRow[]} */
-export function parsePsAgents(stdout, bins = ["claude"]) {
+export function parsePsAgents(stdout, bins = ["claude"], runningByPid = new Map()) {
   const agentP = agentMatcher(bins);
   /** @type {AgentRow[]} */
   const rows = [];
@@ -99,11 +102,17 @@ export function parsePsAgents(stdout, bins = ["claude"]) {
     if (!m) continue;
     const [, pid, etime, cmd] = m;
     if (!agentP.test(cmd)) continue;
-    const step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
-    const ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
+    let step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
+    let ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
     // The receiver's prompt always carries both a `the "<id>" stage` line and `Ref: <ref>`;
-    // a row resolving NEITHER matched the bin but isn't one of ours (e.g. a manual `claude -p`).
-    if (step === "?" && ref === "?") continue;
+    // a row resolving NEITHER matched the bin but isn't one of ours (e.g. a manual `claude -p`)
+    // — unless its pid is in a running.json (the prompt went via a file), which names both.
+    if (step === "?" && ref === "?") {
+      const run = runningByPid.get(pid);
+      if (!run) continue;
+      ref = run.ref;
+      step = run.stepId || "?";
+    }
     rows.push({ pid, etime, step, ref, profile: "?" });
   }
   return rows;
@@ -116,17 +125,22 @@ export function parsePsAgents(stdout, bins = ["claude"]) {
  * @param {{ all?: boolean, active?: string|null, bins?: string[] }} [opts] active = the state key to scope to when !all; bins → parsePsAgents
  * @returns {AgentRow[]} */
 export function selectAgents(stdout, profiles, opts = {}) {
-  const rows = parsePsAgents(stdout, opts.bins);
   /** @type {Map<string, string>} */
   const byPid = new Map();
   /** @type {Map<string, string>} */
   const byRef = new Map();
+  /** @type {Map<string, { ref: string, stepId?: string }>} */
+  const runningByPid = new Map();
   for (const p of profiles) {
     for (const [ref, info] of Object.entries(p.running || {})) {
-      if (info && info.pid != null) byPid.set(String(info.pid), p.stateKey);
+      if (info && info.pid != null) {
+        byPid.set(String(info.pid), p.stateKey);
+        runningByPid.set(String(info.pid), { ref: String(ref), stepId: info.stepId });
+      }
       byRef.set(String(ref), p.stateKey);
     }
   }
+  const rows = parsePsAgents(stdout, opts.bins, runningByPid);
   for (const r of rows) r.profile = byPid.get(r.pid) ?? byRef.get(r.ref) ?? "?";
   return opts.all ? rows : rows.filter((r) => r.profile === opts.active);
 }
@@ -242,8 +256,9 @@ export async function agents(args = {}) {
   }
 
   // Which binaries count as agents: "claude" (the default every profile starts from) plus the
-  // discovered config's claudeBin + step bins. Only that one config is read, so with --all (or
-  // `agents <name>`) another profile's custom bin is missed unless this config names it too.
+  // discovered config's claudeBin + step bins + the default bins of the agents it names. Only
+  // that one config is read, so with --all (or `agents <name>`) another profile's custom bin
+  // is missed unless this config names it too.
   /** @type {string[]} */
   let bins = ["claude"];
   try {

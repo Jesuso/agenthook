@@ -66,7 +66,7 @@ several projects stay distinguishable at a glance. Details in [docs/web-ui.md](d
 | | |
 |---|---|
 | **Pipeline** | Ordered stages bound to Asana sections, Jira statuses, GitHub labels or Projects v2 columns; verdict-driven routing with hold and rework lanes |
-| **Agents** | Headless `claude -p` per stage in a receiver-owned worktree; per-stage instructions; token and cost tracking (`agenthook usage`) |
+| **Agents** | Headless `claude -p` per stage in a receiver-owned worktree, or [Cursor / Hermes](docs/agents.md) per step (`agent`); per-stage instructions; token and cost tracking (`agenthook usage`) |
 | **Human in the loop** | Held tickets wait for your answer (`@agent` comment or **Release…** in the UI); failures and unmerged PRs surface as **Needs you** |
 | **Forge** | Optional GitHub forge: PR merge detection, red-CI handling, mergeability and CI roll-up |
 | **Multi-profile** | Many projects in parallel, each its own config, state and port; rename, move and archive profiles safely |

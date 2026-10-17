@@ -7,3 +7,8 @@ export const AGENT_NAMES = /** @type {const} */ (["claude", "cursor", "hermes"])
 
 /** The agent a step runs when neither it nor the profile names one. */
 export const DEFAULT_AGENT = "claude";
+
+/** Each agent's default binary (its adapter's `defaults.bin`; claude's is `claudeBin`, default
+ * "claude"), import-free so peekConfig can list them for `agents`' ps match. A test holds it
+ * equal to the registry. */
+export const AGENT_DEFAULT_BINS = /** @type {const} */ ({ claude: "claude", cursor: "agent", hermes: "hermes" });

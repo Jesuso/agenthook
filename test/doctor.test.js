@@ -5,7 +5,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, stepBins, portCheck } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
 
 test("unfilledBindings: clean pipeline has no offenders", () => {
@@ -117,19 +117,49 @@ test("legacyOrphans: flags <base>/42, not <base>/ios/42", () => {
   assert.deepEqual(legacyOrphans({ ...cfg, multiRepo: false }, ios, paths), []);
 });
 
-test("stepBins: distinct step bins (≠ claudeBin, non-manual) with the steps using each", () => {
+test("agentBinChecks: each non-manual step's binary resolved like dispatch, grouped with its agent + steps", () => {
   const cfg = /** @type {any} */ ({
     claudeBin: "claude",
     pipeline: [
-      { id: "triage" },
-      { id: "code", bin: "claude-local" },
-      { id: "review", bin: "claude" }, // same as claudeBin → already checked
-      { id: "fix", bin: "claude-local" },
+      { id: "triage", agent: "hermes" },
+      { id: "code" },
+      { id: "local", bin: "claude-local" },
+      { id: "review", agent: "cursor" }, // no bin → cursor's default "agent"
+      { id: "fix" },
       { id: "done", manual: true, bin: "ignored" },
     ],
   });
-  assert.deepEqual(stepBins(cfg), [{ bin: "claude-local", steps: ["code", "fix"] }]);
-  assert.deepEqual(stepBins(/** @type {any} */ ({ claudeBin: "claude", pipeline: [{ id: "code" }] })), []);
+  assert.deepEqual(agentBinChecks(cfg), [
+    { bin: "hermes", agent: "hermes", steps: ["triage"] },
+    { bin: "claude", agent: "claude", steps: ["code", "fix"] },
+    { bin: "claude-local", agent: "claude", steps: ["local"] },
+    { bin: "agent", agent: "cursor", steps: ["review"] },
+  ]);
+  // the profile agent applies to steps naming none; an explicit step bin still wins
+  assert.deepEqual(agentBinChecks(/** @type {any} */ ({ claudeBin: "claude", agent: "cursor", pipeline: [{ id: "a" }, { id: "b", bin: "/opt/agent2" }] })), [
+    { bin: "agent", agent: "cursor", steps: ["a"] },
+    { bin: "/opt/agent2", agent: "cursor", steps: ["b"] },
+  ]);
+  // no claude step → claudeBin is not among the checks (doctor only warns on it)
+  assert.ok(!agentBinChecks(/** @type {any} */ ({ claudeBin: "claude", agent: "hermes", pipeline: [{ id: "a" }] })).some((c) => c.bin === "claude"));
+});
+
+test("agentLints: warns only for a text-only agent (hermes) with requireVerdict:false set explicitly", () => {
+  const cfg = /** @type {any} */ ({
+    pipeline: [
+      { id: "h-off", agent: "hermes", requireVerdict: false },
+      { id: "h-unset", agent: "hermes" },
+      { id: "h-on", agent: "hermes", requireVerdict: true },
+      { id: "c-off", agent: "cursor", requireVerdict: false },
+      { id: "cl-off", requireVerdict: false },
+      { id: "m", agent: "hermes", manual: true, requireVerdict: false },
+    ],
+  });
+  const lints = agentLints(cfg);
+  assert.equal(lints.length, 1);
+  assert.equal(lints[0].level, "warn");
+  assert.match(lints[0].label, /h-off/);
+  assert.equal(agentLints(/** @type {any} */ ({ agent: "hermes", pipeline: [{ id: "x", requireVerdict: false }] })).length, 1, "profile agent counts");
 });
 
 test("portCheck: busy + this profile up → info, names the pid", () => {
