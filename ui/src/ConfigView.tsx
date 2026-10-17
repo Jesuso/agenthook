@@ -16,6 +16,7 @@ import type { SaveAction, SaveState } from "./save";
 import {
   CONFIG_DISCARD_PROMPT,
   RESTART_IDLE,
+  bannerStatus,
   configEventAsFile,
   configSaveRequest,
   configUrl,
@@ -86,6 +87,8 @@ export default function ConfigView(props: {
   // Every "are you sure?" here (and in the forms, via ConfirmContext) is this one in-app modal.
   const [ask, confirmModal] = useConfirm();
   const [pane, setPane] = useState<Pane>("pipeline");
+  // The validation banner's full error-list overlay; closed on every profile switch.
+  const [bannerOpen, setBannerOpen] = useState(false);
   // The graph panel follows the pane — expanded on Pipeline, collapsed elsewhere — reset on every
   // pane switch; the ▾/▸ toggle holds until the next one.
   const [graphOpen, setGraphOpen] = useState(true);
@@ -395,6 +398,7 @@ export default function ConfigView(props: {
       setPicked(name);
       setSavedNote(false);
       setMoving(null);
+      setBannerOpen(false);
       dispatchRestart({ type: "reset" });
     };
     if (!dirty) return go();
@@ -409,9 +413,11 @@ export default function ConfigView(props: {
   const restartLine = restartText(restart);
   const loadedRaw = open ? parseCheck(open.content) : null;
   const moveTo = loadedRaw?.ok ? moveTarget(loadedRaw.raw, profile) : null;
+  // The Raw editor needs a bounded height to scroll internally; the form panes scroll with the page.
+  const showRaw = pane === "raw" || !parsed?.ok;
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
+    <div className={showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col" : "flex flex-col"}>
       <div className="mb-3 flex items-center gap-3 text-sm">
         <select
           className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
@@ -565,40 +571,66 @@ export default function ConfigView(props: {
             </div>
           )}
           {(() => {
-            const valid = parsed?.ok && checks.length === 0 && file.meta.errors.length === 0;
-            if (valid) {
-              return (
-                <div className="mb-2 rounded border border-status-done bg-status-done-bg px-3 py-1 text-sm text-status-done">
-                  ✓ valid (server: {META_LABEL[file.meta.as]})
-                </div>
-              );
-            }
+            const banner = bannerStatus(parsed && !parsed.ok ? parsed.error : null, checks, file.meta.errors);
             return (
-              <div className="mb-2 rounded border border-status-failed bg-status-failed-bg px-3 py-2 text-sm">
-                {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-status-failed">{parsed.error}</p>}
-                {checks.length > 0 && (
-                  <>
-                    <h4 className="mb-1 text-xs text-[var(--color-muted)]">config checks (the server decides on save)</h4>
-                    <ul className="mb-2 list-disc space-y-1 pl-4 text-status-held">
-                      {checks.map((e, i) => (
-                        <li key={i} className="break-words">
-                          {e}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {file.meta.errors.length > 0 && (
-                  <>
-                    <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
-                    <ul className="list-disc space-y-1 pl-4 text-status-failed">
-                      {file.meta.errors.map((e, i) => (
-                        <li key={i} className="break-words">
-                          {e}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
+              <div className="relative mb-2">
+                <div
+                  data-config-banner
+                  className={`flex h-8 items-center gap-2 rounded border px-3 text-sm ${
+                    banner.ok ? "border-status-done bg-status-done-bg text-status-done" : "border-status-failed bg-status-failed-bg text-status-failed"
+                  }`}
+                >
+                  {banner.ok ? (
+                    <span className="truncate">✓ valid (server: {META_LABEL[file.meta.as]})</span>
+                  ) : (
+                    <>
+                      <span className="truncate font-mono text-xs" title={banner.fullFirst}>
+                        {banner.first}
+                      </span>
+                      {(banner.moreCount > 0 || banner.fullFirst !== banner.first) && (
+                        <button
+                          type="button"
+                          data-config-banner-toggle
+                          className="ml-auto shrink-0 whitespace-nowrap underline"
+                          onClick={() => setBannerOpen((o) => !o)}
+                        >
+                          {banner.moreCount > 0 ? `+${banner.moreCount} more` : "full text"}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+                {!banner.ok && bannerOpen && (
+                  <div
+                    data-config-banner-overlay
+                    className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-auto rounded border border-status-failed bg-surface-raised px-3 py-2 text-sm shadow-lg"
+                  >
+                    {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-status-failed">{parsed.error}</p>}
+                    {checks.length > 0 && (
+                      <>
+                        <h4 className="mb-1 text-xs text-[var(--color-muted)]">config checks (the server decides on save)</h4>
+                        <ul className="mb-2 list-disc space-y-1 pl-4 text-status-held">
+                          {checks.map((e, i) => (
+                            <li key={i} className="break-words">
+                              {e}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {file.meta.errors.length > 0 && (
+                      <>
+                        <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
+                        <ul className="list-disc space-y-1 pl-4 text-status-failed">
+                          {file.meta.errors.map((e, i) => (
+                            <li key={i} className="break-words">
+                              {e}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -643,8 +675,8 @@ export default function ConfigView(props: {
               </div>
             )}
           </div>
-          <div className="flex min-h-0 flex-1">
-            <div className="min-w-0 flex-1 overflow-auto">
+          <div className={showRaw ? "flex min-h-0 flex-1" : "flex flex-col"}>
+            <div data-config-pane-host className={showRaw ? "min-w-0 flex-1 overflow-auto" : "min-w-0"}>
               <ConfirmContext.Provider value={ask}>
                 {pane === "raw" || !parsed?.ok ? (
                   <MarkdownEditor

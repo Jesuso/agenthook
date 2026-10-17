@@ -108,11 +108,15 @@ function Field(props: { label: string; hint?: string; help?: string; error?: str
   const [control, ...rest] = Children.toArray(props.children);
   return (
     <div className="flex flex-col gap-0.5 text-sm">
-      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
-        <label htmlFor={controlId}>
+      <span className="flex min-w-0 items-center gap-1 text-xs text-[var(--color-muted)]">
+        <label htmlFor={controlId} className="whitespace-nowrap">
           {props.label}
-          {props.hint && <span className="ml-1 font-mono opacity-70">{props.hint}</span>}
         </label>
+        {props.hint && (
+          <span className="min-w-0 truncate font-mono opacity-70" title={props.hint}>
+            {props.hint}
+          </span>
+        )}
         {props.help && <HelpTip id={helpId} label={props.label} help={props.help} />}
       </span>
       {isValidElement<Record<string, unknown>>(control) ? cloneElement(control, { id: controlId, "aria-describedby": helpId }) : control}
@@ -528,9 +532,9 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
   const edit = { text: props.text, onEdit: props.onEdit };
   const name = fieldMeta(["name"]);
   return (
-    <div className="max-w-xl rounded border border-[var(--color-border)] p-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 flex flex-col gap-1">
+    <div className="@container max-w-5xl rounded border border-[var(--color-border)] p-3">
+      <div className={FIELD_GRID}>
+        <div className="col-span-full flex flex-col gap-1">
           <Field label={name.label} hint={name.hint} help={name.help}>
             <input
               className={INPUT}
@@ -549,17 +553,17 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <NumberField {...edit} path={["port"]} value={b.port} />
         <TextField {...edit} path={["instructionsFile"]} value={b.instructionsFile} />
         <AppearanceFields text={props.text} onEdit={props.onEdit} ui={b.ui} stateKey={props.stateKey} />
-        <div className="col-span-2 flex flex-col gap-1">
+        <div className="col-span-full flex flex-col gap-1">
           <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
           <p className="text-xs text-status-held">
             fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
           </p>
         </div>
-        <details className="col-span-2" data-advanced>
+        <details className="col-span-full" data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
             Advanced · {b.claudeBin !== undefined && b.claudeBin !== "" && b.claudeBin !== fieldMeta(["claudeBin"]).entry?.default ? 1 : 0} set
           </summary>
-          <div className="mt-2 grid grid-cols-2 gap-3">
+          <div className={`mt-2 ${FIELD_GRID}`}>
             <TextField {...edit} path={["claudeBin"]} value={b.claudeBin} />
             <div className="flex flex-col gap-1">
               <TextField {...edit} path={["stateId"]} value={b.stateId} readOnly />
@@ -598,7 +602,7 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
     </span>
   );
   return (
-    <div className="col-span-2 flex flex-col gap-2" data-appearance>
+    <div className="col-span-full flex flex-col gap-2" data-appearance>
       <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
         {ui.label} <span className="ml-1 font-mono opacity-70">{ui.hint}</span>
         {ui.help && <HelpTip label={ui.label} help={ui.help} />}
@@ -1024,20 +1028,23 @@ function SchemaFields(
   };
   return (
     <>
-      {props.fields.common.length > 0 && <div className="grid grid-cols-2 gap-3">{props.fields.common.map(one)}</div>}
+      {props.fields.common.length > 0 && <div className={FIELD_GRID}>{props.fields.common.map(one)}</div>}
       {props.fields.advanced.length > 0 && (
         <details data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
             Advanced · {setCount(props.block, props.fields.advanced)} set
           </summary>
-          <div className="mt-2 grid grid-cols-2 gap-3">{props.fields.advanced.map(one)}</div>
+          <div className={`mt-2 ${FIELD_GRID}`}>{props.fields.advanced.map(one)}</div>
         </details>
       )}
     </>
   );
 }
 
-const PANEL = "flex max-w-xl flex-col gap-3 rounded border border-[var(--color-border)] p-3";
+const PANEL = "@container flex max-w-5xl flex-col gap-3 rounded border border-[var(--color-border)] p-3";
+// One column below ~900px of pane width (the container, not the viewport), two above it.
+const FIELD_GRID = "grid grid-cols-1 gap-3 @[56rem]:grid-cols-2";
+const FORM_WRAP = "flex max-w-5xl flex-col gap-4";
 const NOTE = "text-xs text-[var(--color-muted)]";
 
 /**
@@ -1290,7 +1297,7 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={FIELD_GRID}>
             <SelectField {...edit} path={sinkPath(i, "type")} value={s.type} required />
             {typeName === "telegram" ? (
               <>
@@ -1323,7 +1330,7 @@ export function IntegrationsForm(props: EditProps & { raw: unknown }) {
   const sinkErrs = sinkErrors(raw?.sinks);
   const budget = fieldMeta(["digest", "maxBudgetUsd"]).entry!;
   return (
-    <div className="flex max-w-xl flex-col gap-4" data-integrations-form>
+    <div className={FORM_WRAP} data-integrations-form>
       <div className={PANEL} data-sinks>
         <h3 className="text-sm font-semibold">Sinks</h3>
         <p className={NOTE}>Forward lifecycle events to Slack, Telegram or a webhook. Best-effort: a sink never blocks the pipeline.</p>
@@ -1339,14 +1346,14 @@ export function IntegrationsForm(props: EditProps & { raw: unknown }) {
       </div>
       <div className={PANEL} data-digest>
         <h3 className="text-sm font-semibold">Digest</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className={FIELD_GRID}>
           <TextField {...digestEdit} path={["digest", "soul"]} value={digest?.soul} />
           <SelectField {...digestEdit} path={["digest", "access"]} value={digest?.access} />
           <ModelField {...digestEdit} path={["digest", "model"]} value={digest?.model} />
         </div>
         <details data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {setCount(digest, [budget])} set</summary>
-          <div className="mt-2 grid grid-cols-2 gap-3">
+          <div className={`mt-2 ${FIELD_GRID}`}>
             <NumberField {...digestEdit} path={["digest", "maxBudgetUsd"]} value={digest?.maxBudgetUsd} />
           </div>
         </details>
@@ -1465,7 +1472,7 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
         <p className={NOTE}>not an object — edit in Raw.</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={FIELD_GRID}>
             <TextField {...edit} path={repoFieldPath(i, "id")} value={r.id} />
             <TextField {...edit} path={repoFieldPath(i, "path")} value={r.path} />
             <StringListField {...edit} path={repoFieldPath(i, "match")} value={r.match} />
@@ -1486,7 +1493,7 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
           </div>
           <details data-advanced>
             <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {advancedCount} set</summary>
-            <div className="mt-2 grid grid-cols-2 gap-3">
+            <div className={`mt-2 ${FIELD_GRID}`}>
               <TextField {...edit} path={repoFieldPath(i, "instructionsFile")} value={r.instructionsFile} />
               <TextField {...edit} path={repoFieldPath(i, "worktreePrefix")} value={r.worktreePrefix} />
             </div>
@@ -1513,7 +1520,7 @@ export function ReposForm(props: EditProps & { raw: unknown }) {
   const wtp = fieldMeta(["worktreePrefix"]).entry;
   const wtpSet = raw?.worktreePrefix !== undefined && raw?.worktreePrefix !== "" && raw?.worktreePrefix !== wtp?.default ? 1 : 0;
   return (
-    <div className="flex max-w-xl flex-col gap-4" data-repos-form>
+    <div className={FORM_WRAP} data-repos-form>
       <div className={PANEL} data-repos-top>
         <TextField {...edit} path={["repoPath"]} value={raw?.repoPath} />
         {hasRepos && (
@@ -1523,7 +1530,7 @@ export function ReposForm(props: EditProps & { raw: unknown }) {
         )}
         <details data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {wtpSet} set</summary>
-          <div className="mt-2 grid grid-cols-2 gap-3">
+          <div className={`mt-2 ${FIELD_GRID}`}>
             <TextField {...edit} path={["worktreePrefix"]} value={raw?.worktreePrefix} />
           </div>
         </details>

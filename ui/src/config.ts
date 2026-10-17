@@ -73,6 +73,26 @@ export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: fal
   }
 }
 
+export type BannerStatus = { ok: true } | { ok: false; first: string; fullFirst: string; moreCount: number };
+
+const BANNER_FIRST_MAX = 100;
+
+const truncate = (s: string): string => (s.length > BANNER_FIRST_MAX ? `${s.slice(0, BANNER_FIRST_MAX - 1)}…` : s);
+
+/**
+ * The validation banner's fixed-height single-line summary: a parse error wins the row (fix the
+ * JSON first), but `moreCount` still counts the client checks and server errors — the overlay
+ * renders all three sections regardless, so the row's count must match what it can open.
+ * `fullFirst` is the untruncated text, for the row's `title`.
+ */
+export function bannerStatus(parseError: string | null, checks: string[], serverErrors: string[]): BannerStatus {
+  if (parseError !== null) return { ok: false, first: truncate(parseError), fullFirst: parseError, moreCount: checks.length + serverErrors.length };
+  const problems = [...checks, ...serverErrors];
+  if (problems.length === 0) return { ok: true };
+  const first = problems[0];
+  return { ok: false, first: truncate(first), fullFirst: first, moreCount: problems.length - 1 };
+}
+
 // SENSITIVE_FIELDS that aren't secrets: their values are shown as is (a step's `bin` too).
 const CLEAR_FIELDS = new Set(["name", "fullAuto", "claudeBin", "tracker.userGid", "tracker.assigneeFilter", "tracker.email"]);
 const isClear = (path: string) => CLEAR_FIELDS.has(path) || /^tracker\.pipeline\[\d+\]\.bin$/.test(path);
