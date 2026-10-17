@@ -3,28 +3,39 @@ import type { JSONPath } from "jsonc-parser";
 import {
   KNOWN_MODELS,
   STAGE_ROLES,
+  DEFAULT_SINK_EVENTS,
+  addSink,
   addStep,
   advancedSet,
   boolEdit,
   ciTargetOptions,
   defaultBoolEdit,
+  dropEmptyBlock,
   effectiveBool,
   fieldText,
   identityEdit,
+  knownSink,
+  moveSink,
   moveStep,
   numberEdit,
   readBasics,
+  readDigest,
+  readSinks,
   readSteps,
   ingressFields,
   ingressType,
   readBlock,
   refInProgress,
+  removeSink,
   removeStep,
   renameEdit,
   secretState,
   sectionFields,
   setCount,
   setPath,
+  sinkEventEdit,
+  sinkEvents,
+  sinkPath,
   stageKeysFor,
   stepPath,
   textEdit,
@@ -35,6 +46,8 @@ import { resolveIdentity } from "../../src/identity.js";
 import { schemaEntry } from "../../src/config-schema.js";
 import type { SchemaEntry } from "../../src/config-schema.js";
 import { SECRET_FIELDS } from "../../src/ui/sensitive.js";
+import { sinkErrors } from "../../src/sinks-config.js";
+import { digestErrors } from "../../src/digest-config.js";
 import { HelpTip, ProfileMark } from "./components";
 
 /** The stage-picker feed for the open profile: the discover outcome, `null` before the first fetch. */
@@ -706,16 +719,22 @@ export function PipelineForm(
   );
 }
 
-/** The SECRET_FIELDS paths a form field can hold (the `sinks[*]` ones live in Raw). */
-const SECRET_PATHS = new Set<string>(SECRET_FIELDS.filter((f) => !f.includes("[*]")));
-export const isSecretPath = (path: JSONPath): boolean => SECRET_PATHS.has(path.join("."));
+/** SECRET_FIELDS, matched with an array index (or a schema `*`) standing for `[*]`: `["sinks", 0, "url"]` → `sinks[*].url`. */
+const SECRET_PATHS = new Set<string>(SECRET_FIELDS);
+export const isSecretPath = (path: JSONPath): boolean =>
+  SECRET_PATHS.has(
+    path
+      .map((seg) => (typeof seg === "number" || seg === "*" ? "[*]" : `.${seg}`))
+      .join("")
+      .slice(1),
+  );
 
 /**
- * A secret (`tracker.token`, `*.webhookSecret`, `forge.token`, `ingress.authtoken`). A `${VAR}` ref
- * is shown and edited as text. A literal already in the file is never put in the DOM — not even in
- * `value` — only a warning naming the path, an empty "replace with ${VAR}" input and Clear. What the
- * user types here is a draft: shown in clear while it is (on its way to) a ref, masked otherwise,
- * with the warning live. `webhookSecret: false` reads "verification disabled" and is left as-is until
+ * A secret (`tracker.token`, `*.webhookSecret`, `forge.token`, `ingress.authtoken`, `sinks[*].url` /
+ * `sinks[*].botToken`). A `${VAR}` ref is shown and edited as text. A literal already in the file is
+ * never put in the DOM — not even in `value` — only a warning naming the path, an empty "replace with
+ * ${VAR}" input and Clear. What the user types here is a draft: shown in clear while it is (on its
+ * way to) a ref, masked otherwise, with the warning live. `webhookSecret: false` reads "verification disabled" and is left as-is until
  * the user acts. Saving a literal stays allowed.
  */
 function SecretField(props: EditProps & { path: JSONPath; value: unknown }) {
@@ -946,6 +965,188 @@ export function IngressForm(props: EditProps & { raw: unknown }) {
           ) : undefined
         }
       />
+    </div>
+  );
+}
+
+/** The list of `errors` that name `sinks[i]` (sinkErrors' wording), for that sink's card. */
+const errorsForSink = (errors: string[], i: number): string[] => errors.filter((e) => e.startsWith(`config: sinks[${i}]`));
+
+function ErrorList(props: { errors: string[] }) {
+  if (!props.errors.length) return null;
+  return (
+    <ul className="list-disc pl-4 text-xs text-status-failed">
+      {props.errors.map((e, k) => (
+        <li key={k} className="break-words">
+          {e}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A sink's event filter: a checkbox per `sinkEvents` name. Absent `events` shows the defaults checked
+ * ("default"); any toggle writes an explicit array; "Use default" removes the key. A name the file
+ * lists that isn't offered is shown checked and kept. A non-array `events` is left to Raw.
+ */
+function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
+  const m = fieldMeta(sinkPath(props.index, "events"));
+  const helpId = useId();
+  const ev = sinkEvents(props.value);
+  return (
+    <div className="flex flex-col gap-1 text-sm" data-sink-events>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {m.label}
+        <span className="ml-1 font-mono opacity-70">{m.hint}</span>
+        {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
+        {ev.isDefault ? (
+          <span data-sink-events-default-note className="ml-2">
+            default
+          </span>
+        ) : (
+          <button type="button" className={`${BUTTON} ml-2`} data-sink-events-default onClick={() => props.onEdit(setPath(props.text, sinkPath(props.index, "events"), undefined))}>
+            Use default
+          </button>
+        )}
+      </span>
+      {ev.invalid ? (
+        <span className={NOTE}>events is not a list of names — edit it in Raw.</span>
+      ) : (
+        <div role="group" aria-label="events" aria-describedby={m.help ? helpId : undefined} className="grid grid-cols-3 gap-x-3 gap-y-0.5">
+          {ev.names.map((name) => (
+            <label key={name} className="flex items-center gap-1.5 font-mono text-xs">
+              <input
+                type="checkbox"
+                data-sink-event={name}
+                checked={ev.checked.has(name)}
+                onChange={(e) => props.onEdit(sinkEventEdit(props.text, props.index, props.value, name, e.target.checked))}
+              />
+              {name}
+            </label>
+          ))}
+        </div>
+      )}
+      {ev.isDefault && <span className={NOTE}>Unset: forwards {DEFAULT_SINK_EVENTS.join(", ")}.</span>}
+    </div>
+  );
+}
+
+/**
+ * One `sinks[i]` card: ↑/↓/remove in the header; a known type gets its type select and that type's
+ * fields (switching type only changes which show — the other type's keys stay in the file). An
+ * unknown type or a non-object entry is a read-only card — nothing in it is ever rewritten.
+ */
+function SinkCard(props: EditProps & { index: number; count: number; sink: unknown; errors: string[] }) {
+  const i = props.index;
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const s = knownSink(props.sink);
+  const typeName = s ? String(s.type) : "";
+  const unknownLabel =
+    props.sink !== null && typeof props.sink === "object" && !Array.isArray(props.sink)
+      ? `unknown sink type ${JSON.stringify((props.sink as Record<string, unknown>).type ?? null)}`
+      : "not a sink object";
+  return (
+    <section data-sink-card={i} data-sink-unknown={s ? undefined : ""} className={`flex flex-col gap-2 rounded border p-3 ${props.errors.length ? "border-status-failed" : "border-[var(--color-border)]"}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
+        <span className="font-mono text-sm">{s ? typeName : "?"}</span>
+        <span className="ml-auto flex shrink-0 gap-1">
+          <button className={BUTTON} aria-label="move sink up" disabled={i === 0} onClick={() => props.onEdit(moveSink(props.text, i, -1))}>
+            ↑
+          </button>
+          <button className={BUTTON} aria-label="move sink down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveSink(props.text, i, 1))}>
+            ↓
+          </button>
+          <button
+            className={BUTTON}
+            data-remove-sink
+            onClick={() => {
+              if (!window.confirm(`Remove sink #${i + 1}${s ? ` (${typeName})` : ""}? Its comment keys go with it.`)) return;
+              props.onEdit(removeSink(props.text, i));
+            }}
+          >
+            remove
+          </button>
+        </span>
+      </div>
+      {!s ? (
+        <p className={NOTE}>
+          <span className="font-mono">{unknownLabel}</span> — edit in Raw.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField {...edit} path={sinkPath(i, "type")} value={s.type} required />
+            {typeName === "telegram" ? (
+              <>
+                <SecretField {...edit} path={sinkPath(i, "botToken")} value={s.botToken} />
+                <TextField {...edit} path={sinkPath(i, "chatId")} value={s.chatId} />
+              </>
+            ) : (
+              <SecretField {...edit} path={sinkPath(i, "url")} value={s.url} />
+            )}
+          </div>
+          <SinkEventsField {...edit} index={i} value={s.events} />
+        </>
+      )}
+      <ErrorList errors={props.errors} />
+    </section>
+  );
+}
+
+/**
+ * The Integrations tab: the `sinks` list (add / remove / reorder, per-type fields, event filter),
+ * the optional `digest` block (an emptied block is removed, like `identityEdit`'s `ui`) and the
+ * `overlapGuard` opt-in. Each group lists its own client checks; the server's 422 stays authoritative.
+ */
+export function IntegrationsForm(props: EditProps & { raw: unknown }) {
+  const sinks = readSinks(props.raw);
+  const digest = readDigest(props.raw);
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const digestEdit = { text: props.text, onEdit: (next: string) => props.onEdit(dropEmptyBlock(next, "digest")) };
+  const raw = props.raw as Record<string, unknown> | null;
+  const sinkErrs = sinkErrors(raw?.sinks);
+  const budget = fieldMeta(["digest", "maxBudgetUsd"]).entry!;
+  return (
+    <div className="flex max-w-xl flex-col gap-4" data-integrations-form>
+      <div className={PANEL} data-sinks>
+        <h3 className="text-sm font-semibold">Sinks</h3>
+        <p className={NOTE}>Forward lifecycle events to Slack, Telegram or a webhook. Best-effort: a sink never blocks the pipeline.</p>
+        {sinkErrs.length > 0 && sinks.length === 0 && <ErrorList errors={sinkErrs} />}
+        {sinks.map((s, i) => (
+          <SinkCard key={i} {...edit} index={i} count={sinks.length} sink={s} errors={errorsForSink(sinkErrs, i)} />
+        ))}
+        <div>
+          <button className={BUTTON} data-add-sink onClick={() => props.onEdit(addSink(props.text))}>
+            + Add sink
+          </button>
+        </div>
+      </div>
+      <div className={PANEL} data-digest>
+        <h3 className="text-sm font-semibold">Digest</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <TextField {...digestEdit} path={["digest", "soul"]} value={digest?.soul} />
+          <SelectField {...digestEdit} path={["digest", "access"]} value={digest?.access} />
+          <ModelField {...digestEdit} path={["digest", "model"]} value={digest?.model} />
+        </div>
+        <details data-advanced>
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {setCount(digest, [budget])} set</summary>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <NumberField {...digestEdit} path={["digest", "maxBudgetUsd"]} value={digest?.maxBudgetUsd} />
+          </div>
+        </details>
+        <ErrorList errors={digestErrors(raw?.digest)} />
+      </div>
+      <div className={PANEL} data-overlap-guard>
+        <h3 className="text-sm font-semibold">Overlap guard</h3>
+        <CheckField {...edit} path={["overlapGuard"]} value={raw?.overlapGuard} />
+        <p className={NOTE}>
+          A worktree step whose triage-predicted paths overlap another in-flight task's lock waits in its source stage (emits{" "}
+          <span className="font-mono">overlap_held</span>), and is re-offered when that task drains, fails or merges (
+          <span className="font-mono">overlap_released</span>).
+        </p>
+      </div>
     </div>
   );
 }

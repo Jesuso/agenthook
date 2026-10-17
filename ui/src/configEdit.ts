@@ -3,6 +3,8 @@ import type { Edit, FormattingOptions, JSONPath } from "jsonc-parser";
 import { CONFIG_SCHEMA, stepEntry } from "../../src/config-schema.js";
 import type { SchemaEntry } from "../../src/config-schema.js";
 import { isEnvRef } from "../../src/ui/sensitive.js";
+import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, sinkErrors } from "../../src/sinks-config.js";
+import { digestErrors } from "../../src/digest-config.js";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -146,12 +148,13 @@ export function removeStep(text: string, i: number): string {
 }
 
 /**
- * Swap step `i` with its neighbour (`dir` -1 up / +1 down) by exchanging the two elements' exact
- * source slices, so each step's inner formatting and comment keys move verbatim. Out of range → no edit.
+ * Swap element `i` of the array at `arrPath` with its neighbour (`dir` -1 up / +1 down) by exchanging
+ * the two elements' exact source slices, so each one's inner formatting and comment keys move verbatim.
+ * Out of range → no edit.
  */
-export function moveStep(text: string, i: number, dir: -1 | 1): string {
+function swapItems(text: string, arrPath: JSONPath, i: number, dir: -1 | 1): string {
   const tree = parseTree(text);
-  const arr = tree && findNodeAtLocation(tree, PIPELINE);
+  const arr = tree && findNodeAtLocation(tree, arrPath);
   const items = arr?.type === "array" ? (arr.children ?? []) : [];
   const j = i + dir;
   if (i < 0 || j < 0 || i >= items.length || j >= items.length) return text;
@@ -162,6 +165,11 @@ export function moveStep(text: string, i: number, dir: -1 | 1): string {
     { offset: b.offset, length: b.length, content: slice(a) },
   ];
   return applyEdits(text, edits);
+}
+
+/** Swap step `i` with its neighbour (`dir` -1 up / +1 down); see `swapItems`. */
+export function moveStep(text: string, i: number, dir: -1 | 1): string {
+  return swapItems(text, PIPELINE, i, dir);
 }
 
 const SUFFIX: Record<string, string> = { asana: "SectionGid", github: "Label", jira: "Status", "github-projects": "Status", local: "Status" };
@@ -230,9 +238,13 @@ function pipelineChecks(raw: unknown): { index: number; error: string }[] {
   return out;
 }
 
-/** The pipeline checks as the top panel lists them (flat, in step order). */
+/**
+ * The checks the top panel lists: the pipeline's (flat, in step order), then the sinks' and the
+ * digest's — the same import-free rules src/config.js runs. Display only.
+ */
 export function clientErrors(raw: unknown): string[] {
-  return pipelineChecks(raw).map((c) => c.error);
+  const r = isObj(raw) ? raw : {};
+  return [...pipelineChecks(raw).map((c) => c.error), ...sinkErrors(r.sinks), ...digestErrors(r.digest)];
 }
 
 /**
@@ -351,4 +363,90 @@ export function ciTargetOptions(raw: unknown): { ids: string[]; defaultId: strin
   const ids = steps.filter((s) => !s.manual && typeof s.id === "string" && s.id !== "").map((s) => s.id as string);
   const wt = steps.find((s) => s.createsWorktree);
   return { ids, defaultId: wt ? fieldText(wt.id) || null : null };
+}
+
+const SINKS: JSONPath = ["sinks"];
+
+/** `sinks` as-is (each element untouched, a non-object included); [] when absent or not an array. */
+export function readSinks(raw: unknown): unknown[] {
+  const s = isObj(raw) ? raw.sinks : undefined;
+  return Array.isArray(s) ? s : [];
+}
+
+/** A sink element the form can edit: an object whose `type` is slack / telegram / webhook; else null (read-only card). */
+export function knownSink(s: unknown): Record<string, unknown> | null {
+  return isObj(s) && typeof s.type === "string" && Object.hasOwn(SINK_REQUIRED, s.type) ? s : null;
+}
+
+export const sinkPath = (i: number, key: string): JSONPath => [...SINKS, i, key];
+
+/** Append `{ "type": "slack", "url": "" }` (creating `sinks` when absent). */
+export function addSink(text: string): string {
+  const raw = JSON.parse(text);
+  const value = { type: "slack", url: "" };
+  if (!isObj(raw) || !Array.isArray(raw.sinks)) return setPath(text, SINKS, [value]);
+  return applyEdits(text, modify(text, [...SINKS, raw.sinks.length], value, { isArrayInsertion: true, formattingOptions: formattingFor(text) }));
+}
+
+export function removeSink(text: string, i: number): string {
+  return setPath(text, [...SINKS, i], undefined);
+}
+
+/** Swap sink `i` with its neighbour, verbatim (`swapItems`). */
+export function moveSink(text: string, i: number, dir: -1 | 1): string {
+  return swapItems(text, SINKS, i, dir);
+}
+
+/** The event names the sink form offers as checkboxes (docs/events.md); the file may name others. */
+export const SINK_EVENTS = [
+  "blocked",
+  "failed",
+  "move_refused",
+  "pipeline_done",
+  "merged",
+  "ci_red",
+  "ci_green",
+  "enqueued",
+  "pulled",
+  "run_start",
+  "run_end",
+  "overlap_held",
+  "overlap_released",
+  "epic_skipped",
+  "dequeued",
+  "dismissed",
+] as const;
+
+export { DEFAULT_SINK_EVENTS };
+
+/**
+ * A sink's event filter as checkboxes: `events` absent → the defaults, checked (`isDefault`); an
+ * array → its names; the boxes are `SINK_EVENTS` plus any name the file lists that isn't on it.
+ * `invalid` = `events` is set but not a string array (left to Raw).
+ */
+export function sinkEvents(events: unknown): { names: string[]; checked: Set<string>; isDefault: boolean; invalid: boolean } {
+  const isDefault = events === undefined;
+  const invalid = !isDefault && !(Array.isArray(events) && events.every((e) => typeof e === "string"));
+  const list: string[] = isDefault ? DEFAULT_SINK_EVENTS : invalid ? [] : (events as string[]);
+  const names: string[] = [...SINK_EVENTS];
+  for (const e of list) if (!names.includes(e)) names.push(e);
+  return { names, checked: new Set(list), isDefault, invalid };
+}
+
+/** Toggle one event: always writes an explicit array (from the defaults when `events` was absent), keeping every other name. */
+export function sinkEventEdit(text: string, i: number, events: unknown, name: string, checked: boolean): string {
+  const base: string[] = Array.isArray(events) ? events.filter((e): e is string => typeof e === "string") : [...DEFAULT_SINK_EVENTS];
+  const next = checked ? (base.includes(name) ? base : [...base, name]) : base.filter((e) => e !== name);
+  return setPath(text, sinkPath(i, "events"), next);
+}
+
+/** Remove `raw[key]` when an edit left it an empty object (the digest block, like `identityEdit`'s `ui`). */
+export function dropEmptyBlock(text: string, key: string): string {
+  const raw = JSON.parse(text);
+  return isObj(raw) && isObj(raw[key]) && Object.keys(raw[key]).length === 0 ? setPath(text, [key], undefined) : text;
+}
+
+/** The `digest` block when it is an object, else undefined. */
+export function readDigest(raw: unknown): Record<string, unknown> | undefined {
+  return isObj(raw) && isObj(raw.digest) ? raw.digest : undefined;
 }
