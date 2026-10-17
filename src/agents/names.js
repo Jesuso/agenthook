@@ -3,7 +3,7 @@
 // which may pull the Node-side registry (src/agents/index.js). A test holds the two equal.
 
 /** Every registered agent adapter, default first. */
-export const AGENT_NAMES = /** @type {const} */ (["claude"]);
+export const AGENT_NAMES = /** @type {const} */ (["claude", "cursor"]);
 
 /** The agent a step runs when neither it nor the profile names one. */
 export const DEFAULT_AGENT = "claude";

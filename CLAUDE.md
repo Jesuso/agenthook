@@ -128,10 +128,10 @@ Key files:
   spawns no agent: fail-closed assignee check → `adapter.enterStage` into the `completeOnMerge`
   (manual) step (its own webhook then drains + emits `pipeline_done`) → optional `adapter.complete`
   (Asana: `completed:true`) → emit `merged`.
-- `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude` only, today). Interface
+- `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`). Interface
   `AgentAdapter` (`src/types.js`): `describe`, `buildArgs`, `createParser` (stdout → log text + tally +
   `result`/`sessionId`), `usageRecord(result|null, ctx)` (decides `unpriced`), `sessions`
-  (`{transcriptDir, resumeCommand}` or null — backs `follow`/`resume`/`sessions.js`), `defaults`
+  (`{transcriptDir, resumeCommand, files, cwdDirs}` or null — backs `follow`/`resume`/`sessions.js`, which union every agent the profile + its steps run), `defaults`
   (`requireVerdict`/`bin`, under the step's). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →
   `cfg.agent` → `claude`); `names.js` = the import-free `AGENT_NAMES` the config schema + validation use.
 - `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
