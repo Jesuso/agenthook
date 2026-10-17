@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import example from "../../agenthook.config.example.json?raw";
 import {
   addStep,
+  advancedSet,
   boolEdit,
   clientErrors,
   formattingFor,
@@ -253,6 +254,35 @@ describe("stageKeysFor", () => {
     expect(stageKeysFor(null, "trello")).toBeNull();
     expect(stageKeysFor(null, undefined)).toBeNull();
     expect(stageKeysFor(null, "toString")).toBeNull();
+  });
+});
+
+describe("advancedSet", () => {
+  const githubKeys = stageKeysFor(null, "github")!;
+  const asanaKeys = stageKeysFor(null, "asana")!;
+
+  it("a step with no advanced values set has none", () => {
+    expect(advancedSet({ id: "code", kind: "implement" }, "github", githubKeys)).toEqual([]);
+  });
+
+  it("a default value does not count", () => {
+    expect(advancedSet({ maxMinutes: 120 }, "github", githubKeys)).toEqual([]);
+  });
+
+  it("maxMinutes: 0 counts, even though it's falsy", () => {
+    expect(advancedSet({ maxMinutes: 0 }, "github", githubKeys)).toEqual(["maxMinutes"]);
+  });
+
+  it("holdLabel set on a github step counts", () => {
+    expect(advancedSet({ holdLabel: "agent:held" }, "github", githubKeys)).toEqual(["holdLabel"]);
+  });
+
+  it("closeIssue on an asana config is out of scope and never counts", () => {
+    expect(advancedSet({ closeIssue: true }, "asana", asanaKeys)).toEqual([]);
+  });
+
+  it("completeOnMerge in scope for every tracker counts when set", () => {
+    expect(advancedSet({ completeOnMerge: true }, "github", githubKeys)).toEqual(["completeOnMerge"]);
   });
 });
 

@@ -1,5 +1,6 @@
 import { applyEdits, findNodeAtLocation, modify, parseTree } from "jsonc-parser";
 import type { Edit, FormattingOptions, JSONPath } from "jsonc-parser";
+import { CONFIG_SCHEMA, stepEntry } from "../../src/config-schema.js";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -152,6 +153,31 @@ export function stageKeysFor(discover: Discover | null, trackerType: unknown): S
   const suffix = typeof trackerType === "string" && Object.hasOwn(SUFFIX, trackerType) ? SUFFIX[trackerType] : null;
   if (!suffix) return null;
   return { source: `source${suffix}`, success: `success${suffix}`, failure: `failure${suffix}`, hold: `hold${suffix}`, queue: `queue${suffix}` };
+}
+
+/** This tracker's advanced step keys: the schema's `advanced` flag, scoped to `trackerType` (or unscoped). */
+function advancedStepKeys(trackerType: unknown): string[] {
+  return CONFIG_SCHEMA.filter(
+    (e) => e.advanced && e.path.length === 4 && e.path[0] === "tracker" && e.path[1] === "pipeline" && e.path[2] === "*" && (!e.scope || e.scope.includes(String(trackerType))),
+  ).map((e) => e.path[3]);
+}
+
+/**
+ * The advanced step keys that apply to `trackerType` and are actually set on `step`: not
+ * undefined/"", and different from the schema entry's default (`maxMinutes: 0` counts, the
+ * default `maxMinutes: 120` doesn't). Stage keys come from `keys.hold`/`keys.queue`.
+ */
+export function advancedSet(step: Record<string, unknown>, trackerType: unknown, keys: StageKeys | null): string[] {
+  const candidates = new Set(advancedStepKeys(trackerType));
+  if (keys) {
+    candidates.add(keys.hold);
+    candidates.add(keys.queue);
+  }
+  return [...candidates].filter((k) => {
+    const v = step[k];
+    if (v === undefined || v === "") return false;
+    return v !== stepEntry(k)?.default;
+  });
 }
 
 /**

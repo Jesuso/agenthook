@@ -133,7 +133,7 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
 test("the fields the forms edit today have editors; everything else is marked pending", () => {
   const editable = [
     "name", "trigger", "maxConcurrent", "port", "ui", "ui.color", "ui.emoji", "fullAuto", "tracker.pipeline",
-    ...["id", "kind", "manual", "model", "effort", "instructionsFile", "maxAttempts", "maxMinutes", "idleMinutes", "createsWorktree", "drainWorktree"].map((k) => `tracker.pipeline.*.${k}`),
+    ...["id", "kind", "manual", "model", "effort", "instructionsFile", "maxAttempts", "maxMinutes", "idleMinutes", "createsWorktree", "drainWorktree", "maxConcurrent", "completeOnMerge", "closeIssue", "completeTask"].map((k) => `tracker.pipeline.*.${k}`),
     ...["Section", "Status", "Label"].flatMap((f) => ["source", "success", "failure", "hold", "queue"].map((r) => `tracker.pipeline.*.${r}${f === "Section" ? "SectionGid" : f}`)),
   ];
   for (const e of CONFIG_SCHEMA) {

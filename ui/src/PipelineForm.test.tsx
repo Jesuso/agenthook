@@ -83,6 +83,53 @@ describe("PipelineForm cards", () => {
     expect(cards(m)[2].querySelector("[data-step-error]")).not.toBeNull();
   });
 
+  it("Advanced is collapsed by default, holds maxMinutes/idleMinutes/maxConcurrent/hold/queue, and closeIssue shows only for github", async () => {
+    m = await mount(form());
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const card = cards(m)[1];
+    const details = card.querySelector("[data-step-advanced]") as HTMLDetailsElement;
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")!.textContent).toBe("Advanced · 0 set");
+    expect(details.querySelector('input[name="tracker.pipeline.1.maxMinutes"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.idleMinutes"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.maxConcurrent"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.holdLabel"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.queueLabel"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.closeIssue"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.completeTask"]')).toBeNull();
+  });
+
+  it("shows N set in the Advanced summary and in the collapsed card header once a value is set", async () => {
+    const withHold = {
+      tracker: { type: "github", pipeline: [{ ...raw.tracker.pipeline[1], holdLabel: "agent:held" }] },
+    };
+    m = await mount(form({ text: JSON.stringify(withHold, null, 2), raw: withHold }));
+    expect(cards(m)[0].querySelector("[data-step-summary]")!.textContent).toContain("+1 advanced");
+    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    expect(cards(m)[0].querySelector("[data-step-advanced] summary")!.textContent).toBe("Advanced · 1 set");
+  });
+
+  it("completeOnMerge shows only on manual steps, unless already set", async () => {
+    m = await mount(form());
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    expect(cards(m)[1].querySelector('input[name="tracker.pipeline.1.completeOnMerge"]')).toBeNull();
+
+    const manual = { tracker: { type: "github", pipeline: [{ ...raw.tracker.pipeline[1], manual: true }] } };
+    {
+      const m2 = await mount(form({ text: JSON.stringify(manual, null, 2), raw: manual }));
+      await click(m2.root.querySelector('[aria-label="expand step"]')!);
+      expect(m2.root.querySelector('input[name="tracker.pipeline.0.completeOnMerge"]')).not.toBeNull();
+      await m2.unmount();
+    }
+
+    const alreadySet = { tracker: { type: "github", pipeline: [{ ...raw.tracker.pipeline[1], completeOnMerge: false }] } };
+    const m3 = await mount(form({ text: JSON.stringify(alreadySet, null, 2), raw: alreadySet }));
+    await click(m3.root.querySelector('[aria-label="expand step"]')!);
+    expect(m3.root.querySelector('input[name="tracker.pipeline.0.completeOnMerge"]')).not.toBeNull();
+    await m3.unmount();
+  });
+
   it("focus opens the named card and scrolls it into view", async () => {
     const scroll = vi.fn();
     (Element.prototype as any).scrollIntoView = scroll;
