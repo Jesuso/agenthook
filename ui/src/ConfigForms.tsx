@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react";
+import { Children, cloneElement, isValidElement, useContext, useEffect, useId, useRef, useState } from "react";
 import type { JSONPath } from "jsonc-parser";
 import {
   KNOWN_MODELS,
@@ -66,6 +66,7 @@ import { SECRET_FIELDS } from "../../src/ui/sensitive.js";
 import { sinkErrors } from "../../src/sinks-config.js";
 import { digestErrors } from "../../src/digest-config.js";
 import { HelpTip, ProfileMark } from "./components";
+import { ConfirmContext } from "./Modal";
 
 /** The stage-picker feed for the open profile: the discover outcome, `null` before the first fetch. */
 export type StagesState = { source: StageSource; body: Discover | null };
@@ -708,6 +709,7 @@ export function PipelineForm(
   const edit = { text: props.text, onEdit: props.onEdit };
   const errors = props.errors ?? new Map<number, string[]>();
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const ask = useContext(ConfirmContext);
   const toggle = (i: number) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -809,11 +811,13 @@ export function PipelineForm(
                 </button>
                 <button
                   className={BUTTON}
-                  onClick={() => {
-                    if (!window.confirm(`Remove step "${fieldText(s.id) || i + 1}"? Its comment keys go with it.`)) return;
-                    setOpen((prev) => openAfterRemove(prev, i));
-                    props.onEdit(removeStep(props.text, i));
-                  }}
+                  onClick={() =>
+                    ask({ title: `Remove step "${fieldText(s.id) || i + 1}"?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then((ok) => {
+                      if (!ok) return;
+                      setOpen((prev) => openAfterRemove(prev, i));
+                      props.onEdit(removeStep(props.text, i));
+                    })
+                  }
                 >
                   remove
                 </button>
@@ -1099,6 +1103,7 @@ function CiTargetField(props: EditProps & { raw: unknown; value: unknown }) {
 
 /** The optional `forge` block: Add (`{"type":"github"}`) when absent; its schema fields and Remove (confirmed) when present. */
 export function ForgeForm(props: EditProps & { raw: unknown }) {
+  const ask = useContext(ConfirmContext);
   const block = readBlock(props.raw, "forge");
   const edit = { text: props.text, onEdit: props.onEdit };
   if (!block) {
@@ -1127,10 +1132,14 @@ export function ForgeForm(props: EditProps & { raw: unknown }) {
         <button
           className={BUTTON}
           data-remove-forge
-          onClick={() => {
-            if (!window.confirm("Remove the forge block? Every forge key (type, token, webhook secret, CI settings) is deleted.")) return;
-            props.onEdit(setPath(props.text, ["forge"], undefined));
-          }}
+          onClick={() =>
+            ask({
+              title: "Remove the forge block?",
+              body: "Every forge key (type, token, webhook secret, CI settings) is deleted.",
+              confirmLabel: "Remove",
+              destructive: true,
+            }).then((ok) => ok && props.onEdit(setPath(props.text, ["forge"], undefined)))
+          }
         >
           Remove forge block
         </button>
@@ -1241,6 +1250,7 @@ function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
  * unknown type or a non-object entry is a read-only card — nothing in it is ever rewritten.
  */
 function SinkCard(props: EditProps & { index: number; count: number; sink: unknown; errors: string[] }) {
+  const ask = useContext(ConfirmContext);
   const i = props.index;
   const edit = { text: props.text, onEdit: props.onEdit };
   const s = knownSink(props.sink);
@@ -1264,10 +1274,11 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
           <button
             className={BUTTON}
             data-remove-sink
-            onClick={() => {
-              if (!window.confirm(`Remove sink #${i + 1}${s ? ` (${typeName})` : ""}? Its comment keys go with it.`)) return;
-              props.onEdit(removeSink(props.text, i));
-            }}
+            onClick={() =>
+              ask({ title: `Remove sink #${i + 1}${s ? ` (${typeName})` : ""}?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then(
+                (ok) => ok && props.onEdit(removeSink(props.text, i)),
+              )
+            }
           >
             remove
           </button>
@@ -1415,6 +1426,7 @@ const anyRepoErrors = (errors: string[], repos: unknown[]): string[] => errors.f
  * worktreePrefix under Advanced. ↑/↓/remove in the header; a non-object element is a read-only card.
  */
 function RepoCard(props: EditProps & { index: number; count: number; repos: unknown[]; repo: unknown; errors: string[] }) {
+  const ask = useContext(ConfirmContext);
   const i = props.index;
   const edit = { text: props.text, onEdit: props.onEdit };
   const r = knownRepo(props.repo);
@@ -1439,10 +1451,11 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
           <button
             className={BUTTON}
             data-remove-repo
-            onClick={() => {
-              if (!window.confirm(`Remove repo #${i + 1}${r ? ` (${label})` : ""}?`)) return;
-              props.onEdit(removeRepo(props.text, i));
-            }}
+            onClick={() =>
+              ask({ title: `Remove repo #${i + 1}${r ? ` (${label})` : ""}?`, confirmLabel: "Remove", destructive: true }).then(
+                (ok) => ok && props.onEdit(removeRepo(props.text, i)),
+              )
+            }
           >
             remove
           </button>

@@ -6,7 +6,7 @@ import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
-import { DiffLegend, Modal } from "./Modal";
+import { DiffLegend, Modal, useConfirm } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
@@ -19,7 +19,8 @@ type Side = "none" | "preview" | "agent";
 /** `localStorage` key for the last file opened in a profile, so re-opening the tab lands there. */
 const lastFileKey = (profile: string) => `ah.instructions.last:${profile}`;
 
-const OVERWRITE_PROMPT = "Overwrite the on-disk version with your buffer? The on-disk changes will be replaced (the previous content is kept as .bak).";
+const OVERWRITE_TITLE = "Overwrite the on-disk version with your buffer?";
+const OVERWRITE_BODY = "The on-disk changes will be replaced (the previous content is kept as .bak).";
 
 /**
  * Per-profile standing-instruction files and a CodeMirror editor over one of them. Saves go
@@ -44,6 +45,7 @@ export default function InstructionsView(props: {
   const [side, setSide] = useState<Side>("none");
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [ask, confirmModal] = useConfirm();
   // Only the latest file load may land. `fileRef` is written with every update (not at render),
   // so async callbacks and chained actions always see the newest state.
   const loadSeq = useRef(0);
@@ -172,7 +174,7 @@ export default function InstructionsView(props: {
   };
 
   const overwrite = () => {
-    if (window.confirm(OVERWRITE_PROMPT)) put("overwrite");
+    ask({ title: OVERWRITE_TITLE, body: OVERWRITE_BODY, confirmLabel: "Overwrite", destructive: true }).then((ok) => ok && put("overwrite"));
   };
 
   /** Diff on a conflict: the 409 carried the disk content; an SSE-raised one fetches it. */
@@ -228,19 +230,25 @@ export default function InstructionsView(props: {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  const confirmDiscard = () => !dirty || window.confirm(DISCARD_PROMPT);
+  /** Runs `go` now on a clean buffer, else after the discard is confirmed. */
+  const unlessDirty = (go: () => void) => {
+    if (!dirty) return go();
+    ask({ title: "Unsaved changes", body: DISCARD_PROMPT, confirmLabel: "Discard", cancelLabel: "Keep editing", destructive: true }).then((ok) => ok && go());
+  };
 
   const pickProfile = (name: string) => {
-    if (name === profile || !confirmDiscard()) return;
-    loadSeq.current++;
-    setPicked(name);
-    setList({ kind: "loading" });
-    setFile({ kind: "none" });
+    if (name === profile) return;
+    unlessDirty(() => {
+      loadSeq.current++;
+      setPicked(name);
+      setList({ kind: "loading" });
+      setFile({ kind: "none" });
+    });
   };
 
   const pickFile = (path: string) => {
-    if (open?.path === path || !confirmDiscard()) return;
-    load(profile, path);
+    if (open?.path === path) return;
+    unlessDirty(() => load(profile, path));
   };
 
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">No profiles.</p>;
@@ -423,6 +431,7 @@ export default function InstructionsView(props: {
           </button>
         </div>
       )}
+      {confirmModal}
     </div>
   );
 }

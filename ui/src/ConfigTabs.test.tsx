@@ -2,7 +2,8 @@
 import { act, createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ForgeForm, IngressForm, TrackerForm } from "./ConfigForms";
-import { click, mount } from "./domHarness";
+import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
+import { ConfirmProvider } from "./Modal";
 import type { Mounted } from "./domHarness";
 
 // The Tracker / Forge / Ingress tabs (#341): schema-driven fields, default-true checkboxes, secret fields.
@@ -21,14 +22,18 @@ async function live(form: Form, raw: unknown) {
   const texts: string[] = [];
   function Host() {
     const [text, setText] = useState(JSON.stringify(raw, null, 2));
-    return createElement(form, {
-      text,
-      raw: JSON.parse(text),
-      onEdit: (next: string) => {
-        texts.push(next);
-        setText(next);
-      },
-    });
+    return createElement(
+      ConfirmProvider,
+      null,
+      createElement(form, {
+        text,
+        raw: JSON.parse(text),
+        onEdit: (next: string) => {
+          texts.push(next);
+          setText(next);
+        },
+      }),
+    );
   }
   m = await mount(createElement(Host));
   return { root: m.root, texts, last: () => JSON.parse(texts.at(-1)!) };
@@ -200,14 +205,13 @@ describe("ForgeForm", () => {
   });
 
   it("Remove deletes the block only after the confirm", async () => {
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal("confirm", confirm);
     const { root, texts, last } = await live(ForgeForm, { name: "p", forge: { type: "github", repository: "o/r" } });
     await click(root.querySelector("[data-remove-forge]")!);
+    expect(confirmDialog()?.textContent).toContain("Remove the forge block?");
+    await answerConfirm(false);
     expect(texts).toEqual([]);
-    confirm.mockReturnValue(true);
-    expect(confirm).toHaveBeenCalledTimes(1);
     await click(root.querySelector("[data-remove-forge]")!);
+    await answerConfirm(true);
     expect(last()).toEqual({ name: "p" });
     expect(root.textContent).toContain("No forge configured");
   });

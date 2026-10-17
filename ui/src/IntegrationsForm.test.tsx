@@ -3,7 +3,8 @@ import { act, createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntegrationsForm, isSecretPath } from "./ConfigForms";
 import { addSink, moveSink, removeSink, sinkEvents } from "./configEdit";
-import { click, mount } from "./domHarness";
+import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
+import { ConfirmProvider } from "./Modal";
 import type { Mounted } from "./domHarness";
 
 // The Integrations tab (#342): sinks, digest, overlapGuard — every edit a minimal text edit.
@@ -21,14 +22,18 @@ async function live(initial: unknown) {
   const start = typeof initial === "string" ? initial : JSON.stringify(initial, null, 2);
   function Host() {
     const [text, setText] = useState(start);
-    return createElement(IntegrationsForm, {
-      text,
-      raw: JSON.parse(text),
-      onEdit: (next: string) => {
-        texts.push(next);
-        setText(next);
-      },
-    });
+    return createElement(
+      ConfirmProvider,
+      null,
+      createElement(IntegrationsForm, {
+        text,
+        raw: JSON.parse(text),
+        onEdit: (next: string) => {
+          texts.push(next);
+          setText(next);
+        },
+      }),
+    );
   }
   m = await mount(createElement(Host));
   return { root: m.root, texts, text: () => texts.at(-1) ?? start, last: () => JSON.parse(texts.at(-1) ?? start) };
@@ -82,19 +87,19 @@ describe("sinks: add / edit / remove / reorder", () => {
   });
 
   it("remove only after the confirm; ↑/↓ swap cards with every key (comments included)", async () => {
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal("confirm", confirm);
     const a = { "//": "ops channel", type: "slack", url: "${A}" };
     const b = { type: "webhook", url: "${B}", futureKey: 1, events: ["blocked"] };
     const { root, texts, last } = await live({ sinks: [a, b] });
     await click(card(root, 0).querySelector("[data-remove-sink]")!);
+    expect(confirmDialog()?.textContent).toContain("Remove sink #1 (slack)?");
+    await answerConfirm(false);
     expect(texts).toEqual([]);
     await click(card(root, 1).querySelector('[aria-label="move sink up"]')!);
     expect(last().sinks).toEqual([b, a]);
     await click(card(root, 1).querySelector('[aria-label="move sink up"]')!);
     expect(last().sinks).toEqual([a, b]);
-    confirm.mockReturnValue(true);
     await click(card(root, 0).querySelector("[data-remove-sink]")!);
+    await answerConfirm(true);
     expect(last().sinks).toEqual([b]);
   });
 

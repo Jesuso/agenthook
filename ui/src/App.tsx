@@ -20,7 +20,8 @@ import { queueToggleText, restartsReducer, rowActions } from "./profileActions";
 import { AppBar } from "./AppBar";
 import type { ProfileNav } from "./AppBar";
 import { HomePage } from "./HomePage";
-import { HOME, hashFor, parseHash, sameRoute } from "./route";
+import { HOME, hashFor, parseHash } from "./route";
+import { useLeaveGuard } from "./leaveGuard";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
@@ -92,27 +93,20 @@ export default function App() {
     }
   }, [restarts]);
 
-  useEffect(() => {
-    // Every navigation (link, tab, back/forward) arrives as a hashchange. Leaving a view with an
-    // unsaved buffer asks first; declining puts the old hash back without adding a history entry.
-    const onHash = () => {
-      const next = parseHash(window.location.hash);
-      const cur = routeRef.current;
-      if (sameRoute(cur, next)) return;
-      if (cur.kind === "profile") {
-        const dirty = cur.view === "instructions" ? instructionsDirty.current : cur.view === "config" ? configDirty.current : false;
-        if (dirty && !window.confirm(cur.view === "instructions" ? DISCARD_PROMPT : CONFIG_DISCARD_PROMPT)) {
-          window.history.replaceState(null, "", hashFor(cur));
-          return;
-        }
-      }
+  // Leaving a view with an unsaved buffer asks first, in the in-app modal (leaveGuard.tsx).
+  const leaveModal = useLeaveGuard({
+    route: () => routeRef.current,
+    prompt: (cur) => {
+      if (cur.kind !== "profile") return null;
+      if (cur.view === "instructions") return instructionsDirty.current ? DISCARD_PROMPT : null;
+      return cur.view === "config" && configDirty.current ? CONFIG_DISCARD_PROMPT : null;
+    },
+    go: (next) => {
       setStatusFilter("");
       setEpicFilter("");
       setRoute(next);
-    };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+    },
+  });
 
   useEffect(() => {
     // A webhook hint is a command to copy: it stays until dismissed.
@@ -414,6 +408,7 @@ export default function App() {
           </button>
         </div>
       )}
+      {leaveModal}
     </Shell>
   );
 }

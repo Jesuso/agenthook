@@ -23,6 +23,7 @@ export type SaveState = { open: OpenFile; buffer: string; phase: SavePhase };
 
 export type SaveAction =
   | { type: "edit"; buffer: string }
+  | { type: "revert" }
   | { type: "save" }
   | { type: "cancel" }
   | { type: "confirm" }
@@ -58,6 +59,12 @@ export function saveReducer(s: SaveState, a: SaveAction): SaveState {
       // Typing over a pending silent reload: keep the edit, surface the disk change instead.
       if (p.kind === "stale") return { ...s, buffer: a.buffer, phase: { kind: "conflict", hash: p.hash, content: null } };
       return { ...s, buffer: a.buffer };
+    case "revert":
+      // Back to the loaded/saved text. A conflict's buffer is clean now, so it goes stale: the
+      // view's silent reload pulls the newer disk version.
+      if (p.kind === "editing") return { ...s, buffer: s.open.content };
+      if (p.kind === "conflict") return { ...s, buffer: s.open.content, phase: { kind: "stale", hash: p.hash } };
+      return s;
     case "save":
       return p.kind === "editing" && isDirty(s.buffer, s.open) ? { ...s, phase: { kind: "confirming" } } : s;
     case "cancel":

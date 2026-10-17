@@ -38,6 +38,16 @@ export async function pressEnter(target: Element): Promise<void> {
   });
 }
 
+/** The open in-app confirm (Modal.tsx `ConfirmModal`), or null. */
+export const confirmDialog = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
+
+/** Answer the open confirm: its confirm button (`true`) or Cancel (`false`). */
+export async function answerConfirm(ok: boolean): Promise<void> {
+  const dialog = confirmDialog();
+  if (!dialog) throw new Error("answerConfirm: no confirm dialog open");
+  await click(dialog.querySelector(ok ? "[data-confirm-ok]" : "[data-confirm-cancel]")!);
+}
+
 /** Wait (inside `act`) until `check` returns truthy — for fetch-driven renders. */
 export async function until<T>(check: () => T, tries = 50): Promise<T> {
   for (let i = 0; i < tries; i++) {
