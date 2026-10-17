@@ -181,6 +181,7 @@ export function createGithubAdapter(cfg, store) {
   const repoApiUrl = () => `https://api.github.com${repoPath()}`;
   const epicType = pc.epicType || "Epic";
   const epicLabel = pc.epicLabel || "epic";
+  let typePathUnavailable = false; // set once a 422 says this repo has no issue types (personal accounts)
 
   /** @param {string|null|undefined} s */
   const norm = (s) => (s || "").trim().toLowerCase();
@@ -192,7 +193,7 @@ export function createGithubAdapter(cfg, store) {
     const out = [];
     for (let page = 1; page <= 10; page++) {
       const res = await api(`${path}?${query}${query ? "&" : ""}per_page=100&page=${page}`);
-      if (!res.ok) throw new Error(`list issues ${res.status}`);
+      if (!res.ok) throw Object.assign(new Error(`list issues ${res.status}`), { status: res.status });
       const batch = (await json(res)) || [];
       out.push(...batch);
       if (batch.length < 100) break;
@@ -753,7 +754,8 @@ export function createGithubAdapter(cfg, store) {
     // Every epic in the repo: typed `epicType` OR labelled `epicLabel`, from either path,
     // always post-filtered through mapEpics (so a stray match on either query can't leak
     // a non-epic). Each path fails open independently (a personal repo has no issue types
-    // → the type path 4xxs, yielding none from it); the whole thing fails open too.
+    // → the type path 422s once, after which it's skipped — logged at info level, not a
+    // warning; any other type-path error keeps warning and retrying every call).
     async listEpics() {
       try {
         /** @type {any[]} */
@@ -765,10 +767,17 @@ export function createGithubAdapter(cfg, store) {
         }
         /** @type {any[]} */
         let byType = [];
-        try {
-          byType = await pagedIssues(`${repoPath()}/issues`, `type=${encodeURIComponent(epicType)}&state=all`);
-        } catch (e) {
-          console.warn(`[epics] listEpics type path failed:`, e instanceof Error ? e.message : e);
+        if (!typePathUnavailable) {
+          try {
+            byType = await pagedIssues(`${repoPath()}/issues`, `type=${encodeURIComponent(epicType)}&state=all`);
+          } catch (e) {
+            if (e && typeof e === "object" && "status" in e && e.status === 422) {
+              typePathUnavailable = true;
+              console.log(`[epics] issue types unavailable on this repo — using the "${epicLabel}" label only`);
+            } else {
+              console.warn(`[epics] listEpics type path failed:`, e instanceof Error ? e.message : e);
+            }
+          }
         }
         return mapEpics([...byLabel, ...byType], epicType, epicLabel);
       } catch (e) {

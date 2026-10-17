@@ -137,6 +137,9 @@ Identity is type-**or**-label:
 - **Label** `epic` (case-insensitive) — config key `tracker.epicLabel`, default `"epic"`. This is
   the path for personal accounts.
 
+On a personal repo, GitHub answers the type query with a 422 — agenthook notes that once (info
+log, not a warning) and uses the label path only from then on.
+
 ```jsonc
 "tracker": {
   "type": "github",
