@@ -50,6 +50,25 @@ describe("BasicsForm", () => {
     const next = JSON.parse(onEdit.mock.calls[0][0]);
     expect(next).toEqual({ name: "renamed", repoPath: "/repo", stateId: "p" });
   });
+
+  it("renders instructionsFile editable, and claudeBin/stateId under Advanced with stateId read-only", () => {
+    const raw = { name: "p", repoPath: "/repo", instructionsFile: "./INSTRUCTIONS.md", claudeBin: "claude", stateId: "p" };
+    const html = renderToStaticMarkup(createElement(BasicsForm, { text: JSON.stringify(raw), onEdit: () => {}, raw, stateKey: "p" }));
+    const instructions = /<input[^>]*name="instructionsFile"[^>]*>/.exec(html);
+    expect(instructions).not.toBeNull();
+    expect(instructions![0]).toMatch(/value="\.\/INSTRUCTIONS\.md"/);
+    expect(instructions![0]).not.toMatch(/readonly/i);
+
+    const claudeBin = /<input[^>]*name="claudeBin"[^>]*>/.exec(html);
+    expect(claudeBin).not.toBeNull();
+    expect(claudeBin![0]).not.toMatch(/readonly/i);
+
+    const stateId = /<input[^>]*name="stateId"[^>]*>/.exec(html);
+    expect(stateId).not.toBeNull();
+    expect(stateId![0]).toMatch(/readonly/i);
+    expect(stateId![0]).toMatch(/value="p"/);
+    expect(html).toContain("agenthook rename --move");
+  });
 });
 
 describe("modelSelectState", () => {
