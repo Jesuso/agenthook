@@ -987,6 +987,74 @@ test("listEpics merges label-path and type-path results through mapEpics (post-f
   }
 });
 
+test("listEpics: type path 422 (no issue types on this repo) logs once at info level, never warns, and stops querying type= on later calls", async () => {
+  const orig = global.fetch;
+  const warn = console.warn;
+  const log = console.log;
+  let typeCalls = 0;
+  /** @type {any[]} */
+  const warnings = [];
+  /** @type {any[]} */
+  const infos = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    const res = (data, status = 200) => /** @type {any} */ ({ ok: status < 400, status, json: async () => data });
+    if (u.includes("type=Epic")) {
+      typeCalls++;
+      return res({}, 422);
+    }
+    if (u.includes("labels=epic")) return res([{ number: 1, title: "A", html_url: "ua", state: "open", labels: [{ name: "epic" }] }]);
+    return res([]);
+  };
+  console.warn = (...args) => warnings.push(args);
+  console.log = (...args) => infos.push(args);
+  try {
+    const a = adapter();
+    const first = await a.listEpics();
+    const second = await a.listEpics();
+    assert.deepEqual(first.map((e) => e.ref), ["1"]);
+    assert.deepEqual(second.map((e) => e.ref), ["1"]);
+    assert.equal(typeCalls, 1);
+    assert.equal(warnings.length, 0);
+    assert.equal(infos.length, 1);
+  } finally {
+    global.fetch = orig;
+    console.warn = warn;
+    console.log = log;
+  }
+});
+
+test("listEpics: type path 500 warns and is retried on every call", async () => {
+  const orig = global.fetch;
+  const warn = console.warn;
+  let typeCalls = 0;
+  /** @type {any[]} */
+  const warnings = [];
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    const res = (data, status = 200) => /** @type {any} */ ({ ok: status < 400, status, json: async () => data });
+    if (u.includes("type=Epic")) {
+      typeCalls++;
+      return res({}, 500);
+    }
+    if (u.includes("labels=epic")) return res([{ number: 1, title: "A", html_url: "ua", state: "open", labels: [{ name: "epic" }] }]);
+    return res([]);
+  };
+  console.warn = (...args) => warnings.push(args);
+  try {
+    const a = adapter();
+    await a.listEpics();
+    await a.listEpics();
+    assert.equal(typeCalls, 2);
+    assert.equal(warnings.length, 2);
+  } finally {
+    global.fetch = orig;
+    console.warn = warn;
+  }
+});
+
 // --- epic_changed (#310): sub_issues + issues typed/untyped → a signal job, never a pipeline job ---
 
 const OUR_REPO = "https://api.github.com/repos/o/r";
