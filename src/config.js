@@ -413,6 +413,13 @@ export function validateRawConfig(raw) {
     if (step.completeOnMerge && !step.manual) {
       errors.push(`config: pipeline step "${sid}" completeOnMerge requires manual:true (no agent runs on a merge).`);
     }
+    if (step.requireVerdict != null) {
+      if (typeof step.requireVerdict !== "boolean") {
+        errors.push(`config: pipeline step "${sid}" requireVerdict must be a boolean.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" requireVerdict has no effect on a manual step (no agent runs).`);
+      }
+    }
     // Queue stage (opt-in backlog lane the engine pulls from when a slot frees). A manual
     // step runs no agent, so it has nothing to pull into; a queue equal to the step's own
     // source would pull an item into the stage it already rests in (a self-loop).

@@ -266,7 +266,7 @@ live; saving a literal stays allowed. `webhookSecret: false` reads "verification
 with the same Clear / replace controls and is never rewritten unless you act.
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
-model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
+model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `requireVerdict`, `createsWorktree`, `drainWorktree`,
 `manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor; the tracker's stage
 bindings), the **top-level basics** (`name`, `maxConcurrent`, `fullAuto`, `port`, `trigger`,
 `instructionsFile`, and — under Advanced — `claudeBin` and a read-only `stateId`, since the server
