@@ -1,6 +1,6 @@
 {
   "name": "@jesuso/agenthook",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Event-driven agentic development. Webhook in, coding agent out. No polling loops.",
   "type": "module",
   "bin": {
