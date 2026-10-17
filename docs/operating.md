@@ -68,14 +68,17 @@ Drive one or more profiles off the event bus instead of polling the board. The l
    PRs, and a `cursor`.
 2. One background `agenthook watch --cursor <c> --event <list> --timeout <long, e.g. 1800> --json`
    (MCP `events {cursor, waitS, types}`) as the wait. It blocks (`fs.watch`-driven, no polling)
-   until a matching event lands, or the timeout expires.
+   until a matching event lands, or the timeout expires. MCP callers cap `waitS` at 120s, so re-arm
+   at least that often.
 3. On exit 0: act per event (table below), then re-arm `watch` with the printed `cursor`.
 4. On exit 2 (timeout): treat it as a **heartbeat** — re-`tick`, then re-arm `watch` from the new
    cursor.
 
-Run **one** watch per supervisor — never two at once against the same profile(s), or each only
-sees half the events. Watching many profiles? Use a single `--all` (or multi-name) watch; its
-cursor is a JSON object `{stateKey: offset}` — pass it back whole.
+Run **one** watch per supervisor — never two at once against the same profile(s). `watch` is a
+byte-offset reader of the append-only `events.jsonl`, so two readers would each see every event,
+not half; the real risk is two supervisors **both acting** on the same event (a double merge, a
+double `run`). Watching many profiles? Use a single `--all` (or multi-name) watch; its cursor is a
+JSON object `{stateKey: offset}` — pass it back whole.
 
 ### Event → action
 
@@ -85,7 +88,7 @@ See [events.md](events.md) for every field; this just says what to do.
 |---|---|
 | `pipeline_done` | PR is ready — check CI/merge state, merge if policy allows |
 | `ci_green` | mergeable — merge if policy allows |
-| `ci_red` | look at `action`: `rerun`/`bounced` handle themselves; `skipped`/`deferred` may need you |
+| `ci_red` | look at `action`: `rerun`/`bounced`/`deferred` handle themselves; `skipped` may need you |
 | `merged` | release the ref's dependents (see epics, below) |
 | `blocked` | answer with `@agent` on the ticket, or `release` |
 | `failed` | inspect the run log, then `run` again or `dismiss` |
@@ -109,8 +112,9 @@ resting in a source stage.
 
 `merged`, `ci_green`, and `ci_red` come only from a configured [forge](configuration.md#forge-optional--what-happened-to-the-code)
 — without one the bus has no merge/CI awareness and you must poll PR state via `tick`/`prs`
-instead. `agenthook init` offers the forge block when the tracker is GitHub; `agenthook doctor`
-warns when a GitHub tracker has no forge configured.
+instead. `agenthook init` offers the forge block on every init (default yes when the tracker is
+GitHub or the origin remote is github.com); `agenthook doctor` warns when a GitHub tracker has no
+forge configured.
 
 ### Multiple profiles
 
