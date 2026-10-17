@@ -95,6 +95,11 @@ else, comments on PRs, and edited/deleted comments are ignored, even with `assig
 See [architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply). The
 event takes effect on the next `agenthook start`, which recreates the hook.
 
+That webhook is the **tracker's** — it has no idea what happens to the code. For merge/CI
+awareness (a `merge`/`ci`/`ci_green` event when the agent's PR lands or its checks go red/green),
+add a `forge` block; `agenthook init` offers it, with no extra token scopes needed when the
+tracker is already `github`. See [Configuration → Forge](configuration.md#forge-optional--what-happened-to-the-code).
+
 ## 4. Assignee scoping
 
 agenthook acts only on issues **assigned to the token owner** (resolved from `/user`), fail-closed:

@@ -401,6 +401,7 @@
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
+ * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  */
 
 /** One open agent PR as `listAgentPrs` reports it.
