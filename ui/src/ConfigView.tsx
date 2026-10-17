@@ -6,7 +6,7 @@ import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
-import { BasicsForm, PipelineForm } from "./ConfigForms";
+import { BasicsForm, ForgeForm, IngressForm, PipelineForm, TrackerForm } from "./ConfigForms";
 import type { StagesState } from "./ConfigForms";
 import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
 import { layoutPipeline } from "./pipelineGraph";
@@ -33,7 +33,9 @@ import type { ConfigSinkEvent, SensitiveChange } from "./config";
 // is live, this is not.
 type Meta = { errors: string[]; literalSecrets: string[]; as: "load" | "save" | "rejected" };
 type FileState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; doc: SaveState; meta: Meta };
-type Pane = "raw" | "basics" | "pipeline";
+type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress";
+
+const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "raw"];
 
 const JSON_LANG = json();
 const OVERWRITE_PROMPT = "Overwrite the on-disk config with your buffer? The on-disk changes will be replaced (the previous content is kept as a backup).";
@@ -45,10 +47,11 @@ const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: 
  * change) → guarded `PUT /api/config`. A 200 offers "Restart when idle" (`POST /api/restart`),
  * whose banner follows `restartReducer` off SSE only. `eventSink` carries `config` events
  * (external edits) and feed `event`s (the restart lifecycle) from the parent's /api/stream.
- * Basics / Pipeline form tabs edit the same buffer through `configEdit.ts` text edits; their stage
- * pickers fetch `GET /api/discover` on first open per profile and on Refresh only (no polling).
- * Tabs read Basics · Pipeline · Raw; a parseable config opens on Pipeline (graph expanded), an
- * unparseable one falls back to Raw. Clicking a step in the graph opens that step's card.
+ * Basics / Pipeline / Tracker / Forge / Ingress form tabs edit the same buffer through `configEdit.ts`
+ * text edits; the stage pickers fetch `GET /api/discover` on first form-tab open per profile and on
+ * Refresh only (no polling). Tabs read Basics · Pipeline · Tracker · Forge · Ingress · Raw; a
+ * parseable config opens on Pipeline (graph expanded), an unparseable one falls back to Raw.
+ * Clicking a step in the graph opens that step's card.
  * When the loaded label differs from the state key, "Move state dir to match name" sends the same
  * restart with `moveTo` (`rename --move`); once the snapshot lists the new key, the view follows it.
  */
@@ -556,7 +559,7 @@ export default function ConfigView(props: {
             );
           })()}
           <div className="mb-2 flex gap-1 border-b border-[var(--color-border)] text-sm">
-            {(["basics", "pipeline", "raw"] as const).map((t) => (
+            {PANES.map((t) => (
               <button
                 key={t}
                 data-config-pane={t}
@@ -607,6 +610,12 @@ export default function ConfigView(props: {
                 />
               ) : pane === "basics" ? (
                 <BasicsForm text={doc.buffer} raw={parsed.raw} stateKey={profile} onEdit={(buffer) => act({ type: "edit", buffer })} />
+              ) : pane === "tracker" ? (
+                <TrackerForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+              ) : pane === "forge" ? (
+                <ForgeForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+              ) : pane === "ingress" ? (
+                <IngressForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
               ) : (
                 <PipelineForm
                   text={doc.buffer}

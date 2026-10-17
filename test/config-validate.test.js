@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig, validateRawConfig, literalSecrets, SECRET_FIELDS, registryDir } from "../src/config.js";
+import { isEnvRef } from "../src/ui/sensitive.js";
 
 for (const v of ["ASANA_TOKEN", "GITHUB_TOKEN", "NGROK_AUTHTOKEN", "AH_UNSET_VAR"]) delete process.env[v];
 // A case loadConfig wrongly accepts would create this state dir; never leave it behind.
@@ -174,6 +175,11 @@ test("SECRET_FIELDS names every secret-bearing config path", () => {
   assert.deepEqual([...SECRET_FIELDS], [
     "tracker.token", "tracker.webhookSecret", "forge.token", "forge.webhookSecret", "ingress.authtoken", "sinks[*].url", "sinks[*].botToken",
   ]);
+});
+
+test("isEnvRef (the browser-shared predicate literalSecrets uses): exactly one ${VAR} ref", () => {
+  for (const v of ["${A}", "${GITHUB_TOKEN}", "${X_1}"]) assert.equal(isEnvRef(v), true, v);
+  for (const v of ["", "a-${X}", "${x}", "${A}${B}", "$A", "${A", false, null, undefined, 1]) assert.equal(isEnvRef(v), false, String(v));
 });
 
 test("literalSecrets: only non-empty strings that are not exactly one ${VAR} ref", () => {

@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
+import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
 // The installed package root (this file is src/config.js). Used only to read
 // bundled templates — never for runtime state.
@@ -467,17 +468,8 @@ export function validateRawConfig(raw) {
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
-/** Config paths whose value is a secret — each should be a `${VAR}` ref, never a literal.
- * `[*]` expands every element of an array. */
-export const SECRET_FIELDS = /** @type {const} */ ([
-  "tracker.token",
-  "tracker.webhookSecret",
-  "forge.token",
-  "forge.webhookSecret",
-  "ingress.authtoken",
-  "sinks[*].url",
-  "sinks[*].botToken",
-]);
+/** The list lives in src/ui/sensitive.js (the config editor bundles it); re-exported for the server side. */
+export { SECRET_FIELDS };
 
 /**
  * The concrete paths (e.g. "tracker.token", "sinks[1].botToken") of SECRET_FIELDS holding a
@@ -491,7 +483,7 @@ export function literalSecrets(raw) {
   /** @param {any} node @param {string[]} segs @param {string} at */
   const walk = (node, segs, at) => {
     if (!segs.length) {
-      if (typeof node === "string" && node !== "" && !/^\$\{[A-Z0-9_]+\}$/.test(node)) out.push(at);
+      if (typeof node === "string" && node !== "" && !isEnvRef(node)) out.push(at);
       return;
     }
     if (!node || typeof node !== "object") return;
