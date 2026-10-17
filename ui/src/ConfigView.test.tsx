@@ -24,11 +24,13 @@ const profiles = [{ name: "demo", label: "demo", up: false }] as unknown as Prof
 let m: Mounted | null = null;
 let fileText = JSON.stringify(config, null, 2);
 let fileHash = "h";
+let fileErrors: string[] = [];
 const puts: unknown[] = [];
 
 beforeEach(() => {
   fileText = JSON.stringify(config, null, 2);
   fileHash = "h";
+  fileErrors = [];
   puts.length = 0;
   dirty.mockClear();
   (Element.prototype as any).scrollIntoView = vi.fn();
@@ -37,7 +39,7 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method && init.method !== "GET") puts.push(url);
       if (url.startsWith("/api/config")) {
-        return new Response(JSON.stringify({ path: "/cfg/agenthook.config.json", text: fileText, hash: fileHash, errors: [], literalSecrets: [] }), { status: 200 });
+        return new Response(JSON.stringify({ path: "/cfg/agenthook.config.json", text: fileText, hash: fileHash, errors: fileErrors, literalSecrets: [] }), { status: 200 });
       }
       return new Response(JSON.stringify({ error: "down" }), { status: 503 });
     }),
@@ -63,6 +65,39 @@ describe("ConfigView panes", () => {
     expect(activeTab(m.root)).toBe("pipeline");
     expect(m.root.querySelector('svg[aria-label="pipeline graph"]')).not.toBeNull();
     expect([...m.root.querySelectorAll<HTMLElement>("[data-step-card]")].every((c) => c.dataset.open === "false")).toBe(true);
+  });
+
+  it("the pane host has no overflow-auto class on a form pane, but may on Raw", async () => {
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-step-card]"));
+    const host = () => m!.root.querySelector<HTMLElement>("[data-config-pane-host]")!;
+    expect(activeTab(m.root)).toBe("pipeline");
+    expect(host().className).not.toMatch(/overflow-(auto|y-auto|y-scroll)/);
+    await click(tabs(m.root).find((t) => t.dataset.configPane === "raw")!);
+    expect(host().className).toMatch(/overflow-auto/);
+  });
+
+  it("a valid config's banner row has a fixed-height class", async () => {
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-config-banner]"));
+    const row = m.root.querySelector<HTMLElement>("[data-config-banner]")!;
+    expect(row.textContent).toContain("valid");
+    expect(row.className).toMatch(/\bh-8\b/);
+  });
+
+  it("an invalid config's banner row keeps the same fixed-height class and opens the full list in an overlay", async () => {
+    fileErrors = ["server says no", "and also this"];
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-config-banner]"));
+    const row = m.root.querySelector<HTMLElement>("[data-config-banner]")!;
+    expect(row.className).toMatch(/\bh-8\b/);
+    expect(m.root.querySelector("[data-config-banner-overlay]")).toBeNull();
+    await click(m.root.querySelector<HTMLButtonElement>("[data-config-banner-toggle]")!);
+    const overlay = m.root.querySelector<HTMLElement>("[data-config-banner-overlay]")!;
+    expect(overlay).not.toBeNull();
+    expect(overlay.className).toContain("absolute");
+    expect(overlay.textContent).toContain("server says no");
+    expect(overlay.textContent).toContain("and also this");
   });
 
   it("an unparseable config falls back to Raw with the form tabs disabled and the hint shown", async () => {

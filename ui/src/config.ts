@@ -73,6 +73,22 @@ export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: fal
   }
 }
 
+export type BannerStatus = { ok: true } | { ok: false; first: string; moreCount: number };
+
+const BANNER_FIRST_MAX = 100;
+
+/**
+ * The validation banner's fixed-height single-line summary: a parse error wins outright (the
+ * client checks and server errors are moot until it's fixed), else the first client check or
+ * server error, with the remaining count — the overlay shows all of them in full.
+ */
+export function bannerStatus(parseError: string | null, checks: string[], serverErrors: string[]): BannerStatus {
+  const problems = parseError !== null ? [parseError] : [...checks, ...serverErrors];
+  if (problems.length === 0) return { ok: true };
+  const first = problems[0];
+  return { ok: false, first: first.length > BANNER_FIRST_MAX ? `${first.slice(0, BANNER_FIRST_MAX - 1)}…` : first, moreCount: problems.length - 1 };
+}
+
 // SENSITIVE_FIELDS that aren't secrets: their values are shown as is (a step's `bin` too).
 const CLEAR_FIELDS = new Set(["name", "fullAuto", "claudeBin", "tracker.userGid", "tracker.assigneeFilter", "tracker.email"]);
 const isClear = (path: string) => CLEAR_FIELDS.has(path) || /^tracker\.pipeline\[\d+\]\.bin$/.test(path);

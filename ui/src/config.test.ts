@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { ProfileView } from "./contract";
 import {
   RESTART_IDLE,
+  bannerStatus,
   configEventAsFile,
   configSaveRequest,
   configUrl,
@@ -107,6 +108,30 @@ describe("parseCheck", () => {
     const bad = parseCheck("{");
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error).toMatch(/^invalid JSON: /);
+  });
+});
+
+describe("bannerStatus", () => {
+  it("no problems → ok", () => {
+    expect(bannerStatus(null, [], [])).toEqual({ ok: true });
+  });
+
+  it("a parse error wins outright, checks and server errors moot", () => {
+    expect(bannerStatus("invalid JSON: x", ["a check"], ["a server error"])).toEqual({ ok: false, first: "invalid JSON: x", moreCount: 0 });
+  });
+
+  it("checks and server errors combine, first + remaining count", () => {
+    expect(bannerStatus(null, ["check one", "check two"], ["server one"])).toEqual({ ok: false, first: "check one", moreCount: 2 });
+  });
+
+  it("truncates a long first problem", () => {
+    const long = "x".repeat(150);
+    const r = bannerStatus(null, [long], []);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.first.length).toBe(100);
+      expect(r.first.endsWith("…")).toBe(true);
+    }
   });
 });
 
