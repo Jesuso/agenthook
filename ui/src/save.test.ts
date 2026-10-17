@@ -148,6 +148,26 @@ describe("saveReducer", () => {
     expect(saveReducer(dirty, { type: "failed" })).toBe(dirty);
     expect(saveReducer(dirty, { type: "conflict", content: "", hash: "h2" })).toBe(dirty);
   });
+
+  it("revert: editing → editing with the loaded content (clean again)", () => {
+    const s = saveReducer(dirty, { type: "revert" });
+    expect(s.phase).toEqual({ kind: "editing" });
+    expect(s.buffer).toBe("hello");
+    expect(saveStatus(s)).toBe("clean");
+  });
+
+  it("revert: conflict → stale on the conflict's hash, so the view reloads silently", () => {
+    const s = saveReducer(conflict, { type: "revert" });
+    expect(s.buffer).toBe("hello");
+    expect(s.phase).toEqual({ kind: "stale", hash: "h2" });
+  });
+
+  it("revert: every other phase is unchanged", () => {
+    const confirming = saveReducer(dirty, { type: "save" });
+    const stale = saveReducer(freshSave(open), { type: "external", ev: ev({}) });
+    const deleted = saveReducer(dirty, { type: "external", ev: ev({ hash: null }) });
+    for (const s of [confirming, saving, stale, deleted]) expect(saveReducer(s, { type: "revert" })).toBe(s);
+  });
 });
 
 describe("saveRequest", () => {

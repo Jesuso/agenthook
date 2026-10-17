@@ -224,6 +224,12 @@ buffer; every change a `jsonc-parser` edit, reorder swaps the steps' exact text)
 pickers** fed by `GET /api/discover` on first form-tab open and on Refresh, and a collapsible
 **pipeline graph** panel above every pane, re-deriving from the live buffer on every edit — form or raw text — without
 a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
+**Revert** beside Save throws a dirty buffer back to the loaded/saved text (works on broken JSON; on
+a conflict the buffer goes clean and the newer disk version reloads).
+
+**Confirms.** Every "are you sure?" in the Config and Instructions editors and the leave-a-dirty-view
+guard is the in-app `ConfirmModal` (`ui/src/Modal.tsx`: `role="alertdialog"`, focus on Cancel, Tab
+trapped, Escape closes only the topmost dialog). `beforeunload` is the only native prompt left.
 
 **Reading order.** The tabs read **Basics · Pipeline · Tracker · Forge · Ingress · Integrations ·
 Repos · Raw**; a config that parses opens on **Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs

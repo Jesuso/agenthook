@@ -5,7 +5,7 @@ import { profileLabel } from "./format";
 import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
-import { DiffLegend, Modal } from "./Modal";
+import { ConfirmContext, DiffLegend, Modal, useConfirm } from "./Modal";
 import { BasicsForm, ForgeForm, IngressForm, IntegrationsForm, PipelineForm, ReposForm, TrackerForm } from "./ConfigForms";
 import type { StagesState } from "./ConfigForms";
 import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
@@ -38,7 +38,8 @@ type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress" | "i
 const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "repos", "raw"];
 
 const JSON_LANG = json();
-const OVERWRITE_PROMPT = "Overwrite the on-disk config with your buffer? The on-disk changes will be replaced (the previous content is kept as a backup).";
+const OVERWRITE_TITLE = "Overwrite the on-disk config with your buffer?";
+const OVERWRITE_BODY = "The on-disk changes will be replaced (the previous content is kept as a backup).";
 const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: "as of last save", rejected: "save rejected" };
 
 /**
@@ -82,6 +83,8 @@ export default function ConfigView(props: {
   const restartRef = useRef(restart);
   restartRef.current = restart;
   const [toast, setToast] = useState<string | null>(null);
+  // Every "are you sure?" here (and in the forms, via ConfirmContext) is this one in-app modal.
+  const [ask, confirmModal] = useConfirm();
   const [pane, setPane] = useState<Pane>("pipeline");
   // The graph panel follows the pane — expanded on Pipeline, collapsed elsewhere — reset on every
   // pane switch; the ▾/▸ toggle holds until the next one.
@@ -282,8 +285,34 @@ export default function ConfigView(props: {
   const overwrite = () => {
     if (doc?.phase.kind !== "conflict") return;
     const changes = sensitiveDiff(doc.phase.content ?? doc.open.content, doc.buffer);
-    const note = changes.length ? `\n\nSensitive fields change:\n${changes.map((c) => `  ${sensitiveLabel(c.path)}: ${c.from} → ${c.to}`).join("\n")}` : "";
-    if (window.confirm(OVERWRITE_PROMPT + note)) put("overwrite");
+    const body = (
+      <>
+        <p>{OVERWRITE_BODY}</p>
+        {changes.length > 0 && (
+          <>
+            <p className="mt-2 font-semibold">Sensitive fields change:</p>
+            <ul className="font-mono text-xs">
+              {changes.map((c) => (
+                <li key={c.path}>
+                  {sensitiveLabel(c.path)}: {c.from} → {c.to}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </>
+    );
+    ask({ title: OVERWRITE_TITLE, body, confirmLabel: "Overwrite", destructive: true }).then((ok) => ok && put("overwrite"));
+  };
+
+  /** Throw the edits away: the buffer goes back to the loaded/saved text (a conflict then reloads). */
+  const revert = () => {
+    ask({ title: "Revert unsaved changes", body: CONFIG_DISCARD_PROMPT, confirmLabel: "Discard changes", destructive: true }).then((ok) => {
+      if (!ok) return;
+      const f = fileRef.current;
+      // The raw editor is uncontrolled: remount it so it shows the reverted text.
+      if (f.kind === "ok" && act({ type: "revert" }) !== f.doc) setEditorKey((k) => k + 1);
+    });
   };
 
   /** Diff on a conflict: the 409 carried the disk text; an SSE-raised one fetches it. */
@@ -360,12 +389,16 @@ export default function ConfigView(props: {
   }, [dirty]);
 
   const pickProfile = (name: string) => {
-    if (name === profile || (dirty && !window.confirm(CONFIG_DISCARD_PROMPT))) return;
-    loadSeq.current++;
-    setPicked(name);
-    setSavedNote(false);
-    setMoving(null);
-    dispatchRestart({ type: "reset" });
+    if (name === profile) return;
+    const go = () => {
+      loadSeq.current++;
+      setPicked(name);
+      setSavedNote(false);
+      setMoving(null);
+      dispatchRestart({ type: "reset" });
+    };
+    if (!dirty) return go();
+    ask({ title: "Unsaved changes", body: CONFIG_DISCARD_PROMPT, confirmLabel: "Discard", cancelLabel: "Keep editing", destructive: true }).then((ok) => ok && go());
   };
 
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">No profiles.</p>;
@@ -403,7 +436,18 @@ export default function ConfigView(props: {
         )}
         {open && (
           <button
+            data-revert
             className="ml-auto shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!dirty || (phase !== "editing" && phase !== "conflict")}
+            title="Discard your unsaved changes"
+            onClick={revert}
+          >
+            Revert
+          </button>
+        )}
+        {open && (
+          <button
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!dirty || phase !== "editing" || !parsed?.ok}
             title={parsed && !parsed.ok ? "Fix the JSON first" : "Save (Ctrl/Cmd-S)"}
             onClick={requestSave}
@@ -601,37 +645,39 @@ export default function ConfigView(props: {
           </div>
           <div className="flex min-h-0 flex-1">
             <div className="min-w-0 flex-1 overflow-auto">
-              {pane === "raw" || !parsed?.ok ? (
-                <MarkdownEditor
-                  key={editorKey}
-                  initial={doc.buffer}
-                  language={JSON_LANG}
-                  onChange={(buffer) => act({ type: "edit", buffer })}
-                  onSave={requestSave}
-                />
-              ) : pane === "basics" ? (
-                <BasicsForm text={doc.buffer} raw={parsed.raw} stateKey={profile} onEdit={(buffer) => act({ type: "edit", buffer })} />
-              ) : pane === "tracker" ? (
-                <TrackerForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
-              ) : pane === "forge" ? (
-                <ForgeForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
-              ) : pane === "ingress" ? (
-                <IngressForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
-              ) : pane === "integrations" ? (
-                <IntegrationsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
-              ) : pane === "repos" ? (
-                <ReposForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
-              ) : (
-                <PipelineForm
-                  text={doc.buffer}
-                  raw={parsed.raw}
-                  stages={stages?.profile === profile ? stages : null}
-                  onRefresh={() => fetchStages(profile)}
-                  onEdit={(buffer) => act({ type: "edit", buffer })}
-                  errors={perStep}
-                  focus={focus}
-                />
-              )}
+              <ConfirmContext.Provider value={ask}>
+                {pane === "raw" || !parsed?.ok ? (
+                  <MarkdownEditor
+                    key={editorKey}
+                    initial={doc.buffer}
+                    language={JSON_LANG}
+                    onChange={(buffer) => act({ type: "edit", buffer })}
+                    onSave={requestSave}
+                  />
+                ) : pane === "basics" ? (
+                  <BasicsForm text={doc.buffer} raw={parsed.raw} stateKey={profile} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                ) : pane === "tracker" ? (
+                  <TrackerForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                ) : pane === "forge" ? (
+                  <ForgeForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                ) : pane === "ingress" ? (
+                  <IngressForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                ) : pane === "integrations" ? (
+                  <IntegrationsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                ) : pane === "repos" ? (
+                  <ReposForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                ) : (
+                  <PipelineForm
+                    text={doc.buffer}
+                    raw={parsed.raw}
+                    stages={stages?.profile === profile ? stages : null}
+                    onRefresh={() => fetchStages(profile)}
+                    onEdit={(buffer) => act({ type: "edit", buffer })}
+                    errors={perStep}
+                    focus={focus}
+                  />
+                )}
+              </ConfirmContext.Provider>
             </div>
           </div>
         </>
@@ -725,6 +771,7 @@ export default function ConfigView(props: {
           </button>
         </div>
       )}
+      {confirmModal}
     </div>
   );
 }

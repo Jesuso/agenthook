@@ -2,7 +2,8 @@
 import { act, createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReposForm } from "./ConfigForms";
-import { click, mount } from "./domHarness";
+import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
+import { ConfirmProvider } from "./Modal";
 import type { Mounted } from "./domHarness";
 
 // The Repos tab (#343): repoPath/worktreePrefix, the repos cards (add/remove/reorder, the single-
@@ -20,14 +21,18 @@ async function live(initial: unknown) {
   const start = typeof initial === "string" ? initial : JSON.stringify(initial, null, 2);
   function Host() {
     const [text, setText] = useState(start);
-    return createElement(ReposForm, {
-      text,
-      raw: JSON.parse(text),
-      onEdit: (next: string) => {
-        texts.push(next);
-        setText(next);
-      },
-    });
+    return createElement(
+      ConfirmProvider,
+      null,
+      createElement(ReposForm, {
+        text,
+        raw: JSON.parse(text),
+        onEdit: (next: string) => {
+          texts.push(next);
+          setText(next);
+        },
+      }),
+    );
   }
   m = await mount(createElement(Host));
   return { root: m.root, texts, text: () => texts.at(-1) ?? start, last: () => JSON.parse(texts.at(-1) ?? start) };
@@ -68,21 +73,23 @@ describe("repos: add / edit / remove / reorder", () => {
   });
 
   it("remove only after the confirm; ↑/↓ swap cards verbatim; removing the last repo drops the repos key", async () => {
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal("confirm", confirm);
     const a = { id: "a", path: "./a", default: true };
     const b = { id: "b", path: "./b" };
     const { root, texts, last } = await live({ repos: [a, b] });
     await click(card(root, 0).querySelector("[data-remove-repo]")!);
+    expect(confirmDialog()?.textContent).toContain("Remove repo #1 (a)?");
+    await answerConfirm(false);
+    expect(confirmDialog()).toBeNull();
     expect(texts).toEqual([]);
     await click(card(root, 1).querySelector('[aria-label="move repo up"]')!);
     expect(last().repos).toEqual([b, a]);
     await click(card(root, 1).querySelector('[aria-label="move repo up"]')!);
     expect(last().repos).toEqual([a, b]);
-    confirm.mockReturnValue(true);
     await click(card(root, 1).querySelector("[data-remove-repo]")!);
+    await answerConfirm(true);
     expect(last().repos).toEqual([a]);
     await click(card(root, 0).querySelector("[data-remove-repo]")!);
+    await answerConfirm(true);
     expect(last().repos).toBeUndefined();
   });
 });
