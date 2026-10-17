@@ -199,7 +199,8 @@ Work starts when a ticket **enters a stage's inbox** (a section, status, label o
 receiver was down. Running agents are plain `claude -p` processes: list them with
 `agenthook agents`, tail one with `agenthook follow`, see tokens and cost with `agenthook usage`,
 and tear down finished worktrees with `agenthook cleanup`. Details:
-**[docs/operating.md](docs/operating.md)**.
+**[docs/operating.md](docs/operating.md)**. To drive the pipeline off the event bus instead of
+polling, see [Event-driven delivery loop](docs/operating.md#event-driven-delivery-loop).
 
 ## Let other agents run it (MCP)
 

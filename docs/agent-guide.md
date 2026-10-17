@@ -44,7 +44,9 @@ Vocabulary you will see in tool output:
    happens, then returns the new events and a new `cursor`. Pass that cursor back next time.
 4. Re-`tick` with `ifNoneMatch: <etag>` — `{"unchanged":true}` means nothing to do.
 
-Never loop on `status`. One `events` call with `waitS` replaces dozens of status calls.
+Never loop on `status`. One `events` call with `waitS` replaces dozens of status calls. For the
+full shell-level recipe (tick → background watch → act → re-arm), see
+[Event-driven delivery loop](operating.md#event-driven-delivery-loop).
 
 Supervising several profiles? Don't run one wait per profile: `events {profiles: ["*"], cursor, waitS}`
 (shell: `agenthook watch --all --json`) wakes on the first event from any of them. Events carry

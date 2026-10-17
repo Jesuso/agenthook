@@ -46,7 +46,7 @@ node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashbo
 node bin/agenthook.js mcp [--read-only]  # MCP server (stdio, all profiles) for external agents — docs/mcp.md
 node bin/agenthook.js tick [name…|--all] [--json]  # one-call status+board+PRs+events digest (same payload as the MCP `tick`; ≥2 names/--all = per-profile array)
 node bin/agenthook.js digest [name] [--json]  # write + print a profile's Digest in-process (no receiver needed)
-node bin/agenthook.js watch [name…|--all] [--event a,b] [--timeout s]  # block until the next event (exit 2 on timeout; ≥2 names/--all = first event from any, object cursor)
+node bin/agenthook.js watch [name…|--all] [--event a,b] [--cursor <n|json>] [--timeout s]  # block until the next event (exit 2 on timeout; ≥2 names/--all = first event from any, object cursor)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 npm test                                  # node:test suites in test/ (pure units; no network/spawn)
