@@ -194,4 +194,33 @@ describe("PipelineForm Advanced: Escalation and Lite", () => {
     expect(JSON.parse(buffer).tracker.pipeline[1].lite).toEqual({ descriptionHeadings: ["## Problem"] });
     expect(input.value).toBe("");
   });
+
+  it("editing an existing heading only commits on blur, keeps trailing spaces, and a mid-edit blank row doesn't drop descriptionHeadings", async () => {
+    const rawWithLite = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, idx) => (idx === 1 ? { ...s, lite: { descriptionHeadings: ["Problem"] } } : s)) } };
+    let buffer = JSON.stringify(rawWithLite, null, 2);
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(form({ text: buffer, raw: rawWithLite, onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const headings = cards(m)[1].querySelector('[data-lite-headings]')!;
+    const row = headings.querySelectorAll("input")[0] as HTMLInputElement;
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(row, "");
+      row.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onEdit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(row, "Problem statement ");
+      row.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onEdit).not.toHaveBeenCalled();
+
+    row.focus();
+    await act(async () => {
+      row.blur();
+    });
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(buffer).tracker.pipeline[1].lite.descriptionHeadings).toEqual(["Problem statement "]);
+  });
 });

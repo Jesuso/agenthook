@@ -270,12 +270,14 @@ function EscalateGroup(props: EditProps & { i: number; step: Record<string, unkn
 /** `lite.descriptionHeadings`: add / remove / reorder rows. A new heading stays a local draft until it is non-blank. */
 function LiteHeadingsField(props: EditProps & { i: number; headings: string[] }) {
   const [draft, setDraft] = useState("");
+  const [rows, setRows] = useState(props.headings);
+  useEffect(() => setRows(props.headings), [props.headings]);
   const m = fieldMeta([...stepPath(props.i, "lite"), "descriptionHeadings"]);
   const commit = (next: string[]) => props.onEdit(liteHeadingsEdit(props.text, props.i, next));
   const add = () => {
     const h = draft.trim();
     if (!h) return;
-    commit([...props.headings, h]);
+    commit([...rows, h]);
     setDraft("");
   };
   return (
@@ -286,16 +288,17 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
         {m.help && <HelpTip label={m.label} help={m.help} />}
       </span>
       <ul className="flex flex-col gap-1">
-        {props.headings.map((h, idx) => (
+        {rows.map((h, idx) => (
           <li key={idx} className="flex items-center gap-1">
             <input
               className={INPUT}
               value={h}
               onChange={(e) => {
-                const next = [...props.headings];
+                const next = [...rows];
                 next[idx] = e.target.value;
-                commit(next);
+                setRows(next);
               }}
+              onBlur={() => commit(rows)}
             />
             <button
               type="button"
@@ -303,7 +306,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
               aria-label="move heading up"
               disabled={idx === 0}
               onClick={() => {
-                const next = [...props.headings];
+                const next = [...rows];
                 [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
                 commit(next);
               }}
@@ -314,16 +317,16 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
               type="button"
               className={BUTTON}
               aria-label="move heading down"
-              disabled={idx === props.headings.length - 1}
+              disabled={idx === rows.length - 1}
               onClick={() => {
-                const next = [...props.headings];
+                const next = [...rows];
                 [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
                 commit(next);
               }}
             >
               ↓
             </button>
-            <button type="button" className={BUTTON} aria-label="remove heading" onClick={() => commit(props.headings.filter((_, j) => j !== idx))}>
+            <button type="button" className={BUTTON} aria-label="remove heading" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
               remove
             </button>
           </li>

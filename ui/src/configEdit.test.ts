@@ -522,4 +522,15 @@ describe("liteEdit / liteHeadingsEdit", () => {
     const onlyModel = JSON.stringify({ tracker: { pipeline: [{ id: "code", lite: { model: "a" } }] } }, null, 2);
     expect(liteHeadingsEdit(onlyModel, 0, [])).toBe(onlyModel);
   });
+
+  it("a trailing or internal space in a heading is kept, not trimmed", () => {
+    const out = liteHeadingsEdit(noBlock, 0, ["Problem statement "]);
+    expect(JSON.parse(out).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["Problem statement "]);
+  });
+
+  it("emptying a row mid-edit (one blank entry among others) drops only that entry, keeps the rest", () => {
+    const a = liteHeadingsEdit(noBlock, 0, ["one", "two"]);
+    const out = liteHeadingsEdit(a, 0, ["", "two"]);
+    expect(JSON.parse(out).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["two"]);
+  });
 });

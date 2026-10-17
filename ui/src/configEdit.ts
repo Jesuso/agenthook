@@ -189,7 +189,7 @@ export function liteEdit(text: string, i: number, field: "model" | "effort", inp
  * the key (and `lite` with it, if that was its only leaf). Same no-op-when-absent guard.
  */
 export function liteHeadingsEdit(text: string, i: number, headings: string[]): string {
-  const clean = headings.map((h) => h.trim()).filter(Boolean);
+  const clean = headings.filter((h) => h.trim() !== "");
   const path: JSONPath = [...PIPELINE, i, "lite", "descriptionHeadings"];
   if (clean.length > 0) return setPath(text, path, clean);
   const step = readSteps(JSON.parse(text))[i] ?? {};
