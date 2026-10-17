@@ -72,4 +72,4 @@ Opt-in, top-level `sinks` in `agenthook.config.json` forwards events to chat/web
 - Text: `[agenthook:<profile>] <event> <ref> "<name>" (step <step>)`, then `reason`, then `url`.
 - Required fields are validated at config load (`slack`/`webhook` → `url`; `telegram` → `botToken` + `chatId`).
 - **Best-effort:** fire-and-forget, 5s timeout, failures only `console.warn` (never the URL/token);
-  no retries or queuing; never affects the pipeline.
+  delivered in emit order per sink; up to 100 pending per sink, oldest dropped beyond that; no retries.
