@@ -386,6 +386,14 @@
  * @property {string} endedAt
  */
 
+/** Where an agent keeps its session transcripts (backs follow / resume / src/sessions.js).
+ * @typedef {object} AgentSessions
+ * @property {(cwd: string) => string} transcriptDir  the transcript dir of an agent launched in `cwd`
+ * @property {(sessionId: string) => string[]} resumeCommand  resume argv (after the binary)
+ * @property {(dir: string) => {id: string, file: string, at?: number}[]} files  the session transcripts in a transcript dir; `at` = start-time fallback when lines carry no timestamp
+ * @property {(baseCwd: string) => {dirs: string[], searched: string}} cwdDirs  existing transcript dirs of every cwd under `baseCwd` (+ the pattern searched, for errors)
+ */
+
 /** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
  * resume reach the CLI only through it.
  * @typedef {object} AgentAdapter
@@ -393,7 +401,7 @@
  * @property {(o: {prompt: string, model?: string, effort?: string, fullAuto?: boolean}) => string[]} buildArgs  argv after the executable
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
- * @property {{transcriptDir: (cwd: string) => string, resumeCommand: (sessionId: string) => string[]}|null} sessions  null = no transcripts to follow/resume
+ * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  */
 

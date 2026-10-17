@@ -17,8 +17,8 @@ import { spawnSync } from "node:child_process";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { worktreePath } from "../worktree.js";
-import { sessionDir, listSessions, recentRuns, refRepo, agentSessions } from "../sessions.js";
-import { agentFor } from "../agents/index.js";
+import { sessionDirs, listSessions, recentRuns, refRepo, agentSessions } from "../sessions.js";
+import { agentFor, getAgent } from "../agents/index.js";
 import { ago } from "./ls.js";
 
 /** @param {string|number} s @param {number} n */
@@ -28,14 +28,9 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 /** @param {number} ms */
 const iso = (ms) => new Date(ms).toISOString();
 
-/** Count `.jsonl` transcripts under a dir (0 if it doesn't exist). @param {string} dir */
-const sessionCount = (dir) => {
-  try {
-    return fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl")).length;
-  } catch {
-    return 0;
-  }
-};
+/** Count a ref's session transcripts across every agent's dir (0 if none exist).
+ * @param {import('../types.js').Config} cfg @param {string} ref @param {any} store */
+const sessionCount = (cfg, ref, store) => sessionDirs(cfg, ref, store).reduce((n, { sessions, dir }) => n + sessions.files(dir).length, 0);
 
 /** Pick a session by exact id, unique prefix, or 1-based list index.
  * @param {{id:string, step:string}[]} sessions @param {string} sel */
@@ -52,12 +47,19 @@ function select(sessions, sel) {
   return null;
 }
 
-/** The resume argv (after the binary) for one session, from the agent its step ran (a
- * step renamed since → the profile's agent). Throws for an agent with no transcripts.
- * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{id: string, step: string}} session */
-export function resumeArgs(cfg, session) {
+/** The agent that wrote a session: its tagged `agent` (listSessions), else its step's (a
+ * step renamed since → the profile's agent).
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{step: string, agent?: string}} session */
+function sessionAgent(cfg, session) {
   const step = (cfg.pipeline ?? []).find((s) => s.id === session.step);
-  return agentSessions(agentFor(cfg, step)).resumeCommand(session.id);
+  return { step, agent: session.agent ? getAgent(session.agent) : agentFor(cfg, step) };
+}
+
+/** The resume argv (after the binary) for one session, from the agent that wrote it.
+ * Throws for an agent with no transcripts.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{id: string, step: string, agent?: string}} session */
+export function resumeArgs(cfg, session) {
+  return agentSessions(sessionAgent(cfg, session).agent).resumeCommand(session.id);
 }
 
 /**
@@ -66,12 +68,12 @@ export function resumeArgs(cfg, session) {
  * the printable command, and — when the step sets env — a note naming its keys only (values
  * may be secrets; never printed). Pure; exported for tests.
  * @param {Pick<import('../types.js').Config, 'agent'|'claudeBin'|'pipeline'>} cfg
- * @param {{id: string, step: string}} session @param {string} wt  the worktree (the agent's cwd)
+ * @param {{id: string, step: string, agent?: string}} session @param {string} wt  the worktree (the agent's cwd)
  * @returns {{bin: string, env: Record<string, string>|undefined, line: string, envNote: string|null}}
  */
 export function resumeCommand(cfg, session, wt) {
-  const step = (cfg.pipeline ?? []).find((s) => s.id === session.step);
-  const bin = step?.bin ?? agentFor(cfg, step).defaults.bin ?? cfg.claudeBin;
+  const { step, agent } = sessionAgent(cfg, session);
+  const bin = step?.bin ?? agent.defaults.bin ?? cfg.claudeBin;
   const env = step?.env && Object.keys(step.env).length ? step.env : undefined;
   return {
     bin,
@@ -100,7 +102,7 @@ export async function resume(args) {
       const present = fs.existsSync(worktreePath(cfg, r.ref, refRepo(cfg, r.ref, store)));
       console.log(
         `${pad(r.ref, 22)}${pad(r.step, 12)}${pad(ago(iso(r.at)), 12)}` +
-          `${pad(present ? "present" : "drained", 10)}${sessionCount(sessionDir(cfg, r.ref, store))}`,
+          `${pad(present ? "present" : "drained", 10)}${sessionCount(cfg, r.ref, store)}`,
       );
     }
     console.log(`\nlist a ref's sessions:  agenthook resume <ref>`);
@@ -108,7 +110,7 @@ export async function resume(args) {
   }
 
   const sessions = listSessions(cfg, ref, store);
-  if (!sessions.length) throw new Error(`no recorded agent session for ref ${ref} (looked in ${sessionDir(cfg, ref, store)})`);
+  if (!sessions.length) throw new Error(`no recorded agent session for ref ${ref} (looked in ${sessionDirs(cfg, ref, store).map((d) => d.dir).join(", ")})`);
   const wt = worktreePath(cfg, ref, refRepo(cfg, ref, store));
   const present = fs.existsSync(wt);
 

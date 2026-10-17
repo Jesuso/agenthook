@@ -7,62 +7,38 @@
 // Transcripts live under the agent's launch-cwd mangle: the repo root for steps without
 // a worktree, the task's worktree for the rest. So it searches, per repo (or only the one
 // `--repo <id>` names), the repo mangle plus every worktree mangle under the repo's base.
-// The transcript layout comes from the profile's agent adapter (`sessions`, src/agents/).
+// The transcript layout comes from each agent adapter the profile runs (`sessions`,
+// src/agents/): the profile's and every step's own `agent`.
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf } from "../repos.js";
-import { agentFor } from "../agents/index.js";
-import { agentSessions } from "../sessions.js";
+import { sessionAgents } from "../sessions.js";
 
-/** `.jsonl` names in a dir ([] if unreadable). @param {string} dir */
-const jsonls = (dir) => {
-  try {
-    return fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
-  } catch {
-    return [];
-  }
-};
-
-/** Transcript dirs that exist for the given repos: each repo's root transcript dir, plus
- * every sibling entry named after its worktree base's dir + "-" (Claude: the
- * `~/.claude/projects` mangles of `<base>/<ref>`, or `<base>/<repo.id>/<ref>` multi-repo).
- * Deduped, in search order. Throws when the profile's agent keeps no transcripts.
+/** Transcript dirs that exist for the given repos, per agent the profile runs: each repo's
+ * root transcript dir, plus the transcript dir of every cwd under its worktree base
+ * (`<base>/<ref>`, or `<base>/<repo.id>/<ref>` multi-repo — the adapter's `cwdDirs`).
+ * Deduped, in search order. Throws when no agent of the profile keeps transcripts.
  * @param {import('../types.js').Config} cfg @param {import('../types.js').RepoConfig[]} repos
- * @returns {{ dirs: string[], searched: string[] }} existing dirs + every location looked at */
+ * @returns {{ dirs: string[], searched: string[], files: {id: string, file: string}[] }}
+ *   existing dirs + every location looked at + the session transcripts in those dirs */
 export function transcriptDirs(cfg, repos) {
-  const { transcriptDir } = agentSessions(agentFor(cfg));
-  /** @type {Map<string, string[]>} */
-  const listings = new Map();
-  /** @param {string} dir */
-  const entriesOf = (dir) => {
-    let entries = listings.get(dir);
-    if (!entries) {
-      try {
-        entries = fs.readdirSync(dir);
-      } catch {
-        entries = []; // no transcripts dir yet
-      }
-      listings.set(dir, entries);
-    }
-    return entries;
-  };
-  /** @type {Set<string>} */
-  const dirs = new Set();
+  /** @type {Map<string, import('../types.js').AgentSessions>} */
+  const dirs = new Map();
   /** @type {string[]} */
   const searched = [];
-  for (const repo of repos) {
-    const root = transcriptDir(repo.path);
-    searched.push(root);
-    if (fs.existsSync(root)) dirs.add(root);
-    const base = transcriptDir(cfg.multiRepo ? path.join(worktreeDir(cfg, repo), repo.id) : worktreeDir(cfg, repo));
-    const projects = path.dirname(base);
-    const prefix = path.basename(base) + "-";
-    searched.push(path.join(projects, `${prefix}*`));
-    for (const e of entriesOf(projects)) if (e.startsWith(prefix)) dirs.add(path.join(projects, e));
+  for (const { sessions } of sessionAgents(cfg)) {
+    for (const repo of repos) {
+      const root = sessions.transcriptDir(repo.path);
+      searched.push(root);
+      if (fs.existsSync(root) && !dirs.has(root)) dirs.set(root, sessions);
+      const under = sessions.cwdDirs(cfg.multiRepo ? path.join(worktreeDir(cfg, repo), repo.id) : worktreeDir(cfg, repo));
+      searched.push(under.searched);
+      for (const d of under.dirs) if (!dirs.has(d)) dirs.set(d, sessions);
+    }
   }
-  return { dirs: [...dirs], searched };
+  return { dirs: [...dirs.keys()], searched, files: [...dirs].flatMap(([d, sessions]) => sessions.files(d)) };
 }
 
 /** @param {string} s @param {number} [n] */
@@ -104,18 +80,15 @@ export async function follow(args) {
     if (!hit) throw new Error(`unknown repo "${args.repo}" — valid ids: ${repos.map((r) => r.id).join(", ")}`);
     repos = [hit];
   }
-  const { dirs, searched } = transcriptDirs(cfg, repos);
+  const { files, searched } = transcriptDirs(cfg, repos);
 
   const id = args._[0];
   let file = "";
   if (id) {
-    file = dirs.map((d) => path.join(d, `${id}.jsonl`)).find((f) => fs.existsSync(f)) || "";
+    file = files.find((f) => f.id === id)?.file || "";
   } else {
-    const files = dirs
-      .flatMap((d) => jsonls(d).map((f) => path.join(d, f)))
-      .map((full) => ({ full, m: fs.statSync(full).mtimeMs }))
-      .sort((a, b) => b.m - a.m);
-    for (const { full } of files) {
+    const newest = files.map(({ file: full }) => ({ full, m: fs.statSync(full).mtimeMs })).sort((a, b) => b.m - a.m);
+    for (const { full } of newest) {
       if (fs.readFileSync(full, "utf8").slice(0, 8000).includes("=== TICKET ===")) {
         file = full;
         break;

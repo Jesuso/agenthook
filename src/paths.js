@@ -10,6 +10,11 @@ import { primaryRepo } from "./repos.js";
 /** @param {string} p */
 export const mangle = (p) => p.replace(/[^A-Za-z0-9]/g, "-");
 
+// Cursor's `agent` keys its project dir by the launch cwd too, but collapses every RUN of
+// non-alphanumerics to one '-' and trims the ends (/home/me/.repo -> home-me-repo).
+/** @param {string} p */
+export const cursorMangle = (p) => p.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
 /** Claude's transcript dir for the repo the agents work in. @param {string} repoPath */
 export const claudeProjectDir = (repoPath) => path.join(os.homedir(), ".claude", "projects", mangle(repoPath));
 

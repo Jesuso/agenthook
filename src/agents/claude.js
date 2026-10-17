@@ -4,6 +4,8 @@
 // transcripts live (`~/.claude/projects/<mangle(cwd)>`, resumed with `claude -r <id>`).
 // dispatch / follow / resume reach all of it through the AgentAdapter interface
 // (src/types.js) — this is the reference adapter.
+import fs from "node:fs";
+import path from "node:path";
 import { claudeProjectDir } from "../paths.js";
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
@@ -181,6 +183,18 @@ export function buildUsageRecord({ ref, stepId, model, bin, claudeBin, startedAt
   };
 }
 
+/** Entry names in a dir ([] if unreadable). @param {string} dir */
+const entries = (dir) => {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+
+/** `.jsonl` names in a dir ([] if unreadable). @param {string} dir */
+const jsonls = (dir) => entries(dir).filter((f) => f.endsWith(".jsonl"));
+
 /** @type {import('../types.js').AgentAdapter} */
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json" }),
@@ -206,6 +220,15 @@ export const claude = {
   sessions: {
     transcriptDir: claudeProjectDir,
     resumeCommand: (sessionId) => ["-r", sessionId],
+    files: (dir) => jsonls(dir).map((f) => ({ id: f.replace(/\.jsonl$/, ""), file: path.join(dir, f) })),
+    // Every `~/.claude/projects` sibling named after the base's mangle + "-" = the
+    // transcript dirs of the cwds under it (`<base>/<ref>`).
+    cwdDirs(baseCwd) {
+      const base = claudeProjectDir(baseCwd);
+      const projects = path.dirname(base);
+      const prefix = path.basename(base) + "-";
+      return { dirs: entries(projects).filter((e) => e.startsWith(prefix)).map((e) => path.join(projects, e)), searched: path.join(projects, `${prefix}*`) };
+    },
   },
   defaults: {},
 };

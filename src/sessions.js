@@ -3,7 +3,8 @@
 // cwd = the task's WORKTREE (dispatch.js: `cwd = hasWorktree ? worktree : repoPath`),
 // and Claude keys a transcript dir by its launch cwd mangle — so a ref's sessions
 // live under mangle(worktreePath(cfg, ref)), NOT the repo's mangle. The transcript layout
-// comes from the profile's agent adapter (`sessions`, src/agents/).
+// comes from each agent adapter the profile runs (`sessions`, src/agents/) — the profile's
+// and every step's own `agent`, so a cursor step in a claude profile is found too.
 import fs from "node:fs";
 import path from "node:path";
 import { agentFor } from "./agents/index.js";
@@ -26,6 +27,22 @@ export function agentSessions(agent) {
   return agent.sessions;
 }
 
+/** The distinct agents whose transcripts a profile's runs may have left: the profile's agent,
+ * then every non-manual step's, keeping only those with `sessions`. Throws (the profile
+ * agent's plain error) when none keeps transcripts.
+ * @param {Pick<import('./types.js').Config, 'agent'|'pipeline'>} cfg
+ * @returns {{name: string, sessions: import('./types.js').AgentSessions}[]} */
+export function sessionAgents(cfg) {
+  /** @type {Map<string, import('./types.js').AgentSessions>} */
+  const seen = new Map();
+  for (const agent of [agentFor(cfg), ...(cfg.pipeline ?? []).filter((s) => !s.manual).map((s) => agentFor(cfg, s))]) {
+    const name = agent.describe().name;
+    if (agent.sessions && !seen.has(name)) seen.set(name, agent.sessions);
+  }
+  if (!seen.size) agentSessions(agentFor(cfg));
+  return [...seen].map(([name, sessions]) => ({ name, sessions }));
+}
+
 /**
  * The repo a ref ran in. Multi-repo worktrees nest under `<base>/<repo.id>/<ref>`, so the
  * transcript dir depends on it. The sticky `repo.json` entry wins; a drained ref has none
@@ -37,12 +54,18 @@ export function agentSessions(agent) {
 export function refRepo(cfg, ref, store) {
   const sticky = repoById(cfg, store?.getRepo(ref));
   if (sticky) return sticky;
-  const transcriptDir = agentFor(cfg).sessions?.transcriptDir;
-  if (!transcriptDir) return primaryRepo(cfg);
+  /** @type {{name: string, sessions: import('./types.js').AgentSessions}[]} */
+  let agents;
+  try {
+    agents = sessionAgents(cfg);
+  } catch {
+    return primaryRepo(cfg);
+  }
   let best = null;
   let bestM = -1;
   for (const repo of reposOf(cfg)) {
-    const m = mtime(transcriptDir(worktreePath(cfg, ref, repo)));
+    const wt = worktreePath(cfg, ref, repo);
+    const m = Math.max(...agents.map((a) => mtime(a.sessions.transcriptDir(wt))));
     if (m > bestM) {
       best = repo;
       bestM = m;
@@ -56,27 +79,36 @@ export function refRepo(cfg, ref, store) {
  * @param {{ getRepo: (ref: string) => string|undefined }} [store] */
 export const sessionDir = (cfg, ref, store) => agentSessions(agentFor(cfg)).transcriptDir(worktreePath(cfg, ref, refRepo(cfg, ref, store)));
 
+/** Every agent's transcript dir for a task ref's worktree (see `sessionAgents`).
+ * @param {import('./types.js').Config} cfg @param {string} ref
+ * @param {{ getRepo: (ref: string) => string|undefined }} [store]
+ * @returns {{name: string, sessions: import('./types.js').AgentSessions, dir: string}[]} */
+export function sessionDirs(cfg, ref, store) {
+  const wt = worktreePath(cfg, ref, refRepo(cfg, ref, store));
+  return sessionAgents(cfg).map((a) => ({ ...a, dir: a.sessions.transcriptDir(wt) }));
+}
+
 /** The session id to resume for a ref: the newest DISPATCHED transcript (its first
  * turn carries the engine's "=== TICKET ===" marker, which a hand-run session won't),
  * falling back to the newest transcript overall. Null if none exist.
- * @param {string} dir  a Claude project transcript dir */
-export function findSessionId(dir) {
+ * @param {string} dir  an agent's transcript dir
+ * @param {import('./types.js').AgentSessions} [sessions]  its layout (default: the profile-less default agent's) */
+export function findSessionId(dir, sessions = agentSessions(agentFor({}))) {
   let files;
   try {
-    files = fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".jsonl"))
-      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+    files = sessions
+      .files(dir)
+      .map((f) => ({ ...f, m: fs.statSync(f.file).mtimeMs }))
       .sort((a, b) => b.m - a.m);
   } catch {
     return null;
   }
   if (!files.length) return null;
-  for (const { f } of files) {
-    const head = fs.readFileSync(path.join(dir, f), "utf8").slice(0, 8000);
-    if (head.includes("=== TICKET ===")) return f.replace(/\.jsonl$/, "");
+  for (const { id, file } of files) {
+    const head = fs.readFileSync(file, "utf8").slice(0, 8000);
+    if (head.includes("=== TICKET ===")) return id;
   }
-  return files[0].f.replace(/\.jsonl$/, "");
+  return files[0].id;
 }
 
 /** A run-log stamp (`2026-06-19T14-47-43-889Z`) back to epoch ms. NaN if unparseable.
@@ -127,28 +159,23 @@ export function recentRuns(cfg, limit = 10) {
   return [...byRef.values()].sort((a, b) => b.at - a.at).slice(0, limit);
 }
 
-/** Every Claude session recorded for a ref, oldest first, each labelled with the
+/** Every agent session recorded for a ref, oldest first, each labelled with the
  * pipeline step it ran (correlated by matching the session's first-message time to
- * the nearest run-log start for that ref). One `claude -p` per step run = one session.
+ * the nearest run-log start for that ref) and the agent that wrote it. One agent run
+ * per step run = one session. A line's kind is its `type` (Claude) or `role` (Cursor).
  * @param {import('./types.js').Config} cfg @param {string} ref
  * @param {{ getRepo: (ref: string) => string|undefined }} [store]
- * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string }[]} */
+ * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string }[]} */
 export function listSessions(cfg, ref, store) {
-  const dir = sessionDir(cfg, ref, store);
-  let files;
-  try {
-    files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
-  } catch {
-    return [];
-  }
+  const files = sessionDirs(cfg, ref, store).flatMap(({ name, sessions, dir }) => sessions.files(dir).map((f) => ({ ...f, agent: name })));
   const runs = runLogs(cfg, ref); // [{step, at}]
-  /** @type {{ id: string, step: string, at: number, msgs: number, prompt: string }[]} */
+  /** @type {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string }[]} */
   const out = [];
   for (const f of files) {
     let firstTs = NaN;
     let prompt = "";
     let msgs = 0;
-    for (const line of fs.readFileSync(path.join(dir, f), "utf8").split("\n")) {
+    for (const line of fs.readFileSync(f.file, "utf8").split("\n")) {
       if (!line) continue;
       let d;
       try {
@@ -156,16 +183,17 @@ export function listSessions(cfg, ref, store) {
       } catch {
         continue;
       }
-      if (d.type !== "user" && d.type !== "assistant") continue;
+      const kind = d.type ?? d.role;
+      if (kind !== "user" && kind !== "assistant") continue;
       msgs++;
       if (Number.isNaN(firstTs) && d.timestamp) firstTs = Date.parse(d.timestamp);
-      if (!prompt && d.type === "user") {
+      if (!prompt && kind === "user") {
         const c = d.message?.content;
         const text = Array.isArray(c) ? c.map((/** @type {any} */ b) => b.text || "").join(" ") : c || "";
         prompt = String(text).replace(/\s+/g, " ").trim();
       }
     }
-    const at = firstTs || fs.statSync(path.join(dir, f)).mtimeMs;
+    const at = firstTs || f.at || fs.statSync(f.file).mtimeMs;
     // Nearest run-log start to this session's start = the step it ran.
     let step = "?";
     let best = Infinity;
@@ -176,7 +204,7 @@ export function listSessions(cfg, ref, store) {
         step = r.step;
       }
     }
-    out.push({ id: f.replace(/\.jsonl$/, ""), step, at, msgs, prompt });
+    out.push({ id: f.id, step, at, msgs, prompt, agent: f.agent });
   }
   return out.sort((a, b) => a.at - b.at);
 }
