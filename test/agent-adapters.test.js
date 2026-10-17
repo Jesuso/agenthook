@@ -236,3 +236,181 @@ test("dispatch: a step's requireVerdict:false beats the adapter's default", asyn
   }
   assert.deepEqual(advanced, [["42", "code", "advance"]]);
 });
+
+// --- a promptFile (hermes-like) adapter through the real dispatcher ---
+
+/** A node "agent" that takes its prompt from a file (its last argv), echoes it to stdout
+ * and its session id to stderr — optionally dribbling stderr-only output first (to probe
+ * the idle timer) and writing a verdict file. @param {string} dir
+ * @param {{writeVerdict?: boolean, idleStderr?: boolean}} [opts] */
+function fakeHermesScript(dir, { writeVerdict = false, idleStderr = false } = {}) {
+  const file = path.join(dir, `fake-hermes-${writeVerdict}-${idleStderr}.mjs`);
+  const lines = [
+    `const fs = await import("node:fs");`,
+    `const promptFile = process.argv[process.argv.length - 1];`,
+    `const content = fs.readFileSync(promptFile, "utf8");`,
+  ];
+  if (idleStderr) {
+    lines.push(`for (let i = 0; i < 4; i++) {`, `  await new Promise((r) => setTimeout(r, 60));`, `  process.stderr.write("tick " + i + "\\n");`, `}`);
+  }
+  lines.push(`process.stderr.write("session_id: hermes-sess-1\\n");`, `process.stdout.write("got " + content.length + " chars\\n");`);
+  if (writeVerdict) lines.push(`fs.writeFileSync(process.env.AGENTHOOK_VERDICT_FILE, JSON.stringify({ outcome: "advance" }));`);
+  fs.writeFileSync(file, lines.join("\n") + "\n");
+  return file;
+}
+
+/** @param {string} script @returns {import('../src/types.js').AgentAdapter} */
+function fakeHermesAdapter(script) {
+  return {
+    describe: () => ({ name: "fakehermes", stdout: "text", promptFile: true }),
+    buildArgs: ({ promptFile }) => {
+      if (!promptFile) throw new Error("fakehermes requires promptFile");
+      return [script, promptFile];
+    },
+    createParser() {
+      let errBuf = "";
+      /** @type {string|undefined} */
+      let sessionId;
+      return {
+        push(chunk) {
+          return chunk;
+        },
+        flush() {
+          return "";
+        },
+        pushStderr(chunk) {
+          errBuf += chunk;
+          const m = /session_id:\s*(\S+)/.exec(errBuf);
+          if (m && sessionId === undefined) sessionId = m[1];
+        },
+        tally: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 },
+        get result() {
+          return sessionId === undefined ? null : { session_id: sessionId };
+        },
+        get sessionId() {
+          return sessionId;
+        },
+      };
+    },
+    usageRecord: (result, ctx) => ({
+      ref: ctx.ref,
+      stepId: ctx.stepId,
+      model: ctx.model || "fakehermes",
+      startedAt: ctx.startedAt,
+      endedAt: ctx.endedAt,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreate: 0,
+      costUsd: undefined,
+      sessionId: result?.session_id,
+      unpriced: true,
+    }),
+    sessions: null,
+    defaults: { bin: process.execPath, requireVerdict: true },
+  };
+}
+
+test("dispatch: a promptFile agent — prompt delivered via file + cleaned up, stderr reaches the log and arms idle, no outTok, requireVerdict advance", async (t) => {
+  const dir = tmpDir();
+  const script = fakeHermesScript(dir, { writeVerdict: true, idleStderr: true });
+  AGENTS.fakehermes = fakeHermesAdapter(script);
+  t.after(() => {
+    delete AGENTS.fakehermes;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", agent: "fakehermes", idleMinutes: 0.0025 }, { id: "done", manual: true }],
+    claudeBin: path.join(dir, "no-such-claude"),
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store);
+
+  const promptFile = path.join(dir, "prompts", "42-code.md");
+  let sawPromptFile = false;
+  let sawNoOutputField = false;
+  const poll = (async () => {
+    for (let i = 0; i < 60; i++) {
+      if (fs.existsSync(promptFile)) sawPromptFile = true;
+      const r = store.listRunning()["42"];
+      if (r && !("output" in r)) sawNoOutputField = true;
+      await new Promise((res) => setTimeout(res, 10));
+    }
+  })();
+
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await Promise.all([run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" }), poll]);
+  } finally {
+    console.log = log;
+  }
+
+  assert.ok(sawPromptFile, "the prompt file existed while the run was in flight");
+  assert.equal(fs.existsSync(promptFile), false, "the prompt file is removed after the run");
+  assert.ok(sawNoOutputField, "a text-only run's running record never gets an output field");
+
+  const runLog = fs.readdirSync(dir).find((f) => /-step-code-42\.log$/.test(f));
+  assert.ok(runLog, "a run log was written");
+  const text = fs.readFileSync(path.join(dir, String(runLog)), "utf8");
+  assert.match(text, /got \d+ chars/, "the prompt reached the child through --query-file");
+  assert.match(text, /session_id: hermes-sess-1/, "stderr lands in the run log");
+  assert.doesNotMatch(text, /killed:/, "stderr-only output armed the idle timer — never killed");
+
+  const usage = store.readUsage();
+  assert.equal(usage.length, 1);
+  assert.equal(usage[0].unpriced, true);
+  assert.equal(usage[0].sessionId, "hermes-sess-1");
+
+  assert.deepEqual(advanced, [["42", "code", "advance"]]);
+});
+
+test("dispatch: a promptFile agent with no verdict file holds via requireVerdict", async (t) => {
+  const dir = tmpDir();
+  const script = fakeHermesScript(dir, {});
+  AGENTS.fakehermes = fakeHermesAdapter(script);
+  t.after(() => {
+    delete AGENTS.fakehermes;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", agent: "fakehermes" }, { id: "done", manual: true }],
+    claudeBin: path.join(dir, "no-such-claude"),
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store);
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" });
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(advanced, [["42", "code", "hold"]]);
+  assert.equal(store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+  assert.equal(fs.existsSync(path.join(dir, "prompts", "42-code.md")), false, "prompt file cleaned up even on a hold");
+});
