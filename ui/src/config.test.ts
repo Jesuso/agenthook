@@ -116,21 +116,41 @@ describe("bannerStatus", () => {
     expect(bannerStatus(null, [], [])).toEqual({ ok: true });
   });
 
-  it("a parse error wins outright, checks and server errors moot", () => {
-    expect(bannerStatus("invalid JSON: x", ["a check"], ["a server error"])).toEqual({ ok: false, first: "invalid JSON: x", moreCount: 0 });
+  it("a parse error wins the row, but still counts checks and server errors (the overlay renders all three)", () => {
+    expect(bannerStatus("invalid JSON: x", ["a check"], ["a server error"])).toEqual({
+      ok: false,
+      first: "invalid JSON: x",
+      fullFirst: "invalid JSON: x",
+      moreCount: 2,
+    });
   });
 
   it("checks and server errors combine, first + remaining count", () => {
-    expect(bannerStatus(null, ["check one", "check two"], ["server one"])).toEqual({ ok: false, first: "check one", moreCount: 2 });
+    expect(bannerStatus(null, ["check one", "check two"], ["server one"])).toEqual({
+      ok: false,
+      first: "check one",
+      fullFirst: "check one",
+      moreCount: 2,
+    });
   });
 
-  it("truncates a long first problem", () => {
+  it("truncates a long first problem but keeps the full text for the title", () => {
     const long = "x".repeat(150);
     const r = bannerStatus(null, [long], []);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.first.length).toBe(100);
       expect(r.first.endsWith("…")).toBe(true);
+      expect(r.fullFirst).toBe(long);
+    }
+  });
+
+  it("a single short check: no more problems, but fullFirst still equals first (no truncation)", () => {
+    const r = bannerStatus(null, ["one check"], []);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.moreCount).toBe(0);
+      expect(r.fullFirst).toBe(r.first);
     }
   });
 });

@@ -100,6 +100,32 @@ describe("ConfigView panes", () => {
     expect(overlay.textContent).toContain("and also this");
   });
 
+  it("a single long check shows the toggle and the full text in the overlay", async () => {
+    const long = "config: pipeline step \"code\" bin must be a non-empty string (a name on PATH or an absolute path), ".repeat(2);
+    fileErrors = [long];
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-config-banner]"));
+    const row = m.root.querySelector<HTMLElement>("[data-config-banner]")!;
+    const span = row.querySelector("span")!;
+    expect(span.title).toBe(long);
+    const toggle = m.root.querySelector<HTMLButtonElement>("[data-config-banner-toggle]")!;
+    expect(toggle).not.toBeNull();
+    await click(toggle);
+    const overlay = m.root.querySelector<HTMLElement>("[data-config-banner-overlay]")!;
+    expect(overlay.textContent).toContain(long);
+  });
+
+  it("a parse error plus a server error shows both in the overlay", async () => {
+    fileText = "{ not json";
+    fileErrors = ["repoPath is required"];
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-config-banner]"));
+    await click(m.root.querySelector<HTMLButtonElement>("[data-config-banner-toggle]")!);
+    const overlay = m.root.querySelector<HTMLElement>("[data-config-banner-overlay]")!;
+    expect(overlay.textContent).toContain("invalid JSON");
+    expect(overlay.textContent).toContain("repoPath is required");
+  });
+
   it("an unparseable config falls back to Raw with the form tabs disabled and the hint shown", async () => {
     fileText = "{ not json";
     m = await mount(view());

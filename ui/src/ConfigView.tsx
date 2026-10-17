@@ -584,15 +584,17 @@ export default function ConfigView(props: {
                     <span className="truncate">✓ valid (server: {META_LABEL[file.meta.as]})</span>
                   ) : (
                     <>
-                      <span className="truncate font-mono text-xs">{banner.first}</span>
-                      {banner.moreCount > 0 && (
+                      <span className="truncate font-mono text-xs" title={banner.fullFirst}>
+                        {banner.first}
+                      </span>
+                      {(banner.moreCount > 0 || banner.fullFirst !== banner.first) && (
                         <button
                           type="button"
                           data-config-banner-toggle
                           className="ml-auto shrink-0 whitespace-nowrap underline"
                           onClick={() => setBannerOpen((o) => !o)}
                         >
-                          +{banner.moreCount} more
+                          {banner.moreCount > 0 ? `+${banner.moreCount} more` : "full text"}
                         </button>
                       )}
                     </>
