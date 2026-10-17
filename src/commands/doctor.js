@@ -109,6 +109,18 @@ export function forgeLints(cfg) {
   return [{ level: "warn", label: "forge configured", note: "no forge block — merge/CI events will not arrive" }];
 }
 
+/** Whether a busy port is this profile's own receiver (info, not a problem) or a real
+ * conflict (fail). Pure.
+ * @param {{ port: number, busy: boolean, profile: { up: boolean, pid: number, heartbeatPort?: number|null } }} args
+ * @returns {{ level: 'ok'|'info'|'fail', label: string, note?: string }} */
+export function portCheck({ port, busy, profile }) {
+  if (!busy) return { level: "ok", label: `port ${port} is free` };
+  if (profile.up && (profile.heartbeatPort == null || profile.heartbeatPort === port)) {
+    return { level: "info", label: `port ${port} is in use by this profile's receiver (pid ${profile.pid})` };
+  }
+  return { level: "fail", label: `port ${port} is free`, note: "something is already listening" };
+}
+
 /** @param {any} args */
 export async function doctor(args) {
   /** @type {{ok:boolean, warn?:boolean, info?:boolean, label:string, note?:string}[]} */
@@ -124,6 +136,8 @@ export async function doctor(args) {
   add(true, `config loaded: ${cfg.configPath}`);
   if (fs.existsSync(cfg.stateDir)) add(true, `profile "${cfg.name}" — state ${cfg.stateDir}`);
   else info(`profile "${cfg.name}" — state dir not created yet (profile never started)`, cfg.stateDir);
+
+  const profile = readProfile(cfg.stateKey);
 
   add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref");
 
@@ -160,7 +174,9 @@ export async function doctor(args) {
   }
 
   const busy = await portInUse(cfg.port);
-  add(!busy, `port ${cfg.port} is free`, busy ? "something is already listening" : "");
+  const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });
+  if (pc.level === "info") info(pc.label, pc.note);
+  else add(pc.level === "ok", pc.label, pc.note);
 
   const unfilled = unfilledBindings(cfg.pipeline);
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "");
@@ -170,7 +186,6 @@ export async function doctor(args) {
   if (process.platform === "linux") {
     const scopeOn = systemdScopeAvailable();
     info(`start --detach will use a systemd user scope: ${scopeOn}`, process.env.AGENTHOOK_NO_SYSTEMD_SCOPE === "1" ? "AGENTHOOK_NO_SYSTEMD_SCOPE=1 disables it" : "");
-    const profile = readProfile(cfg.stateKey);
     if (profile.up) {
       try {
         const { scope, terminal } = classifyCgroup(fs.readFileSync(`/proc/${profile.pid}/cgroup`, "utf8"));

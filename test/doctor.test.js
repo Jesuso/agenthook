@@ -5,7 +5,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, stepBins } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, stepBins, portCheck } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
 
 test("unfilledBindings: clean pipeline has no offenders", () => {
@@ -130,4 +130,29 @@ test("stepBins: distinct step bins (≠ claudeBin, non-manual) with the steps us
   });
   assert.deepEqual(stepBins(cfg), [{ bin: "claude-local", steps: ["code", "fix"] }]);
   assert.deepEqual(stepBins(/** @type {any} */ ({ claudeBin: "claude", pipeline: [{ id: "code" }] })), []);
+});
+
+test("portCheck: busy + this profile up → info, names the pid", () => {
+  const r = portCheck({ port: 4180, busy: true, profile: { up: true, pid: 123, heartbeatPort: 4180 } });
+  assert.equal(r.level, "info");
+  assert.match(r.label, /123/);
+});
+
+test("portCheck: busy + profile down → fail", () => {
+  const r = portCheck({ port: 4180, busy: true, profile: { up: false, pid: 0, heartbeatPort: null } });
+  assert.equal(r.level, "fail");
+  assert.equal(r.note, "something is already listening");
+});
+
+test("portCheck: free + down → ok", () => {
+  assert.equal(portCheck({ port: 4180, busy: false, profile: { up: false, pid: 0, heartbeatPort: null } }).level, "ok");
+});
+
+test("portCheck: free + up → ok", () => {
+  assert.equal(portCheck({ port: 4180, busy: false, profile: { up: true, pid: 123, heartbeatPort: 4180 } }).level, "ok");
+});
+
+test("portCheck: busy + up but heartbeat on a different port → fail", () => {
+  const r = portCheck({ port: 4180, busy: true, profile: { up: true, pid: 123, heartbeatPort: 9999 } });
+  assert.equal(r.level, "fail");
 });
