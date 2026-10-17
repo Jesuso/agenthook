@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
+import { sinkErrors } from "./sinks-config.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -434,25 +435,7 @@ export function validateRawConfig(raw) {
     errors.push(`config: only one pipeline step may set completeOnMerge (found ${onMerge.map((/** @type {any} */ s) => label(s.id)).join(", ")}).`);
   }
 
-  if (cfg.sinks != null) {
-    if (!Array.isArray(cfg.sinks)) errors.push(`config: sinks must be an array.`);
-    else {
-      /** @type {Record<string, string[]>} */
-      const need = { slack: ["url"], webhook: ["url"], telegram: ["botToken", "chatId"] };
-      cfg.sinks.forEach((/** @type {any} */ s, /** @type {number} */ i) => {
-        if (!s || typeof s.type !== "string" || !Object.hasOwn(need, s.type)) {
-          return void errors.push(`config: sinks[${i}].type must be one of slack, telegram, webhook (got ${JSON.stringify(s?.type)}).`);
-        }
-        for (const f of need[s.type]) {
-          if (s[f] == null || s[f] === "") errors.push(`config: sinks[${i}] (${s.type}) requires "${f}".`);
-        }
-        if (s.events != null && (!Array.isArray(s.events) || s.events.some((/** @type {any} */ e) => typeof e !== "string"))) {
-          errors.push(`config: sinks[${i}].events must be an array of strings.`);
-        }
-      });
-    }
-  }
-
+  errors.push(...sinkErrors(cfg.sinks));
   errors.push(...identityErrors(cfg.ui));
   errors.push(...digestErrors(cfg.digest));
 

@@ -6,7 +6,7 @@ import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
-import { BasicsForm, ForgeForm, IngressForm, PipelineForm, TrackerForm } from "./ConfigForms";
+import { BasicsForm, ForgeForm, IngressForm, IntegrationsForm, PipelineForm, TrackerForm } from "./ConfigForms";
 import type { StagesState } from "./ConfigForms";
 import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
 import { layoutPipeline } from "./pipelineGraph";
@@ -33,9 +33,9 @@ import type { ConfigSinkEvent, SensitiveChange } from "./config";
 // is live, this is not.
 type Meta = { errors: string[]; literalSecrets: string[]; as: "load" | "save" | "rejected" };
 type FileState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; doc: SaveState; meta: Meta };
-type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress";
+type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress" | "integrations";
 
-const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "raw"];
+const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "raw"];
 
 const JSON_LANG = json();
 const OVERWRITE_PROMPT = "Overwrite the on-disk config with your buffer? The on-disk changes will be replaced (the previous content is kept as a backup).";
@@ -47,10 +47,11 @@ const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: 
  * change) → guarded `PUT /api/config`. A 200 offers "Restart when idle" (`POST /api/restart`),
  * whose banner follows `restartReducer` off SSE only. `eventSink` carries `config` events
  * (external edits) and feed `event`s (the restart lifecycle) from the parent's /api/stream.
- * Basics / Pipeline / Tracker / Forge / Ingress form tabs edit the same buffer through `configEdit.ts`
- * text edits; the stage pickers fetch `GET /api/discover` on first form-tab open per profile and on
- * Refresh only (no polling). Tabs read Basics · Pipeline · Tracker · Forge · Ingress · Raw; a
- * parseable config opens on Pipeline (graph expanded), an unparseable one falls back to Raw.
+ * Basics / Pipeline / Tracker / Forge / Ingress / Integrations form tabs edit the same buffer through
+ * `configEdit.ts` text edits; the stage pickers fetch `GET /api/discover` on first form-tab open per
+ * profile and on Refresh only (no polling). Tabs read Basics · Pipeline · Tracker · Forge · Ingress ·
+ * Integrations · Raw; a parseable config opens on Pipeline (graph expanded), an unparseable one falls
+ * back to Raw.
  * Clicking a step in the graph opens that step's card.
  * When the loaded label differs from the state key, "Move state dir to match name" sends the same
  * restart with `moveTo` (`rename --move`); once the snapshot lists the new key, the view follows it.
@@ -533,7 +534,7 @@ export default function ConfigView(props: {
                 {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-status-failed">{parsed.error}</p>}
                 {checks.length > 0 && (
                   <>
-                    <h4 className="mb-1 text-xs text-[var(--color-muted)]">pipeline checks (the server decides on save)</h4>
+                    <h4 className="mb-1 text-xs text-[var(--color-muted)]">config checks (the server decides on save)</h4>
                     <ul className="mb-2 list-disc space-y-1 pl-4 text-status-held">
                       {checks.map((e, i) => (
                         <li key={i} className="break-words">
@@ -616,6 +617,8 @@ export default function ConfigView(props: {
                 <ForgeForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
               ) : pane === "ingress" ? (
                 <IngressForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+              ) : pane === "integrations" ? (
+                <IntegrationsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
               ) : (
                 <PipelineForm
                   text={doc.buffer}

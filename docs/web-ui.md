@@ -224,8 +224,8 @@ pickers** fed by `GET /api/discover` on first form-tab open and on Refresh, and 
 **pipeline graph** panel above every pane, re-deriving from the live buffer on every edit — form or raw text — without
 a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
 
-**Reading order.** The tabs read **Basics · Pipeline · Tracker · Forge · Ingress · Raw**; a config that parses opens on
-**Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs
+**Reading order.** The tabs read **Basics · Pipeline · Tracker · Forge · Ingress · Integrations ·
+Raw**; a config that parses opens on **Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs
 disabled with "fix the JSON in Raw first"). Raw stays the escape hatch — nothing forces a hand edit.
 Every Pipeline stage card starts **collapsed** to its header: `#n`, the step id and a one-line
 summary (`summarizeStep`) — `kind · <source> → <success> / <failure> · manual · worktree · drain ·
@@ -255,7 +255,7 @@ shows `authtoken`, `domain` (unset = a new URL every start) and advanced `webAdd
 the file.
 
 **Secret fields** (`tracker.token`, `tracker.webhookSecret`, `forge.token`, `forge.webhookSecret`,
-`ingress.authtoken` — `SECRET_FIELDS`, which lives in the browser-bundled `src/ui/sensitive.js`
+`ingress.authtoken`, `sinks[*].url`, `sinks[*].botToken` — `SECRET_FIELDS`, which lives in the browser-bundled `src/ui/sensitive.js`
 beside `isEnvRef`, the `${VAR}` check `literalSecrets` uses too). A `${VAR}` ref is shown and
 edited as text; an absent one hints to put the value in the `.env` beside the config and reference
 it. A **literal** already in the file never reaches the DOM (not even an input's `value`): the field
@@ -267,9 +267,14 @@ with the same Clear / replace controls and is never rewritten unless you act.
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
 `manual`, `instructionsFile`; the tracker's stage bindings), the **top-level basics** (`name`,
-`maxConcurrent`, `fullAuto`, `port`, `trigger`) and every `tracker` / `forge` / `ingress` key.
-Everything else (`repos`, `sinks`, `digest`, …) through a **raw JSON editor** with the same
-validation and diff.
+`maxConcurrent`, `fullAuto`, `port`, `trigger`), every `tracker` / `forge` / `ingress` key, and the
+**Integrations** tab: `sinks[]` (add / remove / reorder; per-type fields — `url` for slack/webhook,
+`botToken` + `chatId` for telegram; an event filter whose absent `events` shows the defaults, any
+toggle writes an explicit list, "Use default" removes it, unlisted names are kept; an unknown sink
+type is a read-only card, never rewritten), `digest` (`soul`, `access`, `model`, `maxBudgetUsd`; an
+emptied block is removed) and `overlapGuard`. Sink and digest rules come from the import-free
+`src/sinks-config.js` / `src/digest-config.js` the server validates with, shown as client checks.
+Everything else (`repos`, …) through a **raw JSON editor** with the same validation and diff.
 
 **Formatting-preserving edits, zero-dep server.** The browser turns form changes into minimal text
 edits with `jsonc-parser` (`modify` + `applyEdits`, MIT) so `//` comment keys, key order and the
