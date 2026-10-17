@@ -317,6 +317,17 @@ describe("clientErrors", () => {
   });
 });
 
+describe("clientErrors: sinks and digest", () => {
+  it("lists the sink and digest checks after the pipeline's, in validateRawConfig's wording", () => {
+    expect(clientErrors({ sinks: [{ type: "slack", url: "" }, { type: "discord" }], digest: { maxBudgetUsd: 0 } })).toEqual([
+      'config: sinks[0] (slack) requires "url".',
+      'config: sinks[1].type must be one of slack, telegram, webhook (got "discord").',
+      "config: digest.maxBudgetUsd must be a number > 0.",
+    ]);
+    expect(clientErrors({ sinks: [{ type: "telegram", botToken: "${T}", chatId: 1 }], digest: { maxBudgetUsd: 0.5 } })).toEqual([]);
+  });
+});
+
 describe("stepErrors", () => {
   const obj = (m: Map<number, string[]>) => Object.fromEntries(m);
 

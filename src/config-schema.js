@@ -57,7 +57,6 @@ export const CONFIG_SCHEMA = [
   entry("maxConcurrent", "number", "Max concurrent agents", "basics", "How many agents may run at once, across every step.", { default: 1, min: 1 }),
   entry("port", "number", "Local port", "basics", "Local port the receiver listens on; the ingress forwards webhooks to it.", { default: 4123 }),
   entry("fullAuto", "boolean", "Full auto (skip permissions)", "basics", "Run agents with --dangerously-skip-permissions: no permission prompts, unsandboxed.", { sensitive: true, default: false }),
-  entry("overlapGuard", "boolean", "Overlap guard", "basics", "Hold a worktree step while its predicted file paths overlap another in-flight task's.", { advanced: true, default: false, ...P }),
   entry("claudeBin", "string", "Claude binary", "basics", "The claude CLI agents are spawned with: a name on PATH or an absolute path.", { advanced: true, sensitive: true, default: "claude", ...P }),
   entry("instructionsFile", "string", "Default instructions file", "basics", "Standing instructions for steps that set none; relative to the config file.", { default: "./INSTRUCTIONS.md", ...P }),
   entry("ui", "object", "Appearance", "basics", "The profile's colour and emoji in the web UI; unset values derive from the state key."),
@@ -162,17 +161,18 @@ export const CONFIG_SCHEMA = [
   entry("forge.ciTarget", "string", "Red-CI target step", "forge", "Step a red-CI bounce returns to; unset = the step that creates the worktree.", { advanced: true }),
 
   // Integrations
-  entry("sinks", "array", "Sinks", "integrations", "Forward lifecycle events (blocked, failed, done, …) to a chat or a webhook.", P),
-  entry("sinks.*.type", "enum", "Sink type", "integrations", "Where this sink sends events.", { options: ["slack", "telegram", "webhook"], ...P }),
-  entry("sinks.*.url", "string", "URL", "integrations", "Slack incoming-webhook or generic webhook URL; use a ${VAR} reference.", { sensitive: true, ...P }),
-  entry("sinks.*.botToken", "string", "Bot token", "integrations", "Telegram bot token; use a ${VAR} reference, not a literal.", { sensitive: true, ...P }),
-  entry("sinks.*.chatId", "string", "Chat id", "integrations", "Telegram chat id (a string or a number).", P),
-  entry("sinks.*.events", "string-list", "Events", "integrations", "Events to forward; unset = blocked, failed, move_refused, pipeline_done.", P),
-  entry("digest", "object", "Digest", "integrations", "The on-demand Digest: a tool-less agent that summarises this profile's state.", P),
-  entry("digest.soul", "string", "SOUL file", "integrations", "Markdown role file for the Digest agent; resolved beside the config file.", { default: "SOUL.md", ...P }),
-  entry("digest.access", "enum", "Access", "integrations", "What the Digest agent may read; only snapshot (the profile's state summary) today.", { options: ["snapshot"], default: "snapshot", ...P }),
-  entry("digest.model", "string", "Model", "integrations", "claude --model for the Digest run; unset uses the CLI default.", P),
-  entry("digest.maxBudgetUsd", "number", "Max budget (USD)", "integrations", "Spending cap per Digest run (claude --max-budget-usd); must be > 0.", { advanced: true, ...P }),
+  entry("overlapGuard", "boolean", "Overlap guard", "integrations", "Hold a worktree step while its predicted file paths overlap another in-flight task's.", { advanced: true, default: false }),
+  entry("sinks", "array", "Sinks", "integrations", "Forward lifecycle events (blocked, failed, done, …) to a chat or a webhook."),
+  entry("sinks.*.type", "enum", "Sink type", "integrations", "Where this sink sends events.", { options: ["slack", "telegram", "webhook"] }),
+  entry("sinks.*.url", "string", "URL", "integrations", "Slack incoming-webhook or generic webhook URL; use a ${VAR} reference.", { sensitive: true }),
+  entry("sinks.*.botToken", "string", "Bot token", "integrations", "Telegram bot token; use a ${VAR} reference, not a literal.", { sensitive: true }),
+  entry("sinks.*.chatId", "string", "Chat id", "integrations", "Telegram chat id (a string or a number)."),
+  entry("sinks.*.events", "string-list", "Events", "integrations", "Events to forward; unset = blocked, failed, move_refused, pipeline_done."),
+  entry("digest", "object", "Digest", "integrations", "The on-demand Digest: a tool-less agent that summarises this profile's state."),
+  entry("digest.soul", "string", "SOUL file", "integrations", "Markdown role file for the Digest agent; resolved beside the config file.", { default: "SOUL.md" }),
+  entry("digest.access", "enum", "Access", "integrations", "What the Digest agent may read; only snapshot (the profile's state summary) today.", { options: ["snapshot"], default: "snapshot" }),
+  entry("digest.model", "string", "Model", "integrations", "claude --model for the Digest run; unset uses the CLI default."),
+  entry("digest.maxBudgetUsd", "number", "Max budget (USD)", "integrations", "Spending cap per Digest run (claude --max-budget-usd); must be > 0.", { advanced: true }),
 ];
 
 const DERIVED = "derived at load, not user config";

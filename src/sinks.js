@@ -2,7 +2,8 @@
 // Telegram, or a generic webhook. Best-effort and fire-and-forget — a sink never
 // throws into, blocks, or changes the outcome of the pipeline. No retries/queuing.
 
-const DEFAULT_EVENTS = ["blocked", "failed", "move_refused", "pipeline_done"];
+import { DEFAULT_SINK_EVENTS } from "./sinks-config.js";
+
 const TIMEOUT_MS = 5000;
 
 /** @param {import('./types.js').Config} cfg @param {Record<string, any>} ev */
@@ -36,7 +37,7 @@ export function createSinks(cfg) {
 
   return function onEvent(ev) {
     for (const s of sinks) {
-      if (!(s.events ?? DEFAULT_EVENTS).includes(ev.event)) continue;
+      if (!(s.events ?? DEFAULT_SINK_EVENTS).includes(ev.event)) continue;
       // Never log the URL/token: only the sink type and a sanitized error.
       const warn = (/** @type {string} */ why) => console.warn(`[sinks] ${s.type} "${ev.event}" ${ev.ref}: ${why}`);
       try {
