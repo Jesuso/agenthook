@@ -130,20 +130,10 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
   assert.deepEqual(sensitive, expected);
 });
 
-test("the fields the forms edit today have editors; everything else is marked pending", () => {
-  const editable = [
-    "name", "trigger", "maxConcurrent", "port", "ui", "ui.color", "ui.emoji", "fullAuto", "tracker.pipeline",
-    ...["id", "kind", "manual", "model", "effort", "instructionsFile", "maxAttempts", "maxMinutes", "idleMinutes", "requireVerdict", "createsWorktree", "drainWorktree", "maxConcurrent", "completeOnMerge", "closeIssue", "completeTask", "lite", "lite.descriptionHeadings", "lite.model", "lite.effort", "escalate", "escalate.*.model", "escalate.*.effort", "bin", "env"].map((k) => `tracker.pipeline.*.${k}`),
-    ...["Section", "Status", "Label"].flatMap((f) => ["source", "success", "failure", "hold", "queue"].map((r) => `tracker.pipeline.*.${r}${f === "Section" ? "SectionGid" : f}`)),
-    // The Tracker / Forge / Ingress tabs (#341) render every entry of their section.
-    ...CONFIG_SCHEMA.filter((e) => ["tracker", "forge", "ingress"].includes(e.section)).map((e) => e.path.join(".")),
-    // The Integrations tab (#342): sinks, digest, overlapGuard.
-    "overlapGuard", "sinks", ...["type", "url", "botToken", "chatId", "events"].map((k) => `sinks.*.${k}`),
-    "digest", ...["soul", "access", "model", "maxBudgetUsd"].map((k) => `digest.${k}`),
-  ];
+test("no schema entry is left pending (#343): every documented key has a form", () => {
   for (const e of CONFIG_SCHEMA) {
     const at = e.path.join(".");
-    assert.equal(e.editor === undefined, editable.includes(at), `${at}: editor ${e.editor ?? "(form)"} disagrees with today's forms`);
+    assert.equal(e.editor, undefined, `${at}: still editor:"pending" — give it a form`);
   }
 });
 

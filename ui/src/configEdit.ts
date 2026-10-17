@@ -5,6 +5,7 @@ import type { SchemaEntry } from "../../src/config-schema.js";
 import { isEnvRef } from "../../src/ui/sensitive.js";
 import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, sinkErrors } from "../../src/sinks-config.js";
 import { digestErrors } from "../../src/digest-config.js";
+import { reposErrors } from "../../src/repos-config.js";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -65,12 +66,22 @@ export function renameEdit(text: string, input: string, stateKey: string): strin
   return applyEdits(next, edits);
 }
 
-export type Basics = { name?: unknown; maxConcurrent?: unknown; fullAuto?: unknown; port?: unknown; trigger?: unknown; ui?: { color?: unknown; emoji?: unknown } };
+export type Basics = {
+  name?: unknown;
+  maxConcurrent?: unknown;
+  fullAuto?: unknown;
+  port?: unknown;
+  trigger?: unknown;
+  ui?: { color?: unknown; emoji?: unknown };
+  instructionsFile?: unknown;
+  claudeBin?: unknown;
+  stateId?: unknown;
+};
 
 export function readBasics(raw: unknown): Basics {
   if (!isObj(raw)) return {};
-  const { name, maxConcurrent, fullAuto, port, trigger, ui } = raw;
-  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined };
+  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, claudeBin, stateId } = raw;
+  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, claudeBin, stateId };
 }
 
 /** `tracker.pipeline` as-is (a non-object element reads as `{}`); [] when absent. */
@@ -329,7 +340,7 @@ function pipelineChecks(raw: unknown): { index: number; error: string }[] {
  */
 export function clientErrors(raw: unknown): string[] {
   const r = isObj(raw) ? raw : {};
-  return [...pipelineChecks(raw).map((c) => c.error), ...sinkErrors(r.sinks), ...digestErrors(r.digest)];
+  return [...pipelineChecks(raw).map((c) => c.error), ...sinkErrors(r.sinks), ...digestErrors(r.digest), ...reposErrors(r.repos)];
 }
 
 /**
@@ -534,4 +545,103 @@ export function dropEmptyBlock(text: string, key: string): string {
 /** The `digest` block when it is an object, else undefined. */
 export function readDigest(raw: unknown): Record<string, unknown> | undefined {
   return isObj(raw) && isObj(raw.digest) ? raw.digest : undefined;
+}
+
+const REPOS: JSONPath = ["repos"];
+
+export { reposErrors };
+
+/** `repos` as-is (each element untouched, a non-object element included); [] when absent or not an array. */
+export function readRepos(raw: unknown): unknown[] {
+  const r = isObj(raw) ? raw.repos : undefined;
+  return Array.isArray(r) ? r : [];
+}
+
+/** A repo element the form can edit: an object; else null (read-only "edit in Raw" card). */
+export function knownRepo(r: unknown): Record<string, unknown> | null {
+  return isObj(r) ? r : null;
+}
+
+export const repoFieldPath = (i: number, key: string): JSONPath => [...REPOS, i, key];
+
+/**
+ * Append a repo card. Absent `repos` seeds `[{ id: "default", path: <repoPath or "">, default: true }]`
+ * — the same default the receiver synthesizes on its own (src/config.js `resolveRepos`), so routing
+ * doesn't change. A later add appends `{ id: "", path: "" }`.
+ */
+export function addRepo(text: string): string {
+  const raw = JSON.parse(text);
+  if (!isObj(raw) || !Array.isArray(raw.repos)) {
+    const seedPath = isObj(raw) && typeof raw.repoPath === "string" ? raw.repoPath : "";
+    return setPath(text, REPOS, [{ id: "default", path: seedPath, default: true }]);
+  }
+  const value = { id: "", path: "" };
+  return applyEdits(text, modify(text, [...REPOS, raw.repos.length], value, { isArrayInsertion: true, formattingOptions: formattingFor(text) }));
+}
+
+/** Remove repo `i`; removing the last one deletes the `repos` key entirely (an empty array is invalid). */
+export function removeRepo(text: string, i: number): string {
+  const repos = readRepos(JSON.parse(text));
+  if (repos.length <= 1) return setPath(text, REPOS, undefined);
+  return setPath(text, [...REPOS, i], undefined);
+}
+
+/** Swap repo `i` with its neighbour, verbatim (`swapItems`). */
+export function moveRepo(text: string, i: number, dir: -1 | 1): string {
+  return swapItems(text, REPOS, i, dir);
+}
+
+/**
+ * Check `default` on repo `i`: sets it there and clears `default` on every other repo card, in one
+ * edit. Uncheck removes the key (not `false`) — only one edit, applied back to front so earlier
+ * offsets stay valid as later edits are applied.
+ */
+export function repoDefaultEdit(text: string, repos: unknown[], i: number, checked: boolean): string {
+  let next = text;
+  for (let j = repos.length - 1; j >= 0; j--) {
+    if (j === i) continue;
+    const r = repos[j];
+    if (isObj(r) && r.default === true) next = setPath(next, repoFieldPath(j, "default"), undefined);
+  }
+  return setPath(next, repoFieldPath(i, "default"), checked ? true : undefined);
+}
+
+/** The list of `errors` that name `repos[i]` or `repos "<id>"` for that repo's card. */
+export function errorsForRepo(errors: string[], repos: unknown[], i: number): string[] {
+  const r = repos[i];
+  const id = isObj(r) && typeof r.id === "string" ? r.id : undefined;
+  return errors.filter((e) => {
+    if (e.startsWith(`config: repos[${i}]`)) return true;
+    if (id === undefined) return false;
+    if (e.includes(`repos "${id}"`) || e.includes(`and "${id}"`)) return true;
+    if (e.includes(`duplicate repos id "${id}"`)) return true;
+    if (e.startsWith("config: at most one repo may set default:true") && e.includes(`"${id}"`)) return true;
+    return false;
+  });
+}
+
+/** `current` is a valid string-list field value: unset, or an array of only strings. Any other
+ * shape (including a mixed array) is left to Raw. */
+export function stringListInvalid(current: unknown): boolean {
+  return current !== undefined && !(Array.isArray(current) && current.every((e) => typeof e === "string"));
+}
+
+/**
+ * Add/remove one entry of a string-list field (`match`, future `lite.descriptionHeadings`): trimmed,
+ * non-empty, de-duplicated (case-sensitive). Removing the last entry removes the key. A non-string-
+ * array value (including a mixed array) is left untouched (the field shows "edit in Raw" instead).
+ */
+export function stringListAdd(text: string, path: JSONPath, current: unknown, value: string): string {
+  const v = value.trim();
+  if (!v || stringListInvalid(current)) return text;
+  const list = Array.isArray(current) ? (current as string[]) : [];
+  if (list.includes(v)) return text;
+  return setPath(text, path, [...list, v]);
+}
+
+export function stringListRemove(text: string, path: JSONPath, current: unknown, value: string): string {
+  if (stringListInvalid(current)) return text;
+  const list = Array.isArray(current) ? (current as string[]) : [];
+  const next = list.filter((e) => e !== value);
+  return setPath(text, path, next.length ? next : undefined);
 }

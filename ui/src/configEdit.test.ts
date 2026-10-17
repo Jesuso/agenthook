@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import example from "../../agenthook.config.example.json?raw";
 import {
+  addRepo,
   addStep,
   advancedSet,
   boolEdit,
@@ -10,6 +11,7 @@ import {
   effectiveBool,
   envEdit,
   envRows,
+  errorsForRepo,
   escalateEdit,
   formattingFor,
   identityEdit,
@@ -17,11 +19,17 @@ import {
   ingressType,
   liteEdit,
   liteHeadingsEdit,
+  moveRepo,
   moveStep,
   numberEdit,
   readBasics,
+  readRepos,
   readSteps,
   refInProgress,
+  removeRepo,
+  repoDefaultEdit,
+  repoFieldPath,
+  reposErrors,
   secretState,
   sectionFields,
   setCount,
@@ -32,6 +40,9 @@ import {
   stageSource,
   stepErrors,
   stepPath,
+  stringListAdd,
+  stringListInvalid,
+  stringListRemove,
   textEdit,
 } from "./configEdit";
 import type { Discover } from "./configEdit";
@@ -61,7 +72,7 @@ describe("formattingFor", () => {
 
 describe("read", () => {
   it("readBasics / readSteps", () => {
-    expect(readBasics(raw())).toEqual({ name: "myproject", maxConcurrent: 2, fullAuto: false, port: 4123, trigger: "@agent" });
+    expect(readBasics(raw())).toEqual({ name: "myproject", maxConcurrent: 2, fullAuto: false, port: 4123, trigger: "@agent", claudeBin: "claude" });
     expect(readSteps(raw()).map((s) => s.id)).toEqual(["triage", "code", "review"]);
     expect(readSteps({})).toEqual([]);
     expect(readSteps({ tracker: { pipeline: [1] } })).toEqual([{}]);
@@ -330,6 +341,115 @@ describe("clientErrors: sinks and digest", () => {
       "config: digest.maxBudgetUsd must be a number > 0.",
     ]);
     expect(clientErrors({ sinks: [{ type: "telegram", botToken: "${T}", chatId: 1 }], digest: { maxBudgetUsd: 0.5 } })).toEqual([]);
+  });
+
+  it("includes reposErrors", () => {
+    expect(clientErrors({ repos: [{ id: "a", path: "./a", default: true }, { id: "b", path: "./b", default: true }] })).toEqual([
+      'config: at most one repo may set default:true (found "a", "b").',
+    ]);
+    expect(clientErrors({ repos: [{ id: "a", path: "./a" }] })).toEqual([]);
+  });
+});
+
+describe("repos (#343)", () => {
+  it("readRepos: as-is, [] when absent or not an array", () => {
+    expect(readRepos({ repos: [{ id: "a", path: "./a" }] })).toEqual([{ id: "a", path: "./a" }]);
+    expect(readRepos({})).toEqual([]);
+    expect(readRepos({ repos: "nope" })).toEqual([]);
+  });
+
+  it("addRepo: absent repos seeds a default repo from repoPath; a declared repos array appends an empty one", () => {
+    expect(JSON.parse(addRepo(`{"repoPath": "./x"}`)).repos).toEqual([{ id: "default", path: "./x", default: true }]);
+    expect(JSON.parse(addRepo(`{}`)).repos).toEqual([{ id: "default", path: "", default: true }]);
+    expect(JSON.parse(addRepo(`{"repos": [{"id": "a", "path": "./a"}]}`)).repos).toEqual([{ id: "a", path: "./a" }, { id: "", path: "" }]);
+  });
+
+  it("removeRepo: the last one deletes the repos key; otherwise removes that element", () => {
+    expect(JSON.parse(removeRepo(`{"repos": [{"id": "a", "path": "./a"}]}`, 0)).repos).toBeUndefined();
+    expect(JSON.parse(removeRepo(`{"repos": [{"id": "a", "path": "./a"}, {"id": "b", "path": "./b"}]}`, 0)).repos).toEqual([{ id: "b", path: "./b" }]);
+  });
+
+  it("moveRepo: swaps neighbours verbatim (comments included)", () => {
+    expect(moveRepo(`{"repos": [{"a": 1}, 2]}`, 0, 1)).toBe(`{"repos": [2, {"a": 1}]}`);
+    expect(moveRepo(`{"repos": [1, 2]}`, 1, 1)).toBe(`{"repos": [1, 2]}`);
+  });
+
+  it("repoDefaultEdit: checking one clears default on every other repo in one edit; unchecking removes the key", () => {
+    const repos = [{ id: "a", path: "./a", default: true }, { id: "b", path: "./b" }, { id: "c", path: "./c" }];
+    const text = `{"repos": ${JSON.stringify(repos)}}`;
+    const checkedC = JSON.parse(repoDefaultEdit(text, repos, 2, true)).repos;
+    expect(checkedC).toEqual([{ id: "a", path: "./a" }, { id: "b", path: "./b" }, { id: "c", path: "./c", default: true }]);
+    const uncheckedA = JSON.parse(repoDefaultEdit(text, repos, 0, false)).repos;
+    expect(uncheckedA).toEqual([{ id: "a", path: "./a" }, { id: "b", path: "./b" }, { id: "c", path: "./c" }]);
+  });
+
+  it("errorsForRepo: attributes index- and id-wording errors to the right card", () => {
+    const repos = [{ id: "a", path: "./a", default: true }, { id: "b", path: "./b", default: true }];
+    const errors = reposErrors(repos);
+    expect(errorsForRepo(errors, repos, 0)).toEqual(errors);
+    expect(errorsForRepo(errors, repos, 1)).toEqual(errors);
+    const badId = [{ id: "bad id!", path: "./a" }];
+    expect(errorsForRepo(reposErrors(badId), badId, 0)).toEqual(['config: repos[0].id is required and must match [A-Za-z0-9._-]+ (got "bad id!").']);
+  });
+
+  it("repoFieldPath builds [\"repos\", i, key]", () => {
+    expect(repoFieldPath(1, "path")).toEqual(["repos", 1, "path"]);
+  });
+
+  it("errorsForRepo: a route-key clash doesn't land on a card whose own id matches the quoted route key", () => {
+    const repos = [{ id: "ios", path: "./ios" }, { id: "a", path: "./a", match: ["ios"] }, { id: "b", path: "./b", match: ["ios"] }];
+    const errors = reposErrors(repos);
+    expect(errors).toEqual([`config: route key "ios" is claimed by both repos "a" and "b".`]);
+    expect(errorsForRepo(errors, repos, 0)).toEqual([]);
+    expect(errorsForRepo(errors, repos, 1)).toEqual(errors);
+    expect(errorsForRepo(errors, repos, 2)).toEqual(errors);
+  });
+
+  it("round-trips add -> edit id/path/match/default -> remove-last, preserving a // comment key and an unknown repo key", () => {
+    let text = `{
+  "//note": "keep me",
+  "name": "p",
+  "repoPath": "./x"
+}`;
+    text = addRepo(text);
+    expect(JSON.parse(text)["//note"]).toBe("keep me");
+    text = setPath(text, repoFieldPath(0, "id"), "a");
+    text = setPath(text, repoFieldPath(0, "path"), "./a");
+    text = stringListAdd(text, repoFieldPath(0, "match"), undefined, "ios");
+    text = repoDefaultEdit(text, JSON.parse(text).repos, 0, true);
+    text = setPath(text, [...repoFieldPath(0, "unknownKey")], "mystery");
+    const mid = JSON.parse(text);
+    expect(mid["//note"]).toBe("keep me");
+    expect(mid.repos).toEqual([{ id: "a", path: "./a", default: true, match: ["ios"], unknownKey: "mystery" }]);
+    text = removeRepo(text, 0);
+    const end = JSON.parse(text);
+    expect(end["//note"]).toBe("keep me");
+    expect(end.repos).toBeUndefined();
+  });
+});
+
+describe("string-list field helpers (#343)", () => {
+  it("stringListAdd: trims, skips empty/duplicate, creates the array", () => {
+    expect(JSON.parse(stringListAdd(`{}`, ["repos", 0, "match"], undefined, " ios ")).repos[0].match).toEqual(["ios"]);
+    expect(stringListAdd(`{"repos":[{"match":["ios"]}]}`, ["repos", 0, "match"], ["ios"], "ios")).toBe(`{"repos":[{"match":["ios"]}]}`);
+    expect(stringListAdd(`{"repos":[{"match":["ios"]}]}`, ["repos", 0, "match"], ["ios"], "   ")).toBe(`{"repos":[{"match":["ios"]}]}`);
+  });
+
+  it("stringListRemove: removing the last entry removes the key", () => {
+    expect(JSON.parse(stringListRemove(`{"match":["ios","web"]}`, ["match"], ["ios", "web"], "ios")).match).toEqual(["web"]);
+    expect(JSON.parse(stringListRemove(`{"match":["ios"]}`, ["match"], ["ios"], "ios")).match).toBeUndefined();
+  });
+
+  it("stringListInvalid: a mixed array is invalid, same as a non-array value", () => {
+    expect(stringListInvalid(undefined)).toBe(false);
+    expect(stringListInvalid(["ios", "web"])).toBe(false);
+    expect(stringListInvalid("nope")).toBe(true);
+    expect(stringListInvalid([7, "ios"])).toBe(true);
+  });
+
+  it("stringListAdd/Remove leave a mixed array untouched", () => {
+    expect(stringListAdd(`{"match":[7,"ios"]}`, ["match"], [7, "ios"], "web")).toBe(`{"match":[7,"ios"]}`);
+    expect(stringListRemove(`{"match":[7,"ios"]}`, ["match"], [7, "ios"], "ios")).toBe(`{"match":[7,"ios"]}`);
   });
 });
 

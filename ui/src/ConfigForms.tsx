@@ -4,6 +4,7 @@ import {
   KNOWN_MODELS,
   STAGE_ROLES,
   DEFAULT_SINK_EVENTS,
+  addRepo,
   addSink,
   addStep,
   advancedSet,
@@ -14,26 +15,34 @@ import {
   effectiveBool,
   envEdit,
   envRows,
+  errorsForRepo,
   escalateEdit,
   fieldText,
   identityEdit,
+  knownRepo,
+  knownSink,
   liteEdit,
   liteHeadingsEdit,
-  knownSink,
+  moveRepo,
   moveSink,
   moveStep,
   numberEdit,
   readBasics,
   readDigest,
+  readRepos,
   readSinks,
   readSteps,
   ingressFields,
   ingressType,
   readBlock,
   refInProgress,
+  removeRepo,
   removeSink,
   removeStep,
   renameEdit,
+  repoDefaultEdit,
+  repoFieldPath,
+  reposErrors,
   secretState,
   sectionFields,
   setCount,
@@ -43,6 +52,9 @@ import {
   sinkPath,
   stageKeysFor,
   stepPath,
+  stringListAdd,
+  stringListInvalid,
+  stringListRemove,
   textEdit,
 } from "./configEdit";
 import type { Discover, StageKeys, StageOption, StageSource } from "./configEdit";
@@ -534,6 +546,7 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <TextField {...edit} path={["trigger"]} value={b.trigger} />
         <NumberField {...edit} path={["maxConcurrent"]} value={b.maxConcurrent} />
         <NumberField {...edit} path={["port"]} value={b.port} />
+        <TextField {...edit} path={["instructionsFile"]} value={b.instructionsFile} />
         <AppearanceFields text={props.text} onEdit={props.onEdit} ui={b.ui} stateKey={props.stateKey} />
         <div className="col-span-2 flex flex-col gap-1">
           <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
@@ -541,6 +554,20 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
             fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
           </p>
         </div>
+        <details className="col-span-2" data-advanced>
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
+            Advanced · {b.claudeBin !== undefined && b.claudeBin !== "" && b.claudeBin !== fieldMeta(["claudeBin"]).entry?.default ? 1 : 0} set
+          </summary>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <TextField {...edit} path={["claudeBin"]} value={b.claudeBin} />
+            <div className="flex flex-col gap-1">
+              <TextField {...edit} path={["stateId"]} value={b.stateId} readOnly />
+              <p className={NOTE}>
+                Keys the state dir — change it with <span className="font-mono">agenthook rename --move</span>, not here.
+              </p>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   );
@@ -1322,6 +1349,195 @@ export function IntegrationsForm(props: EditProps & { raw: unknown }) {
           <span className="font-mono">overlap_held</span>), and is re-offered when that task drains, fails or merges (
           <span className="font-mono">overlap_released</span>).
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A string-list field (`repos.*.match`, and later `lite.descriptionHeadings`): chips with × plus a
+ * text input that adds a trimmed, non-empty, de-duplicated entry on Enter or comma. A non-array value
+ * is left to Raw instead of being rewritten.
+ */
+function StringListField(props: EditProps & { path: JSONPath; value: unknown }) {
+  const m = fieldMeta(props.path);
+  const [draft, setDraft] = useState("");
+  const invalid = stringListInvalid(props.value);
+  const list = invalid ? [] : Array.isArray(props.value) ? (props.value as string[]) : [];
+  const add = () => {
+    if (!draft.trim()) return;
+    props.onEdit(stringListAdd(props.text, props.path, props.value, draft));
+    setDraft("");
+  };
+  return (
+    <Field label={m.label} hint={m.hint} help={m.help}>
+      {invalid ? (
+        <span className={NOTE}>not a list of strings — edit in Raw.</span>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {list.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {list.map((v) => (
+                <span key={v} className="flex items-center gap-1 rounded border border-[var(--color-border)] px-1.5 py-0.5 font-mono text-xs">
+                  {v}
+                  <button type="button" aria-label={`remove ${v}`} onClick={() => props.onEdit(stringListRemove(props.text, props.path, props.value, v))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <input
+            className={INPUT}
+            name={props.path.join(".")}
+            value={draft}
+            placeholder="add…"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            onBlur={add}
+          />
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/** The list of `errors` that attribute to a specific repo card, so the top panel can skip them. */
+const anyRepoErrors = (errors: string[], repos: unknown[]): string[] => errors.filter((e) => repos.every((_, i) => !errorsForRepo([e], repos, i).length));
+
+/**
+ * One `repos[i]` card: id, path, match (chips) and default in the common grid; instructionsFile and
+ * worktreePrefix under Advanced. ↑/↓/remove in the header; a non-object element is a read-only card.
+ */
+function RepoCard(props: EditProps & { index: number; count: number; repos: unknown[]; repo: unknown; errors: string[] }) {
+  const i = props.index;
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const r = knownRepo(props.repo);
+  const label = r && typeof r.id === "string" && r.id !== "" ? r.id : "?";
+  const advancedCount = r ? (["instructionsFile", "worktreePrefix"] as const).filter((k) => r[k] !== undefined && r[k] !== "").length : 0;
+  return (
+    <section
+      data-repo-card={i}
+      data-repo-unknown={r ? undefined : ""}
+      className={`flex flex-col gap-2 rounded border p-3 ${props.errors.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
+        <span className="font-mono text-sm">{label}</span>
+        <span className="ml-auto flex shrink-0 gap-1">
+          <button className={BUTTON} aria-label="move repo up" disabled={i === 0} onClick={() => props.onEdit(moveRepo(props.text, i, -1))}>
+            ↑
+          </button>
+          <button className={BUTTON} aria-label="move repo down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveRepo(props.text, i, 1))}>
+            ↓
+          </button>
+          <button
+            className={BUTTON}
+            data-remove-repo
+            onClick={() => {
+              if (!window.confirm(`Remove repo #${i + 1}${r ? ` (${label})` : ""}?`)) return;
+              props.onEdit(removeRepo(props.text, i));
+            }}
+          >
+            remove
+          </button>
+        </span>
+      </div>
+      {!r ? (
+        <p className={NOTE}>not an object — edit in Raw.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <TextField {...edit} path={repoFieldPath(i, "id")} value={r.id} />
+            <TextField {...edit} path={repoFieldPath(i, "path")} value={r.path} />
+            <StringListField {...edit} path={repoFieldPath(i, "match")} value={r.match} />
+            <div className="flex items-center gap-1 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name={repoFieldPath(i, "default").join(".")}
+                  checked={r.default === true}
+                  onChange={(e) => props.onEdit(repoDefaultEdit(props.text, props.repos, i, e.target.checked))}
+                />
+                <span className="text-xs">
+                  {fieldMeta(repoFieldPath(i, "default")).label}
+                  <span className="ml-1 font-mono opacity-70 text-[var(--color-muted)]">default</span>
+                </span>
+              </label>
+            </div>
+          </div>
+          <details data-advanced>
+            <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {advancedCount} set</summary>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <TextField {...edit} path={repoFieldPath(i, "instructionsFile")} value={r.instructionsFile} />
+              <TextField {...edit} path={repoFieldPath(i, "worktreePrefix")} value={r.worktreePrefix} />
+            </div>
+          </details>
+        </>
+      )}
+      <ErrorList errors={props.errors} />
+    </section>
+  );
+}
+
+/**
+ * The Repos tab: `repoPath` / `worktreePrefix` always shown (single-repo profiles read them
+ * directly; a declared `repos` block keeps `repoPath` only as the legacy default-naming fallback),
+ * then the `repos` cards (add/remove/reorder, the single-default rule enforced inline) or, absent a
+ * `repos` block, a note and "+ Add repo".
+ */
+export function ReposForm(props: EditProps & { raw: unknown }) {
+  const repos = readRepos(props.raw);
+  const raw = props.raw as Record<string, unknown> | null;
+  const hasRepos = Array.isArray(raw?.repos);
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const errs = reposErrors(raw?.repos);
+  const wtp = fieldMeta(["worktreePrefix"]).entry;
+  const wtpSet = raw?.worktreePrefix !== undefined && raw?.worktreePrefix !== "" && raw?.worktreePrefix !== wtp?.default ? 1 : 0;
+  return (
+    <div className="flex max-w-xl flex-col gap-4" data-repos-form>
+      <div className={PANEL} data-repos-top>
+        <TextField {...edit} path={["repoPath"]} value={raw?.repoPath} />
+        {hasRepos && (
+          <p className={NOTE}>
+            Legacy: with <span className="font-mono">repos</span> set, repoPath only names the default repo when no card below is marked default.
+          </p>
+        )}
+        <details data-advanced>
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {wtpSet} set</summary>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <TextField {...edit} path={["worktreePrefix"]} value={raw?.worktreePrefix} />
+          </div>
+        </details>
+      </div>
+      <div className={PANEL} data-repos-list>
+        <h3 className="text-sm font-semibold">Repositories</h3>
+        {!hasRepos ? (
+          <>
+            <p className={NOTE}>Single repo: agents work in repoPath.</p>
+            <p className={NOTE}>
+              Declaring repos nests worktrees under <span className="font-mono">worktreePrefix/&lt;id&gt;/</span> — finish or drain in-flight tickets first.
+            </p>
+          </>
+        ) : (
+          <>
+            {errs.length > 0 && repos.length === 0 && <ErrorList errors={errs} />}
+            {repos.length > 0 && <ErrorList errors={anyRepoErrors(errs, repos)} />}
+            {repos.map((r, i) => (
+              <RepoCard key={i} {...edit} index={i} count={repos.length} repos={repos} repo={r} errors={errorsForRepo(errs, repos, i)} />
+            ))}
+          </>
+        )}
+        <div>
+          <button className={BUTTON} data-add-repo onClick={() => props.onEdit(addRepo(props.text))}>
+            + Add repo
+          </button>
+        </div>
       </div>
     </div>
   );

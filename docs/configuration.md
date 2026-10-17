@@ -34,6 +34,10 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.
 
+The `ah ui` config editor (below) has a form for every key above, including `repos`. Edit Raw
+when you want to share a whole block, keep a `//` comment key, set a key the forms don't know
+about yet, or fix invalid JSON — the forms refuse to touch anything they can't parse.
+
 ## Forge (optional — what happened to the code)
 
 A tracker says where work comes from; a forge says what happened to the code (a PR merged, CI
