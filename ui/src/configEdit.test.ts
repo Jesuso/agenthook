@@ -4,16 +4,25 @@ import {
   addStep,
   advancedSet,
   boolEdit,
+  ciTargetOptions,
   clientErrors,
+  defaultBoolEdit,
+  effectiveBool,
   escalateEdit,
   formattingFor,
   identityEdit,
+  ingressFields,
+  ingressType,
   liteEdit,
   liteHeadingsEdit,
   moveStep,
   numberEdit,
   readBasics,
   readSteps,
+  refInProgress,
+  secretState,
+  sectionFields,
+  setCount,
   removeStep,
   renameEdit,
   setPath,
@@ -532,5 +541,58 @@ describe("liteEdit / liteHeadingsEdit", () => {
     const a = liteHeadingsEdit(noBlock, 0, ["one", "two"]);
     const out = liteHeadingsEdit(a, 0, ["", "two"]);
     expect(JSON.parse(out).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["two"]);
+  });
+});
+
+describe("Tracker / Forge / Ingress helpers (#341)", () => {
+  it("setPath removing an absent key (even under a missing parent) is a no-op", () => {
+    const text = '{\n  "name": "p"\n}';
+    expect(setPath(text, ["ingress", "url"], undefined)).toBe(text);
+    expect(setPath(text, ["nope"], undefined)).toBe(text);
+  });
+
+  it("defaultBoolEdit: away from the default writes the value, back to it removes the key; boolEdit unchanged", () => {
+    const text = '{\n  "forge": { "type": "github" }\n}';
+    const off = defaultBoolEdit(text, ["forge", "redCi"], false, true);
+    expect(JSON.parse(off).forge).toEqual({ type: "github", redCi: false });
+    expect(JSON.parse(defaultBoolEdit(off, ["forge", "redCi"], true, true)).forge).toEqual({ type: "github" });
+    expect(effectiveBool(undefined, true)).toBe(true);
+    expect(effectiveBool(false, true)).toBe(false);
+    // The plain boolEdit still makes unchecking an absent key a no-op.
+    expect(boolEdit(text, ["forge", "redCi"], false, undefined)).toBe(text);
+  });
+
+  it("sectionFields: the section's keys minus type/pipeline, scoped, split by advanced", () => {
+    const keys = (r: ReturnType<typeof sectionFields>) => ({ common: r.common.map((e) => e.path[1]), advanced: r.advanced.map((e) => e.path[1]) });
+    expect(keys(sectionFields("tracker", "local"))).toEqual({ common: ["assigneeFilter"], advanced: ["routeField"] });
+    expect(keys(sectionFields("forge", undefined))).toEqual({ common: ["token", "repository", "redCi", "greenCi"], advanced: ["owner", "repo", "webhookSecret", "ciTarget"] });
+    expect(keys(ingressFields("ngrok"))).toEqual({ common: ["authtoken", "domain"], advanced: ["webAddr"] });
+    expect(keys(ingressFields("hosted"))).toEqual({ common: ["url"], advanced: [] });
+    expect(keys(ingressFields("custom"))).toEqual({ common: [], advanced: [] });
+  });
+
+  it("ingressType: absent block or type → manual", () => {
+    expect(ingressType({})).toBe("manual");
+    expect(ingressType({ ingress: {} })).toBe("manual");
+    expect(ingressType({ ingress: { type: "ngrok" } })).toBe("ngrok");
+  });
+
+  it("setCount skips unset, empty and default values", () => {
+    const adv = sectionFields("ingress", undefined).advanced;
+    expect(setCount({ webAddr: "127.0.0.1:4040" }, adv)).toBe(0);
+    expect(setCount({ webAddr: "127.0.0.1:4041" }, adv)).toBe(1);
+    expect(setCount(undefined, adv)).toBe(0);
+  });
+
+  it("secretState / refInProgress", () => {
+    expect([undefined, "", "${A}", false, "lit", 12].map(secretState)).toEqual(["absent", "absent", "ref", "disabled", "literal", "literal"]);
+    for (const s of ["$", "${", "${GH_TO", "${GH_TOKEN}"]) expect(refInProgress(s), s).toBe(true);
+    for (const s of ["", "ghp_x", "${a}", "x${A}"]) expect(refInProgress(s), s).toBe(false);
+  });
+
+  it("ciTargetOptions: non-manual step ids; the default is the first createsWorktree step", () => {
+    const raw = { tracker: { pipeline: [{ id: "a" }, { id: "b", createsWorktree: true }, { id: "m", manual: true }, { kind: "x" }] } };
+    expect(ciTargetOptions(raw)).toEqual({ ids: ["a", "b"], defaultId: "b" });
+    expect(ciTargetOptions({})).toEqual({ ids: [], defaultId: null });
   });
 });

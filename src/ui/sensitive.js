@@ -3,6 +3,22 @@
 // (ui/src/contract.ts re-exports it), so the confirm dialog and the audit line can't disagree.
 import { SENSITIVE_FIELDS } from "./contract.js";
 
+/** Config paths whose value is a secret — each should be a `${VAR}` ref, never a literal.
+ * `[*]` expands every element of an array. Re-exported by src/config.js; lives here so the config
+ * editor's secret fields (ui/src/ConfigForms.tsx) bundle the same list. */
+export const SECRET_FIELDS = /** @type {const} */ ([
+  "tracker.token",
+  "tracker.webhookSecret",
+  "forge.token",
+  "forge.webhookSecret",
+  "ingress.authtoken",
+  "sinks[*].url",
+  "sinks[*].botToken",
+]);
+
+/** Exactly one `${VAR}` ref — the only non-literal form a secret field may hold. @param {unknown} v @returns {boolean} */
+export const isEnvRef = (v) => typeof v === "string" && /^\$\{[A-Z0-9_]+\}$/.test(v);
+
 /**
  * The concrete SENSITIVE_FIELDS paths (e.g. "fullAuto", "sinks[1].botToken") whose value differs
  * between two raw configs, compared by JSON.stringify. `[*]` expands across the union of both

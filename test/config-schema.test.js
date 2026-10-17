@@ -135,6 +135,8 @@ test("the fields the forms edit today have editors; everything else is marked pe
     "name", "trigger", "maxConcurrent", "port", "ui", "ui.color", "ui.emoji", "fullAuto", "tracker.pipeline",
     ...["id", "kind", "manual", "model", "effort", "instructionsFile", "maxAttempts", "maxMinutes", "idleMinutes", "createsWorktree", "drainWorktree", "maxConcurrent", "completeOnMerge", "closeIssue", "completeTask", "lite", "lite.descriptionHeadings", "lite.model", "lite.effort", "escalate", "escalate.*.model", "escalate.*.effort"].map((k) => `tracker.pipeline.*.${k}`),
     ...["Section", "Status", "Label"].flatMap((f) => ["source", "success", "failure", "hold", "queue"].map((r) => `tracker.pipeline.*.${r}${f === "Section" ? "SectionGid" : f}`)),
+    // The Tracker / Forge / Ingress tabs (#341) render every entry of their section.
+    ...CONFIG_SCHEMA.filter((e) => ["tracker", "forge", "ingress"].includes(e.section)).map((e) => e.path.join(".")),
   ];
   for (const e of CONFIG_SCHEMA) {
     const at = e.path.join(".");

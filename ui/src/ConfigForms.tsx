@@ -6,6 +6,9 @@ import {
   addStep,
   advancedSet,
   boolEdit,
+  ciTargetOptions,
+  defaultBoolEdit,
+  effectiveBool,
   escalateEdit,
   fieldText,
   identityEdit,
@@ -15,8 +18,16 @@ import {
   numberEdit,
   readBasics,
   readSteps,
+  ingressFields,
+  ingressType,
+  readBlock,
+  refInProgress,
   removeStep,
   renameEdit,
+  secretState,
+  sectionFields,
+  setCount,
+  setPath,
   stageKeysFor,
   stepPath,
   textEdit,
@@ -26,6 +37,7 @@ import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
 import { resolveIdentity } from "../../src/identity.js";
 import { schemaEntry } from "../../src/config-schema.js";
 import type { SchemaEntry } from "../../src/config-schema.js";
+import { SECRET_FIELDS } from "../../src/ui/sensitive.js";
 import { HelpTip, ProfileMark } from "./components";
 
 /** The stage-picker feed for the open profile: the discover outcome, `null` before the first fetch. */
@@ -143,9 +155,15 @@ function NumberField(props: EditProps & { path: JSONPath; value: unknown }) {
   );
 }
 
-function CheckField(props: EditProps & { path: JSONPath; value: unknown; explicitFalse?: boolean }) {
+/**
+ * `defaultValue` (a schema `default: true` key — `assigneeFilter`, `redCi`, `greenCi`) shows the
+ * effective value (absent = the default) and edits via `defaultBoolEdit`: unchecking writes `false`,
+ * checking removes the key again. Without it, `boolEdit` as before.
+ */
+function CheckField(props: EditProps & { path: JSONPath; value: unknown; explicitFalse?: boolean; defaultValue?: boolean }) {
   const m = fieldMeta(props.path);
   const helpId = useId();
+  const dv = props.defaultValue;
   return (
     <div className="flex items-center gap-1 text-sm">
       <label className="flex items-center gap-2">
@@ -153,8 +171,12 @@ function CheckField(props: EditProps & { path: JSONPath; value: unknown; explici
           type="checkbox"
           name={props.path.join(".")}
           aria-describedby={m.help ? helpId : undefined}
-          checked={props.value === true}
-          onChange={(e) => props.onEdit(boolEdit(props.text, props.path, e.target.checked, props.value, props.explicitFalse))}
+          checked={dv === undefined ? props.value === true : effectiveBool(props.value, dv)}
+          onChange={(e) =>
+            props.onEdit(
+              dv === undefined ? boolEdit(props.text, props.path, e.target.checked, props.value, props.explicitFalse) : defaultBoolEdit(props.text, props.path, e.target.checked, dv),
+            )
+          }
         />
         <span className="text-xs">
           {m.label}
@@ -169,9 +191,10 @@ function CheckField(props: EditProps & { path: JSONPath; value: unknown; explici
 /**
  * First option "(default)" removes the key; an unknown current value stays selectable. `edit`
  * overrides the default `textEdit(path)` write — the escalate/lite rows pass their own (nested
- * cleanup, not a plain key set) while every other caller keeps the default.
+ * cleanup, not a plain key set) while every other caller keeps the default. `required` (a block's
+ * `type`) has no removing option — only an unset value shows a disabled "(choose…)".
  */
-function SelectField(props: EditProps & { path: JSONPath; value: unknown; edit?: (input: string) => string }) {
+function SelectField(props: EditProps & { path: JSONPath; value: unknown; edit?: (input: string) => string; required?: boolean }) {
   const m = fieldMeta(props.path);
   const options = m.entry?.options ?? [];
   const cur = fieldText(props.value);
@@ -180,7 +203,15 @@ function SelectField(props: EditProps & { path: JSONPath; value: unknown; edit?:
   return (
     <Field label={m.label} hint={m.hint} help={m.help}>
       <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => commit(e.target.value)}>
-        <option value="">(default)</option>
+        {!props.required ? (
+          <option value="">(default)</option>
+        ) : (
+          cur === "" && (
+            <option value="" disabled>
+              (choose…)
+            </option>
+          )
+        )}
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -795,6 +826,250 @@ export function PipelineForm(
           + Add step
         </button>
       </div>
+    </div>
+  );
+}
+
+/** The SECRET_FIELDS paths a form field can hold (the `sinks[*]` ones live in Raw). */
+const SECRET_PATHS = new Set<string>(SECRET_FIELDS.filter((f) => !f.includes("[*]")));
+export const isSecretPath = (path: JSONPath): boolean => SECRET_PATHS.has(path.join("."));
+
+/**
+ * A secret (`tracker.token`, `*.webhookSecret`, `forge.token`, `ingress.authtoken`). A `${VAR}` ref
+ * is shown and edited as text. A literal already in the file is never put in the DOM — not even in
+ * `value` — only a warning naming the path, an empty "replace with ${VAR}" input and Clear. What the
+ * user types here is a draft: shown in clear while it is (on its way to) a ref, masked otherwise,
+ * with the warning live. `webhookSecret: false` reads "verification disabled" and is left as-is until
+ * the user acts. Saving a literal stays allowed.
+ */
+function SecretField(props: EditProps & { path: JSONPath; value: unknown }) {
+  const m = fieldMeta(props.path);
+  const at = props.path.join(".");
+  const state = secretState(props.value);
+  // What the user typed since the buffer last changed elsewhere; null = nothing typed.
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => {
+    if (draft !== null && draft !== fieldText(props.value)) setDraft(null);
+  }, [props.text]);
+  const shown = draft ?? (state === "ref" ? String(props.value) : "");
+  const masked = shown !== "" && !refInProgress(shown);
+  const clear = () => {
+    setDraft(null);
+    props.onEdit(setPath(props.text, props.path, undefined));
+  };
+  return (
+    <Field label={m.label} hint={m.hint} help={m.help}>
+      <input
+        className={INPUT}
+        name={at}
+        type={masked ? "password" : "text"}
+        autoComplete="off"
+        spellCheck={false}
+        value={shown}
+        placeholder={state === "literal" || state === "disabled" ? "replace with ${VAR}" : "${ENV_VAR}"}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          props.onEdit(textEdit(props.text, props.path, e.target.value));
+        }}
+      />
+      {state === "absent" && <span className="text-xs text-[var(--color-muted)]">Put the value in the .env beside the config and reference it here.</span>}
+      {(state === "literal" || state === "disabled") && (
+        <span data-secret-state={state} className="flex items-center gap-2 text-xs text-status-held">
+          {state === "literal" ? (
+            <span>
+              ⚠ literal secret in <span className="font-mono">{at}</span> — replace with a <span className="font-mono">{"${VAR}"}</span> ref
+            </span>
+          ) : (
+            <span>
+              verification disabled (<span className="font-mono">false</span>)
+            </span>
+          )}
+          <button type="button" className={BUTTON} data-secret-clear onClick={clear}>
+            Clear
+          </button>
+        </span>
+      )}
+    </Field>
+  );
+}
+
+/** One schema entry's control, by its `type`; secrets get `SecretField`, default-`true` booleans the effective-value checkbox. */
+function SchemaField(props: EditProps & { entry: SchemaEntry; value: unknown }) {
+  const { entry } = props;
+  const edit = { text: props.text, onEdit: props.onEdit };
+  if (isSecretPath(entry.path)) return <SecretField {...edit} path={entry.path} value={props.value} />;
+  if (entry.type === "boolean") return <CheckField {...edit} path={entry.path} value={props.value} defaultValue={entry.default === true ? true : undefined} />;
+  if (entry.type === "enum") return <SelectField {...edit} path={entry.path} value={props.value} />;
+  if (entry.type === "number") return <NumberField {...edit} path={entry.path} value={props.value} />;
+  return <TextField {...edit} path={entry.path} value={props.value} />;
+}
+
+/**
+ * A block's schema fields: the common ones in a grid, the `advanced` ones in a collapsed
+ * `<details data-advanced>` "Advanced · N set" (the step card's pattern). `render` overrides an
+ * entry's control (a note beside it, the ciTarget picker); undefined falls back to `SchemaField`.
+ */
+function SchemaFields(
+  props: EditProps & {
+    fields: { common: SchemaEntry[]; advanced: SchemaEntry[] };
+    block: Record<string, unknown> | undefined;
+    render?: (e: SchemaEntry, value: unknown) => React.ReactNode | undefined;
+  },
+) {
+  const one = (e: SchemaEntry) => {
+    const value = props.block?.[e.path[1]];
+    return <div key={e.path.join(".")}>{props.render?.(e, value) ?? <SchemaField text={props.text} onEdit={props.onEdit} entry={e} value={value} />}</div>;
+  };
+  return (
+    <>
+      {props.fields.common.length > 0 && <div className="grid grid-cols-2 gap-3">{props.fields.common.map(one)}</div>}
+      {props.fields.advanced.length > 0 && (
+        <details data-advanced>
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
+            Advanced · {setCount(props.block, props.fields.advanced)} set
+          </summary>
+          <div className="mt-2 grid grid-cols-2 gap-3">{props.fields.advanced.map(one)}</div>
+        </details>
+      )}
+    </>
+  );
+}
+
+const PANEL = "flex max-w-xl flex-col gap-3 rounded border border-[var(--color-border)] p-3";
+const NOTE = "text-xs text-[var(--color-muted)]";
+
+/**
+ * The `tracker` block minus the pipeline: `type` read-only once set (every step's stage keys depend
+ * on it — change it in Raw), a picker only while absent; then the schema entries scoped to that type.
+ */
+export function TrackerForm(props: EditProps & { raw: unknown }) {
+  const block = readBlock(props.raw, "tracker");
+  const type = block?.type;
+  const edit = { text: props.text, onEdit: props.onEdit };
+  return (
+    <div className={PANEL} data-tracker-form>
+      {type !== undefined ? (
+        <div className="flex flex-col gap-1">
+          <TextField {...edit} path={["tracker", "type"]} value={type} readOnly />
+          <p className={NOTE}>Changing the tracker type invalidates every step's stage keys — do it in Raw.</p>
+        </div>
+      ) : (
+        <SelectField {...edit} path={["tracker", "type"]} value={undefined} required />
+      )}
+      <SchemaFields
+        {...edit}
+        fields={sectionFields("tracker", type)}
+        block={block}
+        render={(e, value) =>
+          e.path[1] === "assigneeFilter" ? (
+            <div className="flex flex-col gap-1">
+              <CheckField {...edit} path={e.path} value={value} defaultValue />
+              <p className="text-xs text-status-held">Unchecked, agents act on every item in the project — not only the ones assigned to you.</p>
+            </div>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * `forge.ciTarget`: the agent (non-manual) step ids, "(default — …)" removing the key. A current value
+ * that isn't one stays selectable and is flagged with the config-load rule.
+ */
+function CiTargetField(props: EditProps & { raw: unknown; value: unknown }) {
+  const path = ["forge", "ciTarget"];
+  const m = fieldMeta(path);
+  const { ids, defaultId } = ciTargetOptions(props.raw);
+  const cur = fieldText(props.value);
+  const invalid = cur !== "" && !ids.includes(cur);
+  return (
+    <Field label={m.label} hint={m.hint} help={m.help} error={invalid ? `"${cur}" must be an agent (non-manual) pipeline step id` : null}>
+      <select className={INPUT} name="forge.ciTarget" value={cur} onChange={(e) => props.onEdit(textEdit(props.text, path, e.target.value))}>
+        <option value="">{defaultId ? `(default — the createsWorktree step: ${defaultId})` : "(default — no createsWorktree step)"}</option>
+        {ids.map((id) => (
+          <option key={id} value={id}>
+            {id}
+          </option>
+        ))}
+        {invalid && <option value={cur}>{cur} (not an agent step)</option>}
+      </select>
+      <span className={NOTE}>Must be an agent (non-manual) pipeline step id; unset = the createsWorktree step.</span>
+    </Field>
+  );
+}
+
+/** The optional `forge` block: Add (`{"type":"github"}`) when absent; its schema fields and Remove (confirmed) when present. */
+export function ForgeForm(props: EditProps & { raw: unknown }) {
+  const block = readBlock(props.raw, "forge");
+  const edit = { text: props.text, onEdit: props.onEdit };
+  if (!block) {
+    return (
+      <div className={PANEL} data-forge-form>
+        <p className="text-sm">No forge configured.</p>
+        <p className={NOTE}>A forge watches the agent PRs: a merged PR completes its task, red CI sends it back for changes.</p>
+        <div>
+          <button className={BUTTON} data-add-forge onClick={() => props.onEdit(setPath(props.text, ["forge"], { type: "github" }))}>
+            Add GitHub forge
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={PANEL} data-forge-form>
+      <SelectField {...edit} path={["forge", "type"]} value={block.type} required />
+      <SchemaFields
+        {...edit}
+        fields={sectionFields("forge", undefined)}
+        block={block}
+        render={(e, value) => (e.path[1] === "ciTarget" ? <CiTargetField {...edit} raw={props.raw} value={value} /> : undefined)}
+      />
+      <div>
+        <button
+          className={BUTTON}
+          data-remove-forge
+          onClick={() => {
+            if (!window.confirm("Remove the forge block? Every forge key (type, token, webhook secret, CI settings) is deleted.")) return;
+            props.onEdit(setPath(props.text, ["forge"], undefined));
+          }}
+        >
+          Remove forge block
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The `ingress` block. Absent (block or type) = manual. The type picker writes `ingress.type`
+ * (creating the block); switching type only changes which fields show — the other type's keys stay.
+ */
+export function IngressForm(props: EditProps & { raw: unknown }) {
+  const block = readBlock(props.raw, "ingress");
+  const type = ingressType(props.raw);
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const fields = ingressFields(type);
+  return (
+    <div className={PANEL} data-ingress-form>
+      <div className="flex flex-col gap-1">
+        <SelectField {...edit} path={["ingress", "type"]} value={type} required />
+        {(block?.type === undefined || block.type === "") && <p className={NOTE}>No ingress type set — absent = manual.</p>}
+      </div>
+      {fields.common.length + fields.advanced.length === 0 && <p className={NOTE}>No form fields for ingress "{type}" — edit it in Raw.</p>}
+      <SchemaFields
+        {...edit}
+        fields={fields}
+        block={block}
+        render={(e, value) =>
+          e.path[1] === "domain" ? (
+            <div className="flex flex-col gap-1">
+              <TextField {...edit} path={e.path} value={value} />
+              <p className={NOTE}>Unset = a new public URL on every start.</p>
+            </div>
+          ) : undefined
+        }
+      />
     </div>
   );
 }

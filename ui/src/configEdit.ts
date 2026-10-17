@@ -1,6 +1,8 @@
 import { applyEdits, findNodeAtLocation, modify, parseTree } from "jsonc-parser";
 import type { Edit, FormattingOptions, JSONPath } from "jsonc-parser";
 import { CONFIG_SCHEMA, stepEntry } from "../../src/config-schema.js";
+import type { SchemaEntry } from "../../src/config-schema.js";
+import { isEnvRef } from "../../src/ui/sensitive.js";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -30,8 +32,13 @@ export function formattingFor(text: string): FormattingOptions {
   return { insertSpaces: true, tabSize: m ? m[1].length : 2, eol };
 }
 
-/** Set `path` to `value` with the text's own formatting; `undefined` removes the key. */
+/** Set `path` to `value` with the text's own formatting; `undefined` removes the key (no edit when it is already absent). */
 export function setPath(text: string, path: JSONPath, value: unknown): string {
+  if (value === undefined) {
+    // Deleting under a missing parent throws in jsonc-parser; there is nothing to delete anyway.
+    const tree = parseTree(text);
+    if (!tree || !findNodeAtLocation(tree, path)) return text;
+  }
   return applyEdits(text, modify(text, path, value, { formattingOptions: formattingFor(text) }));
 }
 
@@ -95,6 +102,18 @@ export function boolEdit(text: string, path: JSONPath, checked: boolean, current
   if (checked) return setPath(text, path, true);
   if (explicitFalse) return setPath(text, path, false);
   return current === true ? setPath(text, path, undefined) : text;
+}
+
+/** A boolean with a schema default (`assigneeFilter`, `redCi`, `greenCi` — all `true`): absent reads as the default. */
+export const effectiveBool = (value: unknown, defaultValue: boolean): boolean => (typeof value === "boolean" ? value : defaultValue);
+
+/**
+ * Checkbox for a key with a boolean default: checking/unchecking *to* the default removes the key
+ * (back to default), the other way writes the explicit value — so unchecking a default-`true` key
+ * writes `false` instead of being a no-op.
+ */
+export function defaultBoolEdit(text: string, path: JSONPath, checked: boolean, defaultValue: boolean): string {
+  return setPath(text, path, checked === defaultValue ? undefined : checked);
 }
 
 /**
@@ -319,4 +338,72 @@ export function stageSource(status: number, body: Discover | null): StageSource 
 
 export function discoverUrl(profile: string): string {
   return `/api/discover?${new URLSearchParams({ profile })}`;
+}
+
+/** `raw[key]` when it is an object (the `tracker` / `forge` / `ingress` block), else undefined. */
+export function readBlock(raw: unknown, key: "tracker" | "forge" | "ingress"): Record<string, unknown> | undefined {
+  return isObj(raw) && isObj(raw[key]) ? raw[key] : undefined;
+}
+
+/** Each block's keys rendered on their own (the type picker, the pipeline), not by the schema list. */
+const OWN_FIELD = new Set(["tracker.type", "tracker.pipeline", "forge.type", "ingress.type"]);
+
+/**
+ * The Tracker / Forge / Ingress tab's fields, straight from the config schema: the section's
+ * `<block>.<key>` entries minus the container, the type and the pipeline, kept when their `scope`
+ * includes `trackerType` (or has none), split by the `advanced` flag. A new scoped schema entry adds a field.
+ */
+export function sectionFields(section: "tracker" | "forge" | "ingress", trackerType: unknown): { common: SchemaEntry[]; advanced: SchemaEntry[] } {
+  const list = CONFIG_SCHEMA.filter(
+    (e) => e.section === section && e.path.length === 2 && !OWN_FIELD.has(e.path.join(".")) && (!e.scope || e.scope.includes(String(trackerType))),
+  );
+  return { common: list.filter((e) => !e.advanced), advanced: list.filter((e) => e.advanced) };
+}
+
+/** The keys each ingress adapter reads (src/ingress/ngrok.js, manual.js); the rest stay in the file, hidden. */
+const INGRESS_KEYS: Record<string, string[]> = { ngrok: ["authtoken", "domain", "webAddr"], manual: ["url"], hosted: ["url"] };
+
+/** `sectionFields("ingress")` narrowed to what the effective ingress type reads; an unknown type shows none. */
+export function ingressFields(type: string): { common: SchemaEntry[]; advanced: SchemaEntry[] } {
+  const keys = Object.hasOwn(INGRESS_KEYS, type) ? INGRESS_KEYS[type] : [];
+  const { common, advanced } = sectionFields("ingress", undefined);
+  const keep = (e: SchemaEntry) => keys.includes(e.path[1]);
+  return { common: common.filter(keep), advanced: advanced.filter(keep) };
+}
+
+/** The effective ingress type: absent block or type → `manual` (src/config.js). */
+export const ingressType = (raw: unknown): string => {
+  const t = readBlock(raw, "ingress")?.type;
+  return typeof t === "string" && t !== "" ? t : "manual";
+};
+
+/** How many of `entries` are set on `block`: not undefined/"" and not the entry's default (an "Advanced · N set" count). */
+export function setCount(block: Record<string, unknown> | undefined, entries: SchemaEntry[]): number {
+  return entries.filter((e) => {
+    const v = block?.[e.path[1]];
+    return v !== undefined && v !== "" && v !== e.default;
+  }).length;
+}
+
+/** A secret field's state: absent, a `${VAR}` ref, verification disabled (`false`), or a literal (never echoed). */
+export type SecretState = "absent" | "ref" | "disabled" | "literal";
+
+export function secretState(value: unknown): SecretState {
+  if (value === undefined || value === null || value === "") return "absent";
+  if (value === false) return "disabled";
+  return isEnvRef(value) ? "ref" : "literal";
+}
+
+/** A draft still on its way to a `${VAR}` ref ("$", "${TO", "${TOKEN}") — shown in clear text while typed. */
+export const refInProgress = (s: string): boolean => /^\$(\{[A-Z0-9_]*\}?)?$/.test(s);
+
+/**
+ * The `forge.ciTarget` picker: the agent (non-manual) step ids it may name (src/config.js), and the
+ * step an unset target bounces to — the first `createsWorktree` step (src/dispatch.js), else null.
+ */
+export function ciTargetOptions(raw: unknown): { ids: string[]; defaultId: string | null } {
+  const steps = readSteps(raw);
+  const ids = steps.filter((s) => !s.manual && typeof s.id === "string" && s.id !== "").map((s) => s.id as string);
+  const wt = steps.find((s) => s.createsWorktree);
+  return { ids, defaultId: wt ? fieldText(wt.id) || null : null };
 }

@@ -218,13 +218,13 @@ Edits `agenthook.config.json` — the one file at the receiver-published `heartb
 literal-secret warnings, diff → confirm with a second ack for changed sensitive fields — secret
 values masked — guarded `PUT /api/config`, reload/diff/overwrite banner) and **Restart when idle**
 after a save, its banner driven by SSE (`restart_requested` → `restarting` → a new pid), and the
-**Basics** / **Pipeline** form tabs beside Raw (one shared buffer; every change a `jsonc-parser`
-edit, reorder swaps the steps' exact text) with **stage pickers** fed by `GET /api/discover` on
-first form-tab open and on Refresh, and a collapsible **pipeline graph** panel above every pane
-(raw/basics/pipeline), re-deriving from the live buffer on every edit — form or raw text — without
+**Basics** / **Pipeline** / **Tracker** / **Forge** / **Ingress** form tabs beside Raw (one shared
+buffer; every change a `jsonc-parser` edit, reorder swaps the steps' exact text) with **stage
+pickers** fed by `GET /api/discover` on first form-tab open and on Refresh, and a collapsible
+**pipeline graph** panel above every pane, re-deriving from the live buffer on every edit — form or raw text — without
 a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
 
-**Reading order.** The tabs read **Basics · Pipeline · Raw**; a config that parses opens on
+**Reading order.** The tabs read **Basics · Pipeline · Tracker · Forge · Ingress · Raw**; a config that parses opens on
 **Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs
 disabled with "fix the JSON in Raw first"). Raw stays the escape hatch — nothing forces a hand edit.
 Every Pipeline stage card starts **collapsed** to its header: `#n`, the step id and a one-line
@@ -238,11 +238,38 @@ the panel above): an errored card gets a red badge and its errors inline, and op
 the error appears (collapse it again and the badge stays). Collapse / expand and graph clicks are
 view state only; they never touch the buffer.
 
+**Tracker / Forge / Ingress tabs.** Rendered from the config schema (`src/config-schema.js`): each
+tab lists its section's entries whose `scope` includes the active `tracker.type` (or has none) —
+a new scoped schema entry adds a field — with the `advanced` ones in a collapsed "Advanced · N set".
+`tracker.type` is read-only once set (every step's stage keys depend on it; change it in Raw) and a
+picker only while absent; unchecking `assigneeFilter` carries an inline warning. The default-`true`
+booleans (`tracker.assigneeFilter`, `forge.redCi`, `forge.greenCi`) show their effective value —
+absent reads checked; unchecking writes an explicit `false`, checking again removes the key. The
+**Forge** tab offers "Add GitHub forge" (`{"type":"github"}`) when there is no block and "Remove
+forge block" (confirmed) when there is; `forge.ciTarget` picks among the **agent (non-manual)
+pipeline step ids** — the rule `loadConfig` enforces — its default option naming the
+`createsWorktree` step an unset target bounces to, and a manual/unknown current value stays
+selectable but flagged. The **Ingress** tab reads an absent block (or type) as `manual`; `ngrok`
+shows `authtoken`, `domain` (unset = a new URL every start) and advanced `webAddr`, `manual` /
+`hosted` show `url`. Switching type only changes the visible fields — the other type's keys stay in
+the file.
+
+**Secret fields** (`tracker.token`, `tracker.webhookSecret`, `forge.token`, `forge.webhookSecret`,
+`ingress.authtoken` — `SECRET_FIELDS`, which lives in the browser-bundled `src/ui/sensitive.js`
+beside `isEnvRef`, the `${VAR}` check `literalSecrets` uses too). A `${VAR}` ref is shown and
+edited as text; an absent one hints to put the value in the `.env` beside the config and reference
+it. A **literal** already in the file never reaches the DOM (not even an input's `value`): the field
+shows a warning naming the path, an empty "replace with `${VAR}`" input and **Clear** (removes the
+key). What you type is masked unless it is (on its way to) a `${VAR}` ref, and the warning shows
+live; saving a literal stays allowed. `webhookSecret: false` reads "verification disabled (`false`)"
+with the same Clear / replace controls and is never rewritten unless you act.
+
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
-`manual`, `instructionsFile`; the tracker's stage bindings) and the **top-level basics** (`name`,
-`maxConcurrent`, `fullAuto`, `port`, `trigger`). Everything else (`repos`, `forge`, `ingress`,
-`sinks`, tracker credentials) through a **raw JSON editor** with the same validation and diff.
+`manual`, `instructionsFile`; the tracker's stage bindings), the **top-level basics** (`name`,
+`maxConcurrent`, `fullAuto`, `port`, `trigger`) and every `tracker` / `forge` / `ingress` key.
+Everything else (`repos`, `sinks`, `digest`, …) through a **raw JSON editor** with the same
+validation and diff.
 
 **Formatting-preserving edits, zero-dep server.** The browser turns form changes into minimal text
 edits with `jsonc-parser` (`modify` + `applyEdits`, MIT) so `//` comment keys, key order and the
