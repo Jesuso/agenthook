@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -194,6 +194,49 @@ test("buildUsageRecord: explicit step model wins over modelUsage key", () => {
   assert.deepEqual([rec.input, rec.output, rec.cacheRead, rec.cacheCreate], [0, 0, 0, 0]);
 });
 
+// --- parseVerdict: requireVerdict x {valid, missing, garbage, unknown outcome, non-zero exit} ---
+
+test("parseVerdict: non-zero exit is always fail, regardless of requireVerdict", () => {
+  assert.deepEqual(parseVerdict(1, '{"outcome":"advance"}'), { outcome: "fail", reason: "non-zero exit (1)" });
+  assert.deepEqual(parseVerdict(1, '{"outcome":"advance"}', { requireVerdict: true }), { outcome: "fail", reason: "non-zero exit (1)" });
+  assert.deepEqual(parseVerdict(1, null, { requireVerdict: true }), { outcome: "fail", reason: "non-zero exit (1)" });
+});
+
+test("parseVerdict: a valid verdict passes through unchanged, flag on or off", () => {
+  const v = parseVerdict(0, '{"outcome":"hold","reason":"q"}');
+  assert.equal(v.outcome, "hold");
+  assert.equal(v.reason, "q");
+  const v2 = parseVerdict(0, '{"outcome":"hold","reason":"q"}', { requireVerdict: true });
+  assert.equal(v2.outcome, "hold");
+  assert.equal(v2.reason, "q");
+});
+
+test("parseVerdict: missing verdict text (null) defaults to advance when flag is off", () => {
+  assert.deepEqual(parseVerdict(0, null), { outcome: "advance", reason: "no verdict file — defaulting to advance" });
+});
+
+test("parseVerdict: missing verdict text (null) holds when requireVerdict is on", () => {
+  assert.deepEqual(parseVerdict(0, null, { requireVerdict: true }), { outcome: "hold", reason: "no valid verdict (requireVerdict)" });
+});
+
+test("parseVerdict: garbage JSON defaults to advance when flag is off", () => {
+  assert.deepEqual(parseVerdict(0, "not json"), { outcome: "advance", reason: "no verdict file — defaulting to advance" });
+});
+
+test("parseVerdict: garbage JSON holds when requireVerdict is on", () => {
+  assert.deepEqual(parseVerdict(0, "not json", { requireVerdict: true }), { outcome: "hold", reason: "no valid verdict (requireVerdict)" });
+});
+
+test("parseVerdict: unrecognized outcome defaults to advance when flag is off", () => {
+  const v = parseVerdict(0, '{"outcome":"bogus"}');
+  assert.equal(v.outcome, "advance");
+  assert.match(v.reason, /unrecognized verdict/);
+});
+
+test("parseVerdict: unrecognized outcome holds when requireVerdict is on", () => {
+  assert.deepEqual(parseVerdict(0, '{"outcome":"bogus"}', { requireVerdict: true }), { outcome: "hold", reason: "no valid verdict (requireVerdict)" });
+});
+
 // --- readVerdict difficulty parsing ---
 // readVerdict is not exported; we test it indirectly by writing a real verdict file
 // and exercising the exported resolveModelEffort for the gating logic. For the parsing
@@ -302,16 +345,19 @@ function heldHarness({ steps } = {}) {
   const store = createStore(dir);
   /** @type {any[]} */
   const advanced = [];
+  /** @type {any[]} */
+  const events = [];
   const adapter = /** @type {any} */ ({
     describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
   });
-  const run = createDispatcher(cfg, adapter, undefined, store);
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
   const promptOut = path.join(dir, "prompt.txt");
   /** @param {string} stepId @param {any} verdict @param {string} [comment] @param {{prompt?: boolean}} [o] */
   const runStep = async (stepId, verdict, comment, { prompt = true } = {}) => {
-    process.env.FAKE_VERDICT = JSON.stringify(verdict);
+    process.env.FAKE_VERDICT = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
     process.env.FAKE_PROMPT_OUT = promptOut;
     const log = console.log;
     console.log = () => {};
@@ -322,7 +368,7 @@ function heldHarness({ steps } = {}) {
     }
     return prompt ? fs.readFileSync(promptOut, "utf8") : "";
   };
-  return { store, advanced, runStep, run, dir };
+  return { store, advanced, events, runStep, run, dir };
 }
 
 test("dispatch: a hold verdict writes held.json[ref]; the next run of any step clears it", async () => {
@@ -361,6 +407,32 @@ test("dispatch: a held ref that later fails ends with no held record", async () 
   assert.equal(store.getHeld("42")?.stepId, "triage");
   await runStep("triage", { outcome: "fail" }, "@agent try again");
   assert.equal(store.getHeld("42"), undefined);
+});
+
+// --- requireVerdict (#358): a clean exit with no valid verdict holds instead of advancing ---
+
+test("dispatch: requireVerdict holds on a clean exit with no readable verdict (empty file)", async () => {
+  const h = heldHarness({ steps: [{ id: "code", requireVerdict: true }, { id: "done", manual: true }] });
+  await h.runStep("code", "");
+  assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
+  assert.equal(h.store.getHeld("42")?.stepId, "code");
+  assert.equal(h.store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+  const blocked = h.events.find((e) => e.event === "blocked");
+  assert.equal(blocked?.reason, "no valid verdict (requireVerdict)");
+});
+
+test("dispatch: requireVerdict holds on garbage verdict JSON too", async () => {
+  const h = heldHarness({ steps: [{ id: "code", requireVerdict: true }, { id: "done", manual: true }] });
+  await h.runStep("code", "not json");
+  assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
+  assert.equal(h.store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+});
+
+test("dispatch: without requireVerdict, the same no-verdict run still advances", async () => {
+  const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }] });
+  await h.runStep("code", "");
+  assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
+  assert.equal(h.store.getHeld("42"), undefined);
 });
 
 test("dispatch: the manual drain step clears the held record", async () => {
@@ -1056,6 +1128,13 @@ test("timeout: a run past maxMinutes is killed and fails with `timeout`; a pre-k
   assert.match(r.logText, /\[agenthook\] killed: timeout: exceeded maxMinutes=0\.001/);
   assert.equal(r.verdictLeft, false, "verdict file still removed");
   assert.equal(r.children.size, 0);
+});
+
+test("timeout: a run past maxMinutes still fails with requireVerdict:true (timeout wins over the flag)", async () => {
+  const r = await timeoutRun(`exec sleep 5`, { maxMinutes: 0.001, requireVerdict: true });
+  assert.equal(r.advanced.length, 1);
+  assert.equal(r.advanced[0].outcome, "fail");
+  assert.match(r.advanced[0].reason, /^timeout/);
 });
 
 test("timeout: idleMinutes kills a silent agent", async () => {

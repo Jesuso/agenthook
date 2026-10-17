@@ -239,6 +239,52 @@ export function parseSummary(raw) {
   return /** @type {Record<string, unknown>} */ (raw);
 }
 
+const MAX_FINDINGS = 20000;
+
+/**
+ * Resolve the run's verdict from (exit code, raw verdict-file text or null when
+ * unreadable). A non-zero exit is a crashed/errored agent → fail, and its text is NOT
+ * trusted. A clean exit honors a valid verdict; a missing/garbage one defaults to
+ * `advance` (the "clean exit advances" spine from P1) unless the step opts into
+ * `requireVerdict`, which holds it instead so a weak/local `bin` that exits 0 without
+ * doing the work doesn't get silently pushed to the next step.
+ * @param {number} code @param {string|null} text @param {{requireVerdict?: boolean}} [opts]
+ * @returns {import('./types.js').Verdict}
+ */
+export function parseVerdict(code, text, { requireVerdict = false } = {}) {
+  if (code !== 0) return { outcome: "fail", reason: `non-zero exit (${code})` };
+  let raw;
+  if (text === null) {
+    return requireVerdict
+      ? { outcome: "hold", reason: "no valid verdict (requireVerdict)" }
+      : { outcome: "advance", reason: "no verdict file — defaulting to advance" };
+  }
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return requireVerdict
+      ? { outcome: "hold", reason: "no valid verdict (requireVerdict)" }
+      : { outcome: "advance", reason: "no verdict file — defaulting to advance" };
+  }
+  const allowed = ["advance", "fail", "hold", "changes"];
+  if (!allowed.includes(raw?.outcome)) {
+    return requireVerdict
+      ? { outcome: "hold", reason: "no valid verdict (requireVerdict)" }
+      : { outcome: "advance", reason: `unrecognized verdict ${JSON.stringify(raw?.outcome)} — defaulting to advance` };
+  }
+  return {
+    outcome: raw.outcome,
+    target: typeof raw.target === "string" ? raw.target : undefined,
+    reason: typeof raw.reason === "string" ? raw.reason : undefined,
+    difficulty: DIFFICULTIES.includes(raw?.difficulty) ? raw.difficulty : undefined,
+    findings: typeof raw.findings === "string" && raw.findings.trim()
+      ? (raw.findings.length > MAX_FINDINGS ? `${raw.findings.slice(0, MAX_FINDINGS)}…(truncated)` : raw.findings)
+      : undefined,
+    paths: sanitizePaths(raw.paths),
+    summary: parseSummary(raw.summary),
+  };
+}
+
 /**
  * True iff every heading starts some line of `description`, case-insensitive, after
  * trimming leading whitespace and stripping heading/emphasis markers (`#`, `h1.`–`h6.`,
@@ -505,38 +551,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     return path.join(dir, `${safeRef}-${stepId}.json`);
   }
 
-  const MAX_FINDINGS = 20000;
-
-  /**
-   * Resolve the run's verdict from (exit code, verdict file). A non-zero exit is a
-   * crashed/errored agent → fail, and its file is NOT trusted. A clean exit honors a
-   * valid verdict file; a missing/garbage one defaults to `advance` (the "clean exit
-   * advances" spine from P1). @param {number} code @param {string} verdictFile
-   * @returns {import('./types.js').Verdict}
-   */
-  function readVerdict(code, verdictFile) {
-    if (code !== 0) return { outcome: "fail", reason: `non-zero exit (${code})` };
-    let raw;
+  /** @param {number} code @param {string} verdictFile @param {import('./types.js').Step} step
+   * @returns {import('./types.js').Verdict} */
+  function readVerdict(code, verdictFile, step) {
+    let text = null;
     try {
-      raw = JSON.parse(fs.readFileSync(verdictFile, "utf8"));
+      text = fs.readFileSync(verdictFile, "utf8");
     } catch {
-      return { outcome: "advance", reason: "no verdict file — defaulting to advance" };
+      /* missing/unreadable — parseVerdict treats text=null like garbage JSON */
     }
-    const allowed = ["advance", "fail", "hold", "changes"];
-    if (!allowed.includes(raw?.outcome)) {
-      return { outcome: "advance", reason: `unrecognized verdict ${JSON.stringify(raw?.outcome)} — defaulting to advance` };
-    }
-    return {
-      outcome: raw.outcome,
-      target: typeof raw.target === "string" ? raw.target : undefined,
-      reason: typeof raw.reason === "string" ? raw.reason : undefined,
-      difficulty: DIFFICULTIES.includes(raw?.difficulty) ? raw.difficulty : undefined,
-      findings: typeof raw.findings === "string" && raw.findings.trim()
-        ? (raw.findings.length > MAX_FINDINGS ? `${raw.findings.slice(0, MAX_FINDINGS)}…(truncated)` : raw.findings)
-        : undefined,
-      paths: sanitizePaths(raw.paths),
-      summary: parseSummary(raw.summary),
-    };
+    return parseVerdict(code, text, { requireVerdict: !!step?.requireVerdict });
   }
 
   /**
@@ -1033,7 +1057,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       ? { outcome: "fail", reason: CANCELLED_REASON }
       : timedOut
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
-      : readVerdict(code, verdictFile);
+      : readVerdict(code, verdictFile, step);
     try {
       fs.rmSync(verdictFile, { force: true });
     } catch {

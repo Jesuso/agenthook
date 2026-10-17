@@ -123,7 +123,8 @@ exiting, and `dispatch.js` reads it after the process closes:
 | `fail` | failure section | needs a human; can't proceed unattended |
 
 Trust rules: a **non-zero exit is always `fail`** (a crashed agent's verdict isn't trusted); a
-**clean exit with no/garbage file defaults to `advance`** (the "clean exit advances" spine). The
+**clean exit with no/garbage file defaults to `advance`** (the "clean exit advances" spine),
+unless the step sets `requireVerdict`, which holds it instead. The
 `changes` loop keeps the worktree + draft PR (the re-fired step reworks the same branch, reading
 the review feedback off the PR) and is **capped**: `maxAttempts` (default 3) runs of a step per
 task, after which a further `changes` is forced to `fail` — bounding an endless code↔review

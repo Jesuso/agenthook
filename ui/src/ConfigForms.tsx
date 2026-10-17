@@ -863,6 +863,9 @@ export function PipelineForm(
                       )}
                       {showCloseIssue && <CheckField {...edit} path={at("closeIssue")} value={s.closeIssue} />}
                       {showCompleteTask && <CheckField {...edit} path={at("completeTask")} value={s.completeTask} />}
+                      {(s.manual !== true || s.requireVerdict !== undefined) && (
+                        <CheckField {...edit} path={at("requireVerdict")} value={s.requireVerdict} />
+                      )}
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <TextField {...edit} path={at("bin")} value={s.bin} />

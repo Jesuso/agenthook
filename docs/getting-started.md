@@ -148,6 +148,10 @@ Extra step fields you'll want to know:
   env). Put secret values in `${VAR}` refs, not literals. `AGENTHOOK_VERDICT_FILE` is reserved.
   `agenthook doctor` checks each step `bin` is on PATH; `agenthook resume` reuses the step's
   `bin`/`env`.
+- `requireVerdict` (default off) — a clean exit with a missing/unparseable/unrecognized verdict
+  file holds the task (instead of today's default `advance`), so a weaker/local `bin` that exits 0
+  without doing the work doesn't get silently pushed to the next step. Suggested on a step whose
+  `bin` is a weak/local model. Not valid on a `manual` step.
 - `lite` — `{ "descriptionHeadings": ["Technical Notes", "Acceptance Criteria"], "model"?, "effort"? }`,
   intended for `triage`. When **every** heading starts a line of the ticket description (case-insensitive;
   leading `#`, `h2.`, `*`, `_`, `>` markers ignored), the step's base model/effort is replaced by
