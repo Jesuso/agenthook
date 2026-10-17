@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-16
+
 ### Added
 
 - **Epics** — insight into large groups of tickets, on all four trackers. An **epic** is a tracker
@@ -26,6 +28,11 @@ All notable changes to this project are documented here. The format is based on
 - `agenthook epics [name] [--ref <epic>] [--fresh] [--json]`, the MCP `epics` tool and
   `tick --epics` give agents and terminals the same payload; the **Digest** mentions epics that need
   you or have progress worth noting.
+- **Ready to close**: an epic that is still open while every ticket is finished (and none needs you)
+  is flagged on the epic only — a chip in the Epics list, a banner on the epic page, `readyToClose` in
+  the `epics` payload and a line in the Digest. It never counts in the profile's headline Needs you,
+  and agenthook never closes the epic itself. Only computed from a live read, never the offline
+  fallback.
 - `epic_changed` event (GitHub and Jira): the tracker delivered an epic-structure change (a child
   gained or lost its parent, an epic created or retyped). Read-only signal that refreshes the Epics
   view; hidden by default like `coalesced`. Asana sends nothing for these changes, so its view
@@ -39,6 +46,11 @@ All notable changes to this project are documented here. The format is based on
   the Epics view).
 - `ui/dist` is not in git — after pulling, run `npm run build:ui` (and restart `ah ui`) to get the
   new dashboard.
+
+- A GitHub personal-account repo (no issue types) no longer logs a warning on every epics read: the
+  `422` on the issue-type query is noted once, then skipped.
+- Turning on a `forge` for the first time makes finished tickets with a known PR read as "PR awaiting
+  merge" until the `prs` op has recorded their merged state (it learns 20 per call).
 
 ### Known limits
 
