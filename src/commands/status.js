@@ -136,7 +136,7 @@ export async function status(args) {
     let hasCost = false;
     for (const r of usageRecords) {
       totalTokens += (r.input || 0) + (r.output || 0);
-      if (r.costUsd != null) { totalCost += r.costUsd; hasCost = true; }
+      if (r.costUsd != null && !r.unpriced) { totalCost += r.costUsd; hasCost = true; }
     }
     const costStr = hasCost ? `, $${totalCost.toFixed(2)}` : "";
     console.log(`usage   : ${fmtTokens(totalTokens)} tokens${costStr} over ${usageRecords.length} run(s)`);

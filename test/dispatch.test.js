@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict } from "../src/dispatch.js";
+import { buildClaudeArgs, resolveModelEffort, createStreamParser, buildUsageRecord, isUnpriced, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict } from "../src/dispatch.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -192,6 +192,43 @@ test("buildUsageRecord: explicit step model wins over modelUsage key", () => {
   });
   assert.equal(rec.model, "claude-sonnet-5");
   assert.deepEqual([rec.input, rec.output, rec.cacheRead, rec.cacheCreate], [0, 0, 0, 0]);
+});
+
+// --- isUnpriced / unpriced usage records (local models) ---
+
+test("isUnpriced: Claude models and the CLI default are priced", () => {
+  assert.equal(isUnpriced({}), false, "unset model + no bin");
+  for (const model of ["claude-sonnet-4-5", "opus", "sonnet[1m]", "Haiku", "default", "opusplan", "best", "us.anthropic.claude-sonnet-4-5-v1:0", "claude-opus-4-1@20250805"]) {
+    assert.equal(isUnpriced({ model }), false, model);
+  }
+});
+
+test("isUnpriced: non-Claude models are unpriced", () => {
+  for (const model of ["qwen3-coder", "llama3", "gpt-oss:20b", "sonnet-ish"]) assert.equal(isUnpriced({ model }), true, model);
+});
+
+test("isUnpriced: a bin other than claudeBin is unpriced even on a Claude model; the same bin is not", () => {
+  assert.equal(isUnpriced({ model: "claude-sonnet-4-5", bin: "claude-local", claudeBin: "claude" }), true);
+  assert.equal(isUnpriced({ bin: "claude-local", claudeBin: "claude" }), true);
+  assert.equal(isUnpriced({ model: "opus", bin: "claude", claudeBin: "claude" }), false);
+});
+
+test("buildUsageRecord: a priced record has no bin/unpriced keys", () => {
+  const rec = buildUsageRecord({ ref: "1", stepId: "code", bin: "claude", claudeBin: "claude", startedAt: "a", endedAt: "b", result: { usage: {}, total_cost_usd: 0.5, modelUsage: { "claude-opus-4-8": {} } } });
+  assert.equal("bin" in rec, false);
+  assert.equal("unpriced" in rec, false);
+  assert.equal(rec.costUsd, 0.5);
+});
+
+test("buildUsageRecord: an unpriced record is tagged and keeps its raw cost (audit)", () => {
+  const byModel = buildUsageRecord({ ref: "1", stepId: "triage", claudeBin: "claude", startedAt: "a", endedAt: "b", result: { usage: { input_tokens: 9 }, total_cost_usd: 0.5, modelUsage: { "qwen3-coder": {} } } });
+  assert.equal(byModel.unpriced, true);
+  assert.equal("bin" in byModel, false);
+  assert.equal(byModel.input, 9);
+  assert.equal(byModel.costUsd, 0.5);
+  const byBin = buildUsageRecord({ ref: "1", stepId: "triage", model: "sonnet", bin: "claude-local", claudeBin: "claude", startedAt: "a", endedAt: "b", result: { usage: {} } });
+  assert.equal(byBin.unpriced, true);
+  assert.equal(byBin.bin, "claude-local");
 });
 
 // --- parseVerdict: requireVerdict x {valid, missing, garbage, unknown outcome, non-zero exit} ---
@@ -1305,4 +1342,22 @@ test("dispatch: a bad summary is dropped with the outcome kept; a changes verdic
   assert.equal(store.getSummaries("42"), undefined);
   await runStep("review", { outcome: "changes", summary: { tier: "medium" } });
   assert.equal(store.getSummaries("42")?.review?.outcome, "changes");
+});
+
+// --- run_end of an unpriced (local-model) run: no costUsd, unpriced:true ---
+
+const RESULT_LINE = JSON.stringify({ type: "result", total_cost_usd: 0.75, usage: { input_tokens: 10, output_tokens: 5 }, modelUsage: { "claude-opus-4-8": {} } });
+
+test("run_end: a priced run carries costUsd and no unpriced key", async () => {
+  const r = await timeoutRun(`echo '${RESULT_LINE}'`, {});
+  const end = r.events.find((e) => e.event === "run_end");
+  assert.equal(end?.costUsd, 0.75);
+  assert.equal("unpriced" in end, false);
+});
+
+test("run_end: a non-Claude step model is unpriced — no costUsd", async () => {
+  const r = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "qwen3-coder" });
+  const end = r.events.find((e) => e.event === "run_end");
+  assert.equal(end?.unpriced, true);
+  assert.equal("costUsd" in end, false);
 });

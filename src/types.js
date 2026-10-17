@@ -159,6 +159,7 @@
  * @property {string} ref
  * @property {string} stepId
  * @property {string} [model]      model that ran (step `--model`, else the `modelUsage` key)
+ * @property {string} [bin]        the step's agent binary, only when it differs from `claudeBin`
  * @property {string} startedAt    ISO timestamp the run was spawned
  * @property {string} endedAt      ISO timestamp the run exited
  * @property {number} [durationMs] `result.duration_ms` if present
@@ -166,8 +167,9 @@
  * @property {number} output       usage.output_tokens
  * @property {number} cacheRead    usage.cache_read_input_tokens
  * @property {number} cacheCreate  usage.cache_creation_input_tokens
- * @property {number} [costUsd]    result.total_cost_usd
+ * @property {number} [costUsd]    result.total_cost_usd (kept raw even when `unpriced` — readers ignore it then)
  * @property {string} [sessionId]  result.session_id
+ * @property {true} [unpriced]     local model (step `bin` or a non-Claude model): `costUsd` is not real spend
  */
 
 /**

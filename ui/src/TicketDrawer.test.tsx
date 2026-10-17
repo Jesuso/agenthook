@@ -52,6 +52,13 @@ describe("TicketDrawer", () => {
     expect(html).toContain('aria-label="Close"');
   });
 
+  it("ticket total is a dash when only unpriced (local-model) runs exist", () => {
+    // run_end of an unpriced run carries no costUsd, so the ticket's summed cost stays 0.
+    const html = render({ ...row, costUsd: 0 });
+    expect(html).toMatch(/title="total cost:[^"]*">—</);
+    expect(html).not.toContain("$");
+  });
+
   it("falls back to the ref when the row is filtered out of the snapshot", () => {
     const html = render(undefined);
     expect(html).toContain('<span class="shrink-0 font-mono">221</span>');

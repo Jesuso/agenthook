@@ -19,6 +19,13 @@ emit one JSON object per line on stdout. agenthook parses that stream live:
 `total_cost_usd` is the `claude` CLI's own cost figure, surfaced verbatim. agenthook does not
 compute or estimate costs itself.
 
+The exception is an **unpriced** run: a step on a local model (a step `bin` other than
+`claudeBin`, or a non-Claude `model`). `claude` still prices it from its Claude price table, so
+the figure is not real spend. The record is tagged `unpriced: true` and every total leaves its
+cost out (tokens still count): `ah usage` shows `local` in its `$` cell, and its `run_end` event
+carries no `costUsd`, so the web UI's costs exclude it too. See
+[Mixed pipelines / local models](local-models.md).
+
 ## Where records live
 
 `usage.jsonl` sits in the central state directory for the profile:
@@ -34,6 +41,7 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `ref`         | string   | The task identifier (issue number, Asana gid, …)        |
 | `stepId`      | string   | The pipeline step that ran (`code`, `review`, …)        |
 | `model`       | string?  | Model that ran (from the step config or `modelUsage`)   |
+| `bin`         | string?  | The step's agent binary, only when it differs from `claudeBin` |
 | `startedAt`   | string   | ISO timestamp — when the run was spawned                 |
 | `endedAt`     | string   | ISO timestamp — when the run exited                     |
 | `durationMs`  | number?  | `result.duration_ms` if reported by the CLI             |
@@ -43,6 +51,7 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `cacheCreate` | number   | `usage.cache_creation_input_tokens`                     |
 | `costUsd`     | number?  | `result.total_cost_usd` (the CLI's own cost figure)     |
 | `sessionId`   | string?  | `result.session_id`                                     |
+| `unpriced`    | `true`?  | Local-model run: `costUsd` is kept for audit but left out of every spend total |
 
 ## `ah usage`
 
@@ -55,7 +64,8 @@ ah usage --limit <n>        # cap rows shown (totals are still over the full set
 ```
 
 **Default per-run table** columns: `Ref`, `Step`, `Model`, `Input`, `Output`, `CacheRead`,
-`CacheCreate`, `$`. A `TOTAL` row is appended.
+`CacheCreate`, `$`. A `TOTAL` row is appended. An unpriced run's `$` cell reads `local`; the
+`TOTAL` (and rollup) `$` sums priced runs only, `—` when none is priced.
 
 ```
 Ref   Step    Model                Input   Output  CacheRead  CacheCreate       $

@@ -217,7 +217,7 @@ export function compactEvent(e) {
   const { ts, event, ref, step, ...rest } = e;
   /** @type {Record<string, any>} */
   const out = { ts, e: event, ref, ...(step ? { step } : {}) };
-  for (const k of ["outcome", "reason", "detail", "costUsd", "target", "action", "displayId", "moveTo", "pr", "sha", "mergeable", "mergeState"]) {
+  for (const k of ["outcome", "reason", "detail", "costUsd", "unpriced", "target", "action", "displayId", "moveTo", "pr", "sha", "mergeable", "mergeState"]) {
     if (rest[k] !== undefined && rest[k] !== null) out[k] = k === "reason" || k === "detail" ? clip(rest[k], REASON_MAX) : rest[k];
   }
   return out;

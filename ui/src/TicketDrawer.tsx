@@ -7,6 +7,7 @@ import {
   chunkRanges,
   emptyLog,
   formatOutcome,
+  formatRunCost,
   isAtBottom,
   lineAt,
   lineCount,
@@ -170,7 +171,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
                         <td className="px-2 py-1">
                           <Pill tone={outcomeTone(r)}>{formatOutcome(r)}</Pill>
                         </td>
-                        <td className="px-2 py-1 font-mono">{formatCost(r.costUsd ?? 0)}</td>
+                        <td className="px-2 py-1 font-mono">{formatRunCost(r)}</td>
                       </tr>
                     );
                   })}
