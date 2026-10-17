@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { json } from "@codemirror/lang-json";
 import type { ConfigView as ConfigBody, ProfileView } from "./contract";
 import { profileLabel } from "./format";
@@ -11,6 +11,7 @@ import type { StagesState } from "./ConfigForms";
 import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
 import { layoutPipeline } from "./pipelineGraph";
 import { PipelineGraph } from "./PipelineGraph";
+import { overflowEdges, revealScrollLeft } from "./scrollRow";
 import { classifySaveResponse, freshSave, saveErrorText, saveReducer } from "./save";
 import type { SaveAction, SaveState } from "./save";
 import {
@@ -42,6 +43,10 @@ const JSON_LANG = json();
 const OVERWRITE_TITLE = "Overwrite the on-disk config with your buffer?";
 const OVERWRITE_BODY = "The on-disk changes will be replaced (the previous content is kept as a backup).";
 const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: "as of last save", rejected: "save rejected" };
+// Below `sm` (phones): a 40px touch target; desktop keeps the compact size.
+const TOUCH = "min-h-10 min-w-10 sm:min-h-0 sm:min-w-0";
+// How far a revealed tab stays clear of the row's edge fade.
+const TAB_FADE_PX = 32;
 
 /**
  * The profile's raw `agenthook.config.json` in a JSON CodeMirror editor. Saves reuse the
@@ -94,6 +99,15 @@ export default function ConfigView(props: {
   const [graphOpen, setGraphOpen] = useState(true);
   // A graph step click: the Pipeline form opens + scrolls to that card (`nonce` re-fires a repeat click).
   const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
+  // The tab strip scrolls sideways when it doesn't fit (phones): which edges get a fade.
+  const tabRow = useRef<HTMLDivElement>(null);
+  const [tabEdges, setTabEdges] = useState({ start: false, end: false });
+  const measureTabs = () => {
+    const row = tabRow.current;
+    if (!row) return;
+    const next = overflowEdges(row);
+    setTabEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+  };
   // Discover for `profile` (null = not fetched yet for the open profile); only the latest fetch lands.
   const [stages, setStages] = useState<(StagesState & { profile: string }) | null>(null);
   const discoverSeq = useRef(0);
@@ -153,6 +167,26 @@ export default function ConfigView(props: {
   useEffect(() => {
     if (parsed && !parsed.ok && pane !== "raw") setPane("raw");
   }, [parsed?.ok]);
+
+  // Keep the active tab in view (horizontal only — the page itself never scrolls for it, so a graph
+  // click's scroll to a step card holds), then re-read the edge fades. Also on load and resize.
+  const tabsShown = file.kind === "ok";
+  useLayoutEffect(() => {
+    const row = tabRow.current;
+    const tab = row?.querySelector<HTMLElement>(`[data-config-pane="${pane}"]`);
+    if (row && tab) {
+      const r = row.getBoundingClientRect();
+      const t = tab.getBoundingClientRect();
+      const start = t.left - r.left + row.scrollLeft;
+      const left = revealScrollLeft(row, { start, end: start + t.width }, TAB_FADE_PX);
+      if (left !== row.scrollLeft) row.scrollLeft = left;
+    }
+    measureTabs();
+  }, [pane, tabsShown]);
+  useEffect(() => {
+    window.addEventListener("resize", measureTabs);
+    return () => window.removeEventListener("resize", measureTabs);
+  }, []);
 
   const switchPane = (next: Pane) => {
     if (next === pane) return;
@@ -294,7 +328,7 @@ export default function ConfigView(props: {
         {changes.length > 0 && (
           <>
             <p className="mt-2 font-semibold">Sensitive fields change:</p>
-            <ul className="font-mono text-xs">
+            <ul className="break-all font-mono text-xs">
               {changes.map((c) => (
                 <li key={c.path}>
                   {sensitiveLabel(c.path)}: {c.from} → {c.to}
@@ -417,8 +451,9 @@ export default function ConfigView(props: {
   const showRaw = pane === "raw" || !parsed?.ok;
 
   return (
-    <div className={showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col" : "flex flex-col"}>
-      <div className="mb-3 flex items-center gap-3 text-sm">
+    <div className={showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] min-w-0 flex-col" : "flex min-w-0 flex-col"}>
+      {/* Below `sm` the path drops to its own row under the select + actions; desktop is one row. */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm sm:flex-nowrap">
         <select
           className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
           value={profile}
@@ -431,7 +466,7 @@ export default function ConfigView(props: {
           ))}
         </select>
         {open && (
-          <span className="truncate font-mono text-xs text-[var(--color-muted)]" title={open.path}>
+          <span data-config-path className="order-last w-full min-w-0 truncate font-mono text-xs text-[var(--color-muted)] sm:order-none sm:w-auto" title={open.path}>
             {open.path}
           </span>
         )}
@@ -473,7 +508,7 @@ export default function ConfigView(props: {
       {file.kind === "ok" && open && doc && (
         <>
           {savedNote && (
-            <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm">
+            <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm sm:flex-nowrap">
               <span>Saved — takes effect on restart.</span>
               {restartLine && (
                 <span
@@ -500,7 +535,7 @@ export default function ConfigView(props: {
             </div>
           )}
           {moving ? (
-            <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm">
+            <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm sm:flex-nowrap">
               <span>
                 {restart.kind !== "up" ? "Moving" : profile === moving.to ? "Moved" : "Move failed (see receiver.log):"} state dir{" "}
                 <span className="font-mono">~/.agenthook/{moving.from}/</span> → <span className="font-mono">~/.agenthook/{moving.to}/</span>
@@ -523,7 +558,7 @@ export default function ConfigView(props: {
           ) : (
             moveTo &&
             !dirty && (
-              <div className="mb-2 flex items-center gap-3 rounded border border-[var(--color-border)] px-3 py-1.5 text-sm">
+              <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-border)] px-3 py-1.5 text-sm sm:flex-nowrap">
                 <span>
                   Label <span className="font-mono">{moveTo}</span> differs from the state key <span className="font-mono">{profile}</span>.
                 </span>
@@ -544,7 +579,7 @@ export default function ConfigView(props: {
             )
           )}
           {(phase === "conflict" || phase === "deleted") && (
-            <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
+            <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held sm:flex-nowrap">
               {phase === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
               <span className="ml-auto flex gap-2">
                 <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile)}>
@@ -564,7 +599,7 @@ export default function ConfigView(props: {
             </div>
           )}
           {file.meta.literalSecrets.length > 0 && (
-            <div className="mb-2 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
+            <div className="mb-2 break-words rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
               ⚠ Literal secret{file.meta.literalSecrets.length === 1 ? "" : "s"} in{" "}
               <span className="font-mono">{file.meta.literalSecrets.join(", ")}</span> — prefer a <span className="font-mono">{"${VAR}"}</span> ref
               (saving is still allowed).
@@ -635,31 +670,44 @@ export default function ConfigView(props: {
               </div>
             );
           })()}
-          <div className="mb-2 flex gap-1 border-b border-[var(--color-border)] text-sm">
-            {PANES.map((t) => (
-              <button
-                key={t}
-                data-config-pane={t}
-                className={`-mb-px border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${t === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
-                disabled={t !== "raw" && !parsed?.ok}
-                title={t !== "raw" && !parsed?.ok ? "fix the JSON in Raw first" : undefined}
-                onClick={() => switchPane(t)}
-              >
-                {t}
-              </button>
-            ))}
-            {!parsed?.ok && <span className="self-center px-2 text-xs text-[var(--color-muted)]">fix the JSON in Raw first</span>}
+          {/* Scrolls sideways when it doesn't fit (never wraps); a fade marks each side with hidden tabs.
+              The baseline is an inset shadow, not a border the tabs overlap with -mb-px — that 1px
+              would overflow the scroll box vertically. */}
+          <div className="relative mb-2">
+            <div
+              ref={tabRow}
+              data-config-tabs
+              onScroll={measureTabs}
+              className="flex flex-nowrap gap-1 overflow-x-auto text-sm shadow-[inset_0_-1px_0_var(--color-border)] [scrollbar-width:thin]"
+            >
+              {PANES.map((t) => (
+                <button
+                  key={t}
+                  data-config-pane={t}
+                  className={`${TOUCH} shrink-0 border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${t === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
+                  disabled={t !== "raw" && !parsed?.ok}
+                  title={t !== "raw" && !parsed?.ok ? "fix the JSON in Raw first" : undefined}
+                  onClick={() => switchPane(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {tabEdges.start && <span data-tab-fade="start" className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-linear-to-r from-[var(--color-bg)] to-transparent" />}
+            {tabEdges.end && <span data-tab-fade="end" className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-linear-to-l from-[var(--color-bg)] to-transparent" />}
           </div>
+          {!parsed?.ok && <p className="-mt-1 mb-2 text-xs text-[var(--color-muted)]">fix the JSON in Raw first</p>}
           <div className="mb-2 rounded border border-[var(--color-border)]">
             <button
-              className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs uppercase tracking-wide text-[var(--color-muted)]"
+              className="flex min-h-10 w-full items-center gap-2 px-2 py-1 text-left text-xs uppercase tracking-wide text-[var(--color-muted)] sm:min-h-0"
               onClick={() => setGraphOpen((o) => !o)}
             >
               <span>{graphOpen ? "▾" : "▸"}</span>
               Pipeline graph
             </button>
             {graphOpen && (
-              <div className="border-t border-[var(--color-border)] p-2">
+              // Height-capped on phones so the form below stays reachable; the graph scrolls inside.
+              <div data-config-graph className="max-h-64 overflow-auto border-t border-[var(--color-border)] p-2 sm:max-h-none sm:overflow-visible">
                 {parsed?.ok ? (
                   <PipelineGraph
                     layout={layoutPipeline(
@@ -675,7 +723,7 @@ export default function ConfigView(props: {
               </div>
             )}
           </div>
-          <div className={showRaw ? "flex min-h-0 flex-1" : "flex flex-col"}>
+          <div className={showRaw ? "flex min-h-0 min-w-0 flex-1" : "flex min-w-0 flex-col"}>
             <div data-config-pane-host className={showRaw ? "min-w-0 flex-1 overflow-auto" : "min-w-0"}>
               <ConfirmContext.Provider value={ask}>
                 {pane === "raw" || !parsed?.ok ? (
@@ -720,7 +768,7 @@ export default function ConfigView(props: {
           {sensitive.length > 0 && (
             <div className="mb-2 rounded border border-status-held bg-status-held-bg px-3 py-2 text-sm text-status-held">
               <p className="mb-1 font-semibold">Sensitive fields change:</p>
-              <ul className="mb-2 font-mono text-xs">
+              <ul className="mb-2 break-all font-mono text-xs">
                 {sensitive.map((c) => (
                   <li key={c.path}>
                     {sensitiveLabel(c.path)}: {c.from} → {c.to}
@@ -796,7 +844,7 @@ export default function ConfigView(props: {
         </Modal>
       )}
       {toast && (
-        <div role="alert" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded border border-status-failed bg-[var(--color-bg)] px-3 py-2 text-sm text-status-failed shadow">
+        <div role="alert" className="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded border border-status-failed bg-[var(--color-bg)] px-3 py-2 text-sm text-status-failed shadow">
           {toast}
           <button aria-label="dismiss" onClick={() => setToast(null)}>
             ×

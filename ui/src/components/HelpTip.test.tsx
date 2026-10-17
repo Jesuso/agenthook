@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
-import { afterEach, describe, expect, it } from "vitest";
-import { HelpTip } from "./HelpTip";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HelpTip, tipShift } from "./HelpTip";
 import { click, mount } from "../domHarness";
 import type { Mounted } from "../domHarness";
 
@@ -9,6 +9,7 @@ let m: Mounted | null = null;
 afterEach(async () => {
   await m?.unmount();
   m = null;
+  vi.restoreAllMocks();
 });
 
 const fire = (target: Element, ev: Event) => act(async () => void target.dispatchEvent(ev));
@@ -77,5 +78,37 @@ describe("HelpTip", () => {
   it("caps the bubble's width to the viewport so it wraps on a phone", async () => {
     m = await mount(<HelpTip label="L" help="H" />);
     expect(parts(m.root).tip.className).toContain("max-w-[min(18rem,calc(100vw-2rem))]");
+  });
+});
+
+describe("tipShift (#372)", () => {
+  it("leaves the bubble at the '?' when it fits", () => {
+    expect(tipShift(40, 200, 320)).toBe(0);
+  });
+
+  it("pulls it left near the right edge, keeping the margin", () => {
+    // A 288px bubble (the 320px cap) from a '?' at 300px: its left lands at 320 - 8 - 288 = 24.
+    expect(tipShift(300, 288, 320)).toBe(24 - 300);
+  });
+
+  it("pushes it right off the left edge", () => {
+    expect(tipShift(2, 100, 320)).toBe(6);
+  });
+});
+
+describe("HelpTip near the viewport edge (#372)", () => {
+  const rect = (left: number, width: number) => ({ left, right: left + width, width, top: 0, bottom: 16, height: 16, x: left, y: 0, toJSON() {} }) as DOMRect;
+
+  it("a tap on a '?' at the right edge of a 320px screen keeps the bubble inside the viewport", async () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(320);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.getAttribute("role") === "tooltip" ? rect(0, 288) : rect(300, 16);
+    });
+    m = await mount(<HelpTip label="L" help="A long help text that wraps across several lines on a phone." />);
+    await click(parts(m.root).button);
+    expect(isOpen(m.root)).toBe(true);
+    const left = parseFloat(parts(m.root).tip.style.left);
+    expect(300 + left).toBeGreaterThanOrEqual(0);
+    expect(300 + left + 288).toBeLessThanOrEqual(320);
   });
 });

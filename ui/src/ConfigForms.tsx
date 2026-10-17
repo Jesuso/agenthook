@@ -73,8 +73,11 @@ export type StagesState = { source: StageSource; body: Discover | null };
 
 type EditProps = { text: string; onEdit: (text: string) => void };
 
-const INPUT = "w-full rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 font-mono text-xs";
+const INPUT = "w-full min-w-0 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 font-mono text-xs";
 const BUTTON = "rounded border border-[var(--color-border)] px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50";
+// Below `sm` (phones): a 40px touch target for expand / move / remove; desktop keeps BUTTON's size.
+const TOUCH = "min-h-10 min-w-10 sm:min-h-0 sm:min-w-0";
+const ICON_BUTTON = `${BUTTON} ${TOUCH} shrink-0`;
 
 /** The tracker-neutral human label for each stage role; the hint shown beside it is the tracker's real key. */
 const ROLE_LABEL: Record<(typeof STAGE_ROLES)[number], string> = {
@@ -131,7 +134,7 @@ function Group(props: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">{props.title}</h4>
-      <div className="grid grid-cols-3 gap-3">{props.children}</div>
+      <div className={FIELD_GRID_3}>{props.children}</div>
     </div>
   );
 }
@@ -318,8 +321,8 @@ function EscalateGroup(props: EditProps & { i: number; step: Record<string, unkn
           const modelPath: JSONPath = [...stepPath(props.i, "escalate"), d, "model"];
           const effortPath: JSONPath = [...stepPath(props.i, "escalate"), d, "effort"];
           return (
-            <div key={d} data-escalate-row={d} className="grid grid-cols-3 gap-3">
-              <span className="col-span-3 -mb-1 text-xs font-medium capitalize text-[var(--color-muted)]">{d}</span>
+            <div key={d} data-escalate-row={d} className={FIELD_GRID_3}>
+              <span className="col-span-full -mb-1 text-xs font-medium capitalize text-[var(--color-muted)]">{d}</span>
               <ModelField text={props.text} onEdit={props.onEdit} path={modelPath} value={row.model} edit={(input) => escalateEdit(props.text, props.i, d, "model", input)} />
               <SelectField text={props.text} onEdit={props.onEdit} path={effortPath} value={row.effort} edit={(input) => escalateEdit(props.text, props.i, d, "effort", input)} />
             </div>
@@ -347,7 +350,7 @@ function EnvField(props: EditProps & { i: number; env: unknown }) {
     setRows(next);
   };
   return (
-    <div className="col-span-3 flex flex-col gap-1" data-step-env>
+    <div className="col-span-full flex flex-col gap-1" data-step-env>
       <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
         {m.label}
         <span className="ml-1 font-mono opacity-70">{m.hint}</span>
@@ -358,7 +361,7 @@ function EnvField(props: EditProps & { i: number; env: unknown }) {
           <li key={idx} className="flex items-center gap-1">
             <input className={INPUT} aria-label="variable name" placeholder="NAME" value={k} onChange={(e) => change(idx, 0, e.target.value)} onBlur={() => commit(rows)} />
             <input className={INPUT} aria-label="variable value" placeholder="value or ${VAR}" value={v} onChange={(e) => change(idx, 1, e.target.value)} onBlur={() => commit(rows)} />
-            <button type="button" className={BUTTON} aria-label="remove variable" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+            <button type="button" className={ICON_BUTTON} aria-label="remove variable" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
               remove
             </button>
           </li>
@@ -387,7 +390,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
     setDraft("");
   };
   return (
-    <div className="col-span-3 flex flex-col gap-1" data-lite-headings>
+    <div className="col-span-full flex flex-col gap-1" data-lite-headings>
       <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
         {m.label}
         <span className="ml-1 font-mono opacity-70">{m.hint}</span>
@@ -408,7 +411,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
             />
             <button
               type="button"
-              className={BUTTON}
+              className={ICON_BUTTON}
               aria-label="move heading up"
               disabled={idx === 0}
               onClick={() => {
@@ -421,7 +424,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
             </button>
             <button
               type="button"
-              className={BUTTON}
+              className={ICON_BUTTON}
               aria-label="move heading down"
               disabled={idx === rows.length - 1}
               onClick={() => {
@@ -432,7 +435,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
             >
               ↓
             </button>
-            <button type="button" className={BUTTON} aria-label="remove heading" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+            <button type="button" className={ICON_BUTTON} aria-label="remove heading" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
               remove
             </button>
           </li>
@@ -440,7 +443,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
       </ul>
       <div className="flex items-center gap-1">
         <input className={INPUT} placeholder="add heading" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} />
-        <button type="button" className={BUTTON} disabled={!draft.trim()} onClick={add}>
+        <button type="button" className={`${BUTTON} shrink-0`} disabled={!draft.trim()} onClick={add}>
           add heading
         </button>
       </div>
@@ -457,7 +460,7 @@ function LiteGroup(props: EditProps & { i: number; step: Record<string, unknown>
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Lite mode</h4>
-      <div className="grid grid-cols-3 gap-3">
+      <div className={FIELD_GRID_3}>
         <LiteHeadingsField text={props.text} onEdit={props.onEdit} i={props.i} headings={headings} />
         <ModelField text={props.text} onEdit={props.onEdit} path={modelPath} value={lite.model} edit={(input) => liteEdit(props.text, props.i, "model", input)} />
         <SelectField text={props.text} onEdit={props.onEdit} path={effortPath} value={lite.effort} edit={(input) => liteEdit(props.text, props.i, "effort", input)} />
@@ -647,7 +650,7 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
           </button>
         </div>
         {emojiOpen && (
-          <div role="radiogroup" aria-label="profile emoji" aria-describedby={emojiHelp} className="grid max-h-56 max-w-md grid-cols-10 gap-1 overflow-y-auto rounded border border-[var(--color-border-subtle)] p-1">
+          <div role="radiogroup" aria-label="profile emoji" aria-describedby={emojiHelp} className="grid max-h-56 max-w-md grid-cols-6 gap-1 overflow-y-auto @[28rem]:grid-cols-10 rounded border border-[var(--color-border-subtle)] p-1">
             {PROFILE_EMOJIS.map((e) => (
               <button
                 key={e}
@@ -739,8 +742,8 @@ export function PipelineForm(
     cards.current[i]?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [props.focus?.nonce]);
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
+    <div className="@container flex flex-col gap-3" data-pipeline-form>
+      <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-muted)]">
         <span>
           tracker <span className="font-mono">{fieldText(tracker) || "(unset)"}</span>
         </span>
@@ -768,8 +771,9 @@ export function PipelineForm(
             data-open={isOpen}
             className={`rounded border p-3 ${errs.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
           >
-            <div className={isOpen ? "mb-2 flex items-center gap-2" : "flex items-center gap-2"}>
-              <button className={BUTTON} aria-label={isOpen ? "collapse step" : "expand step"} aria-expanded={isOpen} onClick={() => toggle(i)}>
+            {/* Wraps below `sm`: the summary may take its own line; ↑/↓/remove stay together. */}
+            <div data-step-header className={`flex flex-wrap items-center gap-2 sm:flex-nowrap ${isOpen ? "mb-2" : ""}`}>
+              <button className={ICON_BUTTON} aria-label={isOpen ? "collapse step" : "expand step"} aria-expanded={isOpen} onClick={() => toggle(i)}>
                 {isOpen ? "▾" : "▸"}
               </button>
               <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
@@ -792,7 +796,7 @@ export function PipelineForm(
               )}
               <span className="ml-auto flex shrink-0 gap-1">
                 <button
-                  className={BUTTON}
+                  className={ICON_BUTTON}
                   aria-label="move up"
                   disabled={i === 0}
                   onClick={() => {
@@ -803,7 +807,7 @@ export function PipelineForm(
                   ↑
                 </button>
                 <button
-                  className={BUTTON}
+                  className={ICON_BUTTON}
                   aria-label="move down"
                   disabled={i === steps.length - 1}
                   onClick={() => {
@@ -814,7 +818,7 @@ export function PipelineForm(
                   ↓
                 </button>
                 <button
-                  className={BUTTON}
+                  className={ICON_BUTTON}
                   onClick={() =>
                     ask({ title: `Remove step "${fieldText(s.id) || i + 1}"?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then((ok) => {
                       if (!ok) return;
@@ -838,7 +842,7 @@ export function PipelineForm(
             )}
             {isOpen && (
               <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-3 gap-3">
+                <div className={FIELD_GRID_3}>
                   <TextField {...edit} path={at("id")} value={s.id} />
                   <SelectField {...edit} path={at("kind")} value={s.kind} />
                   <div className="flex items-end">
@@ -851,7 +855,7 @@ export function PipelineForm(
                       <StageField key={role} {...edit} label={ROLE_LABEL[role]} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
                     ))
                   ) : (
-                    <span className="col-span-3 text-xs text-[var(--color-muted)]">no stage fields for this tracker type — edit stage bindings in Raw</span>
+                    <span className="col-span-full text-xs text-[var(--color-muted)]">no stage fields for this tracker type — edit stage bindings in Raw</span>
                   )}
                 </Group>
                 <Group title="Agent">
@@ -871,19 +875,19 @@ export function PipelineForm(
                     Advanced · {advancedSet(s, tracker, keys).length} set
                   </summary>
                   <div className="mt-2 flex flex-col gap-3">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className={FIELD_GRID_3}>
                       <NumberField {...edit} path={at("maxMinutes")} value={s.maxMinutes} />
                       <NumberField {...edit} path={at("idleMinutes")} value={s.idleMinutes} />
                       <NumberField {...edit} path={at("maxConcurrent")} value={s.maxConcurrent} />
                     </div>
                     {keys && advancedRoles.length > 0 && (
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className={FIELD_GRID_3}>
                         {advancedRoles.map((role) => (
                           <StageField key={role} {...edit} label={ROLE_LABEL[role]} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
                         ))}
                       </div>
                     )}
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className={FIELD_GRID_3}>
                       {(s.manual === true || s.completeOnMerge !== undefined) && (
                         <div className="flex flex-col gap-1">
                           <CheckField {...edit} path={at("completeOnMerge")} value={s.completeOnMerge} />
@@ -902,7 +906,7 @@ export function PipelineForm(
                         <CheckField {...edit} path={at("requireVerdict")} value={s.requireVerdict} />
                       )}
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className={FIELD_GRID_3}>
                       <TextField {...edit} path={at("bin")} value={s.bin} />
                       <EnvField {...edit} i={i} env={s.env} />
                     </div>
@@ -1044,6 +1048,9 @@ function SchemaFields(
 const PANEL = "@container flex max-w-5xl flex-col gap-3 rounded border border-[var(--color-border)] p-3";
 // One column below ~900px of pane width (the container, not the viewport), two above it.
 const FIELD_GRID = "grid grid-cols-1 gap-3 @[56rem]:grid-cols-2";
+// The step cards' three-up grids: one column on a phone, two from ~450px of pane width, three from
+// ~700px (a 768px window's pane) — so ≥ 768px looks as before. `col-span-full` children span every row.
+export const FIELD_GRID_3 = "grid grid-cols-1 gap-3 @[28rem]:grid-cols-2 @[44rem]:grid-cols-3";
 const FORM_WRAP = "flex max-w-5xl flex-col gap-4";
 const NOTE = "text-xs text-[var(--color-muted)]";
 
@@ -1232,7 +1239,7 @@ function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
       {ev.invalid ? (
         <span className={NOTE}>events is not a list of names — edit it in Raw.</span>
       ) : (
-        <div role="group" aria-label="events" aria-describedby={m.help ? helpId : undefined} className="grid grid-cols-3 gap-x-3 gap-y-0.5">
+        <div role="group" aria-label="events" aria-describedby={m.help ? helpId : undefined} className="grid grid-cols-1 gap-x-3 gap-y-0.5 @[28rem]:grid-cols-2 @[44rem]:grid-cols-3">
           {ev.names.map((name) => (
             <label key={name} className="flex items-center gap-1.5 font-mono text-xs">
               <input
@@ -1272,14 +1279,14 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
         <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
         <span className="font-mono text-sm">{s ? typeName : "?"}</span>
         <span className="ml-auto flex shrink-0 gap-1">
-          <button className={BUTTON} aria-label="move sink up" disabled={i === 0} onClick={() => props.onEdit(moveSink(props.text, i, -1))}>
+          <button className={ICON_BUTTON} aria-label="move sink up" disabled={i === 0} onClick={() => props.onEdit(moveSink(props.text, i, -1))}>
             ↑
           </button>
-          <button className={BUTTON} aria-label="move sink down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveSink(props.text, i, 1))}>
+          <button className={ICON_BUTTON} aria-label="move sink down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveSink(props.text, i, 1))}>
             ↓
           </button>
           <button
-            className={BUTTON}
+            className={ICON_BUTTON}
             data-remove-sink
             onClick={() =>
               ask({ title: `Remove sink #${i + 1}${s ? ` (${typeName})` : ""}?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then(
@@ -1398,7 +1405,7 @@ function StringListField(props: EditProps & { path: JSONPath; value: unknown }) 
               {list.map((v) => (
                 <span key={v} className="flex items-center gap-1 rounded border border-[var(--color-border)] px-1.5 py-0.5 font-mono text-xs">
                   {v}
-                  <button type="button" aria-label={`remove ${v}`} onClick={() => props.onEdit(stringListRemove(props.text, props.path, props.value, v))}>
+                  <button type="button" className={`${TOUCH} inline-flex items-center justify-center`} aria-label={`remove ${v}`} onClick={() => props.onEdit(stringListRemove(props.text, props.path, props.value, v))}>
                     ×
                   </button>
                 </span>
@@ -1449,14 +1456,14 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
         <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
         <span className="font-mono text-sm">{label}</span>
         <span className="ml-auto flex shrink-0 gap-1">
-          <button className={BUTTON} aria-label="move repo up" disabled={i === 0} onClick={() => props.onEdit(moveRepo(props.text, i, -1))}>
+          <button className={ICON_BUTTON} aria-label="move repo up" disabled={i === 0} onClick={() => props.onEdit(moveRepo(props.text, i, -1))}>
             ↑
           </button>
-          <button className={BUTTON} aria-label="move repo down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveRepo(props.text, i, 1))}>
+          <button className={ICON_BUTTON} aria-label="move repo down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveRepo(props.text, i, 1))}>
             ↓
           </button>
           <button
-            className={BUTTON}
+            className={ICON_BUTTON}
             data-remove-repo
             onClick={() =>
               ask({ title: `Remove repo #${i + 1}${r ? ` (${label})` : ""}?`, confirmLabel: "Remove", destructive: true }).then(

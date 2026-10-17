@@ -35,10 +35,13 @@ function useEscape(onEscape: () => void) {
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEscape(props.onClose);
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div role="dialog" aria-modal="true" className="flex max-h-full w-full max-w-5xl flex-col rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-        <h2 className="mb-2 font-semibold">{props.title}</h2>
-        {props.children}
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-6" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+      <div role="dialog" aria-modal="true" className="flex max-h-full w-full min-w-0 max-w-5xl flex-col rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-3 sm:p-4">
+        <h2 className="mb-2 break-words font-semibold">{props.title}</h2>
+        {/* The body scrolls inside the dialog; a DiffView (flex-1, min-h-0) shrinks and scrolls in its own box first. */}
+        <div data-modal-body className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+          {props.children}
+        </div>
       </div>
     </div>
   );
@@ -88,7 +91,7 @@ export function ConfirmModal(props: ConfirmOptions & { onConfirm: () => void; on
     }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={(e) => e.target === e.currentTarget && props.onCancel()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-6" onClick={(e) => e.target === e.currentTarget && props.onCancel()}>
       <div
         ref={box}
         role="alertdialog"
@@ -96,7 +99,7 @@ export function ConfirmModal(props: ConfirmOptions & { onConfirm: () => void; on
         aria-labelledby={`${id}-title`}
         aria-describedby={props.body ? `${id}-body` : undefined}
         onKeyDown={trapTab}
-        className="w-full max-w-md rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4"
+        className="max-h-full w-full max-w-md overflow-auto break-words rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4"
       >
         <h2 id={`${id}-title`} className="mb-2 font-semibold">
           {props.title}
