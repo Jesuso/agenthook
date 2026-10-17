@@ -280,12 +280,13 @@ emptied block is removed) and `overlapGuard`, and the **Repos** tab: `repoPath` 
 plus `repos[]` cards (add / remove / reorder; `id`, `path`, `match` as a chip list, `default` —
 checking it on one card clears every other card's in the same edit — and, under Advanced,
 `instructionsFile` / `worktreePrefix`; absent `repos` shows a "+ Add repo" that seeds the same
-default repo `src/config.js` synthesizes on its own, so routing doesn't change). Sink, digest and
-repos rules come from the import-free `src/sinks-config.js` / `src/digest-config.js` /
-`src/repos-config.js` the server validates with, shown as client checks. Every schema key has a
-form now (`src/config-schema.js`'s drift test asserts no entry is left `editor: "pending"`, except
-`tracker.pipeline.*.lite*` / `escalate*` until #340); Raw stays the escape hatch for sharing whole
-blocks, `//` comment keys, unknown/future keys, and fixing invalid JSON.
+default repo `src/config.js` synthesizes on its own, so routing doesn't change — but it does switch
+the profile into multi-repo mode, which nests worktrees under `worktreePrefix/<id>/`, so finish or
+drain in-flight tickets before declaring `repos`). Sink, digest and repos rules come from the
+import-free `src/sinks-config.js` / `src/digest-config.js` / `src/repos-config.js` the server
+validates with, shown as client checks. Every schema key has a form now (`src/config-schema.js`'s
+drift test asserts no entry is left `editor: "pending"`); Raw stays the escape hatch for sharing
+whole blocks, `//` comment keys, unknown/future keys, and fixing invalid JSON.
 
 **Formatting-preserving edits, zero-dep server.** The browser turns form changes into minimal text
 edits with `jsonc-parser` (`modify` + `applyEdits`, MIT) so `//` comment keys, key order and the

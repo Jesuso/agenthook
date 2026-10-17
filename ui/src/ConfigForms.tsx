@@ -53,6 +53,7 @@ import {
   stageKeysFor,
   stepPath,
   stringListAdd,
+  stringListInvalid,
   stringListRemove,
   textEdit,
 } from "./configEdit";
@@ -1358,8 +1359,8 @@ export function IntegrationsForm(props: EditProps & { raw: unknown }) {
 function StringListField(props: EditProps & { path: JSONPath; value: unknown }) {
   const m = fieldMeta(props.path);
   const [draft, setDraft] = useState("");
-  const invalid = props.value !== undefined && !Array.isArray(props.value);
-  const list = Array.isArray(props.value) ? props.value.filter((e): e is string => typeof e === "string") : [];
+  const invalid = stringListInvalid(props.value);
+  const list = invalid ? [] : Array.isArray(props.value) ? (props.value as string[]) : [];
   const add = () => {
     if (!draft.trim()) return;
     props.onEdit(stringListAdd(props.text, props.path, props.value, draft));
@@ -1514,7 +1515,12 @@ export function ReposForm(props: EditProps & { raw: unknown }) {
       <div className={PANEL} data-repos-list>
         <h3 className="text-sm font-semibold">Repositories</h3>
         {!hasRepos ? (
-          <p className={NOTE}>Single repo: agents work in repoPath.</p>
+          <>
+            <p className={NOTE}>Single repo: agents work in repoPath.</p>
+            <p className={NOTE}>
+              Declaring repos nests worktrees under <span className="font-mono">worktreePrefix/&lt;id&gt;/</span> — finish or drain in-flight tickets first.
+            </p>
+          </>
         ) : (
           <>
             {errs.length > 0 && repos.length === 0 && <ErrorList errors={errs} />}

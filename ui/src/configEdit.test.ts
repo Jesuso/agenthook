@@ -41,6 +41,7 @@ import {
   stepErrors,
   stepPath,
   stringListAdd,
+  stringListInvalid,
   stringListRemove,
   textEdit,
 } from "./configEdit";
@@ -394,6 +395,37 @@ describe("repos (#343)", () => {
   it("repoFieldPath builds [\"repos\", i, key]", () => {
     expect(repoFieldPath(1, "path")).toEqual(["repos", 1, "path"]);
   });
+
+  it("errorsForRepo: a route-key clash doesn't land on a card whose own id matches the quoted route key", () => {
+    const repos = [{ id: "ios", path: "./ios" }, { id: "a", path: "./a", match: ["ios"] }, { id: "b", path: "./b", match: ["ios"] }];
+    const errors = reposErrors(repos);
+    expect(errors).toEqual([`config: route key "ios" is claimed by both repos "a" and "b".`]);
+    expect(errorsForRepo(errors, repos, 0)).toEqual([]);
+    expect(errorsForRepo(errors, repos, 1)).toEqual(errors);
+    expect(errorsForRepo(errors, repos, 2)).toEqual(errors);
+  });
+
+  it("round-trips add -> edit id/path/match/default -> remove-last, preserving a // comment key and an unknown repo key", () => {
+    let text = `{
+  "//note": "keep me",
+  "name": "p",
+  "repoPath": "./x"
+}`;
+    text = addRepo(text);
+    expect(JSON.parse(text)["//note"]).toBe("keep me");
+    text = setPath(text, repoFieldPath(0, "id"), "a");
+    text = setPath(text, repoFieldPath(0, "path"), "./a");
+    text = stringListAdd(text, repoFieldPath(0, "match"), undefined, "ios");
+    text = repoDefaultEdit(text, JSON.parse(text).repos, 0, true);
+    text = setPath(text, [...repoFieldPath(0, "unknownKey")], "mystery");
+    const mid = JSON.parse(text);
+    expect(mid["//note"]).toBe("keep me");
+    expect(mid.repos).toEqual([{ id: "a", path: "./a", default: true, match: ["ios"], unknownKey: "mystery" }]);
+    text = removeRepo(text, 0);
+    const end = JSON.parse(text);
+    expect(end["//note"]).toBe("keep me");
+    expect(end.repos).toBeUndefined();
+  });
 });
 
 describe("string-list field helpers (#343)", () => {
@@ -406,6 +438,18 @@ describe("string-list field helpers (#343)", () => {
   it("stringListRemove: removing the last entry removes the key", () => {
     expect(JSON.parse(stringListRemove(`{"match":["ios","web"]}`, ["match"], ["ios", "web"], "ios")).match).toEqual(["web"]);
     expect(JSON.parse(stringListRemove(`{"match":["ios"]}`, ["match"], ["ios"], "ios")).match).toBeUndefined();
+  });
+
+  it("stringListInvalid: a mixed array is invalid, same as a non-array value", () => {
+    expect(stringListInvalid(undefined)).toBe(false);
+    expect(stringListInvalid(["ios", "web"])).toBe(false);
+    expect(stringListInvalid("nope")).toBe(true);
+    expect(stringListInvalid([7, "ios"])).toBe(true);
+  });
+
+  it("stringListAdd/Remove leave a mixed array untouched", () => {
+    expect(stringListAdd(`{"match":[7,"ios"]}`, ["match"], [7, "ios"], "web")).toBe(`{"match":[7,"ios"]}`);
+    expect(stringListRemove(`{"match":[7,"ios"]}`, ["match"], [7, "ios"], "ios")).toBe(`{"match":[7,"ios"]}`);
   });
 });
 

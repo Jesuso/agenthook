@@ -610,24 +610,38 @@ export function repoDefaultEdit(text: string, repos: unknown[], i: number, check
 export function errorsForRepo(errors: string[], repos: unknown[], i: number): string[] {
   const r = repos[i];
   const id = isObj(r) && typeof r.id === "string" ? r.id : undefined;
-  return errors.filter((e) => e.startsWith(`config: repos[${i}]`) || (id !== undefined && e.startsWith(`config: repos "${id}"`)) || (id !== undefined && e.includes(`"${id}"`)));
+  return errors.filter((e) => {
+    if (e.startsWith(`config: repos[${i}]`)) return true;
+    if (id === undefined) return false;
+    if (e.includes(`repos "${id}"`) || e.includes(`and "${id}"`)) return true;
+    if (e.includes(`duplicate repos id "${id}"`)) return true;
+    if (e.startsWith("config: at most one repo may set default:true") && e.includes(`"${id}"`)) return true;
+    return false;
+  });
+}
+
+/** `current` is a valid string-list field value: unset, or an array of only strings. Any other
+ * shape (including a mixed array) is left to Raw. */
+export function stringListInvalid(current: unknown): boolean {
+  return current !== undefined && !(Array.isArray(current) && current.every((e) => typeof e === "string"));
 }
 
 /**
  * Add/remove one entry of a string-list field (`match`, future `lite.descriptionHeadings`): trimmed,
  * non-empty, de-duplicated (case-sensitive). Removing the last entry removes the key. A non-string-
- * array value is left untouched (the field shows "edit in Raw" instead).
+ * array value (including a mixed array) is left untouched (the field shows "edit in Raw" instead).
  */
 export function stringListAdd(text: string, path: JSONPath, current: unknown, value: string): string {
   const v = value.trim();
-  if (!v) return text;
-  const list = Array.isArray(current) ? current.filter((e): e is string => typeof e === "string") : [];
+  if (!v || stringListInvalid(current)) return text;
+  const list = Array.isArray(current) ? (current as string[]) : [];
   if (list.includes(v)) return text;
   return setPath(text, path, [...list, v]);
 }
 
 export function stringListRemove(text: string, path: JSONPath, current: unknown, value: string): string {
-  const list = Array.isArray(current) ? current.filter((e): e is string => typeof e === "string") : [];
+  if (stringListInvalid(current)) return text;
+  const list = Array.isArray(current) ? (current as string[]) : [];
   const next = list.filter((e) => e !== value);
   return setPath(text, path, next.length ? next : undefined);
 }
