@@ -73,22 +73,32 @@ export function fmtCtx(input, cacheRead, cacheCreate, output, costUsd) {
   return `ctx=${fmt(total)} out=${fmt(output)}${cost}`;
 }
 
-// The `claude` bin must START the command (path-anchored), not appear mid-line: a
+// The agent bin must START the command (path-anchored), not appear mid-line: a
 // loose substring counts any process whose argv merely MENTIONS "claude -p" (a shell
 // grepping for it, an echo, …). `cfg.claudeBin` defaults to "claude", so the receiver's
-// spawn is `[node …/]claude -p <prompt>`.
-const CLAUDE_P = /(^|\/)claude\s+-p\b/;
+// spawn is `[node …/]claude -p <prompt>`; a step `bin` (e.g. `claude-local`) is matched by
+// its basename the same way.
+
+/** The path-anchored `<bin> -p` matcher for a set of agent binaries (matched by basename).
+ * @param {string[]} bins @returns {RegExp} */
+export function agentMatcher(bins) {
+  const names = [...new Set(bins.map((b) => path.basename(b)).filter(Boolean))];
+  const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return new RegExp(`(^|\\/)(${alt || "claude"})\\s+-p\\b`);
+}
 
 /** Parse `ps -eo pid=,etime=,args=` output into the agent rows (receiver-spawned only).
- * @param {string} stdout @returns {AgentRow[]} */
-export function parsePsAgents(stdout) {
+ * @param {string} stdout @param {string[]} [bins] the agent binaries to recognise (cfg.claudeBin + step bins)
+ * @returns {AgentRow[]} */
+export function parsePsAgents(stdout, bins = ["claude"]) {
+  const agentP = agentMatcher(bins);
   /** @type {AgentRow[]} */
   const rows = [];
   for (const line of stdout.split("\n")) {
     const m = line.match(/^\s*(\d+)\s+(\S+)\s+(.*)$/);
     if (!m) continue;
     const [, pid, etime, cmd] = m;
-    if (!CLAUDE_P.test(cmd)) continue;
+    if (!agentP.test(cmd)) continue;
     const step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
     const ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
     // The receiver's prompt always carries both a `the "<id>" stage` line and `Ref: <ref>`;
@@ -103,10 +113,10 @@ export function parsePsAgents(stdout) {
  * fallback) and select which to show. Pure for offline testing.
  * @param {string} stdout raw `ps` output
  * @param {{ stateKey: string, running: Record<string, any> }[]} profiles each profile's running.json
- * @param {{ all?: boolean, active?: string|null }} [opts] active = the state key to scope to when !all
+ * @param {{ all?: boolean, active?: string|null, bins?: string[] }} [opts] active = the state key to scope to when !all; bins → parsePsAgents
  * @returns {AgentRow[]} */
 export function selectAgents(stdout, profiles, opts = {}) {
-  const rows = parsePsAgents(stdout);
+  const rows = parsePsAgents(stdout, opts.bins);
   /** @type {Map<string, string>} */
   const byPid = new Map();
   /** @type {Map<string, string>} */
@@ -231,10 +241,21 @@ export async function agents(args = {}) {
     scope = prof.label;
   }
 
+  // Which binaries count as agents: "claude" (the default every profile starts from) plus the
+  // discovered config's claudeBin + step bins. Only that one config is read, so with --all (or
+  // `agents <name>`) another profile's custom bin is missed unless this config names it too.
+  /** @type {string[]} */
+  let bins = ["claude"];
+  try {
+    bins = [...bins, ...peekConfig({ configPath: args.config }).agentBins];
+  } catch {
+    // no discoverable config (e.g. `agents --all` from outside any checkout): the default only
+  }
+
   /** @type {Map<string, ProfileState>} */
   const profileMap = new Map(profiles.map((p) => [p.stateKey, p]));
 
-  const rows = selectAgents(ps.stdout, profiles, { all, active });
+  const rows = selectAgents(ps.stdout, profiles, { all, active, bins });
   if (args.json) {
     const recs = rows.map((r) => {
       const prof = profileMap.get(r.profile);

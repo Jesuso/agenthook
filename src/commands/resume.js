@@ -51,6 +51,27 @@ function select(sessions, sel) {
   return null;
 }
 
+/**
+ * How to resume one session: the binary + env of the step that ran it (a step `bin`/`env`
+ * overrides cfg.claudeBin / adds to process.env, as at spawn), the printable command, and —
+ * when the step sets env — a note naming its keys only (values may be secrets; never printed).
+ * Pure; exported for tests.
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'pipeline'>} cfg
+ * @param {{id: string, step: string}} session @param {string} wt  the worktree (claude's cwd)
+ * @returns {{bin: string, env: Record<string, string>|undefined, line: string, envNote: string|null}}
+ */
+export function resumeCommand(cfg, session, wt) {
+  const step = (cfg.pipeline ?? []).find((s) => s.id === session.step);
+  const bin = step?.bin ?? cfg.claudeBin;
+  const env = step?.env && Object.keys(step.env).length ? step.env : undefined;
+  return {
+    bin,
+    env,
+    line: `cd ${wt} && ${bin} -r ${session.id}   # ${session.step}`,
+    envNote: env ? `step "${session.step}" sets env ${Object.keys(env).join(", ")} for its agent — export them too (--exec does)` : null,
+  };
+}
+
 /** @param {any} args */
 export async function resume(args) {
   const cfg = loadConfig({ configPath: args.config });
@@ -99,18 +120,20 @@ export async function resume(args) {
   const chosen = select(sessions, sel);
   if (!chosen) throw new Error(`no session "${sel}" for ref ${ref}. Run \`agenthook resume ${ref}\` to list them.`);
 
+  const cmd = resumeCommand(cfg, chosen, wt);
   if (args.exec) {
     if (!present)
       throw new Error(
         `worktree for ${ref} is drained (${wt}). Recreate it (re-run the step, or \`git worktree add\`) before resuming — claude resolves the session by cwd.`,
       );
-    const r = spawnSync(cfg.claudeBin, ["-r", chosen.id], { cwd: wt, stdio: "inherit" });
+    const r = spawnSync(cmd.bin, ["-r", chosen.id], { cwd: wt, stdio: "inherit", env: { ...process.env, ...(cmd.env ?? {}) } });
     if (r.error) throw r.error;
     process.exitCode = r.status ?? 0;
     return;
   }
 
-  console.log(`cd ${wt} && ${cfg.claudeBin} -r ${chosen.id}   # ${chosen.step}`);
+  console.log(cmd.line);
+  if (cmd.envNote) console.log(`  note: ${cmd.envNote}`);
   if (!present)
     console.log(`\n⚠ worktree is drained — recreate ${wt} before this works (claude resolves the session by cwd).`);
 }

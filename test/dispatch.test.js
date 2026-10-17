@@ -309,8 +309,8 @@ function heldHarness({ steps } = {}) {
   });
   const run = createDispatcher(cfg, adapter, undefined, store);
   const promptOut = path.join(dir, "prompt.txt");
-  /** @param {string} stepId @param {any} verdict @param {string} [comment] */
-  const runStep = async (stepId, verdict, comment) => {
+  /** @param {string} stepId @param {any} verdict @param {string} [comment] @param {{prompt?: boolean}} [o] */
+  const runStep = async (stepId, verdict, comment, { prompt = true } = {}) => {
     process.env.FAKE_VERDICT = JSON.stringify(verdict);
     process.env.FAKE_PROMPT_OUT = promptOut;
     const log = console.log;
@@ -320,9 +320,9 @@ function heldHarness({ steps } = {}) {
     } finally {
       console.log = log;
     }
-    return fs.readFileSync(promptOut, "utf8");
+    return prompt ? fs.readFileSync(promptOut, "utf8") : "";
   };
-  return { store, advanced, runStep, run };
+  return { store, advanced, runStep, run, dir };
 }
 
 test("dispatch: a hold verdict writes held.json[ref]; the next run of any step clears it", async () => {
@@ -374,6 +374,54 @@ test("dispatch: the manual drain step clears the held record", async () => {
     console.log = log;
   }
   assert.equal(store.getHeld("42"), undefined);
+});
+
+// --- per-step agent binary + env (#357) ---
+// A fake bin that records which binary ran, its argv[1], a step-only variable and the
+// verdict-file path, then writes $FAKE_VERDICT like the shared fake.
+
+/** @param {string} dir @param {string} name */
+function envDumpBin(dir, name) {
+  const bin = path.join(dir, name);
+  const out = `${bin}.out`;
+  fs.writeFileSync(
+    bin,
+    `#!/bin/sh\nprintf 'bin=%s\\nargv1=%s\\nSTEP_ONLY=%s\\nVF=%s\\n' "$0" "$1" "\${STEP_ONLY-unset}" "$AGENTHOOK_VERDICT_FILE" > "${out}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`,
+    { mode: 0o755 },
+  );
+  const read = () => Object.fromEntries(fs.readFileSync(out, "utf8").trim().split("\n").map((l) => /** @type {[string, string]} */ (l.split(/=(.*)/s).slice(0, 2))));
+  return { bin, read };
+}
+
+test("dispatch: a step without bin/env spawns cfg.claudeBin with the receiver's env + the verdict file", async () => {
+  const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }] });
+  const fake = envDumpBin(h.dir, "fake-claude.sh"); // overwrite cfg.claudeBin with the env dumper
+  delete process.env.STEP_ONLY;
+  await h.runStep("code", { outcome: "advance" }, undefined, { prompt: false });
+  const got = fake.read();
+  assert.equal(got.bin, fake.bin);
+  assert.equal(got.argv1, "-p");
+  assert.equal(got.STEP_ONLY, "unset");
+  assert.match(got.VF, /code\.json$/);
+  assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
+});
+
+test("dispatch: a step's bin is spawned, its env reaches the child, the verdict file still wins", async () => {
+  const dir = tmpDir();
+  const fake = envDumpBin(dir, "claude-local.sh");
+  // AGENTHOOK_VERDICT_FILE is rejected by config validation; dispatch must still override it
+  const env = { STEP_ONLY: "yes", AGENTHOOK_VERDICT_FILE: path.join(dir, "hijack.json") };
+  const h = heldHarness({ steps: [{ id: "code", bin: fake.bin, env }, { id: "done", manual: true }] });
+  delete process.env.STEP_ONLY;
+  await h.runStep("code", { outcome: "advance" }, undefined, { prompt: false });
+  const got = fake.read();
+  assert.equal(got.bin, fake.bin);
+  assert.equal(got.argv1, "-p");
+  assert.equal(got.STEP_ONLY, "yes");
+  assert.match(got.VF, /code\.json$/, "the receiver's verdict file, not the step's");
+  assert.equal(fs.existsSync(env.AGENTHOOK_VERDICT_FILE), false);
+  assert.equal(process.env.STEP_ONLY, undefined, "step env never leaks into the receiver");
+  assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
 });
 
 // --- block gate re-checked at dispatch time (queued jobs skip the webhook-time gate) ---

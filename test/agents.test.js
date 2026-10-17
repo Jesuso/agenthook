@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // asserting the default scope-to-active filter and the --all cross-profile view.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePsAgents, selectAgents, fmtTok, fmtCtx, formatAgentRow, agentRecord } from "../src/commands/agents.js";
+import { agentMatcher, parsePsAgents, selectAgents, fmtTok, fmtCtx, formatAgentRow, agentRecord } from "../src/commands/agents.js";
 
 // Three `claude -p` agents (a dogfood GitHub issue, an Asana task, an orphan whose
 // ref is in no running.json) plus a non-agent process that must be ignored.
@@ -44,6 +44,18 @@ test("parsePsAgents keeps only claude -p rows and extracts pid/step/ref", () => 
     rows.map((r) => [r.pid, r.step, r.ref]),
     [["12345", "code", "6"], ["67890", "code", "1199887766"], ["33333", "review", "999"]],
   );
+});
+
+test("a step bin (claude-local) is recognised only when it is in the bin set", () => {
+  const line = `  77777 00:42 /home/x/bin/claude-local -p You are working the "code" stage of a GitHub issue Ref: 12`;
+  assert.deepEqual(parsePsAgents(line), [], "the default bin set is just claude");
+  const rows = parsePsAgents([line, PS].join("\n"), ["claude", "/home/x/bin/claude-local"]);
+  assert.deepEqual(rows.map((r) => [r.pid, r.step, r.ref]), [["77777", "code", "12"], ["12345", "code", "6"], ["67890", "code", "1199887766"], ["33333", "review", "999"]]);
+  assert.equal(selectAgents(line, [], { all: true, bins: ["claude-local"] }).length, 1);
+  // still path-anchored, and a regex metachar in a bin name is literal
+  assert.equal(parsePsAgents(`  1 00:01 bash -c echo claude-local -p the "code" stage Ref: 1`, ["claude-local"]).length, 0, "a mere mention is not the binary");
+  assert.equal(agentMatcher(["claude.x"]).test("claudeAx -p"), false);
+  assert.equal(agentMatcher(["claude.x"]).test("/b/claude.x -p"), true);
 });
 
 test("default scope: only the active profile's agents (refs in its running.json)", () => {

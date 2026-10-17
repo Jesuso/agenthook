@@ -266,7 +266,7 @@ with the same Clear / replace controls and is never rewritten unless you act.
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
-`manual`, `instructionsFile`; the tracker's stage bindings), the **top-level basics** (`name`,
+`manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor; the tracker's stage bindings), the **top-level basics** (`name`,
 `maxConcurrent`, `fullAuto`, `port`, `trigger`), every `tracker` / `forge` / `ingress` key, and the
 **Integrations** tab: `sinks[]` (add / remove / reorder; per-type fields — `url` for slack/webhook,
 `botToken` + `chatId` for telegram; an event filter whose absent `events` shows the defaults, any

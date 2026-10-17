@@ -7,7 +7,7 @@
 
 /**
  * Config paths whose change the audit line names and the config editor confirms twice: the
- * agent's permission mode and binary, the tracker identity that scopes which items are ours,
+ * agent's permission mode, binary and per-step binary/env, the tracker identity that scopes which items are ours,
  * and every src/config.js SECRET_FIELDS path (a test keeps that list a subset of this one).
  * `[*]` expands every element of an array.
  */
@@ -25,6 +25,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "ingress.authtoken",
   "sinks[*].url",
   "sinks[*].botToken",
+  "tracker.pipeline[*].bin",
+  "tracker.pipeline[*].env",
 ]);
 
 /**

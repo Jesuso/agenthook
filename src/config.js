@@ -179,7 +179,8 @@ const STATE_ID_ERROR = `config: "stateId" must match [A-Za-z0-9._-]+ (it keys th
  * daemon outage with zero agents. Validates only that the file exists, parses, and names
  * a profile; everything else stays loadConfig's job.
  * @param {{ configPath?: string }} [opts]
- * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string }}
+ * `agentBins` = the agent binaries the file names (see `rawAgentBins`), for `agents`' ps match.
+ * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string, agentBins: string[] }}
  */
 export function peekConfig(opts = {}) {
   const { configPath, configDir, raw } = readRawConfig(opts.configPath);
@@ -188,7 +189,21 @@ export function peekConfig(opts = {}) {
   if (raw.stateId !== undefined && !validName(raw.stateId)) throw new Error(STATE_ID_ERROR);
   const stateKey = raw.stateId ?? name;
   const stateDir = path.join(registryDir, stateKey);
-  return { name, stateKey, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs") };
+  return { name, stateKey, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs"), agentBins: rawAgentBins(raw) };
+}
+
+/**
+ * The distinct agent binaries a raw (uninterpolated) config names: `claudeBin` (default
+ * "claude") plus every pipeline step's `bin`. Literal values only — a `${VAR}` ref is
+ * unresolved here, so it is skipped (and the default "claude" kept). Pure.
+ * @param {any} raw @returns {string[]}
+ */
+export function rawAgentBins(raw) {
+  const literal = (/** @type {any} */ v) => typeof v === "string" && v.trim() !== "" && !v.includes("${");
+  const bins = new Set([literal(raw?.claudeBin) ? raw.claudeBin.trim() : "claude"]);
+  const pipeline = raw?.tracker?.pipeline;
+  if (Array.isArray(pipeline)) for (const s of pipeline) if (literal(s?.bin)) bins.add(s.bin.trim());
+  return [...bins];
 }
 
 /**
@@ -297,6 +312,9 @@ const QUEUE_KEYS = /** @type {const} */ ([
   ["queueStatus", "sourceStatus"],
   ["queueLabel", "sourceLabel"],
 ]);
+
+/** A step `env` key: a portable shell variable name. */
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
  * `${v}` for a user-supplied value rendered into a message — but an object whose toString is
@@ -408,6 +426,20 @@ export function validateRawConfig(raw) {
     }
     if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
       errors.push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
+    }
+    if (step.bin != null && (typeof step.bin !== "string" || !step.bin.trim())) {
+      errors.push(`config: pipeline step "${sid}" bin must be a non-empty string (a name on PATH or an absolute path).`);
+    }
+    if (step.env != null) {
+      if (typeof step.env !== "object" || Array.isArray(step.env)) {
+        errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
+      } else {
+        for (const [k, v] of Object.entries(step.env)) {
+          if (!ENV_KEY_RE.test(k)) errors.push(`config: pipeline step "${sid}" env key ${JSON.stringify(k)} is not a valid variable name.`);
+          else if (k === "AGENTHOOK_VERDICT_FILE") errors.push(`config: pipeline step "${sid}" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
+          if (typeof v !== "string") errors.push(`config: pipeline step "${sid}" env.${k} must be a string.`);
+        }
+      }
     }
     if (step.lite != null) {
       const h = step.lite.descriptionHeadings;
