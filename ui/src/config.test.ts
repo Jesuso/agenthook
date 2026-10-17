@@ -122,6 +122,8 @@ describe("bannerStatus", () => {
       first: "invalid JSON: x",
       fullFirst: "invalid JSON: x",
       moreCount: 2,
+      amber: false,
+      summary: false,
     });
   });
 
@@ -131,6 +133,8 @@ describe("bannerStatus", () => {
       first: "check one",
       fullFirst: "check one",
       moreCount: 2,
+      amber: false,
+      summary: false,
     });
   });
 
@@ -152,6 +156,42 @@ describe("bannerStatus", () => {
       expect(r.moreCount).toBe(0);
       expect(r.fullFirst).toBe(r.first);
     }
+  });
+});
+
+describe("bannerStatus with the open pane's cards", () => {
+  const sink = 'config: sinks[0] (slack) requires "url".';
+  const digest = "config: digest.access must be one of …";
+  const ctx = (onCard: string[], incomplete: string[] = []) => ({ onCard: (e: string) => onCard.includes(e), incomplete: (e: string) => incomplete.includes(e) });
+
+  it("every problem on a visible card → a count, not the text", () => {
+    expect(bannerStatus(null, [sink], [], ctx([sink]))).toEqual({
+      ok: false,
+      first: "1 problem — see the highlighted cards",
+      fullFirst: "1 problem — see the highlighted cards",
+      moreCount: 0,
+      amber: false,
+      summary: true,
+    });
+    const two = bannerStatus(null, [sink, "b"], [], ctx([sink, "b"]));
+    expect(!two.ok && two.first).toBe("2 problems — see the highlighted cards");
+  });
+
+  it("amber only when every problem is a pristine card's", () => {
+    expect(bannerStatus(null, [sink], [], ctx([sink], [sink]))).toMatchObject({ amber: true, summary: true });
+    expect(bannerStatus(null, [sink, digest], [], ctx([sink], [sink]))).toMatchObject({ amber: false, first: digest });
+  });
+
+  it("an unattributed problem leads the row; the count still covers the overlay's whole list", () => {
+    expect(bannerStatus(null, [sink, digest], [], ctx([sink]))).toMatchObject({ first: digest, moreCount: 1, summary: false });
+  });
+
+  it("off the card's pane (Raw, another tab), the card error is listed as before, amber if pristine", () => {
+    expect(bannerStatus(null, [sink], [], ctx([], [sink]))).toMatchObject({ first: sink, amber: true, summary: false });
+  });
+
+  it("a parse error still wins the row", () => {
+    expect(bannerStatus("invalid JSON: x", [sink], [], ctx([sink], [sink]))).toMatchObject({ first: "invalid JSON: x", amber: false, summary: false });
   });
 });
 

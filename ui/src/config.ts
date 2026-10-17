@@ -64,7 +64,7 @@ export function moveTarget(raw: unknown, stateKey: string): string | null {
   return typeof name === "string" && name !== "" && name !== stateKey ? name : null;
 }
 
-/** The browser's own JSON.parse — the only check Save waits on; the server stays the authority for the rest. */
+/** The browser's own JSON.parse — Save waits on it (and on the client checks); the server stays the authority for the rest. */
 export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: false; error: string } {
   try {
     return { ok: true, raw: JSON.parse(text) };
@@ -73,9 +73,17 @@ export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: fal
   }
 }
 
-export type BannerStatus = { ok: true } | { ok: false; first: string; fullFirst: string; moreCount: number };
+/**
+ * `amber` = every problem is a pristine card's "incomplete" hint (a just-added row); `summary` = the
+ * row is a count because every problem sits on a card the open pane shows.
+ */
+export type BannerStatus = { ok: true } | { ok: false; first: string; fullFirst: string; moreCount: number; amber: boolean; summary: boolean };
+
+/** How the open pane shows each problem: on a card it renders (`onCard`), and whether that card is still pristine (`incomplete`). */
+export type BannerContext = { onCard: (error: string) => boolean; incomplete: (error: string) => boolean };
 
 const BANNER_FIRST_MAX = 100;
+const NO_CARDS: BannerContext = { onCard: () => false, incomplete: () => false };
 
 const truncate = (s: string): string => (s.length > BANNER_FIRST_MAX ? `${s.slice(0, BANNER_FIRST_MAX - 1)}…` : s);
 
@@ -83,14 +91,25 @@ const truncate = (s: string): string => (s.length > BANNER_FIRST_MAX ? `${s.slic
  * The validation banner's fixed-height single-line summary: a parse error wins the row (fix the
  * JSON first), but `moreCount` still counts the client checks and server errors — the overlay
  * renders all three sections regardless, so the row's count must match what it can open.
+ * A problem a card on the open pane already shows (`ctx.onCard`) is not repeated in the row: the
+ * first other one leads it, or, with none left, the row reads "N problem(s) — see the highlighted
+ * cards". The row is amber when every problem is a pristine card's (`ctx.incomplete`).
  * `fullFirst` is the untruncated text, for the row's `title`.
  */
-export function bannerStatus(parseError: string | null, checks: string[], serverErrors: string[]): BannerStatus {
-  if (parseError !== null) return { ok: false, first: truncate(parseError), fullFirst: parseError, moreCount: checks.length + serverErrors.length };
+export function bannerStatus(parseError: string | null, checks: string[], serverErrors: string[], ctx: BannerContext = NO_CARDS): BannerStatus {
+  if (parseError !== null) {
+    return { ok: false, first: truncate(parseError), fullFirst: parseError, moreCount: checks.length + serverErrors.length, amber: false, summary: false };
+  }
   const problems = [...checks, ...serverErrors];
   if (problems.length === 0) return { ok: true };
-  const first = problems[0];
-  return { ok: false, first: truncate(first), fullFirst: first, moreCount: problems.length - 1 };
+  const amber = problems.every(ctx.incomplete);
+  const listed = problems.filter((e) => !ctx.onCard(e));
+  if (listed.length === 0) {
+    const count = `${problems.length} problem${problems.length === 1 ? "" : "s"} — see the highlighted cards`;
+    return { ok: false, first: count, fullFirst: count, moreCount: 0, amber, summary: true };
+  }
+  const first = listed[0];
+  return { ok: false, first: truncate(first), fullFirst: first, moreCount: problems.length - 1, amber, summary: false };
 }
 
 // SENSITIVE_FIELDS that aren't secrets: their values are shown as is (a step's `bin` too).

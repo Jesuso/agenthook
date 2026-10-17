@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import example from "../../agenthook.config.example.json?raw";
 import {
   addRepo,
+  addSink,
   addStep,
+  cardFor,
   advancedSet,
   boolEdit,
   ciTargetOptions,
@@ -36,6 +38,7 @@ import {
   removeStep,
   renameEdit,
   setPath,
+  showTerminalFlag,
   stageKeysFor,
   stageSource,
   stepErrors,
@@ -761,5 +764,44 @@ describe("Tracker / Forge / Ingress helpers (#341)", () => {
     const raw = { tracker: { pipeline: [{ id: "a" }, { id: "b", createsWorktree: true }, { id: "m", manual: true }, { kind: "x" }] } };
     expect(ciTargetOptions(raw)).toEqual({ ids: ["a", "b"], defaultId: "b" });
     expect(ciTargetOptions({})).toEqual({ ids: [], defaultId: null });
+  });
+});
+
+describe("cardFor / showTerminalFlag (#373)", () => {
+  const base = { tracker: { type: "github", pipeline: [{ id: "a" }, { id: "b", maxAttempts: 0 }] } };
+
+  it("a client sink check → its sink card; a server-only sink error or a non-array sinks → none", () => {
+    const raw = JSON.parse(addSink(JSON.stringify(base)));
+    expect(clientErrors(raw)).toContain('config: sinks[0] (slack) requires "url".');
+    expect(cardFor('config: sinks[0] (slack) requires "url".', raw)).toEqual({ list: "sinks", index: 0 });
+    expect(cardFor("config: sinks[0] something only the server says.", raw)).toBeNull();
+    expect(cardFor("config: sinks must be an array.", { sinks: 1 })).toBeNull();
+  });
+
+  it("a repo check on one card → that card; one naming two repos, or the repos block itself → none", () => {
+    const two = JSON.parse(addRepo(addRepo(JSON.stringify({ ...base, repoPath: "/r" }))));
+    const idErr = clientErrors(two).find((e) => e.startsWith("config: repos[1].id"))!;
+    expect(cardFor(idErr, two)).toEqual({ list: "repos", index: 1 });
+    const clash = { repos: [{ id: "x", path: "/x", match: ["k"] }, { id: "y", path: "/y", match: ["k"] }] };
+    const clashErr = reposErrors(clash.repos)[0];
+    expect(clashErr).toContain("claimed by both");
+    expect(cardFor(clashErr, clash)).toBeNull();
+    expect(cardFor('config: "repos" must be a non-empty array.', { repos: [] })).toBeNull();
+  });
+
+  it("a step error by its own check, by tracker.pipeline[i], or by step id; digest/top-level → none", () => {
+    expect(cardFor('config: pipeline step "b" maxAttempts must be a positive integer.', base)).toEqual({ list: "steps", index: 1 });
+    expect(cardFor("config: tracker.pipeline[0] is not reachable.", base)).toEqual({ list: "steps", index: 0 });
+    expect(cardFor('config: pipeline step "a" sourceLabel is required.', base)).toEqual({ list: "steps", index: 0 });
+    expect(cardFor("config: digest.access must be one of read, none.", base)).toBeNull();
+    expect(cardFor("config: repoPath is required.", base)).toBeNull();
+  });
+
+  it("showTerminalFlag: the last step, a manual one, or the key already set", () => {
+    expect(showTerminalFlag({}, 2, 3, "closeIssue")).toBe(true);
+    expect(showTerminalFlag({ manual: true }, 0, 3, "closeIssue")).toBe(true);
+    expect(showTerminalFlag({ completeTask: false }, 1, 3, "completeTask")).toBe(true);
+    expect(showTerminalFlag({ closeIssue: true }, 1, 3, "completeTask")).toBe(false);
+    expect(showTerminalFlag({ manual: false }, 1, 3, "closeIssue")).toBe(false);
   });
 });

@@ -101,7 +101,8 @@ describe("ConfigView panes", () => {
   });
 
   it("a single long check shows the toggle and the full text in the overlay", async () => {
-    const long = "config: pipeline step \"code\" bin must be a non-empty string (a name on PATH or an absolute path), ".repeat(2);
+    // Unattributed (no card shows it), so the row lists it on every pane.
+    const long = "config: tracker.token must be a ${VAR} reference to an environment variable, not a literal value, ".repeat(2);
     fileErrors = [long];
     m = await mount(view());
     await until(() => m!.root.querySelector("[data-config-banner]"));
