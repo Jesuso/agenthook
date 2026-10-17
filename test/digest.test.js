@@ -227,6 +227,22 @@ test("compactEpics: ranks more needs-you first, drops a completed epic with none
   assert.deepEqual(out.map((e) => e.epic.split(' "')[0]), ["B", "A"], "completed-with-nothing-needed epic dropped; more needsYou ranks first");
 });
 
+test("compactEpics: a ready-to-close epic survives the EPIC_MAX cut and carries readyToClose", () => {
+  /** @type {any} */
+  const base = { url: "", status: "open", completed: false, startedAt: null, velocity: { days: [], finished14: 0, activeDays: 0, perDay: null }, eta: null };
+  const stats = [];
+  for (let i = 0; i < 8; i++) {
+    stats.push({ ...base, ref: `N${i}`, name: `N${i}`, total: 3, byStage: { backlog: 0, running: 0, needsYou: 2, finished: 1, merged: 0, untracked: 0 }, needsYou: ["x", "y"] });
+  }
+  stats.push({ ...base, ref: "R", name: "Ready", total: 2, byStage: { backlog: 0, running: 0, needsYou: 0, finished: 2, merged: 0, untracked: 0 }, needsYou: [], readyToClose: true });
+  const out = compactEpics(stats, []);
+  assert.equal(out.length, 5);
+  const ready = out.find((e) => e.epic.startsWith("R "));
+  assert.ok(ready, "ready-to-close epic kept despite 8 other needs-you epics");
+  assert.equal(ready.readyToClose, true);
+  assert.equal(out[0].epic.split(' "')[0], "R", "sorted first");
+});
+
 test("createDigester: a rejecting or hanging readEpics still writes the digest from local epics", async () => {
   const dir = epicStateDir();
   /** @type {any[]} */ const warnings = [];
@@ -269,4 +285,5 @@ test("buildDigestPrompt: mentions epics guidance and the no-invented-ETA rule", 
   const p = buildDigestPrompt({ soul: "S", snapshot: { epics: [] }, profile: "dev" });
   assert.match(p, /snapshot\.epics/);
   assert.match(p, /never estimate one yourself/);
+  assert.match(p, /readyToClose is fully finished — close it\?/);
 });

@@ -508,7 +508,9 @@ Live epic data for the UI (epic #304, ADR 0003). Only the receiver holds the tra
 the tracker read is the receiver's `epics` control op (`src/ops.js`); the UI server only relays it.
 - `GET /api/epics?profile=&tz=` → `{ at, live, supported, epics: EpicStats[] }` — every epic with
   `total`, `byStage` (backlog / running / needsYou / finished / merged / untracked), `needsYou` refs,
-  `velocity` and `eta` (`src/epics.js` `epicStats`).
+  `velocity`, `eta` and `readyToClose` (`src/epics.js` `epicStats`). `readyToClose` is `true` only when
+  `live:true` and the epic is open with every ticket finished/merged and none needing you — closing it
+  is a person's call, never counted in the headline Needs you.
 - `GET /api/epics/<ref>?profile=&tz=` → `{ at, live, supported, epic }`, where `epic` is an
   `EpicStats` plus `tickets: (EpicTicket & { bucket, status })[]` — `status` is the ticket's local
   `TicketRow.status`, null when it never ran on this profile.
@@ -533,11 +535,13 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   after a 2 s quiet period (trailing debounce). No timer polling. 404 / 502 / 503 / 504 show inline.
 - **List** (`EpicsView.tsx`): one row per epic — name (→ its page), tracker `status`, a stacked bar of
   `byStage` with `N/M` (N = finished + merged, M = total), a needs-you badge and the ETA when known.
-  Completed epics sit last, dimmed, under a collapsed "Completed (k)". `supported:false` → "This tracker
+  Completed epics sit last, dimmed, under a collapsed "Completed (k)". Among open epics, `readyToClose`
+  ones sort first and show a "ready to close" chip. `supported:false` → "This tracker
   has no epics"; `live:false` → a "known tickets only — receiver down" note.
-- **Epic page** (`EpicPage.tsx`): header (name, status, tracker link only if http(s)), the same stage bar
-  with a legend, **Needs you** first, a 14-day velocity sparkline (`ui/src/epicSparkline.ts`, a pure d3
-  model) with `finished14`, per-day rate and ETA, then the other tickets by bucket (running, backlog,
+- **Epic page** (`EpicPage.tsx`): header (name, status, tracker link only if http(s)), a "ready to
+  close" banner when `readyToClose` ("All tickets finished — close this epic on the tracker?"), the
+  same stage bar with a legend, **Needs you** first, a 14-day velocity sparkline (`ui/src/epicSparkline.ts`,
+  a pure d3 model) with `finished14`, per-day rate and ETA, then the other tickets by bucket (running, backlog,
   finished, merged) and an "Untracked / not on board" note. A ticket that has a local row opens the
   ticket drawer.
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or

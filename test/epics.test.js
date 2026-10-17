@@ -242,6 +242,44 @@ test("localEpics: refmeta grouped by epic.ref; null/absent/garbage epics skipped
   );
 });
 
+test("epicStats: readyToClose — live + all tickets finished/merged + epic still open", () => {
+  // 0 tickets -> false
+  assert.equal(epicStats(epic, [], { rows: [], events: [], forge: false, now: NOW, live: true }).readyToClose, false);
+
+  const allFinished = [ticket({ ref: "a", completed: true }), ticket({ ref: "b", completed: true })];
+  const base = { rows: [], events: [], forge: false, now: NOW, live: true };
+
+  assert.equal(epicStats(epic, allFinished, base).readyToClose, true);
+
+  // all finished + one untracked -> false
+  const withUntracked = [...allFinished, ticket({ ref: "u", stage: null })];
+  assert.equal(epicStats(epic, withUntracked, base).readyToClose, false);
+
+  // all finished + one needs-you -> false
+  const withNeedsYou = [...allFinished, ticket({ ref: "h" })];
+  const rowsNeedsYou = [row({ ref: "h", status: "held" })];
+  assert.equal(epicStats(epic, withNeedsYou, { ...base, rows: rowsNeedsYou }).readyToClose, false);
+
+  // all finished but epic completed:true -> false
+  assert.equal(epicStats({ ...epic, completed: true }, allFinished, base).readyToClose, false);
+
+  // tracker completed:true, no row -> counts as finished -> true (already covered by allFinished, stage default "To do")
+  const trackerCompletedOnly = [ticket({ ref: "tc", completed: true })];
+  assert.equal(epicStats(epic, trackerCompletedOnly, base).readyToClose, true);
+
+  // merged rows count -> true
+  const merged = [ticket({ ref: "m" })];
+  const mergedRows = [row({ ref: "m", status: "done", prState: "merged" })];
+  assert.equal(epicStats(epic, merged, { ...base, rows: mergedRows }).readyToClose, true);
+
+  // forge-less all-finished -> true
+  assert.equal(epicStats(epic, allFinished, { ...base, forge: false }).readyToClose, true);
+
+  // same inputs without live:true -> false
+  assert.equal(epicStats(epic, allFinished, { ...base, live: undefined }).readyToClose, false);
+  assert.equal(epicStats(epic, allFinished, { rows: [], events: [], forge: false, now: NOW }).readyToClose, false);
+});
+
 test("EPIC_REF_RE: tracker ids pass; path/URL metacharacters and overlong refs fail", () => {
   for (const ok of ["1203456789", "CAHUI-7", "a.b_c"]) assert.ok(EPIC_REF_RE.test(ok), ok);
   for (const bad of ["", "../x", "a/b", "a?b", "a b", "x".repeat(65)]) assert.ok(!EPIC_REF_RE.test(bad), bad);

@@ -74,9 +74,13 @@ export function stageSegments(e: Pick<EpicStats, "byStage" | "total">): { bucket
   return BUCKET_ORDER.filter((b) => e.byStage[b] > 0).map((b) => ({ bucket: b, count: e.byStage[b], pct: (e.byStage[b] / e.total) * 100 }));
 }
 
-/** Open epics in the server's order, then completed ones (shown collapsed). */
-export function splitCompleted<T extends Pick<EpicStats, "completed">>(epics: T[]): { open: T[]; completed: T[] } {
-  return { open: epics.filter((e) => !e.completed), completed: epics.filter((e) => e.completed) };
+/** Open epics — ready-to-close ones first, otherwise the server's order — then completed ones
+ * (shown collapsed). */
+export function splitCompleted<T extends Pick<EpicStats, "completed" | "readyToClose">>(epics: T[]): { open: T[]; completed: T[] } {
+  const open = epics.filter((e) => !e.completed);
+  const ready = open.filter((e) => e.readyToClose);
+  const rest = open.filter((e) => !e.readyToClose);
+  return { open: [...ready, ...rest], completed: epics.filter((e) => e.completed) };
 }
 
 /** "~3 d · Oct 19"; null without an ETA. */

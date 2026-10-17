@@ -28,6 +28,11 @@ _Avoid_: Shipped, landed
 A ticket that is blocked on a human: held, failed, or a PR awaiting merge with a known PR (a ticket finished with no recorded PR is just finished). The headline number of a profile.
 _Avoid_: Attention, alerts, pending
 
+**Ready to close**:
+An open epic whose tickets are all finished, waiting for a person to close it on the tracker. Shown
+on the epic only — never counted in the profile's headline Needs you.
+_Avoid_: Done, completed
+
 **Digest**:
 An on-demand, agent-written summary of one profile's recent activity, boiled down to what needs a human. Only the latest is kept.
 _Avoid_: Report, briefing, summary (ambiguous with a run's verdict summary)

@@ -9,6 +9,7 @@ function epicLine(e) {
   let line = `${e.ref} "${e.name}" ${done}/${e.total}`;
   if (e.needsYou?.length) line += ` needs-you: ${e.needsYou.join(" ")}`;
   if (e.eta) line += ` eta ${e.eta.date}`;
+  if (e.readyToClose) line += " ready-to-close";
   return line;
 }
 

@@ -16,6 +16,7 @@ export function epicStats(over: Partial<Omit<EpicStats, "byStage">> & { ref: str
     url: `https://app.asana.com/0/1/${over.ref}`,
     status: null,
     completed: false,
+    readyToClose: false,
     total,
     needsYou: [],
     startedAt: null,

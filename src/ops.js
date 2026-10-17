@@ -300,6 +300,7 @@ export function createOps(deps) {
         forge: !!forge,
         now: now(),
         tzOffset: tz,
+        live: true,
       };
       if (ref === undefined) return { at: cached.at, live: true, supported: true, epics: cached.epics.map((e) => epicStats(e.epic, e.tickets, join)) };
       const hit = cached.epics.find((e) => e.epic.ref === ref);
