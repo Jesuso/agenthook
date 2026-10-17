@@ -36,18 +36,20 @@ export type ProfileNav = {
 /**
  * Brand + version and the connection dot. On Home that is all; inside a profile the bar also
  * carries `‹ Home`, a profile switcher and the Overview · Instructions · Config tabs. `nav`
- * absent (Home, loading / error screens) → no profile controls.
+ * absent (Home, loading / error screens) → no profile controls. Below `lg` the bar wraps (the view
+ * tabs drop to their own row, scrolling sideways if even that is too narrow) so a phone or split
+ * window never scrolls the page sideways; from `lg` up it is one 44px row.
  */
 export function AppBar({ connection, nav }: { connection: ConnectionState; nav?: ProfileNav }) {
   return (
-    <header className="sticky top-0 z-20 flex h-11 items-center gap-6 border-b border-border bg-surface px-4">
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-1.5 lg:h-11 lg:flex-nowrap lg:gap-x-6 lg:py-0">
+      <div className="flex shrink-0 items-center gap-2">
         <span className="text-title font-semibold tracking-tight">agenthook</span>
         <Pill title="agenthook version">v{__APP_VERSION__}</Pill>
       </div>
       {nav && (
         <>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
               data-home
@@ -60,7 +62,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
             <select
               aria-label="switch profile"
               data-profile-switcher
-              className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-label font-medium"
+              className="min-w-0 max-w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-label font-medium"
               value={nav.profile}
               onChange={(e) => nav.onProfile(e.target.value)}
             >
@@ -72,14 +74,14 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
               ))}
             </select>
           </div>
-          <nav aria-label="views" className="flex items-center gap-1">
+          <nav aria-label="views" className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto max-lg:order-2">
             {VIEWS.map((v) => (
               <button
                 key={v}
                 type="button"
                 data-tab={v}
                 aria-current={v === nav.view ? "page" : undefined}
-                className={`rounded-md px-3 py-1 text-label font-medium capitalize ${
+                className={`shrink-0 rounded-md px-3 py-1 text-label font-medium capitalize ${
                   v === nav.view ? "bg-surface-raised text-fg ring-1 ring-inset ring-border-strong" : "text-muted hover:bg-surface-raised hover:text-fg"
                 }`}
                 onClick={() => nav.onView(v)}
@@ -90,7 +92,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
           </nav>
         </>
       )}
-      <div className="ml-auto">
+      <div className="ml-auto shrink-0">
         <ConnectionDot state={connection} />
       </div>
     </header>
