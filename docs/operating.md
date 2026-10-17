@@ -59,3 +59,71 @@ and `ls`. See [Token & cost tracking](usage.md).
 
 Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
 does, and only once the PR is merged/closed or the tracker item is completed.
+
+## Event-driven delivery loop
+
+Drive one or more profiles off the event bus instead of polling the board. The loop:
+
+1. One `agenthook tick [--json]` (MCP `tick`) for a baseline: slots, running, queue, held, board,
+   PRs, and a `cursor`.
+2. One background `agenthook watch --cursor <c> --event <list> --timeout <long, e.g. 1800> --json`
+   (MCP `events {cursor, waitS, types}`) as the wait. It blocks (`fs.watch`-driven, no polling)
+   until a matching event lands, or the timeout expires. MCP callers cap `waitS` at 120s, so re-arm
+   at least that often.
+3. On exit 0: act per event (table below), then re-arm `watch` with the printed `cursor`.
+4. On exit 2 (timeout): treat it as a **heartbeat** — re-`tick`, then re-arm `watch` from the new
+   cursor.
+
+Run **one** watch per supervisor — never two at once against the same profile(s). `watch` is a
+byte-offset reader of the append-only `events.jsonl`, so two readers would each see every event,
+not half; the real risk is two supervisors **both acting** on the same event (a double merge, a
+double `run`). Watching many profiles? Use a single `--all` (or multi-name) watch; its cursor is a
+JSON object `{stateKey: offset}` — pass it back whole.
+
+### Event → action
+
+See [events.md](events.md) for every field; this just says what to do.
+
+| event | action |
+|---|---|
+| `pipeline_done` | PR is ready — check CI/merge state, merge if policy allows |
+| `ci_green` | mergeable — merge if policy allows |
+| `ci_red` | look at `action`: `rerun`/`bounced`/`deferred` handle themselves; `skipped` may need you |
+| `merged` | release the ref's dependents (see epics, below) |
+| `blocked` | answer with `@agent` on the ticket, or `release` |
+| `failed` | inspect the run log, then `run` again or `dismiss` |
+| `move_refused` | ticket is stuck in its stage — fix ownership/assignment, or move it by hand |
+| `overlap_held` | wait for `overlap_released`, or reprioritise the blocker |
+| `epic_changed` | re-read `epics` — the cached read was dropped |
+
+`epic_changed` is **hidden by default** (like `coalesced`/`digest_start`/`digest_end`) — name it
+explicitly in `--event`/`types` or you won't see it.
+
+### What the bus can't see
+
+No event exists for: a PR on a branch that isn't `agent/<ref>`, an issue that was never labeled
+into a stage (or isn't assigned to the token owner), or anything that happened while the receiver
+was down (`events.jsonl` isn't written; `watch` still runs but stays silent — it just never wakes).
+The long `--timeout` heartbeat covers the receiver-was-briefly-down case by re-`tick`ing
+periodically regardless; after real downtime, run `agenthook reconcile` once to replay items
+resting in a source stage.
+
+### The forge
+
+`merged`, `ci_green`, and `ci_red` come only from a configured [forge](configuration.md#forge-optional--what-happened-to-the-code)
+— without one the bus has no merge/CI awareness and you must poll PR state via `tick`/`prs`
+instead. `agenthook init` offers the forge block on every init (default yes when the tracker is
+GitHub or the origin remote is github.com); `agenthook doctor` warns when a GitHub tracker has no
+forge configured.
+
+### Multiple profiles
+
+`agenthook tick --all` / `agenthook watch --all` (or list several names) fan the loop out to every
+profile at once: the cursor is `{stateKey: offset}`, and every event carries a `profile` field so
+you know which one fired.
+
+### Epic-ordered batches
+
+A ticket's `merged` event is the trigger to `run` its dependents next. Use the MCP `epics` tool
+(or `tick {epics:true}`) to see an epic's tickets, their stage, and which ones are waiting on the
+one that just merged — see [agent-guide.md](agent-guide.md) for the shapes.
