@@ -9,6 +9,7 @@ export type { MenuItem } from "./Menu";
 export { Card } from "./Card";
 export { EmptyState } from "./EmptyState";
 export { Tooltip } from "./Tooltip";
+export { HelpTip } from "./HelpTip";
 export { Segmented } from "./Segmented";
 export { FullAutoShield } from "./FullAutoShield";
 export { ProfileMark } from "./ProfileMark";

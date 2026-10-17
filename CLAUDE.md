@@ -238,6 +238,12 @@ Key files:
   the heartbeat (`ui`), `ui/rows.js` `profileView` (resolved `color`/`emoji`, validated — foreign values never reach the browser) and the
   browser bundle share one palette (`PROFILE_COLORS`, tokens `--color-profile-<id>` in `ui/src/index.css`) and one curated emoji list.
   Unset → `deriveIdentity(stateKey)` (FNV-1a), so every profile is distinct with no config.
+- `src/config-schema.js` — the one definition of every user config key (epic #344): `CONFIG_SCHEMA` entries
+  (`path` with `"*"` for any index/record key, `type`, `label`, one-line `help` ≤120 chars, `section`, `default`,
+  `options`, `min`/`max`, `scope`, `sensitive`, `editor:"pending"` = no form yet) + `NO_FORM` (load-derived keys,
+  each with a reason). Import-free; the config editor renders its fields from it (label, raw key, `HelpTip`,
+  placeholder). `test/config-schema.test.js` parses `src/types.js` and fails when a config `@property` has neither
+  an entry nor a `NO_FORM` reason, and holds the `sensitive` set equal to `SENSITIVE_FIELDS`.
 - `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
   updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
   `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config

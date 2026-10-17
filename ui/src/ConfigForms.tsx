@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react";
 import type { JSONPath } from "jsonc-parser";
 import {
   KNOWN_MODELS,
   STAGE_ROLES,
-  STEP_EFFORTS,
-  STEP_KINDS,
   addStep,
   boolEdit,
   fieldText,
@@ -22,7 +20,9 @@ import {
 import type { Discover, StageKeys, StageOption, StageSource } from "./configEdit";
 import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
 import { resolveIdentity } from "../../src/identity.js";
-import { ProfileMark } from "./components";
+import { schemaEntry } from "../../src/config-schema.js";
+import type { SchemaEntry } from "../../src/config-schema.js";
+import { HelpTip, ProfileMark } from "./components";
 
 /** The stage-picker feed for the open profile: the discover outcome, `null` before the first fetch. */
 export type StagesState = { source: StageSource; body: Discover | null };
@@ -41,16 +41,40 @@ const ROLE_LABEL: Record<(typeof STAGE_ROLES)[number], string> = {
   queue: "Backlog (queue)",
 };
 
-function Field(props: { label: string; hint?: string; error?: string | null; children: React.ReactNode }) {
+/**
+ * Pure: a form field's display, from its config-schema entry (src/config-schema.js) — label, help,
+ * the raw key shown in monospace (people search the docs by key), and a placeholder from the
+ * entry's `default` ("3 (default)"). A path with no entry falls back to its raw key.
+ */
+export function fieldMeta(path: JSONPath): { entry: SchemaEntry | undefined; label: string; hint: string; help?: string; placeholder?: string } {
+  const entry = schemaEntry(path);
+  const hint = String(path[path.length - 1]);
+  const placeholder = entry?.placeholder ?? (entry?.default !== undefined ? `${entry.default} (default)` : undefined);
+  return { entry, label: entry?.label ?? hint, hint, help: entry?.help, placeholder };
+}
+
+/**
+ * Label row (label + raw key + HelpTip) over a control. The first child is the control: it gets
+ * the label's `id` and `aria-describedby` → the help bubble; any further children follow it.
+ */
+function Field(props: { label: string; hint?: string; help?: string; error?: string | null; children: React.ReactNode }) {
+  const id = useId();
+  const controlId = `${id}control`;
+  const helpId = props.help ? `${id}help` : undefined;
+  const [control, ...rest] = Children.toArray(props.children);
   return (
-    <label className="flex flex-col gap-0.5 text-sm">
-      <span className="text-xs text-[var(--color-muted)]">
-        {props.label}
-        {props.hint && <span className="ml-1 font-mono opacity-70">{props.hint}</span>}
+    <div className="flex flex-col gap-0.5 text-sm">
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        <label htmlFor={controlId}>
+          {props.label}
+          {props.hint && <span className="ml-1 font-mono opacity-70">{props.hint}</span>}
+        </label>
+        {props.help && <HelpTip id={helpId} label={props.label} help={props.help} />}
       </span>
-      {props.children}
+      {isValidElement<Record<string, unknown>>(control) ? cloneElement(control, { id: controlId, "aria-describedby": helpId }) : control}
+      {rest}
       {props.error && <span className="text-xs text-status-failed">{props.error}</span>}
-    </label>
+    </div>
   );
 }
 
@@ -64,14 +88,15 @@ function Group(props: { title: string; children: React.ReactNode }) {
   );
 }
 
-function TextField(props: EditProps & { label: string; path: JSONPath; value: unknown; readOnly?: boolean; hint?: string; placeholder?: string }) {
+function TextField(props: EditProps & { path: JSONPath; value: unknown; readOnly?: boolean }) {
+  const m = fieldMeta(props.path);
   return (
-    <Field label={props.label} hint={props.hint}>
+    <Field label={m.label} hint={m.hint} help={m.help}>
       <input
         className={props.readOnly ? `${INPUT} cursor-not-allowed opacity-60` : INPUT}
         name={props.path.join(".")}
         value={fieldText(props.value)}
-        placeholder={props.placeholder}
+        placeholder={m.placeholder}
         readOnly={props.readOnly}
         onChange={(e) => !props.readOnly && props.onEdit(textEdit(props.text, props.path, e.target.value))}
       />
@@ -79,8 +104,12 @@ function TextField(props: EditProps & { label: string; path: JSONPath; value: un
   );
 }
 
-/** Keeps its own draft so a non-numeric entry stays visible (with the error) instead of being applied. */
-function NumberField(props: EditProps & { label: string; path: JSONPath; value: unknown; hint?: string; placeholder?: string }) {
+/**
+ * Keeps its own draft so a non-numeric entry stays visible (with the error) instead of being applied.
+ * The schema's min/max are HTML hints only — never clamped here; validateRawConfig judges on save.
+ */
+function NumberField(props: EditProps & { path: JSONPath; value: unknown }) {
+  const m = fieldMeta(props.path);
   const shown = fieldText(props.value);
   const [draft, setDraft] = useState(shown);
   const [error, setError] = useState<string | null>(null);
@@ -90,12 +119,14 @@ function NumberField(props: EditProps & { label: string; path: JSONPath; value: 
     setError(null);
   }, [props.text]);
   return (
-    <Field label={props.label} hint={props.hint} error={error}>
+    <Field label={m.label} hint={m.hint} help={m.help} error={error}>
       <input
         className={INPUT}
         name={props.path.join(".")}
         inputMode="decimal"
-        placeholder={props.placeholder}
+        min={m.entry?.min}
+        max={m.entry?.max}
+        placeholder={m.placeholder}
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
@@ -108,32 +139,40 @@ function NumberField(props: EditProps & { label: string; path: JSONPath; value: 
   );
 }
 
-function CheckField(props: EditProps & { label: string; path: JSONPath; value: unknown; hint?: string; explicitFalse?: boolean }) {
+function CheckField(props: EditProps & { path: JSONPath; value: unknown; explicitFalse?: boolean }) {
+  const m = fieldMeta(props.path);
+  const helpId = useId();
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        name={props.path.join(".")}
-        checked={props.value === true}
-        onChange={(e) => props.onEdit(boolEdit(props.text, props.path, e.target.checked, props.value, props.explicitFalse))}
-      />
-      <span className="text-xs">
-        {props.label}
-        {props.hint && <span className="ml-1 font-mono opacity-70 text-[var(--color-muted)]">{props.hint}</span>}
-      </span>
-    </label>
+    <div className="flex items-center gap-1 text-sm">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          name={props.path.join(".")}
+          aria-describedby={m.help ? helpId : undefined}
+          checked={props.value === true}
+          onChange={(e) => props.onEdit(boolEdit(props.text, props.path, e.target.checked, props.value, props.explicitFalse))}
+        />
+        <span className="text-xs">
+          {m.label}
+          <span className="ml-1 font-mono opacity-70 text-[var(--color-muted)]">{m.hint}</span>
+        </span>
+      </label>
+      {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
+    </div>
   );
 }
 
 /** First option "(default)" removes the key; an unknown current value stays selectable. */
-function SelectField(props: EditProps & { label: string; path: JSONPath; value: unknown; options: readonly string[]; hint?: string }) {
+function SelectField(props: EditProps & { path: JSONPath; value: unknown }) {
+  const m = fieldMeta(props.path);
+  const options = m.entry?.options ?? [];
   const cur = fieldText(props.value);
-  const extra = cur !== "" && !props.options.includes(cur);
+  const extra = cur !== "" && !options.includes(cur);
   return (
-    <Field label={props.label} hint={props.hint}>
+    <Field label={m.label} hint={m.hint} help={m.help}>
       <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))}>
         <option value="">(default)</option>
-        {props.options.map((o) => (
+        {options.map((o) => (
           <option key={o} value={o}>
             {o}
           </option>
@@ -157,14 +196,15 @@ export function modelSelectState(cur: string): { selectValue: string; showCustom
   return { selectValue: known ? cur : cur === "" ? "" : CUSTOM, showCustom: cur !== "" && !known };
 }
 
-export function ModelField(props: EditProps & { label: string; path: JSONPath; value: unknown; hint?: string }) {
+export function ModelField(props: EditProps & { path: JSONPath; value: unknown }) {
+  const m = fieldMeta(props.path);
   const cur = fieldText(props.value);
   const [forceCustom, setForceCustom] = useState(false);
   useEffect(() => setForceCustom(false), [props.text]);
   const { selectValue, showCustom: unknownValue } = modelSelectState(cur);
   const showCustom = forceCustom || unknownValue;
   return (
-    <Field label={props.label} hint={props.hint}>
+    <Field label={m.label} hint={m.hint} help={m.help}>
       <select
         className={INPUT}
         name={props.path.join(".")}
@@ -195,12 +235,14 @@ export function ModelField(props: EditProps & { label: string; path: JSONPath; v
   );
 }
 
+/** `label` is the tracker-neutral ROLE_LABEL; the help comes from the tracker's own stage key's schema entry. */
 function StageField(props: EditProps & { label: string; stageKey: string; path: JSONPath; value: unknown; stages: StagesState | null }) {
+  const help = fieldMeta(props.path).help;
   const cur = fieldText(props.value);
   const src = props.stages?.source ?? { kind: "loading" as const };
   if (src.kind !== "list") {
     return (
-      <Field label={props.label} hint={props.stageKey}>
+      <Field label={props.label} hint={props.stageKey} help={help}>
         <input className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))} />
         <span className="text-xs text-[var(--color-muted)]">{src.kind === "loading" ? "loading stages…" : src.hint}</span>
       </Field>
@@ -208,7 +250,7 @@ function StageField(props: EditProps & { label: string; stageKey: string; path: 
   }
   const offBoard = cur !== "" && !src.stages.some((s) => s.id === cur);
   return (
-    <Field label={props.label} hint={props.stageKey}>
+    <Field label={props.label} hint={props.stageKey} help={help}>
       <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))}>
         <option value="">(none)</option>
         {src.stages.map((s) => (
@@ -254,11 +296,12 @@ export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null
 export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }) {
   const b = readBasics(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
+  const name = fieldMeta(["name"]);
   return (
     <div className="max-w-xl rounded border border-[var(--color-border)] p-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2 flex flex-col gap-1">
-          <Field label="Profile name" hint="name">
+          <Field label={name.label} hint={name.hint} help={name.help}>
             <input
               className={INPUT}
               name="name"
@@ -271,12 +314,12 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
             <span className="font-mono">stateId</span> to keep it there).
           </p>
         </div>
-        <TextField {...edit} label="Resume trigger" hint="trigger" path={["trigger"]} value={b.trigger} placeholder="@agent (default)" />
-        <NumberField {...edit} label="Max concurrent agents" hint="maxConcurrent" path={["maxConcurrent"]} value={b.maxConcurrent} placeholder="1 (default)" />
-        <NumberField {...edit} label="Local port" hint="port" path={["port"]} value={b.port} placeholder="4123 (default)" />
+        <TextField {...edit} path={["trigger"]} value={b.trigger} />
+        <NumberField {...edit} path={["maxConcurrent"]} value={b.maxConcurrent} />
+        <NumberField {...edit} path={["port"]} value={b.port} />
         <AppearanceFields text={props.text} onEdit={props.onEdit} ui={b.ui} stateKey={props.stateKey} />
         <div className="col-span-2 flex flex-col gap-1">
-          <CheckField {...edit} label="Full auto (skip permissions)" hint="fullAuto" path={["fullAuto"]} value={b.fullAuto} explicitFalse />
+          <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
           <p className="text-xs text-status-held">
             fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
           </p>
@@ -298,10 +341,22 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
   const shown = resolveIdentity(props.stateKey, props.ui);
   const pick = (field: "color" | "emoji", v: string | undefined) => props.onEdit(identityEdit(props.text, field, v));
   const OPTION = "rounded border px-1.5 py-0.5 text-xs";
+  const [ui, colorMeta, emojiMeta] = [["ui"], ["ui", "color"], ["ui", "emoji"]].map(fieldMeta);
+  const colorHelp = useId();
+  const emojiHelp = useId();
+  /** A sub-field's label + raw key + HelpTip (its control carries `aria-describedby` → `helpId`). */
+  const subLabel = (m: ReturnType<typeof fieldMeta>, helpId: string) => (
+    <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+      {m.label}
+      <span className="font-mono opacity-70">{m.hint}</span>
+      {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
+    </span>
+  );
   return (
     <div className="col-span-2 flex flex-col gap-2" data-appearance>
-      <span className="text-xs text-[var(--color-muted)]">
-        Appearance <span className="ml-1 font-mono opacity-70">ui</span>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {ui.label} <span className="ml-1 font-mono opacity-70">{ui.hint}</span>
+        {ui.help && <HelpTip label={ui.label} help={ui.help} />}
       </span>
       <div className="flex items-center gap-3">
         <ProfileMark p={shown} />
@@ -309,7 +364,8 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
           {color || emoji ? "custom" : "automatic"} · shows on Home and the app bar after the receiver restarts
         </span>
       </div>
-      <div role="radiogroup" aria-label="profile colour" className="flex flex-wrap items-center gap-1.5">
+      {subLabel(colorMeta, colorHelp)}
+      <div role="radiogroup" aria-label="profile colour" aria-describedby={colorHelp} className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           role="radio"
@@ -336,12 +392,13 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
       </div>
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
-          <button type="button" className={BUTTON} aria-expanded={emojiOpen} onClick={() => setEmojiOpen((o) => !o)}>
+          {subLabel(emojiMeta, emojiHelp)}
+          <button type="button" className={BUTTON} aria-expanded={emojiOpen} aria-describedby={emojiHelp} onClick={() => setEmojiOpen((o) => !o)}>
             {emojiOpen ? "Hide emoji" : "Choose emoji"}
           </button>
         </div>
         {emojiOpen && (
-          <div role="radiogroup" aria-label="profile emoji" className="grid max-h-56 max-w-md grid-cols-10 gap-1 overflow-y-auto rounded border border-[var(--color-border-subtle)] p-1">
+          <div role="radiogroup" aria-label="profile emoji" aria-describedby={emojiHelp} className="grid max-h-56 max-w-md grid-cols-10 gap-1 overflow-y-auto rounded border border-[var(--color-border-subtle)] p-1">
             {PROFILE_EMOJIS.map((e) => (
               <button
                 key={e}
@@ -517,10 +574,10 @@ export function PipelineForm(
             {isOpen && (
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-3 gap-3">
-                  <TextField {...edit} label="Step id" hint="id" path={at("id")} value={s.id} />
-                  <SelectField {...edit} label="Kind" hint="kind" path={at("kind")} value={s.kind} options={STEP_KINDS} />
+                  <TextField {...edit} path={at("id")} value={s.id} />
+                  <SelectField {...edit} path={at("kind")} value={s.kind} />
                   <div className="flex items-end">
-                    <CheckField {...edit} label="Manual (no agent)" hint="manual" path={at("manual")} value={s.manual} />
+                    <CheckField {...edit} path={at("manual")} value={s.manual} />
                   </div>
                 </div>
                 <Group title="Triggers & lanes">
@@ -533,18 +590,18 @@ export function PipelineForm(
                   )}
                 </Group>
                 <Group title="Agent">
-                  <ModelField {...edit} label="Model" hint="model" path={at("model")} value={s.model} />
-                  <SelectField {...edit} label="Reasoning effort" hint="effort" path={at("effort")} value={s.effort} options={STEP_EFFORTS} />
-                  <TextField {...edit} label="Instructions file" hint="instructionsFile" path={at("instructionsFile")} value={s.instructionsFile} />
+                  <ModelField {...edit} path={at("model")} value={s.model} />
+                  <SelectField {...edit} path={at("effort")} value={s.effort} />
+                  <TextField {...edit} path={at("instructionsFile")} value={s.instructionsFile} />
                 </Group>
                 <Group title="Limits">
-                  <NumberField {...edit} label="Max attempts" hint="maxAttempts" path={at("maxAttempts")} value={s.maxAttempts} placeholder="3 (default)" />
-                  <NumberField {...edit} label="Wall-clock limit (min)" hint="maxMinutes" path={at("maxMinutes")} value={s.maxMinutes} placeholder="120 (default)" />
-                  <NumberField {...edit} label="Idle timeout (min)" hint="idleMinutes" path={at("idleMinutes")} value={s.idleMinutes} placeholder="off" />
+                  <NumberField {...edit} path={at("maxAttempts")} value={s.maxAttempts} />
+                  <NumberField {...edit} path={at("maxMinutes")} value={s.maxMinutes} />
+                  <NumberField {...edit} path={at("idleMinutes")} value={s.idleMinutes} />
                 </Group>
                 <Group title="Worktree">
-                  <CheckField {...edit} label="Creates worktree" hint="createsWorktree" path={at("createsWorktree")} value={s.createsWorktree} />
-                  <CheckField {...edit} label="Removes worktree" hint="drainWorktree" path={at("drainWorktree")} value={s.drainWorktree} />
+                  <CheckField {...edit} path={at("createsWorktree")} value={s.createsWorktree} />
+                  <CheckField {...edit} path={at("drainWorktree")} value={s.drainWorktree} />
                 </Group>
               </div>
             )}
