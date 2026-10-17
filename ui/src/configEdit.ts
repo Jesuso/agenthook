@@ -14,8 +14,8 @@ export type StageOption = { id: string; label: string };
 export type Discover = { tracker: string; stageKeys: StageKeys | null; stages: StageOption[] | null };
 
 export const STAGE_ROLES = ["source", "success", "failure", "hold", "queue"] as const;
-export const STEP_KINDS = ["implement", "change", "review", "triage"] as const;
-export const STEP_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+// The enum options live in the config schema (one definition the forms and the drift test share).
+export { STEP_KINDS, STEP_EFFORTS } from "../../src/config-schema.js";
 export const KNOWN_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5"] as const;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);

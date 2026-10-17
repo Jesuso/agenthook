@@ -70,7 +70,7 @@ describe("modelSelectState", () => {
 describe("ModelField", () => {
   it("renders a known value as the selected option, no custom input", () => {
     const onEdit = vi.fn();
-    const html = renderToStaticMarkup(createElement(ModelField, { text: "{}", onEdit, label: "Model", path: ["model"], value: "claude-sonnet-5" }));
+    const html = renderToStaticMarkup(createElement(ModelField, { text: "{}", onEdit, path: ["tracker", "pipeline", 0, "model"], value: "claude-sonnet-5" }));
     expect(html).toMatch(/<option value="claude-sonnet-5"[^>]*selected[^>]*>/);
     expect(html).not.toContain('placeholder="model name"');
     expect(onEdit).not.toHaveBeenCalled();
@@ -78,14 +78,14 @@ describe("ModelField", () => {
 
   it("renders an unrecognized value in the custom input, unchanged, without editing on render", () => {
     const onEdit = vi.fn();
-    const html = renderToStaticMarkup(createElement(ModelField, { text: "{}", onEdit, label: "Model", path: ["model"], value: "sonnet" }));
+    const html = renderToStaticMarkup(createElement(ModelField, { text: "{}", onEdit, path: ["tracker", "pipeline", 0, "model"], value: "sonnet" }));
     expect(html).toMatch(/<input[^>]*placeholder="model name"[^>]*value="sonnet"[^>]*>/);
     expect(onEdit).not.toHaveBeenCalled();
   });
 
   it("(default) is the select's empty-value option, which removes the key via textEdit", () => {
     const onEdit = vi.fn();
-    const el: any = createElement(ModelField, { text: '{"model":"claude-sonnet-5"}', onEdit, label: "Model", path: ["model"], value: "claude-sonnet-5" });
+    const el: any = createElement(ModelField, { text: '{"model":"claude-sonnet-5"}', onEdit, path: ["tracker", "pipeline", 0, "model"], value: "claude-sonnet-5" });
     // The rendered <select>'s first option is always "(default)" at value="".
     const html = renderToStaticMarkup(el);
     expect(html).toMatch(/<option value="">\(default\)<\/option>/);

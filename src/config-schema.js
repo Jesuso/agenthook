@@ -1,0 +1,208 @@
+// The one definition of every user config key (epic #344): label, one-line help, section, and the
+// hints a form needs (default, options, min/max). The config editor renders its fields from it and
+// test/config-schema.test.js holds it to src/types.js — a typedef key with no entry here (and no
+// NO_FORM reason) fails CI, so a new key can't silently fall out of the forms.
+// Import-free on purpose: the browser bundles it (like src/identity.js and src/ui/contract.js).
+
+/** Step prompt shapes (`Step.kind`). */
+export const STEP_KINDS = /** @type {const} */ (["implement", "change", "review", "triage"]);
+/** `claude -p --effort` levels (`Step.effort`, `lite.effort`, `escalate.*.effort`). */
+export const STEP_EFFORTS = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
+
+/** The tracker types whose steps bind stage keys of each family (src/types.js `Step`). */
+const STATUS_TRACKERS = ["jira", "github-projects", "local"];
+
+/**
+ * One config key. `path` is absolute from the config root; `"*"` stands for any array index or
+ * record key. `editor: "pending"` marks a key no form edits yet (Raw only, for now).
+ * @typedef {object} SchemaEntry
+ * @property {string[]} path
+ * @property {'string'|'number'|'boolean'|'enum'|'string-list'|'record'|'object'|'array'} type
+ * @property {string} label
+ * @property {string} help        one line, ≤120 chars
+ * @property {'basics'|'pipeline-step'|'tracker'|'forge'|'ingress'|'integrations'|'repos'} section
+ * @property {boolean} [advanced]
+ * @property {string[]} [scope]   tracker types it applies to; omitted = all
+ * @property {boolean} [sensitive]  mirrors src/ui/contract.js SENSITIVE_FIELDS (a test keeps them equal)
+ * @property {string|number|boolean} [default]
+ * @property {readonly string[]} [options]  enum values
+ * @property {number} [min]       mirrors src/config.js validateRawConfig; the form never clamps
+ * @property {number} [max]
+ * @property {string} [placeholder]  shown when unset and there is no `default` to show
+ * @property {'pending'} [editor]
+ */
+
+/**
+ * @param {string} path  dotted, e.g. "tracker.pipeline.*.maxMinutes"
+ * @param {SchemaEntry['type']} type
+ * @param {string} label
+ * @param {SchemaEntry['section']} section
+ * @param {string} help
+ * @param {Partial<SchemaEntry>} [extra]
+ * @returns {SchemaEntry}
+ */
+const entry = (path, type, label, section, help, extra = {}) => ({ path: path.split("."), type, label, help, section, ...extra });
+
+/** A pipeline-step key: `tracker.pipeline.*.<key>`. @param {string} key @param {SchemaEntry['type']} type @param {string} label @param {string} help @param {Partial<SchemaEntry>} [extra] */
+const step = (key, type, label, help, extra = {}) => entry(`tracker.pipeline.*.${key}`, type, label, "pipeline-step", help, extra);
+
+const P = /** @type {const} */ ({ editor: "pending" });
+
+/** @type {SchemaEntry[]} */
+export const CONFIG_SCHEMA = [
+  // Basics
+  entry("name", "string", "Profile name", "basics", "Display label in the UI and sinks; keys the state dir only when stateId is unset.", { sensitive: true }),
+  entry("stateId", "string", "State id", "basics", "Stable state-dir key, so the name can change without moving ~/.agenthook/<stateId>/.", { advanced: true, ...P }),
+  entry("trigger", "string", "Resume trigger", "basics", "Start your reply on a held task with this to re-run the held step with the reply as context.", { default: "@agent" }),
+  entry("maxConcurrent", "number", "Max concurrent agents", "basics", "How many agents may run at once, across every step.", { default: 1, min: 1 }),
+  entry("port", "number", "Local port", "basics", "Local port the receiver listens on; the ingress forwards webhooks to it.", { default: 4123 }),
+  entry("fullAuto", "boolean", "Full auto (skip permissions)", "basics", "Run agents with --dangerously-skip-permissions: no permission prompts, unsandboxed.", { sensitive: true, default: false }),
+  entry("overlapGuard", "boolean", "Overlap guard", "basics", "Hold a worktree step while its predicted file paths overlap another in-flight task's.", { advanced: true, default: false, ...P }),
+  entry("claudeBin", "string", "Claude binary", "basics", "The claude CLI agents are spawned with: a name on PATH or an absolute path.", { advanced: true, sensitive: true, default: "claude", ...P }),
+  entry("instructionsFile", "string", "Default instructions file", "basics", "Standing instructions for steps that set none; relative to the config file.", { default: "./INSTRUCTIONS.md", ...P }),
+  entry("ui", "object", "Appearance", "basics", "The profile's colour and emoji in the web UI; unset values derive from the state key."),
+  entry("ui.color", "string", "Colour", "basics", "A palette colour for the profile's Home card and app-bar chip; automatic when unset."),
+  entry("ui.emoji", "string", "Emoji", "basics", "An emoji from the curated list for the profile; automatic when unset."),
+
+  // Repos
+  entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file.", P),
+  entry("worktreePrefix", "string", "Worktree prefix", "repos", "Where agent worktrees are created, resolved against the repo path.", { advanced: true, default: "../agenthook-worktrees", ...P }),
+  entry("repos", "array", "Repositories", "repos", "Several checkouts; a task's route keys pick the repo its agents work in.", P),
+  entry("repos.*.id", "string", "Repo id", "repos", "Stable id (letters, digits, . _ -); names the worktree subdir.", P),
+  entry("repos.*.path", "string", "Path", "repos", "This repo's checkout root; relative to the config file.", P),
+  entry("repos.*.match", "string-list", "Route keys", "repos", "Route-key values that select this repo (compared case-insensitively).", P),
+  entry("repos.*.default", "boolean", "Default repo", "repos", "Tasks with no route key go here; at most one repo may set it.", P),
+  entry("repos.*.instructionsFile", "string", "Repo instructions", "repos", "Repo context prepended to every step's standing instructions.", P),
+  entry("repos.*.worktreePrefix", "string", "Worktree prefix", "repos", "Per-repo override of worktreePrefix, resolved against this repo's path.", { advanced: true, ...P }),
+
+  // Tracker
+  entry("tracker", "object", "Tracker", "tracker", "Where work comes from: the board whose stages drive the pipeline.", P),
+  entry("tracker.type", "enum", "Tracker type", "tracker", "Which tracker adapter reads the board.", { options: ["asana", "jira", "github", "github-projects", "local"], ...P }),
+  entry("tracker.token", "string", "API token", "tracker", "Tracker API token; use a ${VAR} reference, not a literal.", { sensitive: true, scope: ["asana", "jira", "github", "github-projects"], ...P }),
+  entry("tracker.userGid", "string", "User gid", "tracker", "Your Asana user gid; only tasks assigned to it are acted on.", { sensitive: true, scope: ["asana"], ...P }),
+  entry("tracker.assigneeFilter", "boolean", "Only my tasks", "tracker", "Act only on items assigned to the bot identity; false opts into acting project-wide.", { sensitive: true, default: true, ...P }),
+  entry("tracker.workspaceGid", "string", "Workspace gid", "tracker", "The Asana workspace holding the project.", { scope: ["asana"], ...P }),
+  entry("tracker.projectGid", "string", "Project gid", "tracker", "The Asana project whose sections drive the pipeline.", { scope: ["asana"], ...P }),
+  entry("tracker.displayIdField", "string", "Display id field", "tracker", "Custom field holding the task's human id (case-insensitive).", { scope: ["asana"], default: "ID", advanced: true, ...P }),
+  entry("tracker.site", "string", "Site", "tracker", "Jira site shortname (<site>.atlassian.net); or set baseUrl instead.", { scope: ["jira"], ...P }),
+  entry("tracker.baseUrl", "string", "Base URL", "tracker", "Full Jira base URL; overrides site.", { scope: ["jira"], ...P }),
+  entry("tracker.email", "string", "Account email", "tracker", "Jira account email for Basic auth; typically a ${VAR} reference.", { sensitive: true, scope: ["jira"], ...P }),
+  entry("tracker.webhookSecret", "string", "Webhook secret", "tracker", "Signing secret; omit to let agenthook generate one, or set false to skip verification.", { sensitive: true, scope: ["jira", "github", "github-projects"], advanced: true, ...P }),
+  entry("tracker.projectKey", "string", "Project key", "tracker", "The Jira project whose statuses drive the pipeline (e.g. CAHUI).", { scope: ["jira"], ...P }),
+  entry("tracker.assigneeAccountId", "string", "Assignee account id", "tracker", "The bot's Jira accountId; work is scoped to its issues.", { scope: ["jira"], ...P }),
+  entry("tracker.repository", "string", "Repository", "tracker", "owner/name of the GitHub repo whose issues drive the pipeline.", { scope: ["github", "github-projects"], ...P }),
+  entry("tracker.owner", "string", "Owner", "tracker", "GitHub repo owner (alternative to repository).", { scope: ["github"], advanced: true, ...P }),
+  entry("tracker.repo", "string", "Repo", "tracker", "GitHub repo name (alternative to repository).", { scope: ["github"], advanced: true, ...P }),
+  entry("tracker.assigneeLogin", "string", "Assignee login", "tracker", "The bot's GitHub login; work is scoped to its issues. Derived from the token when unset.", { scope: ["github", "github-projects"], ...P }),
+  entry("tracker.project", "string", "Project board", "tracker", "Projects v2 board as owner/number or its URL; its Status field drives the pipeline.", { scope: ["github-projects"], ...P }),
+  entry("tracker.routeField", "string", "Route field", "tracker", "Tracker field whose value(s) pick the repo a task runs in (multi-repo routing).", { advanced: true, ...P }),
+  entry("tracker.epicType", "string", "Epic type", "tracker", 'Type name that marks an epic (default "Epic"; Jira: the level-1 issue type).', { scope: ["asana", "jira", "github", "github-projects"], advanced: true, ...P }),
+  entry("tracker.epicLabel", "string", "Epic label", "tracker", "Label that marks an epic; either this or epicType marks one.", { scope: ["github", "github-projects"], default: "epic", advanced: true, ...P }),
+  entry("tracker.pipeline", "array", "Pipeline", "pipeline-step", "The ordered steps; a task entering a step's source stage fires that step."),
+
+  // Pipeline steps — the fields the step card edits today
+  step("id", "string", "Step id", "Unique, stable id; keys this step's dedup and running state."),
+  step("kind", "enum", "Kind", "The prompt shape the agent gets.", { options: STEP_KINDS, default: "implement" }),
+  step("manual", "boolean", "Manual (no agent)", "No agent runs; entering the step only does system actions (e.g. removing the worktree)."),
+  step("model", "string", "Model", "Per-step claude --model override; unset uses the CLI default."),
+  step("effort", "enum", "Reasoning effort", "Per-step claude --effort override; unset uses the CLI default.", { options: STEP_EFFORTS }),
+  step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
+  step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),
+  step("maxMinutes", "number", "Wall-clock limit (min)", "Kill a run after this many minutes and fail it as a timeout; 0 = no cap.", { default: 120, min: 0 }),
+  step("idleMinutes", "number", "Idle timeout (min)", "Kill a run after this many minutes with no agent output (must be > 0); off when unset.", { placeholder: "off" }),
+  step("createsWorktree", "boolean", "Creates worktree", "Create the task's shared git worktree before the agent runs."),
+  step("drainWorktree", "boolean", "Removes worktree", "Remove the task's worktree after this step."),
+  step("sourceSectionGid", "string", "Source section", "Asana section whose tasks fire this step.", { scope: ["asana"] }),
+  step("successSectionGid", "string", "Success section", "Asana section a clean finish (advance) moves the task to.", { scope: ["asana"] }),
+  step("failureSectionGid", "string", "Failure section", "Asana section a failed or interrupted run moves the task to.", { scope: ["asana"] }),
+  step("holdSectionGid", "string", "Hold section", "Asana section a hold verdict moves the task to; unset leaves it in place.", { scope: ["asana"] }),
+  step("queueSectionGid", "string", "Queue section", "Opt-in backlog section this step pulls from, in section order, when a slot frees.", { scope: ["asana"] }),
+  step("sourceStatus", "string", "Source status", "Status whose items fire this step.", { scope: STATUS_TRACKERS }),
+  step("successStatus", "string", "Success status", "Status a clean finish (advance) moves the item to.", { scope: STATUS_TRACKERS }),
+  step("failureStatus", "string", "Failure status", "Status a failed or interrupted run moves the item to.", { scope: STATUS_TRACKERS }),
+  step("holdStatus", "string", "Hold status", "Status a hold verdict moves the item to; unset leaves it in place.", { scope: STATUS_TRACKERS }),
+  step("queueStatus", "string", "Queue status", "Opt-in backlog status this step pulls from, in board order, when a slot frees.", { scope: STATUS_TRACKERS }),
+  step("sourceLabel", "string", "Source label", "An issue carrying this label fires this step.", { scope: ["github"] }),
+  step("successLabel", "string", "Success label", "Label a clean finish (advance) swaps the issue to.", { scope: ["github"] }),
+  step("failureLabel", "string", "Failure label", "Label a failed or interrupted run swaps the issue to.", { scope: ["github"] }),
+  step("holdLabel", "string", "Hold label", "Label a hold verdict swaps the issue to; unset leaves it in place.", { scope: ["github"] }),
+  step("queueLabel", "string", "Queue label", "Opt-in backlog label this step pulls from, oldest-created first, when a slot frees.", { scope: ["github"] }),
+
+  // Pipeline steps — Raw only for now
+  step("maxConcurrent", "number", "Max concurrent runs", "Runs of this step at once, counted inside the global limit; unset = only that limit.", { min: 1, advanced: true, ...P }),
+  step("completeOnMerge", "boolean", "Complete on merge", "Manual steps only, at most one: a merged agent PR moves the task into this step.", P),
+  step("closeIssue", "boolean", "Close issue", "Entering this (terminal) step closes the issue, releasing the issues it blocked.", { scope: ["github"], ...P }),
+  step("completeTask", "boolean", "Complete task", "Entering this (terminal) step marks the task completed, releasing the tasks it blocked.", { scope: ["asana"], ...P }),
+  step("lite", "object", "Lite mode", "A cheaper model/effort when the description starts a line with every listed heading.", { advanced: true, ...P }),
+  step("lite.descriptionHeadings", "string-list", "Description headings", "Headings that must each start a line of the task description for lite to apply.", P),
+  step("lite.model", "string", "Lite model", "The base model when lite applies.", P),
+  step("lite.effort", "enum", "Lite effort", "The base effort when lite applies.", { options: STEP_EFFORTS, ...P }),
+  step("escalate", "record", "Escalation", "Per-difficulty (easy/medium/hard) model and effort overrides; they win over lite.", { advanced: true, ...P }),
+  step("escalate.*.model", "string", "Escalated model", "The model used when the task's stored difficulty matches this key.", P),
+  step("escalate.*.effort", "enum", "Escalated effort", "The effort used when the task's stored difficulty matches this key.", { options: STEP_EFFORTS, ...P }),
+
+  // Ingress
+  entry("ingress", "object", "Ingress", "ingress", "How webhooks reach this receiver from the internet.", P),
+  entry("ingress.type", "enum", "Ingress type", "ingress", "ngrok opens a tunnel per start; manual / hosted use a static URL you provide.", { options: ["ngrok", "manual", "hosted"], ...P }),
+  entry("ingress.url", "string", "Public URL", "ingress", "Static public HTTPS base URL (manual / hosted ingress).", P),
+  entry("ingress.authtoken", "string", "ngrok authtoken", "ingress", "ngrok authtoken; use a ${VAR} reference, not a literal.", { sensitive: true, ...P }),
+  entry("ingress.domain", "string", "ngrok domain", "ingress", "A reserved ngrok domain; keeps the public URL stable across restarts.", P),
+  entry("ingress.webAddr", "string", "ngrok web address", "ingress", "ngrok's local web-API address; give each profile its own when tunnels run in parallel.", { default: "127.0.0.1:4040", advanced: true, ...P }),
+
+  // Forge
+  entry("forge", "object", "Forge", "forge", "Optional: where the code lives, so merged PRs and red CI move tasks.", P),
+  entry("forge.type", "enum", "Forge type", "forge", "Which forge adapter watches the agent PRs.", { options: ["github"], ...P }),
+  entry("forge.token", "string", "API token", "forge", "Forge API token; use a ${VAR} reference, not a literal.", { sensitive: true, ...P }),
+  entry("forge.repository", "string", "Repository", "forge", "owner/name of the repo whose agent PRs complete tasks.", P),
+  entry("forge.owner", "string", "Owner", "forge", "Repo owner (alternative to repository).", { advanced: true, ...P }),
+  entry("forge.repo", "string", "Repo", "forge", "Repo name (alternative to repository).", { advanced: true, ...P }),
+  entry("forge.webhookSecret", "string", "Webhook secret", "forge", "Signing secret; omit to let agenthook generate one. Always verified.", { sensitive: true, advanced: true, ...P }),
+  entry("forge.redCi", "boolean", "React to red CI", "forge", "On red CI for an agent PR, re-run it once, then send the task back with changes.", { default: true, ...P }),
+  entry("forge.greenCi", "boolean", "Report green CI", "forge", "Emit a ci_green event when an agent PR's checks all pass (moves nothing).", { default: true, ...P }),
+  entry("forge.ciTarget", "string", "Red-CI target step", "forge", "Step a red-CI bounce returns to; unset = the step that creates the worktree.", { advanced: true, ...P }),
+
+  // Integrations
+  entry("sinks", "array", "Sinks", "integrations", "Forward lifecycle events (blocked, failed, done, …) to a chat or a webhook.", P),
+  entry("sinks.*.type", "enum", "Sink type", "integrations", "Where this sink sends events.", { options: ["slack", "telegram", "webhook"], ...P }),
+  entry("sinks.*.url", "string", "URL", "integrations", "Slack incoming-webhook or generic webhook URL; use a ${VAR} reference.", { sensitive: true, ...P }),
+  entry("sinks.*.botToken", "string", "Bot token", "integrations", "Telegram bot token; use a ${VAR} reference, not a literal.", { sensitive: true, ...P }),
+  entry("sinks.*.chatId", "string", "Chat id", "integrations", "Telegram chat id (a string or a number).", P),
+  entry("sinks.*.events", "string-list", "Events", "integrations", "Events to forward; unset = blocked, failed, move_refused, pipeline_done.", P),
+  entry("digest", "object", "Digest", "integrations", "The on-demand Digest: a tool-less agent that summarises this profile's state.", P),
+  entry("digest.soul", "string", "SOUL file", "integrations", "Markdown role file for the Digest agent; resolved beside the config file.", { default: "SOUL.md", ...P }),
+  entry("digest.access", "enum", "Access", "integrations", "What the Digest agent may read; only snapshot (the profile's state summary) today.", { options: ["snapshot"], default: "snapshot", ...P }),
+  entry("digest.model", "string", "Model", "integrations", "claude --model for the Digest run; unset uses the CLI default.", P),
+  entry("digest.maxBudgetUsd", "number", "Max budget (USD)", "integrations", "Spending cap per Digest run (claude --max-budget-usd); must be > 0.", { advanced: true, ...P }),
+];
+
+const DERIVED = "derived at load, not user config";
+
+/** Config keys deliberately left out of the forms, each with its reason (dotted path → reason). */
+export const NO_FORM = /** @type {Record<string, string>} */ ({
+  stateKey: `${DERIVED} (stateId ?? name)`,
+  installDir: DERIVED,
+  configPath: DERIVED,
+  configDir: DERIVED,
+  stateDir: DERIVED,
+  provider: `${DERIVED} (= tracker.type)`,
+  providerConfig: `${DERIVED} (alias of tracker)`,
+  pipeline: `${DERIVED} (resolved tracker.pipeline)`,
+  multiRepo: `${DERIVED} (true iff repos is declared)`,
+  dataDir: DERIVED,
+  logDir: DERIVED,
+  publicUrlFile: DERIVED,
+  pidFile: DERIVED,
+  heartbeatFile: DERIVED,
+  controlSock: DERIVED,
+});
+
+/**
+ * The entry for a concrete path (numeric indices and record keys match `"*"`), or undefined.
+ * @param {ReadonlyArray<string|number>} path @returns {SchemaEntry|undefined}
+ */
+export function schemaEntry(path) {
+  return CONFIG_SCHEMA.find((e) => e.path.length === path.length && e.path.every((seg, i) => seg === "*" || seg === String(path[i])));
+}
+
+/** Shorthand for a pipeline-step key's entry (`tracker.pipeline.*.<key>`). @param {string} key */
+export const stepEntry = (key) => schemaEntry(["tracker", "pipeline", "*", ...key.split(".")]);
