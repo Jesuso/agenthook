@@ -2,10 +2,11 @@
 // recent agent runs from the per-run logs. The receiver launches `claude -p` with
 // cwd = the task's WORKTREE (dispatch.js: `cwd = hasWorktree ? worktree : repoPath`),
 // and Claude keys a transcript dir by its launch cwd mangle — so a ref's sessions
-// live under mangle(worktreePath(cfg, ref)), NOT the repo's mangle.
+// live under mangle(worktreePath(cfg, ref)), NOT the repo's mangle. The transcript layout
+// comes from the profile's agent adapter (`sessions`, src/agents/).
 import fs from "node:fs";
 import path from "node:path";
-import { claudeProjectDir } from "./paths.js";
+import { agentFor } from "./agents/index.js";
 import { worktreePath } from "./worktree.js";
 import { reposOf, repoById, primaryRepo } from "./repos.js";
 
@@ -18,6 +19,13 @@ const mtime = (p) => {
   }
 };
 
+/** An agent's session layout; throws a plain error for an agent that keeps no transcripts.
+ * @param {import('./types.js').AgentAdapter} agent */
+export function agentSessions(agent) {
+  if (!agent.sessions) throw new Error(`${agent.describe().name} runs have no transcripts to follow/resume`);
+  return agent.sessions;
+}
+
 /**
  * The repo a ref ran in. Multi-repo worktrees nest under `<base>/<repo.id>/<ref>`, so the
  * transcript dir depends on it. The sticky `repo.json` entry wins; a drained ref has none
@@ -29,10 +37,12 @@ const mtime = (p) => {
 export function refRepo(cfg, ref, store) {
   const sticky = repoById(cfg, store?.getRepo(ref));
   if (sticky) return sticky;
+  const transcriptDir = agentFor(cfg).sessions?.transcriptDir;
+  if (!transcriptDir) return primaryRepo(cfg);
   let best = null;
   let bestM = -1;
   for (const repo of reposOf(cfg)) {
-    const m = mtime(claudeProjectDir(worktreePath(cfg, ref, repo)));
+    const m = mtime(transcriptDir(worktreePath(cfg, ref, repo)));
     if (m > bestM) {
       best = repo;
       bestM = m;
@@ -41,10 +51,10 @@ export function refRepo(cfg, ref, store) {
   return best ?? primaryRepo(cfg);
 }
 
-/** Claude transcript dir for a task ref's worktree.
+/** The agent's transcript dir for a task ref's worktree (the profile's agent; throws when it keeps none).
  * @param {import('./types.js').Config} cfg @param {string} ref
  * @param {{ getRepo: (ref: string) => string|undefined }} [store] */
-export const sessionDir = (cfg, ref, store) => claudeProjectDir(worktreePath(cfg, ref, refRepo(cfg, ref, store)));
+export const sessionDir = (cfg, ref, store) => agentSessions(agentFor(cfg)).transcriptDir(worktreePath(cfg, ref, refRepo(cfg, ref, store)));
 
 /** The session id to resume for a ref: the newest DISPATCHED transcript (its first
  * turn carries the engine's "=== TICKET ===" marker, which a hand-run session won't),

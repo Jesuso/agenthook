@@ -61,3 +61,17 @@ test("sessionDir: single-repo cfg is unchanged", () => {
   const synth = /** @type {any} */ ({ repoPath: "/a/b/repo", multiRepo: false, repos: [{ id: "default", path: "/a/b/repo", match: [], default: true }] });
   assert.equal(sessionDir(synth, "80", { getRepo: () => "default" }), expected);
 });
+
+test("follow transcriptDirs: each repo's root dir + every worktree-mangle sibling under ~/.claude/projects", async () => {
+  const { transcriptDirs } = await import("../src/commands/follow.js");
+  const { worktreeDir, mangle } = await import("../src/paths.js");
+  const cfg = /** @type {any} */ ({ repoPath: "/v/solo", worktreePrefix: "/v/wt", repos: [{ id: "default", path: "/v/solo", match: [], default: true }] });
+  const root = claudeProjectDir("/v/solo");
+  const wt = claudeProjectDir(worktreePath(cfg, "91"));
+  writeTranscript(root, "r1");
+  writeTranscript(wt, "w1");
+  const projects = path.join(HOME, ".claude", "projects");
+  const got = transcriptDirs(cfg, cfg.repos);
+  assert.deepEqual(got.dirs, [root, wt]);
+  assert.deepEqual(got.searched, [root, path.join(projects, `${mangle(worktreeDir(cfg))}-*`)]);
+});

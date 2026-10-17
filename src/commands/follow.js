@@ -7,12 +7,14 @@
 // Transcripts live under the agent's launch-cwd mangle: the repo root for steps without
 // a worktree, the task's worktree for the rest. So it searches, per repo (or only the one
 // `--repo <id>` names), the repo mangle plus every worktree mangle under the repo's base.
+// The transcript layout comes from the profile's agent adapter (`sessions`, src/agents/).
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../config.js";
-import { claudeProjectDir, mangle, worktreeDir } from "../paths.js";
+import { worktreeDir } from "../paths.js";
 import { reposOf } from "../repos.js";
+import { agentFor } from "../agents/index.js";
+import { agentSessions } from "../sessions.js";
 
 /** `.jsonl` names in a dir ([] if unreadable). @param {string} dir */
 const jsonls = (dir) => {
@@ -23,32 +25,42 @@ const jsonls = (dir) => {
   }
 };
 
-/** Transcript dirs that exist for the given repos: each repo's root mangle, plus every
- * `~/.claude/projects` entry under its worktree-base mangle (`<base>/<ref>`, or
- * `<base>/<repo.id>/<ref>` multi-repo). Deduped, in search order.
+/** Transcript dirs that exist for the given repos: each repo's root transcript dir, plus
+ * every sibling entry named after its worktree base's dir + "-" (Claude: the
+ * `~/.claude/projects` mangles of `<base>/<ref>`, or `<base>/<repo.id>/<ref>` multi-repo).
+ * Deduped, in search order. Throws when the profile's agent keeps no transcripts.
  * @param {import('../types.js').Config} cfg @param {import('../types.js').RepoConfig[]} repos
  * @returns {{ dirs: string[], searched: string[] }} existing dirs + every location looked at */
 export function transcriptDirs(cfg, repos) {
-  const projects = path.join(os.homedir(), ".claude", "projects");
-  /** @type {string[]} */
-  let entries = [];
-  try {
-    entries = fs.readdirSync(projects);
-  } catch {
-    /* no Claude projects dir yet */
-  }
+  const { transcriptDir } = agentSessions(agentFor(cfg));
+  /** @type {Map<string, string[]>} */
+  const listings = new Map();
+  /** @param {string} dir */
+  const entriesOf = (dir) => {
+    let entries = listings.get(dir);
+    if (!entries) {
+      try {
+        entries = fs.readdirSync(dir);
+      } catch {
+        entries = []; // no transcripts dir yet
+      }
+      listings.set(dir, entries);
+    }
+    return entries;
+  };
   /** @type {Set<string>} */
   const dirs = new Set();
   /** @type {string[]} */
   const searched = [];
   for (const repo of repos) {
-    const root = claudeProjectDir(repo.path);
+    const root = transcriptDir(repo.path);
     searched.push(root);
     if (fs.existsSync(root)) dirs.add(root);
-    const base = cfg.multiRepo ? path.join(worktreeDir(cfg, repo), repo.id) : worktreeDir(cfg, repo);
-    const prefix = mangle(base) + "-";
+    const base = transcriptDir(cfg.multiRepo ? path.join(worktreeDir(cfg, repo), repo.id) : worktreeDir(cfg, repo));
+    const projects = path.dirname(base);
+    const prefix = path.basename(base) + "-";
     searched.push(path.join(projects, `${prefix}*`));
-    for (const e of entries) if (e.startsWith(prefix)) dirs.add(path.join(projects, e));
+    for (const e of entriesOf(projects)) if (e.startsWith(prefix)) dirs.add(path.join(projects, e));
   }
   return { dirs: [...dirs], searched };
 }

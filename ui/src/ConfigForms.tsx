@@ -583,9 +583,10 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         </div>
         <details className="col-span-full" data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
-            Advanced · {b.claudeBin !== undefined && b.claudeBin !== "" && b.claudeBin !== fieldMeta(["claudeBin"]).entry?.default ? 1 : 0} set
+            Advanced · {(["agent", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length} set
           </summary>
           <div className={`mt-2 ${FIELD_GRID}`}>
+            <SelectField {...edit} path={["agent"]} value={b.agent} />
             <TextField {...edit} path={["claudeBin"]} value={b.claudeBin} />
             <div className="flex flex-col gap-1">
               <TextField {...edit} path={["stateId"]} value={b.stateId} readOnly />
@@ -951,6 +952,7 @@ export function PipelineForm(
                       )}
                     </div>
                     <div className={FIELD_GRID_3}>
+                      <SelectField {...edit} path={at("agent")} value={s.agent} />
                       <TextField {...edit} path={at("bin")} value={s.bin} />
                       <EnvField {...edit} i={i} env={s.env} />
                     </div>
