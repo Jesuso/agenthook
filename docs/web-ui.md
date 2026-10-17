@@ -224,6 +224,20 @@ first form-tab open and on Refresh, and a collapsible **pipeline graph** panel a
 (raw/basics/pipeline), re-deriving from the live buffer on every edit — form or raw text — without
 a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
 
+**Reading order.** The tabs read **Basics · Pipeline · Raw**; a config that parses opens on
+**Pipeline** with the graph expanded (an unparseable one still falls back to Raw, the form tabs
+disabled with "fix the JSON in Raw first"). Raw stays the escape hatch — nothing forces a hand edit.
+Every Pipeline stage card starts **collapsed** to its header: `#n`, the step id and a one-line
+summary (`summarizeStep`) — `kind · <source> → <success> / <failure> · manual · worktree · drain ·
+<model> · <effort>`, each part omitted when absent, lanes as the discovered stage names (the raw
+value without a list), model / effort only when the step overrides them. "+ Add step" opens the new
+card; **Expand all** / **Collapse all** sit beside Refresh stages. Errors are attributed per step
+(`stepErrors` in `configEdit.ts`: the client checks by index — a duplicate id on the later step —
+plus the server's by `tracker.pipeline[i]` or `pipeline step "<id>"`; anything else stays only in
+the panel above): an errored card gets a red badge and its errors inline, and opens itself when
+the error appears (collapse it again and the badge stays). Collapse / expand and graph clicks are
+view state only; they never touch the buffer.
+
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
 `manual`, `instructionsFile`; the tracker's stage bindings) and the **top-level basics** (`name`,
@@ -369,7 +383,9 @@ short persistent "changes" label on the arc (its t=0.5 point). Every other label
 (a widened invisible hit-stroke per edge); hovering the arc shows "changes (default target)". The
 panel is collapsed on Raw and Basics and expanded on Pipeline — reset on every pane switch, the
 ▾/▸ toggle holds until the next one — and is as tall as the SVG's content. An unknown tracker (no
-`stageKeys`) draws step nodes and `changes` edges only.
+`stageKeys`) draws step nodes and `changes` edges only. A **step node is a button** (click or
+Enter; `onSelectStep`): it switches to the Pipeline pane if needed, opens that step's card and
+scrolls it into view. Stage pills stay non-interactive.
 
 ### Later
 

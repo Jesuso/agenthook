@@ -8,7 +8,7 @@ import { DiffView } from "./DiffView";
 import { DiffLegend, Modal } from "./Modal";
 import { BasicsForm, PipelineForm } from "./ConfigForms";
 import type { StagesState } from "./ConfigForms";
-import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource } from "./configEdit";
+import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
 import { layoutPipeline } from "./pipelineGraph";
 import { PipelineGraph } from "./PipelineGraph";
 import { classifySaveResponse, freshSave, saveErrorText, saveReducer } from "./save";
@@ -47,6 +47,8 @@ const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: 
  * (external edits) and feed `event`s (the restart lifecycle) from the parent's /api/stream.
  * Basics / Pipeline form tabs edit the same buffer through `configEdit.ts` text edits; their stage
  * pickers fetch `GET /api/discover` on first open per profile and on Refresh only (no polling).
+ * Tabs read Basics · Pipeline · Raw; a parseable config opens on Pipeline (graph expanded), an
+ * unparseable one falls back to Raw. Clicking a step in the graph opens that step's card.
  * When the loaded label differs from the state key, "Move state dir to match name" sends the same
  * restart with `moveTo` (`rename --move`); once the snapshot lists the new key, the view follows it.
  */
@@ -76,10 +78,12 @@ export default function ConfigView(props: {
   const restartRef = useRef(restart);
   restartRef.current = restart;
   const [toast, setToast] = useState<string | null>(null);
-  const [pane, setPane] = useState<Pane>("raw");
+  const [pane, setPane] = useState<Pane>("pipeline");
   // The graph panel follows the pane — expanded on Pipeline, collapsed elsewhere — reset on every
   // pane switch; the ▾/▸ toggle holds until the next one.
-  const [graphOpen, setGraphOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(true);
+  // A graph step click: the Pipeline form opens + scrolls to that card (`nonce` re-fires a repeat click).
+  const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
   // Discover for `profile` (null = not fetched yet for the open profile); only the latest fetch lands.
   const [stages, setStages] = useState<(StagesState & { profile: string }) | null>(null);
   const discoverSeq = useRef(0);
@@ -112,6 +116,7 @@ export default function ConfigView(props: {
   const dirty = doc ? isDirty(doc.buffer, doc.open) : false;
   const parsed = doc ? parseCheck(doc.buffer) : null;
   const checks = parsed?.ok ? clientErrors(parsed.raw) : [];
+  const perStep = parsed?.ok && file.kind === "ok" ? stepErrors(parsed.raw, file.meta.errors) : undefined;
 
   const fetchStages = (prof: string) => {
     const seq = ++discoverSeq.current;
@@ -145,6 +150,13 @@ export default function ConfigView(props: {
     if (next === "raw") setEditorKey((k) => k + 1);
     setPane(next);
     setGraphOpen(next === "pipeline");
+    setFocus(null);
+  };
+
+  /** A step node in the graph: show the Pipeline form (the graph only renders on a parsed buffer) open at that step. */
+  const selectStep = (id: string) => {
+    switchPane("pipeline");
+    setFocus((f) => ({ id, nonce: (f?.nonce ?? 0) + 1 }));
   };
 
   /** Load the profile's config. `silent` (an external edit on a clean buffer — the `stale` phase)
@@ -544,7 +556,7 @@ export default function ConfigView(props: {
             );
           })()}
           <div className="mb-2 flex gap-1 border-b border-[var(--color-border)] text-sm">
-            {(["raw", "basics", "pipeline"] as const).map((t) => (
+            {(["basics", "pipeline", "raw"] as const).map((t) => (
               <button
                 key={t}
                 data-config-pane={t}
@@ -575,6 +587,7 @@ export default function ConfigView(props: {
                       stageKeysFor(stages?.profile === profile ? stages.body : null, (parsed.raw as any)?.tracker?.type),
                       stages?.profile === profile ? stages.body?.stages : null,
                     )}
+                    onSelectStep={selectStep}
                   />
                 ) : (
                   <p className="text-sm text-[var(--color-muted)]">fix the JSON to see the graph</p>
@@ -601,6 +614,8 @@ export default function ConfigView(props: {
                   stages={stages?.profile === profile ? stages : null}
                   onRefresh={() => fetchStages(profile)}
                   onEdit={(buffer) => act({ type: "edit", buffer })}
+                  errors={perStep}
+                  focus={focus}
                 />
               )}
             </div>

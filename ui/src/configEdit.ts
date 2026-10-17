@@ -155,32 +155,63 @@ export function stageKeysFor(discover: Discover | null, trackerType: unknown): S
 }
 
 /**
- * The pipeline-step subset of src/config.js `validateRawConfig`, same wording. Display only: the
- * server's 422 stays authoritative.
+ * The pipeline-step subset of src/config.js `validateRawConfig`, same wording, each tagged with the
+ * step index it belongs to (a duplicate id → the later occurrence). Display only: the server's 422
+ * stays authoritative.
  */
-export function clientErrors(raw: unknown): string[] {
+function pipelineChecks(raw: unknown): { index: number; error: string }[] {
   const p = isObj(raw) && isObj(raw.tracker) ? raw.tracker.pipeline : undefined;
   if (!Array.isArray(p)) return [];
-  const errors: string[] = [];
+  const out: { index: number; error: string }[] = [];
   const ids = new Set<unknown>();
   p.forEach((step: any, i) => {
-    if (!isObj(step)) return void errors.push(`config: tracker.pipeline[${i}] must be an object.`);
+    const push = (error: string) => out.push({ index: i, error });
+    if (!isObj(step)) return void push(`config: tracker.pipeline[${i}] must be an object.`);
     const sid = String(step.id);
-    if (!step.id) errors.push(`config: every pipeline step needs an "id".`);
-    else if (ids.has(step.id)) errors.push(`config: duplicate pipeline step id "${sid}".`);
+    if (!step.id) push(`config: every pipeline step needs an "id".`);
+    else if (ids.has(step.id)) push(`config: duplicate pipeline step id "${sid}".`);
     ids.add(step.id);
     const { maxAttempts, maxMinutes, idleMinutes } = step;
     if (maxAttempts != null && (!Number.isInteger(maxAttempts) || (maxAttempts as number) < 1)) {
-      errors.push(`config: pipeline step "${sid}" maxAttempts must be a positive integer.`);
+      push(`config: pipeline step "${sid}" maxAttempts must be a positive integer.`);
     }
     if (maxMinutes != null && (typeof maxMinutes !== "number" || !Number.isFinite(maxMinutes) || maxMinutes < 0)) {
-      errors.push(`config: pipeline step "${sid}" maxMinutes must be a number >= 0 (0 disables the cap).`);
+      push(`config: pipeline step "${sid}" maxMinutes must be a number >= 0 (0 disables the cap).`);
     }
     if (idleMinutes != null && (typeof idleMinutes !== "number" || !Number.isFinite(idleMinutes) || idleMinutes <= 0)) {
-      errors.push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
+      push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
     }
   });
-  return errors;
+  return out;
+}
+
+/** The pipeline checks as the top panel lists them (flat, in step order). */
+export function clientErrors(raw: unknown): string[] {
+  return pipelineChecks(raw).map((c) => c.error);
+}
+
+/**
+ * Errors per step index, for the Pipeline form's card badges: the client checks by index, plus the
+ * server's (`serverErrors`, e.g. a 422's) attributed by `tracker.pipeline[<i>]` → i or
+ * `pipeline step "<id>"` → the first step with that id. An error matching no step stays only in the
+ * top panel. Duplicates (client and server saying the same thing) are listed once.
+ */
+export function stepErrors(raw: unknown, serverErrors: string[]): Map<number, string[]> {
+  const steps = readSteps(raw);
+  const out = new Map<number, string[]>();
+  const add = (i: number, e: string) => {
+    const list = out.get(i) ?? [];
+    if (!list.includes(e)) list.push(e);
+    out.set(i, list);
+  };
+  for (const c of pipelineChecks(raw)) add(c.index, c.error);
+  for (const e of serverErrors) {
+    const at = /tracker\.pipeline\[(\d+)\]/.exec(e);
+    const byId = /pipeline step "([^"]*)"/.exec(e);
+    const i = at ? Number(at[1]) : byId ? steps.findIndex((s) => s.id !== undefined && String(s.id) === byId[1]) : -1;
+    if (i >= 0 && i < steps.length) add(i, e);
+  }
+  return out;
 }
 
 /** Where a stage picker's options come from, per the `GET /api/discover` outcome. */
