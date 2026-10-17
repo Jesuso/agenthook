@@ -224,3 +224,55 @@ describe("PipelineForm Advanced: Escalation and Lite", () => {
     expect(JSON.parse(buffer).tracker.pipeline[1].lite.descriptionHeadings).toEqual(["Problem statement "]);
   });
 });
+
+/** Type into an `<input>` and fire the native `input` React listens for. */
+const typeInto = (el: HTMLInputElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+const blur = (el: HTMLInputElement) =>
+  act(async () => {
+    el.focus();
+    el.blur();
+  });
+
+describe("PipelineForm Advanced: agent bin and env", () => {
+  it("bin is a text field writing tracker.pipeline[i].bin; clearing removes it", async () => {
+    let buffer = text;
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(form({ onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const bin = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.bin"]')!;
+    expect(bin).not.toBeNull();
+    expect(bin.placeholder).toBe("claudeBin");
+    await typeInto(bin, "claude-local");
+    expect(JSON.parse(buffer).tracker.pipeline[1].bin).toBe("claude-local");
+    await m.rerender(form({ text: buffer, raw: JSON.parse(buffer), onEdit }));
+    await typeInto(bin, "");
+    expect(JSON.parse(buffer).tracker.pipeline[1]).not.toHaveProperty("bin");
+  });
+
+  it("env rows: add, edit key and value (committed on blur), remove; the last removal drops env", async () => {
+    let buffer = text;
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(form({ onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const env = () => cards(m!)[1].querySelector<HTMLElement>("[data-step-env]")!;
+    expect(env()).not.toBeNull();
+    const add = [...env().querySelectorAll("button")].find((b) => b.textContent === "add variable")!;
+    await click(add);
+    expect(onEdit).not.toHaveBeenCalled();
+    const name = env().querySelector<HTMLInputElement>('input[aria-label="variable name"]')!;
+    const value = env().querySelector<HTMLInputElement>('input[aria-label="variable value"]')!;
+    await typeInto(name, "CLAUDE_CONFIG_DIR");
+    await typeInto(value, "/home/x/.claude-alt");
+    expect(onEdit).not.toHaveBeenCalled();
+    await blur(value);
+    expect(JSON.parse(buffer).tracker.pipeline[1].env).toEqual({ CLAUDE_CONFIG_DIR: "/home/x/.claude-alt" });
+
+    await m.rerender(form({ text: buffer, raw: JSON.parse(buffer), onEdit }));
+    await click(env().querySelector<HTMLButtonElement>('[aria-label="remove variable"]')!);
+    expect(JSON.parse(buffer).tracker.pipeline[1]).not.toHaveProperty("env");
+  });
+});

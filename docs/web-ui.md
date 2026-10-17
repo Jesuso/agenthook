@@ -267,10 +267,11 @@ with the same Clear / replace controls and is never rewritten unless you act.
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `createsWorktree`, `drainWorktree`,
-`manual`, `instructionsFile`; the tracker's stage bindings), the **top-level basics** (`name`,
-`maxConcurrent`, `fullAuto`, `port`, `trigger`, `instructionsFile`, and — under Advanced —
-`claudeBin` and a read-only `stateId`, since the server 422s any save that changes it; use
-`agenthook rename --move` instead), every `tracker` / `forge` / `ingress` key, the
+`manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor; the tracker's stage
+bindings), the **top-level basics** (`name`, `maxConcurrent`, `fullAuto`, `port`, `trigger`,
+`instructionsFile`, and — under Advanced — `claudeBin` and a read-only `stateId`, since the server
+422s any save that changes it; use `agenthook rename --move` instead), every `tracker` / `forge` /
+`ingress` key, the
 **Integrations** tab: `sinks[]` (add / remove / reorder; per-type fields — `url` for slack/webhook,
 `botToken` + `chatId` for telegram; an event filter whose absent `events` shows the defaults, any
 toggle writes an explicit list, "Use default" removes it, unlisted names are kept; an unknown sink

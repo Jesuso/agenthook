@@ -233,6 +233,23 @@ export function liteHeadingsEdit(text: string, i: number, headings: string[]): s
   return next;
 }
 
+/** A step's `env` as editable rows (insertion order); a non-object `env` reads as no rows. */
+export function envRows(env: unknown): [string, string][] {
+  return isObj(env) ? Object.entries(env).map(([k, v]) => [k, typeof v === "string" ? v : fieldText(v)]) : [];
+}
+
+/**
+ * `env` edit: rows with a blank key are dropped before writing; no rows left removes `env`. Same
+ * no-op-when-absent guard as `escalateEdit`.
+ */
+export function envEdit(text: string, i: number, rows: [string, string][]): string {
+  const clean = rows.filter(([k]) => k.trim() !== "").map(([k, v]): [string, string] => [k.trim(), v]);
+  const path: JSONPath = [...PIPELINE, i, "env"];
+  if (clean.length > 0) return setPath(text, path, Object.fromEntries(clean));
+  const step = readSteps(JSON.parse(text))[i] ?? {};
+  return step.env === undefined ? text : setPath(text, path, undefined);
+}
+
 /** Swap step `i` with its neighbour (`dir` -1 up / +1 down); see `swapItems`. */
 export function moveStep(text: string, i: number, dir: -1 | 1): string {
   return swapItems(text, PIPELINE, i, dir);
@@ -299,6 +316,19 @@ function pipelineChecks(raw: unknown): { index: number; error: string }[] {
     }
     if (idleMinutes != null && (typeof idleMinutes !== "number" || !Number.isFinite(idleMinutes) || idleMinutes <= 0)) {
       push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
+    }
+    if (step.bin != null && (typeof step.bin !== "string" || !step.bin.trim())) {
+      push(`config: pipeline step "${sid}" bin must be a non-empty string (a name on PATH or an absolute path).`);
+    }
+    if (step.env != null) {
+      if (!isObj(step.env)) push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
+      else {
+        for (const [k, v] of Object.entries(step.env)) {
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) push(`config: pipeline step "${sid}" env key ${JSON.stringify(k)} is not a valid variable name.`);
+          else if (k === "AGENTHOOK_VERDICT_FILE") push(`config: pipeline step "${sid}" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
+          if (typeof v !== "string") push(`config: pipeline step "${sid}" env.${k} must be a string.`);
+        }
+      }
     }
   });
   return out;

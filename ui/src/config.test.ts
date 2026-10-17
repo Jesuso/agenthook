@@ -152,6 +152,21 @@ describe("sensitiveDiff", () => {
     expect(sensitiveDiff(cfg(), cfg({ claudeBin: "/bin/claude" }))).toEqual([{ path: "claudeBin", from: "(unset)", to: '"/bin/claude"' }]);
   });
 
+  it("a step's bin is shown in clear; its env names variables, never values", () => {
+    const tracker = (step: Record<string, unknown>) => ({ type: "github", token: "${GH_TOKEN}", userGid: "me", pipeline: [{ id: "triage" }, { id: "code", ...step }] });
+    expect(sensitiveDiff(cfg({ tracker: tracker({}) }), cfg({ tracker: tracker({ bin: "claude-local" }) }))).toEqual([
+      { path: "tracker.pipeline[1].bin", from: "(unset)", to: '"claude-local"' },
+    ]);
+    const a = cfg({ tracker: tracker({ env: { API_KEY: "sk-LITERAL" } }) });
+    const b = cfg({ tracker: tracker({ env: { API_KEY: "sk-OTHER", CLAUDE_CONFIG_DIR: "/x" } }) });
+    const added = sensitiveDiff(cfg({ tracker: tracker({}) }), a);
+    expect(added).toEqual([{ path: "tracker.pipeline[1].env", from: "(unset)", to: "{API_KEY}" }]);
+    expect(sensitiveDiff(a, b)).toEqual([{ path: "tracker.pipeline[1].env", from: "{API_KEY}", to: "{API_KEY, CLAUDE_CONFIG_DIR}" }]);
+    const valueOnly = sensitiveDiff(a, cfg({ tracker: tracker({ env: { API_KEY: "sk-OTHER" } }) }));
+    expect(valueOnly).toEqual([{ path: "tracker.pipeline[1].env", from: "{API_KEY}", to: "(changed)" }]);
+    expect(JSON.stringify([added, valueOnly, sensitiveDiff(a, b)])).not.toMatch(/sk-|\/x/);
+  });
+
   it("an unparseable old text reports every sensitive path present in the new one", () => {
     expect(sensitiveDiff("{", cfg()).map((c) => c.path)).toEqual(["name", "fullAuto", "tracker.userGid", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
   });

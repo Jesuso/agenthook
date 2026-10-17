@@ -401,20 +401,22 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
    * assistant/result event, NOT per token) so the live record isn't rewritten per token.
    * `maxMs` caps the run's wall clock; `idleMs` caps the gap between stdout chunks. Past
    * either the child gets SIGTERM, then SIGKILL after the grace, and `timedOut` says which.
-   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, verdictFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * `bin`/`env` are the step's optional agent binary and extra environment (unset → cfg.claudeBin
+   * and the receiver's env); the verdict-file variable is set last so a step can't override it.
+   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
    */
-  function spawnClaude({ prompt, cwd, logPath, model, effort, verdictFile, maxMs, idleMs, onPid, onTally }) {
+  function spawnClaude({ prompt, cwd, logPath, model, effort, bin, env, verdictFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     const args = buildClaudeArgs({ prompt, model, effort, fullAuto: cfg.fullAuto });
     const parser = createStreamParser();
     return new Promise((resolve) => {
-      const child = spawn(cfg.claudeBin, args, {
+      const child = spawn(bin || cfg.claudeBin, args, {
         cwd,
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
         // read it after exit to route the step (advance/hold/changes/fail).
-        env: { ...process.env, ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
+        env: { ...process.env, ...(env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
       });
       children?.add(child);
       onPid?.(child.pid);
@@ -982,6 +984,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       logPath,
       model,
       effort,
+      bin: step.bin,
+      env: step.env,
       verdictFile,
       maxMs: maxMinutes * 60000,
       ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),

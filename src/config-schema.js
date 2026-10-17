@@ -103,6 +103,8 @@ export const CONFIG_SCHEMA = [
   step("manual", "boolean", "Manual (no agent)", "No agent runs; entering the step only does system actions (e.g. removing the worktree)."),
   step("model", "string", "Model", "Per-step claude --model override; unset uses the CLI default."),
   step("effort", "enum", "Reasoning effort", "Per-step claude --effort override; unset uses the CLI default.", { options: STEP_EFFORTS }),
+  step("bin", "string", "Agent binary", "This step's agent CLI (a name on PATH or an absolute path); unset uses claudeBin.", { advanced: true, sensitive: true, placeholder: "claudeBin" }),
+  step("env", "record", "Agent env", "Extra environment for this step's agent only; put secret values in ${VAR} refs.", { advanced: true, sensitive: true }),
   step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
   step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),
   step("maxMinutes", "number", "Wall-clock limit (min)", "Kill a run after this many minutes and fail it as a timeout; 0 = no cap.", { default: 120, min: 0, advanced: true }),

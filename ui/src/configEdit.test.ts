@@ -9,6 +9,8 @@ import {
   clientErrors,
   defaultBoolEdit,
   effectiveBool,
+  envEdit,
+  envRows,
   errorsForRepo,
   escalateEdit,
   formattingFor,
@@ -494,6 +496,40 @@ describe("identityEdit", () => {
     const text = '{\n  "//": "note",\n  "name": "p"\n}';
     const out = identityEdit(text, "color", "sky");
     expect(JSON.parse(out)).toEqual({ "//": "note", name: "p", ui: { color: "sky" } });
+  });
+});
+
+describe("envEdit / envRows", () => {
+  const noEnv = JSON.stringify({ tracker: { pipeline: [{ id: "triage" }, { id: "code" }] } }, null, 2);
+
+  it("writes the rows as tracker.pipeline[i].env, trimming keys and dropping blank ones", () => {
+    const out = envEdit(noEnv, 1, [["CLAUDE_CONFIG_DIR", "/x"], [" API_KEY ", "${ALT}"], ["  ", "dropped"]]);
+    expect(JSON.parse(out).tracker.pipeline[1].env).toEqual({ CLAUDE_CONFIG_DIR: "/x", API_KEY: "${ALT}" });
+    expect(envRows(JSON.parse(out).tracker.pipeline[1].env)).toEqual([["CLAUDE_CONFIG_DIR", "/x"], ["API_KEY", "${ALT}"]]);
+  });
+
+  it("removing the last row removes env; clearing an absent env is a no-op", () => {
+    const a = envEdit(noEnv, 1, [["A", "1"]]);
+    const b = envEdit(a, 1, []);
+    expect(JSON.parse(b).tracker.pipeline[1]).not.toHaveProperty("env");
+    expect(envEdit(noEnv, 1, [])).toBe(noEnv);
+    expect(envEdit(noEnv, 1, [["", "x"]])).toBe(noEnv);
+  });
+
+  it("a non-object env reads as no rows; a non-string value reads as its JSON", () => {
+    expect(envRows(undefined)).toEqual([]);
+    expect(envRows(["A"])).toEqual([]);
+    expect(envRows({ A: 1 })).toEqual([["A", "1"]]);
+  });
+
+  it("clientErrors mirrors the server's bin/env checks", () => {
+    const errs = clientErrors({ tracker: { pipeline: [{ id: "code", bin: "", env: { "1BAD": "x", AGENTHOOK_VERDICT_FILE: "y", N: 2 } }] } });
+    expect(errs).toEqual([
+      `config: pipeline step "code" bin must be a non-empty string (a name on PATH or an absolute path).`,
+      `config: pipeline step "code" env key "1BAD" is not a valid variable name.`,
+      `config: pipeline step "code" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`,
+      `config: pipeline step "code" env.N must be a string.`,
+    ]);
   });
 });
 
