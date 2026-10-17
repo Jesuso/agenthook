@@ -25,6 +25,16 @@ test("digest: list header + one line per epic, needs-you and eta", () => {
   assert.equal(lines[2], 'E2 "Epic two" 0/2 needs-you: 9 10');
 });
 
+test("digest: readyToClose appends ' ready-to-close' to the line", () => {
+  const out = digest({
+    at: "t",
+    live: true,
+    supported: true,
+    epics: [{ ref: "E1", name: "Epic one", total: 2, byStage: { finished: 2, merged: 0, backlog: 0, running: 0, needsYou: 0, untracked: 0 }, needsYou: [], eta: null, readyToClose: true }],
+  });
+  assert.equal(out.split("\n")[1], 'E1 "Epic one" 2/2 ready-to-close');
+});
+
 test("digest: --ref detail is the epic line then one line per ticket; unsupported", () => {
   const out = digest({
     at: "t",
@@ -69,6 +79,7 @@ test("readEpics against a down profile's refmeta: live:false list and detail; un
   assert.equal(list.live, false);
   assert.equal(list.supported, true);
   assert.deepEqual(list.epics.map((e) => e.ref), ["E1"]);
+  assert.equal(list.epics[0].readyToClose, false);
 
   const detail = await readEpics(picked.entry, { ref: "E1", registry });
   assert.equal(detail.live, false);

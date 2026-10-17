@@ -122,6 +122,11 @@ function EpicRow({ e, profile }: { e: EpicStats; profile: string }) {
       </a>
       <span className="w-28 shrink-0 text-right">{e.status && <Pill>{e.status}</Pill>}</span>
       <EpicStageBar epic={e} />
+      {e.readyToClose && (
+        <Pill tone="done" title="All tickets finished — close this epic on the tracker">
+          ready to close
+        </Pill>
+      )}
       <span className="w-24 shrink-0">
         {e.needsYou.length > 0 && (
           <a href={href} data-needs-you={e.needsYou.length} title={`${e.needsYou.length} ticket(s) need you`}>

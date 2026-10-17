@@ -71,6 +71,13 @@ describe("epic numbers", () => {
     expect(completed.map((x) => x.ref)).toEqual(["a"]);
   });
 
+  it("ready-to-close open epics sort first, server order kept otherwise", () => {
+    const list = [epicStats({ ref: "a" }), epicStats({ ref: "b", readyToClose: true }), epicStats({ ref: "c" }), epicStats({ ref: "d", completed: true })];
+    const { open, completed } = splitCompleted(list);
+    expect(open.map((x) => x.ref)).toEqual(["b", "a", "c"]);
+    expect(completed.map((x) => x.ref)).toEqual(["d"]);
+  });
+
   it("labels ETA, per-day and keeps only http(s) URLs", () => {
     expect(etaLabel(null)).toBeNull();
     expect(etaLabel({ days: 4, date: "2026-10-20" })).toBe("~4 d · Oct 20");

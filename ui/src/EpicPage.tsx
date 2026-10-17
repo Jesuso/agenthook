@@ -32,6 +32,7 @@ export function EpicPage({ body, profile, rows, onOpen }: { body: EpicResponse; 
         )}
       </div>
       {!body.live && <LiveNote />}
+      {epic.readyToClose && <ReadyToCloseBanner url={url} />}
 
       <Card>
         <div className="flex flex-col gap-2">
@@ -105,6 +106,23 @@ function TicketList({ tickets, local, onOpen }: { tickets: EpicDetailTicket[]; l
         );
       })}
     </ul>
+  );
+}
+
+/** All tickets finished, epic still open — closing it is a human call (ADR 0003–0006). */
+function ReadyToCloseBanner({ url }: { url: string | null }) {
+  return (
+    <p className="rounded-md border border-border bg-status-done-bg px-3 py-2 text-label text-status-done" data-ready-to-close>
+      All tickets finished — close this epic{" "}
+      {url ? (
+        <a className="underline" href={url} target="_blank" rel="noopener noreferrer">
+          on the tracker
+        </a>
+      ) : (
+        "on the tracker"
+      )}
+      ?
+    </p>
   );
 }
 

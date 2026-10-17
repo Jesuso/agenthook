@@ -98,9 +98,13 @@ agent keys). It is read fresh on every call, survives the manual `done` drain, i
 by the next review run, and is dropped on terminal fail/cancel and on merge. `tick` passes it through.
 
 `epics {ref?, fresh?}` → list: `{at, live, supported, epics:[{ref,name,url,displayId?,status,
-completed,total,byStage,needsYou,startedAt,velocity,eta}]}`; with `ref`, the detail shape instead:
+completed,readyToClose,total,byStage,needsYou,startedAt,velocity,eta}]}`; with `ref`, the detail shape instead:
 `{at, live, supported, epic:{…same stats…, tickets:[{ref,displayId?,name,completed,stage,bucket,status}]}}`.
-`byStage` buckets: `backlog`/`running`/`needsYou`/`finished`/`merged`/`untracked`. `live:true` reads
+`byStage` buckets: `backlog`/`running`/`needsYou`/`finished`/`merged`/`untracked`. `readyToClose` is
+`true` when the epic is open but every ticket is finished/merged and none need you — a person has to
+close it on the tracker, agenthook never does; it's always `false` on a `live:false` read (the
+fallback can't see the tracker's open/closed state). It is never folded into Needs you — an epic is
+not a ticket. `live:true` reads
 straight from the tracker (cached ~30 s; `fresh` bypasses); `live:false` means the receiver is down
 and this is a fallback built from tickets this profile itself ran (`refmeta`) — tickets that never
 ran here won't show. `supported:false` (`epics:[]`/`epic:null`) means the tracker adapter has no

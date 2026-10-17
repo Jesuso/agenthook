@@ -53,6 +53,13 @@ describe("EpicsList", () => {
     expect(out).not.toMatch(/<details[^>]*data-epics-completed[^>]*\sopen/);
   });
 
+  it("readyToClose epic shows a chip and sorts first among open epics", () => {
+    const ready = epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { finished: 2 } });
+    const out = list({ epics: [...epics, ready] });
+    expect(out).toContain("ready to close");
+    expect(out.indexOf('data-epic-row="E9"')).toBeLessThan(out.indexOf('data-epic-row="E1"'));
+  });
+
   it("supported:false → no-epics empty state; live:false → receiver-down note", () => {
     expect(list({ supported: false })).toContain("This tracker has no epics");
     const down = list({ live: false, epics: [epics[2]] });
@@ -103,6 +110,21 @@ describe("EpicPage", () => {
     const out = page({ epic: detail }, [row("n1")]);
     expect(out).toMatch(/data-epic-ticket="n1"><button/);
     expect(out).toMatch(/data-epic-ticket="b1"><div/);
+  });
+
+  it("readyToClose shows a banner saying finished, linking the tracker when safe", () => {
+    const ready = epicDetail({ ref: "E3", readyToClose: true, url: "https://app.asana.com/0/1/E3" }, [epicTicket("f1", "finished")]);
+    const out = page({ epic: ready });
+    expect(out).toContain("data-ready-to-close");
+    expect(out).toContain("All tickets finished");
+    expect(out).not.toContain("shipped");
+    expect(out).toContain('href="https://app.asana.com/0/1/E3"');
+
+    const unsafe = epicDetail({ ref: "E4", readyToClose: true, url: "javascript:alert(1)" }, [epicTicket("f1", "finished")]);
+    const outUnsafe = page({ epic: unsafe });
+    expect(outUnsafe).toContain("data-ready-to-close");
+    expect(outUnsafe).toContain("on the tracker");
+    expect(outUnsafe).not.toContain("javascript:");
   });
 
   it("no Needs you section when nothing needs you; live:false note; supported:false empty state", () => {

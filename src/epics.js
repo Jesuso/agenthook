@@ -21,6 +21,7 @@ export const EPIC_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
  * @property {string} [displayId]
  * @property {string|null} status
  * @property {boolean} completed
+ * @property {boolean} readyToClose
  * @property {number} total
  * @property {Record<EpicBucket, number>} byStage
  * @property {string[]} needsYou
@@ -76,10 +77,10 @@ export function ticketBucket(ticket, row, refEvents, forge) {
 /**
  * @param {import('./types.js').Epic} epic
  * @param {import('./types.js').EpicTicket[]} tickets
- * @param {{ rows: import('./ui/contract.js').TicketRow[], events: Record<string, any>[], forge: boolean, now?: number, tzOffset?: number }} o
+ * @param {{ rows: import('./ui/contract.js').TicketRow[], events: Record<string, any>[], forge: boolean, now?: number, tzOffset?: number, live?: boolean }} o
  * @returns {EpicStats}
  */
-export function epicStats(epic, tickets, { rows, events, forge, now = Date.now(), tzOffset = 0 }) {
+export function epicStats(epic, tickets, { rows, events, forge, now = Date.now(), tzOffset = 0, live = false }) {
   const memberRefs = new Set(tickets.map((t) => t.ref));
   const rowByRef = new Map(rows.map((r) => [r.ref, r]));
   const memberEvents = events.filter((e) => memberRefs.has(String(e.ref)));
@@ -114,6 +115,7 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
 
   const total = tickets.length;
   const remaining = total - byStage.finished - byStage.merged;
+  const readyToClose = live && total > 0 && remaining === 0 && byStage.needsYou === 0 && epic.completed === false;
   /** @type {{ days: number, date: string }|null} */
   let eta = null;
   if (finished14 >= 3 && activeDays >= 3 && remaining > 0 && perDay) {
@@ -128,6 +130,7 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
     displayId: epic.displayId,
     status: epic.status,
     completed: epic.completed,
+    readyToClose,
     total,
     byStage,
     needsYou,
