@@ -168,3 +168,48 @@ test("every tool is covered by the agent guide or the writes table", async () =>
   const text = (await t.call("guide", { topic: "all" }, { signal: new AbortController().signal })) + "";
   for (const { name } of t.list()) assert.ok(text.includes(`\`${name}`), `guide never mentions \`${name}\``);
 });
+
+test("events/tick with profiles: union + tags + object cursor; profile+profiles, bad cursor, unknown name -> errors", async () => {
+  const registry = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-mcpmulti-"));
+  for (const [k, ts] of [["a", "2026-01-01T00:00:02Z"], ["b", "2026-01-01T00:00:01Z"]]) {
+    const dir = path.join(registry, k);
+    fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: k, maxConcurrent: 3, tracker: "github" }));
+    for (const f of ["running.json", "held.json", "refmeta.json"]) fs.writeFileSync(path.join(dir, f), "{}");
+    fs.writeFileSync(path.join(dir, "queue.json"), "[]");
+    fs.writeFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts, event: "run_end", ref: k, step: "code" }) + "\n");
+  }
+  const size = (k) => fs.statSync(path.join(registry, k, "events.jsonl")).size;
+  const t = createTools({ registry });
+  const ctx = { signal: new AbortController().signal };
+  const call = (name, args) => t.call(name, args, ctx);
+
+  assert.deepEqual(await call("events", { profiles: ["*"] }), { events: [], cursor: { a: size("a"), b: size("b") } });
+  const last = await call("events", { profiles: ["a", "b"], last: 5 });
+  assert.deepEqual(last.events.map((e) => `${e.profile}:${e.ref}`), ["b:b", "a:a"]);
+  const since = await call("events", { profiles: ["*"], cursor: { a: 0 } });
+  assert.deepEqual(since.events.map((e) => e.profile), ["a"], "missing key = from now");
+  assert.deepEqual(since.cursor, { a: size("a"), b: size("b") });
+  const waited = await call("events", { profiles: ["*"], cursor: { b: 0 }, waitS: 1 });
+  assert.deepEqual(waited.events.map((e) => e.profile), ["b"]);
+  const quiet = await call("events", { profiles: ["*"], cursor: since.cursor, waitS: 1 });
+  assert.equal(quiet.timedOut, true);
+
+  const ticks = await call("tick", { profiles: ["*"], cursor: { a: 0 } });
+  assert.deepEqual(ticks.map((x) => [x.profile, x.cursor, x.events.length]), [["a", size("a"), 1], ["b", size("b"), 0]]);
+  const again = await call("tick", { profiles: ["a", "b"], cursor: { a: size("a"), b: size("b") }, ifNoneMatch: { a: "nope", b: (await call("tick", { profile: "b" })).etag } });
+  assert.equal(again[0].unchanged, undefined);
+  assert.deepEqual(again[1], { profile: "b", unchanged: true, etag: again[1].etag, cursor: size("b") });
+
+  await assert.rejects(() => call("events", { profile: "a", profiles: ["b"] }), /"profile" or "profiles", not both/);
+  await assert.rejects(() => call("tick", { profile: "a", profiles: ["b"] }), /not both/);
+  await assert.rejects(() => call("events", { profiles: ["a", "zzz"] }), /unknown profile "zzz"; known: a, b/);
+  await assert.rejects(() => call("events", { profiles: ["a"], cursor: 5 }), /with "profiles", cursor must be a JSON object/);
+  await assert.rejects(() => call("events", { profiles: ["a"], cursor: { a: -1 } }), /non-negative integer/);
+  await assert.rejects(() => call("events", { profile: "a", cursor: { a: 0 } }), /an object cursor needs "profiles"/);
+  await assert.rejects(() => call("events", { profiles: ["a"], cursor: "x" }), /"cursor" must be integer or object/);
+  await assert.rejects(() => call("tick", { profiles: ["a"], ifNoneMatch: "e" }), /ifNoneMatch is an object/);
+  // Single-profile shape unchanged: no profile tag on events, numeric cursor.
+  const single = await call("events", { profile: "a", cursor: 0 });
+  assert.deepEqual(single, { events: [{ ts: "2026-01-01T00:00:02Z", e: "run_end", ref: "a", step: "code" }], cursor: size("a") });
+});

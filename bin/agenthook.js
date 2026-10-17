@@ -120,10 +120,12 @@ usage: agenthook <command> [args] [--config <path>]
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
   ui [--port <n>] [--no-open]  local web dashboard + editors, all profiles (127.0.0.1; default port 4180)
   mcp [--read-only]         MCP server over stdio: read+manage the pipeline from an agent (all profiles)
-  tick [name] [--json] [--cursor <n>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
+  tick [name…|--all] [--json] [--cursor <n|json>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
+                            (--all / ≥2 names: one per profile; --cursor '{"<key>":<n>}')
   epics [name] [--ref <epic>] [--fresh] [--json]  every epic's progress, or one epic's tickets
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
-  watch [name] [--event a,b] [--ref r] [--cursor <n>] [--timeout <s>] [--json]  block until the next event (exit 2 on timeout)
+  watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json]  block until the next event (exit 2 on timeout)
+                            (--all / ≥2 names: first event from any profile, tagged; --cursor '{"<key>":<n>}')
   --version, -v             print the installed version
 `;
 

@@ -6,6 +6,10 @@ import { registryDir } from "../config.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
 import {
   pickProfile,
+  pickProfiles,
+  cursorMapError,
+  mergeTagged,
+  waitForEventsMulti,
   readStatus,
   readProfiles,
   readTick,
@@ -42,6 +46,11 @@ export function loadGuide(file = GUIDE_FILE) {
 }
 
 const PROFILE = { type: "string", description: "Profile state key or label. Omit to use the project's own profile (or the only running one)." };
+const PROFILES = {
+  type: "array",
+  items: { type: "string" },
+  description: 'Several profiles in one call (state keys or labels; ["*"] = every profile). Events then carry `profile`, and `cursor`/`ifNoneMatch` become objects keyed by state key. Not together with `profile`.',
+};
 const REF = { type: "string", description: "Task ref (tracker-native id; see `ref` in status/board output)." };
 
 /** @param {string} description @param {Record<string, any>} properties @param {string[]} [required] */
@@ -72,11 +81,12 @@ const TOOLS = {
       "One-call supervisor cycle: status + board (tickets resting per pipeline step) + open agent PRs (CI, conflicts) + events since `cursor`. Pass back the returned `cursor` next time. Board/PRs need a live receiver; each degrades to an *Error field alone. Use `ifNoneMatch` like status.",
       {
         profile: PROFILE,
-        cursor: { type: "integer", description: "events.jsonl byte offset from a previous call; omit on the first call (events then start from now)" },
+        profiles: PROFILES,
+        cursor: { type: ["integer", "object"], description: "events.jsonl byte offset from a previous call; omit on the first call (events then start from now). With `profiles`: the returned {stateKey: offset} object" },
         board: { type: "boolean", description: "include board (default true)" },
         prs: { type: "boolean", description: "include agent PRs (default true)" },
         epics: { type: "boolean", description: "include epics (default false)" },
-        ifNoneMatch: { type: "string", description: "etag from a previous tick" },
+        ifNoneMatch: { type: ["string", "object"], description: "etag from a previous tick (with `profiles`: {stateKey: etag}; a matching profile collapses to {profile, unchanged, etag, cursor})" },
       },
     ),
   },
@@ -91,11 +101,12 @@ const TOOLS = {
       "Pipeline events after `cursor` (enqueued, run_start, run_end{outcome,costUsd}, failed, blocked, move_refused{outcome,reason,detail}, merged, ci_red, ci_green, pulled, pipeline_done, …). epic_changed (GitHub: an epic's sub-issues or type changed; ref = the epic) is hidden unless named in `types`. move_refused = a verdict's move did not happen (owner check refused/failed, or the move threw): the ticket is still in its stage and the next step will not fire. With `waitS` it blocks until a matching event arrives or the timeout — event-driven (no polling), so prefer one waiting call over a loop of status calls. First call: omit cursor (returns the current cursor, or the last N events with `last`).",
       {
         profile: PROFILE,
-        cursor: { type: "integer", description: "byte offset returned by a previous call" },
+        profiles: PROFILES,
+        cursor: { type: ["integer", "object"], description: "byte offset returned by a previous call (with `profiles`: the returned {stateKey: offset} object; a missing key starts that profile from now)" },
         last: { type: "integer", description: "no cursor: return the last N events instead of none", minimum: 1, maximum: 200 },
         types: { type: "array", items: { type: "string" }, description: "only these event names, e.g. [\"run_end\",\"failed\",\"blocked\"]" },
         ref: REF,
-        limit: { type: "integer", minimum: 1, maximum: 200, description: "max events (default 50)" },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "max events (default 50; per profile with `profiles`)" },
         waitS: { type: "integer", minimum: 1, maximum: MAX_WAIT_S, description: "block up to this many seconds for a new matching event" },
       },
     ),
@@ -213,6 +224,26 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
     return r.entry;
   };
 
+  /** The entries of a multi-profile call (`profiles`), else null; `cursor` must then be an object. @param {any} args */
+  const targets = (args) => {
+    if (args?.profiles === undefined) {
+      if (args?.cursor !== undefined && typeof args.cursor === "object") throw new Error('an object cursor needs "profiles"');
+      return null;
+    }
+    if (args.profile !== undefined) throw new Error('pass "profile" or "profiles", not both');
+    const r = pickProfiles(args.profiles.filter((/** @type {string} */ n) => n !== "*"), { all: args.profiles.includes("*") }, registry);
+    if ("error" in r) throw new Error(r.error);
+    if (args.cursor !== undefined) {
+      const bad = cursorMapError(args.cursor);
+      if (bad) throw new Error(`with "profiles", ${bad}`);
+    }
+    return r.entries;
+  };
+  /** @param {any} map @param {string} key */
+  const own = (map, key) => (map && typeof map === "object" && Object.hasOwn(map, key) ? map[key] : undefined);
+  /** Compact a merged multi-profile event, keeping its profile tag. @param {Record<string, any>} e */
+  const tagged = (e) => ({ ...compactEvent(e), profile: e.profile });
+
   /** @type {Record<string, (args: any, ctx: {signal: AbortSignal}) => Promise<any>>} */
   const impl = {
     async profiles() {
@@ -232,21 +263,60 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
       return args.ifNoneMatch && args.ifNoneMatch === s.etag ? { unchanged: true, etag: s.etag } : s;
     },
     async tick(args) {
+      const entries = targets(args);
+      if (entries) {
+        if (typeof args.ifNoneMatch === "string") throw new Error('with "profiles", ifNoneMatch is an object {stateKey: etag}');
+        return Promise.all(
+          entries.map(async (entry) => {
+            const t = await readTick(entry, { cursor: own(args.cursor, entry.stateKey), board: args.board !== false, prs: args.prs !== false, epics: args.epics === true, registry });
+            return own(args.ifNoneMatch, entry.stateKey) === t.etag ? { profile: entry.stateKey, unchanged: true, etag: t.etag, cursor: t.cursor } : t;
+          }),
+        );
+      }
       const entry = target(args);
       const t = await readTick(entry, { cursor: args.cursor, board: args.board !== false, prs: args.prs !== false, epics: args.epics === true, registry });
       return args.ifNoneMatch && args.ifNoneMatch === t.etag ? { unchanged: true, etag: t.etag, cursor: t.cursor } : t;
     },
     async events(args, { signal }) {
-      const entry = target(args);
+      const entries = targets(args);
       const types = Array.isArray(args.types) && args.types.length ? new Set(args.types.map(String)) : null;
       const limit = Math.min(Math.max(Number(args.limit) || 50, 1), 200);
+      /** @param {string} dir */
+      const tail = (dir) => readEventsTail(path.join(dir, "events.jsonl")).filter(
+        (e) => (types ? types.has(e.event) : !HIDDEN_BY_DEFAULT.has(e.event)) && (!args.ref || e.ref === args.ref)
+      );
+      if (entries) {
+        if (args.cursor === undefined) {
+          const cursor = Object.fromEntries(entries.map((e) => [e.stateKey, eventsCursor(e.dir)]));
+          if (!args.last) return { events: [], cursor };
+          return { events: mergeTagged(entries.map((e) => [e.stateKey, tail(e.dir).slice(-args.last)])).slice(-args.last).map(tagged), cursor };
+        }
+        const waitS = Math.min(Number(args.waitS) || 0, MAX_WAIT_S);
+        if (waitS) {
+          /** @type {string[]} */
+          const dropped = [];
+          const r = await waitForEventsMulti(entries, args.cursor, { types, ref: args.ref, limit, timeoutMs: waitS * 1000, signal, onDrop: (k) => dropped.push(k) });
+          return { events: r.events.map(tagged), cursor: r.cursor, ...(r.truncated ? { more: true } : {}), ...(r.timedOut ? { timedOut: true } : {}), ...(dropped.length ? { dropped } : {}) };
+        }
+        /** @type {Record<string, number>} */
+        const cursor = {};
+        /** @type {[string, Record<string, any>[]][]} */
+        const lists = [];
+        let more = false;
+        for (const e of entries) {
+          const from = own(args.cursor, e.stateKey);
+          const r = readEventsSince(e.dir, from ?? eventsCursor(e.dir), { types, ref: args.ref, limit });
+          cursor[e.stateKey] = r.cursor;
+          more ||= r.truncated;
+          lists.push([e.stateKey, r.events]);
+        }
+        return { events: mergeTagged(lists).map(tagged), cursor, ...(more ? { more: true } : {}) };
+      }
+      const entry = target(args);
       if (!Number.isInteger(args.cursor)) {
         const cursor = eventsCursor(entry.dir);
         if (!args.last) return { events: [], cursor };
-        const all = readEventsTail(path.join(entry.dir, "events.jsonl")).filter(
-          (e) => (types ? types.has(e.event) : !HIDDEN_BY_DEFAULT.has(e.event)) && (!args.ref || e.ref === args.ref)
-        );
-        return { events: all.slice(-args.last).map(compactEvent), cursor };
+        return { events: tail(entry.dir).slice(-args.last).map(compactEvent), cursor };
       }
       const waitS = Math.min(Number(args.waitS) || 0, MAX_WAIT_S);
       const r = waitS
