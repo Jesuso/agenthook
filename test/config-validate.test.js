@@ -223,6 +223,24 @@ test("pipeline step maxConcurrent: a positive integer passes; 0, -1, 1.5, \"2\" 
   assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" maxConcurrent has no effect on a manual step (no agent runs).`]);
 });
 
+test("pipeline step bin/env: a valid pair and ${VAR} values pass; bad shapes, names and the reserved key fail", () => {
+  const ok = validateRawConfig(raw({}, [{ id: "code", bin: "claude-local", env: { CLAUDE_CONFIG_DIR: "/home/x/.claude-alt", API_KEY: "${ALT_KEY}", _x1: "" } }]));
+  assert.deepEqual(ok, { ok: true });
+  /** @param {any} step */
+  const errs = (step) => /** @type {any} */ (validateRawConfig(raw({}, [{ id: "code", ...step }]))).errors;
+  assert.deepEqual(errs({ bin: "" }), [`config: pipeline step "code" bin must be a non-empty string (a name on PATH or an absolute path).`]);
+  assert.deepEqual(errs({ bin: "  " }), [`config: pipeline step "code" bin must be a non-empty string (a name on PATH or an absolute path).`]);
+  assert.deepEqual(errs({ bin: 5 }), [`config: pipeline step "code" bin must be a non-empty string (a name on PATH or an absolute path).`]);
+  assert.deepEqual(errs({ env: [] }), [`config: pipeline step "code" env must be an object of NAME: "value" strings.`]);
+  assert.deepEqual(errs({ env: "A=1" }), [`config: pipeline step "code" env must be an object of NAME: "value" strings.`]);
+  assert.deepEqual(errs({ env: { A: 1 } }), [`config: pipeline step "code" env.A must be a string.`]);
+  assert.deepEqual(errs({ env: { "1BAD": "x" } }), [`config: pipeline step "code" env key "1BAD" is not a valid variable name.`]);
+  assert.deepEqual(errs({ env: { "A-B": "x" } }), [`config: pipeline step "code" env key "A-B" is not a valid variable name.`]);
+  assert.deepEqual(errs({ env: { AGENTHOOK_VERDICT_FILE: "x" } }), [`config: pipeline step "code" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`]);
+  // null = unset (the editor's clear), like every other optional step key
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", bin: null, env: null }])), { ok: true });
+});
+
 test("ui identity block: valid values pass, unknown colour / emoji / shape are errors", () => {
   assert.deepEqual(validateRawConfig(raw({ ui: { color: "teal", emoji: "🚀" } })), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ ui: {} })), { ok: true });

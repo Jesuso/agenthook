@@ -73,8 +73,13 @@ export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: fal
   }
 }
 
-// SENSITIVE_FIELDS that aren't secrets: their values are shown as is.
+// SENSITIVE_FIELDS that aren't secrets: their values are shown as is (a step's `bin` too).
 const CLEAR_FIELDS = new Set(["name", "fullAuto", "claudeBin", "tracker.userGid", "tracker.assigneeFilter", "tracker.email"]);
+const isClear = (path: string) => CLEAR_FIELDS.has(path) || /^tracker\.pipeline\[\d+\]\.bin$/.test(path);
+// A step's `env` may hold literal secrets: the confirm names its variables, never their values.
+const isStepEnv = (path: string) => /^tracker\.pipeline\[\d+\]\.env$/.test(path);
+const envShown = (v: unknown) =>
+  v === undefined ? "(unset)" : v && typeof v === "object" && !Array.isArray(v) ? `{${Object.keys(v).join(", ")}}` : "(set)";
 // Same rule as src/config.js literalSecrets: a non-empty string that is not exactly one `${VAR}` ref.
 const isLiteralSecret = (v: unknown) => typeof v === "string" && v !== "" && !/^\$\{[A-Z0-9_]+\}$/.test(v);
 
@@ -107,7 +112,12 @@ export function sensitiveDiff(oldText: string, newText: string): SensitiveChange
   return sensitiveChanges(oldRaw, next.raw).map((path: string) => {
     const a = valueAt(oldRaw, path);
     const b = valueAt(next.raw, path);
-    if (CLEAR_FIELDS.has(path)) return { path, from: shown(a), to: shown(b) };
+    if (isClear(path)) return { path, from: shown(a), to: shown(b) };
+    if (isStepEnv(path)) {
+      const from = envShown(a);
+      const to = envShown(b);
+      return { path, from, to: to === from ? "(changed)" : to };
+    }
     return {
       path,
       from: isLiteralSecret(a) ? "(set)" : shown(a),

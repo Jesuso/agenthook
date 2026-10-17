@@ -32,6 +32,20 @@ function onPath(bin) {
   return r.status === 0;
 }
 
+/** The distinct per-step agent binaries (non-manual steps whose `bin` differs from
+ * cfg.claudeBin), each with the step ids that use it — doctor checks each is on PATH.
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'pipeline'>} cfg
+ * @returns {{ bin: string, steps: string[] }[]} */
+export function stepBins(cfg) {
+  /** @type {Map<string, string[]>} */
+  const byBin = new Map();
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || !s.bin || s.bin === cfg.claudeBin) continue;
+    byBin.set(s.bin, [...(byBin.get(s.bin) ?? []), s.id]);
+  }
+  return [...byBin].map(([bin, steps]) => ({ bin, steps }));
+}
+
 /** Pipeline step bindings (the source-, success-, failure-, hold-prefixed keys)
  * left empty or still an `init` `TODO_*` placeholder. These pass every other
  * check yet match no incoming event, so the receiver silently does nothing — the
@@ -137,6 +151,7 @@ export async function doctor(args) {
   }
 
   add(onPath(cfg.claudeBin), `claude binary on PATH: ${cfg.claudeBin}`);
+  for (const { bin, steps } of stepBins(cfg)) add(onPath(bin), `step binary on PATH: ${bin} (steps: ${steps.join(", ")})`);
 
   if (cfg.ingress.type === "ngrok") {
     add(onPath(process.env.NGROK || "ngrok"), "ngrok binary on PATH");

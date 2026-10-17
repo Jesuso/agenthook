@@ -5,7 +5,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, stepBins } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
 
 test("unfilledBindings: clean pipeline has no offenders", () => {
@@ -115,4 +115,19 @@ test("legacyOrphans: flags <base>/42, not <base>/ios/42", () => {
   const paths = [ios.path, path.join(base, "42"), path.join(base, "ios", "42")];
   assert.deepEqual(legacyOrphans(cfg, ios, paths), [path.join(base, "42")]);
   assert.deepEqual(legacyOrphans({ ...cfg, multiRepo: false }, ios, paths), []);
+});
+
+test("stepBins: distinct step bins (≠ claudeBin, non-manual) with the steps using each", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    pipeline: [
+      { id: "triage" },
+      { id: "code", bin: "claude-local" },
+      { id: "review", bin: "claude" }, // same as claudeBin → already checked
+      { id: "fix", bin: "claude-local" },
+      { id: "done", manual: true, bin: "ignored" },
+    ],
+  });
+  assert.deepEqual(stepBins(cfg), [{ bin: "claude-local", steps: ["code", "fix"] }]);
+  assert.deepEqual(stepBins(/** @type {any} */ ({ claudeBin: "claude", pipeline: [{ id: "code" }] })), []);
 });

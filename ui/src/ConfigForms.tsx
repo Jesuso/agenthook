@@ -12,6 +12,8 @@ import {
   defaultBoolEdit,
   dropEmptyBlock,
   effectiveBool,
+  envEdit,
+  envRows,
   escalateEdit,
   fieldText,
   identityEdit,
@@ -306,6 +308,49 @@ function EscalateGroup(props: EditProps & { i: number; step: Record<string, unkn
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The step's `env` editor: one key/value row each, plus "add variable". Rows are a local draft
+ * committed on blur (a blank key is dropped); removing the last row removes `env`.
+ */
+function EnvField(props: EditProps & { i: number; env: unknown }) {
+  const initial = envRows(props.env);
+  const [rows, setRows] = useState(initial);
+  const key = JSON.stringify(initial);
+  useEffect(() => setRows(initial), [key]);
+  const m = fieldMeta(stepPath(props.i, "env"));
+  const commit = (next: [string, string][]) => props.onEdit(envEdit(props.text, props.i, next));
+  const change = (idx: number, col: 0 | 1, value: string) => {
+    const next = rows.map((r) => [...r] as [string, string]);
+    next[idx][col] = value;
+    setRows(next);
+  };
+  return (
+    <div className="col-span-3 flex flex-col gap-1" data-step-env>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {m.label}
+        <span className="ml-1 font-mono opacity-70">{m.hint}</span>
+        {m.help && <HelpTip label={m.label} help={m.help} />}
+      </span>
+      <ul className="flex flex-col gap-1">
+        {rows.map(([k, v], idx) => (
+          <li key={idx} className="flex items-center gap-1">
+            <input className={INPUT} aria-label="variable name" placeholder="NAME" value={k} onChange={(e) => change(idx, 0, e.target.value)} onBlur={() => commit(rows)} />
+            <input className={INPUT} aria-label="variable value" placeholder="value or ${VAR}" value={v} onChange={(e) => change(idx, 1, e.target.value)} onBlur={() => commit(rows)} />
+            <button type="button" className={BUTTON} aria-label="remove variable" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+              remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div>
+        <button type="button" className={BUTTON} onClick={() => setRows([...rows, ["", ""]])}>
+          add variable
+        </button>
       </div>
     </div>
   );
@@ -818,6 +863,10 @@ export function PipelineForm(
                       )}
                       {showCloseIssue && <CheckField {...edit} path={at("closeIssue")} value={s.closeIssue} />}
                       {showCompleteTask && <CheckField {...edit} path={at("completeTask")} value={s.completeTask} />}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <TextField {...edit} path={at("bin")} value={s.bin} />
+                      <EnvField {...edit} i={i} env={s.env} />
                     </div>
                     <EscalateGroup {...edit} i={i} step={s} />
                     <LiteGroup {...edit} i={i} step={s} />
