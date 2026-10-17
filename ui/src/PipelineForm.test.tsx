@@ -90,7 +90,7 @@ describe("PipelineForm cards", () => {
     expect(cards(m)[2].querySelector("[data-step-error]")).not.toBeNull();
   });
 
-  it("Advanced is collapsed by default, holds maxMinutes/idleMinutes/maxConcurrent/hold/queue, and closeIssue shows only for github", async () => {
+  it("Advanced is collapsed by default and holds maxMinutes/idleMinutes/maxConcurrent/hold/queue; a middle step has no closeIssue", async () => {
     m = await mount(form());
     await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
     const card = cards(m)[1];
@@ -103,8 +103,34 @@ describe("PipelineForm cards", () => {
     expect(details.querySelector('input[name="tracker.pipeline.1.maxConcurrent"]')).not.toBeNull();
     expect(details.querySelector('input[name="tracker.pipeline.1.holdLabel"]')).not.toBeNull();
     expect(details.querySelector('input[name="tracker.pipeline.1.queueLabel"]')).not.toBeNull();
-    expect(details.querySelector('input[name="tracker.pipeline.1.closeIssue"]')).not.toBeNull();
+    expect(details.querySelector('input[name="tracker.pipeline.1.closeIssue"]')).toBeNull();
     expect(details.querySelector('input[name="tracker.pipeline.1.completeTask"]')).toBeNull();
+  });
+
+  it("closeIssue (github) / completeTask (asana) show on the last step, a manual one, or where already set; jira gets neither", async () => {
+    const flags = async (type: string, pipeline: Record<string, unknown>[]) => {
+      const r = { tracker: { type, pipeline } };
+      const mm = await mount(form({ text: JSON.stringify(r, null, 2), raw: r }));
+      await click(mm.root.querySelector("[data-expand-all]")!);
+      const out = pipeline.map((_, i) => ({
+        closeIssue: !!mm.root.querySelector(`input[name="tracker.pipeline.${i}.closeIssue"]`),
+        completeTask: !!mm.root.querySelector(`input[name="tracker.pipeline.${i}.completeTask"]`),
+      }));
+      await mm.unmount();
+      return out;
+    };
+    const steps = (k: string) => [{ id: "a" }, { id: "b", manual: true }, { id: "c", [k]: false }, { id: "d" }, { id: "e" }];
+    const yes = (k: "closeIssue" | "completeTask") => ({ closeIssue: k === "closeIssue", completeTask: k === "completeTask" });
+    const none = { closeIssue: false, completeTask: false };
+    expect(await flags("github", steps("closeIssue"))).toEqual([none, yes("closeIssue"), yes("closeIssue"), none, yes("closeIssue")]);
+    expect(await flags("asana", steps("completeTask"))).toEqual([none, yes("completeTask"), yes("completeTask"), none, yes("completeTask")]);
+    expect(await flags("jira", steps("closeIssue"))).toEqual([none, none, none, none, none]);
+  });
+
+  it("the last step of the github fixture shows closeIssue", async () => {
+    m = await mount(form());
+    await click(cards(m)[2].querySelector('[aria-label="expand step"]')!);
+    expect(cards(m)[2].querySelector('input[name="tracker.pipeline.2.closeIssue"]')).not.toBeNull();
   });
 
   it("shows N set in the Advanced summary and in the collapsed card header once a value is set", async () => {

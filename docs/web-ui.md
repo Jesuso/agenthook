@@ -245,6 +245,18 @@ the panel above): an errored card gets a red badge and its errors inline, and op
 the error appears (collapse it again and the badge stays). Collapse / expand and graph clicks are
 view state only; they never touch the buffer.
 
+**Card errors and Save.** An error a card on the open pane renders (`cardFor` in `configEdit.ts`:
+a sink, a repo — when it names only that one — or a step) is not repeated in the banner row: the
+first other problem leads it, or, with none left, the row reads "N problem(s) — see the highlighted
+cards" (the overlay keeps the full list). On Raw, or a pane without that card, the row lists it as
+before. A just-added sink / repo / step card is **incomplete** until a field in it is blurred: its
+errors render amber (`data-incomplete`), not red, and the banner is amber while every problem is
+such a hint. ↑/↓/remove, a load or reload, Revert and any Save attempt end that grace. While the
+client checks fail, Save is `aria-disabled` ("Fix N problem(s) first"): a click or Mod-s opens no
+confirm and sends nothing, but turns every incomplete hint into a normal error. Server errors alone
+never block Save. `closeIssue` / `completeTask` show only on the last step, a manual step, or a
+step that already sets them — they act when a task enters that step.
+
 **Tracker / Forge / Ingress tabs.** Rendered from the config schema (`src/config-schema.js`): each
 tab lists its section's entries whose `scope` includes the active `tracker.type` (or has none) —
 a new scoped schema entry adds a field — with the `advanced` ones in a collapsed "Advanced · N set".

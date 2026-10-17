@@ -7,8 +7,9 @@ import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { ConfirmContext, DiffLegend, Modal, useConfirm } from "./Modal";
 import { BasicsForm, ForgeForm, IngressForm, IntegrationsForm, PipelineForm, ReposForm, TrackerForm } from "./ConfigForms";
-import type { StagesState } from "./ConfigForms";
-import { clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
+import type { CardHooks, StagesState } from "./ConfigForms";
+import { cardFor, clientErrors, discoverUrl, readSteps, stageKeysFor, stageSource, stepErrors } from "./configEdit";
+import type { CardList } from "./configEdit";
 import { layoutPipeline } from "./pipelineGraph";
 import { PipelineGraph } from "./PipelineGraph";
 import { overflowEdges, revealScrollLeft } from "./scrollRow";
@@ -38,6 +39,10 @@ type FileState = { kind: "loading" } | { kind: "error"; status: number } | { kin
 type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress" | "integrations" | "repos";
 
 const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "repos", "raw"];
+// The form pane each card list renders on.
+const CARD_PANE: Record<CardList, Pane> = { sinks: "integrations", repos: "repos", steps: "pipeline" };
+type Pristine = Record<CardList, ReadonlySet<number>>;
+const NO_PRISTINE: Pristine = { sinks: new Set(), repos: new Set(), steps: new Set() };
 
 const JSON_LANG = json();
 const OVERWRITE_TITLE = "Overwrite the on-disk config with your buffer?";
@@ -94,6 +99,16 @@ export default function ConfigView(props: {
   const [pane, setPane] = useState<Pane>("pipeline");
   // The validation banner's full error-list overlay; closed on every profile switch.
   const [bannerOpen, setBannerOpen] = useState(false);
+  // Just-added, untouched cards (`CardHooks`): their errors are an amber "incomplete" hint. Cleared on
+  // every load (profile switch, reload), Revert, and any Save attempt (blocked or not).
+  const [pristine, setPristine] = useState<Pristine>(NO_PRISTINE);
+  const clearPristine = () => setPristine(NO_PRISTINE);
+  const cardHooks: CardHooks = {
+    pristine,
+    onAdded: (list, i) => setPristine((p) => ({ ...p, [list]: new Set([...p[list], i]) })),
+    onTouched: (list, i) => setPristine((p) => ({ ...p, [list]: new Set([...p[list]].filter((k) => k !== i)) })),
+    onShifted: (list) => setPristine((p) => (p[list].size ? { ...p, [list]: new Set() } : p)),
+  };
   // The graph panel follows the pane — expanded on Pipeline, collapsed elsewhere — reset on every
   // pane switch; the ▾/▸ toggle holds until the next one.
   const [graphOpen, setGraphOpen] = useState(true);
@@ -218,6 +233,7 @@ export default function ConfigView(props: {
         if (!res.ok) return setFile({ kind: "error", status: res.status });
         return res.json().then((b: ConfigBody) => {
           if (!landable()) return;
+          clearPristine();
           setFile({
             kind: "ok",
             doc: freshSave({ profile: prof, path: b.path, content: b.text, baseHash: b.hash }),
@@ -262,10 +278,19 @@ export default function ConfigView(props: {
     if (staleHash !== null && open) load(open.profile, true);
   }, [staleHash]);
 
-  /** Save button / Mod-s: opens the diff confirm on a dirty buffer that parses, else a no-op. */
+  /**
+   * Save button / Mod-s: opens the diff confirm on a dirty buffer that parses and passes the client
+   * checks. Every attempt ends the "incomplete" grace of just-added cards; one the client checks
+   * block opens nothing and sends nothing. Server errors alone never block (the client may not
+   * mirror the rule, and blocking would stop the user fixing it).
+   */
   const requestSave = () => {
     const f = fileRef.current;
-    if (f.kind === "ok" && parseCheck(f.doc.buffer).ok) act({ type: "save" });
+    if (f.kind !== "ok") return;
+    const p = parseCheck(f.doc.buffer);
+    if (!p.ok) return;
+    clearPristine();
+    if (clientErrors(p.raw).length === 0) act({ type: "save" });
   };
 
   /** PUT the buffer — `confirm` claims the loaded hash, `overwrite` the conflict's on-disk hash. */
@@ -347,6 +372,7 @@ export default function ConfigView(props: {
     ask({ title: "Revert unsaved changes", body: CONFIG_DISCARD_PROMPT, confirmLabel: "Discard changes", destructive: true }).then((ok) => {
       if (!ok) return;
       const f = fileRef.current;
+      clearPristine();
       // The raw editor is uncontrolled: remount it so it shows the reverted text.
       if (f.kind === "ok" && act({ type: "revert" }) !== f.doc) setEditorKey((k) => k + 1);
     });
@@ -449,6 +475,12 @@ export default function ConfigView(props: {
   const moveTo = loadedRaw?.ok ? moveTarget(loadedRaw.raw, profile) : null;
   // The Raw editor needs a bounded height to scroll internally; the form panes scroll with the page.
   const showRaw = pane === "raw" || !parsed?.ok;
+  const saveBlocked = checks.length > 0;
+  /** The card a problem sits on, if that card is rendered on the open pane. */
+  const shownCard = (e: string) => {
+    const c = parsed?.ok && !showRaw ? cardFor(e, parsed.raw) : null;
+    return c && CARD_PANE[c.list] === pane ? c : null;
+  };
 
   return (
     <div className={showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] min-w-0 flex-col" : "flex min-w-0 flex-col"}>
@@ -487,10 +519,19 @@ export default function ConfigView(props: {
           </button>
         )}
         {open && (
+          // Client checks block with aria-disabled, not `disabled`: the click still lands, as a Save attempt.
           <button
-            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+            data-save
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             disabled={!dirty || phase !== "editing" || !parsed?.ok}
-            title={parsed && !parsed.ok ? "Fix the JSON first" : "Save (Ctrl/Cmd-S)"}
+            aria-disabled={saveBlocked || undefined}
+            title={
+              parsed && !parsed.ok
+                ? "Fix the JSON first"
+                : saveBlocked
+                  ? `Fix ${checks.length} problem${checks.length === 1 ? "" : "s"} first`
+                  : "Save (Ctrl/Cmd-S)"
+            }
             onClick={requestSave}
           >
             Save
@@ -606,30 +647,42 @@ export default function ConfigView(props: {
             </div>
           )}
           {(() => {
-            const banner = bannerStatus(parsed && !parsed.ok ? parsed.error : null, checks, file.meta.errors);
+            const banner = bannerStatus(parsed && !parsed.ok ? parsed.error : null, checks, file.meta.errors, {
+              onCard: (e) => shownCard(e) !== null,
+              incomplete: (e) => {
+                const c = parsed?.ok ? cardFor(e, parsed.raw) : null;
+                return c !== null && pristine[c.list].has(c.index);
+              },
+            });
+            const tone = banner.ok ? "ok" : banner.amber ? "held" : "failed";
             return (
               <div className="relative mb-2">
                 <div
                   data-config-banner
+                  data-tone={tone}
                   className={`flex h-8 items-center gap-2 rounded border px-3 text-sm ${
-                    banner.ok ? "border-status-done bg-status-done-bg text-status-done" : "border-status-failed bg-status-failed-bg text-status-failed"
+                    tone === "ok"
+                      ? "border-status-done bg-status-done-bg text-status-done"
+                      : tone === "held"
+                        ? "border-status-held bg-status-held-bg text-status-held"
+                        : "border-status-failed bg-status-failed-bg text-status-failed"
                   }`}
                 >
                   {banner.ok ? (
                     <span className="truncate">✓ valid (server: {META_LABEL[file.meta.as]})</span>
                   ) : (
                     <>
-                      <span className="truncate font-mono text-xs" title={banner.fullFirst}>
+                      <span className={`truncate text-xs ${banner.summary ? "" : "font-mono"}`} title={banner.fullFirst}>
                         {banner.first}
                       </span>
-                      {(banner.moreCount > 0 || banner.fullFirst !== banner.first) && (
+                      {(banner.moreCount > 0 || banner.fullFirst !== banner.first || banner.summary) && (
                         <button
                           type="button"
                           data-config-banner-toggle
                           className="ml-auto shrink-0 whitespace-nowrap underline"
                           onClick={() => setBannerOpen((o) => !o)}
                         >
-                          {banner.moreCount > 0 ? `+${banner.moreCount} more` : "full text"}
+                          {banner.moreCount > 0 ? `+${banner.moreCount} more` : banner.summary ? "list" : "full text"}
                         </button>
                       )}
                     </>
@@ -743,9 +796,9 @@ export default function ConfigView(props: {
                 ) : pane === "ingress" ? (
                   <IngressForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
                 ) : pane === "integrations" ? (
-                  <IntegrationsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                  <IntegrationsForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} cards={cardHooks} />
                 ) : pane === "repos" ? (
-                  <ReposForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                  <ReposForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} cards={cardHooks} />
                 ) : (
                   <PipelineForm
                     text={doc.buffer}
@@ -755,6 +808,7 @@ export default function ConfigView(props: {
                     onEdit={(buffer) => act({ type: "edit", buffer })}
                     errors={perStep}
                     focus={focus}
+                    cards={cardHooks}
                   />
                 )}
               </ConfirmContext.Provider>

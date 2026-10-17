@@ -484,6 +484,9 @@ export function addSink(text: string): string {
   return applyEdits(text, modify(text, [...SINKS, raw.sinks.length], value, { isArrayInsertion: true, formattingOptions: formattingFor(text) }));
 }
 
+/** The list of `errors` that name `sinks[i]` (sinkErrors' wording), for that sink's card. */
+export const errorsForSink = (errors: string[], i: number): string[] => errors.filter((e) => e.startsWith(`config: sinks[${i}]`));
+
 export function removeSink(text: string, i: number): string {
   return setPath(text, [...SINKS, i], undefined);
 }
@@ -644,4 +647,42 @@ export function stringListRemove(text: string, path: JSONPath, current: unknown,
   const list = Array.isArray(current) ? (current as string[]) : [];
   const next = list.filter((e) => e !== value);
   return setPath(text, path, next.length ? next : undefined);
+}
+
+/** The card lists a config error can sit on: a sink (Integrations), a repo (Repos), a step (Pipeline). */
+export type CardList = "sinks" | "repos" | "steps";
+export type CardRef = { list: CardList; index: number };
+
+/**
+ * The card that renders `error`, by the same rules the cards use: a client sink check naming
+ * `sinks[i]` (`errorsForSink`), a client repo check `errorsForRepo` puts on exactly one card (one
+ * naming two repos — a route-key clash, two defaults — stays a banner error), and a step error by `stepErrors`' rules (the step's own check, else
+ * `tracker.pipeline[i]` / `pipeline step "<id>"`). The sink/repo cards only list client checks, so a
+ * server-only sink/repo error stays unattributed. Digest, cross-repo and top-level errors → null.
+ */
+export function cardFor(error: string, raw: unknown): CardRef | null {
+  const r = isObj(raw) ? raw : {};
+  const sink = /^config: sinks\[(\d+)\]/.exec(error);
+  if (sink && sinkErrors(r.sinks).includes(error)) {
+    const index = Number(sink[1]);
+    return index < readSinks(raw).length ? { list: "sinks", index } : null;
+  }
+  const repos = readRepos(raw);
+  if (reposErrors(r.repos).includes(error)) {
+    const on = repos.flatMap((_, i) => (errorsForRepo([error], repos, i).length > 0 ? [i] : []));
+    return on.length === 1 ? { list: "repos", index: on[0] } : null;
+  }
+  const own = pipelineChecks(raw).find((c) => c.error === error);
+  if (own) return { list: "steps", index: own.index };
+  for (const [index, list] of stepErrors(raw, [error])) if (list.includes(error)) return { list: "steps", index };
+  return null;
+}
+
+/**
+ * Whether a step's `closeIssue` / `completeTask` checkbox shows: they act only when a task enters
+ * the flagged step, so on the last step or a manual one — or anywhere the key is already set, so a
+ * set value is never hidden (like `completeOnMerge`). Tracker scoping is the caller's.
+ */
+export function showTerminalFlag(step: Record<string, unknown>, i: number, count: number, key: "closeIssue" | "completeTask"): boolean {
+  return i === count - 1 || step.manual === true || step[key] !== undefined;
 }

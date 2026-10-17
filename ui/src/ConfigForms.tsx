@@ -16,6 +16,7 @@ import {
   envEdit,
   envRows,
   errorsForRepo,
+  errorsForSink,
   escalateEdit,
   fieldText,
   identityEdit,
@@ -47,6 +48,7 @@ import {
   sectionFields,
   setCount,
   setPath,
+  showTerminalFlag,
   sinkEventEdit,
   sinkEvents,
   sinkPath,
@@ -57,7 +59,7 @@ import {
   stringListRemove,
   textEdit,
 } from "./configEdit";
-import type { Discover, StageKeys, StageOption, StageSource } from "./configEdit";
+import type { CardList, Discover, StageKeys, StageOption, StageSource } from "./configEdit";
 import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
 import { resolveIdentity } from "../../src/identity.js";
 import { schemaEntry } from "../../src/config-schema.js";
@@ -72,6 +74,23 @@ import { ConfirmContext } from "./Modal";
 export type StagesState = { source: StageSource; body: Discover | null };
 
 type EditProps = { text: string; onEdit: (text: string) => void };
+
+/**
+ * The just-added cards (ConfigView's view state): a pristine card's errors render as an amber
+ * "incomplete" hint, not red. "+ Add" marks the new index (`onAdded`), the first blur of a field in
+ * the card clears it (`onTouched`), and ↑/↓/remove clear the whole list (`onShifted` — indices move).
+ */
+export type CardHooks = {
+  pristine: Record<CardList, ReadonlySet<number>>;
+  onAdded: (list: CardList, i: number) => void;
+  onTouched: (list: CardList, i: number) => void;
+  onShifted: (list: CardList) => void;
+};
+
+/** The card `<section>`'s `onBlur` (blur bubbles in React): a field leaving focus touches a pristine card. */
+const touchOnBlur = (cards: CardHooks | undefined, list: CardList, i: number) => (e: React.FocusEvent) => {
+  if (cards?.pristine[list].has(i) && (e.target as HTMLElement).matches?.("input, select, textarea")) cards.onTouched(list, i);
+};
 
 const INPUT = "w-full min-w-0 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 font-mono text-xs";
 const BUTTON = "rounded border border-[var(--color-border)] px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50";
@@ -688,8 +707,9 @@ export function openAfterRemove(open: ReadonlySet<number>, i: number): Set<numbe
  * comment keys and unknown keys are left to Raw; every other step key has a field, split into the
  * common section and a collapsed `<details data-step-advanced>` per the schema's `advanced` flag.
  * Every card starts collapsed to its header (id + `summarizeStep`); "+ Add step" opens the new one,
- * a card whose step gains an error (`errors`, from `stepErrors`) opens itself and keeps a red badge,
- * and `focus` (a graph click) opens + scrolls to the step with that id. All of it is view state —
+ * a card whose step gains an error (`errors`, from `stepErrors`) opens itself and keeps a red badge
+ * (a pristine card — `cards`, just added and untouched — shows an amber "incomplete" one and stays
+ * as it is), and `focus` (a graph click) opens + scrolls to the step with that id. All of it is view state —
  * nothing here edits the buffer except the fields and the ↑/↓/remove/add buttons.
  */
 export function PipelineForm(
@@ -699,6 +719,7 @@ export function PipelineForm(
     onRefresh: () => void;
     errors?: Map<number, string[]>;
     focus?: { id: string; nonce: number } | null;
+    cards?: CardHooks;
   },
 ) {
   const steps = readSteps(props.raw);
@@ -715,6 +736,7 @@ export function PipelineForm(
   const showCompleteTask = !completeTaskEntry?.scope || completeTaskEntry.scope.includes(trackerStr);
   const edit = { text: props.text, onEdit: props.onEdit };
   const errors = props.errors ?? new Map<number, string[]>();
+  const pristine = props.cards?.pristine.steps ?? new Set<number>();
   const [open, setOpen] = useState<Set<number>>(new Set());
   const ask = useContext(ConfirmContext);
   const toggle = (i: number) =>
@@ -726,10 +748,12 @@ export function PipelineForm(
     });
   const cards = useRef<(HTMLElement | null)[]>([]);
   // A step that goes from no errors to some opens itself (once — the user may collapse it again).
+  // A pristine card's errors don't count until it is touched.
   const errored = useRef<Set<number>>(new Set());
-  const errorKey = [...errors.keys()].sort((x, y) => x - y).join(",");
+  const loud = [...errors.keys()].filter((i) => !pristine.has(i));
+  const errorKey = loud.sort((x, y) => x - y).join(",");
   useEffect(() => {
-    const now = new Set(errors.keys());
+    const now = new Set(loud);
     const fresh = [...now].filter((i) => !errored.current.has(i));
     errored.current = now;
     if (fresh.length) setOpen((prev) => new Set([...prev, ...fresh]));
@@ -761,6 +785,7 @@ export function PipelineForm(
         const at = (k: string) => stepPath(i, k);
         const isOpen = open.has(i);
         const errs = errors.get(i) ?? [];
+        const incomplete = errs.length > 0 && pristine.has(i);
         return (
           <section
             key={i}
@@ -769,7 +794,9 @@ export function PipelineForm(
             }}
             data-step-card={fieldText(s.id)}
             data-open={isOpen}
-            className={`rounded border p-3 ${errs.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
+            data-incomplete={incomplete ? "" : undefined}
+            onBlur={touchOnBlur(props.cards, "steps", i)}
+            className={`rounded border p-3 ${incomplete ? "border-status-held" : errs.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
           >
             {/* Wraps below `sm`: the summary may take its own line; ↑/↓/remove stay together. */}
             <div data-step-header className={`flex flex-wrap items-center gap-2 sm:flex-nowrap ${isOpen ? "mb-2" : ""}`}>
@@ -785,14 +812,24 @@ export function PipelineForm(
               >
                 {summarizeStep(s, keys, stageList, advancedSet(s, tracker, keys).length) || "—"}
               </span>
-              {errs.length > 0 && (
+              {incomplete ? (
                 <span
-                  data-step-error={errs.length}
+                  data-step-incomplete={errs.length}
                   title={errs.join("\n")}
-                  className="shrink-0 rounded-full border border-status-failed bg-status-failed-bg px-1.5 text-xs text-status-failed"
+                  className="shrink-0 rounded-full border border-status-held bg-status-held-bg px-1.5 text-xs text-status-held"
                 >
-                  ! {errs.length}
+                  incomplete
                 </span>
+              ) : (
+                errs.length > 0 && (
+                  <span
+                    data-step-error={errs.length}
+                    title={errs.join("\n")}
+                    className="shrink-0 rounded-full border border-status-failed bg-status-failed-bg px-1.5 text-xs text-status-failed"
+                  >
+                    ! {errs.length}
+                  </span>
+                )
               )}
               <span className="ml-auto flex shrink-0 gap-1">
                 <button
@@ -801,6 +838,7 @@ export function PipelineForm(
                   disabled={i === 0}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, -1));
+                    props.cards?.onShifted("steps");
                     props.onEdit(moveStep(props.text, i, -1));
                   }}
                 >
@@ -812,6 +850,7 @@ export function PipelineForm(
                   disabled={i === steps.length - 1}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, 1));
+                    props.cards?.onShifted("steps");
                     props.onEdit(moveStep(props.text, i, 1));
                   }}
                 >
@@ -823,6 +862,7 @@ export function PipelineForm(
                     ask({ title: `Remove step "${fieldText(s.id) || i + 1}"?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then((ok) => {
                       if (!ok) return;
                       setOpen((prev) => openAfterRemove(prev, i));
+                      props.cards?.onShifted("steps");
                       props.onEdit(removeStep(props.text, i));
                     })
                   }
@@ -832,7 +872,7 @@ export function PipelineForm(
               </span>
             </div>
             {isOpen && errs.length > 0 && (
-              <ul className="mb-2 list-disc pl-4 text-xs text-status-failed">
+              <ul className={`mb-2 list-disc pl-4 text-xs ${incomplete ? "text-status-held" : "text-status-failed"}`}>
                 {errs.map((e, k) => (
                   <li key={k} className="break-words">
                     {e}
@@ -900,8 +940,12 @@ export function PipelineForm(
                           </span>
                         </div>
                       )}
-                      {showCloseIssue && <CheckField {...edit} path={at("closeIssue")} value={s.closeIssue} />}
-                      {showCompleteTask && <CheckField {...edit} path={at("completeTask")} value={s.completeTask} />}
+                      {showCloseIssue && showTerminalFlag(s, i, steps.length, "closeIssue") && (
+                        <CheckField {...edit} path={at("closeIssue")} value={s.closeIssue} />
+                      )}
+                      {showCompleteTask && showTerminalFlag(s, i, steps.length, "completeTask") && (
+                        <CheckField {...edit} path={at("completeTask")} value={s.completeTask} />
+                      )}
                       {(s.manual !== true || s.requireVerdict !== undefined) && (
                         <CheckField {...edit} path={at("requireVerdict")} value={s.requireVerdict} />
                       )}
@@ -924,6 +968,7 @@ export function PipelineForm(
           className={BUTTON}
           onClick={() => {
             setOpen((prev) => new Set([...prev, steps.length]));
+            props.cards?.onAdded("steps", steps.length);
             props.onEdit(addStep(props.text));
           }}
         >
@@ -1195,13 +1240,11 @@ export function IngressForm(props: EditProps & { raw: unknown }) {
   );
 }
 
-/** The list of `errors` that name `sinks[i]` (sinkErrors' wording), for that sink's card. */
-const errorsForSink = (errors: string[], i: number): string[] => errors.filter((e) => e.startsWith(`config: sinks[${i}]`));
-
-function ErrorList(props: { errors: string[] }) {
+/** A card's error list; `incomplete` (a pristine card) renders it as an amber hint instead of red. */
+function ErrorList(props: { errors: string[]; incomplete?: boolean }) {
   if (!props.errors.length) return null;
   return (
-    <ul className="list-disc pl-4 text-xs text-status-failed">
+    <ul className={`list-disc pl-4 text-xs ${props.incomplete ? "text-status-held" : "text-status-failed"}`}>
       {props.errors.map((e, k) => (
         <li key={k} className="break-words">
           {e}
@@ -1263,7 +1306,7 @@ function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
  * fields (switching type only changes which show — the other type's keys stay in the file). An
  * unknown type or a non-object entry is a read-only card — nothing in it is ever rewritten.
  */
-function SinkCard(props: EditProps & { index: number; count: number; sink: unknown; errors: string[] }) {
+function SinkCard(props: EditProps & { index: number; count: number; sink: unknown; errors: string[]; cards?: CardHooks }) {
   const ask = useContext(ConfirmContext);
   const i = props.index;
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1273,16 +1316,29 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
     props.sink !== null && typeof props.sink === "object" && !Array.isArray(props.sink)
       ? `unknown sink type ${JSON.stringify((props.sink as Record<string, unknown>).type ?? null)}`
       : "not a sink object";
+  const incomplete = props.errors.length > 0 && !!props.cards?.pristine.sinks.has(i);
   return (
-    <section data-sink-card={i} data-sink-unknown={s ? undefined : ""} className={`flex flex-col gap-2 rounded border p-3 ${props.errors.length ? "border-status-failed" : "border-[var(--color-border)]"}`}>
+    <section
+      data-sink-card={i}
+      data-sink-unknown={s ? undefined : ""}
+      data-incomplete={incomplete ? "" : undefined}
+      onBlur={touchOnBlur(props.cards, "sinks", i)}
+      className={`flex flex-col gap-2 rounded border p-3 ${incomplete ? "border-status-held" : props.errors.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
+    >
       <div className="flex items-center gap-2">
         <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
         <span className="font-mono text-sm">{s ? typeName : "?"}</span>
         <span className="ml-auto flex shrink-0 gap-1">
-          <button className={ICON_BUTTON} aria-label="move sink up" disabled={i === 0} onClick={() => props.onEdit(moveSink(props.text, i, -1))}>
+          <button className={ICON_BUTTON} aria-label="move sink up" disabled={i === 0} onClick={() => {
+              props.cards?.onShifted("sinks");
+              props.onEdit(moveSink(props.text, i, -1));
+            }}>
             ↑
           </button>
-          <button className={ICON_BUTTON} aria-label="move sink down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveSink(props.text, i, 1))}>
+          <button className={ICON_BUTTON} aria-label="move sink down" disabled={i === props.count - 1} onClick={() => {
+              props.cards?.onShifted("sinks");
+              props.onEdit(moveSink(props.text, i, 1));
+            }}>
             ↓
           </button>
           <button
@@ -1290,7 +1346,11 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
             data-remove-sink
             onClick={() =>
               ask({ title: `Remove sink #${i + 1}${s ? ` (${typeName})` : ""}?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then(
-                (ok) => ok && props.onEdit(removeSink(props.text, i)),
+                (ok) => {
+                  if (!ok) return;
+                  props.cards?.onShifted("sinks");
+                  props.onEdit(removeSink(props.text, i));
+                },
               )
             }
           >
@@ -1318,7 +1378,7 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
           <SinkEventsField {...edit} index={i} value={s.events} />
         </>
       )}
-      <ErrorList errors={props.errors} />
+      <ErrorList errors={props.errors} incomplete={incomplete} />
     </section>
   );
 }
@@ -1328,7 +1388,7 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
  * the optional `digest` block (an emptied block is removed, like `identityEdit`'s `ui`) and the
  * `overlapGuard` opt-in. Each group lists its own client checks; the server's 422 stays authoritative.
  */
-export function IntegrationsForm(props: EditProps & { raw: unknown }) {
+export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: CardHooks }) {
   const sinks = readSinks(props.raw);
   const digest = readDigest(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1343,10 +1403,17 @@ export function IntegrationsForm(props: EditProps & { raw: unknown }) {
         <p className={NOTE}>Forward lifecycle events to Slack, Telegram or a webhook. Best-effort: a sink never blocks the pipeline.</p>
         {sinkErrs.length > 0 && sinks.length === 0 && <ErrorList errors={sinkErrs} />}
         {sinks.map((s, i) => (
-          <SinkCard key={i} {...edit} index={i} count={sinks.length} sink={s} errors={errorsForSink(sinkErrs, i)} />
+          <SinkCard key={i} {...edit} index={i} count={sinks.length} sink={s} errors={errorsForSink(sinkErrs, i)} cards={props.cards} />
         ))}
         <div>
-          <button className={BUTTON} data-add-sink onClick={() => props.onEdit(addSink(props.text))}>
+          <button
+            className={BUTTON}
+            data-add-sink
+            onClick={() => {
+              props.cards?.onAdded("sinks", sinks.length);
+              props.onEdit(addSink(props.text));
+            }}
+          >
             + Add sink
           </button>
         </div>
@@ -1439,27 +1506,36 @@ const anyRepoErrors = (errors: string[], repos: unknown[]): string[] => errors.f
  * One `repos[i]` card: id, path, match (chips) and default in the common grid; instructionsFile and
  * worktreePrefix under Advanced. ↑/↓/remove in the header; a non-object element is a read-only card.
  */
-function RepoCard(props: EditProps & { index: number; count: number; repos: unknown[]; repo: unknown; errors: string[] }) {
+function RepoCard(props: EditProps & { index: number; count: number; repos: unknown[]; repo: unknown; errors: string[]; cards?: CardHooks }) {
   const ask = useContext(ConfirmContext);
   const i = props.index;
   const edit = { text: props.text, onEdit: props.onEdit };
   const r = knownRepo(props.repo);
   const label = r && typeof r.id === "string" && r.id !== "" ? r.id : "?";
   const advancedCount = r ? (["instructionsFile", "worktreePrefix"] as const).filter((k) => r[k] !== undefined && r[k] !== "").length : 0;
+  const incomplete = props.errors.length > 0 && !!props.cards?.pristine.repos.has(i);
   return (
     <section
       data-repo-card={i}
       data-repo-unknown={r ? undefined : ""}
-      className={`flex flex-col gap-2 rounded border p-3 ${props.errors.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
+      data-incomplete={incomplete ? "" : undefined}
+      onBlur={touchOnBlur(props.cards, "repos", i)}
+      className={`flex flex-col gap-2 rounded border p-3 ${incomplete ? "border-status-held" : props.errors.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
     >
       <div className="flex items-center gap-2">
         <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
         <span className="font-mono text-sm">{label}</span>
         <span className="ml-auto flex shrink-0 gap-1">
-          <button className={ICON_BUTTON} aria-label="move repo up" disabled={i === 0} onClick={() => props.onEdit(moveRepo(props.text, i, -1))}>
+          <button className={ICON_BUTTON} aria-label="move repo up" disabled={i === 0} onClick={() => {
+              props.cards?.onShifted("repos");
+              props.onEdit(moveRepo(props.text, i, -1));
+            }}>
             ↑
           </button>
-          <button className={ICON_BUTTON} aria-label="move repo down" disabled={i === props.count - 1} onClick={() => props.onEdit(moveRepo(props.text, i, 1))}>
+          <button className={ICON_BUTTON} aria-label="move repo down" disabled={i === props.count - 1} onClick={() => {
+              props.cards?.onShifted("repos");
+              props.onEdit(moveRepo(props.text, i, 1));
+            }}>
             ↓
           </button>
           <button
@@ -1467,7 +1543,11 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
             data-remove-repo
             onClick={() =>
               ask({ title: `Remove repo #${i + 1}${r ? ` (${label})` : ""}?`, confirmLabel: "Remove", destructive: true }).then(
-                (ok) => ok && props.onEdit(removeRepo(props.text, i)),
+                (ok) => {
+                  if (!ok) return;
+                  props.cards?.onShifted("repos");
+                  props.onEdit(removeRepo(props.text, i));
+                },
               )
             }
           >
@@ -1507,7 +1587,7 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
           </details>
         </>
       )}
-      <ErrorList errors={props.errors} />
+      <ErrorList errors={props.errors} incomplete={incomplete} />
     </section>
   );
 }
@@ -1518,7 +1598,7 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
  * then the `repos` cards (add/remove/reorder, the single-default rule enforced inline) or, absent a
  * `repos` block, a note and "+ Add repo".
  */
-export function ReposForm(props: EditProps & { raw: unknown }) {
+export function ReposForm(props: EditProps & { raw: unknown; cards?: CardHooks }) {
   const repos = readRepos(props.raw);
   const raw = props.raw as Record<string, unknown> | null;
   const hasRepos = Array.isArray(raw?.repos);
@@ -1556,12 +1636,19 @@ export function ReposForm(props: EditProps & { raw: unknown }) {
             {errs.length > 0 && repos.length === 0 && <ErrorList errors={errs} />}
             {repos.length > 0 && <ErrorList errors={anyRepoErrors(errs, repos)} />}
             {repos.map((r, i) => (
-              <RepoCard key={i} {...edit} index={i} count={repos.length} repos={repos} repo={r} errors={errorsForRepo(errs, repos, i)} />
+              <RepoCard key={i} {...edit} index={i} count={repos.length} repos={repos} repo={r} errors={errorsForRepo(errs, repos, i)} cards={props.cards} />
             ))}
           </>
         )}
         <div>
-          <button className={BUTTON} data-add-repo onClick={() => props.onEdit(addRepo(props.text))}>
+          <button
+            className={BUTTON}
+            data-add-repo
+            onClick={() => {
+              props.cards?.onAdded("repos", repos.length);
+              props.onEdit(addRepo(props.text));
+            }}
+          >
             + Add repo
           </button>
         </div>
