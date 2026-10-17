@@ -1,9 +1,16 @@
 // @vitest-environment happy-dom
+import { act, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createElement } from "react";
 import { PipelineForm } from "./ConfigForms";
 import { click, mount } from "./domHarness";
 import type { Mounted } from "./domHarness";
+
+/** Set a `<select>`'s value and fire the native `change` React listens for. */
+const setSelect = (el: HTMLSelectElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(el, value);
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 
 const raw = {
   tracker: {
@@ -138,5 +145,82 @@ describe("PipelineForm cards", () => {
     expect(openIds(m)).toEqual(["code"]);
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll.mock.contexts[0]).toBe(cards(m)[1]);
+  });
+});
+
+describe("PipelineForm Advanced: Escalation and Lite", () => {
+  it("renders an Escalation row per difficulty and a Lite editor, and a select change edits the buffer", async () => {
+    let buffer = text;
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(form({ onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const details = cards(m)[1].querySelector("[data-step-advanced]") as HTMLDetailsElement;
+
+    const rows = ["easy", "medium", "hard"].map((d) => details.querySelector<HTMLElement>(`[data-escalate-row="${d}"]`));
+    expect(rows.every(Boolean)).toBe(true);
+    const easyModel = rows[0]!.querySelector<HTMLSelectElement>('select[name="tracker.pipeline.1.escalate.easy.model"]')!;
+    const easyEffort = rows[0]!.querySelector<HTMLSelectElement>('select[name="tracker.pipeline.1.escalate.easy.effort"]')!;
+    expect(easyModel).not.toBeNull();
+    expect(easyEffort).not.toBeNull();
+
+    expect(details.querySelector('[data-lite-headings]')).not.toBeNull();
+    const liteModel = details.querySelector<HTMLSelectElement>('select[name="tracker.pipeline.1.lite.model"]')!;
+    const liteEffort = details.querySelector<HTMLSelectElement>('select[name="tracker.pipeline.1.lite.effort"]')!;
+    expect(liteModel).not.toBeNull();
+    expect(liteEffort).not.toBeNull();
+
+    await setSelect(easyEffort, "high");
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(buffer).tracker.pipeline[1].escalate).toEqual({ easy: { effort: "high" } });
+
+    await setSelect(liteEffort, "low");
+    expect(JSON.parse(buffer).tracker.pipeline[1].lite).toEqual({ effort: "low" });
+  });
+
+  it("adding a heading edits the buffer and clears the draft", async () => {
+    let buffer = text;
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(form({ onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const headings = cards(m)[1].querySelector('[data-lite-headings]')!;
+    const input = headings.querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "## Problem");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const add = [...headings.querySelectorAll("button")].find((b) => b.textContent === "add heading")!;
+    expect(add.hasAttribute("disabled")).toBe(false);
+    await click(add);
+    expect(JSON.parse(buffer).tracker.pipeline[1].lite).toEqual({ descriptionHeadings: ["## Problem"] });
+    expect(input.value).toBe("");
+  });
+
+  it("editing an existing heading only commits on blur, keeps trailing spaces, and a mid-edit blank row doesn't drop descriptionHeadings", async () => {
+    const rawWithLite = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, idx) => (idx === 1 ? { ...s, lite: { descriptionHeadings: ["Problem"] } } : s)) } };
+    let buffer = JSON.stringify(rawWithLite, null, 2);
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(form({ text: buffer, raw: rawWithLite, onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const headings = cards(m)[1].querySelector('[data-lite-headings]')!;
+    const row = headings.querySelectorAll("input")[0] as HTMLInputElement;
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(row, "");
+      row.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onEdit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(row, "Problem statement ");
+      row.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onEdit).not.toHaveBeenCalled();
+
+    row.focus();
+    await act(async () => {
+      row.blur();
+    });
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(buffer).tracker.pipeline[1].lite.descriptionHeadings).toEqual(["Problem statement "]);
   });
 });

@@ -8,10 +8,13 @@ import {
   clientErrors,
   defaultBoolEdit,
   effectiveBool,
+  escalateEdit,
   formattingFor,
   identityEdit,
   ingressFields,
   ingressType,
+  liteEdit,
+  liteHeadingsEdit,
   moveStep,
   numberEdit,
   readBasics,
@@ -415,6 +418,140 @@ describe("identityEdit", () => {
     const text = '{\n  "//": "note",\n  "name": "p"\n}';
     const out = identityEdit(text, "color", "sky");
     expect(JSON.parse(out)).toEqual({ "//": "note", name: "p", ui: { color: "sky" } });
+  });
+});
+
+describe("escalateEdit", () => {
+  const noBlock = JSON.stringify({ tracker: { pipeline: [{ id: "code" }] } }, null, 2);
+
+  it("adds a value to a step with no escalate block", () => {
+    const out = escalateEdit(noBlock, 0, "easy", "model", "claude-haiku-5-5");
+    expect(JSON.parse(out).tracker.pipeline[0].escalate).toEqual({ easy: { model: "claude-haiku-5-5" } });
+  });
+
+  it("edits an existing value", () => {
+    const a = escalateEdit(noBlock, 0, "easy", "model", "claude-haiku-5-5");
+    const b = escalateEdit(a, 0, "easy", "model", "claude-sonnet-5");
+    expect(JSON.parse(b).tracker.pipeline[0].escalate).toEqual({ easy: { model: "claude-sonnet-5" } });
+  });
+
+  it("clears one leaf, keeping its sibling", () => {
+    const a = escalateEdit(noBlock, 0, "easy", "model", "claude-haiku-5-5");
+    const b = escalateEdit(a, 0, "easy", "effort", "low");
+    const c = escalateEdit(b, 0, "easy", "model", "");
+    expect(JSON.parse(c).tracker.pipeline[0].escalate).toEqual({ easy: { effort: "low" } });
+  });
+
+  it("clearing the last leaf removes the difficulty row, then the whole key once it's the last difficulty", () => {
+    const withTwo = JSON.stringify({ tracker: { pipeline: [{ id: "code", escalate: { easy: { model: "a" }, hard: { model: "b" } } }] } }, null, 2);
+    const a = escalateEdit(withTwo, 0, "easy", "model", "");
+    expect(JSON.parse(a).tracker.pipeline[0].escalate).toEqual({ hard: { model: "b" } });
+    const b = escalateEdit(a, 0, "hard", "model", "");
+    expect(JSON.parse(b).tracker.pipeline[0]).not.toHaveProperty("escalate");
+  });
+
+  it("clearing when escalate (or the difficulty) is absent is a no-op, never throws", () => {
+    expect(escalateEdit(noBlock, 0, "easy", "model", "")).toBe(noBlock);
+    const onlyHard = JSON.stringify({ tracker: { pipeline: [{ id: "code", escalate: { hard: { model: "b" } } }] } }, null, 2);
+    expect(escalateEdit(onlyHard, 0, "easy", "model", "")).toBe(onlyHard);
+  });
+
+  it("keeps comment and unknown keys inside the step, and inside escalate (an extra difficulty), through every edit", () => {
+    const text = JSON.stringify(
+      { tracker: { pipeline: [{ "//": "note", id: "code", unknownKey: 1, escalate: { "//": "note2", extreme: { model: "z" }, easy: { model: "a", effort: "low" } } }] } },
+      null,
+      2,
+    );
+    const a = escalateEdit(text, 0, "easy", "effort", "");
+    const step = JSON.parse(a).tracker.pipeline[0];
+    expect(step["//"]).toBe("note");
+    expect(step.unknownKey).toBe(1);
+    expect(step.escalate["//"]).toBe("note2");
+    expect(step.escalate.extreme).toEqual({ model: "z" });
+    expect(step.escalate.easy).toEqual({ model: "a" });
+  });
+});
+
+describe("liteEdit / liteHeadingsEdit", () => {
+  const noBlock = JSON.stringify({ tracker: { pipeline: [{ id: "code" }] } }, null, 2);
+
+  it("adds a value to a step with no lite block", () => {
+    const out = liteEdit(noBlock, 0, "model", "claude-haiku-5-5");
+    expect(JSON.parse(out).tracker.pipeline[0].lite).toEqual({ model: "claude-haiku-5-5" });
+  });
+
+  it("edits an existing value", () => {
+    const a = liteEdit(noBlock, 0, "model", "claude-haiku-5-5");
+    const b = liteEdit(a, 0, "model", "claude-sonnet-5");
+    expect(JSON.parse(b).tracker.pipeline[0].lite).toEqual({ model: "claude-sonnet-5" });
+  });
+
+  it("clears one leaf, keeping its sibling", () => {
+    const a = liteEdit(noBlock, 0, "model", "claude-haiku-5-5");
+    const b = liteEdit(a, 0, "effort", "low");
+    const c = liteEdit(b, 0, "model", "");
+    expect(JSON.parse(c).tracker.pipeline[0].lite).toEqual({ effort: "low" });
+  });
+
+  it("clearing the last leaf removes lite entirely", () => {
+    const a = liteEdit(noBlock, 0, "model", "claude-haiku-5-5");
+    const b = liteEdit(a, 0, "model", "");
+    expect(JSON.parse(b).tracker.pipeline[0]).not.toHaveProperty("lite");
+  });
+
+  it("clearing when lite is absent is a no-op, never throws", () => {
+    expect(liteEdit(noBlock, 0, "model", "")).toBe(noBlock);
+  });
+
+  it("keeps comment and unknown keys inside the step, and inside lite, through every edit", () => {
+    const text = JSON.stringify(
+      { tracker: { pipeline: [{ "//": "note", id: "code", unknownKey: 1, lite: { "//": "note2", unknownLite: "x", model: "a", effort: "low" } }] } },
+      null,
+      2,
+    );
+    const a = liteEdit(text, 0, "effort", "");
+    const step = JSON.parse(a).tracker.pipeline[0];
+    expect(step["//"]).toBe("note");
+    expect(step.unknownKey).toBe(1);
+    expect(step.lite).toEqual({ "//": "note2", unknownLite: "x", model: "a" });
+  });
+
+  it("headings: add, remove, reorder; blanks are never written; removing the last one removes descriptionHeadings", () => {
+    const a = liteHeadingsEdit(noBlock, 0, ["one"]);
+    expect(JSON.parse(a).tracker.pipeline[0].lite).toEqual({ descriptionHeadings: ["one"] });
+    const b = liteHeadingsEdit(a, 0, ["one", "two"]);
+    expect(JSON.parse(b).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["one", "two"]);
+    const c = liteHeadingsEdit(b, 0, ["two", "one"]);
+    expect(JSON.parse(c).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["two", "one"]);
+    const d = liteHeadingsEdit(c, 0, ["two", "one", "  ", ""]);
+    expect(JSON.parse(d).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["two", "one"]);
+    const e = liteHeadingsEdit(d, 0, ["two"]);
+    expect(JSON.parse(e).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["two"]);
+    const f = liteHeadingsEdit(e, 0, []);
+    expect(JSON.parse(f).tracker.pipeline[0]).not.toHaveProperty("lite");
+  });
+
+  it("removing the last heading removes lite entirely only when no other lite key remains", () => {
+    const withModel = JSON.stringify({ tracker: { pipeline: [{ id: "code", lite: { descriptionHeadings: ["one"], model: "a" } }] } }, null, 2);
+    const out = liteHeadingsEdit(withModel, 0, []);
+    expect(JSON.parse(out).tracker.pipeline[0].lite).toEqual({ model: "a" });
+  });
+
+  it("clearing headings when lite (or descriptionHeadings) is absent is a no-op, never throws", () => {
+    expect(liteHeadingsEdit(noBlock, 0, [])).toBe(noBlock);
+    const onlyModel = JSON.stringify({ tracker: { pipeline: [{ id: "code", lite: { model: "a" } }] } }, null, 2);
+    expect(liteHeadingsEdit(onlyModel, 0, [])).toBe(onlyModel);
+  });
+
+  it("a trailing or internal space in a heading is kept, not trimmed", () => {
+    const out = liteHeadingsEdit(noBlock, 0, ["Problem statement "]);
+    expect(JSON.parse(out).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["Problem statement "]);
+  });
+
+  it("emptying a row mid-edit (one blank entry among others) drops only that entry, keeps the rest", () => {
+    const a = liteHeadingsEdit(noBlock, 0, ["one", "two"]);
+    const out = liteHeadingsEdit(a, 0, ["", "two"]);
+    expect(JSON.parse(out).tracker.pipeline[0].lite.descriptionHeadings).toEqual(["two"]);
   });
 });
 

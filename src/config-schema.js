@@ -127,18 +127,18 @@ export const CONFIG_SCHEMA = [
   step("holdLabel", "string", "Hold label", "Label a hold verdict swaps the issue to; unset leaves it in place.", { scope: ["github"], advanced: true }),
   step("queueLabel", "string", "Queue label", "Opt-in backlog label this step pulls from, oldest-created first, when a slot frees.", { scope: ["github"], advanced: true }),
 
-  // Pipeline steps — common + advanced (completeOnMerge/closeIssue/completeTask editable; lite/escalate still Raw-only)
+  // Pipeline steps — common + advanced
   step("maxConcurrent", "number", "Max concurrent runs", "Runs of this step at once, counted inside the global limit; unset = only that limit.", { min: 1, advanced: true }),
   step("completeOnMerge", "boolean", "Complete on merge", "Manual steps only, at most one: a merged agent PR moves the task into this step.", { advanced: true }),
   step("closeIssue", "boolean", "Close issue", "Entering this (terminal) step closes the issue, releasing the issues it blocked.", { scope: ["github"], advanced: true }),
   step("completeTask", "boolean", "Complete task", "Entering this (terminal) step marks the task completed, releasing the tasks it blocked.", { scope: ["asana"], advanced: true }),
-  step("lite", "object", "Lite mode", "A cheaper model/effort when the description starts a line with every listed heading.", { advanced: true, ...P }),
-  step("lite.descriptionHeadings", "string-list", "Description headings", "Headings that must each start a line of the task description for lite to apply.", P),
-  step("lite.model", "string", "Lite model", "The base model when lite applies.", P),
-  step("lite.effort", "enum", "Lite effort", "The base effort when lite applies.", { options: STEP_EFFORTS, ...P }),
-  step("escalate", "record", "Escalation", "Per-difficulty (easy/medium/hard) model and effort overrides; they win over lite.", { advanced: true, ...P }),
-  step("escalate.*.model", "string", "Escalated model", "The model used when the task's stored difficulty matches this key.", P),
-  step("escalate.*.effort", "enum", "Escalated effort", "The effort used when the task's stored difficulty matches this key.", { options: STEP_EFFORTS, ...P }),
+  step("lite", "object", "Lite mode", "A cheaper model/effort when the description starts a line with every listed heading.", { advanced: true }),
+  step("lite.descriptionHeadings", "string-list", "Description headings", "Headings that must each start a line of the task description for lite to apply."),
+  step("lite.model", "string", "Lite model", "The base model when lite applies."),
+  step("lite.effort", "enum", "Lite effort", "The base effort when lite applies.", { options: STEP_EFFORTS }),
+  step("escalate", "record", "Escalation", "Per-difficulty (easy/medium/hard) model and effort overrides; they win over lite.", { advanced: true }),
+  step("escalate.*.model", "string", "Escalated model", "The model used when the task's stored difficulty matches this key."),
+  step("escalate.*.effort", "enum", "Escalated effort", "The effort used when the task's stored difficulty matches this key.", { options: STEP_EFFORTS }),
 
   // Ingress
   entry("ingress", "object", "Ingress", "ingress", "How webhooks reach this receiver from the internet."),
