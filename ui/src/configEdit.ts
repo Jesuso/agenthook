@@ -145,6 +145,61 @@ export function moveStep(text: string, i: number, dir: -1 | 1): string {
   return applyEdits(text, edits);
 }
 
+/**
+ * `escalate.<difficulty>.<field>` edit: `""` removes the leaf; removing the last leaf of a
+ * difficulty removes that difficulty, and removing the last difficulty removes `escalate` itself.
+ * Clearing when the parent (or grandparent) is absent is a no-op — jsonc-parser throws deleting
+ * under a missing container, so existence is checked before any removal. Other `escalate.*` keys
+ * (and any unknown/comment keys) are left untouched.
+ */
+export function escalateEdit(text: string, i: number, difficulty: string, field: "model" | "effort", input: string): string {
+  const path: JSONPath = [...PIPELINE, i, "escalate", difficulty, field];
+  if (input !== "") return setPath(text, path, input);
+  const step = readSteps(JSON.parse(text))[i] ?? {};
+  const escalate = isObj(step.escalate) ? step.escalate : undefined;
+  const byDifficulty = escalate && isObj(escalate[difficulty]) ? (escalate[difficulty] as Record<string, unknown>) : undefined;
+  if (!byDifficulty || byDifficulty[field] === undefined) return text;
+  let next = setPath(text, path, undefined);
+  if (Object.keys(byDifficulty).filter((k) => k !== field).length === 0) {
+    next = setPath(next, [...PIPELINE, i, "escalate", difficulty], undefined);
+    if (Object.keys(escalate!).filter((k) => k !== difficulty).length === 0) {
+      next = setPath(next, [...PIPELINE, i, "escalate"], undefined);
+    }
+  }
+  return next;
+}
+
+/**
+ * `lite.model` / `lite.effort` edit: `""` removes the leaf; removing the last leaf removes `lite`.
+ * Same no-op-when-absent guard as `escalateEdit`.
+ */
+export function liteEdit(text: string, i: number, field: "model" | "effort", input: string): string {
+  const path: JSONPath = [...PIPELINE, i, "lite", field];
+  if (input !== "") return setPath(text, path, input);
+  const step = readSteps(JSON.parse(text))[i] ?? {};
+  const lite = isObj(step.lite) ? step.lite : undefined;
+  if (!lite || lite[field] === undefined) return text;
+  let next = setPath(text, path, undefined);
+  if (Object.keys(lite).filter((k) => k !== field).length === 0) next = setPath(next, [...PIPELINE, i, "lite"], undefined);
+  return next;
+}
+
+/**
+ * `lite.descriptionHeadings` edit: blank entries are dropped before writing; an empty list removes
+ * the key (and `lite` with it, if that was its only leaf). Same no-op-when-absent guard.
+ */
+export function liteHeadingsEdit(text: string, i: number, headings: string[]): string {
+  const clean = headings.map((h) => h.trim()).filter(Boolean);
+  const path: JSONPath = [...PIPELINE, i, "lite", "descriptionHeadings"];
+  if (clean.length > 0) return setPath(text, path, clean);
+  const step = readSteps(JSON.parse(text))[i] ?? {};
+  const lite = isObj(step.lite) ? step.lite : undefined;
+  if (!lite || lite.descriptionHeadings === undefined) return text;
+  let next = setPath(text, path, undefined);
+  if (Object.keys(lite).filter((k) => k !== "descriptionHeadings").length === 0) next = setPath(next, [...PIPELINE, i, "lite"], undefined);
+  return next;
+}
+
 const SUFFIX: Record<string, string> = { asana: "SectionGid", github: "Label", jira: "Status", "github-projects": "Status", local: "Status" };
 
 /** The step binding keys: the receiver's `discover.stageKeys`, else by `tracker.type`; null = unknown (raw only). */

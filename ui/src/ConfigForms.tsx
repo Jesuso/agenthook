@@ -6,8 +6,11 @@ import {
   addStep,
   advancedSet,
   boolEdit,
+  escalateEdit,
   fieldText,
   identityEdit,
+  liteEdit,
+  liteHeadingsEdit,
   moveStep,
   numberEdit,
   readBasics,
@@ -163,15 +166,20 @@ function CheckField(props: EditProps & { path: JSONPath; value: unknown; explici
   );
 }
 
-/** First option "(default)" removes the key; an unknown current value stays selectable. */
-function SelectField(props: EditProps & { path: JSONPath; value: unknown }) {
+/**
+ * First option "(default)" removes the key; an unknown current value stays selectable. `edit`
+ * overrides the default `textEdit(path)` write — the escalate/lite rows pass their own (nested
+ * cleanup, not a plain key set) while every other caller keeps the default.
+ */
+function SelectField(props: EditProps & { path: JSONPath; value: unknown; edit?: (input: string) => string }) {
   const m = fieldMeta(props.path);
   const options = m.entry?.options ?? [];
   const cur = fieldText(props.value);
   const extra = cur !== "" && !options.includes(cur);
+  const commit = (input: string) => props.onEdit(props.edit ? props.edit(input) : textEdit(props.text, props.path, input));
   return (
     <Field label={m.label} hint={m.hint} help={m.help}>
-      <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))}>
+      <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => commit(e.target.value)}>
         <option value="">(default)</option>
         {options.map((o) => (
           <option key={o} value={o}>
@@ -197,13 +205,15 @@ export function modelSelectState(cur: string): { selectValue: string; showCustom
   return { selectValue: known ? cur : cur === "" ? "" : CUSTOM, showCustom: cur !== "" && !known };
 }
 
-export function ModelField(props: EditProps & { path: JSONPath; value: unknown }) {
+/** `edit` overrides the default `textEdit(path)` write, same as `SelectField`'s. */
+export function ModelField(props: EditProps & { path: JSONPath; value: unknown; edit?: (input: string) => string }) {
   const m = fieldMeta(props.path);
   const cur = fieldText(props.value);
   const [forceCustom, setForceCustom] = useState(false);
   useEffect(() => setForceCustom(false), [props.text]);
   const { selectValue, showCustom: unknownValue } = modelSelectState(cur);
   const showCustom = forceCustom || unknownValue;
+  const commit = (input: string) => props.onEdit(props.edit ? props.edit(input) : textEdit(props.text, props.path, input));
   return (
     <Field label={m.label} hint={m.hint} help={m.help}>
       <select
@@ -213,7 +223,7 @@ export function ModelField(props: EditProps & { path: JSONPath; value: unknown }
         onChange={(e) => {
           if (e.target.value === CUSTOM) return setForceCustom(true);
           setForceCustom(false);
-          props.onEdit(textEdit(props.text, props.path, e.target.value));
+          commit(e.target.value);
         }}
       >
         <option value="">(default)</option>
@@ -224,15 +234,126 @@ export function ModelField(props: EditProps & { path: JSONPath; value: unknown }
         ))}
         <option value={CUSTOM}>custom…</option>
       </select>
-      {showCustom && (
-        <input
-          className={`${INPUT} mt-1`}
-          placeholder="model name"
-          value={cur}
-          onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))}
-        />
-      )}
+      {showCustom && <input className={`${INPUT} mt-1`} placeholder="model name" value={cur} onChange={(e) => commit(e.target.value)} />}
     </Field>
+  );
+}
+
+const DIFFICULTIES = ["easy", "medium", "hard"] as const;
+
+const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
+/** The step's Escalation editor: a model + effort pick per difficulty, wired to `escalateEdit`'s nested cleanup. */
+function EscalateGroup(props: EditProps & { i: number; step: Record<string, unknown> }) {
+  const escalate = asRecord(props.step.escalate);
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Escalation</h4>
+      <div className="flex flex-col gap-3">
+        {DIFFICULTIES.map((d) => {
+          const row = asRecord(escalate[d]);
+          const modelPath: JSONPath = [...stepPath(props.i, "escalate"), d, "model"];
+          const effortPath: JSONPath = [...stepPath(props.i, "escalate"), d, "effort"];
+          return (
+            <div key={d} data-escalate-row={d} className="grid grid-cols-3 gap-3">
+              <span className="col-span-3 -mb-1 text-xs font-medium capitalize text-[var(--color-muted)]">{d}</span>
+              <ModelField text={props.text} onEdit={props.onEdit} path={modelPath} value={row.model} edit={(input) => escalateEdit(props.text, props.i, d, "model", input)} />
+              <SelectField text={props.text} onEdit={props.onEdit} path={effortPath} value={row.effort} edit={(input) => escalateEdit(props.text, props.i, d, "effort", input)} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** `lite.descriptionHeadings`: add / remove / reorder rows. A new heading stays a local draft until it is non-blank. */
+function LiteHeadingsField(props: EditProps & { i: number; headings: string[] }) {
+  const [draft, setDraft] = useState("");
+  const m = fieldMeta([...stepPath(props.i, "lite"), "descriptionHeadings"]);
+  const commit = (next: string[]) => props.onEdit(liteHeadingsEdit(props.text, props.i, next));
+  const add = () => {
+    const h = draft.trim();
+    if (!h) return;
+    commit([...props.headings, h]);
+    setDraft("");
+  };
+  return (
+    <div className="col-span-3 flex flex-col gap-1" data-lite-headings>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {m.label}
+        <span className="ml-1 font-mono opacity-70">{m.hint}</span>
+        {m.help && <HelpTip label={m.label} help={m.help} />}
+      </span>
+      <ul className="flex flex-col gap-1">
+        {props.headings.map((h, idx) => (
+          <li key={idx} className="flex items-center gap-1">
+            <input
+              className={INPUT}
+              value={h}
+              onChange={(e) => {
+                const next = [...props.headings];
+                next[idx] = e.target.value;
+                commit(next);
+              }}
+            />
+            <button
+              type="button"
+              className={BUTTON}
+              aria-label="move heading up"
+              disabled={idx === 0}
+              onClick={() => {
+                const next = [...props.headings];
+                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                commit(next);
+              }}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className={BUTTON}
+              aria-label="move heading down"
+              disabled={idx === props.headings.length - 1}
+              onClick={() => {
+                const next = [...props.headings];
+                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                commit(next);
+              }}
+            >
+              ↓
+            </button>
+            <button type="button" className={BUTTON} aria-label="remove heading" onClick={() => commit(props.headings.filter((_, j) => j !== idx))}>
+              remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center gap-1">
+        <input className={INPUT} placeholder="add heading" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} />
+        <button type="button" className={BUTTON} disabled={!draft.trim()} onClick={add}>
+          add heading
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The step's Lite-mode editor: the heading list plus a model + effort pick, wired to `liteEdit`/`liteHeadingsEdit`. */
+function LiteGroup(props: EditProps & { i: number; step: Record<string, unknown> }) {
+  const lite = asRecord(props.step.lite);
+  const headings = Array.isArray(lite.descriptionHeadings) ? lite.descriptionHeadings.map((h) => (typeof h === "string" ? h : String(h))) : [];
+  const modelPath: JSONPath = [...stepPath(props.i, "lite"), "model"];
+  const effortPath: JSONPath = [...stepPath(props.i, "lite"), "effort"];
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Lite mode</h4>
+      <div className="grid grid-cols-3 gap-3">
+        <LiteHeadingsField text={props.text} onEdit={props.onEdit} i={props.i} headings={headings} />
+        <ModelField text={props.text} onEdit={props.onEdit} path={modelPath} value={lite.model} edit={(input) => liteEdit(props.text, props.i, "model", input)} />
+        <SelectField text={props.text} onEdit={props.onEdit} path={effortPath} value={lite.effort} edit={(input) => liteEdit(props.text, props.i, "effort", input)} />
+      </div>
+    </div>
   );
 }
 
@@ -651,6 +772,8 @@ export function PipelineForm(
                       {showCloseIssue && <CheckField {...edit} path={at("closeIssue")} value={s.closeIssue} />}
                       {showCompleteTask && <CheckField {...edit} path={at("completeTask")} value={s.completeTask} />}
                     </div>
+                    <EscalateGroup {...edit} i={i} step={s} />
+                    <LiteGroup {...edit} i={i} step={s} />
                   </div>
                 </details>
               </div>
