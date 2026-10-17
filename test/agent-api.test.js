@@ -7,7 +7,7 @@ import path from "node:path";
 import { etagOf, pickProfile, readStatus, readProfiles, readEventsSince, waitForEvents, compactEvent, eventsCursor, readRuns, readRunLogTail } from "../src/agent-api.js";
 import { readProfile } from "../src/heartbeat.js";
 import net from "node:net";
-import { live, readTick } from "../src/agent-api.js";
+import { live, readTick, pickProfiles, parseCursorMap, cursorMapError, waitForEventsMulti, mergeTagged } from "../src/agent-api.js";
 import { controlSockPath } from "../src/paths.js";
 import { startControl } from "../src/control.js";
 
@@ -346,4 +346,128 @@ test("readTick: passes a PR row's review through to the compact row", async () =
   } finally {
     control?.close();
   }
+});
+
+// ---------------------------------------------------------------- multi-profile (#348)
+
+const evLine = (event, ref, ts = new Date().toISOString()) => JSON.stringify({ ts, event, ref, step: "code" }) + "\n";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Two profiles with empty event logs; returns their entries. */
+function twoProfiles() {
+  const reg = registry();
+  for (const k of ["a", "b"]) fs.writeFileSync(path.join(profile(reg, k), "events.jsonl"), "");
+  const picked = pickProfiles(["a", "b"], {}, reg);
+  assert.ok("entries" in picked);
+  return { reg, entries: picked.entries, file: (k) => path.join(reg, k, "events.jsonl") };
+}
+
+test("pickProfiles: names resolve one by one and dedupe by state key; all = every non-ghost profile; unknown names the known", () => {
+  const reg = registry();
+  profile(reg, "a", { name: "Alpha" });
+  profile(reg, "b", { up: false });
+  const r = pickProfiles(["a", "Alpha", "b"], {}, reg);
+  assert.deepEqual("entries" in r && r.entries.map((e) => e.stateKey), ["a", "b"]);
+  const all = pickProfiles([], { all: true }, reg);
+  assert.deepEqual("entries" in all && all.entries.map((e) => e.stateKey).sort(), ["a", "b"], "down profiles included");
+  assert.match(String(pickProfiles(["a", "zzz"], {}, reg).error), /unknown profile "zzz"; known: a, b/);
+  assert.match(String(pickProfiles([], {}, reg).error), /no profiles/);
+  assert.match(String(pickProfiles([], { all: true }, registry()).error), /no profiles/);
+});
+
+test("parseCursorMap / cursorMapError: a JSON object of non-negative integers, else a clear error", () => {
+  assert.deepEqual(parseCursorMap('{"a":0,"b":42}'), { cursors: { a: 0, b: 42 } });
+  assert.match(String(parseCursorMap("12").error), /bad --cursor: cursor must be a JSON object/);
+  assert.match(String(parseCursorMap("{nope").error), /bad --cursor: not JSON/);
+  assert.match(String(parseCursorMap("[1]").error), /JSON object/);
+  assert.match(String(parseCursorMap('{"a":-1}').error), /cursor for "a" must be a non-negative integer/);
+  assert.match(String(parseCursorMap('{"a":1.5}').error), /non-negative integer/);
+  assert.equal(cursorMapError({}), null);
+});
+
+test("mergeTagged: tags each event with its profile, orders by ts, stable on ties", () => {
+  const m = mergeTagged([
+    ["a", [{ ts: "2", event: "x" }, { ts: "3", event: "y" }]],
+    ["b", [{ ts: "1", event: "z" }, { ts: "2", event: "w" }]],
+  ]);
+  assert.deepEqual(m.map((e) => `${e.profile}:${e.event}`), ["b:z", "a:x", "b:w", "a:y"]);
+});
+
+test("waitForEventsMulti: an event appended to the second profile wakes the wait, tagged, object cursor", async () => {
+  const { entries, file } = twoProfiles();
+  const p = waitForEventsMulti(entries, undefined, { timeoutMs: 5000 });
+  setTimeout(() => fs.appendFileSync(file("b"), evLine("run_end", "7")), 50);
+  const t0 = Date.now();
+  const r = await p;
+  assert.ok(Date.now() - t0 < 3000);
+  assert.equal(r.timedOut, false);
+  assert.deepEqual(r.events.map((e) => `${e.profile}:${e.event}:${e.ref}`), ["b:run_end:7"]);
+  assert.deepEqual(r.cursor, { a: 0, b: fs.statSync(file("b")).size });
+});
+
+test("waitForEventsMulti: the cursor object round-trips across calls with no gaps or duplicates", async () => {
+  const { entries, file } = twoProfiles();
+  const seen = [];
+  const first = waitForEventsMulti(entries, undefined, { timeoutMs: 5000 });
+  setTimeout(() => fs.appendFileSync(file("a"), evLine("enqueued", "a1")), 30);
+  let r = await first;
+  seen.push(...r.events.map((e) => e.ref));
+  // Both profiles move between calls: one call returns both (the woken wait aborts the other, which re-reads).
+  fs.appendFileSync(file("b"), evLine("enqueued", "b1"));
+  fs.appendFileSync(file("a"), evLine("enqueued", "a2"));
+  r = await waitForEventsMulti(entries, r.cursor, { timeoutMs: 5000 });
+  seen.push(...r.events.map((e) => e.ref));
+  const third = waitForEventsMulti(entries, r.cursor, { timeoutMs: 5000 });
+  setTimeout(() => fs.appendFileSync(file("b"), evLine("enqueued", "b2")), 30);
+  r = await third;
+  seen.push(...r.events.map((e) => e.ref));
+  assert.deepEqual(seen.sort(), ["a1", "a2", "b1", "b2"]);
+  assert.deepEqual(r.cursor, { a: fs.statSync(file("a")).size, b: fs.statSync(file("b")).size });
+  const quiet = await waitForEventsMulti(entries, r.cursor, { timeoutMs: 80 });
+  assert.equal(quiet.timedOut, true);
+  assert.deepEqual(quiet.events, []);
+  assert.deepEqual(quiet.cursor, r.cursor);
+});
+
+test("waitForEventsMulti: a profile missing from the cursor starts from now", async () => {
+  const { entries, file } = twoProfiles();
+  fs.appendFileSync(file("b"), evLine("failed", "old"));
+  fs.appendFileSync(file("a"), evLine("failed", "a-old"));
+  const r = await waitForEventsMulti(entries, { a: 0 }, { timeoutMs: 2000 });
+  assert.deepEqual(r.events.map((e) => e.ref), ["a-old"], "b's history is not replayed");
+  assert.equal(r.cursor.b, fs.statSync(file("b")).size);
+});
+
+test("waitForEventsMulti: a profile dir removed mid-wait is dropped once and the others still wake it", async () => {
+  const { reg, entries, file } = twoProfiles();
+  const drops = [];
+  const p = waitForEventsMulti(entries, undefined, { timeoutMs: 5000, onDrop: (k) => drops.push(k) });
+  await sleep(50);
+  fs.rmSync(path.join(reg, "a"), { recursive: true });
+  await sleep(100);
+  fs.appendFileSync(file("b"), evLine("run_end", "9"));
+  const r = await p;
+  assert.deepEqual(drops, ["a"]);
+  assert.equal(r.timedOut, false);
+  assert.deepEqual(r.events.map((e) => `${e.profile}:${e.ref}`), ["b:9"]);
+  assert.deepEqual(Object.keys(r.cursor), ["b"]);
+});
+
+test("waitForEventsMulti: every profile gone -> allDropped; abort ends the wait", async () => {
+  const { reg, entries } = twoProfiles();
+  const p = waitForEventsMulti(entries, undefined, { timeoutMs: 5000 });
+  await sleep(50);
+  fs.rmSync(path.join(reg, "a"), { recursive: true });
+  fs.rmSync(path.join(reg, "b"), { recursive: true });
+  const r = await p;
+  assert.equal(r.allDropped, true);
+  assert.deepEqual(r.cursor, {});
+
+  const two = twoProfiles();
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), 30);
+  const t0 = Date.now();
+  const aborted = await waitForEventsMulti(two.entries, undefined, { timeoutMs: 10000, signal: ac.signal });
+  assert.equal(aborted.timedOut, true);
+  assert.ok(Date.now() - t0 < 2000);
 });

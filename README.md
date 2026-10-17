@@ -215,7 +215,8 @@ Tools: `tick` (status + board + PRs + new events in one call), `status`, `events
 something happens, no polling), `runs`, `board`, `prs`, `guide`, and — unless `--read-only` — `run`,
 `cancel`, `release` (answer a held ticket), `pause`/`resume`, `set_concurrency`, `reconcile`,
 `pull`, `restart`. Calls are token-thrifty (`etag`, event cursors). No MCP client? `agenthook tick`
-and `agenthook watch` give shell agents the same data. Write tools hand operator authority to the
+and `agenthook watch` give shell agents the same data (`--all` or several names: every profile in
+one call, one wake-up). Write tools hand operator authority to the
 agent that holds them — read [docs/mcp.md](docs/mcp.md#safety) first. Agents learn the tools from
 the `guide` tool ([docs/agent-guide.md](docs/agent-guide.md)); a ready-made Claude Code skill is in
 [`examples/skills/agenthook-supervisor`](examples/skills/agenthook-supervisor/SKILL.md).

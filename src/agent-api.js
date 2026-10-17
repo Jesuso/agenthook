@@ -68,6 +68,50 @@ export function pickProfile(arg, defaultKey, registry = registryDir) {
   return { error: `profile required; known: ${names()}` };
 }
 
+/**
+ * Resolve several profiles for a multi-profile call: `all` = every non-ghost profile (up or
+ * down — a down profile's events.jsonl is still readable); else each name through
+ * `pickProfile`, deduped by state key. The first unresolvable name is the error.
+ * @param {string[]} names @param {{all?: boolean}} [o] @param {string} [registry]
+ * @returns {{entries: ReturnType<typeof listProfiles>} | {error: string}}
+ */
+export function pickProfiles(names, { all = false } = {}, registry = registryDir) {
+  if (all) {
+    const entries = listProfiles(registry).filter((p) => !p.ghost);
+    return entries.length ? { entries } : { error: "no profiles" };
+  }
+  /** @type {ReturnType<typeof listProfiles>} */
+  const entries = [];
+  for (const name of names) {
+    const r = pickProfile(name, null, registry);
+    if ("error" in r) return { error: String(r.error) };
+    if (!entries.some((e) => e.stateKey === r.entry.stateKey)) entries.push(r.entry);
+  }
+  return entries.length ? { entries } : { error: "no profiles" };
+}
+
+/** Why `v` is not a multi-profile cursor map (`{stateKey: byteOffset}`), or null. @param {any} v */
+export function cursorMapError(v) {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return 'cursor must be a JSON object {"<stateKey>": <offset>}';
+  for (const [k, n] of Object.entries(v)) if (!Number.isInteger(n) || n < 0) return `cursor for "${k}" must be a non-negative integer`;
+  return null;
+}
+
+/**
+ * Parse a CLI `--cursor` in multi-profile mode.
+ * @param {string} str @returns {{cursors: Record<string, number>} | {error: string}}
+ */
+export function parseCursorMap(str) {
+  let v;
+  try {
+    v = JSON.parse(String(str));
+  } catch {
+    return { error: `bad --cursor: not JSON (expected {"<stateKey>": <offset>})` };
+  }
+  const why = cursorMapError(v);
+  return why ? { error: `bad --cursor: ${why}` } : { cursors: v };
+}
+
 /** The state key of the config discoverable from `cwd`/--config, or null. @param {string} [configPath] */
 export function defaultProfileKey(configPath) {
   try {
@@ -237,11 +281,12 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
 
 /**
  * Block until a matching event lands past `cursor`, or `timeoutMs` passes. Event-driven: an
- * fs.watch on the state dir wakes the read — there is no polling interval.
+ * fs.watch on the state dir wakes the read — there is no polling interval. `endIfGone` also
+ * ends the wait (empty, `timedOut`) when the dir itself is removed.
  * @param {string} dir @param {number} cursor
- * @param {{types?: Set<string>|null, ref?: string, limit?: number, timeoutMs: number, signal?: AbortSignal}} o
+ * @param {{types?: Set<string>|null, ref?: string, limit?: number, timeoutMs: number, signal?: AbortSignal, endIfGone?: boolean}} o
  */
-export async function waitForEvents(dir, cursor, { timeoutMs, signal, ...filter }) {
+export async function waitForEvents(dir, cursor, { timeoutMs, signal, endIfGone = false, ...filter }) {
   let cur = cursor;
   if (signal?.aborted) return { events: [], cursor: cur, truncated: false, timedOut: true }; // cancelled before the wait began
   const first = readEventsSince(dir, cur, filter);
@@ -272,7 +317,8 @@ export async function waitForEvents(dir, cursor, { timeoutMs, signal, ...filter 
     };
     try {
       watcher = fs.watch(dir, (_ev, name) => {
-        if (!name || name === "events.jsonl") check();
+        if (endIfGone && !fs.existsSync(dir)) finish(true);
+        else if (!name || name === "events.jsonl") check();
       });
       watcher.on("error", () => finish(true));
     } catch {
@@ -282,6 +328,76 @@ export async function waitForEvents(dir, cursor, { timeoutMs, signal, ...filter 
     signal?.addEventListener("abort", onAbort, { once: true });
     check(); // close the gap between the first read and the watch starting
   });
+}
+
+/** Merge per-profile event lists, each event tagged `profile`, ordered by `ts` (stable; best-effort across profiles). @param {[string, Record<string, any>[]][]} lists */
+export function mergeTagged(lists) {
+  return lists
+    .flatMap(([profile, events]) => events.map((e) => /** @type {Record<string, any>} */ ({ ...e, profile })))
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => String(a.e.ts ?? "").localeCompare(String(b.e.ts ?? "")) || a.i - b.i)
+    .map((x) => x.e);
+}
+
+/**
+ * `waitForEvents` over several profiles: block until a matching event lands in any of them (or
+ * `timeoutMs`). One wait per profile under a shared AbortController; the first to wake aborts
+ * the rest, and an aborted wait re-reads before resolving — so every event read is returned and
+ * each profile's cursor advances only past what it returned (no loss, no dupes). A profile with
+ * no entry in `cursors` starts from "now". A profile whose dir disappears is dropped
+ * (`onDrop(stateKey)`, key removed from the cursor) and the wait goes on over the rest with the
+ * remaining budget; all dropped → `allDropped`. Still fs.watch-driven; the only timer is the timeout.
+ * @param {ReturnType<typeof listProfiles>} entries @param {Record<string, number>|undefined} cursors
+ * @param {{types?: Set<string>|null, ref?: string, limit?: number, timeoutMs: number, signal?: AbortSignal, onDrop?: (stateKey: string) => void}} o
+ * @returns {Promise<{events: Record<string, any>[], cursor: Record<string, number>, timedOut: boolean, truncated: boolean, allDropped?: boolean}>}
+ */
+export async function waitForEventsMulti(entries, cursors, { timeoutMs, signal, onDrop, ...filter }) {
+  const deadline = Date.now() + timeoutMs;
+  /** @type {Record<string, number>} */
+  const cursor = {};
+  for (const e of entries) cursor[e.stateKey] = cursors && Object.hasOwn(cursors, e.stateKey) && Number.isInteger(cursors[e.stateKey]) ? cursors[e.stateKey] : eventsCursor(e.dir);
+  let watching = [...entries];
+  /** @param {string} key */
+  const drop = (key) => {
+    delete cursor[key];
+    watching = watching.filter((e) => e.stateKey !== key);
+    onDrop?.(key);
+  };
+  for (const e of entries) if (!fs.existsSync(e.dir)) drop(e.stateKey);
+  while (watching.length) {
+    const ac = new AbortController();
+    const chain = () => ac.abort();
+    if (signal?.aborted) ac.abort();
+    else signal?.addEventListener("abort", chain, { once: true });
+    const timeLeft = Math.max(0, deadline - Date.now());
+    const results = await Promise.all(
+      watching.map((e) =>
+        waitForEvents(e.dir, cursor[e.stateKey], { ...filter, timeoutMs: timeLeft, signal: ac.signal, endIfGone: true }).then((r) => {
+          ac.abort(); // the first wait to end (event, timeout or gone) ends the round
+          return /** @type {const} */ ([e, r]);
+        }),
+      ),
+    );
+    signal?.removeEventListener("abort", chain);
+    /** @type {[string, Record<string, any>[]][]} */
+    const lists = [];
+    let truncated = false;
+    let dropped = false;
+    for (const [e, r] of results) {
+      if (!r.events.length && !fs.existsSync(e.dir)) {
+        drop(e.stateKey);
+        dropped = true;
+        continue;
+      }
+      cursor[e.stateKey] = r.cursor;
+      truncated ||= r.truncated;
+      if (r.events.length) lists.push([e.stateKey, r.events]);
+    }
+    if (lists.length) return { events: mergeTagged(lists), cursor, timedOut: false, truncated };
+    // Only a disappearing profile ends a round early and re-waits; anything else is the timeout/abort.
+    if (!dropped || signal?.aborted || Date.now() >= deadline) break;
+  }
+  return { events: [], cursor, timedOut: true, truncated: false, ...(watching.length ? {} : { allDropped: true }) };
 }
 
 // ------------------------------------------------------------------ runs & logs

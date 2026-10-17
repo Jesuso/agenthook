@@ -2,8 +2,16 @@
 // supposed to validate, but the server cannot rely on that: an LLM caller can send anything, and
 // handlers must not see `last:"abc"` (slice(-NaN) = everything) or stray fields that would be
 // forwarded into control-socket payloads and the audit line. Supports exactly what tools.js uses:
-// type object/string/integer/boolean/array (of strings), required, additionalProperties:false,
-// minimum/maximum. Returns an agent-readable message, or null when valid.
+// type object/string/integer/boolean/array (of strings), a type union (`type: ["integer","object"]`,
+// shape only — the handler checks the rest), required, additionalProperties:false, minimum/maximum.
+// Returns an agent-readable message, or null when valid.
+
+/** @param {string} type @param {any} v */
+const isType = (type, v) =>
+  type === "integer" ? typeof v === "number" && Number.isInteger(v)
+  : type === "object" ? v !== null && typeof v === "object" && !Array.isArray(v)
+  : type === "array" ? Array.isArray(v)
+  : typeof v === type;
 
 /**
  * @param {{properties?: Record<string, any>, required?: string[], additionalProperties?: boolean}} schema
@@ -22,6 +30,10 @@ export function validateArgs(schema, args) {
   for (const [key, def] of Object.entries(props)) {
     const v = args[key];
     if (v === undefined) continue;
+    if (Array.isArray(def.type)) {
+      if (!def.type.some((/** @type {string} */ t) => isType(t, v))) return `"${key}" must be ${def.type.join(" or ")}`;
+      continue;
+    }
     switch (def.type) {
       case "string":
         if (typeof v !== "string") return `"${key}" must be a string`;

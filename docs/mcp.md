@@ -36,6 +36,19 @@ directory (or `--config`), else the only running profile, else an error listing 
   only what's new. A half-written line is never returned (it arrives whole next time).
 - **`events` with `waitS`** blocks (≤120 s) until a matching event lands — `fs.watch`-driven,
   no polling — so one waiting call replaces a loop of status calls.
+
+### Several profiles
+
+`events` and `tick` take `profiles: ["a","b"]` (`["*"]` = every profile, up or down) instead of
+`profile` (not both). Names resolve like `profile`; an unknown one is an error naming the known
+profiles. In this mode `cursor` is an object `{"<stateKey>": offset}` — pass back the one returned;
+a profile missing from it starts from now. `events` items carry `profile`; with `waitS` the first
+event from **any** listed profile wakes the call, and every profile's events read in that wake are
+returned (none lost, none repeated); `limit` and `more` are per profile; a profile whose state dir
+disappears mid-wait is dropped (`dropped: [key]`, its cursor key removed). `tick` returns an array of
+per-profile payloads (each its own `etag` and numeric `cursor`); `ifNoneMatch` is an object
+`{"<stateKey>": etag}` and a matching profile collapses to `{profile, unchanged, etag, cursor}`.
+Calls with `profile` (or neither) are unchanged.
 - Short keys, ids not blobs, reasons clipped to 200 chars, titles to 80, ≤10 runs, log tails
   capped at 24 KB.
 
@@ -48,7 +61,7 @@ Reads (state dir; work with the receiver down):
 | `guide` | the agent guide, by topic (`model`, `shapes`, `recipes`, `events`, `writes`, `errors`, `gotchas`, `all`); no topic = the list |
 | `profiles` | every profile: up/down, active/queued/max |
 | `status` | `slots {max,active,queued,free}`, `running[]` (ref, step, `ageS`, model, output tokens), `queue[]`, `held[]` (+`why`), `paused`/`restartPending`/`draining`, `backlog` depth. `profile:"*"` = all up profiles |
-| `events` | events after `cursor` (`types`, `ref`, `limit`, `waitS`); no cursor → the current cursor (or `last` N events) |
+| `events` | events after `cursor` (`types`, `ref`, `limit`, `waitS`); no cursor → the current cursor (or `last` N events). `profiles: [..]` (`["*"]` = all) reads/waits on several profiles at once — see *Several profiles* |
 | `runs` | a ref's run history (step, outcome, cost, running?, `summary?` — the verdict's free-form summary, on the run that wrote it only) and, with `tail`, the last N lines of a run log |
 
 Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasses):
@@ -57,7 +70,7 @@ Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasse
 |---|---|
 | `board` | per pipeline step: tickets resting in the source stage, and the opt-in backlog lane |
 | `prs` | open `agent/<ref>` PRs: CI (`success|failure|pending|none|unknown`), mergeable/conflict, draft, `mine` (true/false/absent — see below), `review` (the newest review-kind step's verdict `summary` + `outcome`/`at`; absent when none — read fresh, not cached). Needs a `forge` block. `mine:true`/`mine:false` filters the rows. Side effect: up to 20 known PRs (`refmeta.pr`) missing from the open list are looked up per cache fill and a merged/closed state is recorded (so the web UI's Needs you drops them) |
-| `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError`. Pass `epics:true` to also include `epics` (see below, without per-day `velocity.days`) / `epicsLive` / `epicsError` |
+| `tick` | `status` + `board` + `prs` + `events` since `cursor`, in one call. Board/PR failures degrade to `boardError`/`prsError`. Pass `epics:true` to also include `epics` (see below, without per-day `velocity.days`) / `epicsLive` / `epicsError`. `profiles: [..]` → an array of per-profile ticks |
 | `epics {ref?, fresh?}` | hybrid read, not socket-only: every epic's progress (or one epic's tickets with `ref`), including `readyToClose` (open epic, every ticket finished/merged, none needing you — a person closes it, agenthook never does; always `false` on a `live:false` read). `live:true` when the receiver is up (reads the tracker, cached ~30 s); `live:false` when it's down — a fallback built from this profile's own ticket history (`refmeta`), so tickets that never ran here won't show. `supported:false` means the tracker adapter has no epic support |
 
 Writes (control socket → engine; omitted entirely under `--read-only`):
@@ -105,11 +118,22 @@ agenthook tick --json           # the exact MCP tick payload; pass --cursor <n> 
 agenthook epics                 # every epic's progress (live if the receiver is up, else a local fallback)
 agenthook epics --ref E1 --json # one epic's tickets; the exact MCP epics payload
 agenthook watch --event run_end,failed,blocked --timeout 600   # exit 0 on event, 2 on timeout
+agenthook watch --all --json    # first event from ANY profile; cursor is {"<stateKey>": offset}
+agenthook tick a b --json       # JSON array of per-profile tick payloads (also: tick --all)
 ```
 
 `watch` prints the matching events and a `cursor`; feed it back with `--cursor` so nothing is
 missed between calls. In Claude Code, run it under `Monitor`/a background task: the agent sleeps
 and is woken only when something happens.
+
+Multi-profile mode is on only with `--all` (every profile, up or down) or **two or more** names;
+one name / none is the single-profile output above, unchanged. In it, `watch` prefixes each text
+line with the profile's state key (`--json` events carry `profile`), the cursor is a JSON object —
+pass it back as `--cursor '{"a":123,"b":45}'` (a profile missing from it starts from now; malformed
+JSON exits 1) — and a profile whose state dir disappears mid-wait prints one stderr line
+(`profile <key> disappeared; dropped`) while the wait goes on over the rest (all gone → exit 1).
+`tick` prints one digest per profile (`--json`: an array, each with its own `etag` and `cursor`;
+`--cursor` takes the same object).
 
 ## Not included
 
