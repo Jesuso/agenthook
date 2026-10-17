@@ -130,12 +130,10 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
   assert.deepEqual(sensitive, expected);
 });
 
-test("no schema entry is left pending (#343) except tracker.pipeline.*.lite*/escalate* (#340 removes this carve-out)", () => {
+test("no schema entry is left pending (#343): every documented key has a form", () => {
   for (const e of CONFIG_SCHEMA) {
     const at = e.path.join(".");
-    const carveOut = at.startsWith("tracker.pipeline.*.lite") || at.startsWith("tracker.pipeline.*.escalate");
-    if (carveOut) assert.equal(e.editor, "pending", `${at}: expected pending under the #340 carve-out`);
-    else assert.equal(e.editor, undefined, `${at}: still editor:"pending" — give it a form`);
+    assert.equal(e.editor, undefined, `${at}: still editor:"pending" — give it a form`);
   }
 });
 
