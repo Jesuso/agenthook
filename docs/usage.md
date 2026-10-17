@@ -22,9 +22,10 @@ compute or estimate costs itself.
 The exception is an **unpriced** run: a step on a local model (a step `bin` other than
 `claudeBin`, or a non-Claude `model`). `claude` still prices it from its Claude price table, so
 the figure is not real spend. The record is tagged `unpriced: true` and every total leaves its
-cost out (tokens still count): `ah usage` shows `local` in its `$` cell, and its `run_end` event
+cost out (tokens still count): `ah usage` shows `unpriced` in its `$` cell, and its `run_end` event
 carries no `costUsd`, so the web UI's costs exclude it too. See
-[Mixed pipelines / local models](local-models.md).
+[Mixed pipelines / local models](local-models.md). Cursor and Hermes runs are always unpriced
+(see [Agents](agents.md)).
 
 ## Where records live
 
@@ -64,7 +65,7 @@ ah usage --limit <n>        # cap rows shown (totals are still over the full set
 ```
 
 **Default per-run table** columns: `Ref`, `Step`, `Model`, `Input`, `Output`, `CacheRead`,
-`CacheCreate`, `$`. A `TOTAL` row is appended. An unpriced run's `$` cell reads `local`; the
+`CacheCreate`, `$`. A `TOTAL` row is appended. An unpriced run's `$` cell reads `unpriced`; the
 `TOTAL` (and rollup) `$` sums priced runs only, `—` when none is priced.
 
 ```

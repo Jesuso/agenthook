@@ -58,6 +58,24 @@ test("a step bin (claude-local) is recognised only when it is in the bin set", (
   assert.equal(agentMatcher(["claude.x"]).test("/b/claude.x -p"), true);
 });
 
+test("a cursor agent (`agent -p … stream-json`) is listed once its default bin is in the set", () => {
+  const line = `  80001 00:30 /home/x/.local/bin/agent -p --output-format stream-json --force You are working the "review" stage of a GitHub issue Ref: 12`;
+  assert.deepEqual(parsePsAgents(line), []);
+  assert.deepEqual(parsePsAgents(line, ["claude", "agent"]).map((r) => [r.pid, r.step, r.ref]), [["80001", "review", "12"]]);
+});
+
+test("a hermes agent (prompt via --query-file) is attributed through its running.json pid", () => {
+  const line = `  80002 00:12 /usr/bin/hermes chat -Q --max-turns 200 --query-file /home/x/.agenthook/p/prompts/12-triage.md`;
+  const stray = `  80003 00:12 hermes chat -Q --max-turns 200 --query-file /tmp/mine.md`; // unknown pid: a manual run
+  const prof = { stateKey: "p", running: { "12": { stepId: "triage", pid: 80002 } } };
+  const rows = selectAgents([line, stray].join("\n"), [prof], { all: true, bins: ["claude", "hermes"] });
+  assert.deepEqual(rows.map((r) => [r.pid, r.step, r.ref, r.profile]), [["80002", "triage", "12", "p"]]);
+  assert.deepEqual(parsePsAgents(stray, ["hermes"]), [], "no stage/ref and no running pid → not ours");
+  // still path-anchored, and `hermes chat` without --query-file isn't the receiver's shape
+  assert.equal(agentMatcher(["hermes"]).test("bash -c echo xhermes chat --query-file f"), false);
+  assert.equal(agentMatcher(["hermes"]).test("hermes chat -Q"), false);
+});
+
 test("default scope: only the active profile's agents (refs in its running.json)", () => {
   const rows = selectAgents(PS, [DOGFOOD, ALEPH], { active: "agenthook-dogfood" });
   assert.equal(rows.length, 1);

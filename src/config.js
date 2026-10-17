@@ -20,7 +20,7 @@ import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
-import { AGENT_NAMES } from "./agents/names.js";
+import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -196,15 +196,25 @@ export function peekConfig(opts = {}) {
 
 /**
  * The distinct agent binaries a raw (uninterpolated) config names: `claudeBin` (default
- * "claude") plus every pipeline step's `bin`. Literal values only — a `${VAR}` ref is
- * unresolved here, so it is skipped (and the default "claude" kept). Pure.
+ * "claude"), every pipeline step's `bin`, and the default bin (AGENT_DEFAULT_BINS) of every
+ * agent the profile or a step names. Literal values only — a `${VAR}` ref is unresolved
+ * here, so it is skipped (and the default "claude" kept). Pure.
  * @param {any} raw @returns {string[]}
  */
 export function rawAgentBins(raw) {
   const literal = (/** @type {any} */ v) => typeof v === "string" && v.trim() !== "" && !v.includes("${");
   const bins = new Set([literal(raw?.claudeBin) ? raw.claudeBin.trim() : "claude"]);
+  const addAgent = (/** @type {any} */ a) => {
+    if (literal(a) && Object.hasOwn(AGENT_DEFAULT_BINS, a)) bins.add(AGENT_DEFAULT_BINS[/** @type {keyof typeof AGENT_DEFAULT_BINS} */ (a)]);
+  };
+  addAgent(raw?.agent);
   const pipeline = raw?.tracker?.pipeline;
-  if (Array.isArray(pipeline)) for (const s of pipeline) if (literal(s?.bin)) bins.add(s.bin.trim());
+  if (Array.isArray(pipeline)) {
+    for (const s of pipeline) {
+      if (literal(s?.bin)) bins.add(s.bin.trim());
+      addAgent(s?.agent);
+    }
+  }
   return [...bins];
 }
 

@@ -10,8 +10,9 @@ per topic. Reference tables live in [mcp.md](mcp.md); the event catalog in [even
 agenthook is an event-driven receiver. A **pipeline** is an ordered list of **steps** (typically
 `triage → code → review`), each bound to a tracker stage (Asana section, Jira status, GitHub
 label). A ticket *entering* a step's source stage fires that step: the receiver spawns a headless
-`claude -p` in a git worktree owned by the receiver. When the agent exits, its **verdict** decides
-the next move:
+`claude -p` in a git worktree owned by the receiver. A step may run another agent instead
+(`agent: cursor|hermes`, see [agents.md](agents.md)). Those runs are `unpriced` (no `costUsd`).
+When the agent exits, its **verdict** decides the next move:
 
 | verdict | meaning | ticket goes to |
 |---|---|---|
@@ -81,7 +82,7 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 `boardError` / `prsError` instead; the rest is still valid.
 
 `events` item: `{"ts","e":"run_end","ref":"123","step":"code","outcome":"advance","costUsd":0.33}`
-(a local-model run has `"unpriced":true` and no `costUsd`);
+(a local-model, Cursor or Hermes run has `"unpriced":true` and no `costUsd`);
 `reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 

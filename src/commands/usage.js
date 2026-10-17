@@ -87,9 +87,9 @@ function fmtCost(usd) {
   return typeof usd === "number" ? `$${usd.toFixed(4)}` : "—";
 }
 
-/** A per-run cost cell: `local` for an unpriced run. Exported for tests. @param {import('../types.js').UsageRecord} r */
+/** A per-run cost cell: `unpriced` for a run with no real cost (non-Claude agent or local model). Exported for tests. @param {import('../types.js').UsageRecord} r */
 export function runCost(r) {
-  return r.unpriced ? "local" : fmtCost(r.costUsd);
+  return r.unpriced ? "unpriced" : fmtCost(r.costUsd);
 }
 
 /** @param {number} n */

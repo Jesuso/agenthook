@@ -767,6 +767,7 @@ export default function ConfigView(props: {
                       readSteps(parsed.raw),
                       stageKeysFor(stages?.profile === profile ? stages.body : null, (parsed.raw as any)?.tracker?.type),
                       stages?.profile === profile ? stages.body?.stages : null,
+                      (parsed.raw as any)?.agent,
                     )}
                     onSelectStep={selectStep}
                   />

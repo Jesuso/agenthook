@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENTS, getAgent, agentFor } from "../src/agents/index.js";
-import { AGENT_NAMES, DEFAULT_AGENT } from "../src/agents/names.js";
+import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT } from "../src/agents/names.js";
 import { claude, buildClaudeArgs } from "../src/agents/claude.js";
 import { claudeProjectDir } from "../src/paths.js";
 import { createDispatcher } from "../src/dispatch.js";
@@ -22,6 +22,10 @@ test("registry: keys equal the import-free AGENT_NAMES; claude is the default", 
   assert.equal(DEFAULT_AGENT, "claude");
   assert.equal(getAgent("claude"), claude);
   assert.equal(getAgent(), claude);
+});
+
+test("AGENT_DEFAULT_BINS matches each adapter's defaults.bin (claude → \"claude\")", () => {
+  assert.deepEqual(AGENT_DEFAULT_BINS, Object.fromEntries(Object.entries(AGENTS).map(([n, a]) => [n, a.defaults.bin ?? "claude"])));
 });
 
 test("getAgent: an unknown name throws (prototype keys too)", () => {

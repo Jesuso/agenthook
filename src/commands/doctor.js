@@ -1,6 +1,6 @@
 // `agenthook doctor` — preflight a profile before you trust it. Loads the config,
 // then checks the things that silently break a run: missing token, repoPath not a
-// git repo, claude/ngrok binaries absent, port already taken, ingress misconfigured.
+// git repo, agent/ngrok binaries absent, port already taken, ingress misconfigured.
 // Multi-repo profiles also get routing lints; ⚠ warnings print but don't fail the run.
 // (Duplicate repo ids / paths / route keys and >1 default are already fatal in loadConfig.)
 import fs from "node:fs";
@@ -13,6 +13,7 @@ import { reposOf, defaultRepo } from "../repos.js";
 import { listWorktrees } from "../worktree.js";
 import { readProfile } from "../heartbeat.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
+import { agentFor } from "../agents/index.js";
 
 /** Is a TCP port already bound on 127.0.0.1? @param {number} port */
 function portInUse(port) {
@@ -32,18 +33,42 @@ function onPath(bin) {
   return r.status === 0;
 }
 
-/** The distinct per-step agent binaries (non-manual steps whose `bin` differs from
- * cfg.claudeBin), each with the step ids that use it — doctor checks each is on PATH.
- * @param {Pick<import('../types.js').Config, 'claudeBin'|'pipeline'>} cfg
- * @returns {{ bin: string, steps: string[] }[]} */
-export function stepBins(cfg) {
-  /** @type {Map<string, string[]>} */
-  const byBin = new Map();
+/** The distinct agent binaries the pipeline spawns, resolved exactly like dispatch
+ * (`step.bin || agent.defaults.bin || cfg.claudeBin`) for every non-manual step, each with
+ * its agent and the step ids that use it — doctor checks each is on PATH. Pure.
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'pipeline'>} cfg
+ * @returns {{ bin: string, agent: string, steps: string[] }[]} */
+export function agentBinChecks(cfg) {
+  /** @type {Map<string, { bin: string, agent: string, steps: string[] }>} */
+  const byKey = new Map();
   for (const s of cfg.pipeline ?? []) {
-    if (s.manual || !s.bin || s.bin === cfg.claudeBin) continue;
-    byBin.set(s.bin, [...(byBin.get(s.bin) ?? []), s.id]);
+    if (s.manual) continue;
+    const agent = agentFor(cfg, s);
+    const bin = s.bin || agent.defaults.bin || cfg.claudeBin;
+    const name = agent.describe().name;
+    const key = `${name}\0${bin}`;
+    const group = byKey.get(key) ?? { bin, agent: name, steps: [] };
+    group.steps.push(s.id);
+    byKey.set(key, group);
   }
-  return [...byBin].map(([bin, steps]) => ({ bin, steps }));
+  return [...byKey.values()];
+}
+
+/** Per-step agent lints that pass loadConfig yet weaken the pipeline. Pure (config only).
+ * Today: a text-only agent (no structured stream — hermes) with `requireVerdict: false`
+ * set explicitly, so a run that wrote no verdict file advances unchecked.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg
+ * @returns {{ level: 'warn', label: string, note: string }[]} */
+export function agentLints(cfg) {
+  /** @type {{ level: 'warn', label: string, note: string }[]} */
+  const out = [];
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || s.requireVerdict !== false) continue;
+    const d = agentFor(cfg, s).describe();
+    if (d.stdout !== "text") continue;
+    out.push({ level: "warn", label: `step "${s.id}" requires a verdict`, note: `${d.name} output is plain text — with requireVerdict:false a run that wrote no verdict file advances` });
+  }
+  return out;
 }
 
 /** Pipeline step bindings (the source-, success-, failure-, hold-prefixed keys)
@@ -164,8 +189,13 @@ export async function doctor(args) {
     }
   }
 
-  add(onPath(cfg.claudeBin), `claude binary on PATH: ${cfg.claudeBin}`);
-  for (const { bin, steps } of stepBins(cfg)) add(onPath(bin), `step binary on PATH: ${bin} (steps: ${steps.join(", ")})`);
+  const binChecks = agentBinChecks(cfg);
+  for (const { bin, agent, steps } of binChecks) add(onPath(bin), `${agent} binary on PATH: ${bin} (steps: ${steps.join(", ")})`);
+  // No step spawns claudeBin, but the on-demand Digest still does — missing it is a warning only.
+  if (!binChecks.some((c) => c.bin === cfg.claudeBin) && !onPath(cfg.claudeBin)) {
+    warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");
+  }
+  for (const l of agentLints(cfg)) warn(l.label, l.note);
 
   if (cfg.ingress.type === "ngrok") {
     add(onPath(process.env.NGROK || "ngrok"), "ngrok binary on PATH");

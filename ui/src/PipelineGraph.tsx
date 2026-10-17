@@ -87,7 +87,7 @@ function StepCard(props: { node: StepNode; onSelect?: (id: string) => void }) {
   const n = props.node;
   const { onSelect } = props;
   const badges = [n.manual && "manual", n.createsWorktree && "worktree", n.drainWorktree && "drain"].filter(Boolean) as string[];
-  const meta = [n.stepKind, n.model, n.effort].filter(Boolean).join(" · ");
+  const meta = [n.stepKind, n.agent !== "claude" && n.agent, n.model, n.effort].filter(Boolean).join(" · ");
   const select = onSelect
     ? {
         role: "button",

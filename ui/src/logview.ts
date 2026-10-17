@@ -96,9 +96,9 @@ export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
   return r.outcome ?? (r.running ? "running" : "—");
 }
 
-/** A run's cost cell: "local" for an unpriced (local-model) run, else its cost ("—" when none). */
+/** A run's cost cell: "unpriced" for a run with no real cost (non-Claude agent or local model), else its cost ("—" when none). */
 export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced">): string {
-  return r.unpriced ? "local" : formatCost(r.costUsd ?? 0);
+  return r.unpriced ? "unpriced" : formatCost(r.costUsd ?? 0);
 }
 
 /** A run's outcome in the status colour language. */

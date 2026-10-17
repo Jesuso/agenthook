@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, peekConfig, registryDir } from "../src/config.js";
+import { loadConfig, peekConfig, rawAgentBins, registryDir } from "../src/config.js";
 
 /** Write a config and load it. @param {any} over @param {any[]} pipeline */
 function load(pipeline, over = {}) {
@@ -200,4 +200,12 @@ test("loadConfig resolves a ${VAR} that only the .env beside the config provides
   fs.writeFileSync(file, JSON.stringify({ name: "ah-dotenv-test", repoPath: dir, tracker: { type: "asana", token: "${AH_TEST_DOTENV_TOKEN}", pipeline: [{ id: "code" }] } }));
   const cfg = loadConfig({ configPath: file });
   assert.equal(cfg.tracker.token, "from-dotenv");
+});
+
+test("rawAgentBins: claudeBin + literal step bins + the default bin of every named agent", () => {
+  assert.deepEqual(rawAgentBins({}), ["claude"]);
+  assert.deepEqual(
+    rawAgentBins({ agent: "hermes", tracker: { pipeline: [{ id: "a" }, { id: "b", agent: "cursor" }, { id: "c", bin: "claude-local" }, { id: "d", agent: "${AGENT}" }, { id: "e", agent: "bogus" }] } }),
+    ["claude", "hermes", "agent", "claude-local"],
+  );
 });

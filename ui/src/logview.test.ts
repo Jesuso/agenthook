@@ -110,8 +110,8 @@ describe("urls + formatOutcome", () => {
 });
 
 describe("formatRunCost", () => {
-  it("local for an unpriced run, else its dollars, else a dash", () => {
-    expect(formatRunCost({ costUsd: null, unpriced: true })).toBe("local");
+  it("unpriced for an unpriced run, else its dollars, else a dash", () => {
+    expect(formatRunCost({ costUsd: null, unpriced: true })).toBe("unpriced");
     expect(formatRunCost({ costUsd: 1.5, unpriced: false })).toMatch(/^\$1\.5/);
     expect(formatRunCost({ costUsd: null, unpriced: false })).toBe("—");
   });
