@@ -42,7 +42,8 @@
  * @property {boolean} [completeOnMerge]       manual steps only, at most one: a forge merge event moves the task INTO this step (then marks it completed)
  * @property {string} [model]                  per-step `claude --model` override
  * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
- * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default cfg.claudeBin)
+ * @property {string} [agent]                  agent adapter this step spawns (src/agents/; default cfg.agent, else "claude")
+ * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over process.env (AGENTHOOK_VERDICT_FILE is reserved)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
@@ -364,6 +365,38 @@
 /** A factory `(cfg) => Ingress`.
  * @typedef {(cfg: Config) => Ingress} IngressFactory */
 
+/** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
+ * push() chunks, flush() the tail at EOF, then read `result` / `sessionId`.
+ * @typedef {object} AgentParser
+ * @property {(chunk: string) => string} push   log text rendered from the completed lines
+ * @property {() => string} flush               log text from a final unterminated line
+ * @property {{input: number, output: number, cacheRead: number, cacheCreate: number}} tally  live token estimate
+ * @property {any} result                       the agent's final result record (null until seen); passed to `usageRecord`
+ * @property {string|undefined} sessionId       the run's session id, once known
+ */
+
+/** Context for an agent's usage record (everything but the result).
+ * @typedef {object} AgentUsageCtx
+ * @property {string} ref
+ * @property {string} stepId
+ * @property {string} [model]       the step's resolved `--model` (unset = CLI default)
+ * @property {string} [bin]         the step's `bin` override
+ * @property {string} [claudeBin]
+ * @property {string} startedAt
+ * @property {string} endedAt
+ */
+
+/** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
+ * resume reach the CLI only through it.
+ * @typedef {object} AgentAdapter
+ * @property {() => {name: string, stdout: string}} describe
+ * @property {(o: {prompt: string, model?: string, effort?: string, fullAuto?: boolean}) => string[]} buildArgs  argv after the executable
+ * @property {() => AgentParser} createParser
+ * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
+ * @property {{transcriptDir: (cwd: string) => string, resumeCommand: (sessionId: string) => string[]}|null} sessions  null = no transcripts to follow/resume
+ * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
+ */
+
 /**
  * An event sink (`sinks[]` in agenthook.config.json): forwards lifecycle events to a chat/webhook.
  * @typedef {object} SinkConfig
@@ -455,6 +488,7 @@
  * @property {string} repoPath     the default repo's path (else the first declared) — ops readers use it; dispatch goes through `repos`
  * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath
  * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)
+ * @property {string} [agent]      profile-default agent adapter (src/agents/; default "claude"); a step's `agent` overrides it
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]
  * @property {string} dataDir

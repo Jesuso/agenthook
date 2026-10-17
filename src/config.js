@@ -20,6 +20,7 @@ import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
+import { AGENT_NAMES } from "./agents/names.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -331,6 +332,9 @@ function label(v) {
   }
 }
 
+/** @param {unknown} v @returns {boolean} */
+const isAgentName = (v) => typeof v === "string" && /** @type {readonly string[]} */ (AGENT_NAMES).includes(v);
+
 /**
  * Structural validation of a config object WITHOUT resolving it: pure (no fs, no env, no
  * path resolution), never throws for any JSON value, and collects every error in check
@@ -358,6 +362,10 @@ export function validateRawConfig(raw) {
   }
 
   errors.push(...reposErrors(cfg.repos));
+
+  if (cfg.agent != null && !isAgentName(cfg.agent)) {
+    errors.push(`config: "agent" ${JSON.stringify(cfg.agent)} is not a known agent (${AGENT_NAMES.join(", ")}).`);
+  }
 
   if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {
     errors.push(`config: "overlapGuard" must be true or false.`);
@@ -389,6 +397,13 @@ export function validateRawConfig(raw) {
     }
     if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
       errors.push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
+    }
+    if (step.agent != null) {
+      if (!isAgentName(step.agent)) {
+        errors.push(`config: pipeline step "${sid}" agent ${JSON.stringify(step.agent)} is not a known agent (${AGENT_NAMES.join(", ")}).`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" agent has no effect on a manual step (no agent runs).`);
+      }
     }
     if (step.bin != null && (typeof step.bin !== "string" || !step.bin.trim())) {
       errors.push(`config: pipeline step "${sid}" bin must be a non-empty string (a name on PATH or an absolute path).`);

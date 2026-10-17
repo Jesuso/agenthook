@@ -1,6 +1,7 @@
-// Spawns headless `claude -p` for one pipeline step, streams output to a per-run
-// log, and resolves the step's section transition on exit. Provider-blind: section
-// gids and the move itself live behind the adapter (advance()).
+// Spawns the step's headless agent (`claude -p` by default — see src/agents/) for one
+// pipeline step, streams output to a per-run log, and resolves the step's section
+// transition on exit. Provider-blind: section gids and the move itself live behind the
+// adapter (advance()); the agent CLI lives behind its agent adapter.
 //
 // The receiver OWNS the worktree: the step that sets createsWorktree gets one made
 // (shared by task ref across all its steps, cwd = it); drainWorktree removes it.
@@ -14,6 +15,7 @@ import { ensureWorktree, drainWorktree, worktreePath, branchName } from "./workt
 import { resolveRepo, repoById, primaryRepo } from "./repos.js";
 import { CANCELLED_REASON, reportMoveFailure } from "./events.js";
 import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
+import { agentFor } from "./agents/index.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
 // before a `changes` loop back into it is forced to fail. Caps an endless code↔review
@@ -62,181 +64,6 @@ export async function lookupPr(repoPath, ref, exec = execOut) {
   } catch {
     return undefined;
   }
-}
-
-/** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
- * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
-const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
-
-/**
- * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
- * without a real spawn). Order is stable: prompt, then --model, --effort, then
- * --dangerously-skip-permissions.
- * @param {{prompt: string, model?: string, effort?: string, fullAuto?: boolean}} o
- * @returns {string[]}
- */
-export function buildClaudeArgs({ prompt, model, effort, fullAuto }) {
-  // --output-format stream-json + --verbose: stdout becomes JSONL we parse for the
-  // per-run log (assistant text) and the token/cost tally (the final `result` event).
-  const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
-  if (model) args.push("--model", model);
-  if (effort) {
-    if (EFFORT_LEVELS.includes(effort)) args.push("--effort", effort);
-    else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${EFFORT_LEVELS.join("|")})`);
-  }
-  if (fullAuto) args.push("--dangerously-skip-permissions");
-  return args;
-}
-
-/**
- * Incremental parser for `claude -p --output-format stream-json --verbose` stdout:
- * one JSON object per line. Buffers partial lines across chunk boundaries, renders
- * assistant **text** content blocks to human-readable log text (non-text blocks and
- * non-JSON lines ignored — never throws), keeps a running token tally, and captures
- * the final `{type:"result"}` event. Pure (no I/O), stateful — feed chunks via push(),
- * flush() any tail at EOF, then read `.tally` / `.result`. Exported for unit tests.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number}, result:any}}
- */
-export function createStreamParser() {
-  let buf = "";
-  const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
-  /** @type {any} */
-  let result = null;
-
-  /** @param {any} ev @returns {string} human-readable log text for this event */
-  function handleEvent(ev) {
-    if (!ev || typeof ev !== "object") return "";
-    if (ev.type === "assistant" && ev.message && typeof ev.message === "object") {
-      const u = ev.message.usage;
-      if (u && typeof u === "object") {
-        // Live estimate only (final record comes from the `result` event): sum output
-        // across turns so the tally grows; track input/cache as the latest turn's values.
-        if (typeof u.output_tokens === "number") tally.output += u.output_tokens;
-        if (typeof u.input_tokens === "number") tally.input = u.input_tokens;
-        if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
-        if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
-      }
-      const content = ev.message.content;
-      let text = "";
-      if (Array.isArray(content)) {
-        for (const b of content) {
-          if (b && b.type === "text" && typeof b.text === "string") text += b.text;
-        }
-      }
-      return text ? text + "\n" : "";
-    }
-    if (ev.type === "result") {
-      result = ev;
-      const u = ev.usage;
-      if (u && typeof u === "object") {
-        if (typeof u.input_tokens === "number") tally.input = u.input_tokens;
-        if (typeof u.output_tokens === "number") tally.output = u.output_tokens;
-        if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
-        if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
-      }
-      return "";
-    }
-    return "";
-  }
-
-  /** @param {string} line */
-  function handleLine(line) {
-    const t = line.trim();
-    if (!t) return "";
-    let ev;
-    try {
-      ev = JSON.parse(t);
-    } catch {
-      return ""; // non-JSON line (stray output) — skip, don't crash
-    }
-    return handleEvent(ev);
-  }
-
-  return {
-    /** @param {string} chunk @returns {string} log text rendered from completed lines */
-    push(chunk) {
-      buf += chunk;
-      let out = "";
-      let nl;
-      while ((nl = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, nl);
-        buf = buf.slice(nl + 1);
-        out += handleLine(line);
-      }
-      return out;
-    },
-    /** Process any buffered tail (a final line with no trailing newline). */
-    flush() {
-      if (!buf) return "";
-      const line = buf;
-      buf = "";
-      return handleLine(line);
-    },
-    get tally() {
-      return tally;
-    },
-    get result() {
-      return result;
-    },
-  };
-}
-
-/** First model key in a stream-json `modelUsage` map, or undefined. @param {any} mu */
-function firstModel(mu) {
-  if (!mu || typeof mu !== "object") return undefined;
-  const keys = Object.keys(mu);
-  return keys.length ? keys[0] : undefined;
-}
-
-/** `claude --model` aliases (case-insensitive, optional `[1m]` suffix) that name a Claude model. */
-const CLAUDE_ALIAS_RE = /^(default|opus|sonnet|haiku|opusplan|best)(\[1m\])?$/i;
-
-/**
- * Whether a run's `total_cost_usd` is meaningless because it did not run on Claude: the step
- * overrides the agent `bin` (e.g. `claude-local`), or the resolved model is not a Claude model
- * (e.g. `qwen3-coder` behind `ANTHROPIC_BASE_URL`). `claude` prices every run from its own
- * Claude price table, so an unpriced run keeps its tokens but its dollars are left out of every
- * spend sum. Claude = unset (CLI default), `claude-…`, a Bedrock/Vertex id holding
- * `anthropic.claude-`, or an alias. Pure; exported for tests.
- * @param {{model?: string, bin?: string, claudeBin?: string}} o
- * @returns {boolean}
- */
-export function isUnpriced({ model, bin, claudeBin }) {
-  if (bin && bin !== claudeBin) return true;
-  if (!model) return false;
-  const m = model.trim().toLowerCase();
-  return !(m.startsWith("claude") || m.includes("anthropic.claude-") || CLAUDE_ALIAS_RE.test(m));
-}
-
-/**
- * Build a UsageRecord from a captured stream-json `result` event. Pure; exported for
- * tests. Totals come straight from `result.usage` + `total_cost_usd`; the model falls
- * back to the first `modelUsage` key when the step set no explicit `--model`. A run that
- * `isUnpriced` keeps its raw `costUsd` (audit) but is tagged `unpriced: true` (+ `bin` when
- * it overrides `claudeBin`) so readers leave it out of spend; priced records keep the old shape.
- * @param {{ref:string, stepId:string, model?:string, bin?:string, claudeBin?:string, startedAt:string, endedAt:string, result:any}} o
- * @returns {import('./types.js').UsageRecord}
- */
-export function buildUsageRecord({ ref, stepId, model, bin, claudeBin, startedAt, endedAt, result }) {
-  const u = (result && result.usage) || {};
-  const resolved = model || firstModel(result && result.modelUsage);
-  const unpriced = isUnpriced({ model: resolved, bin, claudeBin });
-  return {
-    ref,
-    stepId,
-    model: resolved,
-    ...(bin && bin !== claudeBin ? { bin } : {}),
-    startedAt,
-    endedAt,
-    durationMs: typeof result?.duration_ms === "number" ? result.duration_ms : undefined,
-    input: u.input_tokens || 0,
-    output: u.output_tokens || 0,
-    cacheRead: u.cache_read_input_tokens || 0,
-    cacheCreate: u.cache_creation_input_tokens || 0,
-    costUsd: typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined,
-    sessionId: typeof result?.session_id === "string" ? result.session_id : undefined,
-    ...(unpriced ? { unpriced: true } : {}),
-  };
 }
 
 const DIFFICULTIES = /** @type {const} */ (["easy", "medium", "hard"]);
@@ -467,23 +294,24 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   }
 
   /**
-   * Spawn `claude -p` with a prompt. stdout is stream-json: a line parser renders the
-   * assistant text to the log and accumulates the token tally + final `result` event;
+   * Spawn the step's agent with a prompt. The adapter builds the argv and parses stdout:
+   * its parser renders log text and accumulates the token tally + final result record;
    * stderr is piped raw. `onTally` fires when the running token count changes (i.e. per
    * assistant/result event, NOT per token) so the live record isn't rewritten per token.
    * `maxMs` caps the run's wall clock; `idleMs` caps the gap between stdout chunks. Past
    * either the child gets SIGTERM, then SIGKILL after the grace, and `timedOut` says which.
-   * `bin`/`env` are the step's optional agent binary and extra environment (unset → cfg.claudeBin
-   * and the receiver's env); the verdict-file variable is set last so a step can't override it.
-   * @param {{prompt: string, cwd: string, logPath: string, model?: string, effort?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
+   * default bin, else cfg.claudeBin, and the receiver's env); the verdict-file variable is set last
+   * so a step can't override it.
+   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
    */
-  function spawnClaude({ prompt, cwd, logPath, model, effort, bin, env, verdictFile, maxMs, idleMs, onPid, onTally }) {
+  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, bin, env, verdictFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
-    const args = buildClaudeArgs({ prompt, model, effort, fullAuto: cfg.fullAuto });
-    const parser = createStreamParser();
+    const args = agent.buildArgs({ prompt, model, effort, fullAuto: cfg.fullAuto });
+    const parser = agent.createParser();
     return new Promise((resolve) => {
-      const child = spawn(bin || cfg.claudeBin, args, {
+      const child = spawn(bin || agent.defaults.bin || cfg.claudeBin, args, {
         cwd,
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
@@ -578,15 +406,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   }
 
   /** @param {number} code @param {string} verdictFile @param {import('./types.js').Step} step
+   * @param {import('./types.js').AgentAdapter} agent  its `defaults.requireVerdict` applies when the step sets none
    * @returns {import('./types.js').Verdict} */
-  function readVerdict(code, verdictFile, step) {
+  function readVerdict(code, verdictFile, step, agent) {
     let text = null;
     try {
       text = fs.readFileSync(verdictFile, "utf8");
     } catch {
       /* missing/unreadable — parseVerdict treats text=null like garbage JSON */
     }
-    return parseVerdict(code, text, { requireVerdict: !!step?.requireVerdict });
+    return parseVerdict(code, text, { requireVerdict: !!(step?.requireVerdict ?? agent.defaults.requireVerdict ?? false) });
   }
 
   /**
@@ -1028,7 +857,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     /** @type {number|undefined} */
     let pid;
     const maxMinutes = step.maxMinutes ?? DEFAULT_MAX_MINUTES;
-    const { code, result, timedOut } = await spawnClaude({
+    const agent = agentFor(cfg, step);
+    const { code, result, timedOut } = await spawnAgent({
+      agent,
       prompt,
       cwd,
       logPath,
@@ -1068,16 +899,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // The step may just have opened the PR.
     await recordPr(job.ref, repo);
 
-    // Persist the final per-run usage record from the captured `result` event (token
-    // totals + cost). Append-only usage.jsonl, distinct from the rewritten state files.
-    // A local-model run (step `bin`, or a non-Claude model) is unpriced: `claude`'s dollar
-    // figure is made up, so run_end drops it and the usage record is tagged.
-    const unpriced = isUnpriced({ model: model || firstModel(result?.modelUsage), bin: step.bin, claudeBin: cfg.claudeBin });
-    if (store && result) {
-      store.recordUsage(
-        buildUsageRecord({ ref: job.ref, stepId: step.id, model, bin: step.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString(), result }),
-      );
-    }
+    // Persist the final per-run usage record from the captured result (token totals +
+    // cost). Append-only usage.jsonl, distinct from the rewritten state files. The adapter
+    // decides `unpriced` (e.g. a local-model run — step `bin`, or a non-Claude model — whose
+    // dollar figure is made up), so run_end drops the cost and the usage record is tagged.
+    // Built even without a result: `unpriced` must still reach run_end.
+    const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: step.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString() });
+    const unpriced = !!usage.unpriced;
+    if (store && result) store.recordUsage(usage);
 
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
@@ -1086,14 +915,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       ? { outcome: "fail", reason: CANCELLED_REASON }
       : timedOut
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
-      : readVerdict(code, verdictFile, step);
+      : readVerdict(code, verdictFile, step, agent);
     try {
       fs.rmSync(verdictFile, { force: true });
     } catch {
       /* best effort */
     }
 
-    const costUsd = !unpriced && typeof result?.total_cost_usd === "number" ? result.total_cost_usd : undefined;
+    const costUsd = unpriced ? undefined : usage.costUsd;
     emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}), ...(unpriced ? { unpriced: true } : {}) });
     if (verdict.outcome === "hold") {
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the

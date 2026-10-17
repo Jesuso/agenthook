@@ -17,7 +17,8 @@ import { spawnSync } from "node:child_process";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { worktreePath } from "../worktree.js";
-import { sessionDir, listSessions, recentRuns, refRepo } from "../sessions.js";
+import { sessionDir, listSessions, recentRuns, refRepo, agentSessions } from "../sessions.js";
+import { agentFor } from "../agents/index.js";
 import { ago } from "./ls.js";
 
 /** @param {string|number} s @param {number} n */
@@ -51,23 +52,31 @@ function select(sessions, sel) {
   return null;
 }
 
+/** The resume argv (after the binary) for one session, from the agent its step ran (a
+ * step renamed since → the profile's agent). Throws for an agent with no transcripts.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{id: string, step: string}} session */
+export function resumeArgs(cfg, session) {
+  const step = (cfg.pipeline ?? []).find((s) => s.id === session.step);
+  return agentSessions(agentFor(cfg, step)).resumeCommand(session.id);
+}
+
 /**
  * How to resume one session: the binary + env of the step that ran it (a step `bin`/`env`
- * overrides cfg.claudeBin / adds to process.env, as at spawn), the printable command, and —
- * when the step sets env — a note naming its keys only (values may be secrets; never printed).
- * Pure; exported for tests.
- * @param {Pick<import('../types.js').Config, 'claudeBin'|'pipeline'>} cfg
- * @param {{id: string, step: string}} session @param {string} wt  the worktree (claude's cwd)
+ * overrides the agent's default bin, else cfg.claudeBin / adds to process.env, as at spawn),
+ * the printable command, and — when the step sets env — a note naming its keys only (values
+ * may be secrets; never printed). Pure; exported for tests.
+ * @param {Pick<import('../types.js').Config, 'agent'|'claudeBin'|'pipeline'>} cfg
+ * @param {{id: string, step: string}} session @param {string} wt  the worktree (the agent's cwd)
  * @returns {{bin: string, env: Record<string, string>|undefined, line: string, envNote: string|null}}
  */
 export function resumeCommand(cfg, session, wt) {
   const step = (cfg.pipeline ?? []).find((s) => s.id === session.step);
-  const bin = step?.bin ?? cfg.claudeBin;
+  const bin = step?.bin ?? agentFor(cfg, step).defaults.bin ?? cfg.claudeBin;
   const env = step?.env && Object.keys(step.env).length ? step.env : undefined;
   return {
     bin,
     env,
-    line: `cd ${wt} && ${bin} -r ${session.id}   # ${session.step}`,
+    line: `cd ${wt} && ${[bin, ...resumeArgs(cfg, session)].join(" ")}   # ${session.step}`,
     envNote: env ? `step "${session.step}" sets env ${Object.keys(env).join(", ")} for its agent — export them too (--exec does)` : null,
   };
 }
@@ -126,7 +135,7 @@ export async function resume(args) {
       throw new Error(
         `worktree for ${ref} is drained (${wt}). Recreate it (re-run the step, or \`git worktree add\`) before resuming — claude resolves the session by cwd.`,
       );
-    const r = spawnSync(cmd.bin, ["-r", chosen.id], { cwd: wt, stdio: "inherit", env: { ...process.env, ...(cmd.env ?? {}) } });
+    const r = spawnSync(cmd.bin, resumeArgs(cfg, chosen), { cwd: wt, stdio: "inherit", env: { ...process.env, ...(cmd.env ?? {}) } });
     if (r.error) throw r.error;
     process.exitCode = r.status ?? 0;
     return;

@@ -27,3 +27,13 @@ test("resumeCommand: the session's step bin is printed; its env is passed for --
 test("resumeCommand: an unknown step (renamed since) falls back to cfg.claudeBin", () => {
   assert.equal(resumeCommand(cfg, { id: "s3", step: "?" }, "/wt").bin, "claude");
 });
+
+test("resumeCommand: an agent without transcripts refuses with a plain message", async (t) => {
+  const { AGENTS, getAgent } = await import("../src/agents/index.js");
+  AGENTS.blind = { ...getAgent("claude"), describe: () => ({ name: "blind", stdout: "text" }), sessions: null };
+  t.after(() => delete AGENTS.blind);
+  const c = { ...cfg, pipeline: [{ id: "code", agent: "blind" }] };
+  assert.throws(() => resumeCommand(c, { id: "s4", step: "code" }, "/wt"), /^Error: blind runs have no transcripts to follow\/resume$/);
+  // the session's step picks the agent: a claude step of the same profile still resumes
+  assert.equal(resumeCommand({ ...c, pipeline: [...c.pipeline, { id: "review" }] }, { id: "s5", step: "review" }, "/wt").line, "cd /wt && claude -r s5   # review");
+});

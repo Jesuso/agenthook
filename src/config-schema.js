@@ -2,7 +2,9 @@
 // hints a form needs (default, options, min/max). The config editor renders its fields from it and
 // test/config-schema.test.js holds it to src/types.js — a typedef key with no entry here (and no
 // NO_FORM reason) fails CI, so a new key can't silently fall out of the forms.
-// Import-free on purpose: the browser bundles it (like src/identity.js and src/ui/contract.js).
+// Import-free on purpose: the browser bundles it (like src/identity.js and src/ui/contract.js). Its
+// one import, src/agents/names.js, is itself import-free (the agent registry is Node-side).
+import { AGENT_NAMES, DEFAULT_AGENT } from "./agents/names.js";
 
 /** Step prompt shapes (`Step.kind`). */
 export const STEP_KINDS = /** @type {const} */ (["implement", "change", "review", "triage"]);
@@ -55,6 +57,7 @@ export const CONFIG_SCHEMA = [
   entry("maxConcurrent", "number", "Max concurrent agents", "basics", "How many agents may run at once, across every step.", { default: 1, min: 1 }),
   entry("port", "number", "Local port", "basics", "Local port the receiver listens on; the ingress forwards webhooks to it.", { default: 4123 }),
   entry("fullAuto", "boolean", "Full auto (skip permissions)", "basics", "Run agents with --dangerously-skip-permissions: no permission prompts, unsandboxed.", { sensitive: true, default: false }),
+  entry("agent", "enum", "Agent", "basics", "The coding-agent CLI steps spawn unless a step names its own.", { advanced: true, options: AGENT_NAMES, default: DEFAULT_AGENT }),
   entry("claudeBin", "string", "Claude binary", "basics", "The claude CLI agents are spawned with: a name on PATH or an absolute path.", { advanced: true, sensitive: true, default: "claude" }),
   entry("instructionsFile", "string", "Default instructions file", "basics", "Standing instructions for steps that set none; relative to the config file.", { default: "./INSTRUCTIONS.md" }),
   entry("ui", "object", "Appearance", "basics", "The profile's colour and emoji in the web UI; unset values derive from the state key."),
@@ -103,6 +106,7 @@ export const CONFIG_SCHEMA = [
   step("manual", "boolean", "Manual (no agent)", "No agent runs; entering the step only does system actions (e.g. removing the worktree)."),
   step("model", "string", "Model", "Per-step claude --model override; unset uses the CLI default."),
   step("effort", "enum", "Reasoning effort", "Per-step claude --effort override; unset uses the CLI default.", { options: STEP_EFFORTS }),
+  step("agent", "enum", "Agent", "This step's coding-agent CLI; unset uses the profile's agent.", { advanced: true, options: AGENT_NAMES }),
   step("bin", "string", "Agent binary", "This step's agent CLI (a name on PATH or an absolute path); unset uses claudeBin.", { advanced: true, sensitive: true, placeholder: "claudeBin" }),
   step("env", "record", "Agent env", "Extra environment for this step's agent only; put secret values in ${VAR} refs.", { advanced: true, sensitive: true }),
   step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
