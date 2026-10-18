@@ -13,6 +13,8 @@ import { FORGES } from "../forges/index.js";
 import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
 import { installAh } from "./alias.js";
 import { firstFreePort } from "../port.js";
+import { registryDir } from "../config.js";
+import { tildify } from "../profile.js";
 
 /** @type {Record<string, string>} */
 const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN", "github-projects": "GITHUB_TOKEN" };
@@ -138,7 +140,7 @@ async function initLocal(args, out) {
 
   console.log(`\nagenthook init --local`);
   console.log(`  repo    ${repoRoot}`);
-  console.log(`  name    ${name}  (state dir ~/.agenthook/${name})`);
+  console.log(`  name    ${name}  (state dir ${tildify(path.join(registryDir, name))})`);
   console.log(`  port    ${port}`);
   console.log(`  steps   code → review → done  (local board, no token, no tunnel)`);
   console.log(`  config  ${out}`);
@@ -307,7 +309,7 @@ export async function init(args) {
 
   fs.writeFileSync(out, JSON.stringify(config, null, 2) + "\n");
   console.log(`\nwrote ${out}`);
-  console.log(`state dir will be ~/.agenthook/${config.name}`);
+  console.log(`state dir will be ${tildify(path.join(registryDir, config.name))}`);
 
   // Opt-in `ah` shortcut. Offer only — never force it (see commands/alias.js).
   const { ah } = await runWizard([{ key: "ah", message: "Add an `ah` shortcut for `agenthook`?", type: "confirm", default: true }]);
