@@ -38,15 +38,25 @@ export function readMarker(dir) {
 
 /**
  * Write (or refresh) `<stateDir>/profile.json`, 0600. An existing marker's `createdAt` is kept;
- * an unparsable one gets a fresh `createdAt`.
+ * an unparsable one gets a fresh `createdAt`. `extra` merges in on top (e.g. `webhooks`); when it
+ * doesn't set a field, a prior marker's value for that field carries over.
  * @param {import('./types.js').Config} cfg
+ * @param {Record<string, unknown>} [extra]
  */
-export function writeProfileMarker(cfg) {
+export function writeProfileMarker(cfg, extra = {}) {
   const file = path.join(cfg.stateDir, MARKER);
   const now = new Date().toISOString();
   const prev = readMarker(cfg.stateDir);
   const createdAt = typeof prev?.createdAt === "string" ? prev.createdAt : now;
-  const marker = { configPath: cfg.configPath, stateKey: cfg.stateKey, name: cfg.name, createdAt, updatedAt: now };
+  const marker = {
+    configPath: cfg.configPath,
+    stateKey: cfg.stateKey,
+    name: cfg.name,
+    createdAt,
+    updatedAt: now,
+    ...(prev?.webhooks !== undefined ? { webhooks: prev.webhooks } : {}),
+    ...extra,
+  };
   fs.writeFileSync(file, JSON.stringify(marker, null, 2), { mode: 0o600 });
   if (process.platform !== "win32") fs.chmodSync(file, 0o600);
 }

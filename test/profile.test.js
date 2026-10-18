@@ -125,6 +125,22 @@ test("writeProfileMarker writes the marker 0600 and keeps createdAt on rewrite",
   assert.ok(JSON.parse(fs.readFileSync(file, "utf8")).createdAt > first.createdAt);
 });
 
+test("writeProfileMarker carries over a prior webhooks value when called without extra, and extra overrides it", () => {
+  const reg = tmpRegistry();
+  const cfg = stub(reg, "C", "/x/agenthook.config.json");
+  mkState(cfg.stateDir);
+  const file = path.join(cfg.stateDir, "profile.json");
+
+  writeProfileMarker(cfg, { webhooks: false });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).webhooks, false);
+
+  writeProfileMarker(cfg);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).webhooks, false);
+
+  writeProfileMarker(cfg, { webhooks: true });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).webhooks, true);
+});
+
 test("isFreshStateDir: absent or only an empty logs/ is fresh; anything else is not", () => {
   const reg = tmpRegistry();
   const dir = path.join(reg, "B");

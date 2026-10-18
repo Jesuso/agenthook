@@ -380,6 +380,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
           return reply(409, { error: `receiver pid ${pid} is alive but its control socket is not answering — run \`agenthook stop\` first` });
         }
         const configPath = profileConfigPath(profile);
+        const hasHooks = readMarker(readProfile(profile, registry).dir)?.webhooks !== false;
         /** @type {string} */
         let archivedTo;
         try {
@@ -387,7 +388,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         } catch (e) {
           return reply(409, { error: e.message });
         }
-        sendStatusJson(res, 200, { archivedTo, webhookHint: webhookHint(configPath) });
+        sendStatusJson(res, 200, { archivedTo, webhookHint: hasHooks ? webhookHint(configPath) : null });
       });
     });
 
