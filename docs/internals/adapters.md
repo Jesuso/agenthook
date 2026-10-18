@@ -22,7 +22,7 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
-- `src/forges/*.js` + `index.js` — optional forge adapters (`github`). Registry `FORGES` keyed by
+- `src/forges/*.js` + `index.js` — optional forge adapters (`github`, `gitlab`). Registry `FORGES` keyed by
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
   `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The
   engine routes POST `/forge[/]` to the forge (else the tracker). `github` turns a merged PR on an
@@ -32,6 +32,21 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `workflow_run` on a same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attempt>'}`
   job (`forge.redCi:false` disables) — see [dispatch.md](dispatch.md) for how dispatch handles the
   CI and merge jobs this produces.
+  `gitlab` (`src/forges/gitlab.js`, config `project` + optional `baseUrl`, API `<baseUrl>/api/v4`
+  with `PRIVATE-TOKEN`) produces the same jobs from the same `/forge` path, so engine and dispatch
+  don't change. A `Merge Request Hook` with `action:"merge"` from a same-project `agent/<ref>`
+  branch → `merge` (`merged:<iid>`); a `Pipeline Hook` `failed` → `ci`, `success` → `ci_green`.
+  Three GitLab quirks: (1) **auth is a shared token, not an HMAC** — `x-gitlab-token` is compared
+  in constant time with the secret (store key `forge:gitlab:webhookSecret`), which gives no body
+  integrity and is replayable by anyone who sees the header, so the ingress must be HTTPS;
+  (2) **retries keep the pipeline id** and carry no attempt number, so `rerunFailedJobs` writes a
+  `gitlab:retried:<id>` seen marker and the next failure of that pipeline is `attempt: 2` (else it
+  dedups against the first and the bounce + `changes` cap never fire); (3) **an MR pipeline's
+  `object_attributes.ref` is `refs/merge-requests/<iid>/head`**, so the branch comes from
+  `merge_request.source_branch` when present. Forks fail closed (`source_project_id` must equal
+  `target_project_id`, and the pipeline's `path_with_namespace` must be `forge.project`). Hooks are
+  scrubbed exactly like github's (stored id / previous URL / same target only). User setup:
+  [gitlab.md](../gitlab.md).
 - `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
   entering a step's `sourceSectionGid` fires that step; a clean exit advances to `successSectionGid`
   (= next step's source, so the move re-triggers the next step) unless the agent's verdict says

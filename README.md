@@ -193,7 +193,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 
 - **[Quickstart](docs/quickstart.md)** — a first run on a local board: no token, no tunnel
 - **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
-- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics
+- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics · [GitLab forge](docs/gitlab.md) — MR merges + pipelines
 - [Web UI](docs/web-ui.md) — the `agenthook ui` dashboard: Home, Overview, Stats, editors
 - [Profiles](docs/profiles.md) · [Configuration & ingress](docs/configuration.md) · [Operating agents](docs/operating.md) — day-to-day reference
 - [Troubleshooting](docs/troubleshooting.md) — symptom → fix

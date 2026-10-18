@@ -437,12 +437,14 @@
  * The optional forge config block (`forge` in agenthook.config.json). `type` selects
  * the adapter; values are already env-interpolated.
  * @typedef {object} ForgeConfig
- * @property {string} type              forge adapter key ("github")
- * @property {string} [token]           API token (typically "${GITHUB_TOKEN}")
+ * @property {string} type              forge adapter key ("github" | "gitlab")
+ * @property {string} [token]           API token (typically "${GITHUB_TOKEN}" / "${GITLAB_TOKEN}")
  * @property {string} [repository]      GitHub: "owner/name" whose PRs complete tasks
  * @property {string} [owner]           GitHub: repo owner (alternative to repository)
  * @property {string} [repo]            GitHub: repo name (alternative to repository)
- * @property {string} [webhookSecret]   explicit signing secret; omit to let agenthook generate+store one (no opt-out — always verified)
+ * @property {string} [project]         GitLab: "group/sub/project" whose MRs complete tasks
+ * @property {string} [baseUrl]         GitLab: instance base URL (default "https://gitlab.com")
+ * @property {string} [webhookSecret]   explicit signing secret (GitLab: the hook's secret token); omit to let agenthook generate+store one (no opt-out — always verified)
  * @property {boolean} [redCi]          react to red CI on agent PRs (re-run once, then bounce with `changes`). Default on; false disables
  * @property {boolean} [greenCi]        emit a `ci_green` event when an agent PR's checks all pass (a supervisor signal; moves nothing). Default on; false disables
  * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)

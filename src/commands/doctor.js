@@ -148,12 +148,34 @@ export function repoLints(cfg) {
 }
 
 /** Warn when a `github` tracker has no forge block — merge/CI events never arrive
- * and the event-driven loop quietly falls back to polling. Pure (config only).
+ * and the event-driven loop quietly falls back to polling — or when a `gitlab` forge
+ * block is missing what it needs. Pure (config only).
  * @param {import('../types.js').Config} cfg
  * @returns {{level: 'warn', label: string, note: string}[]} */
 export function forgeLints(cfg) {
+  if (cfg.forge?.type === "gitlab") return gitlabForgeLints(cfg.forge);
   if (cfg.provider !== "github" || cfg.forge) return [];
   return [{ level: "warn", label: "forge configured", note: "no forge block — merge/CI events will not arrive" }];
+}
+
+/** A `gitlab` forge needs a `group/project` path, a token, and an http(s) base URL. Pure.
+ * @param {import('../types.js').ForgeConfig} fc
+ * @returns {{level: 'warn', label: string, note: string}[]} */
+function gitlabForgeLints(fc) {
+  /** @type {{level: 'warn', label: string, note: string}[]} */
+  const out = [];
+  const project = typeof fc.project === "string" ? fc.project.trim() : "";
+  if (!project.includes("/")) {
+    out.push({ level: "warn", label: "forge.project set", note: project ? `"${project}" is not group/project` : "gitlab forge has no forge.project (group/sub/project)" });
+  }
+  const token = typeof fc.token === "string" ? fc.token.trim() : "";
+  if (!token || /\$\{[^}]*\}/.test(token)) {
+    out.push({ level: "warn", label: "forge.token set", note: "gitlab forge token is empty or unresolved — set it (e.g. ${GITLAB_TOKEN})" });
+  }
+  if (fc.baseUrl != null && !/^https?:\/\/[^/\s]+/.test(String(fc.baseUrl))) {
+    out.push({ level: "warn", label: "forge.baseUrl is an http(s) URL", note: `"${fc.baseUrl}"` });
+  }
+  return out;
 }
 
 /** Whether a busy port is this profile's own receiver (info, not a problem) or a real

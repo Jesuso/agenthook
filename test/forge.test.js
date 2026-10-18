@@ -562,7 +562,7 @@ test("registerWebhook on 403 prints manual setup instead of throwing", async () 
 
 test("createForge: null without a forge block; throws on an unknown type", () => {
   assert.equal(createForge(/** @type {any} */ ({ pipeline }), /** @type {any} */ (makeStore())), null);
-  assert.throws(() => createForge(/** @type {any} */ ({ pipeline, forge: { type: "gitlab" } }), /** @type {any} */ (makeStore())), /unknown forge "gitlab"/);
+  assert.throws(() => createForge(/** @type {any} */ ({ pipeline, forge: { type: "bitbucket" } }), /** @type {any} */ (makeStore())), /unknown forge "bitbucket"/);
 });
 
 test("listAgentPrs: only same-repo agent/<ref> PRs, with CI roll-up and mergeability", async () => {
