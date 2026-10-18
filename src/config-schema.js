@@ -12,7 +12,7 @@ export const STEP_KINDS = /** @type {const} */ (["implement", "change", "review"
 export const STEP_EFFORTS = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
 
 /** The tracker types whose steps bind stage keys of each family (src/types.js `Step`). */
-const STATUS_TRACKERS = ["jira", "github-projects", "local"];
+const STATUS_TRACKERS = ["jira", "github-projects", "local", "linear"];
 
 /**
  * One config key. `path` is absolute from the config root; `"*"` stands for any array index or
@@ -78,8 +78,8 @@ export const CONFIG_SCHEMA = [
 
   // Tracker
   entry("tracker", "object", "Tracker", "tracker", "Where work comes from: the board whose stages drive the pipeline."),
-  entry("tracker.type", "enum", "Tracker type", "tracker", "Which tracker adapter reads the board.", { options: ["asana", "jira", "github", "github-projects", "local"] }),
-  entry("tracker.token", "string", "API token", "tracker", "Tracker API token; use a ${VAR} reference, not a literal.", { sensitive: true, scope: ["asana", "jira", "github", "github-projects"] }),
+  entry("tracker.type", "enum", "Tracker type", "tracker", "Which tracker adapter reads the board.", { options: ["asana", "jira", "github", "github-projects", "local", "linear"] }),
+  entry("tracker.token", "string", "API token", "tracker", "Tracker API token; use a ${VAR} reference, not a literal.", { sensitive: true, scope: ["asana", "jira", "github", "github-projects", "linear"] }),
   entry("tracker.userGid", "string", "User gid", "tracker", "Your Asana user gid; only tasks assigned to it are acted on.", { sensitive: true, scope: ["asana"] }),
   entry("tracker.assigneeFilter", "boolean", "Only my tasks", "tracker", "Act only on items assigned to the bot identity; false opts into acting project-wide.", { sensitive: true, default: true }),
   entry("tracker.workspaceGid", "string", "Workspace gid", "tracker", "The Asana workspace holding the project.", { scope: ["asana"] }),
@@ -88,7 +88,7 @@ export const CONFIG_SCHEMA = [
   entry("tracker.site", "string", "Site", "tracker", "Jira site shortname (<site>.atlassian.net); or set baseUrl instead.", { scope: ["jira"] }),
   entry("tracker.baseUrl", "string", "Base URL", "tracker", "Full Jira base URL; overrides site.", { scope: ["jira"] }),
   entry("tracker.email", "string", "Account email", "tracker", "Jira account email for Basic auth; typically a ${VAR} reference.", { sensitive: true, scope: ["jira"] }),
-  entry("tracker.webhookSecret", "string", "Webhook secret", "tracker", "Signing secret; omit to let agenthook generate one, or set false to skip verification.", { sensitive: true, scope: ["jira", "github", "github-projects"], advanced: true }),
+  entry("tracker.webhookSecret", "string", "Webhook secret", "tracker", "Signing secret; omit to let agenthook generate one, or set false to skip verification.", { sensitive: true, scope: ["jira", "github", "github-projects", "linear"], advanced: true }),
   entry("tracker.projectKey", "string", "Project key", "tracker", "The Jira project whose statuses drive the pipeline (e.g. CAHUI).", { scope: ["jira"] }),
   entry("tracker.assigneeAccountId", "string", "Assignee account id", "tracker", "The bot's Jira accountId; work is scoped to its issues.", { scope: ["jira"] }),
   entry("tracker.repository", "string", "Repository", "tracker", "owner/name of the GitHub repo whose issues drive the pipeline.", { scope: ["github", "github-projects"] }),
@@ -96,6 +96,7 @@ export const CONFIG_SCHEMA = [
   entry("tracker.repo", "string", "Repo", "tracker", "GitHub repo name (alternative to repository).", { scope: ["github"], advanced: true }),
   entry("tracker.assigneeLogin", "string", "Assignee login", "tracker", "The bot's GitHub login; work is scoped to its issues. Derived from the token when unset.", { scope: ["github", "github-projects"] }),
   entry("tracker.project", "string", "Project board", "tracker", "Projects v2 board as owner/number or its URL; its Status field drives the pipeline.", { scope: ["github-projects"] }),
+  entry("tracker.team", "string", "Team", "tracker", "Linear team key (e.g. ENG) or team URL; its workflow states drive the pipeline.", { scope: ["linear"] }),
   entry("tracker.routeField", "string", "Route field", "tracker", "Tracker field whose value(s) pick the repo a task runs in (multi-repo routing).", { advanced: true }),
   entry("tracker.epicType", "string", "Epic type", "tracker", 'Type name that marks an epic (default "Epic"; Jira: the level-1 issue type).', { scope: ["asana", "jira", "github", "github-projects"], advanced: true }),
   entry("tracker.epicLabel", "string", "Epic label", "tracker", "Label that marks an epic; either this or epicType marks one.", { scope: ["github", "github-projects"], default: "epic", advanced: true }),

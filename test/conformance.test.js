@@ -10,8 +10,9 @@ import * as jira from "./fixtures/trackers/jira.js";
 import * as github from "./fixtures/trackers/github.js";
 import * as githubProjects from "./fixtures/trackers/github-projects.js";
 import * as local from "./fixtures/trackers/local.js";
+import * as linear from "./fixtures/trackers/linear.js";
 
-for (const fixture of [asana, jira, github, githubProjects, local]) runTrackerConformance(fixture);
+for (const fixture of [asana, jira, github, githubProjects, local, linear]) runTrackerConformance(fixture);
 
 // --- meta: the suite catches broken scoping (a wrapped adapter, never a broken one in tree) ---
 
