@@ -156,6 +156,18 @@ test("gitSandboxEnv skipHostAuth: a run-token sandboxed run drops the insteadOf/
   assert.equal(env.GIT_AUTHOR_NAME, "Op");
 });
 
+// Review pass on #484's sandbox rework: skipHostAuth must only drop the insteadOf/credential
+// pairs when the *resolved* host is github.com. A run token (#474) never covers another forge's
+// host, so skipping there would strip that host's push credentials with nothing to replace them
+// — a sandboxed run that could push before this merge would be unable to push after it.
+test("gitSandboxEnv skipHostAuth: a non-github host keeps its own insteadOf/credential pairs (a github run token never covers it)", () => {
+  const env = gitSandboxEnv({ originUrl: "git@gitlab.acme.io:o/r.git", forgeType: "gitlab", forgeBaseUrl: "https://gitlab.acme.io", skipHostAuth: true });
+  const pairs = pairsOf(env);
+  assert.deepEqual(pairs[0], ["url.https://gitlab.acme.io/.insteadOf", "git@gitlab.acme.io:"]);
+  assert.equal(pairs[2][0], "credential.https://gitlab.acme.io.helper");
+  assert.match(pairs[2][1], /GITLAB_TOKEN/);
+});
+
 test("mergeGitConfigEnv re-indexes a run token's git env (#474) and the sandbox's own, with no duplicate GIT_CONFIG_COUNT indices", () => {
   const creds = runGitEnv(); // GIT_CONFIG_COUNT=4 (reset, gh helper, two insteadOf), plus GIT_TERMINAL_PROMPT
   const sbx = gitSandboxEnv({ originUrl: "git@github.com:o/r.git", author: { name: "Op", email: "op@x" }, skipHostAuth: true }); // just safe.directory + author
@@ -223,8 +235,8 @@ process.on("SIGTERM", () => child.kill("SIGTERM"));
 child.on("exit", (code) => process.exit(code ?? 1));
 `;
 
-/** @param {any[]} steps @param {{inner?: string}} [o] */
-function sandboxHarness(steps, { inner } = {}) {
+/** @param {any[]} steps @param {{inner?: string, runCredentials?: (o: any) => Promise<any>, agentEnvPassthrough?: string[]}} [o] */
+function sandboxHarness(steps, { inner, runCredentials, agentEnvPassthrough } = {}) {
   const { root, repo } = fixture();
   const state = path.join(root, "state");
   fs.mkdirSync(state);
@@ -235,7 +247,7 @@ function sandboxHarness(steps, { inner } = {}) {
   fs.writeFileSync(
     claude,
     inner ??
-      `#!/bin/sh\nprintf 'VF=%s\\nSSH=%s\\nTOKEN=%s\\nPWD=%s\\nNOAUTO=%s\\nGITCOUNT=%s\\n' "$AGENTHOOK_VERDICT_FILE" "\${SSH_AUTH_SOCK-unset}" "\${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(pwd)" "\${DISABLE_AUTOUPDATER-unset}" "\${GIT_CONFIG_COUNT-unset}" > "${out}"\nprintf '%s' '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+      `#!/bin/sh\nprintf 'VF=%s\\nSSH=%s\\nTOKEN=%s\\nPWD=%s\\nNOAUTO=%s\\nGITCOUNT=%s\\nGHCFG=%s\\nGHTOK=%s\\n' "$AGENTHOOK_VERDICT_FILE" "\${SSH_AUTH_SOCK-unset}" "\${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(pwd)" "\${DISABLE_AUTOUPDATER-unset}" "\${GIT_CONFIG_COUNT-unset}" "\${GH_CONFIG_DIR-unset}" "\${GITHUB_TOKEN-unset}" > "${out}"\nprintf '%s' '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
     { mode: 0o755 },
   );
   const log = path.join(root, "docker.log");
@@ -243,6 +255,7 @@ function sandboxHarness(steps, { inner } = {}) {
     pipeline: steps, claudeBin: claude, repoPath: repo, worktreePrefix: path.join(root, "wts"),
     stateKey: "p", stateDir: state, dataDir: state, logDir: state, instructionsFile: path.join(root, "none.md"),
     sandbox: { type: "docker", image: "img:1" },
+    ...(agentEnvPassthrough ? { agentEnvPassthrough } : {}),
   });
   /** @type {any[]} */
   const advanced = [];
@@ -250,6 +263,7 @@ function sandboxHarness(steps, { inner } = {}) {
     describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ v) => void advanced.push({ ref, step, ...v }),
+    ...(runCredentials ? { runCredentials } : {}),
   });
   const saved = { DOCKER: process.env.DOCKER, DOCKER_FAKE_LOG: process.env.DOCKER_FAKE_LOG, HOME: process.env.HOME, SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK };
   process.env.DOCKER = docker;
@@ -302,6 +316,43 @@ test("sandbox e2e: a claude step runs through the runtime, routes on its per-run
     assert.equal(fs.existsSync(path.join(h.state, "verdicts", "run-42-code")), false, "per-run verdict dir removed");
     assert.deepEqual(fs.readdirSync(path.join(h.state, "sandbox-home")), [], "per-run HOME removed");
   } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: a run-token adapter (#474) mounts GH_CONFIG_DIR read-only, passes its env, strips GITHUB_TOKEN from the container, and disposes once", async () => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-run-creds-"));
+  fs.mkdirSync(path.join(credsDir, "gh"));
+  fs.writeFileSync(path.join(credsDir, "gh", "hosts.yml"), "github.com:\n  oauth_token: ghs_x\n");
+  let disposeCalls = 0;
+  const runCredentials = async () => ({
+    env: { GH_CONFIG_DIR: path.join(credsDir, "gh"), GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.https://github.com.helper", GIT_CONFIG_VALUE_0: "!gh auth git-credential" },
+    strip: ["GH_TOKEN", "GITHUB_TOKEN"],
+    label: "GitHub App token: o/r, expires soon",
+    dispose: async () => void disposeCalls++,
+  });
+  const h = sandboxHarness([{ id: "code", createsWorktree: true, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { runCredentials, agentEnvPassthrough: ["GITHUB_TOKEN"] });
+  const savedToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = "ghp_operator_secret";
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance");
+    const run = h.calls().find((c) => c[0] === "run");
+    assert.ok(run, "the runtime client was spawned");
+    const mounts = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1]] : []));
+    assert.ok(mounts.includes(`type=bind,src=${path.join(credsDir, "gh")},dst=${path.join(credsDir, "gh")},readonly`), mounts.join("\n"));
+    assert.ok(run.includes("GH_CONFIG_DIR"), "GH_CONFIG_DIR passed by name");
+    assert.ok(run.includes("GIT_CONFIG_COUNT"), "a single, merged GIT_CONFIG_COUNT passed by name");
+    assert.ok(!run.includes("GITHUB_TOKEN"), "stripped even though allowlisted and set in the receiver env");
+    const got = h.innerOut();
+    assert.equal(got?.GHCFG, path.join(credsDir, "gh"));
+    assert.equal(got?.GHTOK, "unset", "the container never sees the receiver's GITHUB_TOKEN");
+    assert.notEqual(got?.GITCOUNT, "unset");
+    assert.equal(disposeCalls, 1, "dispose runs once after a normal exit");
+  } finally {
+    if (savedToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedToken;
+    fs.rmSync(credsDir, { recursive: true, force: true });
     h.restore();
   }
 });

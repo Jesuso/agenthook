@@ -157,7 +157,10 @@ export function hostOf(url) {
  * GITLAB_TOKEN), `safe.directory=*`, and the host's commit identity. `skipHostAuth` omits the
  * insteadOf/credential-helper pairs: a per-run GitHub App token (#474) already supplies them
  * via its own `GH_CONFIG_DIR`-backed env (`runGitEnv`), and setting both would double the
- * GIT_CONFIG_COUNT indices — merge with `mergeGitConfigEnv` instead. Pure.
+ * GIT_CONFIG_COUNT indices — merge with `mergeGitConfigEnv` instead. `skipHostAuth` only applies
+ * when the resolved host is github.com — a run token (#474) never covers another forge's host, so
+ * skipping there would leave that host's push credentials dropped with nothing to replace them.
+ * Pure.
  * @param {{originUrl?: string, forgeType?: string, forgeBaseUrl?: string, author?: {name?: string, email?: string}, skipHostAuth?: boolean}} o
  * @returns {Record<string, string>}
  */
@@ -166,7 +169,7 @@ export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author, skip
   const kind = forgeType ?? (host === "github.com" ? "github" : host && /gitlab/.test(host) ? "gitlab" : undefined);
   /** @type {[string, string][]} */
   const pairs = [];
-  if (host && !skipHostAuth) {
+  if (host && !(skipHostAuth && host === "github.com")) {
     pairs.push([`url.https://${host}/.insteadOf`, `git@${host}:`], [`url.https://${host}/.insteadOf`, `ssh://git@${host}/`]);
     if (kind === "github") pairs.push([`credential.https://${host}.helper`, "!gh auth git-credential"]);
     else if (kind === "gitlab") pairs.push([`credential.https://${host}.helper`, `!f() { test "$1" = get && echo username=oauth2 && echo "password=$GITLAB_TOKEN"; }; f`]);
