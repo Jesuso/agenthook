@@ -6,6 +6,77 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-10-18
+
+### Added
+
+- **Agent adapters** — a step can run a coding agent other than Claude Code. Set `agent` per step
+  (profile default `claude`); `bin` and `env` keep working for any adapter. Four adapters ship:
+  - **`claude`** (default): unchanged behaviour; the reference adapter.
+  - **`cursor`**: Cursor's `agent` CLI. Tokens are reported at the end of a run; no dollar cost.
+  - **`hermes`** (experimental): Nous Research's Hermes Agent, with its own options (below).
+  - **`opencode`**: OpenCode, any provider and model (`provider/model`), including local Ollama
+    models. `effort` maps to its `--variant`; `resume` uses `opencode -s <id>`.
+  `ah agents` lists the running agent processes; `ah doctor` checks each step's agent binary.
+  See `docs/agents.md`.
+- **Hermes step options** — `provider` (a step key or the root `agentProvider`) becomes `--provider`;
+  `effort` becomes `--reasoning`; `maxMinutes` becomes `--run-budget`.
+- **Hermes isolated mode** (default on) — each profile gets its own `HERMES_HOME` under its state
+  directory, with only your `config.yaml` copied in. Runs use `--ignore-rules --source tool -t
+  terminal,file`, so tickets never share memory, skills or sessions with each other or with your own
+  Hermes. Isolated runs have no credentials: a cloud provider fails before spawning, with a clear
+  message. Set `isolated: false` on a step to keep the old behaviour.
+- **Hermes token capture** — after a run, the real token counts are read from
+  `hermes sessions export` (time-limited, best-effort). Hermes runs remain unpriced.
+- **Estimated cost** — every run with known tokens gets an API-equivalent estimate from a rate
+  table (`pricing` config to extend or override). Estimates are labelled `est.` and kept apart from
+  reported cost in Stats, `ah usage`, `ah ls`, `ah status` and the UI. Runs with no matching rate get
+  no estimate, never $0.
+- **Local energy** — steps with `energy: true` record the electricity their runs use (kWh and USD),
+  from an hwmon sensor, a shell command, or a fixed wattage. Overlapping runs split the reading by
+  time. The figure appears beside the cost or estimate and is never added to it. See
+  `docs/local-models.md`.
+- **Claude quota readout** — `ah status`, MCP `status`/`tick` and the UI show the 5-hour and weekly
+  Claude subscription windows, persisted so they show with the receiver down.
+- **Quota pacing** (opt-in) — set `quota.pauseAboveSevenDay` / `quota.pauseAboveFiveHour` to pause new
+  runs at a threshold and resume at the window's reset. Running agents always finish; your own
+  `pause`/`resume` wins.
+- **Config editor** — Integrations, Repos, Tracker, Forge and Ingress tabs, nested step editors,
+  a confirm modal, and revert.
+
+### Changed
+
+- **Hermes steps are isolated by default.** Existing Hermes steps now run in their own home with the
+  three-toolset set above. To keep the old shared `~/.hermes` behaviour, set `isolated: false` on the
+  step. A Hermes step on a cloud provider now fails fast in isolated mode.
+- **`requireVerdict` defaults to `true` for Hermes** (text-only output): silence holds the ticket.
+- Run and usage records carry new fields — `estUsd`, `costBasis` and, for energy steps, `energyKwh`,
+  `energyUsd`, `energySource`. `costUsd` still means "reported by the agent" and is still Claude-only;
+  nothing is summed across the reported and estimated fields.
+- Local-model and other unpriced runs are tagged `unpriced` (and kept out of reported spend).
+- The quota pacer's operator `resume` overrides only the window that tripped.
+- `ui/dist` is not in git — after pulling, run `npm run build:ui` (and restart `ah ui`).
+
+### Fixed
+
+- Sink events are delivered in emit order with a bounded backlog.
+- `ah doctor`'s port check no longer flags this profile's own receiver.
+- Config layout: no sideways page scroll at narrow widths, a stable banner, and card errors shown
+  where they belong.
+- The UI header keeps its reading order between 900 and 1023 px.
+- Finished runs from a timed-out or failed usage export no longer log twice or affect the verdict.
+
+### Known limits
+
+- Energy measurement is gross draw and GPU-only on hwmon; CPU and the rest of the system are not
+  counted. The `command` source is the escape hatch for other GPUs.
+- Estimates are API-equivalent shadow prices, not your bill. Subscription plans show them by default.
+- Quota readings are Claude-only; Cursor, OpenCode and Hermes expose no quota.
+- Hermes isolated mode carries no credentials: cloud providers need `isolated: false` (which shares
+  your Hermes home) until a later opt-in credential key exists.
+- Hermes is experimental. Its token counts come from a post-run export, and its tool surface is
+  limited to `terminal,file` by default.
+
 ## [0.6.0] — 2026-10-16
 
 ### Added
