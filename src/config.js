@@ -58,7 +58,7 @@ export function discoverConfigPath(start = process.cwd()) {
 }
 
 /** Load a .env file into process.env without clobbering already-set vars. @param {string} file */
-function loadEnv(file) {
+export function loadEnv(file) {
   if (typeof process.loadEnvFile === "function" && fs.existsSync(file)) {
     try {
       process.loadEnvFile(file); // Node ≥ 20.12: does not overwrite existing vars
