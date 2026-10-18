@@ -147,4 +147,15 @@ describe("EpicStageBar running animation", () => {
   it("has no animated segment when nothing is running", () => {
     expect(bar({ merged: 2, finished: 0, running: 0, needsYou: 0, backlog: 2, untracked: 0 }, 4)).not.toContain("epic-seg-running");
   });
+  it("renders an all-done epic as a fully filled bar with a divider between merged and finished", () => {
+    const out = bar({ merged: 2, finished: 2, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 4);
+    const seg = (b: string) => out.match(new RegExp(`<span[^>]*data-seg="${b}"[^>]*>`))?.[0] ?? "";
+    expect(seg("merged")).toContain("bg-status-done");
+    expect(seg("merged")).not.toContain("/55");
+    expect(seg("finished")).toContain("bg-status-done");
+    expect(seg("finished")).not.toContain("/55");
+    expect(seg("finished")).toContain("border-l border-surface");
+    const pct = (s: string) => Number(s.match(/width:\s*([\d.]+)%/)?.[1] ?? 0);
+    expect(pct(seg("merged")) + pct(seg("finished"))).toBe(100);
+  });
 });
