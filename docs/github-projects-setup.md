@@ -88,12 +88,13 @@ option (a single `updateProjectV2ItemFieldValue` mutation) — single-occupancy,
 Projects v2 events (`projects_v2_item`) are delivered by an **org-level** webhook tied to a
 **fixed URL** — there is no per-project or per-repo hook for them. Two cases:
 
-- **Org-owned project** — `agenthook start` **auto-creates** one `projects_v2_item` org webhook
-  (scrubbing its own stale hooks first), signed with a secret agenthook generates. Deliveries are
+- **Org-owned project** — `agenthook start` **auto-creates** one org webhook subscribed to
+  `projects_v2_item` and `issue_comment` (the [`@agent` resume](#5-resuming-a-held-step)),
+  scrubbing its own stale hooks first, signed with a secret agenthook generates. Deliveries are
   verified via `x-hub-signature-256: sha256=<hex>` (constant-time HMAC). If the token lacks
   `admin:org_hook`, agenthook **prints copy-pasteable setup** (Org Settings → Webhooks → Add
-  webhook, with the URL, the `Projects v2 item` event, and the generated secret) to do once by
-  hand — the receiver keeps serving either way.
+  webhook, with the URL, the `Projects v2 item` + `Issue comments` events, and the generated
+  secret) to do once by hand — the receiver keeps serving either way.
 - **User-owned project** — there is **no PAT/UI path** to a `projects_v2_item` webhook (personal
   accounts have no webhook settings; the event is org-webhook- or GitHub-App-only). `start` prints
   why. **Move the project under an organization** (or use a GitHub App) to receive events.
@@ -120,10 +121,23 @@ board-wide (deliberate, not a default).
 ## 5. Resuming a held step
 
 The `@agent` reply resume ([architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply))
-is **not supported on GitHub Projects yet**: a comment does not re-run a held step. To resume,
-answer the agent's question, then set the card's Status from its `holdStatus` back to the step's
-`sourceStatus`. The step re-runs, but without your reply in its prompt. (A future adapter would need
-the `issue_comment` event on a repo or org hook; `projects_v2_item` does not carry comments.)
+works on GitHub Projects: answer a held card by commenting `@agent …` **on its issue**, as the token
+owner. The held step re-runs with your reply in its prompt. Comments live on the issue, not the
+card, so they arrive as `issue_comment`; agenthook maps the issue to its card on *this* board
+(through the issue's project items, one query), and resumes only when the issue is assigned to us,
+the card is held on a runnable step under its attempt cap, and — when that step sets a
+`holdStatus` — the card still sits in it. If you already moved the card elsewhere, the comment is
+ignored.
+
+The org webhook from §3 carries `issue_comment` already. Where there is no org hook — a
+**user-owned** board, or no `admin:org_hook` — add a **repo** webhook instead on each repo whose
+issues are on the board (Repo Settings → Webhooks → Add webhook): the same Payload URL
+(`<public-url>/github-projects/`), `application/json`, the same secret, and the **Issue comments**
+event. `agenthook start` prints these values. (On a user-owned board this gives you the resume only;
+Status moves still need an org hook or a GitHub App.)
+
+Moving the card from its `holdStatus` back to the step's `sourceStatus` also re-runs the step, but
+without your reply in its prompt.
 
 ## Epics
 

@@ -25,11 +25,18 @@
 //     new value, so we GraphQL the item to read its current Status option.
 //   - Webhooks for Projects v2 are ORG-scoped and can't be tied to a rotating URL, so
 //     run behind a STABLE ingress. For an ORG-owned project registerWebhook auto-creates
-//     (and scrubs) the projects_v2_item org hook via REST, signed with the generated
-//     secret, falling back to PRINTED manual setup when the token lacks admin:org_hook.
-//     A USER-owned project has no PAT webhook path at all (projects_v2_item is delivered
-//     only by an org webhook or a GitHub App), so it just prints why. The assignee "us"
-//     is the token owner's login (GraphQL `viewer`, cached). Scoping is FAIL CLOSED.
+//     (and scrubs) the org hook via REST — subscribed to projects_v2_item + issue_comment,
+//     signed with the generated secret — falling back to PRINTED manual setup when the
+//     token lacks admin:org_hook. A USER-owned project has no PAT webhook path for item
+//     moves (projects_v2_item is delivered only by an org webhook or a GitHub App), so it
+//     prints why. The assignee "us" is the token owner's login (GraphQL `viewer`, cached).
+//     Scoping is FAIL CLOSED.
+//   - The `@agent` resume rides `issue_comment` (comments live on the card's ISSUE, not
+//     the card): an OWNER-authored (strict isOwner, never isOurs) trigger comment on an
+//     issue whose card is on THIS board (Issue.projectItems, one query — no board scan),
+//     assigned to us, held on a runnable step and still in that step's holdStatus, resumes
+//     it (key `trigger:<comment.id>`). Delivered by the same org hook, or — for a user-owned
+//     board / no admin:org_hook — a REPO hook on the issue's repo (same URL + secret).
 //   - Epics (ADR 0003/0004): an Issue card whose issue type is `epicType` (default "Epic")
 //     OR that carries `epicLabel` (default "epic", any case) — the `github` tracker's rule,
 //     applied to the GraphQL shape via isEpicGqlIssue. A ticket's epic is its same-repo
@@ -38,6 +45,7 @@
 //     staged by its own card's Status on this board (null off-board). Epics never enter
 //     the pipeline (listResting/listQueued skip them; dispatch skips `isEpic`).
 import crypto from "node:crypto";
+import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { MoveRefusedError } from "./owner.js";
 import { isEpicIssue } from "./github.js";
 
@@ -320,6 +328,19 @@ export function createGithubProjectsAdapter(cfg, store) {
       return false;
     }
   }
+  /** Is this comment author the token owner? STRICT and independent of assigneeFilter
+   * (unlike isOurs): an `@agent` resume only counts from our own identity. An
+   * unresolvable login fails closed. @param {string|null|undefined} login @returns {Promise<boolean>} */
+  async function isOwner(login) {
+    if (!login) return false;
+    try {
+      const me = await ourLogin();
+      return !!me && norm(login) === norm(me);
+    } catch (e) {
+      console.error(`[viewer] could not resolve our login (failing closed):`, e instanceof Error ? e.message : e);
+      return false;
+    }
+  }
   /** Any of the item's issue assignees (issue.assignees.nodes[].login) is us?
    * @param {any} issue @returns {Promise<boolean>} */
   async function issueIsOurs(issue) {
@@ -407,6 +428,59 @@ export function createGithubProjectsAdapter(cfg, store) {
   async function findItem(ref) {
     const items = await fetchItems();
     return items.find((it) => it.issue?.__typename === "Issue" && String(it.issue.number) === String(ref)) || null;
+  }
+
+  /** The `@agent` comment trigger. Emits a resume job only when ALL hold (anything
+   * uncertain → no job), cheapest checks first so an unrelated org-wide comment costs no
+   * API call: a newly created comment on an issue (not a PR), whose body starts with
+   * cfg.trigger, authored by the token owner (strict — assigneeFilter:false does NOT open
+   * this up), on an issue whose card is on OUR board (one Issue.projectItems read, no
+   * board scan), assigned to us, held on a runnable step under its attempt cap
+   * (resumeJob) — and, when that step has a holdStatus, whose card still rests in it (a
+   * human may have moved it on). No holdStatus → the card never moved; the held record rules.
+   * @param {any} ev @returns {Promise<import('../types.js').Job[]>} */
+  async function resumeFromComment(ev) {
+    if (ev.action !== "created") return [];
+    if (!ev.issue || ev.issue.pull_request) return []; // issue_comment also fires for PR conversation comments
+    const c = ev.comment;
+    if (c?.id == null || !startsWithTrigger(cfg.trigger, c.body)) return [];
+    const label = `#${ev.issue.number ?? "?"}`;
+    if (!(await isOwner(c.user?.login))) {
+      console.log(`[trigger] ${label}: comment ${c.id} not by our login — ignoring`);
+      return [];
+    }
+    if (!ev.issue.node_id) return [];
+    let issue, card;
+    try {
+      const body = await gql(
+        `query($id:ID!){ node(id:$id){ ... on Issue { number assignees(first:10){ nodes{ login } }
+           projectItems(first:50){ nodes{ id project{ id } status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } }`,
+        { id: ev.issue.node_id },
+      );
+      issue = body.data?.node;
+      const ours = await projectId();
+      card = (issue?.projectItems?.nodes || []).find((/** @type {any} */ n) => n?.project?.id === ours);
+    } catch (e) {
+      console.error(`[trigger] ${label}: issue/board lookup failed (failing closed):`, e instanceof Error ? e.message : e);
+      return [];
+    }
+    if (issue?.number == null || !card) {
+      console.log(`[trigger] ${label}: not on our board — ignoring`);
+      return [];
+    }
+    const ref = String(issue.number);
+    if (!(await issueIsOurs(issue))) {
+      console.log(`[trigger] #${ref}: not assigned to us — ignoring`);
+      return [];
+    }
+    const held = store.getHeld(ref);
+    const holdStatus = held ? stepById(held.stepId)?.holdStatus : undefined;
+    if (holdStatus && norm(card.status?.name) !== norm(holdStatus)) {
+      console.log(`[trigger] #${ref}: card is in "${card.status?.name ?? "(none)"}", not "${holdStatus}" — ignoring`);
+      return [];
+    }
+    const job = resumeJob(cfg, store, ref, String(c.id), c.body);
+    return job ? [job] : [];
   }
 
   /** Set the item's Status single-select to a concrete option id (the move). Single-
@@ -530,15 +604,18 @@ export function createGithubProjectsAdapter(cfg, store) {
       return { type: "accept" };
     },
 
-    // One GitHub delivery = one event object; `X-GitHub-Event` names the type (we only
-    // care about `projects_v2_item`). We route:
+    // One GitHub delivery = one event object; `X-GitHub-Event` names the type (we care
+    // about `projects_v2_item` + `issue_comment`). We route:
     //   created → the step whose sourceStatus the new item rests in
     //             (state-based key `step:<id>:<ref>` — idempotent).
     //   edited  → ONLY when the changed field is the Status single-select; route to the
     //             step matching the item's NEW Status (event-based key `secmove:<delivery>`).
+    //   issue_comment created → the `@agent` resume of the issue's held step
+    //             (key `trigger:<comment.id>`; see resumeFromComment).
     // Items whose content isn't an Issue, and non-Status field edits, are ignored.
     async processEvents({ headers, rawBody }) {
-      if (norm(first(headers["x-github-event"])) !== "projects_v2_item") return [];
+      const kind = norm(first(headers["x-github-event"]));
+      if (kind !== "projects_v2_item" && kind !== "issue_comment") return [];
       let ev;
       try {
         ev = JSON.parse(rawBody);
@@ -546,6 +623,7 @@ export function createGithubProjectsAdapter(cfg, store) {
         console.error("[parse]", e instanceof Error ? e.message : e);
         return [];
       }
+      if (kind === "issue_comment") return resumeFromComment(ev);
       if (ev.action !== "created" && ev.action !== "edited") return [];
       const item = ev.projects_v2_item;
       if (!item?.node_id) return [];
@@ -776,15 +854,29 @@ export function createGithubProjectsAdapter(cfg, store) {
     },
 
     // Projects v2 webhooks are ORG-scoped and tied to a fixed URL (run behind a STABLE
-    // ingress). For an ORG-owned project: scrub our stale hooks, then create one
-    // `projects_v2_item` org hook signed with the generated secret — falling back to
-    // PRINTED manual setup when the token lacks admin:org_hook (403/404). For a USER-owned
-    // project there is no PAT/UI webhook path at all, so we print why. registerWebhook is
-    // awaited UNGUARDED at boot, so it must never throw — every failure keeps the receiver
-    // serving by printing instructions instead.
+    // ingress). For an ORG-owned project: scrub our stale hooks, then create one org hook
+    // (`projects_v2_item` + `issue_comment`, the `@agent` resume) signed with the generated
+    // secret — falling back to PRINTED manual setup when the token lacks admin:org_hook
+    // (403/404). For a USER-owned project there is no PAT/UI webhook path for item moves,
+    // so we print why — plus the per-repo `issue_comment` hook that still carries the
+    // resume (printed only: never auto-created, and no board read to enumerate repos).
+    // registerWebhook is awaited UNGUARDED at boot, so it must never throw — every failure
+    // keeps the receiver serving by printing instructions instead.
     async registerWebhook(publicUrl) {
       const target = `${publicUrl.replace(/\/$/, "")}/github-projects/`;
       const secret = webhookSecret();
+      const secretLine = secret
+        ? `           Secret:       ${secret}`
+        : `           Secret:       (none — verification disabled via "webhookSecret": false)`;
+      // The `@agent` resume needs only `issue_comment`, which a plain REPO hook delivers.
+      const repoHookLines = [
+        `       For the @agent resume, a REPO hook also works: on each repo whose issues are`,
+        `       on the board, Repo Settings → Webhooks → Add webhook`,
+        `           Payload URL:  ${target}`,
+        `           Content type: application/json`,
+        `           Events:       "Issue comments" (let me select individual events)`,
+        secretLine,
+      ];
       // Copy-pasteable org-webhook setup — printed when the token can't create the hook.
       const printManual = () =>
         console.log(
@@ -794,11 +886,10 @@ export function createGithubProjectsAdapter(cfg, store) {
             `         Org Settings → Webhooks → Add webhook`,
             `           Payload URL:  ${target}`,
             `           Content type: application/json`,
-            `           Events:       "Projects v2 item" (let me select individual events)`,
-            secret
-              ? `           Secret:       ${secret}`
-              : `           Secret:       (none — verification disabled via "webhookSecret": false)`,
+            `           Events:       "Projects v2 item" + "Issue comments" (let me select individual events)`,
+            secretLine,
             secret ? `         ↑ agenthook generated + stored this. Paste it verbatim into the Secret field.` : ``,
+            ...repoHookLines,
             `       This URL is fixed, so run agenthook behind a STABLE ingress`,
             `       (ngrok reserved 'domain', or a hosted URL) — not an ephemeral tunnel.`,
           ]
@@ -825,12 +916,16 @@ export function createGithubProjectsAdapter(cfg, store) {
             `       registered with a PAT: GitHub delivers projects_v2_item only via an ORG`,
             `       webhook or a GitHub App, and personal accounts have no webhook settings.`,
             `       Move the project under an organization (or use a GitHub App) to receive events.`,
-          ].join("\n"),
+            ...repoHookLines,
+            secret ? `         ↑ agenthook generated + stored this secret. Paste it verbatim.` : ``,
+          ]
+            .filter(Boolean)
+            .join("\n"),
         );
         return;
       }
 
-      // Org-owned: scrub our stale hooks, then create one signed projects_v2_item hook. A
+      // Org-owned: scrub our stale hooks, then create one signed hook for both events. A
       // missing-scope 403/404 (on either the list or the create) falls back to manual setup.
       try {
         await deleteOurHooks();
@@ -839,7 +934,7 @@ export function createGithubProjectsAdapter(cfg, store) {
           body: JSON.stringify({
             name: "web",
             active: true,
-            events: ["projects_v2_item"],
+            events: ["projects_v2_item", "issue_comment"],
             config: { url: target, content_type: "json", insecure_ssl: "0", ...(secret ? { secret } : {}) },
           }),
         });
