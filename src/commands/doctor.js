@@ -3,15 +3,17 @@
 // git repo, agent/ngrok binaries absent, port already taken, ingress misconfigured.
 // Multi-repo profiles also get routing lints; ⚠ warnings print but don't fail the run.
 // (Duplicate repo ids / paths / route keys and >1 default are already fatal in loadConfig.)
+// `--fix` applies the safe, local, idempotent fixes a ✗/⚠ check carries, then re-checks.
 import fs from "node:fs";
+import net from "node:net";
 import { portInUse } from "../port.js";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadConfig } from "../config.js";
+import { loadConfig, ensurePrivateDir } from "../config.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo } from "../repos.js";
 import { listWorktrees } from "../worktree.js";
-import { readProfile } from "../heartbeat.js";
+import { readProfile, isAlive, instructionTargets } from "../heartbeat.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 import { fileURLToPath } from "node:url";
 import { agentFor } from "../agents/index.js";
@@ -168,34 +170,272 @@ export function portCheck({ port, busy, profile }) {
   return { level: "fail", label: `port ${port} is free`, note: "something is already listening" };
 }
 
-/** @param {any} args */
-export async function doctor(args) {
-  /** @type {{ok:boolean, warn?:boolean, info?:boolean, label:string, note?:string}[]} */
-  const checks = [];
-  /** @param {boolean} ok @param {string} label @param {string} [note] */
-  const add = (ok, label, note) => checks.push({ ok, label, note });
-  /** A ⚠ line: shown, but not counted as a problem. @param {string} label @param {string} [note] */
-  const warn = (label, note) => checks.push({ ok: true, warn: true, label, note });
-  /** An ℹ line: informational only. @param {string} label @param {string} [note] */
-  const info = (label, note) => checks.push({ ok: true, info: true, label, note });
+/** A check's remedy: a safe local fix (`describe` is its `--dry-run` text) or the manual
+ * action for a problem that is never auto-fixed. Only ✗/⚠ checks carry one.
+ * @typedef {{ describe: string, apply: () => void|Promise<void> } | { manual: string }} Fix */
+/** @typedef {{ ok: boolean, warn?: boolean, info?: boolean, label: string, note?: string, fix?: Fix }} Check */
+/** A detector's problem. @typedef {{ level: 'fail'|'warn', label: string, note?: string, fix?: Fix }} Finding */
+/** The child-process seam for the two fixers that shell out (tests inject a recorder).
+ * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any}) => { status: number|null }} Spawner */
 
-  const cfg = loadConfig({ configPath: args.config }); // throws (and surfaces unset ${VARs}) if broken
+/** A pidfile's raw text and pid (0 when unparsable); null when absent/unreadable. @param {string} file */
+function readPidFile(file) {
+  try {
+    const text = fs.readFileSync(file, "utf8");
+    return { text, pid: Number(text.trim()) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** The state dir exists but group/other can read it (POSIX only) — run logs, verdicts and
+ * the control socket live there. A missing dir is not a problem (boot creates it 0700).
+ * @param {Pick<import('../types.js').Config, 'stateDir'>} cfg @param {{platform?: string}} [io]
+ * @returns {Finding[]} */
+export function stateDirLints(cfg, { platform = process.platform } = {}) {
+  if (platform === "win32" || !fs.existsSync(cfg.stateDir)) return [];
+  const mode = fs.statSync(cfg.stateDir).mode & 0o777;
+  if (!(mode & 0o077)) return [];
+  return [
+    {
+      level: "warn",
+      label: "state dir is private (0700)",
+      note: `mode 0${mode.toString(8)} — group/other can read it`,
+      fix: { describe: `chmod 0700 ${cfg.stateDir}`, apply: () => void ensurePrivateDir(cfg.stateDir, { tighten: true }) },
+    },
+  ];
+}
+
+/** A pidfile whose pid is not alive: the receiver died without cleaning up. The fix removes
+ * it only if it still holds the same content (a receiver booting meanwhile rewrites it).
+ * @param {Pick<import('../types.js').Config, 'pidFile'>} cfg @param {{isAlive?: (pid: number) => boolean}} [io]
+ * @returns {Finding[]} */
+export function pidfileLints(cfg, { isAlive: alive = isAlive } = {}) {
+  const rec = readPidFile(cfg.pidFile);
+  if (!rec || alive(rec.pid)) return [];
+  return [
+    {
+      level: "warn",
+      label: "stale pidfile",
+      note: `${cfg.pidFile} names pid ${rec.pid || "?"}, which is not running`,
+      fix: {
+        describe: `remove ${cfg.pidFile}`,
+        apply: () => {
+          if (readPidFile(cfg.pidFile)?.text !== rec.text) throw new Error("the pidfile changed — a receiver may be starting; re-run doctor");
+          fs.rmSync(cfg.pidFile, { force: true });
+        },
+      },
+    },
+  ];
+}
+
+/** Connect to a unix socket: `open` (something listens), `dead` (ECONNREFUSED/ENOENT — no
+ * listener), `unknown` (any other error or no answer within `timeoutMs`).
+ * @param {string} sock @param {number} [timeoutMs] @returns {Promise<'open'|'dead'|'unknown'>} */
+export function probeSocket(sock, timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const s = net.connect(sock);
+    /** @param {'open'|'dead'|'unknown'} r */
+    const done = (r) => {
+      s.destroy();
+      resolve(r);
+    };
+    s.once("connect", () => done("open"));
+    s.once("error", (/** @type {any} */ e) => done(e.code === "ECONNREFUSED" || e.code === "ENOENT" ? "dead" : "unknown"));
+    s.setTimeout(timeoutMs, () => done("unknown"));
+  });
+}
+
+/** A leftover `control.sock` (POSIX only): present, no live pid in the pidfile, AND nothing
+ * accepts a connect. A dead pid alone is not proof — a booting receiver listens on the socket
+ * before it writes its pidfile. The fix re-probes before removing it.
+ * @param {Pick<import('../types.js').Config, 'pidFile'|'controlSock'>} cfg
+ * @param {{isAlive?: (pid: number) => boolean, probe?: (sock: string) => Promise<'open'|'dead'|'unknown'>, platform?: string}} [io]
+ * @returns {Promise<Finding[]>} */
+export async function controlSockLints(cfg, { isAlive: alive = isAlive, probe = probeSocket, platform = process.platform } = {}) {
+  if (platform === "win32" || !fs.existsSync(cfg.controlSock)) return [];
+  if (alive(readPidFile(cfg.pidFile)?.pid ?? 0)) return [];
+  if ((await probe(cfg.controlSock)) !== "dead") return [];
+  return [
+    {
+      level: "warn",
+      label: "stale control socket",
+      note: `${cfg.controlSock} has no listener`,
+      fix: {
+        describe: `remove ${cfg.controlSock}`,
+        apply: async () => {
+          if ((await probe(cfg.controlSock)) !== "dead") throw new Error("something now listens on it — a receiver may be starting");
+          fs.rmSync(cfg.controlSock, { force: true });
+        },
+      },
+    },
+  ];
+}
+
+/** Step/default/repo instruction files that don't exist — a run reads them as "" and goes
+ * with no standing instructions, silently. The fix copies the packaged template in, never
+ * overwriting (`wx`; EEXIST counts as fixed). The Digest's SOUL file is out of scope.
+ * @param {import('../types.js').Config} cfg @returns {Finding[]} */
+export function instructionLints(cfg) {
+  const template = path.join(cfg.installDir, "INSTRUCTIONS.example.md");
+  /** @type {Finding[]} */
+  const out = [];
+  for (const t of instructionTargets(cfg)) {
+    if (t.scope === "soul" || fs.existsSync(t.path)) continue;
+    out.push({
+      level: "fail",
+      label: `instructions file exists: ${t.path}`,
+      note: `missing — ${t.scope === "repo" ? "repo" : "step"} ${t.ids.join(", ")} would run with empty standing instructions`,
+      fix: {
+        describe: `create ${t.path} from INSTRUCTIONS.example.md`,
+        apply: () => {
+          const text = fs.readFileSync(template);
+          fs.mkdirSync(path.dirname(t.path), { recursive: true });
+          try {
+            fs.writeFileSync(t.path, text, { flag: "wx" });
+          } catch (e) {
+            if (e.code !== "EEXIST") throw e;
+          }
+        },
+      },
+    });
+  }
+  return out;
+}
+
+/** The existing UI-bundle warning (checkout only — an npm install is `no-src`), with
+ * `npm run build:ui` in the install dir as its fix.
+ * @param {{state: string, newest?: string}} bundle @param {{installDir: string, spawn?: Spawner}} io
+ * @returns {Finding[]} */
+export function uiBundleLints(bundle, { installDir, spawn = spawnSync }) {
+  /** @type {Fix} */
+  const fix = {
+    describe: `run \`npm run build:ui\` in ${installDir}`,
+    apply: () => {
+      const r = spawn("npm", ["run", "build:ui"], { cwd: installDir, stdio: "inherit" });
+      if (r.status !== 0) throw new Error(`run \`npm run build:ui\` in ${installDir}`);
+    },
+  };
+  if (bundle.state === "missing") return [{ level: "warn", label: "UI bundle built", note: "ui/dist missing — run `npm run build:ui`", fix }];
+  if (bundle.state === "stale") return [{ level: "warn", label: "UI bundle up to date", note: `${bundle.newest} is newer than ui/dist — run \`npm run build:ui\``, fix }];
+  return [];
+}
+
+/** Per git repo: a missing worktree base (fix: create it), and worktrees git reports as
+ * prunable under that base (fix: `git worktree prune`, which only drops git's admin entries
+ * for already-deleted dirs — branches and commits stay). Repos without `.git` are skipped
+ * (doctor already fails them).
+ * @param {import('../types.js').Config} cfg
+ * @param {{listWorktrees?: (repoPath: string) => { path: string, prunable?: boolean }[], spawn?: Spawner}} [io]
+ * @returns {Finding[]} */
+export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn = spawnSync } = {}) {
+  /** @type {Finding[]} */
+  const out = [];
+  const seenBase = new Set();
+  for (const repo of reposOf(cfg)) {
+    if (!fs.existsSync(path.join(repo.path, ".git"))) continue;
+    const base = worktreeDir(cfg, repo);
+    const who = cfg.multiRepo ? ` for "${repo.id}"` : "";
+    if (!seenBase.has(base) && !fs.existsSync(base)) {
+      out.push({ level: "warn", label: `worktree base exists${who}: ${base}`, note: "missing", fix: { describe: `mkdir -p ${base}`, apply: () => void fs.mkdirSync(base, { recursive: true }) } });
+    }
+    seenBase.add(base);
+    /** @type {string[]} */
+    let prunable;
+    try {
+      prunable = list(repo.path)
+        .filter((w) => w.prunable && w.path.startsWith(base + path.sep))
+        .map((w) => w.path);
+    } catch {
+      continue;
+    }
+    if (!prunable.length) continue;
+    const argv = ["-C", repo.path, "worktree", "prune"];
+    out.push({
+      level: "warn",
+      label: `prunable worktrees${who}`,
+      note: `${prunable.join(", ")} — dir gone, git still lists it`,
+      fix: {
+        describe: `git ${argv.join(" ")}`,
+        apply: () => {
+          const r = spawn("git", argv, { stdio: "ignore" });
+          if (r.status !== 0) throw new Error(`\`git ${argv.join(" ")}\` exited ${r.status}`);
+        },
+      },
+    });
+  }
+  return out;
+}
+
+/** The env var the raw config's `tracker.token` references (`${VAR}`), for the remedy text.
+ * @param {string} configPath @returns {string|null} */
+export function tokenVar(configPath) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    return /\$\{(\w+)\}/.exec(String(raw?.tracker?.token ?? raw?.token ?? ""))?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Doctor's side-effecting probes, overridable for tests.
+ * @typedef {{
+ *   onPath?: (bin: string) => boolean,
+ *   portInUse?: (port: number) => Promise<boolean>,
+ *   isAlive?: (pid: number) => boolean,
+ *   probe?: (sock: string) => Promise<'open'|'dead'|'unknown'>,
+ *   spawn?: Spawner,
+ *   listWorktrees?: (repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
+ *   uiBundle?: () => {state: 'no-src'|'missing'|'stale'|'fresh', newest?: string},
+ *   platform?: string,
+ * }} DoctorIo */
+
+/** Run every check against a loaded config; prints nothing.
+ * @param {import('../types.js').Config} cfg @param {DoctorIo} [io] @returns {Promise<Check[]>} */
+export async function runChecks(cfg, io = {}) {
+  const {
+    onPath: have = onPath,
+    portInUse: busyPort = portInUse,
+    isAlive: alive = isAlive,
+    probe = probeSocket,
+    spawn = spawnSync,
+    listWorktrees: list = listWorktrees,
+    uiBundle = () => uiBundleState({ srcDir: UI_SRC_DIR, distDir: UI_DIST_DIR }),
+    platform = process.platform,
+  } = io;
+  /** @type {Check[]} */
+  const checks = [];
+  /** @param {boolean} ok @param {string} label @param {string} [note] @param {Fix} [fix] */
+  const add = (ok, label, note, fix) => checks.push({ ok, label, note, fix });
+  /** A ⚠ line: shown, but not counted as a problem. @param {string} label @param {string} [note] @param {Fix} [fix] */
+  const warn = (label, note, fix) => checks.push({ ok: true, warn: true, label, note, fix });
+  /** An ℹ line: informational only, never carries a fix. @param {string} label @param {string} [note] */
+  const info = (label, note) => checks.push({ ok: true, info: true, label, note });
+  /** @param {Finding} f */
+  const finding = (f) => (f.level === "fail" ? add(false, f.label, f.note, f.fix) : warn(f.label, f.note, f.fix));
+
   add(true, `config loaded: ${cfg.configPath}`);
   if (fs.existsSync(cfg.stateDir)) add(true, `profile "${cfg.name}" — state ${cfg.stateDir}`);
   else info(`profile "${cfg.name}" — state dir not created yet (profile never started)`, cfg.stateDir);
+  stateDirLints(cfg, { platform }).forEach(finding);
+  pidfileLints(cfg, { isAlive: alive }).forEach(finding);
+  (await controlSockLints(cfg, { isAlive: alive, probe, platform })).forEach(finding);
 
   const profile = readProfile(cfg.stateKey);
 
   if (cfg.provider === "local") info("local tracker — no token needed");
-  else add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref");
+  else {
+    const v = tokenVar(cfg.configPath);
+    add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref", { manual: v ? `set ${v} in .env (or the env), then re-run doctor` : "set tracker.token to a ${VAR} ref, set that VAR in .env (or the env), then re-run doctor" });
+  }
 
   for (const repo of reposOf(cfg)) {
     const isGit = fs.existsSync(path.join(repo.path, ".git"));
     const label = cfg.multiRepo ? `repo "${repo.id}" is a git repo: ${repo.path}` : `repoPath is a git repo: ${repo.path}`;
-    add(isGit, label, isGit ? "" : "no .git found");
+    add(isGit, label, isGit ? "" : "no .git found", { manual: `point ${cfg.multiRepo ? `repo "${repo.id}"'s path` : "repoPath"} at a git checkout (or \`git init\` it)` });
   }
   for (const l of repoLints(cfg)) {
-    if (l.level === "fail") add(false, l.label, l.note);
+    if (l.level === "fail") add(false, l.label, l.note, { manual: "set tracker.routeField in the config to the field that names each ticket's repo" });
     else warn(l.label, l.note);
   }
   if (cfg.multiRepo) {
@@ -203,7 +443,7 @@ export async function doctor(args) {
       /** @type {string[]} */
       let paths;
       try {
-        paths = listWorktrees(repo.path).map((w) => w.path);
+        paths = list(repo.path).map((w) => w.path);
       } catch {
         continue; // not a git repo — already flagged above
       }
@@ -211,11 +451,12 @@ export async function doctor(args) {
       if (orphans.length) warn(`legacy worktrees in "${repo.id}"`, `${orphans.join(", ")} — pre-repos layout; finish or drain them, then \`agenthook cleanup\``);
     }
   }
+  instructionLints(cfg).forEach(finding);
 
   const binChecks = agentBinChecks(cfg);
-  for (const { bin, agent, steps } of binChecks) add(onPath(bin), `${agent} binary on PATH: ${bin} (steps: ${steps.join(", ")})`);
+  for (const { bin, agent, steps } of binChecks) add(have(bin), `${agent} binary on PATH: ${bin} (steps: ${steps.join(", ")})`, undefined, { manual: `install ${bin} or put it on PATH` });
   // No step spawns claudeBin, but the on-demand Digest still does — missing it is a warning only.
-  if (!binChecks.some((c) => c.bin === cfg.claudeBin) && !onPath(cfg.claudeBin)) {
+  if (!binChecks.some((c) => c.bin === cfg.claudeBin) && !have(cfg.claudeBin)) {
     warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");
   }
   for (const l of agentLints(cfg)) warn(l.label, l.note);
@@ -229,26 +470,25 @@ export async function doctor(args) {
   for (const l of hermesLints(cfg, { sourceHome: hermesSourceHome(), readFile })) warn(l.label, l.note);
 
   if (cfg.ingress.type === "ngrok") {
-    add(onPath(process.env.NGROK || "ngrok"), "ngrok binary on PATH");
+    add(have(process.env.NGROK || "ngrok"), "ngrok binary on PATH", undefined, { manual: "install ngrok or put it on PATH (or set $NGROK)" });
   } else {
-    add(!!cfg.ingress.url, `ingress.url set (${cfg.ingress.type})`, cfg.ingress.url || "missing");
+    add(!!cfg.ingress.url, `ingress.url set (${cfg.ingress.type})`, cfg.ingress.url || "missing", { manual: "set ingress.url in the config" });
   }
 
-  const busy = await portInUse(cfg.port);
+  const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });
   if (pc.level === "info") info(pc.label, pc.note);
-  else add(pc.level === "ok", pc.label, pc.note);
+  else add(pc.level === "ok", pc.label, pc.note, { manual: `stop whatever listens on port ${cfg.port}, or set a different "port" in the config` });
 
   const unfilled = unfilledBindings(cfg.pipeline);
-  add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "");
+  add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "", { manual: `fill ${unfilled.join(", ")} in the config with real tracker stages` });
 
   for (const l of forgeLints(cfg)) warn(l.label, l.note);
 
-  const bundle = uiBundleState({ srcDir: UI_SRC_DIR, distDir: UI_DIST_DIR });
-  if (bundle.state === "missing") warn("UI bundle built", "ui/dist missing — run `npm run build:ui`");
-  else if (bundle.state === "stale") warn("UI bundle up to date", `${bundle.newest} is newer than ui/dist — run \`npm run build:ui\``);
+  uiBundleLints(uiBundle(), { installDir: cfg.installDir, spawn }).forEach(finding);
+  worktreeLints(cfg, { listWorktrees: list, spawn }).forEach(finding);
 
-  if (process.platform === "linux") {
+  if (platform === "linux") {
     const scopeOn = systemdScopeAvailable();
     info(`start --detach will use a systemd user scope: ${scopeOn}`, process.env.AGENTHOOK_NO_SYSTEMD_SCOPE === "1" ? "AGENTHOOK_NO_SYSTEMD_SCOPE=1 disables it" : "");
     if (profile.up) {
@@ -263,14 +503,66 @@ export async function doctor(args) {
       }
     }
   }
+  return checks;
+}
 
+/** A ✗ or ⚠ check (ℹ and ✓ lines are never problems). @param {Check} c */
+const isProblem = (c) => !c.info && (!c.ok || !!c.warn);
+/** @param {Fix|undefined} fix @returns {fix is { describe: string, apply: () => void|Promise<void> }} */
+const autoFix = (fix) => !!fix && "apply" in fix;
+
+/** How many ✗/⚠ checks `--fix` can repair. @param {Check[]} checks */
+export const fixableCount = (checks) => checks.filter((c) => isProblem(c) && autoFix(c.fix)).length;
+
+/** Apply (or under `dryRun`, plan) every problem's fix in check order, one line each:
+ * `fixed:`, `would fix:`, or `can't fix:` (manual-only, or `apply` threw — never aborts the rest).
+ * @param {Check[]} checks @param {{dryRun?: boolean, log?: (line: string) => void}} [opts]
+ * @returns {Promise<string[]>} the printed lines */
+export async function applyFixes(checks, { dryRun = false, log = console.log } = {}) {
+  /** @type {string[]} */
+  const lines = [];
+  /** @param {string} l */
+  const say = (l) => (lines.push(l), log(l));
+  for (const c of checks) {
+    if (!isProblem(c) || !c.fix) continue;
+    const fix = c.fix;
+    if (!autoFix(fix)) say(`can't fix: ${c.label} — ${"manual" in fix ? fix.manual : ""}`);
+    else if (dryRun) say(`would fix: ${c.label} — ${fix.describe}`);
+    else {
+      try {
+        await fix.apply();
+        say(`fixed: ${c.label}`);
+      } catch (e) {
+        say(`can't fix: ${c.label} — ${e?.message ?? e}`);
+      }
+    }
+  }
+  return lines;
+}
+
+/** Print the ✓/✗/⚠/ℹ report and summary; returns the ✗ count.
+ * @param {Check[]} checks @param {{hint?: boolean, log?: (line: string) => void}} [opts] */
+export function report(checks, { hint = true, log = console.log } = {}) {
   let bad = 0;
   let warned = 0;
   for (const c of checks) {
-    console.log(`${c.info ? "ℹ" : c.warn ? "⚠" : c.ok ? "✓" : "✗"} ${c.label}${c.note ? `  — ${c.note}` : ""}`);
+    log(`${c.info ? "ℹ" : c.warn ? "⚠" : c.ok ? "✓" : "✗"} ${c.label}${c.note ? `  — ${c.note}` : ""}`);
     if (!c.ok) bad++;
     if (c.warn) warned++;
   }
-  console.log(bad ? `\n${bad} problem(s) found.` : warned ? `\nno problems; ${warned} warning(s).` : `\nall good.`);
-  if (bad) process.exitCode = 1;
+  log(bad ? `\n${bad} problem(s) found.` : warned ? `\nno problems; ${warned} warning(s).` : `\nall good.`);
+  const n = fixableCount(checks);
+  if (hint && n) log(`${n} can be fixed with \`agenthook doctor --fix\``);
+  return bad;
+}
+
+/** @param {any} args */
+export async function doctor(args) {
+  const cfg = loadConfig({ configPath: args.config }); // throws (and surfaces unset ${VARs}) if broken
+  if (args.fix) {
+    await applyFixes(await runChecks(cfg), { dryRun: !!args["dry-run"] });
+    if (args["dry-run"]) return;
+    console.log("");
+  }
+  if (report(await runChecks(cfg), { hint: !args.fix })) process.exitCode = 1;
 }
