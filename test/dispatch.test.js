@@ -1239,3 +1239,47 @@ test("run_end + usage record: an unpriced run whose model has a `pricing` rate i
   assert.equal(r.usage[0].unpriced, true);
   assert.equal(r.usage[0].estUsd, 1.5);
 });
+
+// --- quota (#397): a Claude run's rate_limit_event reaches opts.onQuota; other agents never do ---
+
+test("onQuota: a claude run's rate_limit_event reaches the hook stamped with asOf; a non-claude agent's never does", async () => {
+  const fixture = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "claude-rate-limit-event.jsonl");
+  /** @param {string} agent */
+  const runWith = async (agent) => {
+    const dir = tmpDir();
+    const bin = path.join(dir, "fake-agent.sh");
+    fs.writeFileSync(bin, `#!/bin/sh\ncat "${fixture}"\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+    const cfg = /** @type {any} */ ({
+      pipeline: [{ id: "code", agent, bin }, { id: "done", manual: true }],
+      claudeBin: bin,
+      repoPath: dir,
+      worktreePrefix: path.join(dir, "wt"),
+      dataDir: dir,
+      logDir: dir,
+      instructionsFile: path.join(dir, "none.md"),
+    });
+    const adapter = /** @type {any} */ ({
+      describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+      fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+      advance: async () => {},
+    });
+    /** @type {any[]} */
+    const seen = [];
+    const run = createDispatcher(cfg, adapter, undefined, createStore(dir), () => {}, null, undefined, { onQuota: (q) => seen.push(q) });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "k" });
+    } finally {
+      console.log = log;
+    }
+    return seen;
+  };
+  const before = Date.now();
+  const got = await runWith("claude");
+  assert.equal(got.length, 1);
+  const { asOf, ...q } = got[0];
+  assert.deepEqual(q, { fiveHour: { utilization: 0.08, resetsAt: "2026-10-18T18:10:00.000Z" }, sevenDay: { utilization: 0.66, resetsAt: "2026-10-18T21:00:00.000Z" } });
+  assert.ok(Date.parse(asOf) >= before - 1000);
+  assert.deepEqual(await runWith("cursor"), []);
+});

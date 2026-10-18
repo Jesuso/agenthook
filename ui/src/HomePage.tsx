@@ -1,5 +1,5 @@
 import type { ProfileView, Snapshot } from "./contract";
-import { formatAgents, formatLastEvent, formatSpend, formatRelative, formatUp, profileBadge, profileLabel } from "./format";
+import { formatAgents, formatLastEvent, formatSpend, formatRelative, formatUp, profileBadge, profileLabel, quotaPausedTitle } from "./format";
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
@@ -103,6 +103,11 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
             {p.paused === true && (
               <Pill tone="held" title="operator pause: no new runs start; running agents finish (a restart clears it)">
                 paused
+              </Pill>
+            )}
+            {p.quotaPaused && (
+              <Pill tone="held" title={quotaPausedTitle(p.quotaPaused)}>
+                quota paused
               </Pill>
             )}
             {badge && (

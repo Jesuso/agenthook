@@ -198,9 +198,9 @@ test("readEventsTail skips garbage lines; missing file → []", () => {
 
 test("readProfileState: missing or garbage state files read as empty without throwing", () => {
   const dir = tmp();
-  assert.deepEqual(readProfileState(dir), { running: {}, queue: [], held: {}, refmeta: {}, events: [] });
-  writeState(dir, { "running.json": "{oops", "queue.json": { not: "array" }, "held.json": [1], "refmeta.json": "null", "events.jsonl": "\0\0\0" });
-  assert.deepEqual(readProfileState(dir), { running: {}, queue: [], held: {}, refmeta: {}, events: [] });
+  assert.deepEqual(readProfileState(dir), { running: {}, queue: [], held: {}, refmeta: {}, quota: null, events: [] });
+  writeState(dir, { "running.json": "{oops", "queue.json": { not: "array" }, "held.json": [1], "refmeta.json": "null", "quota.json": [1], "events.jsonl": "\0\0\0" });
+  assert.deepEqual(readProfileState(dir), { running: {}, queue: [], held: {}, refmeta: {}, quota: null, events: [] });
   writeState(dir, { "queue.json": [null, 3, { ref: "q", stepId: "code" }] });
   assert.deepEqual(readProfileState(dir).queue, [{ ref: "q", stepId: "code" }]);
 });
@@ -223,12 +223,16 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
       updatedAt: "u",
       queue: { active: 2, queued: 1 },
       lastEvent: { at: "t", kind: "pipeline", ref: "9", step: "code", extra: "/home/u/secret" },
+      quotaPaused: { window: "sevenDay", utilization: 0.95, threshold: 0.9, resetsAt: "2026-10-20T00:00:00.000Z", extra: "/home/u/secret" },
     },
     "server.pid": String(process.pid),
     "secrets.json": { "/github": "hunter2" },
     "refmeta.json": { 9: { displayId: "#9", title: "Nine", pr: 42 } },
   });
-  writeState(path.join(reg, "down"), { "held.json": { x: { stepId: "triage", reason: "?", heldAt: "t" } } });
+  writeState(path.join(reg, "down"), {
+    "held.json": { x: { stepId: "triage", reason: "?", heldAt: "t" } },
+    "quota.json": { sevenDay: { utilization: 0.66, resetsAt: "2026-10-20T00:00:00.000Z", path: "/home/u/secret" }, fiveHour: { utilization: "x", resetsAt: "y" }, asOf: "2026-10-18T10:00:00.000Z" },
+  });
 
   const snap = buildSnapshot(reg);
   assert.deepEqual(snap.profiles.map((p) => p.name), ["down", "live"]);
@@ -251,6 +255,8 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     active: 2,
     queued: 1,
     paused: false,
+    quotaPaused: { window: "sevenDay", utilization: 0.95, threshold: 0.9, resetsAt: "2026-10-20T00:00:00.000Z" },
+    quota: null,
     restartPending: false,
     lastEvent: { at: "t", kind: "pipeline", ref: "9", step: "code" },
     configPath: null,
@@ -266,6 +272,9 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
   assert.equal(down.up, false);
   assert.equal(down.port, null);
   assert.equal(down.tracker, null);
+  // quota.json outlives the heartbeat: shown while down, validated numbers only.
+  assert.deepEqual(down.quota, { sevenDay: { utilization: 0.66, resetsAt: "2026-10-20T00:00:00.000Z" }, asOf: "2026-10-18T10:00:00.000Z" });
+  assert.equal(down.quotaPaused, null);
 
   const json = JSON.stringify(snap);
   for (const leak of ["ngrok.app", "/home/u", "hunter2", "repoPath", "secrets"]) assert.ok(!json.includes(leak), `snapshot leaks ${leak}`);

@@ -61,6 +61,38 @@ and `ls`. See [Token & cost tracking](usage.md).
 Agents never remove their own worktrees (INSTRUCTIONS §7); `cleanup` is the one place that
 does, and only once the PR is merged/closed or the tracker item is completed.
 
+### Claude quota readout and pacing
+
+Every `claude -p` run reports how much of the Claude subscription quota is used — the 5-hour and
+the 7-day (weekly) windows, each with its reset time. After each Claude run the receiver keeps the
+latest reading in `~/.agenthook/<name>/quota.json` (Cursor, Hermes and OpenCode report no quota
+and never write it). Because it is its own file, the readout works with the receiver **down** too:
+
+- `agenthook status` prints `quota   : weekly 66% · resets in 2d 4h · 5h 8% (as of 3m ago)`;
+- the MCP `status` / `tick` tools carry `quota` (`{sevenDay?, fiveHour?: {utilization, resetsAt}, asOf}`,
+  utilization 0–1);
+- `ah ui` shows it on the profile's Overview and in the top bar inside a profile.
+
+The "as of" age is the time since the last Claude run; a window whose reset has passed reads as
+`reset` (its old number no longer applies).
+
+**Pacing (opt-in, default off).** Set a [`quota`](configuration.md#configuration) threshold and the
+receiver stops *starting* new runs once a reading is at or above it — `{"quota": {"pauseAboveSevenDay": 0.9}}`
+pauses at 90 % weekly use. Running agents always finish; webhooks still queue (as with
+`pause`). It resumes by itself at that window's reset (one timer at the reset time — no polling),
+or at once when a newer reading is below the threshold. Each pause/resume emits `quota_pause` /
+`quota_resume`, is audited to `control-audit.jsonl` (actor `quota`), and shows as a `paced` line
+in `agenthook status`, `quotaPaused` in MCP `status` (`slots.free` reads 0) and a **quota paused**
+badge in `ah ui`. On boot the receiver re-checks the saved reading before it admits any work.
+
+Your own pause/resume always wins:
+
+- **pause** (MCP / `ah ui`) during a quota pause: the reset does not resume the queue — your `resume` does.
+- **resume** during a quota pause: lifts it now and holds the pacer off until that window resets
+  (another high reading in the same window does not pause again; the next window can). Restarting
+  the receiver drops this override.
+- A pending restart or decommission keeps the queue paused even when the quota resets.
+
 ## Event-driven delivery loop
 
 Drive one or more profiles off the event bus instead of polling the board. The loop:

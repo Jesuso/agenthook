@@ -65,3 +65,14 @@ test("status: a cleanly-stopped profile (marker only) is shown, not 'no such pro
 
   assert.deepEqual(await runStatus("status-nope"), ['no such profile "status-nope" (nothing under ~/.agenthook/status-nope).']);
 });
+
+test("status: the quota line shows with the receiver down (quota.json outlives the heartbeat), with its age", async () => {
+  const dir = path.join(registryDir, "status-quota");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "Quota", stateKey: "status-quota", configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+  const now = Date.now();
+  const iso = (/** @type {number} */ ms) => new Date(now + ms).toISOString();
+  fs.writeFileSync(path.join(dir, "quota.json"), JSON.stringify({ sevenDay: { utilization: 0.66, resetsAt: iso(2 * 86400e3 + 4 * 3600e3 + 30e3) }, fiveHour: { utilization: 0.08, resetsAt: iso(3600e3) }, asOf: iso(-3 * 60e3 - 5e3) }));
+  const out = await runStatus("status-quota");
+  assert.equal(out.find((l) => l.startsWith("quota")), "quota   : weekly 66% · resets in 2d 4h · 5h 8% (as of 3m ago)");
+});

@@ -290,3 +290,15 @@ describe("pricing", () => {
     expect(text).toContain('pricing["qwen*"].output is required');
   });
 });
+
+describe("IntegrationsForm quota pacing", () => {
+  it("edits quota.pauseAboveSevenDay, removes the emptied block, and shows quotaErrors", async () => {
+    const { root, last } = await live({ name: "p" });
+    await setInput(field(root, "quota.pauseAboveSevenDay"), "0.9");
+    expect(last().quota).toEqual({ pauseAboveSevenDay: 0.9 });
+    await setInput(field(root, "quota.pauseAboveSevenDay"), "");
+    expect(last()).toEqual({ name: "p" });
+    const bad = await live({ name: "p", quota: { pauseAboveFiveHour: 2 } });
+    expect(bad.root.querySelector("[data-quota-panel]")!.textContent).toContain("quota.pauseAboveFiveHour must be a number in (0, 1]");
+  });
+});

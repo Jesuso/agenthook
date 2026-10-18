@@ -77,7 +77,7 @@ Writes (control socket → engine; omitted entirely under `--read-only`):
 
 | Tool | Effect |
 |---|---|
-| `pause` / `resume` | stop/start *starting* agents **and pulling the backlog** (running ones finish; events still queue; `status.slots.free` reads 0 while paused). `resume` pulls into free slots, and is a no-op while a restart/decommission/shutdown owns the queue |
+| `pause` / `resume` | stop/start *starting* agents **and pulling the backlog** (running ones finish; events still queue; `status.slots.free` reads 0 while paused). `resume` pulls into free slots, and is a no-op while a restart/decommission/shutdown owns the queue. During a [quota pause](operating.md#claude-quota-readout-and-pacing) `resume` lifts it and holds the pacer off until that window resets (reply `note`) |
 | `set_concurrency {max}` | change the cap (1–64) at runtime; not persisted |
 | `run {ref, step?, assign?, force?}` | `agenthook run`: assign + move into a step's source stage; the tracker webhook fires the step. Refuses a ref already in the pipeline unless `force` |
 | `catchup {ref, force?}` | re-fire the step for the stage a ticket **currently rests in**, replaying the forged tracker event in-process and reporting whether it actually `dispatched`. Use instead of `run {force}` to re-fire a ticket already in its source stage — that move produces no fresh transition there. `force` clears the dedup key if the event was already seen. Refuses if not assigned to us or resting in no source stage |

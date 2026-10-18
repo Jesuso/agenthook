@@ -27,6 +27,19 @@ const COMMENT_MAX = 8000;
 const MAX_ERROR_CHARS = 500;
 const RELEASE_SETTLE_MS = 15_000;
 
+/**
+ * Append one line to `<stateDir>/control-audit.jsonl` (0600). Best-effort: a failed write warns.
+ * Shared with the engine's quota pacer, whose automatic pauses are audited like operator writes.
+ * @param {string} stateDir @param {Record<string, any>} line
+ */
+export function appendControlAudit(stateDir, line) {
+  try {
+    fs.appendFileSync(path.join(stateDir, "control-audit.jsonl"), JSON.stringify(line) + "\n", { mode: 0o600 });
+  } catch (e) {
+    console.warn(`[ops] audit write failed: ${e.message}`);
+  }
+}
+
 /** @param {any} v @param {string} what */
 function needString(v, what) {
   if (typeof v !== "string" || !v.trim()) throw new Error(`${what} is required`);
@@ -91,13 +104,16 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   now?: () => number,
  *   digester?: { request(): Promise<any> },
  *   onEpicChanged?: (reset: () => void) => void,
+ *   pacer?: { operatorPause(): void, operatorResume(): string|null },
  * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it.
+ *   pacer: the quota pacer (src/quota.js) — told about operator pauses so its reset never undoes one,
+ *   and an operator `resume` overrides a quota pause until that window resets.
  *   onEpicChanged: handed the epics-cache reset so the engine can drop it on an `epic_changed`
  *   signal — a callback, not a property of the returned map (every own property is a control op)
  * @returns {Record<string, (args: any) => Promise<any>>}
  */
 export function createOps(deps) {
-  const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline } = deps;
+  const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline, pacer } = deps;
   const digester = deps.digester;
   const now = deps.now ?? Date.now;
 
@@ -111,11 +127,7 @@ export function createOps(deps) {
       args: { ...rest, ...(typeof comment === "string" ? { commentChars: comment.length } : {}) },
       ...outcome,
     };
-    try {
-      fs.appendFileSync(path.join(cfg.stateDir, "control-audit.jsonl"), JSON.stringify(line) + "\n", { mode: 0o600 });
-    } catch (e) {
-      console.warn(`[ops] audit write failed: ${e.message}`);
-    }
+    appendControlAudit(cfg.stateDir, line);
   }
 
   /** Wrap a write: audit success and failure alike. Writes that move tickets drop the cached
@@ -310,16 +322,18 @@ export function createOps(deps) {
 
     // ---- writes ----
     pause: write("pause", async () => {
+      pacer?.operatorPause();
       queue.pause();
       heartbeat.update({ paused: true });
       return { paused: true, ...queue.state() };
     }),
     resume: write("resume", async () => {
       if (isLocked()) return { paused: queue.isPaused(), note: "a restart/decommission/shutdown holds the queue; not resumed", ...queue.state() };
+      const overrideUntil = pacer?.operatorResume() ?? null;
       queue.resume();
       heartbeat.update({ paused: false });
       await pull().catch((e) => console.warn(`[ops] pull after resume failed: ${e.message}`)); // pulls were skipped while paused
-      return { paused: false, ...queue.state() };
+      return { paused: false, ...(overrideUntil ? { note: `quota pause overridden until ${overrideUntil}` } : {}), ...queue.state() };
     }),
     set_concurrency: write("set_concurrency", async (args) => {
       const n = args.max;

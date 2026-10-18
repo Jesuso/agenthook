@@ -321,7 +321,7 @@ const prof = (over: Partial<ProfileView>): ProfileView => ({
   configMissing: false,
   recentCosts: [],
   forge: null,
-  recentRuns: [],
+  recentRuns: [], quotaPaused: null, quota: null,
   ...over,
 });
 const runR = (s: RestartState, ...a: RestartAction[]) => a.reduce(restartReducer, s);

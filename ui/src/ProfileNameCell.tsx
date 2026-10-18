@@ -1,5 +1,5 @@
 import type { ProfileView } from "./contract";
-import { formatDate, profileBadge, profileLabel } from "./format";
+import { formatDate, profileBadge, profileLabel, quotaPausedTitle } from "./format";
 import { FullAutoShield, Pill } from "./components";
 
 /** A profile's name cell: label, fullAuto shield, ghost/config-missing badge, and the visible (tildified) config path. */
@@ -15,6 +15,11 @@ export function ProfileNameCell({ p }: { p: ProfileView }) {
         {p.paused === true && (
           <Pill tone="held" title="operator pause: no new runs start; running agents finish (a restart clears it)">
             paused
+          </Pill>
+        )}
+        {p.quotaPaused && (
+          <Pill tone="held" title={quotaPausedTitle(p.quotaPaused)}>
+            quota paused
           </Pill>
         )}
         {badge && (

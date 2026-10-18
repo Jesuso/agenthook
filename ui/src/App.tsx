@@ -276,6 +276,7 @@ export default function App() {
       onView: (view: View) => go({ kind: "profile", profile: route.profile, view }),
       onProfile: (name) => go({ kind: "profile", profile: name, view: route.view }),
       onHome: () => go(HOME),
+      now,
     };
     if (!profile) {
       page = (

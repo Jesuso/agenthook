@@ -39,7 +39,9 @@ import { createHeartbeat, repositoryOf } from "./heartbeat.js";
 import { createDigester } from "./digest.js";
 import { claimStateDir } from "./profile.js";
 import { startControl } from "./control.js";
-import { createOps } from "./ops.js";
+import { appendControlAudit, createOps } from "./ops.js";
+import { createQuotaPacer } from "./quota.js";
+import { readQuota, writeQuota } from "./quota-file.js";
 import { createEmitter, reportMoveFailure } from "./events.js";
 import { createSinks } from "./sinks.js";
 import { loadConfig } from "./config.js";
@@ -259,6 +261,54 @@ export function createDecommissionRequester({ queue, isDraining, isRestartPendin
 }
 
 /**
+ * The engine's quota pacer (src/quota.js `createQuotaPacer`, `cfg.quota`; no thresholds → never
+ * pauses): a trip pauses the queue, a release resumes it (+ a backlog pull) only when no operator
+ * pause or lock holds it. Each transition is logged, set on the heartbeat (`quotaPaused`), emitted
+ * (`quota_pause` / `quota_resume`) and audited to control-audit.jsonl as actor `quota`. The reset
+ * wait is one one-shot timer at the window's `resetsAt` — a deadline, not a poll. Running agents
+ * are never touched.
+ * @param {{
+ *   cfg: import('./types.js').Config,
+ *   queue: {pause(): void, resume(): void},
+ *   heartbeat: {update(p: Record<string, any>): void},
+ *   emit: (event: string, ref: string, step: string, extra?: Record<string, any>) => void,
+ *   pull: () => Promise<void>,
+ *   isLocked: () => boolean,
+ *   now?: () => number,
+ *   setTimer?: (fn: () => void, ms: number) => any,
+ *   clearTimer?: (t: any) => void,
+ * }} deps
+ */
+export function createQuotaControl({ cfg, queue, heartbeat, emit, pull, isLocked, now, setTimer, clearTimer }) {
+  /** @param {string} cmd @param {Record<string, any>} args */
+  const audit = (cmd, args) => appendControlAudit(cfg.stateDir, { ts: new Date().toISOString(), cmd, actor: "quota", args, ok: true });
+  return createQuotaPacer({
+    thresholds: cfg.quota,
+    pauseQueue: () => queue.pause(),
+    resumeQueue: () => {
+      queue.resume();
+      pull().catch((e) => console.warn(`[quota] pull after resume failed: ${e.message}`)); // pulls were skipped while paused
+    },
+    isLocked,
+    now,
+    setTimer,
+    clearTimer,
+    onPause: (trip) => {
+      console.log(`[quota] ${trip.window} at ${Math.round(trip.utilization * 100)}% ≥ ${Math.round(trip.threshold * 100)}% — pausing new runs until ${trip.resetsAt}`);
+      heartbeat.update({ quotaPaused: trip });
+      emit("quota_pause", "", "", { ...trip });
+      audit("quota_pause", trip);
+    },
+    onResume: (info) => {
+      console.log(`[quota] ${info.window} pause lifted (${info.reason})`);
+      heartbeat.update({ quotaPaused: null });
+      emit("quota_resume", "", "", { ...info });
+      audit("quota_resume", info);
+    },
+  });
+}
+
+/**
  * Delete the tracker's and the forge's webhooks, each side best-effort in its own try/catch.
  * Never throws.
  * @param {{unregisterWebhooks(): Promise<any>}} adapter
@@ -393,7 +443,18 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   /** ops' epics-cache reset, handed over via `onEpicChanged` (never an own property of ops — that would be a control op). @type {(() => void) | undefined} */
   let resetEpics;
   const epicChanged = createEpicChanged({ store, emit, invalidate: () => resetEpics?.() });
-  const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap);
+  const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, {
+    // A Claude run's quota reading: persisted (readable with the receiver down), shown, paced.
+    onQuota: (q) => {
+      try {
+        writeQuota(cfg.stateDir, q);
+      } catch (e) {
+        console.error(`[quota] quota.json write failed (continuing): ${e.message}`);
+      }
+      heartbeat.update({ quota: q });
+      quotaPacer.reading(q);
+    },
+  });
   // Per-step caps (`maxConcurrent` on a step), counted inside the global cap.
   /** @type {Record<string, number>} */
   const stepCaps = {};
@@ -520,8 +581,16 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     });
   });
 
+  // Opt-in quota pacer (src/quota.js; `quota` config, default off).
+  const quotaPacer = createQuotaControl({
+    cfg, queue, heartbeat, emit,
+    pull: () => puller.pull(),
+    isLocked: () => draining || restarter.isPending() || decommissioner.isPending(),
+  });
+  heartbeat.update({ quota: readQuota(cfg.stateDir) });
+
   const ops = createOps({
-    cfg, store, adapter, forge, queue, intake, emit, heartbeat,
+    cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer,
     onEpicChanged: (reset) => { resetEpics = reset; },
     digester: createDigester({
       cfg, emit, repository: repositoryOf(cfg),
@@ -583,6 +652,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
 
   /** Final teardown shared by graceful + forced exit. */
   function teardown() {
+    quotaPacer.stop();
     heartbeat.clear();
     control?.close();
     try {
@@ -741,6 +811,10 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
           "     or a forge block, or turn overlapGuard off.\n",
       );
     }
+
+    // The persisted quota reading, evaluated once before any work is admitted (a pause holds
+    // the restored queue and the boot pull too).
+    quotaPacer.reading(readQuota(cfg.stateDir));
 
     let ingressUp = false;
     try {

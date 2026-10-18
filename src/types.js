@@ -379,6 +379,7 @@
  * @property {any} result                       the agent's final result record (null until seen); passed to `usageRecord`
  * @property {string|undefined} sessionId       the run's session id, once known
  * @property {(chunk: string) => void} [pushStderr]  stderr reaches the parser only through this (e.g. hermes' session id)
+ * @property {import('./quota.js').QuotaReading|null} [quota]  the latest subscription-quota reading (claude's `rate_limit_event`); other agents don't report one
  */
 
 /** Context for an agent's usage record (everything but the result).
@@ -499,6 +500,7 @@
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
  * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config
  * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/pricing.js); checked before the built-in Claude rates
+ * @property {{ pauseAboveSevenDay?: number, pauseAboveFiveHour?: number }} [quota]  opt-in Claude quota pacer (src/quota.js): pause admission at/above a window's utilization (0–1], resume at its reset
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent

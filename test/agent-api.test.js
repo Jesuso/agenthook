@@ -98,6 +98,23 @@ test("readStatus: live output-token drift does not change the etag, a real chang
   assert.notEqual(after.etag, changed.etag, "a real state change (queue) still changes the etag");
 });
 
+test("readStatus: quota comes from quota.json (receiver down too); a quota pause zeroes free slots", () => {
+  const reg = registry();
+  const q = { sevenDay: { utilization: 0.92, resetsAt: "2026-10-18T21:00:00.000Z" }, asOf: "2026-10-18T12:00:00.000Z" };
+  const trip = { window: "sevenDay", utilization: 0.92, threshold: 0.9, resetsAt: "2026-10-18T21:00:00.000Z" };
+  const up = profile(reg, "q", { hb: { quotaPaused: trip } });
+  fs.writeFileSync(path.join(up, "quota.json"), JSON.stringify(q));
+  const s = readStatus(readProfile("q", reg));
+  assert.deepEqual(s.quota, q);
+  assert.deepEqual(s.quotaPaused, trip);
+  assert.equal(s.slots.free, 0);
+  assert.equal(s.paused, undefined, "a quota pause is not an operator pause");
+  const down = profile(reg, "qd", { up: false });
+  fs.writeFileSync(path.join(down, "quota.json"), JSON.stringify(q));
+  assert.deepEqual(readStatus(readProfile("qd", reg)).quota, q);
+  assert.equal(readStatus(readProfile("qd", reg)).quotaPaused, undefined);
+});
+
 test("readStatus: a down profile reports no active/queued and a note", () => {
   const reg = registry();
   profile(reg, "d", { up: false, running: { 1: { stepId: "code", startedAt: "2026-01-01T00:00:00Z" } } });

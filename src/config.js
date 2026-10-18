@@ -19,6 +19,7 @@ import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
 import { pricingErrors } from "./pricing.js";
+import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
@@ -495,6 +496,7 @@ export function validateRawConfig(raw) {
   errors.push(...identityErrors(cfg.ui));
   errors.push(...digestErrors(cfg.digest));
   errors.push(...pricingErrors(cfg.pricing));
+  errors.push(...quotaErrors(cfg.quota));
 
   // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
   if (cfg.forge && !cfg.forge.type) errors.push(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
