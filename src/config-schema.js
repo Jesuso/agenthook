@@ -188,8 +188,8 @@ export const CONFIG_SCHEMA = [
   entry("pricing.*.cacheRead", "number", "Cache read $/Mtok", "integrations", "Dollars per million cache-read tokens; unset = 0.1 × input.", { advanced: true, min: 0 }),
   entry("pricing.*.cacheWrite", "number", "Cache write $/Mtok", "integrations", "Dollars per million cache-write tokens; unset = 1.25 × input.", { advanced: true, min: 0 }),
   entry("quota", "object", "Quota pacing", "integrations", "Opt-in: pause new Claude runs when a subscription quota window gets high; resume at its reset.", { advanced: true }),
-  entry("quota.pauseAboveSevenDay", "number", "Pause at weekly use", "integrations", "Pause new runs at/above this weekly (7-day) utilization, 0–1 (e.g. 0.9); unset = never.", { advanced: true, min: 0, max: 1 }),
-  entry("quota.pauseAboveFiveHour", "number", "Pause at 5-hour use", "integrations", "Pause new runs at/above this 5-hour utilization, 0–1 (e.g. 0.95); unset = never.", { advanced: true, min: 0, max: 1 }),
+  entry("quota.pauseAboveSevenDay", "number", "Pause at weekly use", "integrations", "Pause new runs at/above this weekly (7-day) utilization, above 0 up to 1 (e.g. 0.9); unset = never.", { advanced: true, max: 1 }),
+  entry("quota.pauseAboveFiveHour", "number", "Pause at 5-hour use", "integrations", "Pause new runs at/above this 5-hour utilization, above 0 up to 1 (e.g. 0.95); unset = never.", { advanced: true, max: 1 }),
 ];
 
 const DERIVED = "derived at load, not user config";

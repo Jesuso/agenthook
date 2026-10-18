@@ -71,6 +71,24 @@ describe("AppBar", () => {
     }
   });
 
+  it("keeps DOM reading order brand → profile → tabs → quota → connection at every width", () => {
+    const quota = { sevenDay: { utilization: 0.66, resetsAt: "2026-10-18T21:00:00.000Z" }, asOf: "2026-10-16T16:42:00.000Z" };
+    const withQuota = [{ ...profiles[0], quota }, profiles[1]] as ProfileView[];
+    const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: { ...nav("overview"), profiles: withQuota } }));
+    expect(html).not.toMatch(/\border-\d/); // no order-* utility reorders anything
+    const brand = html.indexOf("agenthook");
+    const home = html.indexOf("data-home");
+    const breakSpacer = html.indexOf("basis-full");
+    const tabs = html.indexOf("<nav");
+    const quotaIdx = html.indexOf("data-appbar-quota");
+    const connection = html.indexOf("data-connection");
+    expect(brand).toBeLessThan(home);
+    expect(home).toBeLessThan(breakSpacer);
+    expect(breakSpacer).toBeLessThan(tabs); // the below-lg break comes before the tabs
+    expect(tabs).toBeLessThan(quotaIdx);
+    expect(quotaIdx).toBeLessThan(connection);
+  });
+
   it("shows the current profile's Claude quota inside a profile, nothing without one", () => {
     const now = Date.parse("2026-10-16T16:45:00.000Z");
     const quota = { sevenDay: { utilization: 0.66, resetsAt: "2026-10-18T21:00:00.000Z" }, asOf: "2026-10-16T16:42:00.000Z" };

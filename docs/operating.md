@@ -88,9 +88,11 @@ badge in `ah ui`. On boot the receiver re-checks the saved reading before it adm
 Your own pause/resume always wins:
 
 - **pause** (MCP / `ah ui`) during a quota pause: the reset does not resume the queue — your `resume` does.
-- **resume** during a quota pause: lifts it now and holds the pacer off until that window resets
-  (another high reading in the same window does not pause again; the next window can). Restarting
-  the receiver drops this override.
+- **resume** during a quota pause: lifts it now and holds the pacer off, until each overridden
+  window's own reset, for every window at/above its threshold in the latest reading at that moment
+  (not just the one that tripped the pause) — another high reading in an overridden window does
+  not pause again before its reset, but a window that was below its threshold at resume time still
+  pauses when it later crosses it. Restarting the receiver drops this override.
 - A pending restart or decommission keeps the queue paused even when the quota resets.
 
 ## Event-driven delivery loop

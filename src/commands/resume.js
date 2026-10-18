@@ -67,6 +67,19 @@ function sessionAgent(cfg, session) {
   return { step, agent: session.agent ? getAgent(session.agent) : agentFor(cfg, step) };
 }
 
+/** Why a drained worktree must come back before resuming a session: an agent with transcripts
+ * (claude, cursor) finds its session by the worktree it ran in; one without (hermes, opencode)
+ * keeps sessions in its own store, so it just needs to run there again — plus, for an isolated
+ * hermes step, where its session actually lives (its own `HERMES_HOME`, not the worktree).
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'stateDir'|'dataDir'>} cfg @param {{step: string, agent?: string}} session */
+export function drainedReason(cfg, session) {
+  const { step, agent } = sessionAgent(cfg, session);
+  const name = agent.describe().name;
+  const base = agent.sessions ? `${name} finds the session by its working directory` : `${name} runs in the worktree`;
+  const homeDir = agent.env?.({ cfg, step })?.HERMES_HOME;
+  return homeDir ? `${base}; its session lives in HERMES_HOME=${homeDir}, which the command sets` : base;
+}
+
 /** The resume argv (after the binary) for one session, from the agent that wrote it: its
  * transcripts' `resumeCommand`, else its top-level one (no transcripts, ids from usage.jsonl).
  * Throws for an agent with neither.
@@ -155,7 +168,7 @@ export async function resume(args) {
   if (args.exec) {
     if (!present)
       throw new Error(
-        `worktree for ${ref} is drained (${wt}). Recreate it (re-run the step, or \`git worktree add\`) before resuming — claude resolves the session by cwd.`,
+        `worktree for ${ref} is drained (${wt}). Recreate it (re-run the step, or \`git worktree add\`) before resuming — ${drainedReason(cfg, chosen)}.`,
       );
     const r = spawnSync(cmd.bin, resumeArgs(cfg, chosen), { cwd: wt, stdio: "inherit", env: { ...process.env, ...(cmd.env ?? {}) } });
     if (r.error) throw r.error;
@@ -166,5 +179,5 @@ export async function resume(args) {
   console.log(cmd.line);
   if (cmd.envNote) console.log(`  note: ${cmd.envNote}`);
   if (!present)
-    console.log(`\n⚠ worktree is drained — recreate ${wt} before this works (claude resolves the session by cwd).`);
+    console.log(`\n⚠ worktree is drained — recreate ${wt} before this works (${drainedReason(cfg, chosen)}).`);
 }

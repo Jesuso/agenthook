@@ -89,29 +89,6 @@ export function sessionDirs(cfg, ref, store) {
   return sessionAgents(cfg).map((a) => ({ ...a, dir: a.sessions.transcriptDir(wt) }));
 }
 
-/** The session id to resume for a ref: the newest DISPATCHED transcript (its first
- * turn carries the engine's "=== TICKET ===" marker, which a hand-run session won't),
- * falling back to the newest transcript overall. Null if none exist.
- * @param {string} dir  an agent's transcript dir
- * @param {import('./types.js').AgentSessions} [sessions]  its layout (default: the profile-less default agent's) */
-export function findSessionId(dir, sessions = agentSessions(agentFor({}))) {
-  let files;
-  try {
-    files = sessions
-      .files(dir)
-      .map((f) => ({ ...f, m: fs.statSync(f.file).mtimeMs }))
-      .sort((a, b) => b.m - a.m);
-  } catch {
-    return null;
-  }
-  if (!files.length) return null;
-  for (const { id, file } of files) {
-    const head = fs.readFileSync(file, "utf8").slice(0, 8000);
-    if (head.includes("=== TICKET ===")) return id;
-  }
-  return files[0].id;
-}
-
 /** A run-log stamp (`2026-06-19T14-47-43-889Z`) back to epoch ms. NaN if unparseable.
  * @param {string} stamp */
 function stampToMs(stamp) {

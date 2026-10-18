@@ -165,8 +165,12 @@ export function formatQuota(q, now) {
  *   below → release with reason `below`.
  * - The timer re-evaluates the last reading at the reset: still tripped on the other window →
  *   stay paused on that one; else release with reason `reset`.
- * - `operatorResume()` during a trip clears it (reason `operator`) and overrides the pacer until
- *   that trip's `resetsAt`: an above-threshold reading before then does not re-pause.
+ * - `operatorResume()` during a trip clears it (reason `operator`) and overrides, until its own
+ *   `resetsAt`, every window that is at/above its threshold in the last reading at that moment
+ *   (not just the one reported as tripped — with both tripped, only the reported one would
+ *   re-pause on the other at the next reading): an above-threshold reading on an overridden
+ *   window before its reset does not re-pause. A window not tripped at resume time still pauses
+ *   when it later crosses its threshold.
  * @param {{
  *   thresholds?: QuotaConfig|null,
  *   pauseQueue: () => void,
@@ -188,11 +192,24 @@ export function createQuotaPacer(deps) {
   let operatorPaused = false;
   /** @type {QuotaTrip|null} */
   let tripped = null;
-  let overrideUntil = 0;
+  /** Per-window override end (epoch ms), set by operatorResume. @type {Partial<Record<QuotaTrip['window'], number>>} */
+  let overrides = {};
   /** @type {QuotaReading|null} */
   let last = null;
   /** @type {any} */
   let timer;
+
+  /** `thresholds` with an overridden-and-still-active window's key removed. */
+  const effectiveThresholds = () => {
+    let out = thresholds;
+    for (const k of QUOTA_WINDOWS) {
+      if (overrides[k] !== undefined && now() < /** @type {number} */ (overrides[k])) {
+        if (out === thresholds) out = { ...thresholds };
+        delete /** @type {NonNullable<typeof out>} */ (out)[QUOTA_THRESHOLD_KEYS[k]];
+      }
+    }
+    return out;
+  };
 
   const disarm = () => {
     if (timer !== undefined) clearTimer(timer);
@@ -213,8 +230,8 @@ export function createQuotaPacer(deps) {
   }
   /** @param {'reset'|'below'} why */
   function evaluate(why) {
-    const ev = evaluateQuota(last, thresholds, now());
-    if (ev.pause && now() >= overrideUntil) {
+    const ev = evaluateQuota(last, effectiveThresholds(), now());
+    if (ev.pause) {
       const { pause, ...trip } = ev;
       const changed = !tripped || tripped.window !== trip.window;
       tripped = trip;
@@ -245,14 +262,20 @@ export function createQuotaPacer(deps) {
     },
     /**
      * The operator resumed (ops `resume`, which resumes the queue itself). During a trip: clear it
-     * and override the pacer until that window resets. Returns the override's end, if any.
+     * and override every window at/above its threshold in the last reading, each until its own
+     * reset. Returns the (reported) trip's `resetsAt`, if any.
      * @returns {string|null}
      */
     operatorResume() {
       operatorPaused = false;
       if (!tripped) return null;
+      for (const k of QUOTA_WINDOWS) {
+        const t = thresholds?.[QUOTA_THRESHOLD_KEYS[k]];
+        const w = last?.[k];
+        if (typeof t !== "number" || !Number.isFinite(t) || t <= 0 || !w || !(w.utilization >= t)) continue;
+        overrides[k] = Date.parse(w.resetsAt);
+      }
       const { window, resetsAt } = tripped;
-      overrideUntil = Date.parse(resetsAt);
       tripped = null;
       disarm();
       onResume?.({ window, reason: "operator" });
