@@ -106,7 +106,7 @@ export const CONFIG_SCHEMA = [
   step("kind", "enum", "Kind", "The prompt shape the agent gets.", { options: STEP_KINDS, default: "implement" }),
   step("manual", "boolean", "Manual (no agent)", "No agent runs; entering the step only does system actions (e.g. removing the worktree)."),
   step("model", "string", "Model", "Per-step --model override for this step's agent; unset uses the agent's default."),
-  step("effort", "enum", "Reasoning effort", "Per-step reasoning-effort override: claude --effort, hermes --reasoning; cursor ignores it.", { options: STEP_EFFORTS }),
+  step("effort", "enum", "Reasoning effort", "Per-step reasoning-effort override: claude --effort, hermes --reasoning, opencode --variant; cursor ignores it.", { options: STEP_EFFORTS }),
   step("agent", "enum", "Agent", "This step's coding-agent CLI; unset uses the profile's agent.", { advanced: true, options: AGENT_NAMES }),
   step("bin", "string", "Agent binary", "This step's agent CLI (a name on PATH or an absolute path); unset uses the agent's default (claude → claudeBin).", { advanced: true, sensitive: true, placeholder: "claudeBin" }),
   step("provider", "string", "Provider", "Inference provider for this step's agent (hermes --provider); other agents ignore it.", { advanced: true }),

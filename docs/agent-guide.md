@@ -11,7 +11,8 @@ agenthook is an event-driven receiver. A **pipeline** is an ordered list of **st
 `triage → code → review`), each bound to a tracker stage (Asana section, Jira status, GitHub
 label). A ticket *entering* a step's source stage fires that step: the receiver spawns a headless
 `claude -p` in a git worktree owned by the receiver. A step may run another agent instead
-(`agent: cursor|hermes`, see [agents.md](agents.md)). Those runs are `unpriced` (no `costUsd`).
+(`agent: cursor|hermes|opencode`, see [agents.md](agents.md)). Those runs are `unpriced` (no `costUsd`),
+except an OpenCode run whose provider reports a non-zero cost.
 When the agent exits, its **verdict** decides the next move:
 
 | verdict | meaning | ticket goes to |

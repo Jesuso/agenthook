@@ -23,4 +23,8 @@ describe("PipelineGraph — step card meta", () => {
   it("falls back to the profile's agent", () => {
     expect(render([{ id: "triage", kind: "triage" }], "hermes")).toContain("triage · hermes");
   });
+
+  it("names an opencode step with its provider/model", () => {
+    expect(render([{ id: "code", kind: "implement", agent: "opencode", model: "ollama/qwen3.8:27b-64k" }])).toContain("implement · opencode · ollama/qwen3.8:27b-64k");
+  });
 });

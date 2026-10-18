@@ -1,4 +1,4 @@
-// `agenthook agents` — list running headless agent processes (`claude -p`, cursor, hermes) (human id,
+// `agenthook agents` — list running headless agent processes (`claude -p`, cursor, hermes, opencode) (human id,
 // step, PR, runtime, title). These are plain OS processes the receiver spawns; no claude
 // subcommand tracks them. Cross-platform via `ps` (-ww avoids arg truncation).
 // The id/title/PR come from the profile's refmeta.json (written by dispatch);
@@ -78,14 +78,15 @@ export function fmtCtx(input, cacheRead, cacheCreate, output, costUsd) {
 // grepping for it, an echo, …). `cfg.claudeBin` defaults to "claude", so the receiver's
 // spawn is `[node …/]claude -p <prompt>`; a step `bin` (e.g. `claude-local`) is matched by
 // its basename the same way. Each adapter's invocation shape counts: `<bin> -p` (claude,
-// cursor) or `<bin> chat … --query-file` (hermes, whose prompt is in a file, not argv).
+// cursor), `<bin> chat … --query-file` (hermes, whose prompt is in a file, not argv) or
+// `<bin> run --format json` (opencode).
 
 /** The path-anchored agent-invocation matcher for a set of agent binaries (matched by basename).
  * @param {string[]} bins @returns {RegExp} */
 export function agentMatcher(bins) {
   const names = [...new Set(bins.map((b) => path.basename(b)).filter(Boolean))];
   const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  return new RegExp(`(^|\\/)(${alt || "claude"})\\s+(-p\\b|chat\\s.*--query-file\\b)`);
+  return new RegExp(`(^|\\/)(${alt || "claude"})\\s+(-p\\b|chat\\s.*--query-file\\b|run\\s+--format\\s+json\\b)`);
 }
 
 /** Parse `ps -eo pid=,etime=,args=` output into the agent rows (receiver-spawned only).

@@ -244,12 +244,13 @@ test("pipeline step bin/env: a valid pair and ${VAR} values pass; bad shapes, na
 test("agent: unset or \"claude\" passes at the top level and on a step; unknown names and manual steps fail", () => {
   assert.deepEqual(validateRawConfig(raw({ agent: "claude" }, [{ id: "code", agent: "claude" }])), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ agent: undefined }, [{ id: "code", agent: null }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ agent: "opencode" }, [{ id: "code", agent: "opencode", model: "ollama/qwen3.8:27b-64k" }])), { ok: true });
   /** @param {any} r */
   const errs = (r) => /** @type {any} */ (validateRawConfig(r)).errors;
-  assert.deepEqual(errs(raw({ agent: "nope" })), [`config: "agent" "nope" is not a known agent (claude, cursor, hermes).`]);
-  assert.deepEqual(errs(raw({ agent: 5 })), [`config: "agent" 5 is not a known agent (claude, cursor, hermes).`]);
-  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "nope" }])), [`config: pipeline step "code" agent "nope" is not a known agent (claude, cursor, hermes).`]);
-  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "constructor" }])), [`config: pipeline step "code" agent "constructor" is not a known agent (claude, cursor, hermes).`]);
+  assert.deepEqual(errs(raw({ agent: "nope" })), [`config: "agent" "nope" is not a known agent (claude, cursor, hermes, opencode).`]);
+  assert.deepEqual(errs(raw({ agent: 5 })), [`config: "agent" 5 is not a known agent (claude, cursor, hermes, opencode).`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "nope" }])), [`config: pipeline step "code" agent "nope" is not a known agent (claude, cursor, hermes, opencode).`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "constructor" }])), [`config: pipeline step "code" agent "constructor" is not a known agent (claude, cursor, hermes, opencode).`]);
   assert.deepEqual(errs(raw({}, [{ id: "code" }, { id: "done", manual: true, agent: "claude" }])), [
     `config: pipeline step "done" agent has no effect on a manual step (no agent runs).`,
   ]);

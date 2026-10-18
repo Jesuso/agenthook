@@ -2,7 +2,7 @@
 
 Each pipeline step can run its agent on a different model. A common split: a local model for the
 cheap, read-only steps (`triage`, `review`), Claude for `code`. This page is the recipe. A step can
-also run a different agent CLI altogether (`agent: "cursor"` or `"hermes"`); see [Agents](agents.md).
+also run a different agent CLI altogether (`agent: "cursor"`, `"hermes"` or `"opencode"`); see [Agents](agents.md).
 
 ## Pointing a step at a local model
 

@@ -20,10 +20,11 @@ const mtime = (p) => {
   }
 };
 
-/** An agent's session layout; throws a plain error for an agent that keeps no transcripts.
+/** An agent's session layout; throws a plain error for an agent that keeps no transcripts
+ * (one with a top-level `resumeCommand` still resumes, from usage.jsonl — see listSessions).
  * @param {import('./types.js').AgentAdapter} agent */
 export function agentSessions(agent) {
-  if (!agent.sessions) throw new Error(`${agent.describe().name} runs have no transcripts to follow/resume`);
+  if (!agent.sessions) throw new Error(`${agent.describe().name} runs have no transcripts to follow${agent.resumeCommand ? "" : "/resume"}`);
   return agent.sessions;
 }
 
@@ -163,11 +164,21 @@ export function recentRuns(cfg, limit = 10) {
  * pipeline step it ran (correlated by matching the session's first-message time to
  * the nearest run-log start for that ref) and the agent that wrote it. One agent run
  * per step run = one session. A line's kind is its `type` (Claude) or `role` (Cursor).
+ * An agent with no transcripts but a top-level `resumeCommand` (opencode) contributes one
+ * session per usage.jsonl record of the ref that names a session id — its step is the
+ * record's, no correlation needed. A profile where no agent keeps transcripts lists only those.
  * @param {import('./types.js').Config} cfg @param {string} ref
- * @param {{ getRepo: (ref: string) => string|undefined }} [store]
+ * @param {{ getRepo: (ref: string) => string|undefined, readUsage?: () => import('./types.js').UsageRecord[] }} [store]
  * @returns {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string }[]} */
 export function listSessions(cfg, ref, store) {
-  const files = sessionDirs(cfg, ref, store).flatMap(({ name, sessions, dir }) => sessions.files(dir).map((f) => ({ ...f, agent: name })));
+  /** @type {{name: string, sessions: import('./types.js').AgentSessions, dir: string}[]} */
+  let dirs;
+  try {
+    dirs = sessionDirs(cfg, ref, store);
+  } catch {
+    dirs = []; // no agent of the profile keeps transcripts
+  }
+  const files = dirs.flatMap(({ name, sessions, dir }) => sessions.files(dir).map((f) => ({ ...f, agent: name })));
   const runs = runLogs(cfg, ref); // [{step, at}]
   /** @type {{ id: string, step: string, at: number, msgs: number, prompt: string, agent: string }[]} */
   const out = [];
@@ -205,6 +216,14 @@ export function listSessions(cfg, ref, store) {
       }
     }
     out.push({ id: f.id, step, at, msgs, prompt, agent: f.agent });
+  }
+  const seenIds = new Set(out.map((s) => s.id));
+  for (const rec of store?.readUsage?.() ?? []) {
+    if (rec.ref !== ref || !rec.sessionId || seenIds.has(rec.sessionId)) continue;
+    const agent = agentFor(cfg, (cfg.pipeline ?? []).find((s) => s.id === rec.stepId));
+    if (agent.sessions || !agent.resumeCommand) continue;
+    seenIds.add(rec.sessionId);
+    out.push({ id: rec.sessionId, step: rec.stepId, at: Date.parse(rec.startedAt), msgs: 0, prompt: "", agent: agent.describe().name });
   }
   return out.sort((a, b) => a.at - b.at);
 }
