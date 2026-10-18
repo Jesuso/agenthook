@@ -77,11 +77,12 @@ secret it generated and stored for you:
          Settings → System → WebHooks → Create a WebHook
            URL:    https://<your-stable-url>/jira/
            Events: Issue → created, updated, deleted (deleted only feeds the epic view)
+                   Comment → created (the @agent resume of a held issue)
            Secret: <agenthook-generated-secret>
          ↑ agenthook generated + stored this. Paste it verbatim into the webhook's Secret field.
 ```
 
-Paste the URL, tick **Issue created** + **Issue updated** (+ **Issue deleted** if you use [epics](#epics)), paste the **Secret**, save. agenthook
+Paste the URL, tick **Issue created** + **Issue updated** + **Comment created** (+ **Issue deleted** if you use [epics](#epics)), paste the **Secret**, save. agenthook
 verifies each delivery via `x-hub-signature: sha256=<hex>` (constant-time HMAC). The token stays
 the only secret *you* supply; the webhook secret is agenthook's to own.
 
@@ -136,11 +137,22 @@ it can't resolve "us", it touches nothing. `"assigneeFilter": false` opts into p
 
 ## 6. Resuming a held step
 
-The `@agent` reply resume ([architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply))
-is **not supported on Jira yet**: a comment does not re-run a held step. To resume, answer the
-agent's question, then transition the issue from its `holdStatus` back to the step's `sourceStatus`.
-The step re-runs, but without your reply in its prompt. (A future adapter would subscribe the
-webhook to `comment_created`.)
+When a step holds, answer it with a comment that starts with `@agent` (your `trigger`): the held
+step re-runs with your reply appended to its prompt, and its next verdict transitions the issue out
+of `holdStatus` as usual ([architecture → Resuming a held step](architecture.md#resuming-a-held-step-agent-reply)).
+This needs **Comment created** ticked on the webhook (§3).
+
+The reply counts only when **all** of these hold, fail-closed:
+
+- the comment author is **exactly** the token owner's accountId (`/myself`, or `assigneeAccountId`
+  when set). This is independent of `assigneeFilter`, and an unresolvable `/myself` rejects it;
+- the body starts with the trigger;
+- a fresh fetch says the issue is assigned to us (§5);
+- agenthook holds a record of the step that held (a hold verdict wrote it) and that step is under
+  its `maxAttempts` cap.
+
+Each comment resumes at most once (dedup `trigger:<comment id>`). Transitioning the issue back to
+the step's `sourceStatus` by hand still works; the step then re-runs without your reply.
 
 ## Routing to multiple repos
 

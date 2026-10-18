@@ -8,6 +8,7 @@ export const create = createAsanaAdapter;
 export const webhooks = true;
 export const handshake = true;
 export const assigneeScoped = true;
+export const resume = true;
 
 const SECRET = "asana-hook-secret";
 const US = "U1";
@@ -44,13 +45,14 @@ const taskData = (gid) => {
   return { gid, name: `Task ${gid}`, notes: "", permalink_url: `https://app.asana.com/0/P1/${gid}`, completed: false, assignee: { gid: t.assignee }, memberships: [{ section: { gid: t.section } }], custom_fields: [] };
 };
 
-/** @param {string} url @param {any} init */
-export function fetch(url, init) {
+/** @param {string} url @param {any} init @param {any} env */
+export function fetch(url, init, env) {
   const u = new URL(url);
   const p = u.pathname.replace(/^\/api\/1\.0/, "");
   const method = String(init.method || "GET").toUpperCase();
   let m;
   if ((m = p.match(/^\/sections\/([^/]+)\/addTask$/)) && method === "POST") return ok({ data: {} });
+  if ((m = p.match(/^\/stories\/([^/]+)$/))) return env?.story?.gid === m[1] ? ok({ data: env.story }) : notFound();
   if ((m = p.match(/^\/sections\/([^/]+)\/tasks$/))) {
     const gid = m[1];
     return ok({ data: Object.keys(TASKS).filter((k) => TASKS[/** @type {keyof typeof TASKS} */ (k)].section === gid).map(taskData) });
@@ -84,3 +86,10 @@ const added = (gid) => {
 };
 export const ourEvent = () => ({ ctx: added("G1"), expect: { stepId: "code", ref: "G1" } });
 export const notOursEvent = () => added("G2");
+
+/** A comment story on G1, served by fetch() off env.story. @param {any} env @param {{author: string, body: string}} o */
+export function commentEvent(env, { author, body: text }) {
+  env.story = { gid: "ST1", resource_subtype: "comment_added", text, target: { gid: "G1" }, created_by: { gid: author === "owner" ? US : "U9" } };
+  const raw = JSON.stringify({ events: [{ action: "added", resource: { resource_type: "story", gid: "ST1" }, parent: { resource_type: "task", gid: "G1" } }] });
+  return { pathname: "/mytasks/", headers: { "x-hook-signature": hmacHex(SECRET, raw) }, rawBody: raw };
+}
