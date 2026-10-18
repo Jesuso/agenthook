@@ -377,6 +377,10 @@ export function validateRawConfig(raw) {
     errors.push(`config: "agent" ${JSON.stringify(cfg.agent)} is not a known agent (${AGENT_NAMES.join(", ")}).`);
   }
 
+  if (cfg.agentProvider != null && (typeof cfg.agentProvider !== "string" || !cfg.agentProvider.trim())) {
+    errors.push(`config: "agentProvider" must be a non-empty string.`);
+  }
+
   if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {
     errors.push(`config: "overlapGuard" must be true or false.`);
   }
@@ -417,6 +421,13 @@ export function validateRawConfig(raw) {
     }
     if (step.bin != null && (typeof step.bin !== "string" || !step.bin.trim())) {
       errors.push(`config: pipeline step "${sid}" bin must be a non-empty string (a name on PATH or an absolute path).`);
+    }
+    if (step.provider != null) {
+      if (typeof step.provider !== "string" || !step.provider.trim()) {
+        errors.push(`config: pipeline step "${sid}" provider must be a non-empty string.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" provider has no effect on a manual step (no agent runs).`);
+      }
     }
     if (step.env != null) {
       if (typeof step.env !== "object" || Array.isArray(step.env)) {

@@ -7,19 +7,32 @@
 // High enough that maxMinutes/idleMinutes are the real bound on a run, not this.
 export const HERMES_MAX_TURNS = 200;
 
+/** Reasoning-effort levels `hermes chat --reasoning` accepts. An out-of-set value is
+ * dropped (warn + omit the flag), like claude's `EFFORT_LEVELS`. */
+export const HERMES_REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+
 /**
  * Build the `hermes chat` argv (pure; exported for tests). The prompt reaches hermes only
  * through `--query-file` (dispatch writes it there) — hermes has no inline-prompt flag.
  * `-Q` keeps stdout quiet of prompts; `--yolo` only under `fullAuto`, matching claude's
- * `--dangerously-skip-permissions` and cursor's `--force`. Hermes has no reasoning-effort
- * flag, so a step `effort` is dropped with a warning.
- * @param {{prompt: string, promptFile?: string, model?: string, effort?: string, fullAuto?: boolean}} o
+ * `--dangerously-skip-permissions` and cursor's `--force`. `provider` selects the inference
+ * provider (`--provider`, from `config.yaml`'s `providers:`); `effort` maps to `--reasoning`;
+ * `maxMs` (the receiver's run timeout) maps to `--run-budget` in whole seconds (floored to at
+ * least 1) so hermes can wrap up on its own before the receiver's SIGTERM — the receiver's
+ * timer stays authoritative regardless.
+ * @param {{prompt: string, promptFile?: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number}} o
  * @returns {string[]}
  */
-export function buildHermesArgs({ promptFile, model, effort, fullAuto }) {
+export function buildHermesArgs({ promptFile, model, effort, provider, fullAuto, maxMs }) {
   if (!promptFile) throw new Error("hermes adapter requires promptFile (dispatch bug: describe().promptFile is true)");
-  if (effort) console.warn(`[dispatch] ignoring effort "${effort}" — hermes' chat CLI has no effort flag`);
-  return ["chat", "-Q", ...(fullAuto ? ["--yolo"] : []), "--max-turns", String(HERMES_MAX_TURNS), "--query-file", promptFile, ...(model ? ["-m", model] : [])];
+  const args = ["chat", "-Q", ...(fullAuto ? ["--yolo"] : []), "--max-turns", String(HERMES_MAX_TURNS), "--query-file", promptFile, ...(model ? ["-m", model] : [])];
+  if (provider) args.push("--provider", provider);
+  if (effort) {
+    if (HERMES_REASONING_LEVELS.includes(effort)) args.push("--reasoning", effort);
+    else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${HERMES_REASONING_LEVELS.join("|")})`);
+  }
+  if (maxMs) args.push("--run-budget", String(Math.max(1, Math.floor(maxMs / 1000))));
+  return args;
 }
 
 const SESSION_ID_RE = /session_id:\s*(\S+)/;

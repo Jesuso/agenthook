@@ -75,14 +75,15 @@ export type Basics = {
   ui?: { color?: unknown; emoji?: unknown };
   instructionsFile?: unknown;
   agent?: unknown;
+  agentProvider?: unknown;
   claudeBin?: unknown;
   stateId?: unknown;
 };
 
 export function readBasics(raw: unknown): Basics {
   if (!isObj(raw)) return {};
-  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, agent, claudeBin, stateId } = raw;
-  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, agent, claudeBin, stateId };
+  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, agent, agentProvider, claudeBin, stateId } = raw;
+  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, agent, agentProvider, claudeBin, stateId };
 }
 
 /** `tracker.pipeline` as-is (a non-object element reads as `{}`); [] when absent. */

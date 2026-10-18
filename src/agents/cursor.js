@@ -13,11 +13,12 @@ import { cursorMangle } from "../paths.js";
  * goes last. `--trust` skips the workspace-trust prompt a fresh worktree would otherwise
  * block on; `--model` defaults to Cursor's `auto`. Cursor has no reasoning-effort flag, so
  * a step `effort` is dropped with a warning.
- * @param {{prompt: string, model?: string, effort?: string, fullAuto?: boolean}} o
+ * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number}} o
  * @returns {string[]}
  */
-export function buildCursorArgs({ prompt, model, effort, fullAuto }) {
+export function buildCursorArgs({ prompt, model, effort, provider, fullAuto }) {
   if (effort) console.warn(`[dispatch] ignoring effort "${effort}" — cursor's agent CLI has no effort flag`);
+  if (provider) console.warn(`[dispatch] ignoring provider "${provider}" — cursor's agent CLI has no provider flag`);
   return ["-p", "--output-format", "stream-json", "--trust", "--model", model || "auto", ...(fullAuto ? ["--force"] : []), prompt];
 }
 

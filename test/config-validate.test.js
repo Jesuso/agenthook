@@ -255,6 +255,21 @@ test("agent: unset or \"claude\" passes at the top level and on a step; unknown 
   ]);
 });
 
+test("provider: unset or a non-empty string passes at the top level (agentProvider) and on a step; bad shapes and manual steps fail", () => {
+  assert.deepEqual(validateRawConfig(raw({ agentProvider: "openai-codex" }, [{ id: "code", provider: "ollama-launch" }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ agentProvider: undefined }, [{ id: "code", provider: null }])), { ok: true });
+  /** @param {any} r */
+  const errs = (r) => /** @type {any} */ (validateRawConfig(r)).errors;
+  assert.deepEqual(errs(raw({ agentProvider: "" })), [`config: "agentProvider" must be a non-empty string.`]);
+  assert.deepEqual(errs(raw({ agentProvider: "  " })), [`config: "agentProvider" must be a non-empty string.`]);
+  assert.deepEqual(errs(raw({ agentProvider: 5 })), [`config: "agentProvider" must be a non-empty string.`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", provider: "" }])), [`config: pipeline step "code" provider must be a non-empty string.`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", provider: 5 }])), [`config: pipeline step "code" provider must be a non-empty string.`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code" }, { id: "done", manual: true, provider: "ollama-launch" }])), [
+    `config: pipeline step "done" provider has no effect on a manual step (no agent runs).`,
+  ]);
+});
+
 test("ui identity block: valid values pass, unknown colour / emoji / shape are errors", () => {
   assert.deepEqual(validateRawConfig(raw({ ui: { color: "teal", emoji: "🚀" } })), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ ui: {} })), { ok: true });

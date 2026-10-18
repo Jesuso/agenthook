@@ -56,6 +56,15 @@ test("buildCursorArgs: effort never reaches argv and is warned about", () => {
   assert.deepEqual(warns(() => buildCursorArgs({ prompt: "hi" })), []);
 });
 
+test("buildCursorArgs: provider never reaches argv and is warned about", () => {
+  /** @type {string[]} */
+  let args = [];
+  const w = warns(() => (args = buildCursorArgs({ prompt: "hi", provider: "ollama-launch" })));
+  assert.deepEqual(args, ["-p", "--output-format", "stream-json", "--trust", "--model", "auto", "hi"]);
+  assert.equal(w.length, 1);
+  assert.match(w[0], /provider "ollama-launch"/);
+});
+
 test("parser: recorded run → assistant text in the log, tally + result + session id", () => {
   const p = createCursorStreamParser();
   const log = p.push(FIXTURE) + p.flush();

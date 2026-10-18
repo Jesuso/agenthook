@@ -186,6 +186,81 @@ function heldHarness({ steps } = {}) {
   return { store, advanced, events, runStep, run, dir };
 }
 
+// --- provider/maxMs passthrough: step.provider ?? cfg.agentProvider and maxMs reach buildArgs ---
+
+test("runStep passes step.provider (over cfg.agentProvider) and maxMs through to buildArgs", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-hermes.sh");
+  const argvOut = path.join(dir, "argv.txt");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", agent: "hermes", bin, provider: "ollama-launch", maxMinutes: 2 }],
+    agent: "hermes",
+    agentProvider: "openai-codex",
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {},
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store, () => {});
+  process.env.FAKE_VERDICT = JSON.stringify({ outcome: "advance" });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" });
+  } finally {
+    console.log = log;
+  }
+  const argv = fs.readFileSync(argvOut, "utf8").trim().split("\n");
+  assert.ok(argv.includes("--provider"), argv.join(" "));
+  assert.equal(argv[argv.indexOf("--provider") + 1], "ollama-launch"); // step.provider wins over cfg.agentProvider
+  assert.ok(argv.includes("--run-budget"), argv.join(" "));
+  assert.equal(argv[argv.indexOf("--run-budget") + 1], "120"); // maxMinutes: 2 -> 120s
+});
+
+test("runStep falls back to cfg.agentProvider when the step sets no provider", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-hermes.sh");
+  const argvOut = path.join(dir, "argv.txt");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", agent: "hermes", bin }],
+    agent: "hermes",
+    agentProvider: "openai-codex",
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {},
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store, () => {});
+  process.env.FAKE_VERDICT = JSON.stringify({ outcome: "advance" });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" });
+  } finally {
+    console.log = log;
+  }
+  const argv = fs.readFileSync(argvOut, "utf8").trim().split("\n");
+  assert.equal(argv[argv.indexOf("--provider") + 1], "openai-codex");
+});
+
 test("dispatch: a hold verdict writes held.json[ref]; the next run of any step clears it", async () => {
   const { store, runStep } = heldHarness();
   await runStep("triage", { outcome: "hold", reason: "which DB?" });

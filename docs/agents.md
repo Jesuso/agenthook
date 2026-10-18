@@ -25,7 +25,7 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 | | `claude` | `cursor` | `hermes` |
 |---|---|---|---|
 | Default binary | `claudeBin` (default `claude`) | `agent` | `hermes` |
-| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file>` |
+| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>]` |
 | Stdout | stream-json | stream-json | plain text |
 | Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (Hermes reports no usage) |
 | Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` |
@@ -41,12 +41,21 @@ record token counts; Hermes runs record none.
 
 - **`model`**: passed as `--model` (claude, cursor) or `-m` (hermes). Unset uses the CLI's
   default; Cursor's default is `auto`.
-- **`effort`**: claude only (`--effort`). Cursor and Hermes have no effort flag, so dispatch drops
-  it with a warning.
+- **`effort`**: claude (`--effort`) and hermes (`--reasoning`). Cursor has no effort flag, so
+  dispatch drops it with a warning; an out-of-set value is dropped with a warning too.
+- **`provider`** (step) / **`agentProvider`** (profile default): the inference provider hermes
+  should use (`--provider`, a name from `config.yaml`'s `providers:`, or a built-in). A step's
+  `provider` overrides `agentProvider`. Claude and Cursor have no provider flag, so dispatch drops
+  it with a warning. Without it, a step `model` hermes can't serve on your default provider (e.g.
+  a local Ollama model under the user's `openai-codex` default) silently fails or no-ops — see the
+  [local Qwen recipe](local-models.md#a-local-qwen-recipe-hermes--ollama) below.
 - **`fullAuto`**: adds each CLI's skip-permissions flag. That is `--dangerously-skip-permissions`
   (claude), `--force` (cursor) or `--yolo` (hermes). It is still unsandboxed code execution from
   a webhook; see the security posture in the [README](../README.md).
 - **`bin`**: a step `bin` overrides the agent's default binary, e.g. a wrapper script.
+- **`maxMinutes`**: besides the receiver's own SIGTERM timer, hermes gets it as `--run-budget`
+  (whole seconds, floored to at least 1) so it can wrap up on its own before the kill; the
+  receiver's timer stays authoritative regardless. Claude and Cursor ignore it.
 - **Prompt**: Hermes has no inline-prompt flag. Dispatch writes the prompt to
   `~/.agenthook/<stateKey>/prompts/<ref>-<step>.md` (mode 0600), passes it via `--query-file`, and
   removes it after the run. So the prompt is not visible in `ps`. `ah agents` finds a Hermes run
@@ -100,13 +109,33 @@ Leave `requireVerdict` unset (Hermes defaults it to `true`). Put the triage rule
 format in the step's `instructionsFile`. Hermes runs have no transcripts, so `follow`/`resume`
 don't cover them; read the run log in the UI or `logs/` instead.
 
+### A local Qwen recipe (Hermes + Ollama)
+
+A step `model` like `qwen3.8:27b-96k` is served by Ollama, not your Hermes account's default
+provider — set `provider` so Hermes routes to it (see [local-models.md](local-models.md) for the
+`providers:` entry this names):
+
+```jsonc
+{
+  "id": "code",
+  "agent": "hermes",
+  "provider": "ollama-launch",
+  "model": "qwen3.8:27b-96k"
+}
+```
+
+No wrapper script needed (a step `bin` pointing at a shim that appended `--provider ollama-launch`
+was the only way to do this before `provider` existed). Memory note: a 17 GB-weights / 98K-context
+model got OOM-killed on a loaded machine — size `maxConcurrent` and the model's context to what
+the host actually has free.
+
 ## Adding an adapter
 
 An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`src/types.js`):
 
 - `describe()` → `{name, stdout, promptFile?}`. `stdout` is `"stream-json"` or `"text"`.
   `promptFile: true` makes dispatch write the prompt to a file and pass it as `promptFile`.
-- `buildArgs({prompt, model, effort, fullAuto, promptFile})` → the argv after the binary. Drop
+- `buildArgs({prompt, model, effort, provider, fullAuto, promptFile, maxMs})` → the argv after the binary. Drop
   unsupported options with a warning instead of passing them through.
 - `createParser()` → an incremental stdout parser: `push(chunk)` / `flush()` return log text, plus
   `tally`, `result` and `sessionId`. Optional `pushStderr` reads stderr (Hermes gets its session id
