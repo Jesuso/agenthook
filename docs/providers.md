@@ -162,6 +162,18 @@ Built-in: **`ngrok`** (managed, ephemeral unless a reserved `domain` is set) and
    `authenticate`; implement `advance`/`listResting` against that same stage concept.
 3. Register it in `src/trackers/index.js`'s `TRACKERS`.
 4. (Optional) Add `wizardSteps()` for `init`, and document its env vars in `.env.example`.
+5. Run it through the **conformance suite** (`test/conformance/tracker.js`, the executable form
+   of the interface): write a fixture module `test/fixtures/trackers/<name>.js` and add it to the
+   list in `test/conformance.test.js`. A fixture exports the factory, a `makeCfg()` (≥2 steps,
+   each binding source/success/failure/hold; a queue stage on the first only), `refs` (`ours`,
+   plus `notOurs` when scoped), capability flags (`webhooks`, `handshake`, `assigneeScoped` — a
+   false flag skips those checks), a `fetch(url, init)` fake of the platform API (omit it when
+   the tracker makes no network calls), the signed / bad-signature / handshake requests, an
+   `ourEvent` + `notOursEvent` delivery, and `stageOf(env, ref)` — the stage the adapter's last
+   move wrote. The full fixture contract is the header of `test/conformance/tracker.js`; the
+   five built-in fixtures are worked examples.
+6. Keep tracker-specific behaviour (blocker gates, epics, comment resume, wizard discovery) in
+   the tracker's own `test/<name>.test.js`; the suite covers only the shared contract.
 
 ## Adding an ingress (e.g. cloudflared)
 
