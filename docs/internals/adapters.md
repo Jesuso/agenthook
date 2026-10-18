@@ -1,0 +1,58 @@
+# Adapter interfaces, pipeline, worktree, multi-repo routing
+
+The whole point is the **blind engine + swappable adapters** split, now on **two axes** plus an
+optional third: the engine names neither the *tracker* (where work comes from) nor the *ingress*
+(how it's reachable), nor the optional *forge* (what happened to the code — e.g. a PR merged).
+Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for the full design.
+
+## Key files
+
+- `src/trackers/*.js` + `index.js` — tracker adapters. `asana.js`'s header is the **reference
+  doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
+  `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
+  `fetchTask`, `advance`, `listResting`, `registerWebhook`, `unregisterWebhooks`, `forgeCatchup`,
+  optional `wizardSteps` (powers `init` live discovery), optional `listQueued(stepId)` (refs in the
+  step's queue stage, board order, filtered like `listResting` — not `store.listQueued`, which is
+  the local `queue.json`), optional `openBlockers(ref)` (unresolved blockers, fail-open; `dispatch.js`
+  re-checks it at run time so a dependency added while a job waited in the local queue still gates it),
+  optional `onJobs(emit)` (an in-process event source — `local` only, no webhooks: the engine wires a
+  sink at boot; `createPushSink` parks a ref's pushed job until its current run settles), optional
+  `createTask({name, description?, stepId?})` (`local` only: add one item under the next numeric ref and push
+  its `step:<id>:<ref>` job — `agenthook ticket add`).
+- `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
+  static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
+  `up(port) → {url}`, `down()`, optional `wizardSteps`.
+- `src/forges/*.js` + `index.js` — optional forge adapters (`github`). Registry `FORGES` keyed by
+  `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
+  `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The
+  engine routes POST `/forge[/]` to the forge (else the tracker). `github` turns a merged PR on an
+  `agent/<ref>` branch into a `{kind:'merge', ref, stepId:<completeOnMerge step|"">, dedupKey:'merged:<n>'}`
+  job; its hook path is `/forge` (**not** `/github`, which the github tracker's scrub deletes) and it
+  always verifies `x-hub-signature-256` via the shared `src/hmac.js` `verifyHubSignature`. A red
+  `workflow_run` on a same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attempt>'}`
+  job (`forge.redCi:false` disables) — see [dispatch.md](dispatch.md) for how dispatch handles the
+  CI and merge jobs this produces.
+- `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
+  entering a step's `sourceSectionGid` fires that step; a clean exit advances to `successSectionGid`
+  (= next step's source, so the move re-triggers the next step) unless the agent's verdict says
+  `hold`/`changes`/`fail` (`prevStep()` resolves a `changes` target's default). `worktree.js` is the
+  **receiver-owned** worktree (create on `createsWorktree`, `drainWorktree` to remove), keyed by task
+  ref so all steps share one — no globbing. **No implicit polling**: forward motion is event-driven,
+  crash recovery reads local `running.json` only, and the only board poll is the explicit
+  `agenthook reconcile` command — with **one narrow exception**: a step that sets a queue-stage key
+  (`queueSectionGid` Asana / `queueStatus` Jira·github-projects·local / `queueLabel` GitHub) opts in
+  to reading **that one stage**, only on `run_end` (when a slot is free) and once on boot. It is
+  never timer-driven, and `listResting` is still never called on boot. `src/pull.js` pulls the top
+  `maxConcurrent − active − queued − pending` items via `enterStage(…, {assign:false})` (the same
+  move `ah run` makes — the webhook then fires the step). Order: Asana section order, Jira
+  `Rank ASC`, GH Projects board position, GitHub labels **oldest-created first** (labels have no order).
+- `src/repos.js` — multi-repo routing (pure). `cfg.repos[]` (`{id, path, match, default?,
+  instructionsFile?, worktreePrefix?}`; no block → one synthesized `default` repo at `repoPath`,
+  `cfg.multiRepo=false`, nothing changes). `resolveRepo(cfg, task.routeKeys)` → exactly one repo;
+  no match → the `default` repo; two matches → `conflict`, none + no default → `unroutable` — both
+  **hold** the task in `runStep` (no spawn, no attempt, `setHeld` so `@agent` re-runs it). The first
+  routed step sticks the ref to its repo (`repo.json`, multi-repo only); worktrees then nest as
+  `<base>/<repo.id>/<ref>`. Adapters only supply opaque `Task.routeKeys`.
+
+See [trackers.md](trackers.md) for provider-specific tracker behavior (Asana, Jira, GitHub,
+GitHub Projects v2).
