@@ -1,10 +1,10 @@
 import type { InstructionFileView } from "./contract";
 
-/** dispatch.js's join between the standing instructions and the ticket prompt (src/dispatch.js:837). */
+/** dispatch.js's join between the standing instructions and the ticket prompt (src/dispatch/step.js:179). */
 export const TICKET_MARKER = "\n\n=== TICKET ===\n\n";
 
 /**
- * Mirrors dispatch.js's prompt assembly (src/dispatch.js:823-837): repo and step instructions
+ * Mirrors dispatch.js's prompt assembly (src/dispatch/step.js:165-179): repo and step instructions
  * trimmed, empties dropped, joined by a blank line; `ticket: null` → standing only (no run yet);
  * an empty standing part drops the marker entirely.
  */
@@ -47,7 +47,7 @@ export function stepIds(files: InstructionFileView[]): string[] {
  * The step picker's option list for the file currently open: a repo-scoped file can stand in for
  * any step (dispatch joins it against every step's own file), so it offers every known step id;
  * a step/default-scoped file only ever supplies *its own* ids, so the picker is scoped to those
- * (otherwise the panel composes a prompt no agent ever gets — see dispatch.js:823-825).
+ * (otherwise the panel composes a prompt no agent ever gets — see src/dispatch/step.js:165-167).
  */
 export function pickerSteps(files: InstructionFileView[], openFile: InstructionFileView): string[] {
   return openFile.scope === "repo" ? stepIds(files) : [...openFile.ids].sort();
