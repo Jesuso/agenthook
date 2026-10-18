@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- `agenthook start --detach` returns only once the receiver is serving (or says it is still
+  booting), so a `ticket add` or `run` typed right after it reaches the receiver. Before, it
+  could land during boot, rest on the board, and never fire.
+- `agenthook reconcile` works on a local profile: it asks the running receiver to queue every
+  ticket resting in a step's stage. Before, it failed with "tracker local does not support
+  reconcile", the remedy `ticket add` itself suggests.
+- `agenthook init` prints the real state directory when `AGENTHOOK_HOME` is set.
+
 ## [0.8.0] — 2026-10-18
 
 Stabilize and land (epic #412): a first run needs no tracker token and no tunnel, and the two

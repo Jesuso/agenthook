@@ -27,7 +27,11 @@ const SCRIPT = {
   loop: { triage: ["advance"], code: ["advance"], review: ["changes"] },
   hold: { triage: ["hold"] },
   crash: { triage: ["advance"], code: ["exit1"] },
+  resting: { triage: ["advance"], code: ["advance"], review: ["advance"] },
 };
+// Seeded straight into triage before boot (a ticket added while the receiver was down): boot
+// never fires it — only an explicit `reconcile` does.
+const RESTING = "resting";
 
 /** @type {string} */ let root;
 /** @type {string} */ let repo;
@@ -148,7 +152,7 @@ before(async () => {
   // The board, seeded before boot. `backlog` is bound by no step, so nothing fires until `run`.
   /** @type {Record<string, any>} */
   const board = {};
-  for (const ref of Object.keys(SCRIPT)) board[ref] = { name: `e2e ${ref}`, description: `scenario ${ref}`, stage: "backlog" };
+  for (const ref of Object.keys(SCRIPT)) board[ref] = { name: `e2e ${ref}`, description: `scenario ${ref}`, stage: ref === RESTING ? "triage" : "backlog" };
   fs.writeFileSync(path.join(stateDir, "local-board.json"), JSON.stringify(board, null, 2));
 
   /** @type {Record<string, string | undefined>} */
@@ -169,7 +173,7 @@ before(async () => {
   await waitForOutput(new RegExp(`agenthook \\[${NAME}\\] listening on 127\\.0\\.0\\.1:${port}`));
   sock = path.join(stateDir, "control.sock");
   // Enter every scenario up front; they run in parallel (maxConcurrent = #scenarios).
-  for (const ref of Object.keys(SCRIPT)) {
+  for (const ref of Object.keys(SCRIPT).filter((r) => r !== RESTING)) {
     const reply = await controlRequest(sock, "run", { ref });
     assert.equal(reply.ok, true, `run ${ref}: ${!reply.ok ? reply.error : ""}`);
   }
@@ -234,4 +238,15 @@ scenario("crash: a non-zero agent exit fails the step", async () => {
   assert.equal(events.at(-1)?.step, "code");
   assert.deepEqual(runEnds(events), ["triage:advance", "code:fail"]);
   assert.equal(await stageAfter("crash", "code", "fail"), "blocked");
+});
+
+// Last, so every other scenario has settled and the resting ticket is the only one left in a
+// step's source stage.
+scenario("reconcile: a ticket left resting while the receiver was down runs to done", async () => {
+  const reply = await controlRequest(sock, "reconcile", {});
+  assert.equal(reply.ok, true, `reconcile: ${!reply.ok ? reply.error : ""}`);
+  assert.equal(reply.result.replayed, 1, "boot did not fire it; reconcile queued exactly it");
+  const events = await eventsUntil(RESTING, ["pipeline_done", "failed", "blocked"]);
+  assert.equal(events.at(-1)?.event, "pipeline_done");
+  assert.deepEqual(runEnds(events), ["triage:advance", "code:advance", "review:advance"]);
 });
