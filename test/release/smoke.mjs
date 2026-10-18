@@ -221,7 +221,8 @@ async function quickstartPhase(d) {
   fs.writeFileSync(scriptFile, JSON.stringify(script));
 
   const doctor = run("agenthook doctor", d);
-  if (!/all good/.test(doctor.out)) fail("`doctor` on a fresh profile did not report all good");
+  // Warnings are fine (CI has no `claude`, which only the Digest needs there); problems are not.
+  if (!/all good|no problems/.test(doctor.out)) fail(`\`doctor\` found problems on a fresh profile:\n${tail(doctor.out, 20)}`);
 
   // The documented commands, back to back — no pause after `start --detach`.
   for (const l of block) {
