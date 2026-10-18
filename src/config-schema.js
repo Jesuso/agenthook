@@ -24,7 +24,7 @@ const STATUS_TRACKERS = ["jira", "github-projects", "local"];
  * @property {string} help        one line, ≤120 chars
  * @property {'basics'|'pipeline-step'|'tracker'|'forge'|'ingress'|'integrations'|'repos'} section
  * @property {boolean} [advanced]
- * @property {string[]} [scope]   tracker types it applies to; omitted = all
+ * @property {string[]} [scope]   tracker types it applies to (forge.* entries: forge types); omitted = all
  * @property {boolean} [sensitive]  mirrors src/ui/contract.js SENSITIVE_FIELDS (a test keeps them equal)
  * @property {string|number|boolean} [default]
  * @property {readonly string[]} [options]  enum values
@@ -164,11 +164,11 @@ export const CONFIG_SCHEMA = [
   entry("forge", "object", "Forge", "forge", "Optional: where the code lives, so merged PRs and red CI move tasks."),
   entry("forge.type", "enum", "Forge type", "forge", "Which forge adapter watches the agent PRs.", { options: ["github", "gitlab"] }),
   entry("forge.token", "string", "API token", "forge", "Forge API token; use a ${VAR} reference, not a literal.", { sensitive: true }),
-  entry("forge.repository", "string", "Repository", "forge", "owner/name of the repo whose agent PRs complete tasks."),
-  entry("forge.owner", "string", "Owner", "forge", "Repo owner (alternative to repository).", { advanced: true }),
-  entry("forge.repo", "string", "Repo", "forge", "Repo name (alternative to repository).", { advanced: true }),
-  entry("forge.project", "string", "Project", "forge", "GitLab: group/sub/project whose agent MRs complete tasks."),
-  entry("forge.baseUrl", "string", "Base URL", "forge", "GitLab: instance base URL, for a self-managed GitLab.", { advanced: true, default: "https://gitlab.com" }),
+  entry("forge.repository", "string", "Repository", "forge", "owner/name of the repo whose agent PRs complete tasks.", { scope: ["github"] }),
+  entry("forge.owner", "string", "Owner", "forge", "Repo owner (alternative to repository).", { advanced: true, scope: ["github"] }),
+  entry("forge.repo", "string", "Repo", "forge", "Repo name (alternative to repository).", { advanced: true, scope: ["github"] }),
+  entry("forge.project", "string", "Project", "forge", "GitLab: group/sub/project whose agent MRs complete tasks.", { scope: ["gitlab"] }),
+  entry("forge.baseUrl", "string", "Base URL", "forge", "GitLab: instance base URL, for a self-managed GitLab.", { advanced: true, default: "https://gitlab.com", scope: ["gitlab"] }),
   entry("forge.webhookSecret", "string", "Webhook secret", "forge", "Signing secret; omit to let agenthook generate one. Always verified.", { sensitive: true, advanced: true }),
   entry("forge.redCi", "boolean", "React to red CI", "forge", "On red CI for an agent PR, re-run it once, then send the task back with changes.", { default: true }),
   entry("forge.greenCi", "boolean", "Report green CI", "forge", "Emit a ci_green event when an agent PR's checks all pass (moves nothing).", { default: true }),

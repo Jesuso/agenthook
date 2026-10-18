@@ -755,7 +755,8 @@ describe("Tracker / Forge / Ingress helpers (#341)", () => {
   it("sectionFields: the section's keys minus type/pipeline, scoped, split by advanced", () => {
     const keys = (r: ReturnType<typeof sectionFields>) => ({ common: r.common.map((e) => e.path[1]), advanced: r.advanced.map((e) => e.path[1]) });
     expect(keys(sectionFields("tracker", "local"))).toEqual({ common: ["assigneeFilter"], advanced: ["routeField"] });
-    expect(keys(sectionFields("forge", undefined))).toEqual({ common: ["token", "repository", "redCi", "greenCi"], advanced: ["owner", "repo", "webhookSecret", "ciTarget"] });
+    expect(keys(sectionFields("forge", "github"))).toEqual({ common: ["token", "repository", "redCi", "greenCi"], advanced: ["owner", "repo", "webhookSecret", "ciTarget"] });
+    expect(keys(sectionFields("forge", "gitlab"))).toEqual({ common: ["token", "project", "redCi", "greenCi"], advanced: ["baseUrl", "webhookSecret", "ciTarget"] });
     expect(keys(ingressFields("ngrok"))).toEqual({ common: ["authtoken", "domain"], advanced: ["webAddr"] });
     expect(keys(ingressFields("hosted"))).toEqual({ common: ["url"], advanced: [] });
     expect(keys(ingressFields("cloudflared"))).toEqual({ common: ["tunnel", "hostname"], advanced: [] });

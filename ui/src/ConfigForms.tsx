@@ -1246,7 +1246,7 @@ export function ForgeForm(props: EditProps & { raw: unknown }) {
       <SelectField {...edit} path={["forge", "type"]} value={block.type} required />
       <SchemaFields
         {...edit}
-        fields={sectionFields("forge", undefined)}
+        fields={sectionFields("forge", block.type)}
         block={block}
         render={(e, value) => (e.path[1] === "ciTarget" ? <CiTargetField {...edit} raw={props.raw} value={value} /> : undefined)}
       />
