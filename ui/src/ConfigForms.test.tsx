@@ -69,6 +69,15 @@ describe("BasicsForm", () => {
     expect(stateId![0]).toMatch(/value="p"/);
     expect(html).toContain("agenthook rename --move");
   });
+
+  it("renders agentProvider editable under Advanced", () => {
+    const raw = { name: "p", repoPath: "/repo", agentProvider: "ollama-launch", stateId: "p" };
+    const html = renderToStaticMarkup(createElement(BasicsForm, { text: JSON.stringify(raw), onEdit: () => {}, raw, stateKey: "p" }));
+    const m = /<input[^>]*name="agentProvider"[^>]*>/.exec(html);
+    expect(m).not.toBeNull();
+    expect(m![0]).toMatch(/value="ollama-launch"/);
+    expect(m![0]).not.toMatch(/readonly/i);
+  });
 });
 
 describe("modelSelectState", () => {

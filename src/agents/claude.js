@@ -16,10 +16,10 @@ const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
  * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
  * without a real spawn). Order is stable: prompt, then --model, --effort, then
  * --dangerously-skip-permissions.
- * @param {{prompt: string, model?: string, effort?: string, fullAuto?: boolean}} o
+ * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number}} o
  * @returns {string[]}
  */
-export function buildClaudeArgs({ prompt, model, effort, fullAuto }) {
+export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto }) {
   // --output-format stream-json + --verbose: stdout becomes JSONL we parse for the
   // per-run log (assistant text) and the token/cost tally (the final `result` event).
   const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
@@ -28,6 +28,7 @@ export function buildClaudeArgs({ prompt, model, effort, fullAuto }) {
     if (EFFORT_LEVELS.includes(effort)) args.push("--effort", effort);
     else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${EFFORT_LEVELS.join("|")})`);
   }
+  if (provider) console.warn(`[dispatch] ignoring provider "${provider}" — claude has no provider flag`);
   if (fullAuto) args.push("--dangerously-skip-permissions");
   return args;
 }

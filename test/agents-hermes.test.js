@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // record, and the adapter's describe/defaults.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHermesArgs, createHermesParser, buildHermesUsageRecord, hermes, HERMES_MAX_TURNS } from "../src/agents/hermes.js";
+import { buildHermesArgs, createHermesParser, buildHermesUsageRecord, hermes, HERMES_MAX_TURNS, HERMES_REASONING_LEVELS } from "../src/agents/hermes.js";
 
 /** Capture console.warn while fn runs. @param {() => void} fn */
 function warns(fn) {
@@ -46,14 +46,45 @@ test("buildHermesArgs: model appends -m; --yolo only under fullAuto", () => {
   ]);
 });
 
-test("buildHermesArgs: effort never reaches argv and is warned about", () => {
+test("buildHermesArgs: valid effort maps to --reasoning", () => {
+  for (const effort of HERMES_REASONING_LEVELS) {
+    assert.deepEqual(
+      warns(() => assert.deepEqual(buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", effort }), ["chat", "-Q", "--max-turns", String(HERMES_MAX_TURNS), "--query-file", "/tmp/p.md", "--reasoning", effort])),
+      []
+    );
+  }
+});
+
+test("buildHermesArgs: out-of-set effort is dropped + warned, no effort = no flag", () => {
   /** @type {string[]} */
   let args = [];
-  const w = warns(() => (args = buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", effort: "high" })));
+  const w = warns(() => (args = buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", effort: "bogus" })));
   assert.deepEqual(args, ["chat", "-Q", "--max-turns", String(HERMES_MAX_TURNS), "--query-file", "/tmp/p.md"]);
   assert.equal(w.length, 1);
-  assert.match(w[0], /effort "high"/);
+  assert.match(w[0], /invalid effort "bogus"/);
   assert.deepEqual(warns(() => buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md" })), []);
+});
+
+test("buildHermesArgs: provider appends --provider", () => {
+  assert.deepEqual(buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", model: "qwen3.8:27b-96k", provider: "ollama-launch" }), [
+    "chat",
+    "-Q",
+    "--max-turns",
+    String(HERMES_MAX_TURNS),
+    "--query-file",
+    "/tmp/p.md",
+    "-m",
+    "qwen3.8:27b-96k",
+    "--provider",
+    "ollama-launch",
+  ]);
+});
+
+test("buildHermesArgs: maxMs maps to --run-budget in whole seconds, floored to at least 1; unset/0 = no flag", () => {
+  assert.deepEqual(buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", maxMs: 7_200_000 }), ["chat", "-Q", "--max-turns", String(HERMES_MAX_TURNS), "--query-file", "/tmp/p.md", "--run-budget", "7200"]);
+  assert.deepEqual(buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", maxMs: 500 }), ["chat", "-Q", "--max-turns", String(HERMES_MAX_TURNS), "--query-file", "/tmp/p.md", "--run-budget", "1"]);
+  assert.deepEqual(buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md", maxMs: 0 }), ["chat", "-Q", "--max-turns", String(HERMES_MAX_TURNS), "--query-file", "/tmp/p.md"]);
+  assert.deepEqual(buildHermesArgs({ prompt: "hi", promptFile: "/tmp/p.md" }), ["chat", "-Q", "--max-turns", String(HERMES_MAX_TURNS), "--query-file", "/tmp/p.md"]);
 });
 
 test("buildHermesArgs: throws without promptFile — a dispatch bug, not a user error", () => {

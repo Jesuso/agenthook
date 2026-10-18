@@ -302,3 +302,31 @@ describe("PipelineForm Advanced: agent bin and env", () => {
     expect(JSON.parse(buffer).tracker.pipeline[1]).not.toHaveProperty("env");
   });
 });
+
+describe("PipelineForm Advanced: provider", () => {
+  it("shows provider for a hermes step, hides it for a claude step with it unset, and writes tracker.pipeline[i].provider", async () => {
+    const hermesRaw = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, i) => (i === 1 ? { ...s, agent: "hermes" } : s)) } };
+    const hermesText = JSON.stringify(hermesRaw, null, 2);
+    let buffer = hermesText;
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(createElement(PipelineForm, { text: hermesText, raw: hermesRaw, stages: null, onRefresh: () => {}, onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const provider = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.provider"]');
+    expect(provider).not.toBeNull();
+    await typeInto(provider!, "ollama-launch");
+    expect(JSON.parse(buffer).tracker.pipeline[1].provider).toBe("ollama-launch");
+
+    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    const claudeProvider = cards(m)[0].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.0.provider"]');
+    expect(claudeProvider).toBeNull();
+  });
+
+  it("stays visible for a claude step when provider is already set", async () => {
+    const withProvider = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, i) => (i === 0 ? { ...s, provider: "custom" } : s)) } };
+    m = await mount(createElement(PipelineForm, { text: JSON.stringify(withProvider), raw: withProvider, stages: null, onRefresh: () => {}, onEdit: () => {} }));
+    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    const provider = cards(m)[0].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.0.provider"]');
+    expect(provider).not.toBeNull();
+    expect(provider!.value).toBe("custom");
+  });
+});

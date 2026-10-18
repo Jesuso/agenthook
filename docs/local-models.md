@@ -21,6 +21,11 @@ step's `model`:
 For example, Ollama 0.14 or later serves `/v1/messages`. Use a model with a context window of at
 least 32K tokens: the standing instructions, the ticket and the repo reads add up quickly.
 
+Running the step on **Hermes** instead of Claude Code against a local Ollama model is simpler —
+Hermes' `--provider` flag picks the inference provider directly, no `ANTHROPIC_BASE_URL`
+wrapper needed. See the [local Qwen recipe](agents.md#a-local-qwen-recipe-hermes--ollama) in
+[Agents](agents.md).
+
 If you'd rather keep that wiring out of the config, put it in a wrapper script on PATH (say
 `claude-local`, which exports `ANTHROPIC_BASE_URL` and runs `claude "$@"`) and set the step's
 `bin` to it:

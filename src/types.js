@@ -41,9 +41,10 @@
  * @property {boolean} [manual]                no agent; entering the step only runs system actions
  * @property {boolean} [completeOnMerge]       manual steps only, at most one: a forge merge event moves the task INTO this step (then marks it completed)
  * @property {string} [model]                  per-step `claude --model` override
- * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step `claude -p --effort` override (omit = CLI default)
+ * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step reasoning-effort override (claude `--effort`, hermes `--reasoning`; cursor ignores it)
  * @property {string} [agent]                  agent adapter this step spawns (src/agents/; default cfg.agent, else "claude")
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
+ * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over process.env (AGENTHOOK_VERDICT_FILE is reserved)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
@@ -399,7 +400,7 @@
  * resume reach the CLI only through it.
  * @typedef {object} AgentAdapter
  * @property {() => {name: string, stdout: string, promptFile?: boolean}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv
- * @property {(o: {prompt: string, model?: string, effort?: string, fullAuto?: boolean, promptFile?: string}) => string[]} buildArgs  argv after the executable
+ * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, promptFile?: string, maxMs?: number}) => string[]} buildArgs  argv after the executable
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume
@@ -498,6 +499,7 @@
  * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath
  * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)
  * @property {string} [agent]      profile-default agent adapter (src/agents/; default "claude"); a step's `agent` overrides it
+ * @property {string} [agentProvider]  profile-default inference provider for a step's agent (hermes `--provider`); a step's `provider` overrides it
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]
  * @property {string} dataDir

@@ -45,6 +45,20 @@ test("buildClaudeArgs: invalid effort dropped with a warn, no --effort flag", ()
   }
 });
 
+test("buildClaudeArgs: provider is ignored with a warn, argv unchanged", () => {
+  const warnings = [];
+  const orig = console.warn;
+  console.warn = (m) => warnings.push(m);
+  try {
+    const args = buildClaudeArgs({ prompt: "hi", provider: "ollama-launch" });
+    assert.deepEqual(args, ["-p", "hi", ...SJ]);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /ignoring provider "ollama-launch"/);
+  } finally {
+    console.warn = orig;
+  }
+});
+
 test("buildClaudeArgs: fullAuto adds --dangerously-skip-permissions last", () => {
   const args = buildClaudeArgs({ prompt: "hi", model: "m", effort: "max", fullAuto: true });
   assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "m", "--effort", "max", "--dangerously-skip-permissions"]);

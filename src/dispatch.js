@@ -304,10 +304,10 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
    * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
    * default bin, else cfg.claudeBin, and the receiver's env); the verdict-file variable is set last
    * so a step can't override it.
-   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
    */
-  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, bin, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
+  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, bin, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -316,7 +316,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         console.error(`[dispatch] prompt file write failed (${promptFile}):`, e.message);
       }
     }
-    const args = agent.buildArgs({ prompt, model, effort, fullAuto: cfg.fullAuto, promptFile });
+    const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs });
     const parser = agent.createParser();
     return new Promise((resolve) => {
       const child = spawn(bin || agent.defaults.bin || cfg.claudeBin, args, {
@@ -897,6 +897,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       promptFile,
       model,
       effort,
+      provider: step.provider ?? cfg.agentProvider,
       bin: step.bin,
       env: step.env,
       verdictFile,
