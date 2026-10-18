@@ -110,6 +110,8 @@ export const CONFIG_SCHEMA = [
   step("agent", "enum", "Agent", "This step's coding-agent CLI; unset uses the profile's agent.", { advanced: true, options: AGENT_NAMES }),
   step("bin", "string", "Agent binary", "This step's agent CLI (a name on PATH or an absolute path); unset uses the agent's default (claude → claudeBin).", { advanced: true, sensitive: true, placeholder: "claudeBin" }),
   step("provider", "string", "Provider", "Inference provider for this step's agent (hermes --provider); other agents ignore it.", { advanced: true }),
+  step("isolated", "boolean", "Isolated", "Hermes: own HERMES_HOME (only config.yaml copied), no user rules; local providers only. Others ignore it.", { advanced: true, default: true }),
+  step("toolsets", "string-list", "Toolsets", "Hermes -t: the toolsets this step's agent may use; other agents ignore it.", { advanced: true, placeholder: "terminal, file" }),
   step("env", "record", "Agent env", "Extra environment for this step's agent only; put secret values in ${VAR} refs.", { advanced: true, sensitive: true }),
   step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
   step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),

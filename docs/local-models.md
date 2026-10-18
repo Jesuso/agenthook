@@ -24,7 +24,10 @@ least 32K tokens: the standing instructions, the ticket and the repo reads add u
 Running the step on **Hermes** instead of Claude Code against a local Ollama model is simpler —
 Hermes' `--provider` flag picks the inference provider directly, no `ANTHROPIC_BASE_URL`
 wrapper needed. See the [local Qwen recipe](agents.md#a-local-qwen-recipe-hermes--ollama) in
-[Agents](agents.md).
+[Agents](agents.md). The step runs [isolated](agents.md#hermes-isolation) by default (its own
+`HERMES_HOME`, no credentials), which suits a local model. Set `provider` to the `providers:` entry
+in your Hermes `config.yaml` that points at Ollama, e.g. `ollama-launch`; otherwise the run uses
+your `config.yaml` default, and a cloud default fails before the run starts.
 
 If you'd rather keep that wiring out of the config, put it in a wrapper script on PATH (say
 `claude-local`, which exports `ANTHROPIC_BASE_URL` and runs `claude "$@"`) and set the step's

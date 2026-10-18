@@ -321,6 +321,29 @@ describe("PipelineForm Advanced: provider", () => {
     expect(claudeProvider).toBeNull();
   });
 
+  it("shows isolated (default on) and toolsets for a hermes step only; unchecking writes isolated:false, a toolset is added on blur", async () => {
+    const hermesRaw = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, i) => (i === 1 ? { ...s, agent: "hermes" } : s)) } };
+    let buffer = JSON.stringify(hermesRaw, null, 2);
+    const onEdit = vi.fn((t: string) => (buffer = t));
+    m = await mount(createElement(PipelineForm, { text: buffer, raw: hermesRaw, stages: null, onRefresh: () => {}, onEdit }));
+    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    const isolated = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.isolated"]');
+    expect(isolated).not.toBeNull();
+    expect(isolated!.checked).toBe(true);
+    await click(isolated!);
+    expect(JSON.parse(buffer).tracker.pipeline[1].isolated).toBe(false);
+
+    const toolsets = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.toolsets"]');
+    expect(toolsets).not.toBeNull();
+    await typeInto(toolsets!, "terminal");
+    await blur(toolsets!);
+    expect(JSON.parse(buffer).tracker.pipeline[1].toolsets).toEqual(["terminal"]);
+
+    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    expect(cards(m)[0].querySelector('[data-step-advanced] input[name="tracker.pipeline.0.isolated"]')).toBeNull();
+    expect(cards(m)[0].querySelector('[data-step-advanced] input[name="tracker.pipeline.0.toolsets"]')).toBeNull();
+  });
+
   it("stays visible for a claude step when provider is already set", async () => {
     const withProvider = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, i) => (i === 0 ? { ...s, provider: "custom" } : s)) } };
     m = await mount(createElement(PipelineForm, { text: JSON.stringify(withProvider), raw: withProvider, stages: null, onRefresh: () => {}, onEdit: () => {} }));

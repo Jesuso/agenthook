@@ -303,12 +303,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
    * between any output chunk, stdout or stderr. Past either the child gets SIGTERM, then
    * SIGKILL after the grace, and `timedOut` says which.
    * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
-   * default bin, else cfg.claudeBin, and the receiver's env); the verdict-file variable is set last
+   * default bin, else cfg.claudeBin, and the receiver's env); `agentEnv` (the adapter's `env`)
+   * sits under the step's, so a step can override it; the verdict-file variable is set last
    * so a step can't override it.
-   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, bin?: string, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
    */
-  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, bin, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
+  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -317,7 +318,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         console.error(`[dispatch] prompt file write failed (${promptFile}):`, e.message);
       }
     }
-    const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs });
+    const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated });
     const parser = agent.createParser();
     return new Promise((resolve) => {
       const child = spawn(bin || agent.defaults.bin || cfg.claudeBin, args, {
@@ -325,7 +326,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
         // read it after exit to route the step (advance/hold/changes/fail).
-        env: { ...process.env, ...(env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
+        env: { ...process.env, ...(agentEnv ?? {}), ...(env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
       });
       children?.add(child);
       onPid?.(child.pid);
@@ -434,6 +435,31 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     fs.mkdirSync(dir, { recursive: true });
     const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
     return path.join(dir, `${safeRef}-${stepId}.md`);
+  }
+
+  /**
+   * The agent's pre-spawn check (`agent.preflight`, e.g. an isolated hermes step's home):
+   * the reason to fail the run without spawning, written to the run log, else undefined.
+   * A preflight that throws fails the run too — with its message.
+   * @param {import('./types.js').AgentAdapter} agent @param {import('./types.js').Step} step
+   * @param {string|undefined} provider @param {string} logPath
+   * @returns {string|undefined}
+   */
+  function agentPreflight(agent, step, provider, logPath) {
+    if (!agent.preflight) return undefined;
+    let reason;
+    try {
+      reason = agent.preflight({ cfg, step, provider });
+    } catch (e) {
+      reason = `${agent.describe().name} preflight failed: ${e.message}`;
+    }
+    if (!reason) return undefined;
+    try {
+      fs.appendFileSync(logPath, `[agenthook] ${reason}\n`);
+    } catch (e) {
+      console.error(`[run] log write failed for ${logPath}:`, e.message);
+    }
+    return reason;
   }
 
   /** @param {number} code @param {string} verdictFile @param {import('./types.js').Step} step
@@ -890,7 +916,10 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     const maxMinutes = step.maxMinutes ?? DEFAULT_MAX_MINUTES;
     const agent = agentFor(cfg, step);
     const promptFile = agent.describe().promptFile ? promptFilePathFor(step.id, job.ref) : undefined;
-    const { code, result, timedOut } = await spawnAgent({
+    const provider = step.provider ?? cfg.agentProvider;
+    // A failed preflight resolves the run as `fail` with no agent spawned.
+    const refused = agentPreflight(agent, step, provider, logPath);
+    const { code, result, timedOut } = refused ? { code: 1, result: null, timedOut: undefined } : await spawnAgent({
       agent,
       prompt,
       cwd,
@@ -898,8 +927,11 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       promptFile,
       model,
       effort,
-      provider: step.provider ?? cfg.agentProvider,
+      provider,
+      toolsets: step.toolsets,
+      isolated: step.isolated,
       bin: step.bin,
+      agentEnv: agent.env?.({ cfg, step }),
       env: step.env,
       verdictFile,
       maxMs: maxMinutes * 60000,
@@ -950,7 +982,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
     /** @type {import('./types.js').Verdict} */
-    const verdict = wasCancelled
+    const verdict = refused
+      ? { outcome: "fail", reason: refused }
+      : wasCancelled
       ? { outcome: "fail", reason: CANCELLED_REASON }
       : timedOut
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }

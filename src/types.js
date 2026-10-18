@@ -45,6 +45,8 @@
  * @property {string} [agent]                  agent adapter this step spawns (src/agents/; default cfg.agent, else "claude")
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
+ * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
+ * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over process.env (AGENTHOOK_VERDICT_FILE is reserved)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
@@ -402,11 +404,13 @@
  * resume reach the CLI only through it.
  * @typedef {object} AgentAdapter
  * @property {() => {name: string, stdout: string, promptFile?: boolean}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv
- * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, promptFile?: string, maxMs?: number}) => string[]} buildArgs  argv after the executable
+ * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, promptFile?: string, maxMs?: number, toolsets?: string[], isolated?: boolean}) => string[]} buildArgs  argv after the executable
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume
  * @property {(sessionId: string) => string[]} [resumeCommand]  resume argv (after the binary) for an agent with `sessions: null` whose session ids come from usage.jsonl (opencode)
+ * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
+ * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for)
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  */
 

@@ -2,7 +2,9 @@
 // prompt file since it has no inline-prompt flag), how its plain-text stdout becomes log
 // text (no token usage to parse), how its stderr `session_id: <id>` line becomes the
 // session id, and why its usage is always unpriced. The interface is documented by
-// src/agents/claude.js.
+// src/agents/claude.js. An `isolated` step (the default) runs in its own HERMES_HOME with
+// minimal toolsets and no user rules — see src/agents/hermes-home.js.
+import { hermesHomeDir, hermesSourceHome, hermesPreflight } from "./hermes-home.js";
 
 // High enough that maxMinutes/idleMinutes are the real bound on a run, not this.
 export const HERMES_MAX_TURNS = 200;
@@ -10,6 +12,14 @@ export const HERMES_MAX_TURNS = 200;
 /** Reasoning-effort levels `hermes chat --reasoning` accepts. An out-of-set value is
  * dropped (warn + omit the flag), like claude's `EFFORT_LEVELS`. */
 export const HERMES_REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+
+/** Toolsets of an isolated step that sets none: enough to code (shell + files), without
+ * memory/skills/session_search/cron/delegation — and about a third of the prompt tokens. */
+export const HERMES_DEFAULT_TOOLSETS = ["terminal", "file"];
+
+/** A hermes step runs isolated unless it sets `isolated: false`.
+ * @param {import('../types.js').Step|undefined} step */
+const isIsolated = (step) => step?.isolated !== false;
 
 /**
  * Build the `hermes chat` argv (pure; exported for tests). The prompt reaches hermes only
@@ -19,11 +29,14 @@ export const HERMES_REASONING_LEVELS = ["none", "minimal", "low", "medium", "hig
  * provider (`--provider`, from `config.yaml`'s `providers:`); `effort` maps to `--reasoning`;
  * `maxMs` (the receiver's run timeout) maps to `--run-budget` in whole seconds (floored to at
  * least 1) so hermes can wrap up on its own before the receiver's SIGTERM — the receiver's
- * timer stays authoritative regardless.
- * @param {{prompt: string, promptFile?: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number}} o
+ * timer stays authoritative regardless. `isolated` (default true) adds `--ignore-rules`
+ * (no AGENTS.md/SOUL.md/memory/preloaded skills), `--source tool` (kept out of the user's
+ * session lists) and `-t <toolsets>` (default `terminal,file`); `isolated: false` is the
+ * pre-isolation argv, plus `-t` only when `toolsets` is given.
+ * @param {{prompt: string, promptFile?: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number, toolsets?: string[], isolated?: boolean}} o
  * @returns {string[]}
  */
-export function buildHermesArgs({ promptFile, model, effort, provider, fullAuto, maxMs }) {
+export function buildHermesArgs({ promptFile, model, effort, provider, fullAuto, maxMs, toolsets, isolated = true }) {
   if (!promptFile) throw new Error("hermes adapter requires promptFile (dispatch bug: describe().promptFile is true)");
   const args = ["chat", "-Q", ...(fullAuto ? ["--yolo"] : []), "--max-turns", String(HERMES_MAX_TURNS), "--query-file", promptFile, ...(model ? ["-m", model] : [])];
   if (provider) args.push("--provider", provider);
@@ -32,6 +45,9 @@ export function buildHermesArgs({ promptFile, model, effort, provider, fullAuto,
     else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${HERMES_REASONING_LEVELS.join("|")})`);
   }
   if (maxMs) args.push("--run-budget", String(Math.max(1, Math.floor(maxMs / 1000))));
+  if (isolated) args.push("--ignore-rules", "--source", "tool");
+  const tools = toolsets ?? (isolated ? HERMES_DEFAULT_TOOLSETS : undefined);
+  if (tools) args.push("-t", tools.join(","));
   return args;
 }
 
@@ -119,5 +135,10 @@ export const hermes = {
   createParser: createHermesParser,
   usageRecord: (result, ctx) => buildHermesUsageRecord({ ...ctx, result }),
   sessions: null,
+  resumeCommand: (sessionId) => ["chat", "--resume", sessionId],
+  env: ({ cfg, step }) => (isIsolated(step) ? { HERMES_HOME: hermesHomeDir(cfg.stateDir ?? cfg.dataDir) } : undefined),
+  // A step that sets its own HERMES_HOME manages that home itself: nothing to prepare.
+  preflight: ({ cfg, step, provider }) =>
+    isIsolated(step) && !step?.env?.HERMES_HOME ? hermesPreflight({ stateDir: cfg.stateDir ?? cfg.dataDir, sourceHome: hermesSourceHome(), provider }) : undefined,
   defaults: { bin: "hermes", requireVerdict: true },
 };
