@@ -2,7 +2,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // Pure-unit tests for usage aggregation helpers (no I/O, no network).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sumRecords, groupBy, utcDay, isoWeek, modelSplit, runCost, spendCell } from "../src/commands/usage.js";
+import { sumRecords, groupBy, utcDay, isoWeek, modelSplit, runCost, spendCell, energyTotalLine } from "../src/commands/usage.js";
 
 /** @type {() => import('../src/types.js').UsageRecord} */
 function rec(overrides = {}) {
@@ -116,4 +116,16 @@ test("modelSplit falls back to 'unknown' for missing model", () => {
   const recs = [rec({ model: undefined, input: 10, output: 10, cacheRead: 0, cacheCreate: 0 })];
   const s = modelSplit(recs);
   assert.ok(s.includes("unknown:20"));
+});
+
+test("runCost / sumRecords / energyTotalLine: measured energy sits beside the dollar figures, never in them", () => {
+  const measured = rec({ costUsd: 0.01, energyKwh: 0.0019, energyUsd: 0.00029, energySource: "hwmon" });
+  assert.equal(runCost(measured), "$0.0100 · energy $0.00029 (1.9 Wh)");
+  assert.equal(runCost(rec({ costUsd: 0.01 })), "$0.0100", "an unmeasured run shows no energy");
+  const t = sumRecords([measured, rec({ costUsd: 0.02 }), rec({ energyKwh: 0.001, energyUsd: 0.00015 })]);
+  assert.equal(t.energyRuns, 2);
+  assert.ok(Math.abs(t.energyKwh - 0.0029) < 1e-12);
+  assert.ok(Math.abs(/** @type {number} */ (t.costUsd) - 0.04) < 1e-12, "energy dollars are not added to costUsd");
+  assert.equal(energyTotalLine(t), "energy total: $0.00044 (2.9 Wh) over 2 measured runs");
+  assert.equal(energyTotalLine(sumRecords([rec()])), "", "no measured run → no line");
 });

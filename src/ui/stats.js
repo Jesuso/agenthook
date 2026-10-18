@@ -4,7 +4,8 @@
 // fields stats need are kept per event, appended incrementally by byte offset (the file is
 // append-only; a shrink restarts the read). Days are cut at the *caller's* midnight
 // (`tzOffset` = `Date.getTimezoneOffset()` minutes), so they match the browser's "today".
-// Reported (`costUsd`) and rate-table estimated (`estUsd`, src/pricing.js) spend are summed apart.
+// Reported (`costUsd`) and rate-table estimated (`estUsd`, src/pricing.js) spend are summed apart,
+// and measured energy (`energyKwh`/`energyUsd`, src/energy.js) apart from both.
 import fs from "node:fs";
 import path from "node:path";
 import { costOf } from "../pricing.js";
@@ -28,7 +29,9 @@ const OUTCOMES = ["advance", "changes", "hold", "fail"];
  * @property {number} costUsd       sum of run_end reported costs
  * @property {number} estUsd        sum of run_end rate-table estimates (runs with no reported cost; never in `costUsd`)
  * @property {number} unestimatedRuns  run_ends with neither a reported cost nor an estimate (no rate, or no tokens)
- * @property {Record<string, { runs: number, costUsd: number, estUsd: number }>} byStep   run_end count, reported cost and estimate per pipeline step
+ * @property {number} energyKwh     sum of run_end measured energy (`energy: true` steps; 1e-9 kWh) — never in costUsd/estUsd
+ * @property {number} energyUsd     its dollars at the profile's `energy.usdPerKwh` (rounded to 1e-6, not cents: a local run is a fraction of one)
+ * @property {Record<string, { runs: number, costUsd: number, estUsd: number, energyKwh?: number, energyUsd?: number }>} byStep   run_end count, reported cost and estimate per pipeline step, plus energy when a run on it was measured
  * @property {{ advance: number, changes: number, hold: number, fail: number, other: number }} outcomes   run_end outcomes
  * @property {{ n: number, p10: number, p50: number, p90: number }|null} ticketCost   what the tickets that finished this day
  *           cost in total: the agent runs on each since its previous finish. Null when none of them had a costed run
@@ -41,6 +44,9 @@ const OUTCOMES = ["advance", "changes", "hold", "fail"];
  * @property {DayStats[]} days      oldest first, zero-filled, the last one is today
  * @property {string|null} since    ISO ts of the first event in the history (null: none), so the UI can say how far back "all" goes
  */
+
+/** A finite number ≥ 0, else 0. @param {unknown} v */
+const finiteNum = (v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
 
 /** @param {number} ts @param {number} tzOffset */
 const dayKey = (ts, tzOffset) => new Date(ts - tzOffset * 60000).toISOString().slice(0, 10);
@@ -69,7 +75,7 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
   for (let i = n - 1; i >= 0; i--) {
     const date = dayKey(now - i * DAY_MS, tzOffset);
     byDay.set(date, {
-      date, finished: 0, merged: 0, runs: 0, rework: 0, failedRuns: 0, costUsd: 0, estUsd: 0, unestimatedRuns: 0, byStep: {},
+      date, finished: 0, merged: 0, runs: 0, rework: 0, failedRuns: 0, costUsd: 0, estUsd: 0, unestimatedRuns: 0, energyKwh: 0, energyUsd: 0, byStep: {},
       outcomes: { advance: 0, changes: 0, hold: 0, fail: 0, other: 0 }, ticketCost: null, ticketEst: null,
       _f: new Set(), _m: new Set(), _tc: [], _te: [],
     });
@@ -108,17 +114,27 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
       d.costUsd += cost;
       d.estUsd += est;
       if (c.costUsd === undefined && c.estUsd === undefined) d.unestimatedRuns++;
+      const kwh = finiteNum(e.energyKwh);
+      const eUsd = finiteNum(e.energyUsd);
+      d.energyKwh += kwh;
+      d.energyUsd += eUsd;
       if (e.outcome === "changes") d.rework++;
       else if (e.outcome === "fail") d.failedRuns++;
       d.outcomes[/** @type {"advance"|"changes"|"hold"|"fail"|"other"} */ (OUTCOMES.includes(e.outcome) ? e.outcome : "other")]++;
       const step = typeof e.step === "string" && e.step ? e.step : "?";
-      const st = (d.byStep[step] ??= { runs: 0, costUsd: 0, estUsd: 0 });
+      const st = (d.byStep[step] ??= { runs: 0, costUsd: 0, estUsd: 0, energyKwh: 0, energyUsd: 0 });
       st.runs++;
       st.costUsd += cost;
       st.estUsd += est;
+      if (kwh) {
+        st.energyKwh = (st.energyKwh ?? 0) + kwh;
+        st.energyUsd = (st.energyUsd ?? 0) + eUsd;
+      }
     }
   }
   const r2 = (/** @type {number} */ v) => Math.round(v * 100) / 100;
+  const r6 = (/** @type {number} */ v) => Math.round(v * 1e6) / 1e6;
+  const r9 = (/** @type {number} */ v) => Math.round(v * 1e9) / 1e9;
   /** @param {number[]} xs */
   const spread = (xs) => {
     const sorted = [...xs].sort((a, b) => a - b);
@@ -130,7 +146,14 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
     merged: _m.size,
     costUsd: r2(d.costUsd),
     estUsd: r2(d.estUsd),
-    byStep: Object.fromEntries(Object.entries(d.byStep).map(([k, v]) => [k, { runs: v.runs, costUsd: r2(v.costUsd), estUsd: r2(v.estUsd) }])),
+    energyKwh: r9(d.energyKwh),
+    energyUsd: r6(d.energyUsd),
+    byStep: Object.fromEntries(
+      Object.entries(d.byStep).map(([k, v]) => [
+        k,
+        { runs: v.runs, costUsd: r2(v.costUsd), estUsd: r2(v.estUsd), ...(v.energyKwh ? { energyKwh: r9(v.energyKwh), energyUsd: r6(v.energyUsd ?? 0) } : {}) },
+      ]),
+    ),
     ticketCost: spread(_tc),
     ticketEst: spread(_te),
   }));
@@ -139,6 +162,7 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
 /** How far a run_end's `ts` may sit from its usage record's `endedAt` (both written in the same dispatch tick). */
 const JOIN_MS = 5000;
 const TOKEN_FIELDS = ["model", "input", "output", "cacheRead", "cacheCreate", "estUsd", "unpriced"];
+const ENERGY_FIELDS = ["energyKwh", "energyUsd"];
 
 /** @type {Map<string, { size: number, byKey: Map<string, { at: number, rec: Record<string, any> }[]> }>} */
 const usageCache = new Map();
@@ -249,7 +273,7 @@ export function readHistory(file) {
           /** @type {Record<string, any>} */
           const kept = { ts: e.ts, event: e.event, ref: e.ref, step: e.step, outcome: e.outcome, costUsd: e.costUsd };
           if (e.event === "run_end") {
-            for (const f of [...TOKEN_FIELDS, "costBasis"]) if (e[f] !== undefined) kept[f] = e[f];
+            for (const f of [...TOKEN_FIELDS, "costBasis", ...ENERGY_FIELDS]) if (e[f] !== undefined) kept[f] = e[f];
             const reported = typeof e.costUsd === "number" && !e.unpriced;
             if (!reported && typeof e.input !== "number" && typeof e.estUsd !== "number") joinUsage(kept, usage);
           }

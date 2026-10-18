@@ -21,6 +21,9 @@ export type StatsSummary = {
   estUsd: number;
   /** Runs with neither a reported cost nor an estimate. */
   unestimatedRuns: number;
+  /** Measured energy (src/energy.js) — beside both dollar figures, never in them. */
+  energyKwh: number;
+  energyUsd: number;
   runs: number;
   rework: number;
   /** null below MIN_RUNS_FOR_RATES: a rate over a handful of runs is noise. */
@@ -33,6 +36,8 @@ export function summarizeStats(days: DayStats[]): StatsSummary {
   let costUsd = 0;
   let estUsd = 0;
   let unestimatedRuns = 0;
+  let energyKwh = 0;
+  let energyUsd = 0;
   let runs = 0;
   let rework = 0;
   let bestDay: DayStats | null = null;
@@ -41,6 +46,8 @@ export function summarizeStats(days: DayStats[]): StatsSummary {
     costUsd += d.costUsd;
     estUsd += d.estUsd ?? 0;
     unestimatedRuns += d.unestimatedRuns ?? 0;
+    energyKwh += d.energyKwh ?? 0;
+    energyUsd += d.energyUsd ?? 0;
     runs += d.runs;
     rework += d.rework;
     if (d.finished > 0 && (!bestDay || d.finished > bestDay.finished)) bestDay = d;
@@ -51,6 +58,9 @@ export function summarizeStats(days: DayStats[]): StatsSummary {
     costUsd: Math.round(costUsd * 100) / 100,
     estUsd: Math.round(estUsd * 100) / 100,
     unestimatedRuns,
+    // Not rounded to cents: a local run's electricity is a fraction of one.
+    energyKwh: Math.round(energyKwh * 1e9) / 1e9,
+    energyUsd: Math.round(energyUsd * 1e6) / 1e6,
     runs,
     rework,
     reworkRate: runs >= MIN_RUNS_FOR_RATES ? rework / runs : null,

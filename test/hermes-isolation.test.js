@@ -244,9 +244,9 @@ test("hermesLints: warns for an isolated hermes step with no source config.yaml 
 /**
  * Run one hermes `code` step through the real dispatcher with a fake `hermes` that records
  * its argv + HERMES_HOME and writes an advance verdict.
- * @param {any} stepOver @param {{yaml?: string|null, agentProvider?: string}} [o]
+ * @param {any} stepOver @param {{yaml?: string|null, agentProvider?: string, finalizeTimeoutMs?: number}} [o]
  */
-async function runHermes(stepOver, { yaml = LOCAL_YAML, agentProvider } = {}) {
+async function runHermes(stepOver, { yaml = LOCAL_YAML, agentProvider, finalizeTimeoutMs } = {}) {
   const dir = tmp("dispatch");
   const src = process.env.HERMES_HOME ?? "";
   fs.rmSync(path.join(src, "config.yaml"), { force: true });
@@ -271,11 +271,17 @@ if [ "$1" = "chat" ]; then
     echo "session_id: fake-1" >&2
   fi
   printf '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"
+  if [ -n "$FAKE_EXPORT_BLOCK" ]; then
+    : > "$(dirname "$AGENTHOOK_VERDICT_FILE")/../exports"
+  fi
 else
   printf '%s\\n' "$@" > "${exportArgvOut}"
   printf '%s' "\${HERMES_HOME-<unset>}" > "${exportEnvOut}"
   if [ -n "$FAKE_EXPORT_FAIL" ]; then
     exit 7
+  fi
+  if [ -n "$FAKE_EXPORT_SLEEP" ]; then
+    exec sleep "$FAKE_EXPORT_SLEEP"
   fi
   for file in "$@"; do :; done
   printf '%s\\n' "\${FAKE_EXPORT_ROW:-{\\"input_tokens\\":18010,\\"output_tokens\\":1371,\\"cache_read_tokens\\":102182,\\"cache_write_tokens\\":0}}" > "$file"
@@ -305,13 +311,20 @@ fi
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ v) => advanced.push({ ref, stepId, ...v }),
   });
-  const run = createDispatcher(cfg, adapter, undefined, store, (/** @type {any[]} */ ...e) => events.push(e));
+  const run = createDispatcher(cfg, adapter, undefined, store, (/** @type {any[]} */ ...e) => events.push(e), null, undefined, finalizeTimeoutMs ? { finalizeTimeoutMs } : {});
   const log = console.log;
+  const err = console.error;
   console.log = () => {};
+  /** @type {string[]} */
+  const stderr = [];
+  console.error = (/** @type {any[]} */ ...a) => void stderr.push(a.join(" "));
   try {
     await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" });
+    // let a late export rejection (execFile's own kill) land before we read the log
+    await new Promise((r) => setTimeout(r, 300));
   } finally {
     console.log = log;
+    console.error = err;
   }
   const read = (/** @type {string} */ f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null);
   const logFile = fs.readdirSync(dir).find((f) => f.endsWith(".log"));
@@ -324,6 +337,7 @@ fi
     exportArgv: read(exportArgvOut)?.trim().split("\n") ?? null,
     exportHermesHome: read(exportEnvOut),
     log: logFile ? fs.readFileSync(path.join(dir, logFile), "utf8") : "",
+    stderr,
     usage: store.readUsage(),
   };
 }
@@ -397,6 +411,37 @@ test("dispatch: finalize failure (export exits non-zero) — tokens stay 0, one 
     assert.equal(fs.existsSync(path.join(r.dir, "exports", "42-code")), false, "the scratch dir is still cleaned up");
   } finally {
     delete process.env.FAKE_EXPORT_FAIL;
+  }
+});
+
+test("dispatch: finalize hanging past its timeout — exactly one failure line, the run resolves normally", async () => {
+  process.env.FAKE_EXPORT_SLEEP = "5";
+  try {
+    const t0 = Date.now();
+    const r = await runHermes({ provider: "ollama-launch" }, { finalizeTimeoutMs: 200 });
+    assert.ok(Date.now() - t0 < 4000, "bounded by the shortened timeout, not the 5 s sleep");
+    assert.equal(r.advanced[0].outcome, "advance");
+    assert.equal(r.log.match(/usage export failed/g)?.length, 1, r.log);
+    assert.match(r.log, /usage export failed: timed out after 200ms/);
+    assert.equal(r.stderr.filter((l) => /usage export failed/.test(l)).length, 1);
+    assert.deepEqual([r.usage[0].input, r.usage[0].output], [0, 0]);
+    assert.equal(fs.existsSync(path.join(r.dir, "exports", "42-code")), false);
+  } finally {
+    delete process.env.FAKE_EXPORT_SLEEP;
+  }
+});
+
+test("dispatch: a finalize scratch dir that can't be created is one failure line, never a thrown run", async () => {
+  // the chat run leaves a plain file where the exports dir must go → mkdirSync throws inside finalize
+  process.env.FAKE_EXPORT_BLOCK = "1";
+  try {
+    const r = await runHermes({ provider: "ollama-launch" });
+    assert.equal(r.advanced[0].outcome, "advance");
+    assert.equal(r.exportArgv, null, "the export never ran");
+    assert.equal(r.log.match(/usage export failed/g)?.length, 1, r.log);
+    assert.equal(r.usage.length, 1, "the run's usage record is still written");
+  } finally {
+    delete process.env.FAKE_EXPORT_BLOCK;
   }
 });
 

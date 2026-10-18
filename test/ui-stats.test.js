@@ -229,3 +229,15 @@ test("readHistory: a run_end keeps model/tokens/estimate; an old one with no tok
   assert.equal(t.unestimatedRuns, 2);
   assert.equal(fs.readFileSync(path.join(dir, "usage.jsonl"), "utf8"), before, "no file is rewritten");
 });
+
+test("dailyStats: measured energy sums per day and per step at sub-cent precision, apart from cost", () => {
+  const events = [
+    ev("2026-10-15T10:00:00Z", "run_end", { step: "code", costUsd: 0.5, energyKwh: 0.0019, energyUsd: 0.000285 }),
+    ev("2026-10-15T11:00:00Z", "run_end", { step: "code", energyKwh: 0.001, energyUsd: 0.00015 }),
+    ev("2026-10-15T12:00:00Z", "run_end", { step: "review", costUsd: 1 }),
+  ];
+  const [t] = dailyStats(events, { now: NOW, days: 1 });
+  assert.deepEqual({ costUsd: t.costUsd, energyKwh: t.energyKwh, energyUsd: t.energyUsd }, { costUsd: 1.5, energyKwh: 0.0029, energyUsd: 0.000435 });
+  assert.deepEqual(t.byStep.code, { runs: 2, costUsd: 0.5, estUsd: 0, energyKwh: 0.0029, energyUsd: 0.000435 });
+  assert.deepEqual(t.byStep.review, { runs: 1, costUsd: 1, estUsd: 0 }, "an unmeasured step carries no energy keys");
+});

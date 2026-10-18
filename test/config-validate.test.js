@@ -304,3 +304,21 @@ test("pricing: invalid rates fail validation with a clear message; a valid block
   assert.ok(!v.ok && v.errors.some((e) => /pricing\["qwen\*"\]\.input must be a finite number ≥ 0/.test(e)), JSON.stringify(v));
   assert.ok(!v.ok && v.errors.some((e) => /pricing\["qwen\*"\]\.output is required/.test(e)));
 });
+
+test("energy: a valid block + step opt-in pass; bad step values, a missing block, a manual step and bad shapes fail", () => {
+  const energy = { usdPerKwh: 0.15, source: { type: "hwmon" } };
+  assert.deepEqual(validateRawConfig(raw({ energy }, [{ id: "code", energy: true }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ energy }, [{ id: "code", energy: false }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", energy: false }])), { ok: true }, "energy:false needs no block");
+  /** @param {any} r */
+  const errs = (r) => /** @type {any} */ (validateRawConfig(r)).errors;
+  assert.deepEqual(errs(raw({ energy }, [{ id: "code", energy: "yes" }])), [`config: pipeline step "code" energy must be true or false.`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", energy: true }])), [`config: pipeline step "code" energy:true needs a profile "energy" block ({usdPerKwh, source}).`]);
+  assert.deepEqual(errs(raw({ energy }, [{ id: "code" }, { id: "done", manual: true, energy: true }])), [
+    `config: pipeline step "done" energy has no effect on a manual step (no agent runs).`,
+  ]);
+  assert.match(errs(raw({ energy: { usdPerKwh: -1, source: { type: "hwmon" } } }))[0], /energy\.usdPerKwh must be a finite number ≥ 0/);
+  assert.match(errs(raw({ energy: { usdPerKwh: 0.15, source: { type: "rapl" } } }))[0], /energy\.source\.type must be one of hwmon, command, watts/);
+  assert.match(errs(raw({ energy: { usdPerKwh: 0.15, source: { type: "command" } } }))[0], /energy\.source\.cmd is required/);
+  assert.match(errs(raw({ energy: { usdPerKwh: 0.15, source: { type: "watts" } } }))[0], /energy\.source\.watts is required/);
+});

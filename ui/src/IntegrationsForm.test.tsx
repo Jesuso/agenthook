@@ -290,3 +290,24 @@ describe("pricing", () => {
     expect(text).toContain('pricing["qwen*"].output is required');
   });
 });
+
+describe("energy", () => {
+  it("switching the source type drops the old type's key; the new type's field edits the right key", async () => {
+    const { root, last } = await live({ name: "p", energy: { usdPerKwh: 0.15, source: { type: "hwmon", name: "amdgpu" } } });
+    expect(root.querySelector("[data-energy-panel]")).not.toBeNull();
+    expect(field(root, "energy.source.cmd")).toBeNull();
+    await pick(field<HTMLSelectElement>(root, "energy.source.type"), "command");
+    expect(last().energy).toEqual({ usdPerKwh: 0.15, source: { type: "command" } });
+    expect(field(root, "energy.source.name")).toBeNull();
+    await setInput(field(root, "energy.source.cmd"), "nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits");
+    expect(last().energy.source).toEqual({ type: "command", cmd: "nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits" });
+    expect(last().name).toBe("p");
+  });
+
+  it("shows energyErrors for an invalid block", async () => {
+    const { root } = await live({ name: "p", energy: { usdPerKwh: -1, source: { type: "watts" } } });
+    const text = root.querySelector("[data-energy-panel]")!.textContent ?? "";
+    expect(text).toContain("energy.usdPerKwh must be a finite number");
+    expect(text).toContain('energy.source.watts is required for type "watts"');
+  });
+});

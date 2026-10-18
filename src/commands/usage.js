@@ -7,19 +7,27 @@
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { costOf, sumCosts } from "../pricing.js";
+import { formatEnergy } from "../energy.js";
 
 /**
  * Aggregate an array of UsageRecords into summed totals. Tokens sum every record; `costUsd`
  * sums only priced ones (an `unpriced` local-model run's figure is not real spend). `est` /
  * `unestimated` are src/pricing.js `sumCosts` over the rest (the rate-table estimate, and the
- * runs with no rate or no tokens), with the profile's `pricing` overrides.
+ * runs with no rate or no tokens), with the profile's `pricing` overrides. `energyKwh`/`energyUsd`
+ * sum the measured runs (`energyRuns` of them, src/energy.js) — apart from both dollar figures.
  * @param {import('../types.js').UsageRecord[]} recs
  * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]
- * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined, est: number, unestimated: number }}
+ * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined, est: number, unestimated: number, energyKwh: number, energyUsd: number, energyRuns: number }}
  */
 export function sumRecords(recs, pricing) {
   let input = 0, output = 0, cacheRead = 0, cacheCreate = 0, costUsd = /** @type {number|undefined} */ (undefined);
+  let energyKwh = 0, energyUsd = 0, energyRuns = 0;
   for (const r of recs) {
+    if (typeof r.energyKwh === "number" && Number.isFinite(r.energyKwh)) {
+      energyKwh += r.energyKwh;
+      energyUsd += typeof r.energyUsd === "number" && Number.isFinite(r.energyUsd) ? r.energyUsd : 0;
+      energyRuns++;
+    }
     input += r.input;
     output += r.output;
     cacheRead += r.cacheRead;
@@ -27,7 +35,7 @@ export function sumRecords(recs, pricing) {
     if (!r.unpriced && typeof r.costUsd === "number") costUsd = (costUsd ?? 0) + r.costUsd;
   }
   const { est, unestimated } = sumCosts(recs, pricing);
-  return { input, output, cacheRead, cacheCreate, costUsd, est, unestimated };
+  return { input, output, cacheRead, cacheCreate, costUsd, est, unestimated, energyKwh, energyUsd, energyRuns };
 }
 
 /** A group/TOTAL `$` cell: reported and estimated side by side, never summed — `$1.2345 + ~$0.0400 est.`
@@ -103,14 +111,21 @@ function fmtCost(usd) {
 
 /**
  * A per-run cost cell: the reported `$0.1234`, else the rate-table `~$0.0400 est.`, else
- * `unpriced` for a run with no real cost and no estimate (no rate, or no tokens). Exported for tests.
+ * `unpriced` for a run with no real cost and no estimate (no rate, or no tokens); a measured run
+ * appends ` · energy $0.00029 (1.9 Wh)` (src/energy.js). Exported for tests.
  * @param {import('../types.js').UsageRecord} r @param {Record<string, import('../pricing.js').Rate>|null} [pricing]
  */
 export function runCost(r, pricing) {
   const c = costOf(r, pricing);
-  if (c.costUsd !== undefined) return fmtCost(c.costUsd);
-  if (c.estUsd !== undefined) return `~${fmtCost(c.estUsd)} est.`;
-  return r.unpriced ? "unpriced" : fmtCost(r.costUsd);
+  const cost = c.costUsd !== undefined ? fmtCost(c.costUsd) : c.estUsd !== undefined ? `~${fmtCost(c.estUsd)} est.` : r.unpriced ? "unpriced" : fmtCost(r.costUsd);
+  const energy = formatEnergy(r);
+  return energy ? `${cost} · ${energy}` : cost;
+}
+
+/** The line under a table whose records include measured runs, else "". Exported for tests.
+ * @param {{ energyKwh: number, energyUsd: number, energyRuns: number }} t */
+export function energyTotalLine(t) {
+  return t.energyRuns ? `energy total: ${formatEnergy(t).replace(/^energy /, "")} over ${t.energyRuns} measured run${t.energyRuns === 1 ? "" : "s"}` : "";
 }
 
 /** @param {number} n */
@@ -155,6 +170,7 @@ export async function usage(args) {
     const tot = sumRecords(recs, pricing);
     rows.push(["TOTAL", String(recs.length), tok(tot.input), tok(tot.output), tok(tot.cacheRead), tok(tot.cacheCreate), spendCell(tot), String(tot.unestimated), ""]);
     printTable(rows);
+    if (tot.energyRuns) console.log(energyTotalLine(tot));
     return;
   }
 
@@ -172,6 +188,7 @@ export async function usage(args) {
   const noEst = tot.unestimated ? ` (${tot.unestimated} runs no estimate)` : "";
   rows.push(["TOTAL", "", "", tok(tot.input), tok(tot.output), tok(tot.cacheRead), tok(tot.cacheCreate), spendCell(tot) + noEst]);
   printTable(rows);
+  if (tot.energyRuns) console.log(energyTotalLine(tot));
 }
 
 /**
