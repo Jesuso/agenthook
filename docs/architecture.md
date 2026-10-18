@@ -153,9 +153,9 @@ log line:
   bounds a self-trigger loop.
 
 Any run of any step for the item consumes the held record, as do `fail` and the drain step. Supported
-on **Asana** (story `comment_added`), **GitHub** labels (`issue_comment`) and **Jira**
-(`comment_created`). Not yet on GitHub Projects; there, resume by moving the item back to the step's
-source status.
+on **Asana** (story `comment_added`), **GitHub** labels (`issue_comment`), **Jira**
+(`comment_created`) and **GitHub Projects** (`issue_comment` on the card's issue, which must be on
+the board and, when the step sets a `holdStatus`, still in it).
 
 ### File-overlap guard (`overlapGuard`, opt-in)
 

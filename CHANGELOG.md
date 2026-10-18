@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format is based on
 - Jira supports the `@agent` resume: an `@agent …` comment from the token owner on a held issue
   re-runs the held step with the reply in its prompt, behind the same fail-closed gate as Asana and
   GitHub. Tick **Comment → created** on the hand-made Jira webhook to enable it (#447).
+- GitHub Projects v2 supports the `@agent` resume: an `@agent …` comment from the token owner on a
+  held card's issue re-runs the held step with the reply in its prompt. The auto-created org webhook
+  now also subscribes to `issue_comment` (an existing hook is replaced on the next boot); a
+  user-owned board, or a token without `admin:org_hook`, can use a repo webhook with the
+  **Issue comments** event, whose setup `start` prints (#448).
 
 ### Fixed
 

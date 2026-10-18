@@ -32,8 +32,14 @@
   Status with no board option is a logged no-op, and options are **not** auto-created. One **org**
   `projects_v2_item` hook (`created`/`edited`; `edited` acts only on a Status single-select change,
   re-reading the item live) signed like `github` → `x-hub-signature-256`. The hook auto-creates for
-  an **org**-owned project (needs `admin:org_hook`), else prints manual setup; a **user-owned**
-  project has **no PAT hook path**. URL is fixed → **stable ingress** (like Jira). 'Us' = `viewer`
+  an **org**-owned project (needs `admin:org_hook`) subscribed to `projects_v2_item` +
+  `issue_comment`, else prints manual setup; a **user-owned** project has **no PAT hook path** for
+  item moves. `issue_comment` (`created` only, PRs skipped) carries the `@agent` resume: author must
+  strictly equal the `viewer` login (`isOwner`, never `isOurs`), then one `node(Issue){projectItems}`
+  read maps the issue to its card on *this* project (no board scan; none → no job), `issueIsOurs`
+  on that fresh issue, `resumeJob`, and — when the held step sets `holdStatus` — the card's live
+  Status must still equal it; dedup `trigger:<comment.id>`. A **repo** hook (same URL + secret,
+  "Issue comments") delivers it too — printed, never auto-created, for user-owned boards / no scope. URL is fixed → **stable ingress** (like Jira). 'Us' = `viewer`
   login; fail-closed. Token: classic `project`+`repo`(+`admin:org_hook`), or fine-grained Projects RW
   + Issues R + org Webhooks RW. **Epics**: an Issue card typed `epicType` or labelled `epicLabel`
   (the `github` rule over the GraphQL shape); tickets = its native sub-issues, staged by their own

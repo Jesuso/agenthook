@@ -8,7 +8,7 @@ export const create = createGithubProjectsAdapter;
 export const webhooks = true;
 export const handshake = false;
 export const assigneeScoped = true;
-export const resume = false; // no `@agent` comment path on Projects v2
+export const resume = true; // `issue_comment` on the card's issue
 
 const SECRET = "projects-hook-secret";
 const US = "agent-bot";
@@ -56,6 +56,12 @@ export function fetch(url, init) {
   if (query.includes("ProjectV2FieldCommon")) return ok({ data: { node: { name: "Status" } } });
   if (query.includes('field(name:"Status")')) return ok({ data: { node: { field: { id: STATUS_FIELD, name: "Status", options: STATUSES.map((s) => ({ id: `opt-${s}`, name: s })) } } } });
   if (query.includes("items(first:100")) return ok({ data: { node: { items: { nodes: CARDS.map(node), pageInfo: { hasNextPage: false, endCursor: null } } } } });
+  // The `@agent` resume's Issue → board-card lookup: #7's card is on PVT_3, parked in
+  // Held (the `code` step's holdStatus checkResume holds on). Only the comment path asks.
+  if (query.includes("projectItems(first:50")) {
+    if (variables.id !== "I_7") return ok({ data: { node: null } });
+    return ok({ data: { node: { number: 7, assignees: { nodes: [{ login: US }] }, projectItems: { nodes: [{ id: "PVTI_7", project: { id: "PVT_3" }, status: { name: "Held" } }] } } } });
+  }
   if (query.includes("on ProjectV2Item {")) {
     const c = CARDS.find((x) => `PVTI_${x.n}` === variables.id);
     return ok({ data: { node: c ? node(c) : null } });
@@ -74,10 +80,10 @@ export function stageOf(env, ref) {
   return stage;
 }
 
-/** A signed `projects_v2_item` delivery of `ev`. @param {any} ev @param {string} [secret] */
-const signed = (ev, secret = SECRET) => {
+/** A signed `event` (default `projects_v2_item`) delivery of `ev`. @param {any} ev @param {string} [secret] @param {string} [event] */
+const signed = (ev, secret = SECRET, event = "projects_v2_item") => {
   const raw = JSON.stringify(ev);
-  return { pathname: "/github-projects/", headers: { "x-github-event": "projects_v2_item", "x-github-delivery": "d-1", "x-hub-signature-256": `sha256=${hmacHex(secret, raw)}` }, rawBody: raw };
+  return { pathname: "/github-projects/", headers: { "x-github-event": event, "x-github-delivery": "d-1", "x-hub-signature-256": `sha256=${hmacHex(secret, raw)}` }, rawBody: raw };
 };
 const ping = { action: "reordered", projects_v2_item: { node_id: "PVTI_1" } };
 export const signedRequest = () => signed(ping);
@@ -88,3 +94,7 @@ const statusEdited = (n) =>
   signed({ action: "edited", projects_v2_item: { node_id: `PVTI_${n}`, content_type: "Issue" }, changes: { field_value: { field_type: "single_select", field_node_id: STATUS_FIELD } } });
 export const ourEvent = () => ({ ctx: statusEdited(7), expect: { stepId: "code", ref: "7" } });
 export const notOursEvent = () => statusEdited(8);
+
+/** A new issue_comment on #7 (the card's underlying issue). @param {any} _env @param {{author: string, body: string}} o */
+export const commentEvent = (_env, { author, body }) =>
+  signed({ action: "created", issue: { number: 7, node_id: "I_7" }, comment: { id: 701, body, user: { login: author === "owner" ? US : "someone-else" } } }, SECRET, "issue_comment");

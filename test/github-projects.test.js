@@ -576,7 +576,7 @@ async function captureLogs(fn) {
   return lines;
 }
 
-test("registerWebhook on an org project scrubs our stale hooks then creates one signed projects_v2_item hook", async () => {
+test("registerWebhook on an org project scrubs our stale hooks then creates one signed projects_v2_item + issue_comment hook", async () => {
   const hooks = [
     { id: 1, config: { url: "https://old.example/github-projects/" } }, // ours (stale URL)
     { id: 2, config: { url: "https://other.example/some-hook" } }, // unrelated — must survive
@@ -590,7 +590,7 @@ test("registerWebhook on an org project scrubs our stale hooks then creates one 
   assert.equal(calls.deletes.length, 1, "only our stale hook is deleted");
   assert.match(calls.deletes[0], /\/orgs\/acme\/hooks\/1$/);
   assert.equal(calls.posts.length, 1, "exactly one hook created");
-  assert.deepEqual(calls.posts[0].events, ["projects_v2_item"]);
+  assert.deepEqual(calls.posts[0].events, ["projects_v2_item", "issue_comment"]);
   assert.equal(calls.posts[0].config.url, "https://new.example/github-projects/");
   assert.equal(calls.posts[0].config.content_type, "json");
   assert.ok(calls.posts[0].config.secret, "the generated secret is passed into the hook config");
@@ -606,7 +606,10 @@ test("registerWebhook falls back to manual instructions on 403 (missing admin:or
   }
   assert.equal(calls.posts.length, 1, "it attempted the create");
   assert.ok(lines.some((l) => /admin:org_hook/.test(l)), "printed the manual org-webhook instructions");
-  assert.ok(lines.some((l) => /Projects v2 item/.test(l)));
+  const out = lines.join("\n");
+  assert.match(out, /"Projects v2 item" \+ "Issue comments"/, "the org hook lists both events");
+  assert.match(out, /REPO hook/, "and names the repo-hook alternative for the @agent resume");
+  assert.match(out, /Payload URL:\s+https:\/\/new\.example\/github-projects\//);
 });
 
 test("registerWebhook on a USER-owned project prints a clear not-supported message and creates no hook", async () => {
@@ -620,6 +623,12 @@ test("registerWebhook on a USER-owned project prints a clear not-supported messa
   assert.equal(calls.posts.length, 0, "no hook is created for a user-owned project");
   assert.equal(calls.lists, 0, "and we never even list org hooks");
   assert.ok(lines.some((l) => /USER-owned/.test(l) && /GitHub App/.test(l)));
+  const out = lines.join("\n");
+  assert.match(out, /REPO hook/, "prints the per-repo issue_comment hook for the @agent resume");
+  assert.match(out, /"Issue comments"/);
+  assert.match(out, /Payload URL:\s+https:\/\/new\.example\/github-projects\//);
+  assert.match(out, /Content type: application\/json/);
+  assert.match(out, /Secret:\s+[0-9a-f]{64}/, "with the generated secret");
 });
 
 test("unregisterWebhooks deletes only our org hooks for an org project", async () => {
@@ -933,4 +942,137 @@ test("listEpicTickets: bad ref → [] with no fetch; not on board / not an epic 
     restore();
     console.warn = warn;
   }
+});
+
+// --- the `@agent` comment trigger (issue_comment → resume the held step) ---
+
+const heldPipeline = [
+  { id: "triage", sourceStatus: "Triage", successStatus: "Code", failureStatus: "Blocked", holdStatus: "Held" },
+  { id: "code", sourceStatus: "Code", successStatus: "In Review", failureStatus: "Blocked" }, // no holdStatus: the card stays put
+];
+
+/** Adapter over a store stub whose held record / attempt count the test controls. "Us" is
+ * the GraphQL `viewer` (no assigneeLogin), so each case runs under `withProjects`'s stub.
+ * @param {{pc?: object, held?: any, ran?: number}} [o] */
+function commentAdapter({ pc = {}, held = { stepId: "triage", heldAt: "2026-10-18T00:00:00.000Z" }, ran = 1 } = {}) {
+  const store = { ...makeStore(), getHeld: () => held, getAttempt: () => ran };
+  const providerConfig = { type: "github-projects", token: "t", project: "acme/7", webhookSecret: false, ...pc };
+  return createGithubProjectsAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: heldPipeline, providerConfig }), /** @type {any} */ (store));
+}
+
+/** An issue_comment delivery on issue #42 (node I_42).
+ * @param {{author?: string, body?: string, id?: number, action?: string, pr?: boolean}} [o] */
+function commentEvt({ author = "bot", body = "@agent use Postgres", id = 9001, action = "created", pr = false } = {}) {
+  const ev = { action, issue: { number: 42, node_id: "I_42", ...(pr ? { pull_request: { url: "x" } } : {}) }, comment: { id, body, user: { login: author } } };
+  return /** @type {any} */ ({ rawBody: JSON.stringify(ev), headers: { "x-github-event": "issue_comment" } });
+}
+
+/** Run `fn` with a fake GraphQL: `viewer` → `me` (or no login when null), the project probe
+ * → PROJECT_ID, and the Issue projectItems lookup of I_42 → `assignee` + `cards` (default: one
+ * card on our board in `status`). Returns the posted queries alongside fn's result.
+ * @template T @param {{me?: string|null, assignee?: string, status?: string, cards?: any[]}} o @param {() => Promise<T>} fn */
+async function withProjects({ me = "bot", assignee = "bot", status = "Held", cards }, fn) {
+  /** @type {string[]} */
+  const queries = [];
+  const orig = global.fetch;
+  const log = console.log;
+  const error = console.error;
+  console.log = () => {};
+  console.error = () => {};
+  const items = cards ?? [{ id: "PVTI_42", project: { id: PROJECT_ID }, status: { name: status } }];
+  // @ts-ignore - test stub
+  global.fetch = async (_url, init = {}) => {
+    const q = JSON.parse(String(init.body)).query;
+    queries.push(q);
+    /** @param {any} data */
+    const ok = (data) => /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ data }) });
+    if (q.includes("viewer{ login")) return ok({ viewer: me ? { login: me } : null });
+    if (q.includes("organization(login")) return ok({ organization: { projectV2: { id: PROJECT_ID } }, user: null });
+    if (q.includes("projectItems(first:50")) return ok({ node: { number: 42, assignees: { nodes: [{ login: assignee }] }, projectItems: { nodes: items } } });
+    return ok({});
+  };
+  try {
+    return { result: await fn(), queries };
+  } finally {
+    global.fetch = orig;
+    console.log = log;
+    console.error = error;
+  }
+}
+
+test("issue_comment: an owner's @agent reply on a held card resumes the held step", async () => {
+  const { result, queries } = await withProjects({}, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, [{ kind: "pipeline", ref: "42", stepId: "triage", dedupKey: "trigger:9001", comment: "@agent use Postgres" }]);
+  assert.ok(queries.some((q) => q.includes("projectItems(first:50")), "board membership is read off the issue");
+  assert.ok(!queries.some((q) => q.includes("items(first:100")), "the board is never scanned");
+});
+
+test("issue_comment: a leading-whitespace trigger still matches", async () => {
+  const { result } = await withProjects({}, () => commentAdapter().processEvents(commentEvt({ body: "  \n@agent go" })));
+  assert.equal(result.length, 1);
+  assert.equal(result[0].comment, "  \n@agent go");
+});
+
+test("issue_comment: a non-owner author yields no job — including with assigneeFilter:false", async () => {
+  for (const pc of [{}, { assigneeFilter: false }]) {
+    const { result, queries } = await withProjects({}, () => commentAdapter({ pc }).processEvents(commentEvt({ author: "mallory" })));
+    assert.deepEqual(result, [], JSON.stringify(pc));
+    assert.ok(!queries.some((q) => q.includes("projectItems")), "no issue lookup for a non-owner");
+  }
+});
+
+test("issue_comment: an unresolvable viewer fails closed (no job)", async () => {
+  const { result } = await withProjects({ me: null }, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, []);
+});
+
+test("issue_comment: no held record, the held step at its attempt cap, or a manual held step yields no job", async () => {
+  assert.deepEqual((await withProjects({}, () => commentAdapter({ held: null }).processEvents(commentEvt()))).result, []);
+  assert.deepEqual((await withProjects({}, () => commentAdapter({ ran: 3 }).processEvents(commentEvt()))).result, []);
+  const store = { ...makeStore(), getHeld: () => ({ stepId: "review" }), getAttempt: () => 0 };
+  const manual = createGithubProjectsAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: [...heldPipeline, { id: "review", manual: true, sourceStatus: "Review" }], providerConfig: { type: "github-projects", token: "t", project: "acme/7", webhookSecret: false } }),
+    /** @type {any} */ (store),
+  );
+  assert.deepEqual((await withProjects({ status: "Review" }, () => manual.processEvents(commentEvt()))).result, []);
+});
+
+test("issue_comment: a body not starting with the trigger yields no job and costs no API call", async () => {
+  const { result, queries } = await withProjects({}, () => commentAdapter().processEvents(commentEvt({ body: "thanks @agent, use Postgres" })));
+  assert.deepEqual(result, []);
+  assert.deepEqual(queries, []);
+});
+
+test("issue_comment: an issue assigned to someone else yields no job", async () => {
+  const { result } = await withProjects({ assignee: "someone-else" }, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, []);
+});
+
+test("issue_comment: an issue not on our board (no card, or only another project's card) yields no job", async () => {
+  assert.deepEqual((await withProjects({ cards: [] }, () => commentAdapter().processEvents(commentEvt()))).result, []);
+  const other = [{ id: "PVTI_x", project: { id: "PVT_other" }, status: { name: "Held" } }];
+  assert.deepEqual((await withProjects({ cards: other }, () => commentAdapter().processEvents(commentEvt()))).result, []);
+});
+
+test("issue_comment: a card moved out of the held step's holdStatus yields no job", async () => {
+  const { result } = await withProjects({ status: "Triage" }, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, []);
+});
+
+test("issue_comment: a held step with no holdStatus relies on the held record (card never moved)", async () => {
+  const { result } = await withProjects({ status: "Code" }, () => commentAdapter({ held: { stepId: "code" } }).processEvents(commentEvt()));
+  assert.deepEqual(result, [{ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "trigger:9001", comment: "@agent use Postgres" }]);
+});
+
+test("issue_comment: a PR comment or a non-created action is ignored", async () => {
+  assert.deepEqual((await withProjects({}, () => commentAdapter().processEvents(commentEvt({ pr: true })))).result, []);
+  for (const action of ["edited", "deleted"]) assert.deepEqual((await withProjects({}, () => commentAdapter().processEvents(commentEvt({ action })))).result, [], action);
+});
+
+test("issue_comment: a duplicate delivery of the same comment carries the same dedupKey", async () => {
+  const a = commentAdapter();
+  const { result } = await withProjects({}, async () => [...(await a.processEvents(commentEvt())), ...(await a.processEvents(commentEvt()))]);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].dedupKey, result[1].dedupKey);
+  assert.equal(result[0].dedupKey, "trigger:9001");
 });
