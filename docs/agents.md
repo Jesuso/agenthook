@@ -304,6 +304,9 @@ An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`sr
 - `defaults` → `{bin?, requireVerdict?}`. A step's own `bin`/`requireVerdict` wins.
 - Optional `env({cfg, step})` → extra environment for the agent, at spawn and in `ah resume`. A
   step's own `env` wins over it (Hermes: the isolated `HERMES_HOME`).
+- Optional `describe().policy` → `{allow, deny}`: which step [`allow`/`deny` policies](configuration.md#step-policy-allow--deny)
+  `buildArgs` enforces (it gets them with `cwd` and `verdictFile`). Leave it unset and a step
+  that sets one is refused before spawn (only claude sets it today).
 - Optional `preflight({cfg, step, provider})` → runs before spawn; a returned reason fails the run
   without starting the agent (Hermes: prepares the isolated home and refuses a cloud provider).
 

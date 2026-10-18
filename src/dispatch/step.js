@@ -264,6 +264,8 @@ export function createStep(ctx) {
       provider,
       toolsets: step.toolsets,
       isolated: step.isolated,
+      allow: step.allow,
+      deny: step.deny,
       bin: step.bin,
       agentEnv,
       env: step.env,

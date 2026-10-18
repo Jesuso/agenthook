@@ -102,6 +102,14 @@ writes in the worktree stay yours.
 - Only `claude` is supported. A sandboxed `cursor`, `hermes` or `opencode` step is refused —
   set `"sandbox": false` on it to run it on the host.
 
+### With a step policy
+
+Inside the sandbox, paths outside the worktree and the verdict dir structurally don't exist. A
+step's [`allow.paths` / `deny.paths`](configuration.md#step-policy-allow--deny) add in-worktree
+granularity on top, as defence in depth: a script the agent runs can still bypass them. Without
+the sandbox, every part of the policy is advisory. Commands are never structurally enforced, and
+network egress is #473.
+
 ## Alternative: run the receiver itself in a container
 
 > ⚠ Here agents share the receiver's user, env, state volume (signing secrets, dedup state) and

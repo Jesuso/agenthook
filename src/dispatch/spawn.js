@@ -71,11 +71,11 @@ export function createSpawn(ctx) {
    * env (minus host-only keys, plus `sandboxed.env`) into a runtime-client spawn with `mounts`;
    * a `wrap()` rejection fails the run (`refused`) with nothing spawned. The run's sandbox report
    * comes back as `sandboxReport`.
-   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
+   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>}}} o
    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport}>}
    */
-  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
+  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -84,7 +84,7 @@ export function createSpawn(ctx) {
         console.error(`[dispatch] prompt file write failed (${promptFile}):`, e.message);
       }
     }
-    const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated });
+    const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated, allow, deny, cwd, verdictFile });
     const agentBin = bin || agent.defaults.bin || cfg.claudeBin;
     // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
     // read it after exit to route the step (advance/hold/changes/fail).
@@ -266,8 +266,9 @@ export function createSpawn(ctx) {
   /**
    * The agent's pre-spawn check (`agent.preflight`, e.g. an isolated hermes step's home):
    * the reason to fail the run without spawning, written to the run log, else undefined.
-   * A preflight that throws fails the run too — with its message. A sandboxed run of an agent
-   * with no `sandbox` hook is refused first: it never falls back to the host silently.
+   * A preflight that throws fails the run too — with its message. A step `allow`/`deny` policy
+   * the agent can't enforce (`describe().policy`) is refused first: it never runs unrestricted.
+   * Then a sandboxed run of an agent with no `sandbox` hook: it never falls back to the host silently.
    * @param {import('../types.js').AgentAdapter} agent @param {import('../types.js').Step} step
    * @param {string|undefined} provider @param {string} logPath
    * @param {{sandboxed?: boolean, env?: Record<string, string>}} [o]  `env` = the spawn env (agentSpawnEnv)
@@ -275,7 +276,11 @@ export function createSpawn(ctx) {
    */
   function agentPreflight(agent, step, provider, logPath, { sandboxed = false, env } = {}) {
     let reason;
-    if (sandboxed && !agent.sandbox) {
+    const policy = agent.describe().policy;
+    const unenforced = /** @type {const} */ (["allow", "deny"]).find((k) => step[k] && !policy?.[k]);
+    if (unenforced) {
+      reason = `${agent.describe().name} cannot enforce step "${step.id}" ${unenforced} policy — the run is refused rather than run unrestricted (see agenthook doctor)`;
+    } else if (sandboxed && !agent.sandbox) {
       reason = `${agent.describe().name} does not support the sandbox yet — the run is refused rather than run on the host (set "sandbox": false on step "${step.id}" to run it unsandboxed)`;
     } else if (agent.preflight) {
       try {
