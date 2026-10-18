@@ -4,7 +4,7 @@
 // emits a `ci` / `ci_green` job. Dispatch handles those jobs exactly as it does GitHub's.
 //
 // Implements the Forge contract (src/types.js):
-//   describe()                 -> { name }
+//   describe()                 -> { name, agentEnv }
 //   authenticate(ctx)          -> {type:'accept'} | {type:'reject'}   (sync, no network)
 //   processEvents(ctx)         -> [job]   (merge + ci + ci_green jobs only; everything else is [])
 //   registerWebhook(publicUrl) -> create the project MR + pipeline hook (best-effort)
@@ -89,6 +89,9 @@ function ciFromPipeline(pipeline) {
   if (st === "failed" || st === "canceled") return "failure";
   return "pending"; // running / pending / created / manual / … — not clearly green
 }
+
+/** Receiver env vars an agent gets with this forge (#470): none. */
+export const GITLAB_FORGE_AGENT_ENV = /** @type {string[]} */ ([]);
 
 /** @type {import('../types.js').ForgeFactory} */
 export function createGitlabForge(cfg, store) {
@@ -234,7 +237,7 @@ export function createGitlabForge(cfg, store) {
   }
 
   return {
-    describe: () => ({ name: "gitlab" }),
+    describe: () => ({ name: "gitlab", agentEnv: GITLAB_FORGE_AGENT_ENV }),
 
     // A shared token, not a signature (see the header). No opt-out: missing/wrong is a reject.
     authenticate({ headers }) {

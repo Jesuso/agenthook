@@ -145,8 +145,9 @@ a token. The hint names the App permission to add.
 
 ## What still uses your own credentials
 
-The App authenticates **the receiver** only. The agents it spawns (`claude -p` …) inherit the
-receiver's environment and still use **their own** `$GITHUB_TOKEN` / `gh auth` for the comments,
+The App authenticates **the receiver** only. The agents it spawns (`claude -p` …) get the
+[allowlisted environment](agents.md#agent-environment), including `GITHUB_TOKEN`/`GH_TOKEN` (see
+`agentEnvPassthrough`), and still use **their own** `$GITHUB_TOKEN` / `gh auth` for the comments,
 pushes and PRs they make. Keep those set up as before. Handing the agent a short-lived installation
 token is a possible follow-up, not part of this.
 

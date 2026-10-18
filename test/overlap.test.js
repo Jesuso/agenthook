@@ -85,6 +85,7 @@ function harness(o = {}) {
       { id: "done", manual: true, drainWorktree: true },
     ],
     overlapGuard: o.overlapGuard ?? true,
+    agentEnvPassthrough: ["FAKE_*"], // the fake reads its knobs from the receiver's env (#470)
     claudeBin: bin,
     repoPath: dir,
     worktreePrefix: path.join(dir, "wt"),

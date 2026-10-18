@@ -9,7 +9,7 @@ export const FINALIZE_TIMEOUT_MS = 10_000;
 
 /** @param {import('./context.js').DispatchState} ctx */
 export function createUsage(ctx) {
-  const { cfg, finalizeTimeoutMs, energySampler } = ctx;
+  const { cfg, finalizeTimeoutMs, energySampler, meta, forge } = ctx;
   /**
    * Best-effort post-exit usage capture via `agent.finalize` (e.g. hermes' `sessions
    * export`, #395): same bin/env the run used, a scratch dir under the state dir — never
@@ -47,7 +47,7 @@ export function createUsage(ctx) {
         timer = setTimeout(() => resolve(TIMED_OUT), finalizeTimeoutMs);
       });
       const run = agent
-        .finalize({ sessionId, bin: bin || agent.defaults.bin || cfg.claudeBin, env: agentSpawnEnv(agentEnv, env), dir, timeoutMs: finalizeTimeoutMs })
+        .finalize({ sessionId, bin: bin || agent.defaults.bin || cfg.claudeBin, env: agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }), dir, timeoutMs: finalizeTimeoutMs })
         .catch((e) => {
           warn(e.message);
           return null;

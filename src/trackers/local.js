@@ -49,6 +49,9 @@ function nextSeq(cfg) {
 /** The step (manual included) whose sourceStatus is `stage`. @param {import('../types.js').Config} cfg @param {string|undefined} stage */
 const stepSourcing = (cfg, stage) => (stage ? cfg.pipeline?.find((s) => s.sourceStatus === stage) : undefined);
 
+/** Receiver env vars an agent of this tracker gets (#470): none — a local run posts no comments. */
+export const LOCAL_AGENT_ENV = /** @type {string[]} */ ([]);
+
 /**
  * The job a task CREATED in `stage` carries (the "add ticket" path), keyed `step:<id>:<ref>`
  * like a webhook tracker's created-in-section event — or null when no step sources `stage`.
@@ -179,6 +182,7 @@ export function createLocalAdapter(cfg, _store) {
       taskNoun: "task",
       trigger: cfg.trigger || "@agent",
       commentHowTo: "this is a local offline run — do not post comments anywhere; put any note in the verdict `reason`",
+      agentEnv: LOCAL_AGENT_ENV,
       usesPR: false,
       webhooks: false,
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },

@@ -209,4 +209,8 @@ execution. If you enable it, run on a trusted host, scope the API token, stop th
 idle, and for untrusted or shared environments run it in the [sandboxed container](sandbox.md) with
 only the repo mounted (the blessed `fullAuto` path).
 
+Agents get an allowlisted environment, not the receiver's: the ingress authtoken, App private key
+and webhook secrets are stripped (see [Agent environment](agents.md#agent-environment)). That
+closes the environment path only; without the sandbox the filesystem stays readable.
+
 Vulnerability disclosure: see [SECURITY.md](../SECURITY.md).

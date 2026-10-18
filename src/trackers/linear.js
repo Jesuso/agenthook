@@ -56,6 +56,9 @@ export function verifyLinearSignature(secret, raw, sig) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
+export const LINEAR_AGENT_ENV = /** @type {string[]} */ (["LINEAR_API_KEY"]);
+
 /** @type {import('../types.js').AdapterFactory} */
 export function createLinearAdapter(cfg, store) {
   const pc = cfg.providerConfig;
@@ -299,6 +302,7 @@ export function createLinearAdapter(cfg, store) {
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s ${API} -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{"query":"mutation($i:String!,$b:String!){commentCreate(input:{issueId:$i,body:$b}){success}}","variables":{"i":"<identifier>","b":"<text>"}}' (your key is in the env as $LINEAR_API_KEY)`,
       readCommentsHowTo: `curl -s ${API} -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{"query":"query($i:String!){issue(id:$i){comments{nodes{body createdAt user{name}}}}}","variables":{"i":"<identifier>"}}'`,
+      agentEnv: LINEAR_AGENT_ENV,
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
 

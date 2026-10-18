@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { timeoutReason } from "./verdict.js";
+import { agentEnvAllow, buildAgentEnv } from "../agent-env.js";
 
 // How long a timed-out agent gets between SIGTERM and SIGKILL.
 export const KILL_GRACE_MS = 10000;
@@ -11,18 +12,22 @@ export const KILL_GRACE_MS = 10000;
 // setTimeout fires immediately past this (~24.8 days), so clamp a huge cap to it.
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
-/** The spawn env for an agent run (adapter's `agent.env` under the step's `env`), shared by
- * `spawnAgent` and a post-exit `agent.finalize` so the export sees the same `HERMES_HOME`
- * the run used. Never includes AGENTHOOK_VERDICT_FILE.
- * @param {Record<string,string>|undefined} agentEnv @param {Record<string,string>|undefined} env
+/** The spawn env for an agent run (#470): the receiver's env filtered to the allowlist — the
+ * base names, the agent CLI's `envPassthrough`, the tracker prompt's and the forge's `agentEnv`,
+ * then the operator's `agentEnvPassthrough` — with the adapter's `agent.env` and then the
+ * step's `env` spread on top, unfiltered. Shared by `spawnAgent` and a post-exit
+ * `agent.finalize` so the export sees the same `HERMES_HOME` the run used. Never includes
+ * AGENTHOOK_VERDICT_FILE.
+ * @param {{cfg: Pick<import('../types.js').Config, 'agentEnvPassthrough'>, agent: import('../types.js').AgentAdapter, meta?: import('../types.js').AdapterMeta, forge?: import('../types.js').Forge|null, agentEnv?: Record<string,string>, env?: Record<string,string>}} o
  * @returns {Record<string,string>} */
-export function agentSpawnEnv(agentEnv, env) {
-  return /** @type {Record<string,string>} */ ({ ...process.env, ...(agentEnv ?? {}), ...(env ?? {}) });
+export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }) {
+  const allow = agentEnvAllow({ agent: agent.envPassthrough, tracker: meta?.agentEnv, forge: forge?.describe?.().agentEnv, operator: cfg.agentEnvPassthrough });
+  return buildAgentEnv({ source: process.env, allow, layers: [agentEnv, env] });
 }
 
 /** @param {import('./context.js').DispatchState} ctx */
 export function createSpawn(ctx) {
-  const { cfg, children, killGraceMs, killTimers } = ctx;
+  const { cfg, children, killGraceMs, killTimers, meta, forge } = ctx;
   /** SIGTERM now, SIGKILL after the grace (cleared when the run ends, so a recycled pid is never hit).
    * @param {string} ref @param {number} pid */
   function killNow(ref, pid) {
@@ -55,7 +60,7 @@ export function createSpawn(ctx) {
    * between any output chunk, stdout or stderr. Past either the child gets SIGTERM, then
    * SIGKILL after the grace, and `timedOut` says which.
    * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
-   * default bin, else cfg.claudeBin, and the receiver's env); `agentEnv` (the adapter's `env`)
+   * default bin, else cfg.claudeBin, and the allowlisted env, see agentSpawnEnv); `agentEnv` (the adapter's `env`)
    * sits under the step's, so a step can override it; the verdict-file variable is set last
    * so a step can't override it.
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
@@ -78,7 +83,7 @@ export function createSpawn(ctx) {
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
         // read it after exit to route the step (advance/hold/changes/fail).
-        env: { ...agentSpawnEnv(agentEnv, env), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
+        env: { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
       });
       children?.add(child);
       onPid?.(child.pid);

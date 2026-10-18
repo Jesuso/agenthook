@@ -99,6 +99,52 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   with no verdict file holds the task instead of advancing it. `ah doctor` warns when a Hermes
   step sets `requireVerdict: false`.
 
+### Agent environment
+
+An agent does **not** inherit the receiver's environment. The receiver loads your `.env` (tracker
+token, ingress authtoken, App private key, webhook secrets) into its own process; an agent a webhook
+started would otherwise read all of it with one `env` call. Instead it gets an allowlist
+(`src/agent-env.js`), the union of:
+
+1. **Process basics**: `PATH`, `HOME`, `USER`, `SHELL`, `TMPDIR`, `TZ`, locale (`LANG`, `LC_*`),
+   terminal (`TERM`, `COLORTERM`, `NO_COLOR`), `XDG_*`, `DBUS_SESSION_BUS_ADDRESS`, proxies
+   (`HTTP(S)_PROXY`, `NO_PROXY`, …), CA bundles (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_*`),
+   `SSH_AUTH_SOCK`, toolchain dirs (`JAVA_HOME`, `GOPATH`, `CARGO_HOME`, `NVM_DIR`, `VIRTUAL_ENV`, …)
+   and the Windows process basics (matched case-insensitively there).
+2. **The agent CLI's own variables**:
+
+   | Agent | Passed | Also reaches its login through |
+   |---|---|---|
+   | `claude` | `ANTHROPIC_*`, `CLAUDE_*` | `HOME` (`~/.claude`, macOS Keychain) |
+   | `cursor` | `CURSOR_API_KEY` | `HOME` (`~/.cursor`) |
+   | `opencode` | `OPENCODE_*` | `HOME` / `XDG_*` (`opencode auth login`) |
+   | `hermes` | `HERMES_HOME` | `HOME` (`~/.hermes`); an isolated step gets its own `HERMES_HOME` |
+
+3. **The tracker token its prompt names**: `GITHUB_TOKEN` (github, github-projects),
+   `JIRA_API_TOKEN`, `LINEAR_API_KEY`, `ASANA_TOKEN`; none for `local`. The prompts tell the agent
+   to comment with it, so it stays until the receiver posts comments itself.
+4. **The forge's**: with `forge.type: "github"`, `GH_TOKEN` and `GITHUB_TOKEN`, so `gh pr create`
+   works without `gh auth login`.
+5. **Your `agentEnvPassthrough`** (`NAME` or `PREFIX*`; `"*"` = inherit everything, the 0.9
+   behaviour).
+
+On top, unfiltered and in this order: the adapter's own env (an isolated hermes step's
+`HERMES_HOME`), then the step's `env`, then `AGENTHOOK_VERDICT_FILE`. A step `env` can therefore set
+any name, including a stripped one, for that step only. Hermes' post-run `sessions export` gets the
+same env as the run.
+
+**What to add.** Run `ah doctor`: it lists the credentials no longer passed, the ones agents still
+get and why, and warns about what a run likely needs — `AWS_*` for claude on Bedrock
+(`CLAUDE_CODE_USE_BEDROCK`), `GOOGLE_APPLICATION_CREDENTIALS` / `CLOUD_ML_REGION` /
+`GOOGLE_CLOUD_PROJECT` on Vertex, provider keys (`OPENAI_API_KEY`, …) for OpenCode or a
+non-isolated Hermes step, `GIT_SSH_COMMAND` / `GIT_ASKPASS` / `GIT_CONFIG_*` for git. It also runs
+`gh auth status` with the env an agent gets. It prints names, never values.
+
+**What this does not stop.** It closes the *environment* path only. The filesystem is open: an
+agent can still read `.env`, the config, `~/.ssh` and `~/.config/gh` from disk, and `HOME` is the
+real one. It is not a boundary. To confine an agent, run it in the
+[sandboxed container](sandbox.md).
+
 ### Hermes isolation
 
 > **Experimental.** The Hermes adapter is new; see [token capture](#hermes-token-capture) below

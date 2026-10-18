@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Agents no longer inherit the receiver's environment.** A spawned agent gets only an allowlist:
+  process basics (`PATH`, `HOME`, locale, `TERM`, `XDG_*`, proxies, `SSH_AUTH_SOCK`, toolchain
+  dirs), its own CLI's variables (`ANTHROPIC_*`/`CLAUDE_*` for claude, `CURSOR_API_KEY`,
+  `OPENCODE_*`, `HERMES_HOME`), and the token the tracker's prompt tells it to use (e.g.
+  `GITHUB_TOKEN`, `JIRA_API_TOKEN`), plus `GH_TOKEN`/`GITHUB_TOKEN` with a GitHub forge. Ingress
+  authtokens, App private keys, webhook secrets and anything else in `.env` or your shell are
+  stripped. **Migration:** run `agenthook doctor`. It lists what is no longer passed and what your
+  agents likely need. Add those names to `"agentEnvPassthrough": ["AWS_*", "OPENAI_API_KEY"]`, or
+  set `"agentEnvPassthrough": ["*"]` to keep the 0.9 behaviour. This closes the environment path
+  only: without a sandbox the agent can still read `.env` and your credential files from disk
+  (#470).
+
 ### Fixed
 
 - `agenthook init` now reads a `.env` beside the config (or in the current directory) for the tracker

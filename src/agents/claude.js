@@ -211,6 +211,7 @@ const jsonls = (dir) => entries(dir).filter((f) => f.endsWith(".jsonl"));
 /** @type {import('../types.js').AgentAdapter} */
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json" }),
+  envPassthrough: ["ANTHROPIC_*", "CLAUDE_*"],
   buildArgs: buildClaudeArgs,
   createParser() {
     const p = createStreamParser();

@@ -147,6 +147,7 @@ export function buildOpencodeUsageRecord({ ref, stepId, model, bin, startedAt, e
 /** @type {import('../types.js').AgentAdapter} */
 export const opencode = {
   describe: () => ({ name: "opencode", stdout: "stream-json" }),
+  envPassthrough: ["OPENCODE_*"],
   buildArgs: buildOpencodeArgs,
   createParser: createOpencodeParser,
   usageRecord: (result, ctx) => buildOpencodeUsageRecord({ ...ctx, result }),

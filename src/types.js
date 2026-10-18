@@ -48,7 +48,7 @@
  * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
  * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
- * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over process.env (AGENTHOOK_VERDICT_FILE is reserved)
+ * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over the agent's filtered env (see agentEnvPassthrough; AGENTHOOK_VERDICT_FILE is reserved)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
  * @property {number} [maxMinutes]             wall-clock cap on one run of this step; past it the agent is killed and the run fails with `timeout` (default 120, 0 = no cap)
@@ -258,6 +258,7 @@
  * @property {boolean} [usesPR]     does this tracker's workflow revolve around a pull request? Default true. When false (e.g. the local/offline tracker) the prompt builders drop all PR language: the worktree DIFF is the deliverable and review reads it with `git diff`, never `gh pr`
  * @property {StageKeys} [stageKeys]  the Step binding-key family this tracker uses (source/success/failure/hold/queue)
  * @property {boolean} [webhooks]    does this tracker register webhooks? Default true. false (e.g. local) means there's nothing to unregister
+ * @property {string[]} [agentEnv]   receiver env vars the commentHowTo / readCommentsHowTo tell the agent to use (e.g. GITHUB_TOKEN); passed to agents through the env allowlist (src/agent-env.js)
  */
 
 /**
@@ -439,6 +440,7 @@
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for)
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
+ * @property {string[]} [envPassthrough]  receiver env vars (NAME or PREFIX*) this CLI needs, added to the agent env allowlist (src/agent-env.js): auth keys, config vars
  */
 
 /**
@@ -474,7 +476,7 @@
  * run on one into a `ci` job. The CI methods are optional (a forge without them
  * never emits `ci` jobs); each throws on a non-2xx unless noted.
  * @typedef {object} Forge
- * @property {() => {name: string}} describe
+ * @property {() => {name: string, agentEnv?: string[]}} describe  `agentEnv` = receiver env vars agents get with this forge (github: GH_TOKEN/GITHUB_TOKEN for `gh`)
  * @property {(ctx: EventCtx) => AuthResult} authenticate  sync, no network (same ACK window as the tracker)
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup
@@ -539,6 +541,7 @@
  * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath
  * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)
  * @property {string} [agent]      profile-default agent adapter (src/agents/; default "claude"); a step's `agent` overrides it
+ * @property {string[]} [agentEnvPassthrough]  extra receiver env var names (or PREFIX*) passed to agents; "*" = all. Default: only the allowlist (src/agent-env.js)
  * @property {string} [agentProvider]  profile-default inference provider for a step's agent (hermes `--provider`); a step's `provider` overrides it
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]
