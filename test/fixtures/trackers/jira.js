@@ -8,6 +8,7 @@ export const create = createJiraAdapter;
 export const webhooks = true;
 export const handshake = false;
 export const assigneeScoped = true;
+export const resume = true;
 
 const SECRET = "jira-hook-secret";
 const US = "acc-bot";
@@ -101,3 +102,8 @@ const movedToCode = (key) =>
   });
 export const ourEvent = () => ({ ctx: movedToCode("CAH-1"), expect: { stepId: "code", ref: "CAH-1" } });
 export const notOursEvent = () => movedToCode("CAH-2");
+
+/** A comment_created on CAH-1 (its `issue.fields` abbreviated, as Jira sends them).
+ * @param {any} _env @param {{author: string, body: string}} o */
+export const commentEvent = (_env, { author, body }) =>
+  signed({ webhookEvent: "comment_created", issue: { key: "CAH-1", fields: { summary: "Issue CAH-1" } }, comment: { id: "10001", body, author: { accountId: author === "owner" ? US : "acc-other" } } });
