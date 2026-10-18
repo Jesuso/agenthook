@@ -153,7 +153,7 @@ export const CONFIG_SCHEMA = [
 
   // Ingress
   entry("ingress", "object", "Ingress", "ingress", "How webhooks reach this receiver from the internet."),
-  entry("ingress.type", "enum", "Ingress type", "ingress", "ngrok / cloudflared open a tunnel per start; manual / hosted use a static URL you provide.", { options: ["ngrok", "cloudflared", "manual", "hosted"] }),
+  entry("ingress.type", "enum", "Ingress type", "ingress", "ngrok / cloudflared / tailscale (Funnel) are managed per start; manual / hosted use a static URL you provide.", { options: ["ngrok", "cloudflared", "tailscale", "manual", "hosted"] }),
   entry("ingress.url", "string", "Public URL", "ingress", "Static public HTTPS base URL (manual / hosted ingress)."),
   entry("ingress.authtoken", "string", "ngrok authtoken", "ingress", "ngrok authtoken; use a ${VAR} reference, not a literal.", { sensitive: true }),
   entry("ingress.domain", "string", "ngrok domain", "ingress", "A reserved ngrok domain; keeps the public URL stable across restarts."),

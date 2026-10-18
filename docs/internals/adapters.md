@@ -21,7 +21,9 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   its `step:<id>:<ref>` job — `agenthook ticket add`).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `cloudflared`
   managed — quick tunnel ephemeral, named tunnel (`tunnel` + `hostname`) stable; logs to
-  `<logDir>/cloudflared.log` — and `manual`/`hosted` static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
+  `<logDir>/cloudflared.log` — `tailscale` stable — one-shot `tailscale funnel --bg --set-path
+  /<stateKey>` calls, no child; Tailscale strips the mount before proxying, so only `publicUrl`
+  carries the path — and `manual`/`hosted` static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
 - `src/forges/*.js` + `index.js` — optional forge adapters (`github`). Registry `FORGES` keyed by
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:

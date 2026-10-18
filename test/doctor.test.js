@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, ingressChecks } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
 import { uiBundleState } from "../src/ui-bundle.js";
 
@@ -240,4 +240,12 @@ test("uiBundleState: everything older than dist → fresh", () => {
   const indexPath = path.join(distDir, "index.html");
   fs.writeFileSync(indexPath, "<!doctype html>");
   assert.equal(uiBundleState({ srcDir, distDir }).state, "fresh");
+});
+
+test("ingressChecks: tailscale needs only its binary, not ingress.url", () => {
+  const seen = [];
+  const checks = ingressChecks({ type: "tailscale" }, (bin) => (seen.push(bin), true));
+  assert.deepEqual(checks, [{ ok: true, label: "tailscale binary on PATH" }]);
+  assert.deepEqual(seen, ["tailscale"]);
+  assert.equal(ingressChecks({ type: "tailscale" }, () => false)[0].ok, false);
 });

@@ -157,11 +157,12 @@ export function forgeLints(cfg) {
 }
 
 /** The ingress preflight: a managed tunnel needs its binary on PATH (cloudflared also both or
- * neither of tunnel/hostname); a static ingress needs ingress.url.
+ * neither of tunnel/hostname); tailscale needs only its CLI; a static ingress needs ingress.url.
  * @param {import('../types.js').IngressConfig} ingress @param {(bin: string) => boolean} [has]
  * @returns {{ ok: boolean, label: string, note?: string }[]} */
 export function ingressChecks(ingress, has = onPath) {
   if (ingress.type === "ngrok") return [{ ok: has(process.env.NGROK || "ngrok"), label: "ngrok binary on PATH" }];
+  if (ingress.type === "tailscale") return [{ ok: has(process.env.TAILSCALE || "tailscale"), label: "tailscale binary on PATH" }];
   if (ingress.type === "cloudflared") {
     /** @type {{ ok: boolean, label: string, note?: string }[]} */
     const checks = [{ ok: has(process.env.CLOUDFLARED || "cloudflared"), label: "cloudflared binary on PATH" }];

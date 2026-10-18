@@ -354,7 +354,7 @@
  * The ingress config block (`ingress` in agenthook.config.json). `type` selects the
  * adapter; the rest are adapter-specific options (already env-interpolated).
  * @typedef {object} IngressConfig
- * @property {string} type           ingress adapter key ("ngrok" | "cloudflared" | "manual" | "hosted")
+ * @property {string} type           ingress adapter key ("ngrok" | "cloudflared" | "tailscale" | "manual" | "hosted")
  * @property {string} [url]          static public base URL (manual/hosted)
  * @property {string} [authtoken]    ngrok authtoken ("${NGROK_AUTHTOKEN}")
  * @property {string} [domain]       ngrok reserved domain (makes the URL stable)
@@ -377,8 +377,11 @@
  * @property {() => import('./wizard.js').WizardStep[]} [wizardSteps]
  */
 
-/** A factory `(cfg) => Ingress`. `timeoutMs` bounds a managed tunnel's startup (cloudflared; tests shorten it).
- * @typedef {(cfg: Config, opts?: { timeoutMs?: number }) => Ingress} IngressFactory */
+/** A factory `(cfg) => Ingress`. `timeoutMs` bounds a managed tunnel's startup (cloudflared) or each
+ * CLI call (tailscale); `run` replaces tailscale's execFile. Both for tests.
+ * @typedef {(cfg: Config, opts?: { timeoutMs?: number, run?: IngressRun }) => Ingress} IngressFactory */
+/** Runs one CLI call; a non-zero exit resolves with its `code`, a spawn failure rejects.
+ * @typedef {(bin: string, args: string[], opts: { timeoutMs: number }) => Promise<{ code: number|null, stdout: string, stderr: string }>} IngressRun */
 
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
  * push() chunks, flush() the tail at EOF, then read `result` / `sessionId`.
