@@ -42,7 +42,7 @@ test("agentFor: the step's agent, else the profile's, else claude", () => {
 });
 
 test("claude adapter: describe, buildArgs, sessions, defaults", () => {
-  assert.deepEqual(claude.describe(), { name: "claude", stdout: "stream-json" });
+  assert.deepEqual(claude.describe(), { name: "claude", stdout: "stream-json", policy: { allow: true, deny: true } });
   const o = { prompt: "hi", model: "opus", effort: "high", fullAuto: true };
   assert.deepEqual(claude.buildArgs(o), buildClaudeArgs(o));
   assert.equal(claude.sessions?.transcriptDir("/x/y"), claudeProjectDir("/x/y"));

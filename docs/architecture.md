@@ -196,8 +196,9 @@ finishes cleanly never releases its lock, and the receiver warns about this at b
 ## Security posture
 
 **Default is locked down.** `fullAuto` defaults to `false`, so the receiver runs a
-permission-gated `claude -p` — the agent prompts before each privileged action and the boot
-logs no warning. This is the posture to ship and to point at any untrusted board.
+permission-gated `claude -p` — privileged tool calls are denied (headless agents cannot prompt)
+unless allowed by a step `allow` policy (see [Step policy](configuration.md#step-policy-allow--deny))
+or your agent's own settings, and the boot logs no warning. This is the posture to ship and to point at any untrusted board.
 
 **`fullAuto: true` is the dangerous opt-in.** It adds `--dangerously-skip-permissions`, and then
 a verified webhook leads straight to code execution on your machine, gated only by the signature

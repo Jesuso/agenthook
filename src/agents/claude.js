@@ -14,13 +14,39 @@ import { quotaFromRateLimitEvent } from "../quota.js";
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
 /**
- * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
- * without a real spawn). Order is stable: prompt, then --model, --effort, then
- * --dangerously-skip-permissions.
- * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number}} o
+ * The argv tail that enforces a step's `allow`/`deny` policy (pure). `allow` pins
+ * `--permission-mode dontAsk` and lists what may run: reads under cwd, each command prefix, writes
+ * to each `allow.paths` glob and to the verdict file. `deny` lists `--disallowedTools`, which hold
+ * in every mode, bypass included. Paths are cwd-relative globs made absolute (`//<cwd>/<glob>`).
+ * Neither set → []. The flags are variadic, so nothing positional may follow this tail.
+ * @param {{allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
  * @returns {string[]}
  */
-export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto }) {
+export function claudePolicyArgs({ allow, deny, cwd = "", verdictFile }) {
+  const abs = (/** @type {string} */ p) => "/" + path.posix.join(cwd, p);
+  const bash = (/** @type {string[]} */ cmds = []) => cmds.flatMap((c) => [`Bash(${c})`, `Bash(${c} *)`]);
+  const out = [];
+  if (allow) {
+    out.push("--permission-mode", "dontAsk", "--allowedTools", `Read(${abs("**")})`, ...bash(allow.commands));
+    for (const p of allow.paths ?? []) out.push(`Edit(${abs(p)})`);
+    if (verdictFile) out.push(`Edit(/${verdictFile})`);
+  }
+  if (deny) {
+    out.push("--disallowedTools", ...bash(deny.commands));
+    for (const p of deny.paths ?? []) out.push(`Read(${abs(p)})`, `Edit(${abs(p)})`);
+  }
+  return out;
+}
+
+/**
+ * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
+ * without a real spawn). Order is stable: prompt, then --model, --effort, then
+ * --dangerously-skip-permissions (only when fullAuto and the step has no `allow`: allow rules
+ * do nothing in bypass mode), then the step policy tail (claudePolicyArgs) last.
+ * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
+ * @returns {string[]}
+ */
+export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, allow, deny, cwd, verdictFile }) {
   // --output-format stream-json + --verbose: stdout becomes JSONL we parse for the
   // per-run log (assistant text) and the token/cost tally (the final `result` event).
   const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
@@ -30,7 +56,8 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto }) {
     else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${EFFORT_LEVELS.join("|")})`);
   }
   if (provider) console.warn(`[dispatch] ignoring provider "${provider}" — claude has no provider flag`);
-  if (fullAuto) args.push("--dangerously-skip-permissions");
+  if (fullAuto && !allow) args.push("--dangerously-skip-permissions");
+  args.push(...claudePolicyArgs({ allow, deny, cwd, verdictFile }));
   return args;
 }
 
@@ -221,7 +248,7 @@ export function sandboxCredentialProblem(env) {
 
 /** @type {import('../types.js').AgentAdapter} */
 export const claude = {
-  describe: () => ({ name: "claude", stdout: "stream-json" }),
+  describe: () => ({ name: "claude", stdout: "stream-json", policy: { allow: true, deny: true } }),
   envPassthrough: ["ANTHROPIC_*", "CLAUDE_*"],
   buildArgs: buildClaudeArgs,
   createParser() {

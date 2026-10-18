@@ -70,8 +70,8 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | `quota` | Optional, default off. Claude quota pacing: `{ "pauseAboveSevenDay": 0.9, "pauseAboveFiveHour": 0.95 }`, each a utilization fraction in (0, 1]. When a Claude run's reading is at or above a window's threshold, new runs stop starting (running agents finish) until that window resets. A key you leave out never pauses. See [Claude quota](operating.md#claude-quota-readout-and-pacing). |
 | `agent` | The coding-agent CLI steps run: `claude` (default), `cursor`, `hermes` or `opencode`. A step's own `agent` overrides it. See [Agents](agents.md). |
 | `agentEnvPassthrough` | Optional. Extra receiver env var names agents also get, each a `NAME` or a `PREFIX*`: `["AWS_*", "OPENAI_API_KEY"]`. Everything outside the [agent env allowlist](agents.md#agent-environment) is stripped; `["*"]` restores the 0.9 behaviour (agents inherit everything — `doctor` warns). `agenthook doctor` lists what is stripped and what your agents likely need. |
-| `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
-| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), `github-projects` (Projects v2 board columns), or `linear` (a team's workflow states — see [linear-setup.md](linear-setup.md)); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). |
+| `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` (default) = privileged tool calls are denied (headless agents cannot prompt) unless allowed by a step `allow` policy or your agent's own settings. |
+| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), `github-projects` (Projects v2 board columns), or `linear` (a team's workflow states — see [linear-setup.md](linear-setup.md)); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). Per-step `allow`/`deny` policies: see [Step policy](#step-policy-allow--deny) below. |
 | `ingress` | `{ type, … }` — `ngrok` / `cloudflared` / `tailscale` / `hosted`; type-specific options. |
 | `sandbox` | Optional per-run container: `{ "type": "docker" \| "podman", "image"?, "memory"?, "cpus"? }`. Each agent run gets its own container with only its worktree mounted; boot is refused when the runtime or image is missing. A step sets `"sandbox": false` to run on the host. Only `claude` steps are supported. See [Sandboxed runs](sandbox.md#per-run-sandbox-010). |
 
@@ -81,6 +81,44 @@ template and [`.env.example`](../.env.example) for the env vars each tracker/ing
 The `ah ui` config editor (below) has a form for every key above, including `repos`. Edit Raw
 when you want to share a whole block, keep a `//` comment key, set a key the forms don't know
 about yet, or fix invalid JSON — the forms refuse to touch anything they can't parse.
+
+### Step policy (`allow` / `deny`)
+
+A pipeline step can state what its agent needs. Both keys are optional, and neither is valid on a
+`manual` step:
+
+```jsonc
+"allow": { "commands": ["git", "gh pr", "npm test"], "paths": ["src/**", "test/**"] },
+"deny":  { "commands": ["curl", "wget"],            "paths": [".github/workflows/**", ".env*"] }
+```
+
+- `allow.commands`: the only commands the agent may run. Each entry is a command **prefix** with
+  a word-boundary match (`"npm test"` covers `npm test` and `npm test -- foo`).
+- `allow.paths`: where the agent may **write**, as gitignore-style globs relative to the run's
+  cwd (the worktree, or the main checkout on a no-worktree step). Reads inside the cwd stay
+  allowed. With no `allow.paths`, only the verdict file is writable, which suits a reviewer.
+- `deny.commands`: commands the agent may never run. `deny.paths`: globs it may never read or
+  write.
+
+Entries can't contain a newline, `(`, `)` or `,`. Paths must stay cwd-relative: no leading `/`
+or `~`, no drive letter, no `..` segment.
+
+For claude, `allow` runs the step with `--permission-mode dontAsk --allowedTools …` and drops
+`--dangerously-skip-permissions` even under `fullAuto` (allow rules do nothing in bypass mode),
+so `allow` narrows a `fullAuto` profile for that step. `deny` adds `--disallowedTools …`, which
+holds in every mode, bypass included. `agenthook doctor` prints each step's effective rules.
+
+**What it does and doesn't buy you.** Without the [sandbox](sandbox.md), a command allowlist is
+advisory against a determined injected agent. An allowed `npm test` runs whatever `package.json`
+says, and an allowed `node`, `python`, `make` or `npx` runs anything; `sh -c 'curl …'` or an
+absolute `/usr/bin/curl` doesn't match a `curl` rule. Path rules cover the agent's file tools,
+not a subprocess that opens files itself. The policy closes the easy paths and makes the step's
+intent explicit; the structural boundary is the sandbox. `doctor` warns about each of these.
+
+| Agent | `allow` / `deny` |
+|-------|------------------|
+| `claude` | enforced through its permission flags |
+| `cursor`, `opencode`, `hermes` | not supported: the run is refused (`failed`, "… cannot enforce step "<id>" allow policy — the run is refused rather than run unrestricted") and `doctor` reports ✗ |
 
 ## Forge (optional — what happened to the code)
 
