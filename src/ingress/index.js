@@ -5,11 +5,13 @@
 import { createNgrokIngress } from "./ngrok.js";
 import { createManualIngress } from "./manual.js";
 import { createCloudflaredIngress } from "./cloudflared.js";
+import { createTailscaleIngress } from "./tailscale.js";
 
 /** @type {Record<string, import('../types.js').IngressFactory>} */
 export const INGRESS = {
   ngrok: createNgrokIngress,
   cloudflared: createCloudflaredIngress,
+  tailscale: createTailscaleIngress,
   manual: createManualIngress,
   hosted: createManualIngress, // alias: a static, externally-managed URL
 };

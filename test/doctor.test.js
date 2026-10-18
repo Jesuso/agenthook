@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
 import { loadConfig } from "../src/config.js";
 import { instructionTargets } from "../src/heartbeat.js";
@@ -579,4 +579,12 @@ test("doctor: the summary names how many problems --fix can handle, only when > 
   const quiet = [];
   report(await runChecks(cfg, io()), { hint: false, log: (l) => quiet.push(l) });
   assert.ok(!quiet.some((l) => /doctor --fix/.test(l)), "no hint in the post-fix report");
+});
+
+test("ingressChecks: tailscale needs only its binary, not ingress.url", () => {
+  const seen = [];
+  const checks = ingressChecks({ type: "tailscale" }, (bin) => (seen.push(bin), true));
+  assert.deepEqual(checks, [{ ok: true, label: "tailscale binary on PATH", manual: "install tailscale or put it on PATH (or set $TAILSCALE)" }]);
+  assert.deepEqual(seen, ["tailscale"]);
+  assert.equal(ingressChecks({ type: "tailscale" }, () => false)[0].ok, false);
 });

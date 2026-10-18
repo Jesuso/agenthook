@@ -26,6 +26,25 @@ Set by `ingress.type` in the config; the server owns its lifecycle (brings the t
   The binary comes from `CLOUDFLARED` or `PATH` (`brew install cloudflared`, `winget install --id
   Cloudflare.cloudflared`, or Cloudflare's apt repo). Its output goes to `<stateDir>/logs/cloudflared.log`;
   `start` fails if the tunnel isn't connected within 30s.
+- **`tailscale`** — Tailscale Funnel on this machine's stable `https://<machine>.<tailnet>.ts.net`
+  hostname; no third-party tunnel, no re-register churn. No options: each profile is mounted at its
+  own path, `https://<machine>.<tailnet>.ts.net/<stateKey>` (`stateKey` = `stateId ?? name`), so
+  parallel profiles share the hostname without colliding. Tailscale strips that prefix before
+  proxying, so the receiver still sees `/`, `/forge`, … Funnel serves on port 443.
+
+  `start` checks `tailscale status --json` before touching Funnel and fails with the fix when:
+  - the node isn't logged in (`tailscale up`);
+  - HTTPS certificates are off for the tailnet (enable HTTPS on the
+    [admin console DNS page](https://login.tailscale.com/admin/dns));
+  - Funnel isn't allowed for this node (add the `funnel` node attribute to the tailnet policy, see
+    [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)).
+
+  On Linux, a non-root user needs `sudo tailscale set --operator=$USER` once to change the serve
+  config. `start` runs `tailscale funnel --bg --set-path /<stateKey> http://127.0.0.1:<port>`;
+  `stop` runs `tailscale funnel --set-path /<stateKey> off` and leaves every other serve/funnel path
+  alone. A crashed receiver leaves its mount in place; the next `start` simply re-sets it. The
+  binary comes from `TAILSCALE` or `PATH` (macOS App Store app:
+  `TAILSCALE=/Applications/Tailscale.app/Contents/MacOS/Tailscale`); each CLI call is bounded at 30s.
 - **`hosted`** (alias `manual`) — you front the receiver (`127.0.0.1:<port>`) with anything
   giving a stable HTTPS URL (Caddy, Cloudflare Tunnel, a load balancer) and set
   `ingress.url`. Stable URL → no re-register churn. Best for parallel/production.
@@ -52,7 +71,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | `agent` | The coding-agent CLI steps run: `claude` (default), `cursor`, `hermes` or `opencode`. A step's own `agent` overrides it. See [Agents](agents.md). |
 | `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
 | `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), `github-projects` (Projects v2 board columns), or `linear` (a team's workflow states — see [linear-setup.md](linear-setup.md)); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). |
-| `ingress` | `{ type, … }` — `ngrok` / `cloudflared` / `hosted`; type-specific options. |
+| `ingress` | `{ type, … }` — `ngrok` / `cloudflared` / `tailscale` / `hosted`; type-specific options. |
 
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.

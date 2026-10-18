@@ -760,6 +760,7 @@ describe("Tracker / Forge / Ingress helpers (#341)", () => {
     expect(keys(ingressFields("ngrok"))).toEqual({ common: ["authtoken", "domain"], advanced: ["webAddr"] });
     expect(keys(ingressFields("hosted"))).toEqual({ common: ["url"], advanced: [] });
     expect(keys(ingressFields("cloudflared"))).toEqual({ common: ["tunnel", "hostname"], advanced: [] });
+    expect(keys(ingressFields("tailscale"))).toEqual({ common: [], advanced: [] });
     expect(keys(ingressFields("custom"))).toEqual({ common: [], advanced: [] });
   });
 

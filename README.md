@@ -124,7 +124,8 @@ every field is in [docs/configuration.md](docs/configuration.md).
 
 Requires Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
 ngrok ingress — [`ngrok`](https://ngrok.com), or for the cloudflared ingress —
-[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/). Plus a tracker API token, except for the local
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), or for the
+tailscale ingress — [`tailscale`](https://tailscale.com/download). Plus a tracker API token, except for the local
 quickstart below.
 
 ```bash
@@ -215,7 +216,8 @@ Full guide: **[docs/profiles.md](docs/profiles.md)**.
 
 `ingress.type` decides how the webhook reaches the receiver: **`ngrok`** (managed tunnel, zero
 setup), **`cloudflared`** (managed Cloudflare Tunnel: an account-less quick tunnel, or a named one
-for a stable URL and parallel profiles) or **`hosted`** (your own stable HTTPS URL, best for
+for a stable URL and parallel profiles), **`tailscale`** (Tailscale Funnel on your stable
+`*.ts.net` hostname, one path per profile) or **`hosted`** (your own stable HTTPS URL, best for
 production). The config file holds non-secret wiring plus `${ENV}` secret refs; `init` writes it
 for you and `agenthook ui` edits it with validation and backups. Every field and every ingress type
 is documented in
