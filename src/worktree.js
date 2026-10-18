@@ -28,11 +28,16 @@ export const HOST_GIT_SAFE = /** @type {const} */ (["-c", "core.hooksPath=/dev/n
  * @param {{sandbox?: unknown}} cfg @param {string} repo @param {string[]} args */
 export const gitArgv = (cfg, repo, args) => [...(cfg.sandbox ? HOST_GIT_SAFE : []), "-C", repo, ...args];
 
+/** Cap on one synchronous host git call. A sandboxed agent can write the common git dir, and a
+ * FIFO at `.git/HEAD` or `.git/packed-refs` makes git block on open forever; under execFileSync
+ * that would freeze the receiver's event loop. Past the cap git is killed and the call throws. */
+export const HOST_GIT_TIMEOUT_MS = 60_000;
+
 // stderr piped (not inherited) so a probe that throws (e.g. no origin/HEAD) doesn't
 // spam the receiver log — the message is still on the thrown error if a caller cares.
 /** @param {{sandbox?: unknown}} cfg @param {string} repo @param {string[]} args */
 const git = (cfg, repo, args) =>
-  execFileSync("git", gitArgv(cfg, repo, args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  execFileSync("git", gitArgv(cfg, repo, args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_GIT_TIMEOUT_MS, killSignal: "SIGKILL" }).trim();
 
 const execFileP = promisify(execFile);
 

@@ -7,7 +7,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf } from "../src/dispatch/sandbox.js";
+import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf, hostGitFacts } from "../src/dispatch/sandbox.js";
+import { HOST_GIT_TIMEOUT_MS, listWorktrees } from "../src/worktree.js";
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
 /** @param {string} cwd @param {string[]} args */
@@ -395,4 +396,26 @@ test("sandbox e2e: an oversize verdict file is dropped unread", async () => {
   } finally {
     h.restore();
   }
+});
+
+// Review #481 pass 3: the common git dir is rw in the container, so an agent can plant a FIFO at
+// `.git/HEAD` (or `packed-refs`). git then blocks on open forever; every synchronous host git call
+// is time-capped so a wedged repo fails the read instead of freezing the receiver's event loop.
+test("hostGitFacts: a FIFO at the common dir's HEAD fails the reads within the cap, never hangs", { timeout: 20000 }, () => {
+  const { repo } = fixture();
+  g(repo, ["config", "user.name", "op"]);
+  assert.equal(hostGitFacts(repo).author.name, "op", "sanity: reads work on a healthy repo");
+  const head = path.join(repo, ".git", "HEAD");
+  fs.rmSync(head);
+  execFileSync("mkfifo", [head]);
+  const t0 = Date.now();
+  const facts = hostGitFacts(repo, { timeoutMs: 500 });
+  assert.ok(Date.now() - t0 < 10000, "returned within the cap, not blocked on the FIFO");
+  assert.deepEqual(facts, { originUrl: undefined, author: { name: undefined, email: undefined } });
+});
+
+test("worktree host git calls are time-capped (a FIFO HEAD can't wedge listWorktrees forever)", () => {
+  assert.ok(HOST_GIT_TIMEOUT_MS > 0 && HOST_GIT_TIMEOUT_MS <= 120_000);
+  const { repo } = fixture();
+  assert.ok(listWorktrees(repo).length >= 2, "sanity: the capped helper still works");
 });

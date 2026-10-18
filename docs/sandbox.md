@@ -96,7 +96,9 @@ writes in the worktree stay yours.
   `GH_TOKEN` — is visible to the agent.
 - **Network is open** (#473): the agent can reach anything the host can.
 - **The common git dir is writable**: an agent can touch other branches' refs and other
-  worktrees' admin dirs. A per-run clone is the follow-up.
+  worktrees' admin dirs, and can break host git on that repo (a corrupt or FIFO `HEAD` or
+  `packed-refs`). Host git calls are time-capped, so a wedged repo fails later runs with a git error
+  instead of freezing the receiver; fix the repo by hand. A per-run clone is the follow-up.
 - Only `claude` is supported. A sandboxed `cursor`, `hermes` or `opencode` step is refused —
   set `"sandbox": false` on it to run it on the host.
 

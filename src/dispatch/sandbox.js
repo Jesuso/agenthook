@@ -175,21 +175,27 @@ export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author }) {
   return env;
 }
 
-/** One host git read against a repo a sandbox can write (hardened; "" when unset or failing).
- * @param {string} repo @param {string[]} args */
-function hostGit(repo, args) {
+/** Cap on one host git read at run start: a FIFO the agent planted in the common git dir must
+ * fail the read, not hang the receiver (see HOST_GIT_TIMEOUT_MS). */
+export const HOST_GIT_READ_TIMEOUT_MS = 10_000;
+
+/** One host git read against a repo a sandbox can write (hardened and time-capped; "" when unset,
+ * failing or timed out).
+ * @param {string} repo @param {string[]} args @param {number} timeoutMs */
+function hostGit(repo, args, timeoutMs) {
   try {
-    return execFileSync("git", [...HOST_GIT_SAFE, "-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync("git", [...HOST_GIT_SAFE, "-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: timeoutMs, killSignal: "SIGKILL" }).trim();
   } catch {
     return "";
   }
 }
 
 /** The host side of `gitSandboxEnv`: the repo's origin URL and commit identity, read once per run.
- * @param {string} repo @returns {{originUrl?: string, author: {name?: string, email?: string}}} */
-export function hostGitFacts(repo) {
+ * @param {string} repo @param {{timeoutMs?: number}} [o]
+ * @returns {{originUrl?: string, author: {name?: string, email?: string}}} */
+export function hostGitFacts(repo, { timeoutMs = HOST_GIT_READ_TIMEOUT_MS } = {}) {
   return {
-    originUrl: hostGit(repo, ["remote", "get-url", "origin"]) || undefined,
-    author: { name: hostGit(repo, ["config", "user.name"]) || undefined, email: hostGit(repo, ["config", "user.email"]) || undefined },
+    originUrl: hostGit(repo, ["remote", "get-url", "origin"], timeoutMs) || undefined,
+    author: { name: hostGit(repo, ["config", "user.name"], timeoutMs) || undefined, email: hostGit(repo, ["config", "user.email"], timeoutMs) || undefined },
   };
 }
