@@ -10,6 +10,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { init, localScaffold, sanitizeName } from "../src/commands/init.js";
 import { ticket, ticketBody, ticketRows } from "../src/commands/ticket.js";
+import { TICKET_BODY_MAX } from "../src/ops.js";
 import { firstFreePort } from "../src/port.js";
 import { loadConfig } from "../src/config.js";
 import { parse, HELP } from "../bin/agenthook.js";
@@ -91,6 +92,15 @@ test("init --local outside a git repo, or in one with no commits, refuses and wr
   git(empty, ["init", "-q"]);
   await assert.rejects(() => inDir(empty, () => init({ _: [], local: true, yes: true })), /git init && git commit first/);
   assert.deepEqual(fs.readdirSync(empty), [".git"]);
+});
+
+test("ticketBody: the cap counts encoded bytes, not characters", () => {
+  const cjk = "字".repeat(20000); // 20k chars, 60k UTF-8 bytes
+  assert.ok(cjk.length < TICKET_BODY_MAX);
+  assert.match(String(/** @type {any} */ (ticketBody({ body: cjk })).error), /bytes encoded/);
+  const quotes = '"'.repeat(30000); // 30k chars, ~60k once JSON-escaped
+  assert.match(String(/** @type {any} */ (ticketBody({ body: quotes })).error), /bytes encoded/);
+  assert.equal(ticketBody({ body: "a".repeat(40000) }).length, 40000);
 });
 
 test("ticketBody: --body or --file, never both", () => {
