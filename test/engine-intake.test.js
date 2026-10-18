@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { intakeEvent } from "../src/engine.js";
+import { intakeEvent, createPushSink } from "../src/engine.js";
 import { createQueue } from "../src/queue.js";
 
 const job = (ref, stepId = "s") => ({ kind: "pipeline", ref, stepId, dedupKey: `${ref}:${stepId}` });
@@ -64,4 +64,79 @@ test("intakeEvent: a duplicate refused while draining emits nothing even for a r
 
   releases.shift()?.();
   await queue.onIdle();
+});
+
+// ── createPushSink: settle-safe in-process pushes (local tracker onJobs) ─────
+
+test("createPushSink: a job pushed for X while X runs waits for that run (and its cleanup) to settle, then starts", async () => {
+  /** @type {string[]} */
+  const log = [];
+  /** @type {Map<string, () => void>} */
+  const releases = new Map();
+  /** @type {(jobs: any[]) => void} */
+  let sink = () => {};
+  const run = async (j) => {
+    log.push(`start ${j.ref}:${j.stepId}`);
+    if (j.stepId === "triage") {
+      sink([job(j.ref, "code")]); // advance() pushes mid-run, before dispatch's per-ref cleanup
+      await new Promise((r) => releases.set(j.stepId, () => r(undefined)));
+      log.push(`cleanup ${j.ref}:${j.stepId}`);
+    }
+    return { kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 };
+  };
+  const queue = createQueue(4, run);
+  /** @type {any[][]} */
+  const intaken = [];
+  sink = createPushSink({ hasRef: queue.hasRef, whenRefFree: queue.whenRefFree, intake: (jobs) => (intaken.push(jobs), jobs.forEach((j) => queue.enqueue(j))) });
+
+  queue.enqueue(job("X", "triage"));
+  await Promise.resolve();
+  assert.deepEqual(log, ["start X:triage"]);
+  assert.deepEqual(intaken, [], "parked: X's run has not settled");
+
+  releases.get("triage")?.();
+  await queue.onIdle();
+  assert.deepEqual(log, ["start X:triage", "cleanup X:triage", "start X:code"]);
+  assert.deepEqual(intaken.map((js) => js.map((j) => j.stepId)), [["code"]]);
+});
+
+test("createPushSink: a job for an idle ref goes straight to intake; another ref's run doesn't hold it", async () => {
+  /** @type {(() => void)[]} */
+  const releases = [];
+  const run = (j) => new Promise((resolve) => releases.push(() => resolve({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 })));
+  const queue = createQueue(4, run);
+  /** @type {any[]} */
+  const intaken = [];
+  const sink = createPushSink({ hasRef: queue.hasRef, whenRefFree: queue.whenRefFree, intake: (jobs) => intaken.push(...jobs) });
+  queue.enqueue(job("A", "code"));
+  sink([job("B", "triage")]);
+  assert.deepEqual(intaken.map((j) => j.ref), ["B"]);
+  releases.shift()?.();
+  await queue.onIdle();
+});
+
+test("queue.hasRef / whenRefFree: track queued + active jobs per ref; removing waiting jobs frees it", async () => {
+  /** @type {(() => void)[]} */
+  const releases = [];
+  const run = (j) => new Promise((resolve) => releases.push(() => resolve({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 })));
+  const queue = createQueue(1, run);
+  let fired = 0;
+  queue.whenRefFree("A", () => fired++);
+  assert.equal(fired, 1, "free now → called synchronously");
+
+  queue.enqueue(job("A", "triage")); // running
+  queue.enqueue(job("B", "triage")); // waiting
+  assert.equal(queue.hasRef("A"), true);
+  assert.equal(queue.hasRef("B"), true);
+  queue.whenRefFree("B", () => fired++);
+  queue.remove("B");
+  assert.equal(queue.hasRef("B"), false);
+  assert.equal(fired, 2, "removing B's only waiting job wakes its waiter");
+
+  queue.whenRefFree("A", () => fired++);
+  assert.equal(fired, 2);
+  releases.shift()?.();
+  await queue.onIdle();
+  assert.equal(queue.hasRef("A"), false);
+  assert.equal(fired, 3);
 });

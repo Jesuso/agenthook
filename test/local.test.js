@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createLocalAdapter, seedBoard, localBoardPath, extractRouteKeys } from "../src/trackers/local.js";
+import { createLocalAdapter, seedBoard, localBoardPath, extractRouteKeys, createdJob } from "../src/trackers/local.js";
+import { createStore } from "../src/store.js";
 import { resolveRepo } from "../src/repos.js";
 
 const pipeline = [
@@ -165,4 +166,115 @@ test("routing e2e: seedBoard keeps the extra field → fetchTask routeKeys → r
   assert.equal(/** @type {any} */ (resolveRepo(cfg, t2.routeKeys)).repo.id, "web");
   cfg.providerConfig = undefined;
   assert.deepEqual((await adapter(cfg).fetchTask("R1")).routeKeys, []);
+});
+
+// ── In-process push (onJobs) ──────────────────────────────────────────────────
+
+/** An adapter with a sink wired; returns it plus the pushed jobs. */
+function wired(cfg) {
+  const a = adapter(cfg);
+  /** @type {any[]} */
+  const pushed = [];
+  a.onJobs?.((jobs) => pushed.push(...jobs));
+  return { a, pushed };
+}
+
+test("onJobs: advance into the next step's source pushes exactly one secmove job", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "triage");
+  const { a, pushed } = wired(cfg);
+  await a.advance("P1", "triage", { outcome: "advance" });
+  assert.deepEqual(pushed, [{ kind: "pipeline", ref: "P1", stepId: "code", dedupKey: "secmove:1" }]);
+  // The job never sees the old stage: the board write landed before the push.
+  assert.equal(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8")).P1.stage, "code");
+});
+
+test("onJobs: advance to a stage no step sources (failure, hold) pushes nothing", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }, { ref: "P2", name: "y" }], "triage");
+  const { a, pushed } = wired(cfg);
+  await a.advance("P1", "triage", { outcome: "fail" });
+  await a.advance("P2", "triage", { outcome: "hold" });
+  assert.deepEqual(pushed, []);
+});
+
+test("onJobs: advance into a MANUAL step's source pushes a job for it (drain + pipeline_done)", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "review");
+  const { a, pushed } = wired(cfg);
+  await a.advance("P1", "review", { outcome: "advance" });
+  assert.deepEqual(pushed.map((j) => j.stepId), ["done"]);
+});
+
+test("onJobs: changes pushes the target step; enterStage pushes the entered step", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }, { ref: "P2", name: "y" }], "review");
+  const { a, pushed } = wired(cfg);
+  await a.advance("P1", "review", { outcome: "changes", target: "code" });
+  await a.enterStage?.("P2", "triage");
+  assert.deepEqual(pushed.map((j) => [j.ref, j.stepId, j.dedupKey]), [["P1", "code", "secmove:1"], ["P2", "triage", "secmove:2"]]);
+});
+
+test("onJobs: the move counter is monotonic across adapters and survives seedBoard", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "triage");
+  const first = wired(cfg);
+  await first.a.advance("P1", "triage", { outcome: "advance" });
+  await first.a.advance("P1", "code", { outcome: "advance" });
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "triage"); // resets the board, not the counter
+  const second = wired(cfg);
+  await second.a.advance("P1", "triage", { outcome: "advance" });
+  const keys = [...first.pushed, ...second.pushed].map((j) => j.dedupKey);
+  assert.deepEqual(keys, ["secmove:1", "secmove:2", "secmove:3"]);
+});
+
+test("onJobs: a replayed move is deduped by the store's seen set", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "triage");
+  const { a, pushed } = wired(cfg);
+  await a.advance("P1", "triage", { outcome: "advance" });
+  const store = createStore(cfg.dataDir);
+  const [job] = pushed;
+  assert.equal(store.hasSeen(job.dedupKey), false);
+  store.markSeen(job.dedupKey);
+  assert.equal(createStore(cfg.dataDir).hasSeen(job.dedupKey), true, "same key on replay → intake skips it");
+});
+
+test("onJobs: unwired, moves push nothing and don't throw (offline driver path)", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "triage");
+  const a = adapter(cfg);
+  await a.advance("P1", "triage", { outcome: "advance" });
+  await a.enterStage?.("P1", "review");
+  assert.equal(fs.existsSync(path.join(cfg.dataDir, "local-seq.json")), false, "no counter bumped without a sink");
+});
+
+test("enterStage on a missing task throws, and later moves still land", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "P1", name: "x" }], "triage");
+  const { a, pushed } = wired(cfg);
+  await assert.rejects(() => /** @type {any} */ (a.enterStage)("nope", "code"), /no task "nope"/);
+  await a.advance("P1", "triage", { outcome: "advance" });
+  assert.deepEqual(pushed.map((j) => j.stepId), ["code"]);
+});
+
+test("createdJob: step:<id>:<ref> for a source stage (manual too); null for an unbound one", () => {
+  const cfg = makeCfg();
+  assert.deepEqual(createdJob(cfg, "7", "triage"), { kind: "pipeline", ref: "7", stepId: "triage", dedupKey: "step:triage:7" });
+  assert.equal(createdJob(cfg, "7", "done")?.stepId, "done");
+  assert.equal(createdJob(cfg, "7", "backlog"), null);
+});
+
+test("currentStage: null for an unbound stage, the stage for a pipeline-bound one", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "B1", name: "x" }, { ref: "C1", name: "y" }], "code");
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  board.B1.stage = "backlog";
+  fs.writeFileSync(localBoardPath(cfg), JSON.stringify(board));
+  const a = adapter(cfg);
+  assert.equal(await a.currentStage?.("B1"), null);
+  assert.equal(await a.currentStage?.("C1"), "code");
+  assert.equal(await a.currentStage?.("missing"), null);
+  // A backlog item has not entered the pipeline, so it is not completed (ops `run` would refuse it).
+  assert.equal((await a.fetchTask("B1")).completed, false);
 });

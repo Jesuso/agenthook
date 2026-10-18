@@ -9,11 +9,16 @@
 // adapter's enterStage — the same label/section/status setter advance already uses. The
 // live webhook then fires the step normally; there is no special dispatch path. With no
 // server up, the item simply rests in the stage and a later `reconcile` picks it up.
+//
+// An adapter with an in-process event source (`onJobs`: the local tracker, no webhooks)
+// pushes the step's job from inside the receiver's own process, so with the receiver up
+// the move must happen THERE: `run` is sent over control.sock (the same op MCP/UI use).
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { isPipeline, findStep } from "../pipeline.js";
 import { readProfile } from "../heartbeat.js";
+import { controlRequest } from "../ui/control-client.js";
 
 /** @param {any} args */
 export async function run(args) {
@@ -25,6 +30,11 @@ export async function run(args) {
   if (!ref) die("usage: agenthook run <ref> [stepId] [--no-assign] [--force]");
   if (!isPipeline(cfg)) die(`run is for pipeline configs; "${cfg.name}" has no tracker.pipeline.`);
   if (typeof adapter.enterStage !== "function") die(`tracker "${cfg.provider}" has no run support`);
+
+  // In-process event source + live receiver: the move (and its push) must happen inside it.
+  if (typeof adapter.onJobs === "function" && readProfile(cfg.stateKey).up) {
+    return runViaReceiver(cfg, ref, args);
+  }
 
   // Resolve the target step: the one named, or the pipeline's first.
   const stepId = args._[1];
@@ -84,6 +94,24 @@ export async function run(args) {
   } else {
     console.log(`No receiver running for "${cfg.name}" — ${ref} now rests in the stage; start it (\`agenthook start\`) or run \`agenthook reconcile\` once it's up.`);
   }
+}
+
+/**
+ * Send `run` to the live receiver over its control socket (ops.js `run`: same existence,
+ * completed and entryBlock guards). Exit 1 on refusal or a dead socket.
+ * @param {import('../types.js').Config} cfg @param {string} ref @param {any} args
+ */
+async function runViaReceiver(cfg, ref, args) {
+  const req = { ref, ...(args._[1] && { step: String(args._[1]) }), assign: args["no-assign"] !== true, force: args.force === true };
+  let reply;
+  try {
+    reply = await controlRequest(cfg.controlSock, "run", req, { timeoutMs: 20000 });
+  } catch (e) {
+    die(`run: ${e.code === "timeout" ? "timed out waiting for the receiver" : "receiver is down"} — retry, or stop it and run again to move ${ref} locally.`);
+  }
+  if (!reply.ok) die(`run: ${reply.error}`);
+  const { step, stage } = reply.result;
+  console.log(`${ref} -> step "${step}" (entered stage "${stage}" in the running receiver, which fires the step now).`);
 }
 
 /**

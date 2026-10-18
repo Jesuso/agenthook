@@ -103,7 +103,9 @@ Key files:
   optional `wizardSteps` (powers `init` live discovery), optional `listQueued(stepId)` (refs in the
   step's queue stage, board order, filtered like `listResting` — not `store.listQueued`, which is
   the local `queue.json`), optional `openBlockers(ref)` (unresolved blockers, fail-open; `dispatch.js`
-  re-checks it at run time so a dependency added while a job waited in the local queue still gates it).
+  re-checks it at run time so a dependency added while a job waited in the local queue still gates it),
+  optional `onJobs(emit)` (an in-process event source — `local` only, no webhooks: the engine wires a
+  sink at boot; `createPushSink` parks a ref's pushed job until its current run settles).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
