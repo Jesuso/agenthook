@@ -241,3 +241,26 @@ test("buildUsageRecord: an unpriced record is tagged and keeps its raw cost (aud
   assert.equal(byBin.unpriced, true);
   assert.equal(byBin.bin, "claude-local");
 });
+
+test("claude sandbox hook: only this cwd's transcript dir, at the container HOME's projects path; no-autoupdate env", async () => {
+  const { claude: adapter, sandboxCredentialProblem } = await import("../src/agents/claude.js");
+  const os = await import("node:os");
+  const fsm = await import("node:fs");
+  const pathm = await import("node:path");
+  const home = fsm.mkdtempSync(pathm.join(os.tmpdir(), "ah-claude-sbx-"));
+  const saved = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const got = /** @type {NonNullable<typeof adapter.sandbox>} */ (adapter.sandbox)({ cfg: /** @type {any} */ ({}), step: { id: "code" }, cwd: "/w/agenthook-worktrees/42", home: "/home/agent" });
+    assert.deepEqual(got.mounts, [{ path: pathm.join(home, ".claude", "projects", "-w-agenthook-worktrees-42"), dst: "/home/agent/.claude/projects/-w-agenthook-worktrees-42" }]);
+    assert.ok(fsm.statSync(got.mounts[0].path).isDirectory(), "created on the host first");
+    assert.deepEqual(got.env, { DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" });
+  } finally {
+    process.env.HOME = saved;
+  }
+  const pre = /** @type {NonNullable<typeof adapter.preflight>} */ (adapter.preflight);
+  assert.equal(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: false, env: {} }), undefined, "unsandboxed: the host login works");
+  assert.match(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: true, env: {} }) ?? "", /claude setup-token/);
+  assert.equal(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: true, env: { ANTHROPIC_API_KEY: "k" } }), undefined);
+  assert.equal(sandboxCredentialProblem({ CLAUDE_CODE_USE_BEDROCK: "1" }), undefined);
+});
