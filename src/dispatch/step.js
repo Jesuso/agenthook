@@ -3,6 +3,7 @@
 import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
 import { stepPrompt } from "../prompts.js";
+import { newNonce } from "../untrusted.js";
 import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath } from "../worktree.js";
 import { reportMoveFailure } from "../events.js";
@@ -174,6 +175,7 @@ export function createStep(ctx) {
       findings,
       resumeComment: job.comment,
       overlapGuard: cfg.overlapGuard,
+      nonce: newNonce(),
       ...(cfg.multiRepo ? { repo: { id: repo.id, path: repo.path } } : {}),
     });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;

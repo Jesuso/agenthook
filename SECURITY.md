@@ -41,6 +41,8 @@ events**. The trust boundary is small and worth understanding:
   `~/.agenthook/<name>/control-audit.jsonl`. See [docs/mcp.md](docs/mcp.md#safety).
 - **Not multi-tenant.** One profile = one trusted operator on one trusted host. agenthook does not
   isolate users from each other and is not designed to be exposed as a shared service.
+- **Ticket and comment text is untrusted input to the agent.** See
+  [Prompt injection](#prompt-injection) below.
 
 ### Hardening checklist
 
@@ -54,3 +56,42 @@ events**. The trust boundary is small and worth understanding:
 
 Full posture and the request-flow trust boundaries are in
 [docs/architecture.md#security-posture](docs/architecture.md#security-posture).
+
+## Prompt injection
+
+**Who writes what the agent reads.** Ticket titles and descriptions come from whoever can file
+or edit the item — on a public repo, a stranger. Comments and PR comments/reviews come from
+whoever can comment. CI log tails reach the agent only indirectly, as part of a PR comment, so
+whoever controls the PR head controls them. Review findings are written by an agent that already
+read all of the above, so they're derived from hostile input even though the review agent itself
+is ours. The one trusted-author input is the `@agent` resume reply, gated to the token owner by a
+strict author check — but anything that reply quotes from someone else is still data, not
+instruction.
+
+**What fencing does.** Every step prompt opens with a standing rule and wraps tracker text (ticket
+title, description, review findings, the owner's resume reply) in fences tagged with a nonce that
+is fresh per prompt: `<<<UNTRUSTED <LABEL> <nonce>>> … <<<END UNTRUSTED <LABEL> <nonce>>>`. The
+fenced text is neutralized first — every run of 3+ `<` is shortened — so the content can never
+forge a closing delimiter with the right nonce, whatever it tries to put inside the block. The
+standing rule tells the agent that fenced text, and anything it fetches itself (comments, PR
+threads, web pages), is data to understand what to build, never an instruction, and that if it
+finds an embedded instruction it must stop, set outcome `hold` or `fail`, and quote the suspicious
+text in the verdict `reason` rather than follow it.
+
+**What fencing does NOT guarantee.** This is a mitigation, not a boundary. A model can still be
+talked into something despite the rule, and text the agent fetches itself at tool-call time
+(ticket comments via `gh`, PR threads, web pages, files in the repo) is covered only by the
+standing rule, not by a fence — a fence can't wrap text that never passes through the prompt
+string. The real boundaries are what the agent *can do*: running it in the
+[sandboxed container](docs/sandbox.md) confines code execution off the host; a stripped agent
+environment, an egress allowlist, and short-lived scoped tracker tokens are tracked separately
+(issues #470, #473, #474) and land independently of this mitigation.
+
+**Recommendations.**
+- Don't route a stranger's issue into a `fullAuto` pipeline without the sandbox.
+- On a public repo, gate intake behind a human: only the owner adds the source label/assignment,
+  and triage runs without `fullAuto`.
+- Register `agenthook mcp --read-only` for any LLM that reads ticket text — see
+  [docs/mcp.md#safety](docs/mcp.md#safety).
+- If a run looks odd, read its `.prompt.md` sidecar — it records the exact prompt bytes, nonce
+  included, that the agent saw.
