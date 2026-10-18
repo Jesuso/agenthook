@@ -639,6 +639,7 @@ test("dispatch routing: a routed task sticks; a later step with changed routeKey
   assert.equal(store.getRepo("42"), "ios", "sticky repo persisted");
   assert.match(first?.prompt ?? "", /^IOS REPO CONTEXT\n\n[\s\S]*=== TICKET ===/, "repo instructions lead the prompt");
   assert.match(first?.prompt ?? "", new RegExp(`Repo: ios \\(${ios.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+  assert.match(first?.prompt ?? "", /<<<UNTRUSTED TICKET_DESCRIPTION [0-9a-f]{12}>>>/, "description is fenced with a fresh nonce");
 
   const second = await runStep("review", ["android"]);
   assert.equal(second?.cwd, fs.realpathSync(ios), "sticky repo wins over the new route keys");
