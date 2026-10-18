@@ -30,6 +30,8 @@ import { timeoutReason } from "./verdict.js";
  * @property {any} result
  * @property {import('../quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
+ * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
+ * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -39,7 +41,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut } = run;
+    const { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -89,6 +91,15 @@ export function createFinish(ctx) {
     if (energyRec) Object.assign(usage, energyRec);
     if (store && result) store.recordUsage(usage);
 
+    // A sandboxed agent owns its verdict dir: a symlink planted there must never make the host
+    // read (and route on) a file outside it.
+    if (sandboxed) {
+      try {
+        if (fs.lstatSync(verdictFile).isSymbolicLink()) fs.rmSync(verdictFile, { force: true });
+      } catch {
+        /* no verdict written */
+      }
+    }
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
     /** @type {import('../types.js').Verdict} */
@@ -100,7 +111,7 @@ export function createFinish(ctx) {
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
       : readVerdict(code, verdictFile, step, agent);
     try {
-      fs.rmSync(verdictFile, { force: true });
+      fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
     } catch {
       /* best effort */
     }
@@ -116,6 +127,7 @@ export function createFinish(ctx) {
       ...(usage.estUsd !== undefined ? { estUsd: usage.estUsd } : {}),
       ...(energyRec ?? {}),
       ...tokens,
+      ...(sandboxReport?.extra ?? {}),
     });
     if (verdict.outcome === "hold") {
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the

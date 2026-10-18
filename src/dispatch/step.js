@@ -2,19 +2,23 @@
 // overlap gates, worktree, prompt, and the spawn. finish.js takes it from there.
 import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
+import path from "node:path";
 import { stepPrompt } from "../prompts.js";
 import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath } from "../worktree.js";
 import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
+import { isSandboxed } from "../sandbox/names.js";
+import { agentSpawnEnv } from "./spawn.js";
+import { gitDirsFor, gitSandboxEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
 export function createStep(ctx) {
-  const { cfg, adapter, store, emit, releaseOverlap, meta, pids, cancelled, preSpawn } = ctx;
+  const { cfg, adapter, store, emit, releaseOverlap, meta, pids, cancelled, preSpawn, sandbox } = ctx;
   const { resolveRoute, leavePipeline, recordPr } = ctx;
-  const { killNow, spawnAgent, logPathFor, verdictPathFor, promptFilePathFor, agentPreflight } = ctx;
+  const { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, agentPreflight } = ctx;
   const { startEnergy, stopEnergy, finishStep } = ctx;
 
   /** @param {import('../types.js').Job} job */
@@ -153,8 +157,10 @@ export function createStep(ctx) {
     const cwd = hasWorktree ? worktree : repo.path;
 
     // One verdict file per run, under the state dir. Clear any stale one first so a
-    // crashed prior run can't leave a verdict the agent didn't write this time.
-    const verdictFile = verdictPathFor(step.id, job.ref);
+    // crashed prior run can't leave a verdict the agent didn't write this time. A sandboxed
+    // run gets its own dir — the only part of the state dir its container sees.
+    const sandboxed = !!sandbox && isSandboxed(cfg, step);
+    const verdictFile = sandboxed ? sandboxVerdictPathFor(step.id, job.ref) : verdictPathFor(step.id, job.ref);
     try {
       fs.rmSync(verdictFile, { force: true });
     } catch {
@@ -222,12 +228,30 @@ export function createStep(ctx) {
     const agent = agentFor(cfg, step);
     const promptFile = agent.describe().promptFile ? promptFilePathFor(step.id, job.ref) : undefined;
     const provider = step.provider ?? cfg.agentProvider;
-    // A failed preflight resolves the run as `fail` with no agent spawned.
-    const refused = agentPreflight(agent, step, provider, logPath);
     const agentEnv = agent.env?.({ cfg, step });
+    // A failed preflight resolves the run as `fail` with no agent spawned.
+    let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: agentSpawnEnv(agentEnv, step.env) });
+    /** @type {Parameters<typeof spawnAgent>[0]['sandboxed']} */
+    let sandboxedRun;
+    if (sandboxed && sandbox && agent.sandbox && !refused) {
+      try {
+        const own = agent.sandbox({ cfg, step, cwd, home: sandbox.describe().home });
+        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: gitDirsFor(cwd)?.commonDir, agentMounts: own.mounts });
+        const facts = hostGitFacts(repo.path);
+        const gitEnv = gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author });
+        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv } };
+      } catch (e) {
+        refused = `sandbox setup failed: ${e.message}`;
+        try {
+          fs.appendFileSync(logPath, `[agenthook] ${refused}\n`);
+        } catch {
+          /* best effort */
+        }
+      }
+    }
     // Energy (#396): only an opted-in step that actually spawns is sampled.
     const energyRun = !refused && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
-    const { code, result, quota, timedOut } = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
+    const spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
       agent,
       prompt,
       cwd,
@@ -242,6 +266,7 @@ export function createStep(ctx) {
       agentEnv,
       env: step.env,
       verdictFile,
+      sandboxed: sandboxedRun,
       maxMs: maxMinutes * 60000,
       ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
       onPid: (p) => {
@@ -268,7 +293,9 @@ export function createStep(ctx) {
       if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
       throw e;
     });
-    return finishStep(job, { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut });
+    const { code, result, quota, timedOut, sandboxReport } = /** @type {Awaited<ReturnType<typeof spawnAgent>>} */ (spawned);
+    refused ??= /** @type {{refused?: string}} */ (spawned).refused;
+    return finishStep(job, { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport });
   }
 
   return { runStep };
