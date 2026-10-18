@@ -28,7 +28,7 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 | Default binary | `claudeBin` (default `claude`) | `agent` | `hermes` | `opencode` |
 | Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>] --ignore-rules --source tool -t terminal,file` (isolated, the default; see [Hermes isolation](#hermes-isolation)) | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] -- <prompt>` |
 | Stdout | stream-json | stream-json | plain text | JSONL events |
-| Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (Hermes reports no usage) | yes, per model step (`step_finish`) |
+| Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (best-effort, after the run — see below) | yes, per model step (`step_finish`) |
 | Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` | priced only when OpenCode reports a non-zero cost, else `unpriced` |
 | `follow` | yes | yes | no (no transcripts) | no (sessions live in OpenCode's database) |
 | `resume` | yes | yes (`agent --resume <id>`) | no | yes (`opencode -s <id>`, ids from `usage.jsonl`) |
@@ -37,8 +37,11 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 An **unpriced** run has no `costUsd`: agenthook has no price table for that agent (or the run
 used a local model, see [Mixed pipelines / local models](local-models.md)). The UI shows
 "unpriced" in its cost cell, and `run_end` events carry `"unpriced": true`. Cursor runs still
-record token counts; Hermes runs record none. OpenCode runs record token counts, and they are
-priced only when OpenCode's own summed `cost` is above zero (a paid provider). A zero or missing
+record token counts; Hermes has no live tally during the run, but recovers real counts
+afterwards via `hermes sessions export` (best-effort — see [Hermes token capture](#hermes-token-capture)
+below), and these then get an `estUsd` from the rate table like any other unpriced run. OpenCode
+runs record token counts, and they are priced only when OpenCode's own summed `cost` is above
+zero (a paid provider). A zero or missing
 cost (a local or free model) makes the run `unpriced`, so agenthook never shows made-up dollars.
 
 ### Estimated cost (`estUsd`)
@@ -98,6 +101,9 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
 
 ### Hermes isolation
 
+> **Experimental.** The Hermes adapter is new; see [token capture](#hermes-token-capture) below
+> for how its cost numbers work.
+
 Hermes steps are **isolated** by default (step `isolated`, default `true`), so one ticket can't
 read or write another ticket's Hermes memory or skills, or your own:
 
@@ -127,6 +133,23 @@ read or write another ticket's Hermes memory or skills, or your own:
 - **Resume.** `ah resume <ref>` lists Hermes sessions from the session ids in `usage.jsonl` and
   prints `cd <worktree> && HERMES_HOME=<isolated home> hermes chat --resume <id>`; `--exec` sets
   the same `HERMES_HOME`.
+
+### Hermes token capture
+
+> **Experimental.** The Hermes adapter is new and still settling; treat its cost numbers as
+> best-effort.
+
+`hermes chat -Q` prints plain text with no usage data, so a Hermes run's live tally is always
+zero. After the run exits (and only when it produced a session id), dispatch runs `hermes
+sessions export --session-id <id> --format jsonl <file>` in the same `HERMES_HOME` the run used,
+bounded to 10s, in a scratch dir under the state dir (never the repo or worktree, removed
+afterwards). A successful export overlays its `input_tokens`/`output_tokens`/
+`cache_read_tokens`/`cache_write_tokens` onto the run's zero tally, and its `model` only when the
+step resolved none of its own. The export's own `estimated_cost_usd` is ignored — Hermes stays
+`unpriced`, and a dollar figure (`estUsd`) comes only from the [rate table](#estimated-cost-estusd),
+same as any other unpriced run with real tokens. Any failure (the export errors, times out, or the
+run had no session id) just leaves the tally at zero and logs one line; it never affects the
+run's verdict or outcome.
 
 ## Recipes
 

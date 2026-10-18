@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // record, and the adapter's describe/defaults.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHermesArgs, createHermesParser, buildHermesUsageRecord, hermes, HERMES_MAX_TURNS, HERMES_REASONING_LEVELS } from "../src/agents/hermes.js";
+import { buildHermesArgs, createHermesParser, buildHermesUsageRecord, parseHermesExport, hermes, HERMES_MAX_TURNS, HERMES_REASONING_LEVELS } from "../src/agents/hermes.js";
 
 /** Capture console.warn while fn runs. @param {() => void} fn */
 function warns(fn) {
@@ -149,4 +149,35 @@ test("adapter: describe/defaults/sessions", () => {
   assert.deepEqual(hermes.describe(), { name: "hermes", stdout: "text", promptFile: true });
   assert.deepEqual(hermes.defaults, { bin: "hermes", requireVerdict: true });
   assert.equal(hermes.sessions, null);
+});
+
+// --- parseHermesExport: `hermes sessions export --format jsonl` row -> usage tally (#395) ---
+
+test("parseHermesExport: a real trimmed export row maps all four token fields and model", () => {
+  const row = { session_id: "s1", input_tokens: 18010, output_tokens: 1371, cache_read_tokens: 102182, cache_write_tokens: 0, reasoning_tokens: 12, api_call_count: 7, model: "qwen3.8:27b-96k", billing_provider: "ollama-launch", estimated_cost_usd: 0.0 };
+  assert.deepEqual(parseHermesExport(JSON.stringify(row)), { input: 18010, output: 1371, cacheRead: 102182, cacheCreate: 0, model: "qwen3.8:27b-96k" });
+});
+
+test("parseHermesExport: only the first non-empty line is read, trailing lines ignored", () => {
+  const row1 = JSON.stringify({ input_tokens: 1, output_tokens: 2 });
+  const row2 = JSON.stringify({ input_tokens: 99, output_tokens: 99 });
+  assert.deepEqual(parseHermesExport(`\n${row1}\n${row2}\n`), { input: 1, output: 2 });
+});
+
+test("parseHermesExport: no model field is simply omitted", () => {
+  assert.deepEqual(parseHermesExport(JSON.stringify({ input_tokens: 1 })), { input: 1 });
+});
+
+test("parseHermesExport: garbage, empty, or a row with no numeric token field -> null", () => {
+  assert.equal(parseHermesExport("not json"), null);
+  assert.equal(parseHermesExport(""), null);
+  assert.equal(parseHermesExport("   \n  \n"), null);
+  assert.equal(parseHermesExport(JSON.stringify({ model: "m", estimated_cost_usd: 0 })), null);
+  assert.equal(parseHermesExport(JSON.stringify({ input_tokens: "18010" })), null, "a string token count is not numeric");
+  assert.equal(parseHermesExport("[1,2,3]"), null, "not an object");
+  assert.equal(parseHermesExport("null"), null);
+});
+
+test("adapter: finalize is wired to hermesFinalize", () => {
+  assert.equal(typeof hermes.finalize, "function");
 });

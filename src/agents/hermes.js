@@ -4,6 +4,9 @@
 // session id, and why its usage is always unpriced. The interface is documented by
 // src/agents/claude.js. An `isolated` step (the default) runs in its own HERMES_HOME with
 // minimal toolsets and no user rules — see src/agents/hermes-home.js.
+import fs from "node:fs";
+import path from "node:path";
+import { execFile } from "node:child_process";
 import { hermesHomeDir, hermesSourceHome, hermesPreflight } from "./hermes-home.js";
 
 // High enough that maxMinutes/idleMinutes are the real bound on a run, not this.
@@ -128,6 +131,67 @@ export function buildHermesUsageRecord({ ref, stepId, model, bin, startedAt, end
   };
 }
 
+/**
+ * The first non-empty JSONL line of a `hermes sessions export --format jsonl` file, mapped
+ * to a usage tally (pure; exported for tests). `null` on bad JSON or a row with no numeric
+ * token field. `reasoning_tokens`, `api_call_count` and `estimated_cost_usd` are ignored —
+ * dollars come from the #394 rate table, not Hermes.
+ * @param {string} text
+ * @returns {{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null}
+ */
+export function parseHermesExport(text) {
+  const line = String(text ?? "")
+    .split(/\r?\n/)
+    .find((l) => l.trim());
+  if (!line) return null;
+  /** @type {any} */
+  let row;
+  try {
+    row = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!row || typeof row !== "object") return null;
+  const fields = { input: row.input_tokens, output: row.output_tokens, cacheRead: row.cache_read_tokens, cacheCreate: row.cache_write_tokens };
+  const hasTokens = Object.values(fields).some((v) => typeof v === "number" && Number.isFinite(v));
+  if (!hasTokens) return null;
+  /** @type {any} */
+  const out = {};
+  for (const [k, v] of Object.entries(fields)) if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  if (typeof row.model === "string" && row.model) out.model = row.model;
+  return out;
+}
+
+/**
+ * dispatch's post-exit `agent.finalize` (#395): run `hermes sessions export` for the
+ * session the run produced, in the same env (so an isolated step's HERMES_HOME finds its
+ * session), and parse the row. The export file lives only in the scratch `dir` dispatch
+ * gives us and is removed before returning, success or not.
+ * @param {{sessionId: string, bin: string, env: Record<string,string>, dir: string, timeoutMs: number}} o
+ * @returns {Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>}
+ */
+export function hermesFinalize({ sessionId, bin, env, dir, timeoutMs }) {
+  const file = path.join(dir, "export.jsonl");
+  return new Promise((resolve, reject) => {
+    execFile(bin, ["sessions", "export", "--session-id", sessionId, "--format", "jsonl", file], { env, cwd: dir, timeout: timeoutMs, killSignal: "SIGKILL" }, (err) => {
+      if (err) return reject(err);
+      let text;
+      try {
+        text = fs.readFileSync(file, "utf8");
+      } catch (e) {
+        return reject(e);
+      } finally {
+        try {
+          fs.rmSync(file, { force: true });
+        } catch {
+          /* best effort */
+        }
+      }
+      resolve(parseHermesExport(text));
+    });
+  });
+}
+
 /** @type {import('../types.js').AgentAdapter} */
 export const hermes = {
   describe: () => ({ name: "hermes", stdout: "text", promptFile: true }),
@@ -140,5 +204,6 @@ export const hermes = {
   // A step that sets its own HERMES_HOME manages that home itself: nothing to prepare.
   preflight: ({ cfg, step, provider }) =>
     isIsolated(step) && !step?.env?.HERMES_HOME ? hermesPreflight({ stateDir: cfg.stateDir ?? cfg.dataDir, sourceHome: hermesSourceHome(), provider }) : undefined,
+  finalize: hermesFinalize,
   defaults: { bin: "hermes", requireVerdict: true },
 };
