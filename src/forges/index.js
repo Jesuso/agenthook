@@ -3,12 +3,14 @@
 // the code" (e.g. a PR merged). The active forge is `cfg.forge.type`; no `forge`
 // block = no forge, and the engine behaves exactly as without one.
 import { createGithubForge } from "./github.js";
+import { createGitlabForge } from "./gitlab.js";
 
 export { isForgePath } from "./github.js";
 
 /** @type {Record<string, import('../types.js').ForgeFactory>} */
 export const FORGES = {
   github: createGithubForge,
+  gitlab: createGitlabForge,
 };
 
 /**

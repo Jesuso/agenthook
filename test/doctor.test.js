@@ -118,6 +118,18 @@ test("forgeLints: non-github tracker with no forge → none", () => {
   assert.deepEqual(forgeLints(/** @type {any} */ ({ provider: "jira", forge: undefined })), []);
 });
 
+test("forgeLints: gitlab forge with project + token → none; missing/bad project, token or baseUrl → warnings", () => {
+  const gl = (/** @type {any} */ f) => forgeLints(/** @type {any} */ ({ provider: "jira", forge: { type: "gitlab", project: "g/p", token: "glpat", ...f } }));
+  assert.deepEqual(gl({}), []);
+  assert.deepEqual(gl({ baseUrl: "https://git.acme.io" }), []);
+  assert.deepEqual(labels(gl({ project: undefined })), ["warn:forge.project set"]);
+  assert.deepEqual(labels(gl({ project: "proj" })), ["warn:forge.project set"]);
+  assert.deepEqual(labels(gl({ token: "" })), ["warn:forge.token set"]);
+  assert.deepEqual(labels(gl({ token: "${GITLAB_TOKEN}" })), ["warn:forge.token set"]);
+  assert.deepEqual(labels(gl({ baseUrl: "gitlab.acme.io" })), ["warn:forge.baseUrl is an http(s) URL"]);
+  assert.deepEqual(labels(forgeLints(/** @type {any} */ ({ provider: "github", forge: { type: "gitlab" } }))), ["warn:forge.project set", "warn:forge.token set"]);
+});
+
 test("legacyOrphans: flags <base>/42, not <base>/ios/42", () => {
   const cfg = multi();
   const base = worktreeDir(cfg, ios);

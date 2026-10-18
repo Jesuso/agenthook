@@ -11,6 +11,7 @@ import { TRACKERS, createAdapter } from "../trackers/index.js";
 import { INGRESS } from "../ingress/index.js";
 import { FORGES } from "../forges/index.js";
 import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
+import { parseGitlabRemote, forgeOffer as gitlabForgeOffer, forgeBlock as gitlabForgeBlock } from "../forges/gitlab.js";
 import { installAh } from "./alias.js";
 import { firstFreePort } from "../port.js";
 import { registryDir } from "../config.js";
@@ -36,6 +37,23 @@ const PLACEHOLDER_PIPELINES = {
   "github-projects": [{ ...base, sourceStatus: "TODO_SOURCE_STATUS", successStatus: "TODO_REVIEW_STATUS", failureStatus: "TODO_BLOCKED_STATUS" }],
   linear: [{ ...base, sourceStatus: "TODO_SOURCE_STATE", successStatus: "TODO_REVIEW_STATE", failureStatus: "TODO_BLOCKED_STATE" }],
 };
+
+/** Which forge `init` offers, by the origin remote: a GitLab remote → the gitlab forge;
+ * anything else → the github forge, exactly as before. Pure.
+ * @param {{remoteUrl?: string, trackerType?: string, trackerRepository?: string}} opts
+ * @returns {{key: "github"|"gitlab", offer: Record<string, any>}} */
+export function initForge({ remoteUrl, trackerType, trackerRepository } = {}) {
+  if (parseGitlabRemote(remoteUrl)) return { key: "gitlab", offer: gitlabForgeOffer({ remoteUrl }) };
+  return { key: "github", offer: forgeOffer({ trackerType, trackerRepository, remoteUrl }) };
+}
+
+/** The forge config block `init` writes from that forge's wizard answers. Pure.
+ * @param {string} key @param {Record<string, any>} ans
+ * @returns {import('../types.js').ForgeConfig} */
+export function initForgeBlock(key, ans) {
+  if (key === "gitlab") return gitlabForgeBlock({ project: ans.project, baseUrl: ans.baseUrl, tokenEnv: ans.tokenEnv });
+  return forgeBlock({ repository: ans.repository, tokenEnv: ans.tokenEnv });
+}
 
 /** Turn collected answers into a config block: `<x>Env` answers become "${VAL}" refs.
  * @param {string} type @param {Record<string,any>} ans */
@@ -259,27 +277,28 @@ export async function init(args) {
   const pipeline = bindings ? [{ ...base, ...bindings }] : PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
 
   // --- forge (optional third axis: what happened to the code — e.g. a PR merged) ---
-  // Only offered when some forge adapter has wizardSteps (today: github, always). A
-  // forge with no manual step to complete-on-merge still drains + cleans up (see the
+  // The origin remote picks the forge: a GitLab remote → gitlab, anything else → github.
+  // A forge with no manual step to complete-on-merge still drains + cleans up (see the
   // issue's Evidence) — mergeStepCandidates is empty for init's single-`code` pipeline.
-  /** @type {any} */
-  const forgeKey = Object.keys(FORGES).find((k) => typeof FORGES[k](/** @type {any} */ ({ forge: { type: k } }), stubStore).wizardSteps === "function");
+  let remoteUrl = "";
+  try {
+    remoteUrl = execFileSync("git", ["-C", core.repoPath, "remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+  } catch {
+    // no origin remote — forgeOffer falls back to defaultYes:false
+  }
+  const picked = initForge({ remoteUrl, trackerType: trackerAns.type, trackerRepository: trackerAns.repository });
+  const forgeKey = picked.key;
+  const forge = FORGES[forgeKey](/** @type {any} */ ({ forge: { type: forgeKey } }), stubStore);
   /** @type {Record<string, any>} */
   let forgeAns = {};
-  if (!forgeKey) {
+  if (typeof forge.wizardSteps !== "function") {
     console.log(`\n(no forge adapter offers setup for this tracker yet — skipping)`);
   } else {
-    let remoteUrl = "";
-    try {
-      remoteUrl = execFileSync("git", ["-C", core.repoPath, "remote", "get-url", "origin"], { encoding: "utf8" }).trim();
-    } catch {
-      // no origin remote — forgeOffer falls back to defaultYes:false
-    }
-    const forge = FORGES[forgeKey](/** @type {any} */ ({ forge: { type: forgeKey } }), stubStore);
-    forgeAns._forgeOffer = forgeOffer({ trackerType: trackerAns.type, trackerRepository: trackerAns.repository, remoteUrl });
+    forgeAns._forgeOffer = picked.offer;
     forgeAns._mergeStepCandidates = mergeStepCandidates(pipeline);
-    forgeAns._defaultTokenEnv = trackerAns.type === "github" || trackerAns.type === "github-projects" ? tokenEnv : DEFAULT_TOKEN_ENV.github;
-    await runWizard(/** @type {any} */ (forge.wizardSteps)(forgeAns), forgeAns);
+    if (forgeKey === "gitlab") forgeAns._defaultTokenEnv = "GITLAB_TOKEN";
+    else forgeAns._defaultTokenEnv = trackerAns.type === "github" || trackerAns.type === "github-projects" ? tokenEnv : DEFAULT_TOKEN_ENV.github;
+    await runWizard(forge.wizardSteps(forgeAns), forgeAns);
   }
 
   // --- assemble + write ---
@@ -301,7 +320,7 @@ export async function init(args) {
   let forgeTokenEnv = "";
   if (forgeAns._useForge) {
     forgeTokenEnv = forgeAns.tokenEnv;
-    config.forge = forgeBlock({ repository: forgeAns.repository, tokenEnv: forgeAns.tokenEnv });
+    config.forge = initForgeBlock(forgeKey, forgeAns);
     if (forgeAns._completeOnMerge) {
       const step = pipeline.find((s) => s.id === forgeAns._completeOnMerge);
       if (step) step.completeOnMerge = true;
@@ -324,7 +343,9 @@ export async function init(args) {
   console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);
   if (config.forge) {
     console.log(`  - forge webhook is served on /forge (auto-created on start; needs ngrok or a stable ingress URL)`);
-    if (trackerAns.type !== "github" && trackerAns.type !== "github-projects") {
+    if (forgeKey === "gitlab") {
+      console.log(`  - forge token: api scope + Maintainer role on ${config.forge.project} (see docs/gitlab.md)`);
+    } else if (trackerAns.type !== "github" && trackerAns.type !== "github-projects") {
       console.log(`  - forge token scopes: repo + admin:repo_hook (classic), or Webhooks + Actions + Pull requests RW (fine-grained)`);
     }
   }

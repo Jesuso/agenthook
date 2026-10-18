@@ -64,14 +64,16 @@ about yet, or fix invalid JSON — the forms refuse to touch anything they can't
 ## Forge (optional — what happened to the code)
 
 A tracker says where work comes from; a forge says what happened to the code (a PR merged, CI
-went red). It's optional: no `forge` block = no PR awareness, nothing else changes. Today the
-only forge is `github`:
+went red). It's optional: no `forge` block = no PR awareness, nothing else changes. There are
+two forges, `github` and `gitlab` (see [GitLab forge setup](gitlab.md)):
 
 ```json
 "forge": { "type": "github", "repository": "owner/name", "token": "${GITHUB_TOKEN}" }
+"forge": { "type": "gitlab", "project": "group/sub/project", "token": "${GITLAB_TOKEN}" }
 ```
 
-- `repository` is **required** — the forge never falls back to the tracker's repo.
+- `repository` (github) / `project` (gitlab) is **required** — the forge never falls back to the
+  tracker's repo. A self-managed GitLab also sets `baseUrl` (default `https://gitlab.com`).
 - `completeOnMerge` lives on a **manual pipeline step**, not here (`Step.completeOnMerge`): a
   merged PR moves the task into that step, which then marks it complete. No candidate step →
   a merge still drains the worktree and cleans up, it just doesn't mark the tracker item done.
@@ -79,5 +81,6 @@ only forge is `github`:
   signal, bounce red CI to the `createsWorktree` step) unless overridden.
 
 `agenthook init` offers to write this block (defaulting to yes when the tracker is `github` or
-the repo's `origin` remote is a github.com URL); `agenthook doctor` warns when a `github` tracker
-has no forge configured.
+the repo's `origin` remote is a github.com URL; a GitLab `origin` offers the `gitlab` forge
+instead); `agenthook doctor` warns when a `github` tracker has no forge configured, or a `gitlab`
+forge is missing its project or token.
