@@ -148,6 +148,9 @@ the step, or `run {ref, force:true}` to re-enter it from scratch.
 
 **A task failed** (`failed` event). `reason` is clipped; `runs {ref, tail}` has the real error.
 Decide: transient (re-enter with `run {ref, force:true}`), needs a fix elsewhere, or needs a human.
+On a profile with a `sandbox`, two reasons need a config fix, not a retry: `<agent> does not support
+the sandbox yet` (set `"sandbox": false` on that step) and `sandboxed claude has no credentials`
+(put `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` in the profile's `.env`).
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 

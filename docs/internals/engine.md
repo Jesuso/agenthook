@@ -10,12 +10,14 @@ success = the next step's trigger; fail → failure; hold → hold lane; changes
 source = the rework loop).
 
 Boot flow (`engine.serve()` = `src/engine/boot.js`, server owns the ingress lifecycle):
-persisted quota reading → `ingress.up(port)` → write `publicUrl` → **listen → `startControl` → write
+persisted quota reading → `sandbox?.check()` (unavailable → boot throws, nothing brought up) →
+`ingress.up(port)` → write `publicUrl` → **listen → `startControl` → write
 pidfile** (listen precedes any register: a new hook POSTs a handshake at once — Asana needs it echoed;
 `startControl`'s owner check reads the old pidfile, so it precedes the write) → if
 `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub dead-URL hooks) →
 `adapter.ensureLabels?()` → `adapter.registerWebhook(url)` → `forge?` (ephemeral →
 `forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort, never aborts boot) →
+`sandbox?.reap()` (remove containers a dead receiver left running — best-effort, logged) →
 `recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
 → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots; **only** reads a step's
 opt-in queue stage, a no-op without one) → one `runReconcile` (only with `--reconcile-on-boot`, a
@@ -29,7 +31,8 @@ closes control; on exit `ingress.down()`.
   first, wiring, the `intake()` closure, fatal `process.on` handlers at construction); `http.js` the
   request handler (fast-ACK-then-async is deliberate — providers retry a slow 2xx); `boot.js`
   `serve()`; `teardown.js` `shutdown`/`forceExit`/`teardown`/`onFatal` + `finishTeardown` (the
-  once-only respawn/archive tail); `controllers.js` the restart/decommission requesters + quota
+  once-only respawn/archive tail; `forceExit`/`onFatal` SIGTERM the children, then `sandbox.reap()`
+  bounded at 3s); `controllers.js` the restart/decommission requesters + quota
   pacer; `recovery.js` local crash recovery (`running.json`, no board poll) + overlap releaser;
   `intake.js` the push sink; `context.js` types-only `EngineState` (the shared mutable flags,
   `control`, `server`).

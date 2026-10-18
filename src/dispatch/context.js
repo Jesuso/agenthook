@@ -2,7 +2,7 @@
 // is built from. One object per dispatcher — two dispatchers never share any of it.
 
 /**
- * @typedef {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof import('../energy-sampler.js').createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../quota.js').QuotaReading) => void}} DispatchOpts
+ * @typedef {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof import('../energy-sampler.js').createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../quota.js').QuotaReading) => void, sandbox?: import('../types.js').Sandbox|null}} DispatchOpts
  */
 
 /**
@@ -24,6 +24,8 @@
  * @property {Set<string>} cancelled  refs asked to stop
  * @property {Set<string>} preSpawn  refs between runClaude() starting and the agent being spawned
  * @property {Map<string, NodeJS.Timeout>} killTimers  pending SIGKILL per ref
+ * @property {import('../types.js').Sandbox|null} sandbox  the profile's sandbox (null = runs on the host)
+ * @property {Map<string, import('../types.js').SandboxRun>} sandboxRuns  live sandboxed run per ref (kill paths)
  */
 
 export {};

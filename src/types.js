@@ -49,6 +49,7 @@
  * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over the agent's filtered env (see agentEnvPassthrough; AGENTHOOK_VERDICT_FILE is reserved)
+ * @property {boolean} [sandbox]              false = run this step on the host even when the profile has a `sandbox` (the operator's explicit escape hatch)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
  * @property {number} [maxMinutes]             wall-clock cap on one run of this step; past it the agent is killed and the run fails with `timeout` (default 120, 0 = no cap)
@@ -396,6 +397,51 @@
 /** Runs one CLI call; a non-zero exit resolves with its `code`, a spawn failure rejects.
  * @typedef {(bin: string, args: string[], opts: { timeoutMs: number }) => Promise<{ code: number|null, stdout: string, stderr: string }>} IngressRun */
 
+/**
+ * The optional sandbox config block (`sandbox` in agenthook.config.json): run each agent in its
+ * own container with only its worktree mounted (src/sandbox/). Absent = runs on the host.
+ * @typedef {object} SandboxConfig
+ * @property {string} type      sandbox backend ("docker" | "podman")
+ * @property {string} [image]   agent image (default `agenthook-agent:<package version>`)
+ * @property {string} [memory]  container memory cap, e.g. "4g" (unset = runtime default)
+ * @property {number} [cpus]    container CPU cap, e.g. 2 (unset = runtime default)
+ */
+
+/** One bind mount into a sandboxed run.
+ * @typedef {object} SandboxMount
+ * @property {string} path   absolute host path; mounted at the SAME path inside the container unless `dst` is set
+ * @property {string} [dst]  absolute container path (only for a mount under the sandbox's `home`, e.g. a transcript dir)
+ * @property {boolean} [ro]  read-only
+ */
+
+/** What a run's sandbox has to say once it exits (generic, so a sandbox feature needs no new plumbing).
+ * @typedef {object} SandboxReport
+ * @property {string[]} [notes]             lines dispatch appends to the run log as `[agenthook] <note>`
+ * @property {Record<string, any>} [extra]  fields dispatch merges into the run's `run_end` event
+ */
+
+/** What `wrap()` returns for one run: dispatch spawns `bin args` (the runtime client) instead
+ * of the agent, with `env` over the client's runtime env.
+ * @typedef {object} SandboxRun
+ * @property {string} bin
+ * @property {string[]} args
+ * @property {Record<string, string>} env   the container env; the client passes each var by name
+ * @property {string} id                    container name
+ * @property {() => Promise<void>} kill     force-stop the container (idempotent)
+ * @property {() => Promise<SandboxReport>} done  post-exit cleanup (idempotent)
+ */
+
+/** A sandbox adapter: where one agent run executes.
+ * @typedef {object} Sandbox
+ * @property {() => {name: string, home: string}} describe  `home` = the container's HOME
+ * @property {() => Promise<{ok: true} | {ok: false, reason: string}>} check  runtime reachable + image present
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step}) => Promise<SandboxRun>} wrap
+ * @property {() => Promise<string[]>} reap  force-remove every container labelled with this profile; returns their names
+ */
+
+/** A factory `(cfg) => Sandbox`; `run` replaces the CLI runner in tests.
+ * @typedef {(cfg: Config, opts?: { run?: IngressRun }) => Sandbox} SandboxFactory */
+
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
  * push() chunks, flush() the tail at EOF, then read `result` / `sessionId`.
  * @typedef {object} AgentParser
@@ -425,6 +471,7 @@
  * @property {(sessionId: string) => string[]} resumeCommand  resume argv (after the binary)
  * @property {(dir: string) => {id: string, file: string, at?: number}[]} files  the session transcripts in a transcript dir; `at` = start-time fallback when lines carry no timestamp
  * @property {(baseCwd: string) => {dirs: string[], searched: string}} cwdDirs  existing transcript dirs of every cwd under `baseCwd` (+ the pattern searched, for errors)
+ * @property {(stateDir: string, cwd: string) => string} [sandboxTranscriptDir]  the transcript dir of a sandboxed run in a `cwd` it doesn't own (a no-worktree step), so `follow` finds it
  */
 
 /** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
@@ -437,7 +484,8 @@
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume
  * @property {(sessionId: string) => string[]} [resumeCommand]  resume argv (after the binary) for an agent with `sessions: null` whose session ids come from usage.jsonl (opencode)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
- * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for)
+ * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string, sandboxed?: boolean, env?: Record<string, string>}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for; claude: refuse a sandboxed run with no credential var in `env`, the spawn env)
+ * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string}) => {mounts: SandboxMount[], env?: Record<string, string>}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. An agent without it is refused when sandboxed
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  * @property {string[]} [envPassthrough]  receiver env vars (NAME or PREFIX*) this CLI needs, added to the agent env allowlist (src/agent-env.js): auth keys, config vars
@@ -527,6 +575,7 @@
  * @property {IngressConfig} ingress
  * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
+ * @property {SandboxConfig} [sandbox]  optional; absent = agents run on the host. Set = each run in its own container (src/sandbox/)
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
  * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config
  * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/pricing.js); checked before the built-in Claude rates

@@ -75,3 +75,16 @@ test("follow transcriptDirs: each repo's root dir + every worktree-mangle siblin
   assert.deepEqual(got.dirs, [root, wt]);
   assert.deepEqual(got.searched, [root, path.join(projects, `${mangle(worktreeDir(cfg))}-*`)]);
 });
+
+test("follow transcriptDirs: a sandboxed profile also searches the receiver-owned no-worktree transcript dir", async () => {
+  const { transcriptDirs } = await import("../src/commands/follow.js");
+  const { sandboxClaudeProjectDir } = await import("../src/paths.js");
+  const stateDir = path.join(HOME, "sbx-state");
+  const cfg = /** @type {any} */ ({ repoPath: "/v/sbx", worktreePrefix: "/v/sbx-wt", stateDir, sandbox: { type: "docker" }, repos: [{ id: "default", path: "/v/sbx", match: [], default: true }] });
+  const sbx = sandboxClaudeProjectDir(stateDir, "/v/sbx");
+  writeTranscript(sbx, "t1");
+  const got = transcriptDirs(cfg, cfg.repos);
+  assert.deepEqual(got.dirs, [sbx]);
+  assert.ok(got.searched.includes(sbx));
+  assert.deepEqual(transcriptDirs({ ...cfg, sandbox: undefined }, cfg.repos).dirs, [], "unsandboxed: not searched");
+});

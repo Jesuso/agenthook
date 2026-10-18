@@ -24,6 +24,7 @@ import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
+import { SANDBOX_NAMES } from "./sandbox/names.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -482,6 +483,13 @@ export function validateRawConfig(raw) {
         errors.push(`config: pipeline step "${sid}" energy:true needs a profile "energy" block ({usdPerKwh, source}).`);
       }
     }
+    if (step.sandbox != null) {
+      if (typeof step.sandbox !== "boolean") {
+        errors.push(`config: pipeline step "${sid}" sandbox must be true or false.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" sandbox has no effect on a manual step (no agent runs).`);
+      }
+    }
     if (step.env != null) {
       if (typeof step.env !== "object" || Array.isArray(step.env)) {
         errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
@@ -532,6 +540,7 @@ export function validateRawConfig(raw) {
   errors.push(...pricingErrors(cfg.pricing));
   errors.push(...energyErrors(cfg.energy));
   errors.push(...quotaErrors(cfg.quota));
+  errors.push(...sandboxErrors(cfg.sandbox));
 
   // GitHub App auth (src/github-auth.js). Under it the identity can't be derived from the token
   // (an installation token is the App's bot), so the tracker's assigneeLogin is required —
@@ -561,6 +570,23 @@ export function validateRawConfig(raw) {
   }
 
   return errors.length ? { ok: false, errors } : { ok: true };
+}
+
+/**
+ * Structural errors in the optional `sandbox` block (src/sandbox/). Pure.
+ * @param {any} sb @returns {string[]}
+ */
+function sandboxErrors(sb) {
+  if (sb == null) return [];
+  if (typeof sb !== "object" || Array.isArray(sb)) return [`config: "sandbox" must be an object ({ "type": "docker" | "podman", … }).`];
+  /** @type {string[]} */
+  const errors = [];
+  if (sb.type == null || sb.type === "") errors.push(`config: "sandbox.type" is required when a sandbox block is set (${SANDBOX_NAMES.join(" or ")}).`);
+  else if (!(/** @type {readonly unknown[]} */ (SANDBOX_NAMES).includes(sb.type))) errors.push(`config: "sandbox.type" ${JSON.stringify(sb.type)} is not a known sandbox (${SANDBOX_NAMES.join(", ")}).`);
+  if (sb.image != null && (typeof sb.image !== "string" || !sb.image.trim())) errors.push(`config: "sandbox.image" must be a non-empty string.`);
+  if (sb.memory != null && (typeof sb.memory !== "string" || !/^\d+[kmg]?$/i.test(sb.memory))) errors.push(`config: "sandbox.memory" must be a size like "4g", "512m" or bytes.`);
+  if (sb.cpus != null && (typeof sb.cpus !== "number" || !Number.isFinite(sb.cpus) || sb.cpus <= 0)) errors.push(`config: "sandbox.cpus" must be a number > 0.`);
+  return errors;
 }
 
 /**

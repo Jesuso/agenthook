@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { timeoutReason } from "./verdict.js";
+import { containerEnv, runtimeEnv } from "./sandbox.js";
 import { agentEnvAllow, buildAgentEnv } from "../agent-env.js";
 
 // How long a timed-out agent gets between SIGTERM and SIGKILL.
@@ -27,8 +28,10 @@ export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }) {
 
 /** @param {import('./context.js').DispatchState} ctx */
 export function createSpawn(ctx) {
-  const { cfg, children, killGraceMs, killTimers, meta, forge } = ctx;
+  const { cfg, children, killGraceMs, killTimers, meta, forge, sandbox, sandboxRuns, cancelled } = ctx;
   /** SIGTERM now, SIGKILL after the grace (cleared when the run ends, so a recycled pid is never hit).
+   * A sandboxed run's pid is the runtime client's, whose SIGKILL would leave the container
+   * running: an operator stop force-stops the container too, right away.
    * @param {string} ref @param {number} pid */
   function killNow(ref, pid) {
     try {
@@ -36,6 +39,7 @@ export function createSpawn(ctx) {
     } catch {
       return false;
     }
+    sandboxRuns.get(ref)?.kill().catch((e) => console.error(`[sandbox] kill failed for ${ref}: ${e.message}`));
     clearTimeout(killTimers.get(ref));
     killTimers.set(
       ref,
@@ -63,10 +67,15 @@ export function createSpawn(ctx) {
    * default bin, else cfg.claudeBin, and the allowlisted env, see agentSpawnEnv); `agentEnv` (the adapter's `env`)
    * sits under the step's, so a step can override it; the verdict-file variable is set last
    * so a step can't override it.
-   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle"}>}
+   * `sandboxed` runs it through the profile's sandbox instead: `wrap()` turns the same argv and
+   * env (minus host-only keys, plus `sandboxed.env`) into a runtime-client spawn with `mounts`;
+   * a `wrap()` rejection fails the run (`refused`) with nothing spawned. The run's sandbox report
+   * comes back as `sandboxReport`.
+   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
+   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>}}} o
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport}>}
    */
-  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
+  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -76,14 +85,47 @@ export function createSpawn(ctx) {
       }
     }
     const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated });
+    const agentBin = bin || agent.defaults.bin || cfg.claudeBin;
+    // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
+    // read it after exit to route the step (advance/hold/changes/fail).
+    const runEnv = { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }), ...(sandboxed?.env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) };
+    /** @type {{bin: string, args: string[], env: Record<string, string>}} */
+    let launch = { bin: agentBin, args, env: runEnv };
+    /** @type {import('../types.js').SandboxRun|undefined} */
+    let box;
+    if (sandboxed && sandbox) {
+      const { ref } = sandboxed;
+      /** Nothing was (or will be) spawned: close the log, drop the prompt file. @param {string} [note] */
+      const unspawned = (note) => {
+        if (note) logStream.write(`[agenthook] ${note}\n`);
+        logStream.end();
+        if (promptFile) fs.rmSync(promptFile, { force: true });
+      };
+      try {
+        box = await sandbox.wrap({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step });
+      } catch (e) {
+        const reason = `sandbox (${sandbox.describe().name}) could not start the run: ${e.message}`;
+        unspawned(reason);
+        return { code: 1, result: null, quota: null, refused: reason };
+      }
+      sandboxRuns.set(ref, box);
+      // A cancel that landed while wrap() was pending: never spawn.
+      if (cancelled.has(ref)) {
+        await box.kill().catch((e) => console.error(`[sandbox] kill failed for ${ref}: ${e.message}`));
+        await box.done().catch(() => {});
+        sandboxRuns.delete(ref);
+        unspawned();
+        return { code: 1, result: null, quota: null };
+      }
+      launch = { bin: box.bin, args: box.args, env: { ...runtimeEnv(process.env), ...box.env } };
+    }
+    const run = box;
     const parser = agent.createParser();
     return new Promise((resolve) => {
-      const child = spawn(bin || agent.defaults.bin || cfg.claudeBin, args, {
+      const child = spawn(launch.bin, launch.args, {
         cwd,
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
-        // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
-        // read it after exit to route the step (advance/hold/changes/fail).
-        env: { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
+        env: launch.env,
       });
       children?.add(child);
       onPid?.(child.pid);
@@ -102,7 +144,10 @@ export function createSpawn(ctx) {
         const minutes = ((kind === "max" ? maxMs : idleMs) ?? 0) / 60000;
         logStream.write(`\n[agenthook] killed: ${timeoutReason(kind, minutes)}\n`);
         child.kill("SIGTERM");
-        killTimer = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
+        killTimer = setTimeout(() => {
+          child.kill("SIGKILL");
+          run?.kill().catch((e) => console.error(`[sandbox] kill failed for ${run.id}: ${e.message}`)); // the client's SIGKILL alone leaves the container running
+        }, killGraceMs);
       };
       if (maxMs) maxTimer = setTimeout(() => expire("max"), Math.min(maxMs, MAX_TIMER_MS));
       let exited = false;
@@ -146,7 +191,7 @@ export function createSpawn(ctx) {
         parser.pushStderr?.(chunk);
         logStream.write(chunk);
       });
-      child.on("close", (c) => {
+      child.on("close", async (c) => {
         clearTimeout(maxTimer);
         clearTimeout(idleTimer);
         clearTimeout(killTimer);
@@ -154,6 +199,19 @@ export function createSpawn(ctx) {
         const tail = parser.flush();
         if (tail) logStream.write(tail);
         children?.delete(child);
+        /** @type {import('../types.js').SandboxReport|undefined} */
+        let sandboxReport;
+        if (run && sandboxed) {
+          // A killed client may have left its container behind: make sure it is gone.
+          try {
+            if (timedOut || cancelled.has(sandboxed.ref)) await run.kill();
+            sandboxReport = await run.done();
+          } catch (e) {
+            console.error(`[sandbox] post-run cleanup failed for ${run.id}: ${e.message}`);
+          }
+          sandboxRuns.delete(sandboxed.ref);
+          for (const note of sandboxReport?.notes ?? []) logStream.write(`[agenthook] ${note}\n`);
+        }
         logStream.end();
         if (promptFile) {
           try {
@@ -162,7 +220,7 @@ export function createSpawn(ctx) {
             /* best effort */
           }
         }
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}) });
       });
     });
   }
@@ -184,6 +242,17 @@ export function createSpawn(ctx) {
     return path.join(dir, `${safeRef}-${stepId}.json`);
   }
 
+  /** A sandboxed run's verdict path: its own dir (`verdicts/run-<ref>-<step>/`, 0700, emptied
+   * first), the only one mounted into its container — mounting `verdicts/` would let one
+   * ticket's agent write another running ticket's verdict. @param {string} stepId @param {string} ref */
+  function sandboxVerdictPathFor(stepId, ref) {
+    const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+    const dir = path.join(cfg.dataDir, "verdicts", `run-${safeRef}-${stepId}`);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return path.join(dir, "verdict.json");
+  }
+
   /** The path an agent whose CLI takes the prompt from a file (`describe().promptFile`,
    * e.g. hermes' `--query-file`) reads it from — one per run, under the state dir;
    * `spawnAgent` removes it once the run exits. @param {string} stepId @param {string} ref */
@@ -197,18 +266,23 @@ export function createSpawn(ctx) {
   /**
    * The agent's pre-spawn check (`agent.preflight`, e.g. an isolated hermes step's home):
    * the reason to fail the run without spawning, written to the run log, else undefined.
-   * A preflight that throws fails the run too — with its message.
+   * A preflight that throws fails the run too — with its message. A sandboxed run of an agent
+   * with no `sandbox` hook is refused first: it never falls back to the host silently.
    * @param {import('../types.js').AgentAdapter} agent @param {import('../types.js').Step} step
    * @param {string|undefined} provider @param {string} logPath
+   * @param {{sandboxed?: boolean, env?: Record<string, string>}} [o]  `env` = the spawn env (agentSpawnEnv)
    * @returns {string|undefined}
    */
-  function agentPreflight(agent, step, provider, logPath) {
-    if (!agent.preflight) return undefined;
+  function agentPreflight(agent, step, provider, logPath, { sandboxed = false, env } = {}) {
     let reason;
-    try {
-      reason = agent.preflight({ cfg, step, provider });
-    } catch (e) {
-      reason = `${agent.describe().name} preflight failed: ${e.message}`;
+    if (sandboxed && !agent.sandbox) {
+      reason = `${agent.describe().name} does not support the sandbox yet — the run is refused rather than run on the host (set "sandbox": false on step "${step.id}" to run it unsandboxed)`;
+    } else if (agent.preflight) {
+      try {
+        reason = agent.preflight({ cfg, step, provider, sandboxed, env });
+      } catch (e) {
+        reason = `${agent.describe().name} preflight failed: ${e.message}`;
+      }
     }
     if (!reason) return undefined;
     try {
@@ -219,7 +293,7 @@ export function createSpawn(ctx) {
     return reason;
   }
 
-  return { killNow, spawnAgent, logPathFor, verdictPathFor, promptFilePathFor, agentPreflight };
+  return { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, agentPreflight };
 }
 
 /** @typedef {ReturnType<typeof createSpawn>} Spawn */

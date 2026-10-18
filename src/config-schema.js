@@ -3,8 +3,10 @@
 // test/config-schema.test.js holds it to src/types.js — a typedef key with no entry here (and no
 // NO_FORM reason) fails CI, so a new key can't silently fall out of the forms.
 // Import-free on purpose: the browser bundles it (like src/identity.js and src/ui/contract.js). Its
-// one import, src/agents/names.js, is itself import-free (the agent registry is Node-side).
+// imports, src/agents/names.js and src/sandbox/names.js, are themselves import-free (the
+// registries are Node-side).
 import { AGENT_NAMES, DEFAULT_AGENT } from "./agents/names.js";
+import { SANDBOX_NAMES } from "./sandbox/names.js";
 
 /** Step prompt shapes (`Step.kind`). */
 export const STEP_KINDS = /** @type {const} */ (["implement", "change", "review", "triage"]);
@@ -65,6 +67,11 @@ export const CONFIG_SCHEMA = [
   entry("ui", "object", "Appearance", "basics", "The profile's colour and emoji in the web UI; unset values derive from the state key."),
   entry("ui.color", "string", "Colour", "basics", "A palette colour for the profile's Home card and app-bar chip; automatic when unset."),
   entry("ui.emoji", "string", "Emoji", "basics", "An emoji from the curated list for the profile; automatic when unset."),
+  entry("sandbox", "object", "Sandbox", "basics", "Run each agent in its own container with only its worktree mounted (docker or podman).", { advanced: true, editor: "pending" }),
+  entry("sandbox.type", "enum", "Sandbox backend", "basics", "Container runtime for per-run sandboxes.", { options: SANDBOX_NAMES, sensitive: true, advanced: true, editor: "pending" }),
+  entry("sandbox.image", "string", "Sandbox image", "basics", "Agent image; must provide sh, git, gh and the agent CLI. Default agenthook-agent:<version>.", { sensitive: true, advanced: true, editor: "pending" }),
+  entry("sandbox.memory", "string", "Sandbox memory", "basics", "Per-run container memory cap, e.g. 4g.", { advanced: true, editor: "pending" }),
+  entry("sandbox.cpus", "number", "Sandbox CPUs", "basics", "Per-run container CPU cap.", { min: 0.1, advanced: true, editor: "pending" }),
 
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),
@@ -121,6 +128,7 @@ export const CONFIG_SCHEMA = [
   step("isolated", "boolean", "Isolated", "Hermes: own HERMES_HOME (only config.yaml copied), no user rules; local providers only. Others ignore it.", { advanced: true, default: true }),
   step("energy", "boolean", "Measure energy", "Record this step's runs' electricity (kWh + $) from the profile's energy source.", { advanced: true }),
   step("toolsets", "string-list", "Toolsets", "Hermes -t: the toolsets this step's agent may use; other agents ignore it.", { advanced: true, placeholder: "terminal, file" }),
+  step("sandbox", "boolean", "Sandboxed", "false runs this step on the host even when the profile has a sandbox.", { sensitive: true, advanced: true }),
   step("env", "record", "Agent env", "Extra environment for this step's agent only; put secret values in ${VAR} refs.", { advanced: true, sensitive: true }),
   step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
   step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),

@@ -8,6 +8,9 @@ import { moveStateDir } from "../state-move.js";
 import { archiveStateDir } from "../archive.js";
 import { crashRecord } from "./recovery.js";
 
+/** How long a forced or fatal exit waits on the sandbox reap before exiting anyway. */
+const REAP_WAIT_MS = 3000;
+
 /**
  * Delete the tracker's and the forge's webhooks, each side best-effort in its own try/catch.
  * Never throws.
@@ -130,11 +133,32 @@ export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
  *   children: Set<import('node:child_process').ChildProcess>,
  *   store: import('../types.js').Store,
  *   quotaPacer: {stop(): void},
+ *   sandbox?: import('../types.js').Sandbox | null,
  *   isRestartPending: () => boolean,
  *   isDecommissionPending: () => boolean,
  * }} deps
  */
-export function createExits({ cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, isRestartPending, isDecommissionPending }) {
+export function createExits({ cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox, isRestartPending, isDecommissionPending }) {
+  /** SIGTERM every live agent; a sandboxed one's pid is its runtime client, so then also remove
+   * its container (bounded to REAP_WAIT_MS — an exit must not hang on the runtime). */
+  async function killChildren() {
+    for (const child of children) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+    if (!sandbox) return;
+    /** @type {NodeJS.Timeout|undefined} */
+    let timer;
+    await Promise.race([
+      sandbox.reap().catch((e) => console.error(`[shutdown] sandbox reap failed: ${e.message}`)),
+      new Promise((r) => (timer = setTimeout(r, REAP_WAIT_MS))),
+    ]);
+    clearTimeout(timer);
+  }
+
   /** Final teardown shared by graceful + forced exit. */
   function teardown() {
     quotaPacer.stop();
@@ -157,15 +181,9 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
   }
 
   /** Force path: kill in-flight agents and exit now (second signal, or no children). @param {string} reason */
-  function forceExit(reason) {
+  async function forceExit(reason) {
     console.log(`[shutdown] ${reason} — killing ${children.size} agent(s)`);
-    for (const child of children) {
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* already gone */
-      }
-    }
+    await killChildren();
     teardown();
   }
 
@@ -183,7 +201,7 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
     }
     if (!archive) state.archiveOnExit = false;
     if (state.draining) {
-      forceExit(`${signal || "signal"} during drain`);
+      await forceExit(`${signal || "signal"} during drain`);
       return;
     }
     state.draining = true;
@@ -237,7 +255,7 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
    * @param {string} kind
    * @param {unknown} err
    */
-  function onFatal(kind, err) {
+  async function onFatal(kind, err) {
     const e = err instanceof Error ? err : new Error(String(err));
     console.error(`[fatal] ${kind}: ${e.stack}`);
     try {
@@ -248,13 +266,7 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
     } catch (writeErr) {
       console.error(`[fatal] crash.json write failed (continuing): ${/** @type {Error} */ (writeErr).message}`);
     }
-    for (const child of children) {
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* already gone */
-      }
-    }
+    await killChildren();
     try {
       fs.rmSync(cfg.pidFile, { force: true });
     } catch {

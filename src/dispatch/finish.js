@@ -9,6 +9,9 @@ import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason } from "./verdict.js";
 
+/** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
+export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
+
 /**
  * runStep's locals the post-exit phase reads, handed over as one object.
  * @typedef {object} StepRun
@@ -30,6 +33,8 @@ import { timeoutReason } from "./verdict.js";
  * @property {any} result
  * @property {import('../quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
+ * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
+ * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -39,7 +44,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut } = run;
+    const { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -89,6 +94,18 @@ export function createFinish(ctx) {
     if (energyRec) Object.assign(usage, energyRec);
     if (store && result) store.recordUsage(usage);
 
+    // A sandboxed agent owns its verdict dir, and the host reads the file synchronously: only a
+    // small regular file is read. A symlink would route on a file outside the dir, a FIFO would
+    // block the event loop on open (the whole receiver), a huge file would be slurped — each is
+    // removed and treated as no verdict.
+    if (sandboxed) {
+      try {
+        const st = fs.lstatSync(verdictFile);
+        if (!st.isFile() || st.size > MAX_SANDBOX_VERDICT_BYTES) fs.rmSync(verdictFile, { force: true });
+      } catch {
+        /* no verdict written */
+      }
+    }
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
     /** @type {import('../types.js').Verdict} */
@@ -100,7 +117,7 @@ export function createFinish(ctx) {
       ? { outcome: "fail", reason: timeoutReason(timedOut, timedOut === "max" ? maxMinutes : (step.idleMinutes ?? 0)) }
       : readVerdict(code, verdictFile, step, agent);
     try {
-      fs.rmSync(verdictFile, { force: true });
+      fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
     } catch {
       /* best effort */
     }
@@ -116,6 +133,7 @@ export function createFinish(ctx) {
       ...(usage.estUsd !== undefined ? { estUsd: usage.estUsd } : {}),
       ...(energyRec ?? {}),
       ...tokens,
+      ...(sandboxReport?.extra ?? {}),
     });
     if (verdict.outcome === "hold") {
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the

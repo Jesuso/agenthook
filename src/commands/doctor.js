@@ -9,7 +9,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { portInUse } from "../port.js";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { loadConfig, ensurePrivateDir } from "../config.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo } from "../repos.js";
@@ -21,6 +21,10 @@ import { agentFor } from "../agents/index.js";
 import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
 import { uiBundleState } from "../ui-bundle.js";
 import { isAppAuth, normalizePem, createGithubAuth } from "../github-auth.js";
+import { isSandboxed } from "../sandbox/names.js";
+import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
+import { sandboxCredentialProblem } from "../agents/claude.js";
+import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV } from "../trackers/index.js";
 import { FORGE_AGENT_ENV } from "../forges/index.js";
@@ -28,22 +32,33 @@ import { FORGE_AGENT_ENV } from "../forges/index.js";
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
 
+/** One CLI call for the sandbox checks: a non-zero exit resolves, a spawn failure rejects.
+ * @type {import('../types.js').IngressRun} */
+const execRun = (bin, args, { timeoutMs }) =>
+  new Promise((resolve, reject) => {
+    execFile(bin, args, { timeout: timeoutMs, encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== "number") return reject(err);
+      resolve({ code: err ? Number(err.code) : 0, stdout, stderr });
+    });
+  });
+
 /** @param {string} bin */
 function onPath(bin) {
   const r = spawnSync(process.platform === "win32" ? "where" : "which", [bin], { encoding: "utf8" });
   return r.status === 0;
 }
 
-/** The distinct agent binaries the pipeline spawns, resolved exactly like dispatch
+/** The distinct agent binaries the pipeline spawns ON THE HOST, resolved exactly like dispatch
  * (`step.bin || agent.defaults.bin || cfg.claudeBin`) for every non-manual step, each with
- * its agent and the step ids that use it — doctor checks each is on PATH. Pure.
- * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'pipeline'>} cfg
+ * its agent and the step ids that use it — doctor checks each is on PATH. A sandboxed step's
+ * binary resolves inside the image instead (sandboxChecks). Pure.
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'pipeline'|'sandbox'>} cfg
  * @returns {{ bin: string, agent: string, steps: string[] }[]} */
 export function agentBinChecks(cfg) {
   /** @type {Map<string, { bin: string, agent: string, steps: string[] }>} */
   const byKey = new Map();
   for (const s of cfg.pipeline ?? []) {
-    if (s.manual) continue;
+    if (s.manual || isSandboxed(cfg, s)) continue;
     const agent = agentFor(cfg, s);
     const bin = s.bin || agent.defaults.bin || cfg.claudeBin;
     const name = agent.describe().name;
@@ -309,6 +324,74 @@ export function ingressChecks(ingress, has = onPath) {
     return checks;
   }
   return [{ ok: !!ingress.url, label: `ingress.url set (${ingress.type})`, note: ingress.url || "missing", manual: "set ingress.url in the config" }];
+}
+
+/** The default image builder: `<bin> build -t <image> -` with the Dockerfile on stdin.
+ * @param {string} bin @param {string[]} args @param {string} dockerfile */
+const buildImage = (bin, args, dockerfile) => spawnSync(bin, args, { input: dockerfile, stdio: ["pipe", "inherit", "inherit"] });
+
+/**
+ * The per-run sandbox preflight (only with a `sandbox` block): the runtime CLI on PATH and
+ * reachable, the image present (fix: build the default recipe), and per sandboxed step an
+ * agent that supports the sandbox, claude's credential var, and a binary that resolves
+ * inside the image.
+ * @param {import('../types.js').Config} cfg
+ * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }}} io
+ * @returns {Promise<Check[]>}
+ */
+export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage }) {
+  if (!cfg.sandbox) return [];
+  const runtime = cfg.sandbox.type;
+  const env = runtime.toUpperCase();
+  const bin = process.env[env] || runtime;
+  const image = cfg.sandbox.image || DEFAULT_IMAGE;
+  /** @type {Check[]} */
+  const out = [];
+  if (!has(bin)) {
+    out.push({ ok: false, label: `sandbox: ${runtime} binary on PATH`, note: bin, fix: { manual: `install ${runtime} or put it on PATH (or set $${env})` } });
+    return out;
+  }
+  out.push({ ok: true, label: `sandbox: ${runtime} binary on PATH`, note: bin });
+  const info = await run(bin, ["info"], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+  const rootNote = runtime === "docker" ? "docker group membership is root-equivalent; prefer rootless podman" : "";
+  if (info.code !== 0) {
+    out.push({ ok: false, label: `sandbox: \`${bin} info\` succeeds`, note: (info.stderr || info.stdout).trim().split("\n")[0], fix: { manual: `start the ${runtime} daemon/socket, or give this user access to it` } });
+    return out;
+  }
+  out.push({ ok: true, label: `sandbox: \`${bin} info\` succeeds`, note: rootNote });
+  const img = await run(bin, ["image", "inspect", image], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+  out.push({
+    ok: img.code === 0,
+    label: `sandbox image present: ${image}`,
+    note: img.code === 0 ? "" : "missing",
+    fix: image === DEFAULT_IMAGE
+      ? {
+          describe: `build ${image}`,
+          apply: () => {
+            const r = build(bin, buildImageArgs(runtime, image), AGENT_DOCKERFILE);
+            if (r.status !== 0) throw new Error(`\`${bin} build\` exited ${r.status}`);
+          },
+        }
+      : { manual: `build ${image} (FROM ${DEFAULT_IMAGE}, with sh, git, gh and the agent CLI on PATH) — see docs/sandbox.md` },
+  });
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || !isSandboxed(cfg, s)) continue;
+    const agent = agentFor(cfg, s);
+    const name = agent.describe().name;
+    if (!agent.sandbox) {
+      out.push({ ok: false, label: `step "${s.id}" (${name}) can run sandboxed`, note: `${name} does not support the sandbox yet — its runs are refused`, fix: { manual: `set "sandbox": false on step "${s.id}" to run it on the host, or use the claude agent` } });
+      continue;
+    }
+    if (name === "claude") {
+      const problem = sandboxCredentialProblem(agentSpawnEnv({ cfg, agent, agentEnv: agent.env?.({ cfg, step: s }), env: s.env }));
+      out.push({ ok: !problem, label: `step "${s.id}" has a claude credential for the sandbox`, note: problem ? "no CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY / …" : "", fix: { manual: problem ?? "" } });
+    }
+    const stepBin = s.bin || agent.defaults.bin || cfg.claudeBin;
+    if (path.isAbsolute(stepBin)) {
+      out.push({ ok: true, warn: true, label: `step "${s.id}" agent binary is a host path: ${stepBin}`, note: "a sandboxed run resolves it inside the image — likely exit 127; use a name on the image's PATH" });
+    }
+  }
+  return out;
 }
 
 /** Whether a busy port is this profile's own receiver (info, not a problem) or a real
@@ -578,6 +661,8 @@ export function tokenVar(configPath) {
  *   uiBundle?: () => {state: 'no-src'|'missing'|'stale'|'fresh', newest?: string},
  *   platform?: string,
  *   fetch?: typeof fetch,
+ *   run?: import('../types.js').IngressRun,
+ *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null },
  *   env?: Record<string, string|undefined>,
  * }} DoctorIo */
 
@@ -594,6 +679,8 @@ export async function runChecks(cfg, io = {}) {
     uiBundle = () => uiBundleState({ srcDir: UI_SRC_DIR, distDir: UI_DIST_DIR }),
     platform = process.platform,
     fetch: f,
+    run = execRun,
+    build,
     env = process.env,
   } = io;
   /** @type {Check[]} */
@@ -666,6 +753,7 @@ export async function runChecks(cfg, io = {}) {
   for (const l of hermesLints(cfg, { sourceHome: hermesSourceHome(), readFile })) warn(l.label, l.note);
 
   for (const c of ingressChecks(cfg.ingress, have)) add(c.ok, c.label, c.note, { manual: c.manual });
+  checks.push(...(await sandboxChecks(cfg, { run, has: have, build })));
 
   const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });

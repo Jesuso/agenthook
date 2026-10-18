@@ -27,10 +27,10 @@ export { descriptionHasHeadings, resolveModelEffort, promptPathFor } from "./pro
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
  * @param {import('../types.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
- * @param {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../quota.js').QuotaReading) => void}} [opts]
+ * @param {import('./context.js').DispatchOpts} [opts]
  *   test hooks: SIGTERM→SIGKILL grace for a timed-out agent, the post-exit usage-export bound, the energy sampler;
  *   onQuota: the subscription-quota reading a run's agent reported (claude only), stamped with `asOf` — the engine
- *   persists it and feeds the pacer
+ *   persists it and feeds the pacer; sandbox: the profile's sandbox (src/sandbox/; unset = every run on the host)
  */
 export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, opts = {}) {
   const killGraceMs = opts.killGraceMs ?? KILL_GRACE_MS;
@@ -56,9 +56,12 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   const preSpawn = new Set();
   /** @type {Map<string, NodeJS.Timeout>} */
   const killTimers = new Map();
+  const sandbox = opts.sandbox ?? null;
+  /** @type {Map<string, import('../types.js').SandboxRun>} */
+  const sandboxRuns = new Map();
 
   /** @type {import('./context.js').DispatchState} */
-  const state = { cfg, adapter, children, store, emit, forge, releaseOverlap, opts, meta, energySampler, killGraceMs, finalizeTimeoutMs, busy, pids, cancelled, preSpawn, killTimers };
+  const state = { cfg, adapter, children, store, emit, forge, releaseOverlap, opts, meta, energySampler, killGraceMs, finalizeTimeoutMs, busy, pids, cancelled, preSpawn, killTimers, sandbox, sandboxRuns };
   const base = { ...state, ...createRouting(state), ...createSpawn(state), ...createUsage(state), ...createVerdictOps(state) };
   const { runMerge } = createMerge(base);
   const { bounceCi, runCi } = createCi(base);

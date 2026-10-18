@@ -23,7 +23,10 @@
   `usageRecord(result|null, ctx)` (decides `unpriced`), `sessions`
   (`{transcriptDir, resumeCommand, files, cwdDirs}` or null — backs `follow`/`resume`/`sessions.js`, which union every agent the profile + its steps run; a null-`sessions` agent with an optional top-level `resumeCommand` — opencode — is resumed from `usage.jsonl` session ids instead), `defaults`
   (`requireVerdict`/`bin`, under the step's), optional `env({cfg,step})` (agent env under the step's `env`, also in `resume`), optional `envPassthrough` (receiver env names the CLI needs, added to the allowlist)
-  and `preflight({cfg,step,provider})` (a reason fails the run with no spawn). Hermes steps are `isolated` by default
+  and `preflight({cfg,step,provider,sandboxed,env})` (a reason fails the run with no spawn; on a sandboxed step
+  `agentPreflight` first refuses an agent with no `sandbox` hook), optional `sandbox({cfg,step,cwd,ownsCwd,home}) → {mounts, env?}`
+  (claude: its transcript dir mounted under the container HOME — for a no-worktree run (`ownsCwd` false) a receiver-owned
+  `<stateDir>/sandbox-transcripts/<mangle>`, never the operator's `~/.claude/projects/<mangle(repo)>`, and `follow` searches it; see [adapters.md](adapters.md) for the sandbox axis). Hermes steps are `isolated` by default
   (`hermes-home.js`: own `HERMES_HOME` at `<stateDir>/hermes-home`, only `config.yaml` copied, local providers only). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →
   `cfg.agent` → `claude`); `names.js` = the import-free `AGENT_NAMES` the config schema + validation use.
 
