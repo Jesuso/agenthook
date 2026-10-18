@@ -154,7 +154,9 @@ Dependency policy:
 - The core keeps **zero runtime deps**. UI libraries are `devDependencies` only, shipped as a
   prebuilt bundle (`ui/dist`, in npm `files`).
 - `ui/dist` is **not committed**; it is built in CI and in `prepublishOnly`. In a dev checkout,
-  `ah ui` with no bundle exits with "run `npm run build:ui`".
+  `ah ui` with no bundle exits with "run `npm run build:ui`". A bundle older than `ui/src` (a
+  `git pull` that touched the frontend with no rebuild) is not fatal: `ah ui` warns and still
+  serves the stale bundle; `ah doctor` warns (⚠, not a failure).
 - Licenses restricted to MIT / Apache-2.0 / BSD / ISC, enforced in CI.
 
 ## Phases
