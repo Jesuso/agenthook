@@ -71,7 +71,7 @@ optional third: the engine names neither the *tracker* (where work comes from) n
 (how it's reachable), nor the optional *forge* (what happened to the code — e.g. a PR merged).
 Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for the full design.
 
-Request flow (`src/engine.js`):
+Request flow (`src/engine/http.js` → `src/engine/index.js` `intake`):
 `POST` → `adapter.authenticate(ctx)` (sync, no network — must let the engine ACK in <10s) →
 either reply to a handshake, `401` a bad signature, or **ACK 200 immediately** and then run
 `adapter.processEvents(ctx)` off the response path → `intake()` dedups via the `seen` store →
@@ -80,13 +80,18 @@ verdict file and `adapter.advance` moves the task to the section that verdict ma
 success = the next step's trigger; fail → failure; hold → hold lane; changes → the target step's
 source = the rework loop).
 
-Boot flow (`engine.serve()`, server owns the ingress lifecycle):
-`ingress.up(port)` → if `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub
-dead-URL hooks) → `adapter.registerWebhook(url)` → listen + write pidfile + heartbeat →
-`forge?` (ephemeral → `forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort,
-never aborts boot) → `recoverInterrupted()` (resolve `running.json` survivors as failures — **local
-only, no board poll**) → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots;
-**only** reads a step's opt-in queue stage, a no-op without one) → on exit `ingress.down()`.
+Boot flow (`engine.serve()` = `src/engine/boot.js`, server owns the ingress lifecycle):
+persisted quota reading → `ingress.up(port)` → write `publicUrl` → **listen → `startControl` → write
+pidfile** (listen precedes any register: a new hook POSTs a handshake at once — Asana needs it echoed;
+`startControl`'s owner check reads the old pidfile, so it precedes the write) → if
+`ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub dead-URL hooks) →
+`adapter.ensureLabels?()` → `adapter.registerWebhook(url)` → `forge?` (ephemeral →
+`forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort, never aborts boot) →
+`recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
+→ `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots; **only** reads a step's
+opt-in queue stage, a no-op without one) → one `runReconcile` (only with `--reconcile-on-boot`, a
+restart's respawn) → SIGINT/SIGTERM handlers. A boot failure after `ingress.up` downs the ingress and
+closes control; on exit `ingress.down()`.
 
 Key files:
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
@@ -97,8 +102,15 @@ Key files:
   step by correlating the session's first-message time to the nearest run-log start). Backs `resume`.
   Note: a ref's transcripts live under `mangle(worktreePath(cfg, ref))` (agent cwd = worktree), **not**
   the repo mangle `follow` uses; a ref has one session per step run (code, review, …).
-- `src/engine.js` — the receiver. Fast-ACK-then-async is deliberate (providers retry a slow 2xx);
-  also owns local crash recovery (`running.json`, no board poll), heartbeat, and graceful shutdown.
+- `src/engine.js` — a one-line re-export shim (the public path every importer uses) over
+  `src/engine/`, the receiver: `index.js` = `createEngine`, the composition root (`claimStateDir`
+  first, wiring, the `intake()` closure, fatal `process.on` handlers at construction); `http.js` the
+  request handler (fast-ACK-then-async is deliberate — providers retry a slow 2xx); `boot.js`
+  `serve()`; `teardown.js` `shutdown`/`forceExit`/`teardown`/`onFatal` + `finishTeardown` (the
+  once-only respawn/archive tail); `controllers.js` the restart/decommission requesters + quota
+  pacer; `recovery.js` local crash recovery (`running.json`, no board poll) + overlap releaser;
+  `intake.js` the push sink; `context.js` types-only `EngineState` (the shared mutable flags,
+  `control`, `server`).
 - `src/trackers/*.js` + `index.js` — tracker adapters. `asana.js`'s header is the **reference
   doc-comment for the adapter interface**; read it before adding one. Register in `index.js`'s
   `TRACKERS` (keyed by `cfg.tracker.type`). Interface: `describe`, `authenticate`, `processEvents`,
