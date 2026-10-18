@@ -152,6 +152,9 @@ Extra step fields you'll want to know:
   file holds the task (instead of today's default `advance`), so a weaker/local `bin` that exits 0
   without doing the work doesn't get silently pushed to the next step. Suggested on a step whose
   `bin` is a weak/local model. Not valid on a `manual` step.
+- `sandbox` — `false` runs this step on the host even when the profile has a top-level `sandbox`
+  block (needed for a `cursor`/`hermes`/`opencode` step, which the sandbox refuses). Not valid on a
+  `manual` step. See [Sandboxed runs](sandbox.md#per-run-sandbox-010).
 - `lite` — `{ "descriptionHeadings": ["Technical Notes", "Acceptance Criteria"], "model"?, "effort"? }`,
   intended for `triage`. When **every** heading starts a line of the ticket description (case-insensitive;
   leading `#`, `h2.`, `*`, `_`, `>` markers ignored), the step's base model/effort is replaced by

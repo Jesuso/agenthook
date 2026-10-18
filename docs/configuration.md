@@ -72,6 +72,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
 | `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), `github-projects` (Projects v2 board columns), or `linear` (a team's workflow states — see [linear-setup.md](linear-setup.md)); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). |
 | `ingress` | `{ type, … }` — `ngrok` / `cloudflared` / `tailscale` / `hosted`; type-specific options. |
+| `sandbox` | Optional per-run container: `{ "type": "docker" \| "podman", "image"?, "memory"?, "cpus"? }`. Each agent run gets its own container with only its worktree mounted; boot is refused when the runtime or image is missing. A step sets `"sandbox": false` to run on the host. Only `claude` steps are supported. See [Sandboxed runs](sandbox.md#per-run-sandbox-010). |
 
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.

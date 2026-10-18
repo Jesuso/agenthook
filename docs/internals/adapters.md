@@ -1,8 +1,9 @@
 # Adapter interfaces, pipeline, worktree, multi-repo routing
 
-The whole point is the **blind engine + swappable adapters** split, now on **two axes** plus an
-optional third: the engine names neither the *tracker* (where work comes from) nor the *ingress*
-(how it's reachable), nor the optional *forge* (what happened to the code — e.g. a PR merged).
+The whole point is the **blind engine + swappable adapters** split, now on **two axes** plus
+optional ones: the engine names neither the *tracker* (where work comes from) nor the *ingress*
+(how it's reachable), nor the optional *forge* (what happened to the code — e.g. a PR merged), nor
+the optional *sandbox* (where an agent run executes — a per-run container).
 Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for the full design.
 
 ## Key files
@@ -25,6 +26,19 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   /<stateKey>` calls, no child; Tailscale strips the mount before proxying, so only `publicUrl`
   carries the path — and `manual`/`hosted` static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
+- `src/sandbox/*.js` + `index.js` — optional sandbox adapters (`docker`, `podman`, both
+  `container.js`). Registry `SANDBOXES` keyed by `cfg.sandbox.type`; no `sandbox` block →
+  `createSandbox` returns null and runs spawn on the host. Interface: `describe() → {name, home}`,
+  `check() → {ok, reason?}` (runtime + image present; boot refuses on `!ok`), `wrap({runId, ref,
+  stepId, bin, args, env, cwd, mounts, step}) → {bin, args, env, id, kill, done}` (the argv that
+  runs the agent in a fresh container; env passed by name only), `reap() → names[]` (remove every
+  container labelled with this profile's `stateKey`). `names.js` `isSandboxed(cfg, step)` — a step's
+  `sandbox: false` opts out. `src/dispatch/sandbox.js` holds the engine-blind run plumbing: the
+  mount list (worktree, common git dir with `config`/`hooks` read-only, per-run verdict dir, the
+  agent's own mounts from `AgentAdapter.sandbox()`), the container/runtime env split, and the git
+  `insteadOf` + credential-helper env for HTTPS push. Host git calls on a sandboxed profile go
+  through `worktree.js` `gitArgv` (`HOST_GIT_SAFE`: no hooks, no fsmonitor). An agent without a
+  `sandbox()` hook is refused on a sandboxed step (`agentPreflight`).
 - `src/forges/*.js` + `index.js` — optional forge adapters (`github`, `gitlab`). Registry `FORGES` keyed by
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
   `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The

@@ -2,7 +2,7 @@
 # Everything the receiver and its `claude -p` agents touch lives inside here; the
 # host exposes only the repo (mounted at /work/repo) and a few env-supplied tokens.
 # See docs/sandbox.md.
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 # git is required (worktrees, branches, PRs); ca-certificates + curl for API calls
 # and the optional ngrok install. Keep the layer small.
