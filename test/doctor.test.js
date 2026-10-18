@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -653,4 +653,75 @@ test("runChecks under App auth: the App checks replace the token check, for the 
     const c = checks.find((x) => x.label.startsWith(l));
     assert.ok(c?.ok, `${l}: ${JSON.stringify(c)}`);
   }
+});
+
+// --- sandboxChecks (a profile `sandbox` block) ---
+
+/** @param {any} [over] */
+const sbCfg = (over = {}) =>
+  /** @type {any} */ ({
+    claudeBin: "claude",
+    sandbox: { type: "docker" },
+    pipeline: [{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "done", manual: true }],
+    ...over,
+  });
+/** @param {Record<string, number>} codes  "arg0" or "arg0 arg1" → exit code */
+const sbRun = (codes = {}) => /** @type {import('../src/types.js').IngressRun} */ (async (_bin, args) => ({ code: codes[args.slice(0, 2).join(" ")] ?? codes[args[0]] ?? 0, stdout: "", stderr: "boom" }));
+
+test("sandboxChecks: no sandbox block → no checks", async () => {
+  assert.deepEqual(await sandboxChecks(sbCfg({ sandbox: undefined }), { run: sbRun(), has: () => true }), []);
+});
+
+test("sandboxChecks: a missing default image is ✗ with an apply fix that builds it from stdin", async () => {
+  /** @type {any[]} */
+  const builds = [];
+  const checks = await sandboxChecks(sbCfg(), { run: sbRun({ "image inspect": 1 }), has: () => true, build: (bin, args, df) => (builds.push([bin, args, df]), { status: 0 }) });
+  const img = checks.find((c) => c.label.startsWith("sandbox image present"));
+  assert.equal(img?.ok, false);
+  assert.ok(img?.fix && "apply" in img.fix);
+  await /** @type {any} */ (img.fix).apply();
+  assert.equal(builds[0][0], "docker");
+  assert.deepEqual(builds[0][1].slice(0, 2), ["build", "-t"]);
+  assert.match(builds[0][2], /^FROM node:22/);
+  assert.match(checks.find((c) => c.label.includes("info"))?.note ?? "", /root-equivalent; prefer rootless podman/);
+  const lines = await applyFixes(checks, { log: () => {} });
+  assert.ok(lines.some((l) => l.startsWith("fixed: sandbox image present")));
+});
+
+test("sandboxChecks: runtime missing or down stops there", async () => {
+  const off = await sandboxChecks(sbCfg(), { run: sbRun(), has: () => false });
+  assert.equal(off.length, 1);
+  assert.equal(off[0].ok, false);
+  const down = await sandboxChecks(sbCfg(), { run: sbRun({ info: 1 }), has: () => true });
+  assert.deepEqual(down.map((c) => c.ok), [true, false]);
+});
+
+test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step ✗, an absolute claudeBin ⚠, sandbox:false skipped", async () => {
+  const saved = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  try {
+    const checks = await sandboxChecks(
+      sbCfg({
+        claudeBin: "/usr/local/bin/claude",
+        pipeline: [{ id: "triage", agent: "hermes" }, { id: "code" }, { id: "host", agent: "cursor", sandbox: false }, { id: "done", manual: true }],
+      }),
+      { run: sbRun(), has: () => true },
+    );
+    const by = (/** @type {string} */ s) => checks.filter((c) => c.label.includes(s));
+    assert.equal(by('step "triage"')[0].ok, false);
+    assert.match(by('step "triage"')[0].note ?? "", /hermes does not support the sandbox yet/);
+    const cred = by('step "code" has a claude credential')[0];
+    assert.equal(cred.ok, false);
+    assert.match(/** @type {any} */ (cred.fix).manual, /claude setup-token/);
+    const abs = by('step "code" agent binary is a host path')[0];
+    assert.equal(abs.warn, true);
+    assert.equal(by('step "host"').length, 0, "an opted-out step is not sandbox-checked");
+  } finally {
+    if (saved !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = saved;
+  }
+});
+
+test("agentBinChecks: a sandboxed step's binary resolves in the image, not on the host PATH", () => {
+  const groups = agentBinChecks(/** @type {any} */ ({ claudeBin: "claude", sandbox: { type: "docker" }, pipeline: [{ id: "code" }, { id: "host", sandbox: false, bin: "claude-local" }] }));
+  assert.deepEqual(groups, [{ bin: "claude-local", agent: "claude", steps: ["host"] }]);
 });

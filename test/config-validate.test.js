@@ -374,3 +374,22 @@ test("literalSecrets flags a literal PEM in tracker.auth.privateKey / forge.auth
   assert.deepEqual(literalSecrets(cfg), ["tracker.auth.privateKey", "forge.auth.privateKey"]);
   assert.deepEqual(literalSecrets(raw({ tracker: { type: "github", assigneeLogin: "alice", auth: APP, pipeline: [{ id: "code" }] } })), []);
 });
+
+test("sandbox: a valid block passes; type required and known; image/memory/cpus checked; step sandbox boolean and agent-only", () => {
+  const ok = (/** @type {any} */ c) => validateRawConfig(c);
+  assert.equal(ok(raw({ sandbox: { type: "podman", image: "mine:1", memory: "4g", cpus: 1.5 } }, [{ id: "code", sandbox: false }, { id: "done", manual: true }])).ok, true);
+  /** @param {any} c */
+  const errs = (c) => {
+    const v = validateRawConfig(c);
+    return v.ok ? [] : v.errors;
+  };
+  assert.deepEqual(errs(raw({ sandbox: { type: "lxc" } })), [`config: "sandbox.type" "lxc" is not a known sandbox (docker, podman).`]);
+  assert.deepEqual(errs(raw({ sandbox: {} })), [`config: "sandbox.type" is required when a sandbox block is set (docker or podman).`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker", cpus: 0 } })), [`config: "sandbox.cpus" must be a number > 0.`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker", memory: "lots" } })), [`config: "sandbox.memory" must be a size like "4g", "512m" or bytes.`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker", image: " " } })), [`config: "sandbox.image" must be a non-empty string.`]);
+  assert.deepEqual(errs(raw({ sandbox: "docker" })), [`config: "sandbox" must be an object ({ "type": "docker" | "podman", … }).`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker" } }, [{ id: "code" }, { id: "done", manual: true, sandbox: false }])), [`config: pipeline step "done" sandbox has no effect on a manual step (no agent runs).`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", sandbox: "no" }])), [`config: pipeline step "code" sandbox must be true or false.`]);
+  assert.equal(loadError(raw({ sandbox: { type: "lxc" } })), `config: "sandbox.type" "lxc" is not a known sandbox (docker, podman).`);
+});
