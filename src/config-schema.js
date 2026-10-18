@@ -152,11 +152,13 @@ export const CONFIG_SCHEMA = [
 
   // Ingress
   entry("ingress", "object", "Ingress", "ingress", "How webhooks reach this receiver from the internet."),
-  entry("ingress.type", "enum", "Ingress type", "ingress", "ngrok opens a tunnel per start; manual / hosted use a static URL you provide.", { options: ["ngrok", "manual", "hosted"] }),
+  entry("ingress.type", "enum", "Ingress type", "ingress", "ngrok / cloudflared open a tunnel per start; manual / hosted use a static URL you provide.", { options: ["ngrok", "cloudflared", "manual", "hosted"] }),
   entry("ingress.url", "string", "Public URL", "ingress", "Static public HTTPS base URL (manual / hosted ingress)."),
   entry("ingress.authtoken", "string", "ngrok authtoken", "ingress", "ngrok authtoken; use a ${VAR} reference, not a literal.", { sensitive: true }),
   entry("ingress.domain", "string", "ngrok domain", "ingress", "A reserved ngrok domain; keeps the public URL stable across restarts."),
   entry("ingress.webAddr", "string", "ngrok web address", "ingress", "ngrok's local web-API address; give each profile its own when tunnels run in parallel.", { default: "127.0.0.1:4040", advanced: true }),
+  entry("ingress.tunnel", "string", "cloudflared tunnel", "ingress", "cloudflared named tunnel name or UUID; blank = quick tunnel."),
+  entry("ingress.hostname", "string", "cloudflared hostname", "ingress", "Public hostname routed to the named tunnel."),
 
   // Forge
   entry("forge", "object", "Forge", "forge", "Optional: where the code lives, so merged PRs and red CI move tasks."),
