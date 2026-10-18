@@ -4,15 +4,17 @@ Where agenthook is going, and why in this order. This is a plan, not a promise: 
 and each milestone's scope may move as real users tell us what hurts. Detailed work lives in GitHub
 issues under one epic per milestone.
 
-## Where we are (0.7.0)
+## Where we are (0.9)
 
 agenthook turns a task board into a pipeline of coding agents: a ticket entering a stage fires a
 webhook, the receiver spawns an agent in a per-ticket git worktree, and the agent's verdict moves the
-ticket on. As of 0.7.0 it ships:
+ticket on. As of 0.9 it ships:
 
-- **Trackers:** Asana, Jira, GitHub Issues (labels), GitHub Projects v2, and an offline `local` board.
+- **Trackers:** Asana, Jira, GitHub Issues (labels), GitHub Projects v2, Linear, and an offline
+  `local` board.
 - **Agents:** Claude Code (reference), Cursor, OpenCode, Hermes (experimental).
-- **Forge and ingress:** GitHub (merged PRs, red CI); ngrok or any static HTTPS endpoint.
+- **Forge and ingress:** GitHub or GitLab (merged PRs/MRs, red CI), with optional GitHub App auth;
+  ngrok, cloudflared, Tailscale Funnel or any static HTTPS endpoint.
 - **Operator surface:** CLI, local web UI (overview, stats, logs, epics, instruction and config
   editors), an MCP server and an event stream.
 - **Cost:** reported spend, API-equivalent estimates, measured energy, Claude quota readout and
@@ -29,9 +31,9 @@ agent, forge), event-driven with no implicit polling, and fail-closed assignee s
    spawning, verdict parsing, merge and CI handling, and the rework cap. `src/engine.js` is ~900 lines.
    `CLAUDE.md` is ~33 KB and is read by every agent run.
 3. **First run is hard.** You need a tracker token, a tunnel and a stage mapping before anything
-   happens. Jira hooks are manual; user-owned Projects v2 boards have no hook path at all. The
-   `local` tracker can't serve as a quickstart yet: it has no event path, so steps only chain under
-   an external poller.
+   happens. Jira hooks are manual; user-owned Projects v2 boards have no hook path at all
+   (confirmed by the 0.9 GitHub App spike). The `local` tracker can't serve as a quickstart yet: it
+   has no event path, so steps only chain under an external poller.
 4. **Trust boundary is the whole host.** With `fullAuto`, a verified webhook leads to unsandboxed
    code execution. The Docker setup isolates the receiver, not each run.
 5. **We measure cost, not outcomes.** There is no merge rate, rework rate or cost per merged ticket,
@@ -60,7 +62,7 @@ that is easier to change. Feature freeze outside this list.*
   (deprecation warnings before a key changes meaning).
 - **Launch**: a short demo recording and an announcement post (drafted; posting moved to 0.9).
 
-### 0.9 — Reach (epic #453)
+### 0.9 — Reach (epic #453) — all features merged, release pending
 
 *Goal: fit the stacks people actually use, with stable URLs and fewer manual steps.*
 
@@ -73,6 +75,9 @@ stack is more likely covered on their first look.
 - **`@agent` resume** on Jira and Projects v2.
 - **GitLab** forge adapter.
 - `agenthook doctor --fix` for the common setup mistakes.
+- **GitHub App** auth (spike): narrows the token to per-repo permissions with hourly installation
+  tokens, but a user-owned Projects v2 board still has no webhook, since GitHub sends
+  `projects_v2_item` only for org-level projects. Move the board under an organization.
 
 ### 0.10 — Trust
 

@@ -32,8 +32,10 @@ goes only where a human is actually needed.
   side without colliding. One receiver per project, any number of projects at once.
 - **Your attention, boiled down.** The web UI shows what **needs you** (held questions, failures,
   PRs waiting to merge), what is **running now**, and how the day is going — one project at a time.
-- **Works with the tools you have.** Asana, Jira, GitHub Issues and GitHub Projects v2 today, or
-  a local board with no account at all; ngrok or your own HTTPS endpoint for ingress. Each is one small adapter, so more are easy to add.
+- **Works with the tools you have.** Asana, Jira, GitHub Issues, GitHub Projects v2 and Linear
+  today, or a local board with no account at all; ngrok, cloudflared, Tailscale Funnel or your own
+  HTTPS endpoint for ingress; GitHub or GitLab for the code side. Each is one small adapter, so more
+  are easy to add ([pick your stack](#pick-your-stack)).
 
 ```
  move to a stage         webhook POST            route to step        headless `claude -p`
@@ -70,10 +72,10 @@ several projects stay distinguishable at a glance. Details in [docs/web-ui.md](d
 
 | | |
 |---|---|
-| **Pipeline** | Ordered stages bound to Asana sections, Jira statuses, GitHub labels or Projects v2 columns; verdict-driven routing with hold and rework lanes |
+| **Pipeline** | Ordered stages bound to Asana sections, Jira statuses, GitHub labels, Projects v2 columns or Linear workflow states; verdict-driven routing with hold and rework lanes |
 | **Agents** | Headless `claude -p` per stage in a receiver-owned worktree, or [Cursor / Hermes / OpenCode](docs/agents.md) per step (`agent`); per-stage instructions; token and cost tracking (`agenthook usage`) |
 | **Human in the loop** | Held tickets wait for your answer (`@agent` comment or **Release…** in the UI); failures and unmerged PRs surface as **Needs you** |
-| **Forge** | Optional GitHub forge: PR merge detection, red-CI handling, mergeability and CI roll-up |
+| **Forge** | Optional GitHub or [GitLab](docs/gitlab.md) forge: PR/MR merge detection, red-CI handling, mergeability and CI roll-up |
 | **Multi-profile** | Many projects in parallel, each its own config, state and port; rename, move and archive profiles safely |
 | **Multi-repo** | Route tickets of one board to different repositories |
 | **Epics** | Group tickets into epics (Asana custom type, GitHub issue type or label + sub-issues — labels or Projects v2 —, Jira's native epic + parent) — progress, needs-you, velocity/ETA in the [UI](docs/github-setup.md#epics), MCP and CLI |
@@ -81,9 +83,10 @@ several projects stay distinguishable at a glance. Details in [docs/web-ui.md](d
 | **Agent interface** | An MCP server and `tick`/`watch` commands so an engineering-manager loop can supervise and drive the pipeline |
 | **Safety** | `fullAuto` off by default, HMAC-verified webhooks, fail-closed assignee scoping, optional [sandbox container](docs/sandbox.md) |
 
-Two swappable axes, the engine blind to both: a **tracker** (where work comes from) and an
-**ingress** (how the receiver is reachable). Adding another stage-based tracker or tunnel is one
-adapter file ([docs/providers.md](docs/providers.md)). The architecture and the honest trade-offs
+Four swappable axes, the engine blind to all of them: a **tracker** (where work comes from), an
+**ingress** (how the receiver is reachable), an optional **forge** (what happened to the code) and
+the **agent** each step spawns. Adding another stage-based tracker or tunnel is one adapter file
+([docs/providers.md](docs/providers.md)). The architecture and the honest trade-offs
 of push delivery are in [docs/architecture.md](docs/architecture.md) — agenthook ships a targeted
 replay (`catchup` / `reconcile`) for the gaps.
 
@@ -151,6 +154,19 @@ The code step can only edit files with `--full-auto` (unsandboxed — read the
 [quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile)) or a repo `.claude/settings.json`
 that allows edits.
 
+## Pick your stack
+
+Each axis is one adapter; pick one per row. Every link is that option's setup page.
+
+| Axis | Options |
+|---|---|
+| **Tracker** | [Asana](docs/asana-setup.md) · [Jira](docs/jira-setup.md) · [GitHub Issues](docs/github-setup.md) · [GitHub Projects v2](docs/github-projects-setup.md) · [Linear](docs/linear-setup.md) · [local board](docs/quickstart.md) |
+| **Ingress** | [ngrok · cloudflared · Tailscale Funnel · hosted](docs/configuration.md#ingress-how-the-webhook-reaches-you) |
+| **Forge** (optional) | [GitHub](docs/configuration.md#forge-optional--what-happened-to-the-code) · [GitLab](docs/gitlab.md) |
+| **Agent** | [Claude Code · Cursor · OpenCode · Hermes (experimental)](docs/agents.md) · [local models via Ollama](docs/local-models.md) |
+
+On GitHub, a [GitHub App](docs/github-app.md) can stand in for the personal token (optional).
+
 ### With your tracker
 
 > **New here? Follow the [Getting Started guide](docs/getting-started.md)** — it walks the full
@@ -167,7 +183,8 @@ agenthook init            # interactive: pick tracker + ingress, fetches your
                           # workspace/project so you choose from a list
                           # → writes ./agenthook.config.json (with TODO_* section gids)
 
-$EDITOR .env              # add your ASANA_TOKEN or JIRA_API_TOKEN (init prints which vars)
+$EDITOR .env              # add the token init prints (ASANA_TOKEN, JIRA_API_TOKEN,
+                          # GITHUB_TOKEN or LINEAR_API_KEY)
 
 # Fill in the pipeline — replace the TODO_* section gids and write the per-step
 # instruction files. THIS step is required; doctor won't catch missing gids.
@@ -183,7 +200,7 @@ agenthook start           # ingress up → register webhook → serve
 and never overwrites an existing `ah` on your PATH.
 
 Move an item you're **assigned** into your pipeline's first stage — a section (Asana), status
-(Jira), label (GitHub Issues), or Status column (GitHub Projects v2) → a run appears under
+(Jira), label (GitHub Issues), Status column (GitHub Projects v2) or workflow state (Linear) → a run appears under
 `~/.agenthook/<name>/logs/`. Watch it live with `agenthook follow`. Stop with
 `agenthook stop`. If nothing fires, the [troubleshooting guide](docs/troubleshooting.md) is
 symptom-first.
@@ -195,15 +212,19 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 
 - **[Quickstart](docs/quickstart.md)** — a first run on a local board: no token, no tunnel
 - **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
-- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics · [GitLab forge](docs/gitlab.md) — MR merges + pipelines
+- [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) · [Linear setup](docs/linear-setup.md) — token + board specifics
+- [GitLab forge](docs/gitlab.md) — MR merges + pipelines · [GitHub App auth](docs/github-app.md) — an App instead of a personal token
 - [Web UI](docs/web-ui.md) — the `agenthook ui` dashboard: Home, Overview, Stats, editors
 - [Profiles](docs/profiles.md) · [Configuration & ingress](docs/configuration.md) · [Operating agents](docs/operating.md) — day-to-day reference
+- [Agents](docs/agents.md) · [Local models](docs/local-models.md) — Cursor, OpenCode, Hermes and Ollama per step
+- [Usage](docs/usage.md) · [Events](docs/events.md) — token and cost tracking, the `events.jsonl` bus
 - [Troubleshooting](docs/troubleshooting.md) — symptom → fix
 - [Architecture](docs/architecture.md) — how the engine works + the honest tradeoffs
 - [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely
 - [Providers](docs/providers.md) — add a tracker or ingress adapter
 - [Agent interface (MCP)](docs/mcp.md) · [Agent guide](docs/agent-guide.md) — let an EM loop or Claude Code session read and manage the pipeline
 - [Roadmap](ROADMAP.md) — where the project is going, milestone by milestone
+- **[All docs](docs/README.md)** — every page, grouped
 
 ## Profiles & parallel runs
 
@@ -268,8 +289,9 @@ prefer the [sandboxed container](docs/sandbox.md) with only the repo mounted. Fu
 
 ## How it works
 
-- **Two blind axes.** The engine names neither tracker nor tunnel; `src/trackers/*` and
-  `src/ingress/*` adapters own all platform specifics behind one interface each.
+- **Blind axes.** The engine names no tracker, tunnel, forge or agent; `src/trackers/*`,
+  `src/ingress/*`, `src/forges/*` and `src/agents/*` adapters own all platform specifics behind
+  one interface each.
 - **Server owns ingress.** `start` brings the tunnel up, registers the webhook (scrubbing
   stale hooks when the URL is ephemeral), serves, then tears down on exit.
 - **Fast ACK, async work.** Verify synchronously, ACK in <10s (providers retry otherwise),

@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format is based on
 - Linear tracker (`tracker.type: "linear"`): a team's workflow states are the pipeline stages,
   refs are issue identifiers (`ENG-123`), scoping is the API key's user (fail closed), and the
   `@agent` resume works on comments. `start` creates the team webhook (HMAC + timestamp checked) or
-  prints manual setup when the key's user isn't an admin. See `docs/configuration.md` (#444).
+  prints manual setup when the key's user isn't an admin. See `docs/linear-setup.md` (#444).
 - `cloudflared` ingress: a quick tunnel (random `trycloudflare.com` URL, no account) or a named
   tunnel (`ingress.tunnel` + `ingress.hostname`, stable URL). Each profile runs its own process, so
   parallel profiles work without ngrok's one-tunnel limit (#445).
