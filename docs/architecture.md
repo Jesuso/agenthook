@@ -88,7 +88,7 @@ trigger/run/reconcile/catchup table.
 | `src/ingress/*`   | One ingress adapter per exposure method (`ngrok`, `manual`/`hosted`). |
 | `src/store.js`    | JSON persistence: handshake secrets + dedup set + in-flight `running.json` + waiting-job `queue.json` + `changes`-loop counters (`attempts.json`). |
 | `src/queue.js`    | Bounded-concurrency job queue. |
-| `src/dispatch.js` | Spawns `claude -p` per step (receiver-owned worktree as `cwd`, `AGENTHOOK_VERDICT_FILE` injected), streams to a per-run log, then reads the agent's verdict and resolves the section via `adapter.advance` on exit. |
+| `src/dispatch/` | Spawns `claude -p` per step (receiver-owned worktree as `cwd`, `AGENTHOOK_VERDICT_FILE` injected), streams to a per-run log, then reads the agent's verdict and resolves the section via `adapter.advance` on exit. |
 | `src/pipeline.js` · `src/worktree.js` | `tracker.pipeline[]` (required): section-driven steps + receiver-owned shared worktree (create/`drainWorktree`), keyed by task ref. |
 | `src/prompts.js`  | Blind `stepPrompt` builder (shapes itself per step `kind`: triage/implement/change/review). |
 | `src/config.js` · `src/heartbeat.js` · `src/paths.js` · `src/wizard.js` | Config loader (4 path roots, `${VAR}` refs, pipeline resolution), profile status, derived paths, `init` prompts. |
