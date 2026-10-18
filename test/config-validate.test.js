@@ -173,7 +173,7 @@ test("forge.ciTarget is not looked up against a missing pipeline", () => {
 
 test("SECRET_FIELDS names every secret-bearing config path", () => {
   assert.deepEqual([...SECRET_FIELDS], [
-    "tracker.token", "tracker.webhookSecret", "forge.token", "forge.webhookSecret", "ingress.authtoken", "sinks[*].url", "sinks[*].botToken",
+    "tracker.token", "tracker.webhookSecret", "tracker.auth.privateKey", "forge.token", "forge.webhookSecret", "forge.auth.privateKey", "ingress.authtoken", "sinks[*].url", "sinks[*].botToken",
   ]);
 });
 
@@ -321,4 +321,56 @@ test("energy: a valid block + step opt-in pass; bad step values, a missing block
   assert.match(errs(raw({ energy: { usdPerKwh: 0.15, source: { type: "rapl" } } }))[0], /energy\.source\.type must be one of hwmon, command, watts/);
   assert.match(errs(raw({ energy: { usdPerKwh: 0.15, source: { type: "command" } } }))[0], /energy\.source\.cmd is required/);
   assert.match(errs(raw({ energy: { usdPerKwh: 0.15, source: { type: "watts" } } }))[0], /energy\.source\.watts is required/);
+});
+
+// --- GitHub App auth (tracker.auth / forge.auth) ---
+
+const APP = { type: "app", appId: "101", installationId: "202", privateKey: "${GITHUB_APP_PRIVATE_KEY}" };
+
+test("GitHub App auth: a complete tracker + forge auth block with assigneeLogin validates", () => {
+  const cfg = raw({ tracker: { type: "github", repository: "o/r", auth: APP, assigneeLogin: "alice", pipeline: [{ id: "code" }] }, forge: { type: "github", repository: "o/r", auth: APP } });
+  assert.deepEqual(validateRawConfig(cfg), { ok: true });
+});
+
+test("GitHub App auth without tracker.assigneeLogin fails closed (never derived from the App token)", () => {
+  for (const type of ["github", "github-projects"]) {
+    const got = validateRawConfig(raw({ tracker: { type, auth: APP, pipeline: [{ id: "code" }] } }));
+    assert.equal(got.ok, false);
+    assert.match(!got.ok ? got.errors[0] : "", /GitHub App auth needs "tracker\.assigneeLogin"/);
+  }
+});
+
+test("GitHub App auth: type, appId, installationId and exactly one of privateKey / privateKeyPath are checked; other trackers/forges reject auth", () => {
+  /** @param {any} tracker @param {any} [forge] */
+  const errs = (tracker, forge) => {
+    const got = validateRawConfig(raw({ tracker: { type: "github", assigneeLogin: "alice", pipeline: [{ id: "code" }], ...tracker }, ...(forge ? { forge } : {}) }));
+    return got.ok ? [] : got.errors;
+  };
+  assert.match(errs({ auth: { ...APP, type: "token" } })[0], /"tracker\.auth\.type" must be "app"/);
+  assert.match(errs({ auth: { ...APP, appId: "" } })[0], /"tracker\.auth\.appId" is required/);
+  assert.match(errs({ auth: { ...APP, installationId: undefined } })[0], /"tracker\.auth\.installationId" is required/);
+  assert.match(errs({ auth: { ...APP, privateKey: undefined } })[0], /exactly one of "privateKey"/);
+  assert.match(errs({ auth: { ...APP, privateKeyPath: "./app.pem" } })[0], /exactly one of "privateKey"/);
+  assert.deepEqual(errs({ auth: { ...APP, appId: 101, installationId: 202, privateKey: undefined, privateKeyPath: "./app.pem" } }), []);
+  assert.match(errs({ type: "asana", auth: APP })[0], /"tracker\.auth" is only supported on the github and github-projects trackers/);
+  assert.match(errs({}, { type: "gitlab", project: "g/p", auth: APP })[0], /"forge\.auth" is only supported on the github forge/);
+  assert.match(errs({}, { type: "github", auth: { ...APP, appId: "" } })[0], /"forge\.auth\.appId" is required/);
+});
+
+test("loadConfig: auth.privateKeyPath is read (relative to the config file) into privateKey; an unreadable one throws", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-app-"));
+  fs.writeFileSync(path.join(dir, "app.pem"), "-----BEGIN RSA PRIVATE KEY-----\nx\n-----END RSA PRIVATE KEY-----\n");
+  const file = path.join(dir, "agenthook.config.json");
+  const auth = { type: "app", appId: "1", installationId: "2", privateKeyPath: "./app.pem" };
+  fs.writeFileSync(file, JSON.stringify(raw({ tracker: { type: "github", repository: "o/r", assigneeLogin: "alice", auth, pipeline: [{ id: "code" }] } })));
+  const cfg = loadConfig({ configPath: file });
+  assert.equal(cfg.providerConfig.auth?.privateKeyPath, path.join(dir, "app.pem"));
+  assert.match(String(cfg.providerConfig.auth?.privateKey), /BEGIN RSA PRIVATE KEY/);
+  assert.match(loadError(raw({ tracker: { type: "github", repository: "o/r", assigneeLogin: "alice", auth: { ...auth, privateKeyPath: "./missing.pem" }, pipeline: [{ id: "code" }] } })), /cannot read "tracker\.auth\.privateKeyPath"/);
+});
+
+test("literalSecrets flags a literal PEM in tracker.auth.privateKey / forge.auth.privateKey", () => {
+  const cfg = raw({ tracker: { type: "github", assigneeLogin: "alice", auth: { ...APP, privateKey: "-----BEGIN…" }, pipeline: [{ id: "code" }] }, forge: { type: "github", auth: { ...APP, privateKey: "-----BEGIN…" } } });
+  assert.deepEqual(literalSecrets(cfg), ["tracker.auth.privateKey", "forge.auth.privateKey"]);
+  assert.deepEqual(literalSecrets(raw({ tracker: { type: "github", assigneeLogin: "alice", auth: APP, pipeline: [{ id: "code" }] } })), []);
 });

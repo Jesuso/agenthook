@@ -26,10 +26,12 @@
 //     THIS repo (a fork's same-named branch is ignored). CI log text goes to a PR
 //     comment only — never into a job, a finding or a prompt (the PR head controls it).
 //   - Token: `admin:repo_hook` (classic) or Webhooks: Read & write (fine-grained); red
-//     CI also needs `repo` (classic) or Actions + Pull requests: Read & write.
+//     CI also needs `repo` (classic) or Actions + Pull requests: Read & write. Or a
+//     GitHub App (`auth: {type: "app", …}`, src/github-auth.js; see docs/github-app.md).
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { verifyHubSignature } from "../hmac.js";
+import { createGithubAuth, githubFetch } from "../github-auth.js";
 
 export const FORGE_PATH = "/forge";
 const BRANCH_PREFIX = "agent/";
@@ -76,10 +78,12 @@ export function mergeStepCandidates(pipeline) {
   return (pipeline || []).filter((s) => s && s.manual).map((s) => s.id);
 }
 
-/** The forge config block `init` writes: just enough to make the forge work.
- * @param {{repository: string, tokenEnv: string}} opts
+/** The forge config block `init` writes: just enough to make the forge work. `auth` (the
+ * tracker's GitHub App block, reused) replaces the token.
+ * @param {{repository: string, tokenEnv?: string, auth?: import('../types.js').GithubAuthConfig}} opts
  * @returns {import('../types.js').ForgeConfig} */
-export function forgeBlock({ repository, tokenEnv }) {
+export function forgeBlock({ repository, tokenEnv, auth }) {
+  if (auth) return { type: "github", repository, auth };
   return { type: "github", repository, token: `\${${tokenEnv}}` };
 }
 
@@ -98,14 +102,13 @@ export const isForgePath = (pathname) => pathname === FORGE_PATH || pathname ===
 /** @type {import('../types.js').ForgeFactory} */
 export function createGithubForge(cfg, store) {
   const fc = cfg.forge || /** @type {import('../types.js').ForgeConfig} */ ({ type: "github" });
-  const token = fc.token;
+  const auth = createGithubAuth(fc); // a token, or a GitHub App's installation token
   const [owner, repo] = fc.repository ? String(fc.repository).split("/") : [fc.owner, fc.repo];
   /** @param {string} p @param {RequestInit} [init] */
   const api = (p, init = {}) =>
-    fetch(`https://api.github.com${p}`, {
+    githubFetch(auth, `https://api.github.com${p}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "Content-Type": "application/json",
@@ -152,7 +155,9 @@ export function createGithubForge(cfg, store) {
         `    Content type: application/json\n` +
         `    Secret:       ${webhookSecret()}\n` +
         `    Events:       "Let me select individual events" → Pull requests, Workflow runs\n` +
-        `  (auto-create needs admin:repo_hook (classic) or Webhooks: Read & write (fine-grained))`,
+        (auth.app
+          ? `  (auto-create needs the GitHub App's Webhooks: Read & write repository permission)`
+          : `  (auto-create needs admin:repo_hook (classic) or Webhooks: Read & write (fine-grained))`),
     );
   }
 
@@ -451,7 +456,8 @@ export function createGithubForge(cfg, store) {
           key: "tokenEnv",
           message: "Env var holding the GitHub token",
           default: answers._defaultTokenEnv || "GITHUB_TOKEN",
-          when: (a) => !!a._useForge,
+          // The tracker's GitHub App auth (`_appAuth`) is reused, so no token is asked.
+          when: (a) => !!a._useForge && !a._appAuth,
         },
         {
           key: "_completeOnMerge",

@@ -327,6 +327,7 @@
  * @typedef {object} ProviderConfig
  * @property {string} type               tracker adapter key (e.g. "asana")
  * @property {string} [token]            API token (typically a "${ASANA_TOKEN}" / "${JIRA_API_TOKEN}" ref)
+ * @property {GithubAuthConfig} [auth]   github / github-projects: GitHub App auth instead of `token` (then assigneeLogin is required)
  * @property {string} [userGid]
  * @property {boolean} [assigneeFilter]  only act on items assigned to us (Asana userGid / Jira assigneeAccountId). Default true (fail-closed: unset id ⇒ refuse all); only false opts into project-wide
  * @property {string} [workspaceGid]
@@ -341,13 +342,24 @@
  * @property {string} [repository]         GitHub: "owner/name" whose issue labels drive the pipeline
  * @property {string} [owner]              GitHub: repo owner (alternative to repository)
  * @property {string} [repo]               GitHub: repo name (alternative to repository)
- * @property {string} [assigneeLogin]      GitHub / github-projects: the bot's login — scope work to its issues (else derived from /user or GraphQL viewer)
+ * @property {string} [assigneeLogin]      GitHub / github-projects: the bot's login — scope work to its issues (else derived from /user or GraphQL viewer; required under App `auth`)
  * @property {string} [project]            github-projects: the Projects v2 board as "owner/number" or its URL, whose Status field drives the pipeline
  * @property {string} [team]  Linear: team key or URL whose workflow states drive the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  * @property {string} [routeField]  name of the tracker field whose value(s) become Task.routeKeys (multi-repo routing; read by the adapter)
  * @property {string} [epicType]  Asana/GitHub/github-projects/Jira: the custom type name (Asana) / issue type name (GitHub, Projects v2, Jira) an epic is tagged with (Asana, GitHub, Projects v2 default "Epic"; Jira default = the project issue type at hierarchy level 1)
  * @property {string} [epicLabel]  GitHub/github-projects: the label name an epic is tagged with (default "epic"); either this OR epicType marks an epic
+ */
+
+/**
+ * GitHub App auth (`tracker.auth` / `forge.auth`) — an installation token minted from the App's
+ * private key replaces the personal token (src/github-auth.js, docs/github-app.md).
+ * @typedef {object} GithubAuthConfig
+ * @property {"app"} type
+ * @property {string|number} appId          the App's id (App settings → General)
+ * @property {string|number} installationId the installation on the repo/org (…/installations/<id>)
+ * @property {string} [privateKey]          the App's PEM, typically "${GITHUB_APP_PRIVATE_KEY}" (literal `\n` → newline)
+ * @property {string} [privateKeyPath]      or a PEM file, relative to the config file
  */
 
 /**
@@ -445,6 +457,7 @@
  * @typedef {object} ForgeConfig
  * @property {string} type              forge adapter key ("github" | "gitlab")
  * @property {string} [token]           API token (typically "${GITHUB_TOKEN}" / "${GITLAB_TOKEN}")
+ * @property {GithubAuthConfig} [auth]  GitHub: GitHub App auth instead of `token`
  * @property {string} [repository]      GitHub: "owner/name" whose PRs complete tasks
  * @property {string} [owner]           GitHub: repo owner (alternative to repository)
  * @property {string} [repo]            GitHub: repo name (alternative to repository)

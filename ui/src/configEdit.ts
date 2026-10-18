@@ -407,13 +407,14 @@ const OWN_FIELD = new Set(["tracker.type", "tracker.pipeline", "forge.type", "in
 
 /**
  * The Tracker / Forge / Ingress tab's fields, straight from the config schema: the section's
- * `<block>.<key>` entries minus the container, the type and the pipeline, kept when their `scope`
- * includes `trackerType` (or has none), split by the `advanced` flag. A new scoped schema entry adds a field.
+ * `<block>.<key>` entries minus the container, the type, the pipeline and nested objects (`auth` —
+ * a flat control can't edit one; it stays in Raw), kept when their `scope` includes `trackerType`
+ * (or has none), split by the `advanced` flag. A new scoped schema entry adds a field.
  * For `forge`, pass the forge type: `forge.*` scopes name forge types (github / gitlab).
  */
 export function sectionFields(section: "tracker" | "forge" | "ingress", trackerType: unknown): { common: SchemaEntry[]; advanced: SchemaEntry[] } {
   const list = CONFIG_SCHEMA.filter(
-    (e) => e.section === section && e.path.length === 2 && !OWN_FIELD.has(e.path.join(".")) && (!e.scope || e.scope.includes(String(trackerType))),
+    (e) => e.section === section && e.path.length === 2 && e.type !== "object" && !OWN_FIELD.has(e.path.join(".")) && (!e.scope || e.scope.includes(String(trackerType))),
   );
   return { common: list.filter((e) => !e.advanced), advanced: list.filter((e) => e.advanced) };
 }

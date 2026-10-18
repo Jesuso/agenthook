@@ -9,8 +9,10 @@ import { SENSITIVE_FIELDS } from "./contract.js";
 export const SECRET_FIELDS = /** @type {const} */ ([
   "tracker.token",
   "tracker.webhookSecret",
+  "tracker.auth.privateKey",
   "forge.token",
   "forge.webhookSecret",
+  "forge.auth.privateKey",
   "ingress.authtoken",
   "sinks[*].url",
   "sinks[*].botToken",

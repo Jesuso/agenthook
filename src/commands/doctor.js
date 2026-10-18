@@ -4,6 +4,7 @@
 // Multi-repo profiles also get routing lints; ⚠ warnings print but don't fail the run.
 // (Duplicate repo ids / paths / route keys and >1 default are already fatal in loadConfig.)
 // `--fix` applies the safe, local, idempotent fixes a ✗/⚠ check carries, then re-checks.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import { portInUse } from "../port.js";
@@ -19,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { agentFor } from "../agents/index.js";
 import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
 import { uiBundleState } from "../ui-bundle.js";
+import { isAppAuth, normalizePem, createGithubAuth } from "../github-auth.js";
 
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
@@ -408,6 +410,42 @@ export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn 
   return out;
 }
 
+/** GitHub App auth preflight for one config block (`tracker` or `forge`), in place of the token
+ * check: the private key parses, an installation token is fetchable (one live call), and — for
+ * the tracker — `assigneeLogin` (the human the App acts for) is set.
+ * @param {{auth?: import('../types.js').GithubAuthConfig, assigneeLogin?: string}} block
+ * @param {'tracker'|'forge'} at @param {{fetch?: typeof fetch}} [io] @returns {Promise<Check[]>} */
+export async function githubAppChecks(block, at, { fetch: f } = {}) {
+  const auth = /** @type {import('../types.js').GithubAuthConfig} */ (block.auth);
+  /** @type {Check[]} */
+  const out = [];
+  let keyOk = false;
+  let keyNote = "";
+  try {
+    crypto.createPrivateKey(normalizePem(auth.privateKey || ""));
+    keyOk = true;
+  } catch (e) {
+    keyNote = e?.message ?? String(e);
+  }
+  out.push({ ok: keyOk, label: `${at} GitHub App private key parses (app ${auth.appId})`, note: keyNote, fix: { manual: `set ${at}.auth.privateKey to the App's PEM (a \${VAR} ref; literal \\n is fine) or ${at}.auth.privateKeyPath to the .pem file` } });
+  if (keyOk) {
+    let tokOk = false;
+    let tokNote = "";
+    try {
+      await createGithubAuth(block, f ? { fetch: f } : {}).header();
+      tokOk = true;
+    } catch (e) {
+      tokNote = e?.message ?? String(e);
+    }
+    out.push({ ok: tokOk, label: `${at} GitHub App installation token fetchable (installation ${auth.installationId})`, note: tokNote, fix: { manual: `check ${at}.auth.appId / installationId and that the App is installed on the repo/org (see docs/github-app.md)` } });
+  }
+  if (at === "tracker") {
+    const login = typeof block.assigneeLogin === "string" ? block.assigneeLogin.trim() : "";
+    out.push({ ok: !!login, label: `tracker.assigneeLogin set (the human the App acts for)`, note: login || "missing", fix: { manual: "set tracker.assigneeLogin to your GitHub login" } });
+  }
+  return out;
+}
+
 /** The env var the raw config's `tracker.token` references (`${VAR}`), for the remedy text.
  * @param {string} configPath @returns {string|null} */
 export function tokenVar(configPath) {
@@ -429,6 +467,7 @@ export function tokenVar(configPath) {
  *   listWorktrees?: (repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
  *   uiBundle?: () => {state: 'no-src'|'missing'|'stale'|'fresh', newest?: string},
  *   platform?: string,
+ *   fetch?: typeof fetch,
  * }} DoctorIo */
 
 /** Run every check against a loaded config; prints nothing.
@@ -443,6 +482,7 @@ export async function runChecks(cfg, io = {}) {
     listWorktrees: list = listWorktrees,
     uiBundle = () => uiBundleState({ srcDir: UI_SRC_DIR, distDir: UI_DIST_DIR }),
     platform = process.platform,
+    fetch: f,
   } = io;
   /** @type {Check[]} */
   const checks = [];
@@ -465,6 +505,7 @@ export async function runChecks(cfg, io = {}) {
   const profile = readProfile(cfg.stateKey);
 
   if (cfg.provider === "local") info("local tracker — no token needed");
+  else if (isAppAuth(cfg.providerConfig)) checks.push(...(await githubAppChecks(cfg.providerConfig, "tracker", { fetch: f })));
   else {
     const v = tokenVar(cfg.configPath);
     add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref", { manual: v ? `set ${v} in .env (or the env), then re-run doctor` : "set tracker.token to a ${VAR} ref, set that VAR in .env (or the env), then re-run doctor" });
@@ -521,6 +562,7 @@ export async function runChecks(cfg, io = {}) {
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "", { manual: `fill ${unfilled.join(", ")} in the config with real tracker stages` });
 
   for (const l of forgeLints(cfg)) warn(l.label, l.note);
+  if (cfg.forge?.type === "github" && isAppAuth(cfg.forge)) checks.push(...(await githubAppChecks(cfg.forge, "forge", { fetch: f })));
 
   uiBundleLints(uiBundle(), { installDir: cfg.installDir, spawn }).forEach(finding);
   worktreeLints(cfg, { listWorktrees: list, spawn }).forEach(finding);

@@ -43,6 +43,9 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 (`https://github.com/orgs/<org>/projects/<n>`). The assignee login used for scoping is read from
 the token's `viewer`, so you never paste it.
 
+Prefer narrow, short-lived tokens? Use a [GitHub App](github-app.md) instead (`tracker.auth`, an
+org-owned project, and `tracker.assigneeLogin` set to your login).
+
 ## 2. Status options are your "sections"
 
 There are no gids — steps reference the board's **Status single-select option names** (matched
@@ -96,8 +99,9 @@ Projects v2 events (`projects_v2_item`) are delivered by an **org-level** webhoo
   webhook, with the URL, the `Projects v2 item` + `Issue comments` events, and the generated
   secret) to do once by hand — the receiver keeps serving either way.
 - **User-owned project** — there is **no PAT/UI path** to a `projects_v2_item` webhook (personal
-  accounts have no webhook settings; the event is org-webhook- or GitHub-App-only). `start` prints
-  why. **Move the project under an organization** (or use a GitHub App) to receive events.
+  accounts have no webhook settings, and GitHub sends `projects_v2_item` only for
+  organization-level projects — a [GitHub App](github-app.md) doesn't change that). `start` prints
+  why. **Move the project under an organization** to receive events.
 
 Because the URL is **fixed**, run agenthook behind a **stable ingress** — an ngrok reserved
 `domain`, or a `hosted` URL — **not** an ephemeral tunnel (the rotating URL would orphan the org
@@ -134,7 +138,7 @@ The org webhook from §3 carries `issue_comment` already. Where there is no org 
 issues are on the board (Repo Settings → Webhooks → Add webhook): the same Payload URL
 (`<public-url>/github-projects/`), `application/json`, the same secret, and the **Issue comments**
 event. `agenthook start` prints these values. (On a user-owned board this gives you the resume only;
-Status moves still need an org hook or a GitHub App.)
+Status moves still need an org-owned project and its org hook.)
 
 Moving the card from its `holdStatus` back to the step's `sourceStatus` also re-runs the step, but
 without your reply in its prompt.
