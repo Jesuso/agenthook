@@ -6,32 +6,57 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { HOST_GIT_SAFE } from "../worktree.js";
 
-/**
- * A checkout's git dirs: `gitDir` (a worktree's admin dir `<common>/worktrees/<id>`, or the
- * main checkout's `.git`) and `commonDir` (the shared objects/refs/config). `<dir>/.git` is a
- * FILE in a `git worktree add` checkout (`gitdir: <admin>`), whose admin dir names the common
- * dir in `commondir`. Undefined when `dir` is not a git checkout.
- * @param {string} dir @param {(file: string) => string} [readFile]  throws EISDIR on a dir
- * @returns {{gitDir: string, commonDir: string}|undefined}
- */
-export function gitDirsFor(dir, readFile = (f) => fs.readFileSync(f, "utf8")) {
-  const dotGit = path.join(dir, ".git");
-  let text;
+/** Read a small agent-writable metadata file without trusting its type: a FIFO would block the
+ * event loop on open, a symlink would point the host elsewhere, a huge file would be slurped.
+ * @param {string} file @returns {string|undefined}  undefined unless a regular file ≤ 4 KiB */
+function readSmallFile(file) {
   try {
-    text = readFile(dotGit);
-  } catch (e) {
-    return e.code === "EISDIR" ? { gitDir: dotGit, commonDir: dotGit } : undefined;
-  }
-  const m = /^gitdir:\s*(.+)$/m.exec(text);
-  if (!m) return undefined;
-  const gitDir = path.resolve(dir, m[1].trim());
-  let common;
-  try {
-    common = readFile(path.join(gitDir, "commondir")).trim();
+    const st = fs.lstatSync(file);
+    if (!st.isFile() || st.size > 4096) return undefined;
+    return fs.readFileSync(file, "utf8");
   } catch {
-    return { gitDir, commonDir: gitDir };
+    return undefined;
   }
-  return { gitDir, commonDir: path.resolve(gitDir, common) };
+}
+
+/** True when `p` exists and is a real directory (not a symlink to one). @param {string} p */
+function isRealDir(p) {
+  try {
+    return fs.lstatSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The git dirs a sandboxed run mounts, derived from the TRUSTED side only. `commonDir` (the
+ * shared objects/refs/config) is always the main checkout's own `<repo>/.git`, which no
+ * sandboxed run can write: a mount source must never come from a file a container could have
+ * edited, or run N's agent would pick what run N+1 bind-mounts (e.g. `gitdir: /home/<op>`).
+ * For a worktree `cwd`, its agent-writable `.git` file and the admin dir's `commondir` are
+ * then only CHECKED: `.git` must be a regular file naming a direct child of
+ * `<common>/worktrees/`, whose `commondir` resolves back to the same common dir. Any mismatch
+ * throws — the run is refused, never mounted elsewhere.
+ * @param {string} repoPath  the main checkout @param {string} cwd  the run's cwd (a worktree or `repoPath`)
+ * @returns {{gitDir: string, commonDir: string}}
+ */
+export function trustedGitDirs(repoPath, cwd) {
+  const commonDir = path.join(repoPath, ".git");
+  if (!isRealDir(commonDir)) throw new Error(`${commonDir} is not a directory — a sandboxed run needs repoPath to be a plain git checkout`);
+  if (path.resolve(cwd) === path.resolve(repoPath)) return { gitDir: commonDir, commonDir };
+  const bad = new Error(`worktree git metadata does not point into ${commonDir}`);
+  const realCommon = fs.realpathSync(commonDir);
+  const worktrees = path.join(commonDir, "worktrees");
+  if (!isRealDir(worktrees)) throw bad;
+  const m = /^gitdir:\s*(.+)$/m.exec(readSmallFile(path.join(cwd, ".git")) ?? "");
+  if (!m) throw bad;
+  const gitDir = path.resolve(cwd, m[1].trim());
+  if (!isRealDir(gitDir) || path.dirname(fs.realpathSync(gitDir)) !== path.join(realCommon, "worktrees")) throw bad;
+  const common = readSmallFile(path.join(gitDir, "commondir"))?.trim();
+  if (!common) throw bad;
+  const named = path.resolve(gitDir, common);
+  if (!isRealDir(named) || fs.realpathSync(named) !== realCommon) throw bad;
+  return { gitDir, commonDir };
 }
 
 /**
@@ -41,7 +66,8 @@ export function gitDirsFor(dir, readFile = (f) => fs.readFileSync(f, "utf8")) {
  * against that dir, so an agent-written `core.fsmonitor`/`core.sshCommand`/alias/filter or hook
  * would hand code execution back to the host. `hooks` is created (empty) first when missing, so
  * the agent can't create it. A no-worktree step (triage) gets the main checkout and its git dir
- * read-only. Then the per-run verdict dir (rw) and the agent's own mounts. Creates `hooks`.
+ * read-only. Then the per-run verdict dir (rw) and the agent's own mounts. Creates `hooks`;
+ * throws when `config`/`hooks` is not a regular file/real dir (e.g. a planted symlink).
  * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types.js').SandboxMount[]}} o
  * @returns {import('../types.js').SandboxMount[]}
  */
@@ -51,15 +77,30 @@ export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agen
   if (gitCommonDir) {
     mounts.push({ path: gitCommonDir, ro: !hasWorktree });
     if (hasWorktree) {
+      // Both overlays must be what they claim: a symlink planted by an earlier run would make
+      // the runtime bind its target instead.
       const config = path.join(gitCommonDir, "config");
-      if (fs.existsSync(config)) mounts.push({ path: config, ro: true });
+      if (fs.existsSync(config) || isSymlink(config)) {
+        if (!fs.lstatSync(config).isFile()) throw new Error(`${config} is not a regular file`);
+        mounts.push({ path: config, ro: true });
+      }
       const hooks = path.join(gitCommonDir, "hooks");
-      fs.mkdirSync(hooks, { recursive: true });
+      if (!isSymlink(hooks)) fs.mkdirSync(hooks, { recursive: true });
+      if (!isRealDir(hooks)) throw new Error(`${hooks} is not a directory`);
       mounts.push({ path: hooks, ro: true });
     }
   }
   mounts.push({ path: verdictDir }, ...agentMounts);
   return mounts;
+}
+
+/** @param {string} p */
+function isSymlink(p) {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 const HOST_ONLY = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "OLDPWD", "TMPDIR", "SSH_AUTH_SOCK", "DISPLAY", "WAYLAND_DISPLAY", "NODE_OPTIONS"]);

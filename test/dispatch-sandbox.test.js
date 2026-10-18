@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { gitDirsFor, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf } from "../src/dispatch/sandbox.js";
+import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf } from "../src/dispatch/sandbox.js";
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
 /** @param {string} cwd @param {string[]} args */
@@ -26,13 +26,44 @@ function fixture() {
   return { root, repo, wt };
 }
 
-test("gitDirsFor: a git-worktree checkout resolves its admin dir and the common dir", () => {
+test("trustedGitDirs: a git-worktree checkout resolves its admin dir and the main checkout's common dir", () => {
   const { repo, wt } = fixture();
-  const dirs = gitDirsFor(wt);
-  assert.equal(dirs?.commonDir, path.join(repo, ".git"));
-  assert.equal(dirs?.gitDir, path.join(repo, ".git", "worktrees", "42"));
-  assert.deepEqual(gitDirsFor(repo), { gitDir: path.join(repo, ".git"), commonDir: path.join(repo, ".git") }, "a main checkout's .git is both");
-  assert.equal(gitDirsFor(path.join(repo, "nope")), undefined);
+  assert.deepEqual(trustedGitDirs(repo, wt), { gitDir: path.join(repo, ".git", "worktrees", "42"), commonDir: path.join(repo, ".git") });
+  assert.deepEqual(trustedGitDirs(repo, repo), { gitDir: path.join(repo, ".git"), commonDir: path.join(repo, ".git") }, "a main checkout's .git is both");
+  assert.throws(() => trustedGitDirs(path.join(repo, "nope"), wt), /is not a directory/);
+});
+
+// Review #481: the worktree's `.git` and the admin dir's `commondir` are agent-writable (both
+// sit in rw mounts). Neither may ever choose a mount source — a tampered one refuses the run.
+test("trustedGitDirs: a rewritten worktree .git (gitdir → operator home) is refused, never resolved", () => {
+  const { root, repo, wt } = fixture();
+  const home = path.join(root, "operator-home");
+  fs.mkdirSync(home);
+  fs.writeFileSync(path.join(wt, ".git"), `gitdir: ${home}\n`);
+  assert.throws(() => trustedGitDirs(repo, wt), /worktree git metadata does not point into/);
+  // A look-alike admin dir elsewhere that names the real common dir is refused too.
+  fs.writeFileSync(path.join(home, "commondir"), path.join(repo, ".git"));
+  assert.throws(() => trustedGitDirs(repo, wt), /does not point into/);
+});
+
+test("trustedGitDirs: a rewritten commondir (→ operator home) is refused", () => {
+  const { root, repo, wt } = fixture();
+  const home = path.join(root, "operator-home");
+  fs.mkdirSync(home);
+  fs.writeFileSync(path.join(repo, ".git", "worktrees", "42", "commondir"), home);
+  assert.throws(() => trustedGitDirs(repo, wt), /does not point into/);
+});
+
+test("trustedGitDirs: a symlinked admin dir or a FIFO .git is refused without blocking", () => {
+  const { root, repo, wt } = fixture();
+  const admin = path.join(repo, ".git", "worktrees", "42");
+  const moved = path.join(root, "moved-admin");
+  fs.renameSync(admin, moved);
+  fs.symlinkSync(moved, admin);
+  assert.throws(() => trustedGitDirs(repo, wt), /does not point into/);
+  fs.rmSync(path.join(wt, ".git"));
+  execFileSync("mkfifo", [path.join(wt, ".git")]);
+  assert.throws(() => trustedGitDirs(repo, wt), /does not point into/);
 });
 
 test("sandboxMounts (worktree): worktree + common rw, config + hooks ro (hooks created), verdict rw, then the agent's", () => {
@@ -56,6 +87,20 @@ test("sandboxMounts (no worktree, e.g. triage): the main checkout and its git di
   const common = path.join(repo, ".git");
   const m = sandboxMounts({ cwd: repo, hasWorktree: false, verdictDir: "/v", gitCommonDir: common });
   assert.deepEqual(m, [{ path: repo, ro: true }, { path: common, ro: true }, { path: "/v" }]);
+});
+
+test("sandboxMounts: a symlinked hooks or config (planted by an earlier run) is refused, not bind-mounted", () => {
+  const { root, repo, wt } = fixture();
+  const common = path.join(repo, ".git");
+  const elsewhere = path.join(root, "elsewhere");
+  fs.mkdirSync(elsewhere);
+  fs.rmSync(path.join(common, "hooks"), { recursive: true, force: true });
+  fs.symlinkSync(elsewhere, path.join(common, "hooks"));
+  assert.throws(() => sandboxMounts({ cwd: wt, hasWorktree: true, verdictDir: "/v", gitCommonDir: common }), /hooks is not a directory/);
+  fs.rmSync(path.join(common, "hooks"));
+  fs.renameSync(path.join(common, "config"), path.join(elsewhere, "config"));
+  fs.symlinkSync(path.join(elsewhere, "config"), path.join(common, "config"));
+  assert.throws(() => sandboxMounts({ cwd: wt, hasWorktree: true, verdictDir: "/v", gitCommonDir: common }), /config is not a regular file/);
 });
 
 test("containerEnv drops host-only keys, keeps tokens and the verdict file; runtimeEnv keeps only the client's", () => {
@@ -310,6 +355,43 @@ test("sandbox e2e: a cancel landing before the spawn (wrap pending) never starts
     assert.equal(h.calls().some((c) => c[0] === "run"), false);
     assert.equal(h.advanced[0].outcome, "fail");
     assert.equal(h.advanced[0].reason, "cancelled by operator");
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: a worktree whose .git was rewritten by an earlier run is refused; nothing outside is mounted", async () => {
+  const h = sandboxHarness([{ id: "review", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  const home = path.join(h.root, "operator-home");
+  fs.mkdirSync(home);
+  fs.writeFileSync(path.join(h.root, "wts", "42", ".git"), `gitdir: ${home}\n`);
+  try {
+    await h.go("review");
+    assert.equal(h.advanced[0].outcome, "fail");
+    assert.match(h.advanced[0].reason, /^sandbox setup failed: worktree git metadata does not point into /);
+    assert.deepEqual(h.calls(), [], "the runtime is never spawned");
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: a FIFO verdict file is dropped (no verdict), never opened — the receiver doesn't hang", { timeout: 20000 }, async () => {
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { inner: '#!/bin/sh\nmkfifo "$AGENTHOOK_VERDICT_FILE"\n' });
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0].outcome, "advance", "a clean exit with no (readable) verdict");
+    assert.equal(fs.existsSync(path.join(h.state, "verdicts", "run-42-code")), false);
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: an oversize verdict file is dropped unread", async () => {
+  const big = `{"outcome":"hold","reason":"big"}` + " ".repeat(1024 * 1024 + 1);
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { inner: `#!/bin/sh\nhead -c ${big.length} /dev/zero | tr '\\0' ' ' > "$AGENTHOOK_VERDICT_FILE"\nprintf '%s' '{"outcome":"hold","reason":"big"}' | dd of="$AGENTHOOK_VERDICT_FILE" conv=notrunc status=none\n` });
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0].outcome, "advance", "the hold verdict was never read");
   } finally {
     h.restore();
   }

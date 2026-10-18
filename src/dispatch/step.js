@@ -12,7 +12,7 @@ import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { agentSpawnEnv } from "./spawn.js";
-import { gitDirsFor, gitSandboxEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
+import { trustedGitDirs, gitSandboxEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
@@ -238,7 +238,7 @@ export function createStep(ctx) {
     if (sandboxed && sandbox && agent.sandbox && !refused) {
       try {
         const own = agent.sandbox({ cfg, step, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home });
-        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: gitDirsFor(cwd)?.commonDir, agentMounts: own.mounts });
+        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: trustedGitDirs(repo.path, cwd).commonDir, agentMounts: own.mounts });
         const facts = hostGitFacts(repo.path);
         const gitEnv = gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author });
         sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv } };

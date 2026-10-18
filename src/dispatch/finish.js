@@ -9,6 +9,9 @@ import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason } from "./verdict.js";
 
+/** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
+export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
+
 /**
  * runStep's locals the post-exit phase reads, handed over as one object.
  * @typedef {object} StepRun
@@ -91,11 +94,14 @@ export function createFinish(ctx) {
     if (energyRec) Object.assign(usage, energyRec);
     if (store && result) store.recordUsage(usage);
 
-    // A sandboxed agent owns its verdict dir: a symlink planted there must never make the host
-    // read (and route on) a file outside it.
+    // A sandboxed agent owns its verdict dir, and the host reads the file synchronously: only a
+    // small regular file is read. A symlink would route on a file outside the dir, a FIFO would
+    // block the event loop on open (the whole receiver), a huge file would be slurped — each is
+    // removed and treated as no verdict.
     if (sandboxed) {
       try {
-        if (fs.lstatSync(verdictFile).isSymbolicLink()) fs.rmSync(verdictFile, { force: true });
+        const st = fs.lstatSync(verdictFile);
+        if (!st.isFile() || st.size > MAX_SANDBOX_VERDICT_BYTES) fs.rmSync(verdictFile, { force: true });
       } catch {
         /* no verdict written */
       }

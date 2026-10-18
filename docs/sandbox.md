@@ -70,6 +70,14 @@ dir (signing secrets, tracker tokens on disk), other projects and your SSH keys 
 Host-side git calls on a sandboxed profile run with `core.hooksPath=/dev/null` and
 `core.fsmonitor=false`.
 
+A mount source never comes from a file an agent could have written. The common git dir is always
+`<repoPath>/.git`, so `repoPath` must be a plain checkout (not itself a linked worktree). A
+worktree's `.git` file and its admin dir's `commondir` are only checked: if an earlier run
+rewrote either to point outside `<repoPath>/.git/worktrees/`, or replaced `config`/`hooks` with
+a symlink, the run fails with `sandbox setup failed: …` instead of mounting it. The verdict
+file is read only when it is a regular file of at most 1 MiB; a symlink, FIFO or larger file
+is removed and counts as no verdict.
+
 Cancel, timeout and shutdown kill the container (`<runtime> kill`); on boot the receiver removes
 any container left from a previous process (labelled `agenthook.profile=<stateKey>`) before it
 fails the interrupted runs.
