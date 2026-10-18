@@ -76,8 +76,23 @@ Merge the branch yourself when you like it (`git merge agent/<ref>`).
 agenthook stop
 ```
 
-## Next
+## Next: connect your real board
 
-- Bind a real board (Asana, Jira, GitHub Issues or Projects): [Getting Started](getting-started.md).
-- Every config key: [configuration.md](configuration.md). How the local tracker works:
-  [providers.md § Local](providers.md#local-srctrackerslocaljs).
+Same pipeline, a real tracker. Each path is: put the token in `.env`, run `agenthook init` in the
+repo and pick the tracker, map your stages to steps, pick a stable ingress (a named `cloudflared`
+tunnel, `tailscale` or a `hosted` URL, see [configuration.md](configuration.md#ingress-how-the-webhook-reaches-you)),
+then `agenthook doctor` and `agenthook start`. The full walk-through is
+[Getting Started](getting-started.md).
+
+- **GitHub Issues.** `GITHUB_TOKEN` (`repo` + `admin:repo_hook`). Stages are labels such as
+  `agent:code` → `agent:review`. `start` creates the repo webhook for you.
+  [GitHub setup](github-setup.md) (a Projects v2 board: [Projects setup](github-projects-setup.md)).
+- **Linear.** `LINEAR_API_KEY` (a personal key). `init` lists your teams, then lets you pick the code
+  step's states from the team's real workflow. The team webhook is auto-created if the key's user is an
+  admin; otherwise `start` prints the manual setup. [Linear setup](linear-setup.md).
+- **Jira.** `JIRA_API_TOKEN` plus your account email in the config. Stages are workflow statuses.
+  Create the webhook by hand once, so the ingress URL must not rotate. [Jira setup](jira-setup.md).
+
+Asana works the same way: [Asana setup](asana-setup.md). Every config key:
+[configuration.md](configuration.md). How the local tracker works:
+[providers.md § Local](providers.md#local-srctrackerslocaljs).

@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Linear** tracker: one team's workflow states are the stages (`sourceStatus` & co.), with an
+  auto-created team webhook (manual setup printed when the key isn't an admin's), fail-closed
+  scoping and the `@agent` resume. Set `LINEAR_API_KEY`; see
+  [docs/linear-setup.md](docs/linear-setup.md) (#444).
+- **cloudflared** ingress: an account-less quick tunnel, or a named tunnel (`ingress.tunnel` +
+  `ingress.hostname`) for a stable URL; one process per profile, so parallel profiles don't
+  collide. See [docs/configuration.md](docs/configuration.md#ingress-how-the-webhook-reaches-you) (#445).
+- `agenthook doctor --fix` applies the safe, local fixes doctor finds (state-dir permissions, a
+  stale pidfile or control socket, missing instruction files, a missing worktree base, prunable
+  worktrees); `--dry-run` only lists them. A missing step instruction file is now reported as a
+  warning (#446).
 - Jira supports the `@agent` resume: an `@agent …` comment from the token owner on a held issue
   re-runs the held step with the reply in its prompt, behind the same fail-closed gate as Asana and
   GitHub. Tick **Comment → created** on the hand-made Jira webhook to enable it (#447).
@@ -16,6 +27,17 @@ All notable changes to this project are documented here. The format is based on
   now also subscribes to `issue_comment` (an existing hook is replaced on the next boot); a
   user-owned board, or a token without `admin:org_hook`, can use a repo webhook with the
   **Issue comments** event, whose setup `start` prints (#448).
+- **Tailscale Funnel** ingress (`ingress.type: "tailscale"`): this machine's stable `*.ts.net`
+  hostname, each profile mounted at its own path. `start` checks login, HTTPS certificates and the
+  Funnel attribute first. See [docs/configuration.md](docs/configuration.md#ingress-how-the-webhook-reaches-you) (#449).
+- **GitLab** forge: a merged MR from an `agent/<ref>` branch completes the task, a red pipeline is
+  retried once and then sent back for rework, and green CI is reported, as with the GitHub forge.
+  `init` picks it when `origin` is a GitLab remote. See [docs/gitlab.md](docs/gitlab.md) (#450).
+- **GitHub App** auth: an optional `auth: { "type": "app", … }` block on the GitHub trackers and
+  forge mints short-lived installation tokens from the App's key instead of a personal token; it
+  requires `tracker.assigneeLogin` as the human identity. A token-only config is unchanged. The
+  spike found that an App does not give user-owned Projects v2 boards a webhook. See
+  [docs/github-app.md](docs/github-app.md) (#451).
 
 ### Fixed
 
