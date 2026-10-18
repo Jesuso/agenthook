@@ -20,6 +20,7 @@ A factory `createXAdapter(cfg, store)` (in `src/trackers/`) returns an object wi
 | `registerWebhook(publicUrl)` | Create the project hook (called on `start`, or CLI `register`). |
 | `unregisterWebhooks()` | Delete this tracker's hooks (`start` boot-scrub when ingress is ephemeral; CLI `unregister`; `stop`). |
 | `forgeCatchup(ref)` *(optional)* | `{ path, body, headers, dedupKey, stepId? }` to replay a missed item (`catchup`/`reconcile`). `stepId` is the step the item's live stage maps to, or undefined when it rests in no source stage (so `catchup` can flag the no-op instead of POSTing a silently-dropped event). |
+| `onJobs(emit)` *(optional)* | An **in-process** event source for a tracker with no webhooks (`local`). The engine calls it once at boot with a sink that feeds intake; the adapter pushes the jobs its own stage moves cause. A job for a ref whose run hasn't settled yet is parked until it has. |
 | `wizardSteps()` *(optional)* | `WizardStep[]` for `agenthook init`; may hit the API so the user PICKS a workspace/project instead of pasting ids. |
 
 A **job** is `{ kind: 'pipeline', ref, stepId, dedupKey }`. The engine dedups on `dedupKey`, then
@@ -126,6 +127,18 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   GitHub-App-only), so `registerWebhook` just prints why. The URL is **fixed**, so pair this tracker
   with a **stable ingress** (ngrok reserved `domain`, or `hosted`) — never an ephemeral tunnel. The
   assignee "us" is the token owner's login (GraphQL `viewer`, cached); scoping is fail-closed.
+
+### Local (`src/trackers/local.js`)
+- No SaaS, no network: the board is `local-board.json` in the profile's data dir and a step binds
+  free-string stages via the Jira keys (`sourceStatus`/…). Stage changes **push jobs in-process** —
+  no webhook, no polling: every committed move (`advance`, `enterStage`) into a step's source stage,
+  a manual step's included, emits one job through `onJobs`, keyed `secmove:<n>` off a counter kept
+  in its own file (`local-seq.json`, so re-seeding the board never reuses a seen key). `ah run <ref>`
+  with the receiver up goes **through the live receiver** (its `run` control op) so the push lands
+  in the receiver's process; with it down the item just rests in the stage until `reconcile`.
+  `currentStage` reports only pipeline-bound stages, so an item in e.g. `backlog` can be `run`.
+  Unwired (no engine), nothing is pushed: the offline driver `docs/experiments/run-sweep.mjs` still
+  drives the pipeline by polling `listResting()`.
 
 ## Ingress interface
 

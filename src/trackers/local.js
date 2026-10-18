@@ -1,9 +1,13 @@
 // Local / offline tracker — no SaaS, no webhooks, no network. The "board" is a JSON
 // file in the profile's dataDir; a task's stage is a plain string that a step binds
 // via the Jira-style status keys (sourceStatus / successStatus / failureStatus /
-// holdStatus). advance() rewrites the stage in that file; there is no HTTP round-trip,
-// so the chaining that a webhook normally provides is driven by a caller that polls
-// listResting() (see docs/experiments/run-sweep.mjs).
+// holdStatus). advance()/enterStage() rewrite the stage in that file; there is no HTTP
+// round-trip, so the event a webhook normally delivers is PUSHED in-process instead: the
+// engine wires a sink via onJobs(), and every committed move into a step's source stage
+// (manual steps included — a `done` step needs its own job to drain) emits one job,
+// keyed `secmove:<n>` off a counter in its own file (local-seq.json). No polling. With no
+// sink wired (the offline driver, tests) nothing is pushed and a caller drives the
+// pipeline by polling listResting() (see docs/experiments/run-sweep.mjs).
 //
 // Why it exists: it lets the REAL engine/dispatcher/queue run end-to-end with zero
 // external side effects — useful for tests, demos, and offline evals (e.g. the #54
@@ -21,6 +25,40 @@ import { findStep } from "../pipeline.js";
 /** The board file backing a local profile. @param {import('../types.js').Config} cfg */
 export function localBoardPath(cfg) {
   return path.join(cfg.dataDir, "local-board.json");
+}
+
+/** The move-counter file. Apart from the board on purpose: seedBoard overwrites the board,
+ * and a counter reset with it would reuse `secmove:` keys already in seen.json (dropped moves).
+ * @param {import('../types.js').Config} cfg */
+export function localSeqPath(cfg) {
+  return path.join(cfg.dataDir, "local-seq.json");
+}
+
+/** Bump and persist the move counter; returns the new value. @param {import('../types.js').Config} cfg */
+function nextSeq(cfg) {
+  let n = 0;
+  try {
+    n = Number(JSON.parse(fs.readFileSync(localSeqPath(cfg), "utf8")).seq) || 0;
+  } catch {}
+  n++;
+  fs.mkdirSync(cfg.dataDir, { recursive: true });
+  fs.writeFileSync(localSeqPath(cfg), JSON.stringify({ seq: n }) + "\n");
+  return n;
+}
+
+/** The step (manual included) whose sourceStatus is `stage`. @param {import('../types.js').Config} cfg @param {string|undefined} stage */
+const stepSourcing = (cfg, stage) => (stage ? cfg.pipeline?.find((s) => s.sourceStatus === stage) : undefined);
+
+/**
+ * The job a task CREATED in `stage` carries (the "add ticket" path), keyed `step:<id>:<ref>`
+ * like a webhook tracker's created-in-section event — or null when no step sources `stage`.
+ * Push it through the adapter's onJobs sink; a refused enqueue un-marks the state key.
+ * @param {import('../types.js').Config} cfg @param {string} ref @param {string} stage
+ * @returns {import('../types.js').Job | null}
+ */
+export function createdJob(cfg, ref, stage) {
+  const step = stepSourcing(cfg, stage);
+  return step ? { kind: "pipeline", ref: String(ref), stepId: step.id, dedupKey: `step:${step.id}:${ref}` } : null;
 }
 
 /** @typedef {{ name: string, description?: string, url?: string, stage: string, [key: string]: any }} LocalItem */
@@ -81,20 +119,59 @@ export function createLocalAdapter(cfg, _store) {
   let chain = Promise.resolve();
   /** @param {(board: Record<string, LocalItem>) => void} mutate @returns {Promise<void>} */
   function update(mutate) {
-    chain = chain.then(() => {
+    const done = chain.then(() => {
       const board = readBoard(cfg);
       mutate(board);
       writeBoard(cfg, board);
     });
-    return chain;
+    chain = done.catch(() => {}); // a refused mutation (missing task) must not wedge later ones
+    return done;
+  }
+
+  // The engine's intake sink (onJobs); unset → moves push nothing (offline driver, tests).
+  /** @type {((jobs: import('../types.js').Job[]) => void) | null} */
+  let sink = null;
+  /**
+   * Move `ref` to `stage`, then — once the write has landed — push one job when a step
+   * sources the new stage. The counter bumps in the same serialized chain as the write.
+   * @param {string} ref @param {string} stage @param {boolean} [mustExist]  throw on a missing task
+   */
+  async function moveTo(ref, stage, mustExist = false) {
+    const step = sink ? stepSourcing(cfg, stage) : undefined;
+    /** @type {number|undefined} */
+    let seq;
+    await update((board) => {
+      const it = board[String(ref)];
+      if (!it) {
+        if (mustExist) throw new Error(`local: no task "${ref}" on the board`);
+        return;
+      }
+      it.stage = stage;
+      if (step) seq = nextSeq(cfg);
+    });
+    if (step && seq != null) sink?.([{ kind: "pipeline", ref: String(ref), stepId: step.id, dedupKey: `secmove:${seq}` }]);
   }
 
   /** @param {string} id */
   const stepById = (id) => findStep(cfg, id);
   /** Which non-manual step sources this stage (its sourceStatus)? @param {string|undefined} stage */
   const stepBySourceStage = (stage) => (stage ? pipeline?.find((s) => !s.manual && s.sourceStatus === stage) : undefined);
-  /** Is this stage terminal (a manual step's source, or bound to no non-manual step)? @param {string} stage */
-  const isTerminal = (stage) => !stepBySourceStage(stage);
+  /** Every stage the pipeline binds (any step's source/success/failure/hold/queue status). */
+  const boundStages = () => {
+    /** @type {Set<string>} */
+    const stages = new Set();
+    /** @type {Array<keyof import('../types.js').Step>} */
+    const keys = ["sourceStatus", "successStatus", "failureStatus", "holdStatus", "queueStatus"];
+    for (const step of pipeline || [])
+      for (const key of keys) {
+        const v = step[key];
+        if (typeof v === "string") stages.add(v);
+      }
+    return stages;
+  };
+  /** Is this stage terminal: pipeline-bound but sourcing no non-manual step (done, failure, hold)?
+   * An unbound stage (e.g. `backlog`) is not — the item has not entered the pipeline yet. @param {string} stage */
+  const isTerminal = (stage) => !stepBySourceStage(stage) && boundStages().has(stage);
 
   return {
     describe: () => ({
@@ -109,15 +186,7 @@ export function createLocalAdapter(cfg, _store) {
     // No network: the union of every …Status bound in the pipeline plus every stage
     // currently sitting on the board. id === label (stages are free strings here).
     async listStages() {
-      /** @type {Set<string>} */
-      const stages = new Set();
-      /** @type {Array<keyof import('../types.js').Step>} */
-      const keys = ["sourceStatus", "successStatus", "failureStatus", "holdStatus", "queueStatus"];
-      for (const step of pipeline || [])
-        for (const key of keys) {
-          const v = step[key];
-          if (typeof v === "string") stages.add(v);
-        }
+      const stages = boundStages();
       for (const it of Object.values(readBoard(cfg))) if (it.stage) stages.add(it.stage);
       return [...stages].map((s) => ({ id: s, label: s }));
     },
@@ -126,9 +195,14 @@ export function createLocalAdapter(cfg, _store) {
     // harness driving the server) doesn't 401.
     authenticate: () => ({ type: "accept" }),
 
-    // No webhooks — events never arrive over HTTP. The driver injects work by seeding
-    // the board and polling listResting(), so processEvents yields nothing.
+    // No webhooks — events never arrive over HTTP. They are pushed in-process through
+    // the onJobs sink instead (or, unwired, the driver polls listResting()).
     processEvents: async () => [],
+
+    /** @param {(jobs: import('../types.js').Job[]) => void} emit */
+    onJobs(emit) {
+      sink = emit;
+    },
 
     async fetchTask(ref) {
       const board = readBoard(cfg);
@@ -165,10 +239,7 @@ export function createLocalAdapter(cfg, _store) {
         console.log(`[advance] ${stepId} ${outcome}: no target stage — leaving ${ref} in place`);
         return;
       }
-      await update((board) => {
-        const it = board[String(ref)];
-        if (it) it.stage = /** @type {string} */ (stage);
-      });
+      await moveTo(ref, stage);
       console.log(`[stage] moved ${ref} -> ${stage} (${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""})`);
     },
 
@@ -177,17 +248,15 @@ export function createLocalAdapter(cfg, _store) {
       const step = stepById(stepId);
       if (!step || !step.sourceStatus) throw new Error(`local: step "${stepId}" has no sourceStatus to enter`);
       const source = step.sourceStatus;
-      await update((board) => {
-        const it = board[String(ref)];
-        if (!it) throw new Error(`local: no task "${ref}" on the board`);
-        it.stage = source;
-      });
+      await moveTo(ref, source, true);
       return { stage: source };
     },
 
+    // The pipeline-bound stage the task rests in, or null (an unbound stage like `backlog`
+    // is not "in the pipeline") — mirrors github.js, so `run` can enter a backlog item.
     async currentStage(ref) {
-      const board = readBoard(cfg);
-      return board[String(ref)]?.stage ?? null;
+      const stage = readBoard(cfg)[String(ref)]?.stage;
+      return stage && boundStages().has(stage) ? stage : null;
     },
 
     // Every task resting in a (non-manual) step's source stage, as a pipeline job for

@@ -8,11 +8,16 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createUiServer } from "../ui/server.js";
+import { uiBundleState } from "../ui-bundle.js";
 
 export const DEFAULT_PORT = 4180;
 
 /** The bundled frontend, resolved from the install dir (built by `npm run build:ui`). */
 const DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
+
+/** The frontend source, resolved from the install dir. Absent from an npm install (only
+ * `ui/dist` ships — see `files` in package.json); present in a dev checkout. */
+const SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 
 /** `--port` → a TCP port; absent → 4180. Throws on a missing/non-integer/out-of-range value.
  * @param {Record<string, any>} args */
@@ -51,6 +56,8 @@ function openBrowser(url) {
 export async function ui(args) {
   const port = uiPort(args);
   checkBundle(DIST_DIR);
+  const bundle = uiBundleState({ srcDir: SRC_DIR, distDir: DIST_DIR });
+  if (bundle.state === "stale") console.warn(`UI bundle is older than ui/src (${bundle.newest}) — run \`npm run build:ui\``);
   const token = crypto.randomBytes(32).toString("base64url");
   const server = createUiServer({ port, token, distDir: DIST_DIR });
   await new Promise((resolve, reject) => {

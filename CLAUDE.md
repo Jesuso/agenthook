@@ -103,7 +103,9 @@ Key files:
   optional `wizardSteps` (powers `init` live discovery), optional `listQueued(stepId)` (refs in the
   step's queue stage, board order, filtered like `listResting` — not `store.listQueued`, which is
   the local `queue.json`), optional `openBlockers(ref)` (unresolved blockers, fail-open; `dispatch.js`
-  re-checks it at run time so a dependency added while a job waited in the local queue still gates it).
+  re-checks it at run time so a dependency added while a job waited in the local queue still gates it),
+  optional `onJobs(emit)` (an in-process event source — `local` only, no webhooks: the engine wires a
+  sink at boot; `createPushSink` parks a ref's pushed job until its current run settles).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
@@ -119,15 +121,18 @@ Key files:
   the log tail as a **PR comment only** (never into findings/prompts — the PR head controls it) and
   bounces `changes` → `forge.ciTarget` (default the `createsWorktree` step) through the shared
   `guardChanges` cap, parking it (`store.setCiRed`) while a step runs on the ref.
-- `src/dispatch.js` — builds the prompt (the step's standing instructions + `stepPrompt` base joined
-  by the `=== TICKET ===` marker), injects `AGENTHOOK_VERDICT_FILE`, spawns `claude -p` (the
-  receiver-owned worktree as `cwd` when the step has one), streams to a per-run log, then reads the
-  verdict file and resolves the section via `adapter.advance` on exit. **Verdict**: non-zero exit →
-  `fail`; clean exit + valid file → its outcome; clean exit + no file → `advance`. `changes` is
-  capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A `merge` job
-  spawns no agent: fail-closed assignee check → `adapter.enterStage` into the `completeOnMerge`
-  (manual) step (its own webhook then drains + emits `pipeline_done`) → optional `adapter.complete`
-  (Asana: `completed:true`) → emit `merged`.
+- `src/dispatch.js` — a one-line re-export shim (the public path every importer uses) over
+  `src/dispatch/`, split by concern around one per-dispatcher state object (`context.js` typedefs;
+  `index.js` = `createDispatcher` wiring + `runClaude`/`cancel`): `prompt.js`/`verdict.js`/`pr.js`
+  pure helpers, factories `spawn.js` (spawn, log streaming, timeouts/kill), `usage.js` (finalize,
+  energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
+  prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
+  `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`). **Verdict**:
+  non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `advance`.
+  `changes` is capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A
+  `merge` job spawns no agent: fail-closed assignee check → `adapter.enterStage` into the
+  `completeOnMerge` (manual) step (its own webhook then drains + emits `pipeline_done`) → optional
+  `adapter.complete` (Asana: `completed:true`) → emit `merged`.
 - `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`, `hermes`, `opencode`). Interface
   `AgentAdapter` (`src/types.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
   file, not argv, e.g. hermes' `--query-file`), `buildArgs`, `createParser` (stdout → log text + tally +

@@ -4,9 +4,14 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // plus the multi-repo routing lints.
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck } from "../src/commands/doctor.js";
 import { worktreeDir } from "../src/paths.js";
+import { uiBundleState } from "../src/ui-bundle.js";
+
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-doctor-"));
 
 test("unfilledBindings: clean pipeline has no offenders", () => {
   const pipeline = [
@@ -185,4 +190,54 @@ test("portCheck: free + up → ok", () => {
 test("portCheck: busy + up but heartbeat on a different port → fail", () => {
   const r = portCheck({ port: 4180, busy: true, profile: { up: true, pid: 123, heartbeatPort: 9999 } });
   assert.equal(r.level, "fail");
+});
+
+test("uiBundleState: no ui/src → no-src, quiet even with no dist", () => {
+  const srcDir = path.join(tmp(), "absent-src");
+  const distDir = tmp();
+  assert.deepEqual(uiBundleState({ srcDir, distDir }), { state: "no-src" });
+});
+
+test("uiBundleState: ui/src present, no dist/index.html → missing", () => {
+  const srcDir = tmp();
+  fs.writeFileSync(path.join(srcDir, "App.tsx"), "x");
+  const distDir = tmp();
+  assert.deepEqual(uiBundleState({ srcDir, distDir }), { state: "missing" });
+});
+
+test("uiBundleState: a src file newer than dist/index.html → stale, names it", () => {
+  const srcDir = tmp();
+  const distDir = tmp();
+  const indexPath = path.join(distDir, "index.html");
+  fs.writeFileSync(indexPath, "<!doctype html>");
+  const old = new Date(Date.now() - 10000);
+  fs.utimesSync(indexPath, old, old);
+  const appPath = path.join(srcDir, "App.tsx");
+  fs.writeFileSync(appPath, "x");
+  const r = uiBundleState({ srcDir, distDir });
+  assert.equal(r.state, "stale");
+  assert.equal(r.newest, "App.tsx");
+});
+
+test("uiBundleState: only a newer *.test.tsx → fresh (test files aren't bundled)", () => {
+  const srcDir = tmp();
+  const distDir = tmp();
+  const indexPath = path.join(distDir, "index.html");
+  fs.writeFileSync(indexPath, "<!doctype html>");
+  const old = new Date(Date.now() - 10000);
+  fs.utimesSync(indexPath, old, old);
+  fs.writeFileSync(path.join(srcDir, "App.test.tsx"), "x");
+  assert.equal(uiBundleState({ srcDir, distDir }).state, "fresh");
+});
+
+test("uiBundleState: everything older than dist → fresh", () => {
+  const srcDir = tmp();
+  const distDir = tmp();
+  const appPath = path.join(srcDir, "App.tsx");
+  fs.writeFileSync(appPath, "x");
+  const old = new Date(Date.now() - 10000);
+  fs.utimesSync(appPath, old, old);
+  const indexPath = path.join(distDir, "index.html");
+  fs.writeFileSync(indexPath, "<!doctype html>");
+  assert.equal(uiBundleState({ srcDir, distDir }).state, "fresh");
 });

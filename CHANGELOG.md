@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `RELEASING.md` — release cadence, checklist, and the config compatibility policy (a key whose
+  meaning or default changes, or that's removed, gets a deprecation warning at config load for at
+  least one minor release before the change).
+- `ah doctor` and `ah ui` warn (⚠) when the built `ui/dist` bundle is missing or older than
+  `ui/src` — previously a stale bundle was served silently.
+
 ## [0.7.0] — 2026-10-18
 
 ### Added
