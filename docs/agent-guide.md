@@ -86,11 +86,12 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 
 `events` item: `{"ts","e":"run_end","ref":"123","step":"code","outcome":"advance","costUsd":0.33}`
 (a local-model, Cursor or Hermes run has `"unpriced":true` and no `costUsd`; when its model has a
-rate it carries `"estUsd"` and `"costBasis":"rate-table"` instead — a reported run has `"costBasis":"reported"`);
+rate it carries `"estUsd"` and `"costBasis":"rate-table"` instead — a reported run has `"costBasis":"reported"`;
+a step with `energy:true` adds measured `"energyKwh"`, `"energyUsd"`, `"energySource"` — electricity, never part of either dollar figure);
 `reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
-`runs {ref, tail?}` → `{runs:[{run,step,at,outcome,costUsd,estUsd?,costBasis?,running?,summary?}], log?}`. `tail:N` adds the
+`runs {ref, tail?}` → `{runs:[{run,step,at,outcome,costUsd,estUsd?,costBasis?,energyKwh?,energyUsd?,running?,summary?}], log?}`. `tail:N` adds the
 last N transcript lines of the newest run (or `step` / `run`): the way to see *why* an agent held
 or failed. `summary` is the free-form object the agent wrote in its verdict (e.g. a reviewer's risk
 tier — its shape is whatever the project's instructions ask for); it appears only on the run that

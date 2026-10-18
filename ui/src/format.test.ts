@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatModel } from "./format";
+import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatModel, formatTicketSpend } from "./format";
 
 describe("formatUp", () => {
   it("reads up, with pid and port only in the tooltip", () => {
@@ -166,5 +166,14 @@ describe("formatModel", () => {
   });
   it("renders null as an em dash", () => {
     expect(formatModel(null)).toEqual({ text: "—" });
+  });
+});
+
+describe("formatTicketSpend", () => {
+  it("appends measured energy beside the spend, never summed; energy alone stands alone", () => {
+    expect(formatTicketSpend({ costUsd: 1.2 })).toBe("$1.20");
+    expect(formatTicketSpend({ costUsd: 1.2, energyKwh: 0.0019, energyUsd: 0.00029 })).toBe("$1.20 · energy $0.00029 (1.9 Wh)");
+    expect(formatTicketSpend({ costUsd: 0, energyKwh: 0.0019, energyUsd: 0.00029 })).toBe("energy $0.00029 (1.9 Wh)");
+    expect(formatTicketSpend({ costUsd: 0 })).toBe("—");
   });
 });

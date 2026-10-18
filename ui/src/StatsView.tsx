@@ -3,6 +3,7 @@ import type { DayStats, ProfileView, StatsView as StatsData } from "./contract";
 import { Segmented, ProfileMark } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
+import { formatEnergy } from "../../src/energy.js";
 import { latestChange, shortDate, statsUrl } from "./stats";
 import { axisDollars } from "./statsChart";
 import { DOWN, UP, calendarModel, divergingModel, nearestDay, rangeModel, stackedModel } from "./statsModels";
@@ -193,12 +194,14 @@ export function Stacked({ days }: { days: DayStats[] }) {
       {d && (
         <Tip x={m.centers[hover]} width={w}>
           <div className="font-medium">{shortDate(d.date)}</div>
-          {Object.entries(d.byStep).filter(([, v]) => v.costUsd + (v.estUsd ?? 0) > 0).sort((a, b) => b[1].costUsd + (b[1].estUsd ?? 0) - a[1].costUsd - (a[1].estUsd ?? 0)).map(([k, v]) => (
+          {Object.entries(d.byStep).filter(([, v]) => v.costUsd + (v.estUsd ?? 0) > 0 || (v.energyKwh ?? 0) > 0).sort((a, b) => b[1].costUsd + (b[1].estUsd ?? 0) - a[1].costUsd - (a[1].estUsd ?? 0)).map(([k, v]) => (
             <div key={k} className="font-mono text-muted">
               {k} {formatSpend({ reported: v.costUsd, est: v.estUsd })} · {v.runs} runs
+              {(v.energyKwh ?? 0) > 0 && ` · ${formatEnergy(v)}`}
             </div>
           ))}
           {!d.costUsd && !d.estUsd && <div className="font-mono text-muted">no spend</div>}
+          {(d.energyKwh ?? 0) > 0 && <div className="font-mono text-muted" data-day-energy>{formatEnergy(d)}</div>}
           {d.unestimatedRuns > 0 && <div className="font-mono text-faint">{d.unestimatedRuns} run{d.unestimatedRuns === 1 ? "" : "s"} no estimate</div>}
         </Tip>
       )}

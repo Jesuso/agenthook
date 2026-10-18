@@ -71,6 +71,8 @@ const GROUPS = [
   ["RepoConfig", ["repos", "*"], [...typedefProps("RepoConfig").keys()]],
   ["Config.ui", ["ui"], literalKeys(config.get("ui") ?? "")],
   ["Config.digest", ["digest"], literalKeys(config.get("digest") ?? "")],
+  ["Config.energy", ["energy"], literalKeys(config.get("energy") ?? "")],
+  ["Config.energy.source", ["energy", "source"], literalKeys((config.get("energy") ?? "").slice((config.get("energy") ?? "").indexOf("source:")))],
   ["Step.lite", [...STEP, "lite"], literalKeys(stepProps.get("lite") ?? "")],
   ["Step.escalate", [...STEP, "escalate", "*"], literalKeys(stepProps.get("escalate") ?? "")],
 ];
@@ -83,6 +85,8 @@ test("the typedef parser is non-trivial (a regex change can't make the drift tes
   const find = (/** @type {string} */ label) => GROUPS.find((g) => g[0] === label)?.[2];
   assert.deepEqual(find("Config.ui"), ["color", "emoji"]);
   assert.deepEqual(find("Config.digest"), ["soul", "access", "model", "maxBudgetUsd"]);
+  assert.deepEqual(find("Config.energy"), ["usdPerKwh", "source"]);
+  assert.deepEqual(find("Config.energy.source"), ["type", "name", "cmd", "watts"]);
   assert.deepEqual(find("Step.lite"), ["descriptionHeadings", "model", "effort"]);
   assert.deepEqual(find("Step.escalate"), ["model", "effort"]);
 });

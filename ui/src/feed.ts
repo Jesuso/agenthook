@@ -1,5 +1,6 @@
 import type { TicketStatus, UiEvent } from "./contract";
 import { shortRef } from "./format";
+import { formatEnergy } from "../../src/energy.js";
 
 export const FEED_MAX = 200;
 
@@ -45,6 +46,8 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       text = `${event.step ?? "?"} ${word}`;
       if (typeof event.costUsd === "number" && event.unpriced !== true) text += ` · $${event.costUsd.toFixed(2)}`;
       else if (typeof event.estUsd === "number") text += ` · ~$${event.estUsd.toFixed(2)} est.`;
+      const energy = formatEnergy(event);
+      if (energy) text += ` · ${energy}`;
       break;
     }
     case "enqueued": {

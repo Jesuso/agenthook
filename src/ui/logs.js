@@ -59,12 +59,22 @@ const stampOf = (name) => {
   return m ? `${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z` : null;
 };
 
+/** A run_end's measured energy (src/energy.js), when it has a finite one; else `{}`.
+ * @param {Record<string, any>|null} end @returns {{ energyKwh?: number, energyUsd?: number }} */
+function energyOf(end) {
+  const kWh = end?.energyKwh;
+  if (typeof kWh !== "number" || !Number.isFinite(kWh) || kWh < 0) return {};
+  const usd = end?.energyUsd;
+  return { energyKwh: kWh, energyUsd: typeof usd === "number" && Number.isFinite(usd) && usd >= 0 ? usd : 0 };
+}
+
 /**
  * A ref's runs, newest first. `outcome`/`costUsd` come from the first `run_end` for the same
  * (ref, step) at or after the log's stamp and before that step's next run; null when it isn't
  * in `events` (still running, or older than the events tail). `running` = no outcome yet, it's
  * the ref's newest run, and running.json has the ref on that step. `estUsd`/`costBasis` follow
- * src/pricing.js `costOf` (the run_end's stamp, else the profile's rates).
+ * src/pricing.js `costOf` (the run_end's stamp, else the profile's rates); `energyKwh`/`energyUsd`
+ * ride along when the run was measured (src/energy.js).
  * @param {string} registry @param {string} profile @param {string} ref
  * @param {Record<string, any>[]} events  the profile's events tail, oldest first
  * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
@@ -127,6 +137,7 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
       unpriced: !!end && end.unpriced === true,
       estUsd: c.estUsd ?? null,
       costBasis: c.costBasis ?? null,
+      ...energyOf(end),
       endedAt: end && typeof end.ts === "string" ? end.ts : null,
       running: !end && i === found.length - 1 && !!cur && cur.stepId === r.step,
       bytes: r.bytes,

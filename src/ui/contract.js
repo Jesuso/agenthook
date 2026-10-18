@@ -7,7 +7,7 @@
 
 /**
  * Config paths whose change the audit line names and the config editor confirms twice: the
- * agent's permission mode, binary and per-step binary/env, the tracker identity that scopes which items are ours,
+ * agent's permission mode, binary and per-step binary/env, the energy command (it runs a shell command), the tracker identity that scopes which items are ours,
  * and every src/config.js SECRET_FIELDS path (a test keeps that list a subset of this one).
  * `[*]` expands every element of an array.
  */
@@ -27,6 +27,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "sinks[*].botToken",
   "tracker.pipeline[*].bin",
   "tracker.pipeline[*].env",
+  "energy.source.cmd",
 ]);
 
 /**
@@ -102,6 +103,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} startedAt
  * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)
  * @property {number} estUsd              sum of the tail's rate-table estimates (runs with no reported cost; src/pricing.js), never in costUsd
+ * @property {number} [energyKwh]         sum of the tail's measured energy (src/energy.js); absent when no run was measured
+ * @property {number} [energyUsd]         its dollars — a third figure beside costUsd/estUsd, never in either
  * @property {string|null} trackerUrl     refmeta.url
  * @property {string|null} prUrl          https://github.com/<repository>/pull/<refmeta.pr>
  * @property {string|null} heldReason
@@ -160,6 +163,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {boolean} unpriced           run_end.unpriced: no real cost (non-Claude agent or local model; costUsd null)
  * @property {number|null} estUsd         rate-table estimate (src/pricing.js `costOf`) when nothing was reported; never in costUsd
  * @property {'reported'|'rate-table'|null} costBasis  which figure stands for the run; null = no cost and no estimate
+ * @property {number} [energyKwh]         measured energy (an `energy: true` step, src/energy.js); absent when unmeasured — never in costUsd/estUsd
+ * @property {number} [energyUsd]         its dollars at the profile's `energy.usdPerKwh`
  * @property {boolean} running            no outcome yet, newest run, and running.json has it
  * @property {number} bytes               log size when listed
  */

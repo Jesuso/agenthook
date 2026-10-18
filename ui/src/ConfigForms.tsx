@@ -17,6 +17,8 @@ import {
   envRows,
   pricingEdit,
   pricingErrors,
+  energyEdit,
+  readEnergy,
   pricingRows,
   quotaErrors,
   readQuotaConfig,
@@ -73,6 +75,7 @@ import type { SchemaEntry } from "../../src/config-schema.js";
 import { SECRET_FIELDS } from "../../src/ui/sensitive.js";
 import { sinkErrors } from "../../src/sinks-config.js";
 import { digestErrors } from "../../src/digest-config.js";
+import { energyErrors } from "../../src/energy.js";
 import { HelpTip, ProfileMark } from "./components";
 import { ConfirmContext } from "./Modal";
 
@@ -1004,6 +1007,7 @@ export function PipelineForm(
                       {(s.manual !== true || s.requireVerdict !== undefined) && (
                         <CheckField {...edit} path={at("requireVerdict")} value={s.requireVerdict} />
                       )}
+                      {(s.manual !== true || s.energy !== undefined) && <CheckField {...edit} path={at("energy")} value={s.energy} />}
                     </div>
                     <div className={FIELD_GRID_3}>
                       <SelectField {...edit} path={at("agent")} value={s.agent} />
@@ -1444,7 +1448,7 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
 
 /**
  * The Integrations tab: the `sinks` list (add / remove / reorder, per-type fields, event filter),
- * the optional `digest` block (an emptied block is removed, like `identityEdit`'s `ui`) and the
+ * the optional `digest` block (an emptied block is removed, like `identityEdit`'s `ui`), `pricing`, `energy` and the
  * `overlapGuard` opt-in. Each group lists its own client checks; the server's 422 stays authoritative.
  */
 export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: CardHooks }) {
@@ -1455,6 +1459,9 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
   const raw = props.raw as Record<string, unknown> | null;
   const sinkErrs = sinkErrors(raw?.sinks);
   const budget = fieldMeta(["digest", "maxBudgetUsd"]).entry!;
+  const energy = readEnergy(props.raw);
+  const source = energy && typeof energy.source === "object" && energy.source && !Array.isArray(energy.source) ? (energy.source as Record<string, unknown>) : undefined;
+  const energyEdits = { text: props.text, onEdit: (next: string) => props.onEdit(energyEdit(props.text, next)) };
   const quota = readQuotaConfig(props.raw);
   const quotaEdit = { text: props.text, onEdit: (next: string) => props.onEdit(dropEmptyBlock(next, "quota")) };
   return (
@@ -1502,6 +1509,21 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
         </p>
         <PricingField {...edit} pricing={raw?.pricing} />
         <ErrorList errors={pricingErrors(raw?.pricing)} />
+      </div>
+      <div className={PANEL} data-energy-panel>
+        <h3 className="text-sm font-semibold">Energy</h3>
+        <p className={NOTE}>
+          Steps that set <span className="font-mono">energy</span> record their runs&apos; electricity, shown as{" "}
+          <span className="font-mono">energy $x (y Wh)</span> beside the cost or estimate and never added to it. Gross draw incl. idle; hwmon reads the GPU only.
+        </p>
+        <div className={FIELD_GRID}>
+          <NumberField {...energyEdits} path={["energy", "usdPerKwh"]} value={energy?.usdPerKwh} />
+          <SelectField {...energyEdits} path={["energy", "source", "type"]} value={source?.type} />
+          {(source?.type === "hwmon" || source?.name !== undefined) && <TextField {...energyEdits} path={["energy", "source", "name"]} value={source?.name} />}
+          {(source?.type === "command" || source?.cmd !== undefined) && <TextField {...energyEdits} path={["energy", "source", "cmd"]} value={source?.cmd} />}
+          {(source?.type === "watts" || source?.watts !== undefined) && <NumberField {...energyEdits} path={["energy", "source", "watts"]} value={source?.watts} />}
+        </div>
+        <ErrorList errors={energyErrors(raw?.energy)} />
       </div>
       <div className={PANEL} data-quota-panel>
         <h3 className="text-sm font-semibold">Quota pacing</h3>

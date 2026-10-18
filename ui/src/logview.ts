@@ -1,5 +1,6 @@
 import type { LogFrame, RunView, TicketStatus, UiEvent } from "./contract";
 import { formatCost } from "./format";
+import { formatEnergy } from "../../src/energy.js";
 
 /** Retained-line cap: the oldest lines drop past this so a huge log can't exhaust memory. */
 export const MAX_LINES = 50_000;
@@ -99,11 +100,19 @@ export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
 /**
  * A run's cost cell: the reported cost; else "~$x est." — a rate-table estimate (src/pricing.js),
  * for a non-Claude agent or a local model; else "unpriced" (no real cost and no rate), "—" when none.
+ * A measured run (src/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
  */
-export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial<Pick<RunView, "estUsd">>): string {
-  if (!r.unpriced && r.costUsd) return formatCost(r.costUsd);
-  if (typeof r.estUsd === "number" && r.estUsd > 0) return `~${formatCost(r.estUsd)} est.`;
-  return r.unpriced ? "unpriced" : formatCost(r.costUsd ?? 0);
+export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial<Pick<RunView, "estUsd" | "energyKwh" | "energyUsd">>): string {
+  const cost =
+    !r.unpriced && r.costUsd
+      ? formatCost(r.costUsd)
+      : typeof r.estUsd === "number" && r.estUsd > 0
+        ? `~${formatCost(r.estUsd)} est.`
+        : r.unpriced
+          ? "unpriced"
+          : formatCost(r.costUsd ?? 0);
+  const energy = formatEnergy(r);
+  return energy ? `${cost} · ${energy}` : cost;
 }
 
 /** A run's outcome in the status colour language. */

@@ -1,6 +1,7 @@
 import type { ProfileView, TicketRow } from "./contract";
 
 import { formatSpend } from "../../src/pricing.js";
+import { formatEnergy } from "../../src/energy.js";
 import { formatQuota } from "../../src/quota.js";
 import type { QuotaTrip } from "./contract";
 
@@ -86,9 +87,14 @@ export function formatCost(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-/** A ticket's spend cell: "$1.20", "~$0.40 est.", "$1.20 + ~$0.40 est.", "—" when neither. */
-export function formatTicketSpend(t: Pick<TicketRow, "costUsd"> & Partial<Pick<TicketRow, "estUsd">>): string {
-  return formatSpend({ reported: Number.isFinite(t.costUsd) ? t.costUsd : 0, est: t.estUsd ?? 0 }) || "—";
+/**
+ * A ticket's spend cell: "$1.20", "~$0.40 est.", "$1.20 + ~$0.40 est.", "—" when neither; a ticket
+ * with measured runs (src/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
+ */
+export function formatTicketSpend(t: Pick<TicketRow, "costUsd"> & Partial<Pick<TicketRow, "estUsd" | "energyKwh" | "energyUsd">>): string {
+  const spend = formatSpend({ reported: Number.isFinite(t.costUsd) ? t.costUsd : 0, est: t.estUsd ?? 0 });
+  const energy = formatEnergy(t);
+  return spend && energy ? `${spend} · ${energy}` : spend || energy || "—";
 }
 
 /** "2026-10-08" / "?" — the date part of an ISO timestamp. */

@@ -46,6 +46,7 @@
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
  * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
+ * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over process.env (AGENTHOOK_VERDICT_FILE is reserved)
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
@@ -176,6 +177,9 @@
  * @property {true} [unpriced]     local model (step `bin` or a non-Claude model): `costUsd` is not real spend
  * @property {number} [estUsd]     rate-table estimate (src/pricing.js `costOf`), stamped at write time; absent on a reported run or with no rate/tokens
  * @property {'reported'|'rate-table'} [costBasis]  which figure stands for this run: `costUsd` (reported) or `estUsd` (rate-table)
+ * @property {number} [energyKwh]   measured energy of an `energy: true` step's run (src/energy.js; 1e-9 kWh), its share of machine power; absent when unmeasured
+ * @property {number} [energyUsd]   energyKwh × the profile's `energy.usdPerKwh` (1e-6 $) — a third figure, never in costUsd/estUsd
+ * @property {'hwmon'|'command'|'watts'} [energySource]  the `energy.source.type` that measured it
  */
 
 /**
@@ -500,6 +504,7 @@
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
  * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config
  * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/pricing.js); checked before the built-in Claude rates
+ * @property {{ usdPerKwh: number, source: { type: 'hwmon'|'command'|'watts', name?: string, cmd?: string, watts?: number } }} [energy]  local energy basis (src/energy.js): the power source an `energy: true` step's runs are measured with, and the electricity price
  * @property {{ pauseAboveSevenDay?: number, pauseAboveFiveHour?: number }} [quota]  opt-in Claude quota pacer (src/quota.js): pause admission at/above a window's utilization (0–1], resume at its reset
  * @property {number} port
  * @property {string} trigger

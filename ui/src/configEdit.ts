@@ -592,6 +592,31 @@ export function pricingEdit(text: string, rows: PricingRow[]): string {
   return setPath(text, ["pricing"], value);
 }
 
+/** The `energy` block when it is an object, else undefined. */
+export function readEnergy(raw: unknown): Record<string, unknown> | undefined {
+  return isObj(raw) && isObj(raw.energy) ? raw.energy : undefined;
+}
+
+/**
+ * An `energy` edit's cleanup: an emptied `energy.source` is removed, then an emptied `energy`
+ * (like `dropEmptyBlock`'s digest). A source `type` change also drops the old type's own key, so
+ * switching hwmon → watts never leaves a stray `name` for `energyErrors` to reject.
+ */
+export function energyEdit(text: string, next: string): string {
+  const before = JSON.parse(text);
+  const raw = JSON.parse(next);
+  const was = isObj(before) && isObj(before.energy) && isObj(before.energy.source) ? before.energy.source.type : undefined;
+  const src = isObj(raw) && isObj(raw.energy) && isObj(raw.energy.source) ? raw.energy.source : undefined;
+  let out = next;
+  if (src && src.type !== was) {
+    const own: Record<string, string> = { hwmon: "name", command: "cmd", watts: "watts" };
+    for (const [t, k] of Object.entries(own)) if (t !== src.type && src[k] !== undefined) out = setPath(out, ["energy", "source", k], undefined);
+  }
+  const after = JSON.parse(out);
+  if (isObj(after) && isObj(after.energy) && isObj(after.energy.source) && Object.keys(after.energy.source).length === 0) out = setPath(out, ["energy", "source"], undefined);
+  return dropEmptyBlock(out, "energy");
+}
+
 /** The `quota` block when it is an object, else undefined. */
 export function readQuotaConfig(raw: unknown): Record<string, unknown> | undefined {
   return isObj(raw) && isObj(raw.quota) ? raw.quota : undefined;

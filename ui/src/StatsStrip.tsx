@@ -3,6 +3,7 @@ import type { StatsView } from "./contract";
 import { Segmented } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatSpend } from "./format";
+import { formatEnergy } from "../../src/energy.js";
 import { DEFAULT_RANGE, RANGES, latestChange, shortDate, statsUrl, summarizeStats } from "./stats";
 import type { Range } from "./stats";
 
@@ -49,6 +50,7 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
           <p className="mb-1 font-mono text-label" data-stats-total>
             {sum.finished} finished <span className="text-muted">({sum.avgFinished.toFixed(1)}/day)</span> · {formatSpend({ reported: sum.costUsd, est: sum.estUsd }) || "$0"}
             {sum.finished > 0 && sum.costUsd + sum.estUsd > 0 && <span className="text-muted"> ({formatSpend({ reported: sum.costUsd / sum.finished, est: sum.estUsd / sum.finished })}/ticket)</span>}
+            {sum.energyKwh > 0 && <span className="text-muted" data-stats-energy> · {formatEnergy(sum)}</span>}
             {sum.unestimatedRuns > 0 && <span className="text-faint" data-stats-unestimated> · {sum.unestimatedRuns} run{sum.unestimatedRuns === 1 ? "" : "s"} no estimate</span>}
           </p>
           <Suspense fallback={<div className="h-[210px]" aria-hidden="true" />}>

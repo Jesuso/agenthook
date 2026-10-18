@@ -33,6 +33,10 @@ Estimates are always shown apart from reported cost (`$0.2500 + ~$0.1000 est.`);
 or a run with zero tokens gets no estimate and is counted as such. See
 [Agents → Estimated cost](agents.md#estimated-cost-estusd).
 
+A step with `"energy": true` also records its run's **measured electricity** (`energyKwh`,
+`energyUsd`), shown as a third figure (`$0.0100 · energy $0.00029 (1.9 Wh)`) and totalled on its own
+`energy total:` line. See [Local models → Energy](local-models.md#energy).
+
 ## Where records live
 
 `usage.jsonl` sits in the central state directory for the profile:
@@ -61,6 +65,9 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `unpriced`    | `true`?  | Local-model run: `costUsd` is kept for audit but left out of every spend total |
 | `costBasis`   | string?  | `reported` (a priced run's `costUsd`) or `rate-table` (an `estUsd` estimate) |
 | `estUsd`      | number?  | An unpriced run's API-equivalent estimate; never added to `costUsd` |
+| `energyKwh`   | number?  | Measured energy of a step with `energy: true` ([Local models → Energy](local-models.md#energy)) |
+| `energyUsd`   | number?  | `energyKwh` × `energy.usdPerKwh`; never added to `costUsd` or `estUsd` |
+| `energySource`| string?  | `hwmon`, `command` or `watts` |
 
 ## `ah usage`
 

@@ -19,6 +19,7 @@ import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
 import { pricingErrors } from "./pricing.js";
+import { energyErrors } from "./energy.js";
 import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
@@ -448,6 +449,15 @@ export function validateRawConfig(raw) {
         errors.push(`config: pipeline step "${sid}" isolated has no effect on a manual step (no agent runs).`);
       }
     }
+    if (step.energy != null) {
+      if (typeof step.energy !== "boolean") {
+        errors.push(`config: pipeline step "${sid}" energy must be true or false.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" energy has no effect on a manual step (no agent runs).`);
+      } else if (step.energy && cfg.energy == null) {
+        errors.push(`config: pipeline step "${sid}" energy:true needs a profile "energy" block ({usdPerKwh, source}).`);
+      }
+    }
     if (step.env != null) {
       if (typeof step.env !== "object" || Array.isArray(step.env)) {
         errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
@@ -496,6 +506,7 @@ export function validateRawConfig(raw) {
   errors.push(...identityErrors(cfg.ui));
   errors.push(...digestErrors(cfg.digest));
   errors.push(...pricingErrors(cfg.pricing));
+  errors.push(...energyErrors(cfg.energy));
   errors.push(...quotaErrors(cfg.quota));
 
   // Optional forge axis (PR awareness). Absent = undefined, nothing changes.

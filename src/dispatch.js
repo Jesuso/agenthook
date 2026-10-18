@@ -17,6 +17,8 @@ import { CANCELLED_REASON, reportMoveFailure } from "./events.js";
 import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
 import { agentFor } from "./agents/index.js";
 import { costOf } from "./pricing.js";
+import { energyFields } from "./energy.js";
+import { createEnergySampler } from "./energy-sampler.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
 // before a `changes` loop back into it is forced to fail. Caps an endless code↔review
@@ -218,12 +220,17 @@ const readInstructions = (file) => {
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
  * @param {import('./types.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
- * @param {{killGraceMs?: number, onQuota?: (q: import('./quota.js').QuotaReading) => void}} [opts]  killGraceMs: test hook,
- *   SIGTERM→SIGKILL grace for a timed-out agent; onQuota: the subscription-quota reading a run's agent
- *   reported (claude only), stamped with `asOf` — the engine persists it and feeds the pacer
+ * @param {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof createEnergySampler>, "start"|"stop">, onQuota?: (q: import('./quota.js').QuotaReading) => void}} [opts]
+ *   test hooks: SIGTERM→SIGKILL grace for a timed-out agent, the post-exit usage-export bound, the energy sampler;
+ *   onQuota: the subscription-quota reading a run's agent reported (claude only), stamped with `asOf` — the engine
+ *   persists it and feeds the pacer
  */
 export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, opts = {}) {
   const killGraceMs = opts.killGraceMs ?? KILL_GRACE_MS;
+  const finalizeTimeoutMs = opts.finalizeTimeoutMs ?? FINALIZE_TIMEOUT_MS;
+  // Energy (#396): one sampler for every opted-in run, so overlapping runs split the machine's
+  // power by time share instead of each counting all of it. Absent without a profile `energy`.
+  const energySampler = opts.energySampler ?? (cfg.energy ? createEnergySampler({ source: cfg.energy.source }) : null);
   const meta = adapter.describe();
   // Refs with a pipeline job in runClaude (spawn through advance). A red-CI bounce for a
   // busy ref is parked (store.setCiRed) instead of racing that job's own advance.
@@ -465,9 +472,13 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     if (!agent.finalize) return null;
     const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
     const dir = path.join(cfg.dataDir, "exports", `${safeRef}-${stepId}`);
-    fs.mkdirSync(dir, { recursive: true });
+    // Set once the race below resolves: a late rejection (execFile's own kill at the same
+    // timeout) after our timer already warned must not log a second line.
+    let settled = false;
     /** @param {string} reason */
     const warn = (reason) => {
+      if (settled) return;
+      settled = true;
       const msg = `[agenthook] hermes usage export failed: ${reason}`;
       console.error(msg);
       try {
@@ -478,13 +489,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     };
     const TIMED_OUT = Symbol("finalize-timeout");
     try {
+      fs.mkdirSync(dir, { recursive: true });
       /** @type {NodeJS.Timeout|undefined} */
       let timer;
       const timeout = new Promise((resolve) => {
-        timer = setTimeout(() => resolve(TIMED_OUT), FINALIZE_TIMEOUT_MS);
+        timer = setTimeout(() => resolve(TIMED_OUT), finalizeTimeoutMs);
       });
       const run = agent
-        .finalize({ sessionId, bin: bin || agent.defaults.bin || cfg.claudeBin, env: agentSpawnEnv(agentEnv, env), dir, timeoutMs: FINALIZE_TIMEOUT_MS })
+        .finalize({ sessionId, bin: bin || agent.defaults.bin || cfg.claudeBin, env: agentSpawnEnv(agentEnv, env), dir, timeoutMs: finalizeTimeoutMs })
         .catch((e) => {
           warn(e.message);
           return null;
@@ -492,16 +504,58 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       const result = await Promise.race([run, timeout]);
       clearTimeout(timer);
       if (result === TIMED_OUT) {
-        warn(`timed out after ${FINALIZE_TIMEOUT_MS}ms`);
+        warn(`timed out after ${finalizeTimeoutMs}ms`);
         return null;
       }
+      settled = true;
       return result;
+    } catch (e) {
+      warn(e.message);
+      return null;
     } finally {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
       } catch {
         /* best effort */
       }
+    }
+  }
+
+  /**
+   * Start sampling one opted-in run (#396). Best-effort: a sampler error is logged and the run
+   * goes unmeasured; the first failed reading is written to the run log once.
+   * @param {string} ref @param {string} stepId @param {string} startedAt @param {string} logPath
+   * @returns {string|null} the sampler's run id, or null when it could not start
+   */
+  function startEnergy(ref, stepId, startedAt, logPath) {
+    if (!energySampler) return null;
+    /** @param {string} reason */
+    const onError = (reason) => {
+      const msg = `[agenthook] energy reading failed: ${reason}`;
+      console.error(msg);
+      try {
+        fs.appendFileSync(logPath, `${msg}\n`);
+      } catch {
+        /* best effort */
+      }
+    };
+    const runId = `${ref}\0${stepId}\0${startedAt}`;
+    try {
+      energySampler.start(runId, { onError });
+      return runId;
+    } catch (e) {
+      onError(e.message);
+      return null;
+    }
+  }
+
+  /** The run's measured energy, or null (never throws). @param {string} runId @returns {Promise<{kWh: number}|null>} */
+  async function stopEnergy(runId) {
+    try {
+      return (await energySampler?.stop(runId)) ?? null;
+    } catch (e) {
+      console.error(`[agenthook] energy sampling failed: ${e.message}`);
+      return null;
     }
   }
 
@@ -988,6 +1042,8 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // A failed preflight resolves the run as `fail` with no agent spawned.
     const refused = agentPreflight(agent, step, provider, logPath);
     const agentEnv = agent.env?.({ cfg, step });
+    // Energy (#396): only an opted-in step that actually spawns is sampled.
+    const energyRun = !refused && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
     const { code, result, quota, timedOut } = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
       agent,
       prompt,
@@ -1025,11 +1081,17 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
           console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
         }
       },
+    }).catch(async (e) => {
+      if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
+      throw e;
     });
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
     killTimers.delete(job.ref);
+    // After the cleanup above: a `command` source can take up to its timeout to answer, and a
+    // pending SIGKILL or `cancel` must not meanwhile target the exited (maybe recycled) pid.
+    const energy = energyRun ? await stopEnergy(energyRun) : null;
     const wasCancelled = cancelled.delete(job.ref);
     // The subscription-quota reading the agent reported (claude only), even from a failed run.
     if (quota) {
@@ -1067,6 +1129,9 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     const priced = costOf(usage, cfg.pricing);
     if (priced.estUsd !== undefined) usage.estUsd = priced.estUsd;
     if (priced.costBasis) usage.costBasis = priced.costBasis;
+    // A third, independent figure — never folded into costUsd/estUsd/costBasis.
+    const energyRec = energy && cfg.energy ? energyFields(energy.kWh, cfg.energy.usdPerKwh, cfg.energy.source.type) : null;
+    if (energyRec) Object.assign(usage, energyRec);
     if (store && result) store.recordUsage(usage);
 
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
@@ -1094,6 +1159,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       ...(unpriced ? { unpriced: true } : {}),
       ...(usage.costBasis ? { costBasis: usage.costBasis } : {}),
       ...(usage.estUsd !== undefined ? { estUsd: usage.estUsd } : {}),
+      ...(energyRec ?? {}),
       ...tokens,
     });
     if (verdict.outcome === "hold") {

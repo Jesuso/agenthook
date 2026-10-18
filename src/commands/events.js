@@ -10,6 +10,7 @@ import path from "node:path";
 import { loadConfig } from "../config.js";
 import { neverStarted } from "../profile.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
+import { formatEnergy } from "../energy.js";
 
 const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed", "coalesced", "epic_changed"]);
 
@@ -74,6 +75,7 @@ export function renderEvent(ev, meta) {
   if (ev.outcome != null) extra += `  outcome=${ev.outcome}`;
   if (ev.costUsd != null) extra += `  cost=$${Number(ev.costUsd).toFixed(4)}`;
   if (ev.estUsd != null) extra += `  est=~$${Number(ev.estUsd).toFixed(4)}`;
+  if (ev.energyKwh != null) extra += `  ${formatEnergy(ev).replace(" ", "=")}`;
   if (ev.reason != null) extra += `  reason=${ev.reason}`;
   return `${ts}  ${tag}  ${ref}  step=${step}${extra}`;
 }

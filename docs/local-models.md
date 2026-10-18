@@ -78,6 +78,54 @@ An unpriced run keeps its tokens but shows no reported dollars:
 - its `usage.jsonl` record has `unpriced: true` (and `bin` when overridden). `ah usage`,
   `ah status` and `ah ls` leave its cost out of every total. See [Token & cost tracking](usage.md).
 
+## Energy
+
+A local run's real cost is electricity. A step that sets `"energy": true` gets its run's
+**measured** energy — kWh and dollars at your rate — as a third figure beside the reported
+`costUsd` and the `~$x est.` estimate. It is never added to either, and `costBasis` is unchanged.
+The profile names the price and where power is read from:
+
+```json
+"energy": { "usdPerKwh": 0.15, "source": { "type": "hwmon", "name": "amdgpu" } }
+```
+
+`source` is one of:
+
+| `type` | Reads | Notes |
+|---|---|---|
+| `hwmon` | `/sys/class/hwmon/*/name` = `name` (default `amdgpu`), then `power1_average` (else `power1_input`), µW | Every node with that name is summed (multi-GPU). The `hwmonN` index is never hard-coded; it moves between boots. |
+| `command` | `cmd` run via `/bin/sh -c`; the first number on each stdout line is watts, lines summed | e.g. `nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits` (one line per GPU). 2 s budget per reading; the process group is killed on timeout. |
+| `watts` | a constant `watts` (> 0) | No meter: e.g. `{"type":"watts","watts":250}` for a box you measured at the wall once. |
+
+```json
+"energy": { "usdPerKwh": 0.15, "source": { "type": "command", "cmd": "nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits" } }
+```
+
+The receiver reads power about once a second while at least one opted-in run is active — never
+while idle. Each window between two readings is credited at their mean draw. When opted-in runs
+overlap, each window is split between them by time share, so concurrent runs never double count.
+
+A measured run's `run_end` event and `usage.jsonl` record carry `energyKwh`, `energyUsd` and
+`energySource`. They show up in `ah usage` (a `· energy $… (… Wh)` suffix and an `energy total:`
+line), `ah events`, the MCP `events`/`runs` tools, and the web UI (run list, ticket spend, Stats
+strip and per-day tooltip). If a reading fails, the run still finishes and advances normally. It
+gets no energy fields (or only the windows that read) and one `energy reading failed: …` line in
+its run log.
+
+Measured on an AMD RX 7900 XTX (`hwmon`, `amdgpu`): idle 8–14 W. A 27 s OpenCode + Qwen3.8 run
+averaged 257 W (peak 351 W), so 1.91 Wh ≈ **$0.0003** at $0.15/kWh, against ≈ $0.04 for the same
+tokens at API rates.
+
+Caveats:
+
+- **Gross draw.** The figure includes the device's idle draw during the run. It is not just the
+  marginal cost of the model.
+- **`hwmon` is GPU-only.** CPU, RAM and PSU losses are not counted, so it undercounts the wall.
+  RAPL (`/sys/class/powercap`) needs root, so it is not a built-in source. Wrap a meter or a
+  smart plug in a `command` instead.
+- **Machine-wide.** Any other work on the GPU while an opted-in run is active, including runs of
+  steps without `energy: true`, is attributed to the opted-in runs.
+
 ## Example
 
 A GitHub-labels pipeline with local `triage` and `review` and a Claude `code` step:

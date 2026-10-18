@@ -110,6 +110,10 @@ describe("urls + formatOutcome", () => {
 });
 
 describe("formatRunCost", () => {
+  it("a measured run appends its energy beside the dollars, never in them", () => {
+    expect(formatRunCost({ costUsd: 1.5, unpriced: false, energyKwh: 0.0019, energyUsd: 0.00029 })).toBe("$1.50 · energy $0.00029 (1.9 Wh)");
+    expect(formatRunCost({ costUsd: null, unpriced: true, estUsd: null, energyKwh: 0.0019, energyUsd: 0.00029 })).toBe("unpriced · energy $0.00029 (1.9 Wh)");
+  });
   it("unpriced for an unpriced run, else its dollars, else a dash", () => {
     expect(formatRunCost({ costUsd: null, unpriced: true })).toBe("unpriced");
     expect(formatRunCost({ costUsd: 1.5, unpriced: false })).toMatch(/^\$1\.5/);

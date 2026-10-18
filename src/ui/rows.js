@@ -230,7 +230,8 @@ const ticketEpic = (e) => {
  * ref no longer counts (it was re-run), nor does a failed/cancelled one followed by `dismissed`.
  * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs; `estUsd`
  * sums the rate-table estimates of the runs with no reported cost (src/pricing.js `costOf`, the
- * profile's `pricing` overrides from its heartbeat), kept apart.
+ * profile's `pricing` overrides from its heartbeat), kept apart; `energyKwh`/`energyUsd` sum the
+ * measured runs (src/energy.js), apart from both and absent when none was measured.
  * `up` (default true) names whether the owning profile's receiver is live: when it's not,
  * `running` reads as `interrupted` and `queued` reads as `stalled` — the receiver that would
  * resolve those jobs isn't the one that wrote them; recovery happens on its next boot.
@@ -278,6 +279,9 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let lastName = null;
     let costUsd = 0;
     let estUsd = 0;
+    let energyKwh = 0;
+    let energyUsd = 0;
+    let measured = false;
     /** @type {'ready'|'merged'|'closed'|null} */
     let prState = null;
     /** @type {string|null} */
@@ -302,6 +306,11 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       if (e.event === "run_end") {
         if (typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
         estUsd += costOf(e, pricing).estUsd ?? 0;
+        if (typeof e.energyKwh === "number" && Number.isFinite(e.energyKwh) && e.energyKwh >= 0) {
+          measured = true;
+          energyKwh += e.energyKwh;
+          if (typeof e.energyUsd === "number" && Number.isFinite(e.energyUsd) && e.energyUsd >= 0) energyUsd += e.energyUsd;
+        }
       }
       lastStep = str(e.step) ?? lastStep;
       lastName = str(e.name) ?? lastName;
@@ -326,6 +335,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       startedAt: run ? str(run.startedAt) : str(lastStart?.ts),
       costUsd,
       estUsd: Math.round(estUsd * 1e6) / 1e6,
+      ...(measured ? { energyKwh: Math.round(energyKwh * 1e9) / 1e9, energyUsd: Math.round(energyUsd * 1e6) / 1e6 } : {}),
       trackerUrl: trackerUrl && /^https?:\/\//i.test(trackerUrl) ? trackerUrl : null,
       prUrl: repo && Number.isInteger(pr) && pr > 0 ? `https://github.com/${repo}/pull/${pr}` : null,
       heldReason: str(held?.reason),
