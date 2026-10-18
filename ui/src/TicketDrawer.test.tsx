@@ -13,7 +13,7 @@ const row: TicketRow = {
   status: "running",
   model: "opus",
   startedAt: null,
-  costUsd: 1.25,
+  costUsd: 1.25, estUsd: 0,
   trackerUrl: "https://github.com/Jesuso/agenthook/issues/221",
   prUrl: "https://github.com/Jesuso/agenthook/pull/230",
   summary: null, heldReason: null,
@@ -54,7 +54,7 @@ describe("TicketDrawer", () => {
 
   it("ticket total is a dash when only unpriced (non-Claude / local-model) runs exist", () => {
     // run_end of an unpriced run carries no costUsd, so the ticket's summed cost stays 0.
-    const html = render({ ...row, costUsd: 0 });
+    const html = render({ ...row, costUsd: 0, estUsd: 0 });
     expect(html).toMatch(/title="total cost:[^"]*">—</);
     expect(html).not.toContain("$");
   });

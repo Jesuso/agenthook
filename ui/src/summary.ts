@@ -23,6 +23,8 @@ export type Summary = {
   queued: number;
   /** Σ recentCosts since the local midnight of `now`, across every profile. */
   costToday: number;
+  /** Σ recentCosts' rate-table estimates since local midnight — never in costToday. */
+  estToday: number;
   up: number;
   down: number;
 };
@@ -32,7 +34,7 @@ export function summarize(snapshot: Snapshot, now: number): Summary {
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   const since = midnight.getTime();
-  const s: Summary = { active: 0, capacity: 0, needsYou: 0, queued: 0, costToday: 0, up: 0, down: 0 };
+  const s: Summary = { active: 0, capacity: 0, needsYou: 0, queued: 0, costToday: 0, estToday: 0, up: 0, down: 0 };
   for (const p of snapshot.profiles) {
     if (p.up) {
       s.up++;
@@ -44,7 +46,9 @@ export function summarize(snapshot: Snapshot, now: number): Summary {
     }
     for (const c of p.recentCosts ?? []) {
       const t = Date.parse(c.at);
-      if (!Number.isNaN(t) && t >= since && Number.isFinite(c.costUsd)) s.costToday += c.costUsd;
+      if (Number.isNaN(t) || t < since) continue;
+      if (Number.isFinite(c.costUsd)) s.costToday += c.costUsd;
+      if (Number.isFinite(c.estUsd)) s.estToday += c.estUsd;
     }
   }
   const forges = new Set(snapshot.profiles.filter((p) => p.forge).map((p) => p.name));

@@ -7,6 +7,7 @@ import { readProfile, resolveProfile } from "../heartbeat.js";
 import { createStore } from "../store.js";
 import { classifyCgroup } from "../respawn.js";
 import { ago, day } from "./ls.js";
+import { costOf, formatSpend, pricingOf, sumCosts } from "../pricing.js";
 
 /**
  * Format a token count as a human-readable string (e.g. "1.2M", "340K").
@@ -60,6 +61,8 @@ export function provenanceLines(p) {
 export async function status(args) {
   let name = args._[0];
   let logDir = null;
+  /** The config's `pricing` when `status` ran from a checkout (the heartbeat's wins while up). @type {any} */
+  let peekedPricing = null;
   /** @type {ReturnType<typeof readProfile>|null} */
   let p;
   if (name) {
@@ -77,6 +80,7 @@ export async function status(args) {
     const peeked = peekConfig({ configPath: args.config });
     name = peeked.stateKey;
     logDir = peeked.logDir;
+    peekedPricing = peeked.pricing ?? null;
     p = readProfile(name);
   }
 
@@ -130,16 +134,14 @@ export async function status(args) {
   const store = createStore(p.dir);
   const usageRecords = store.readUsage();
   const refmeta = store.listRefMeta();
+  const pricing = pricingOf(hb) ?? pricingOf({ pricing: peekedPricing });
   if (usageRecords.length) {
     let totalTokens = 0;
-    let totalCost = 0;
-    let hasCost = false;
-    for (const r of usageRecords) {
-      totalTokens += (r.input || 0) + (r.output || 0);
-      if (r.costUsd != null && !r.unpriced) { totalCost += r.costUsd; hasCost = true; }
-    }
-    const costStr = hasCost ? `, $${totalCost.toFixed(2)}` : "";
-    console.log(`usage   : ${fmtTokens(totalTokens)} tokens${costStr} over ${usageRecords.length} run(s)`);
+    for (const r of usageRecords) totalTokens += (r.input || 0) + (r.output || 0);
+    const spend = sumCosts(usageRecords, pricing);
+    const spendStr = formatSpend(spend);
+    const noEst = spend.unestimated ? ` (${spend.unestimated} run(s) no estimate)` : "";
+    console.log(`usage   : ${fmtTokens(totalTokens)} tokens${spendStr ? `, ${spendStr}` : ""} over ${usageRecords.length} run(s)${noEst}`);
   }
 
   // Most recent run logs — with per-run token figures where available.
@@ -165,9 +167,9 @@ export async function status(args) {
         const idx = base.indexOf("-step-");
         const key = idx >= 0 ? base.slice(idx + 1) : null;
         const rec = key ? usageByKey.get(key) : null;
-        const tokStr = rec
-          ? ` [${fmtTokens((rec.input || 0) + (rec.output || 0))} tok${rec.costUsd != null ? `, $${rec.costUsd.toFixed(3)}` : ""}]`
-          : "";
+        const c = rec ? costOf(rec, pricing) : {};
+        const costStr = c.costUsd !== undefined ? `, $${c.costUsd.toFixed(3)}` : c.estUsd !== undefined ? `, ~$${c.estUsd.toFixed(3)} est.` : "";
+        const tokStr = rec ? ` [${fmtTokens((rec.input || 0) + (rec.output || 0))} tok${costStr}]` : "";
         const ref = refForLog(l, Object.keys(refmeta));
         const m = ref ? refmeta[ref] : undefined;
         const metaStr = m ? `  ${m.displayId ?? ref}  ${m.pr ? `#${m.pr}` : "—"}  ${m.title ?? ""}`.trimEnd() : "";

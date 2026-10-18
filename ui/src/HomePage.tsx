@@ -1,5 +1,5 @@
 import type { ProfileView, Snapshot } from "./contract";
-import { formatAgents, formatCost, formatLastEvent, formatRelative, formatUp, profileBadge, profileLabel } from "./format";
+import { formatAgents, formatLastEvent, formatSpend, formatRelative, formatUp, profileBadge, profileLabel } from "./format";
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
@@ -125,7 +125,7 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
       <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">
         <Stat label="agents">{formatAgents(p)}</Stat>
         <Stat label="queued">{p.queued ?? "—"}</Stat>
-        {summary.costToday > 0 && <Stat label="cost today">{formatCost(summary.costToday)}</Stat>}
+        {summary.costToday + summary.estToday > 0 && <Stat label="cost today">{formatSpend({ reported: summary.costToday, est: summary.estToday })}</Stat>}
       </dl>
 
       {p.lastEvent && (

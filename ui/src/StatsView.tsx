@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DayStats, ProfileView, StatsView as StatsData } from "./contract";
 import { Segmented, ProfileMark } from "./components";
 import type { FeedEntry } from "./feed";
-import { formatCost, profileLabel } from "./format";
+import { formatCost, formatSpend, profileLabel } from "./format";
 import { latestChange, shortDate, statsUrl } from "./stats";
 import { axisDollars } from "./statsChart";
 import { DOWN, UP, calendarModel, divergingModel, nearestDay, rangeModel, stackedModel } from "./statsModels";
@@ -73,7 +73,7 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
               <Diverging days={days} />
             </Card>
           </div>
-          <Card title="What a finished ticket cost" note="median and the 10th–90th percentile spread of the tickets finished each day (agent spend only)">
+          <Card title="What a finished ticket cost" note="median and the 10th–90th percentile spread of the tickets finished each day (reported agent spend; estimates in the tooltip)">
             <Range days={days} />
           </Card>
           {empty && <p className="text-label text-muted">No runs in this range.</p>}
@@ -179,23 +179,37 @@ export function Stacked({ days }: { days: DayStats[] }) {
     <div ref={ref} className="relative" data-chart="spend-by-step">
       <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label="Spend per day, stacked by pipeline step" onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
         <Grid ticks={m.yTicks} left={m.plot.left} right={m.plot.right} zero="$0.00" />
-        {m.segments.map((s) => (
-          <rect key={`${s.date}${s.series}`} x={s.x} y={s.y} width={s.w} height={Math.max(0.5, s.h)} fill={color(s.series)} opacity={hover < 0 || days[hover].date === s.date ? 0.9 : 0.55} />
-        ))}
+        {m.segments.map((s) => {
+          const op = hover < 0 || days[hover].date === s.date ? 0.9 : 0.55;
+          // An estimate is the same hue, washed out and dash-outlined: never read as reported dollars.
+          return s.est ? (
+            <rect key={`${s.date}${s.series}~est`} data-est x={s.x + 0.5} y={s.y + 0.5} width={Math.max(0, s.w - 1)} height={Math.max(0.5, s.h - 1)} fill={color(s.series)} fillOpacity={op * 0.3} stroke={color(s.series)} strokeOpacity={op} strokeDasharray="3 2" />
+          ) : (
+            <rect key={`${s.date}${s.series}`} x={s.x} y={s.y} width={s.w} height={Math.max(0.5, s.h)} fill={color(s.series)} opacity={op} />
+          );
+        })}
         <DayLabels ticks={m.xTicks} />
       </svg>
       {d && (
         <Tip x={m.centers[hover]} width={w}>
           <div className="font-medium">{shortDate(d.date)}</div>
-          {Object.entries(d.byStep).filter(([, v]) => v.costUsd > 0).sort((a, b) => b[1].costUsd - a[1].costUsd).map(([k, v]) => (
+          {Object.entries(d.byStep).filter(([, v]) => v.costUsd + (v.estUsd ?? 0) > 0).sort((a, b) => b[1].costUsd + (b[1].estUsd ?? 0) - a[1].costUsd - (a[1].estUsd ?? 0)).map(([k, v]) => (
             <div key={k} className="font-mono text-muted">
-              {k} {formatCost(v.costUsd)} · {v.runs} runs
+              {k} {formatSpend({ reported: v.costUsd, est: v.estUsd })} · {v.runs} runs
             </div>
           ))}
-          {!d.costUsd && <div className="font-mono text-muted">no spend</div>}
+          {!d.costUsd && !d.estUsd && <div className="font-mono text-muted">no spend</div>}
+          {d.unestimatedRuns > 0 && <div className="font-mono text-faint">{d.unestimatedRuns} run{d.unestimatedRuns === 1 ? "" : "s"} no estimate</div>}
         </Tip>
       )}
-      <Legend items={m.legend.map((l) => ({ label: `${l.series} ${formatCost(l.total)}`, color: l.color }))} />
+      <Legend items={m.legend.map((l) => ({ label: `${l.series} ${formatSpend({ reported: l.total, est: l.est }) || formatCost(0)}`, color: l.color }))} />
+      {(m.legend.some((l) => l.est > 0) || m.unestimatedRuns > 0) && (
+        <p className="mt-1 text-meta text-faint" data-est-note>
+          {m.legend.some((l) => l.est > 0) && "Dashed = estimated at API rates (agent reported no cost)."}
+          {m.legend.some((l) => l.est > 0) && m.unestimatedRuns > 0 && " "}
+          {m.unestimatedRuns > 0 && `${m.unestimatedRuns} run${m.unestimatedRuns === 1 ? "" : "s"} with no estimate (unknown model or no tokens).`}
+        </p>
+      )}
     </div>
   );
 }
@@ -304,6 +318,11 @@ export function Range({ days }: { days: DayStats[] }) {
             </>
           ) : (
             <div className="font-mono text-muted">no costed tickets</div>
+          )}
+          {d.ticketEst && (
+            <div className="font-mono text-faint">
+              est. median ~{axisDollars(d.ticketEst.p50)} · {d.ticketEst.n} tickets
+            </div>
           )}
         </Tip>
       )}

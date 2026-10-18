@@ -13,6 +13,8 @@ import {
   effectiveBool,
   envEdit,
   envRows,
+  pricingEdit,
+  pricingRows,
   errorsForRepo,
   escalateEdit,
   formattingFor,
@@ -48,7 +50,7 @@ import {
   stringListRemove,
   textEdit,
 } from "./configEdit";
-import type { Discover } from "./configEdit";
+import type { Discover, PricingRow } from "./configEdit";
 
 /** The changed middle of a line diff: lines past the common prefix and before the common suffix. */
 function lineDiff(a: string, b: string): { removed: string[]; added: string[] } {
@@ -543,6 +545,24 @@ describe("identityEdit", () => {
     const text = '{\n  "//": "note",\n  "name": "p"\n}';
     const out = identityEdit(text, "color", "sky");
     expect(JSON.parse(out)).toEqual({ "//": "note", name: "p", ui: { color: "sky" } });
+  });
+});
+
+describe("pricingEdit / pricingRows", () => {
+  const base = JSON.stringify({ name: "p" }, null, 2);
+  const row = (over: Partial<PricingRow>): PricingRow => ({ pattern: "", input: "", output: "", cacheRead: "", cacheWrite: "", ...over });
+
+  it("writes numbers, leaves blank rates unset, drops blank patterns, keeps a non-number verbatim for validation", () => {
+    const out = pricingEdit(base, [row({ pattern: " qwen3.8* ", input: "2", output: "10", cacheRead: "0.2" }), row({ pattern: "  ", input: "1" }), row({ pattern: "x", input: "abc", output: "1" })]);
+    expect(JSON.parse(out).pricing).toEqual({ "qwen3.8*": { input: 2, output: 10, cacheRead: 0.2 }, x: { input: "abc", output: 1 } });
+    expect(pricingRows(JSON.parse(out).pricing)[0]).toEqual(row({ pattern: "qwen3.8*", input: "2", output: "10", cacheRead: "0.2" }));
+  });
+
+  it("no rows left removes pricing; clearing an absent pricing is a no-op; a non-object reads as no rows", () => {
+    const a = pricingEdit(base, [row({ pattern: "q", input: "1", output: "1" })]);
+    expect(JSON.parse(pricingEdit(a, []))).toEqual({ name: "p" });
+    expect(pricingEdit(base, [])).toBe(base);
+    expect(pricingRows(["x"])).toEqual([]);
   });
 });
 

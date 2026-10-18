@@ -3,7 +3,7 @@ import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { TicketRow } from "./contract";
 
 const t = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
-  profile: "p", ref, displayId: ref, title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null,
+  profile: "p", ref, displayId: ref, title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null,
   summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
@@ -64,15 +64,15 @@ describe("nowItems", () => {
 });
 
 describe("progress", () => {
-  const profile = (runs: { at: string; outcome: string | null }[] = [], costs: { at: string; costUsd: number }[] = []) => ({ recentRuns: runs, recentCosts: costs });
+  const profile = (runs: { at: string; outcome: string | null }[] = [], costs: { at: string; costUsd: number, estUsd: 0 }[] = []) => ({ recentRuns: runs, recentCosts: costs });
 
   it("splits finished tickets and cost into today and yesterday by local midnight", () => {
     const p = progress(
       profile([], [
-        { at: local(23, 6), costUsd: 100 }, // before yesterday
-        { at: local(23, 7), costUsd: 1.5 },
-        { at: local(0, 8), costUsd: 2 },
-        { at: local(11, 8), costUsd: 0.25 },
+        { at: local(23, 6), costUsd: 100, estUsd: 0 }, // before yesterday
+        { at: local(23, 7), costUsd: 1.5, estUsd: 0 },
+        { at: local(0, 8), costUsd: 2, estUsd: 0 },
+        { at: local(11, 8), costUsd: 0.25, estUsd: 0 },
       ]),
       [
         t("a", { status: "done", finishedAt: local(9) }),

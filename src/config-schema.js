@@ -180,6 +180,11 @@ export const CONFIG_SCHEMA = [
   entry("digest.access", "enum", "Access", "integrations", "What the Digest agent may read; only snapshot (the profile's state summary) today.", { options: ["snapshot"], default: "snapshot" }),
   entry("digest.model", "string", "Model", "integrations", "claude --model for the Digest run; unset uses the CLI default."),
   entry("digest.maxBudgetUsd", "number", "Max budget (USD)", "integrations", "Spending cap per Digest run (claude --max-budget-usd); must be > 0.", { advanced: true }),
+  entry("pricing", "record", "Pricing", "integrations", "API-equivalent $/Mtok for a model or glob, e.g. map qwen3.8* to Sonnet rates; overrides the built-in table.", { advanced: true }),
+  entry("pricing.*.input", "number", "Input $/Mtok", "integrations", "Estimated dollars per million uncached input tokens.", { advanced: true, min: 0 }),
+  entry("pricing.*.output", "number", "Output $/Mtok", "integrations", "Estimated dollars per million output tokens.", { advanced: true, min: 0 }),
+  entry("pricing.*.cacheRead", "number", "Cache read $/Mtok", "integrations", "Dollars per million cache-read tokens; unset = 0.1 × input.", { advanced: true, min: 0 }),
+  entry("pricing.*.cacheWrite", "number", "Cache write $/Mtok", "integrations", "Dollars per million cache-write tokens; unset = 1.25 × input.", { advanced: true, min: 0 }),
 ];
 
 const DERIVED = "derived at load, not user config";

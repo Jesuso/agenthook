@@ -33,7 +33,7 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
 }
 
 function ticket(ref: string, status: TicketRow["status"]): TicketRow {
-  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null };
+  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null };
 }
 
 // Local time on purpose: "today" is the browser's local day.
@@ -79,22 +79,24 @@ describe("summarize", () => {
             name: "a",
             up: true,
             recentCosts: [
-              { at: local(23, 59, 7), costUsd: 100 }, // yesterday
-              { at: local(0, 0), costUsd: 0.5 },
-              { at: local(11, 30), costUsd: 1.25 },
+              { at: local(23, 59, 7), costUsd: 100, estUsd: 0 }, // yesterday
+              { at: local(0, 0), costUsd: 0.5, estUsd: 0 },
+              { at: local(11, 30), costUsd: 1.25, estUsd: 0 },
+              { at: local(11, 40), costUsd: 0, estUsd: 0.4 }, // an estimate: beside costToday, never in it
             ],
           }),
-          profile({ name: "b", up: false, recentCosts: [{ at: local(9), costUsd: 2 }, { at: "garbage", costUsd: 7 }] }),
+          profile({ name: "b", up: false, recentCosts: [{ at: local(9), costUsd: 2, estUsd: 0 }, { at: "garbage", costUsd: 7, estUsd: 0 }] }),
         ],
         tickets: [],
       },
       NOW,
     );
     expect(s.costToday).toBeCloseTo(3.75);
+    expect(s.estToday).toBeCloseTo(0.4);
   });
 
   it("is all zeros for an empty snapshot", () => {
-    expect(summarize({ profiles: [], tickets: [] }, NOW)).toEqual({ active: 0, capacity: 0, needsYou: 0, queued: 0, costToday: 0, up: 0, down: 0 });
+    expect(summarize({ profiles: [], tickets: [] }, NOW)).toEqual({ active: 0, capacity: 0, needsYou: 0, queued: 0, costToday: 0, estToday: 0, up: 0, down: 0 });
   });
 });
 

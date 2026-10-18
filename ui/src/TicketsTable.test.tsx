@@ -16,7 +16,7 @@ function ticket(overrides: Partial<TicketRow> & { ref: string }): TicketRow {
     status: "done",
     model: null,
     startedAt: new Date(NOW - 60_000).toISOString(),
-    costUsd: 0,
+    costUsd: 0, estUsd: 0,
     trackerUrl: null,
     prUrl: null,
     summary: null, heldReason: null,

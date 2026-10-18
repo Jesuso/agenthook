@@ -17,6 +17,10 @@ export type StatsSummary = {
   /** finished per day over the days that had passed (today counts as a day). */
   avgFinished: number;
   costUsd: number;
+  /** Rate-table estimates (src/pricing.js) — beside `costUsd`, never in it. */
+  estUsd: number;
+  /** Runs with neither a reported cost nor an estimate. */
+  unestimatedRuns: number;
   runs: number;
   rework: number;
   /** null below MIN_RUNS_FOR_RATES: a rate over a handful of runs is noise. */
@@ -27,12 +31,16 @@ export type StatsSummary = {
 export function summarizeStats(days: DayStats[]): StatsSummary {
   let finished = 0;
   let costUsd = 0;
+  let estUsd = 0;
+  let unestimatedRuns = 0;
   let runs = 0;
   let rework = 0;
   let bestDay: DayStats | null = null;
   for (const d of days) {
     finished += d.finished;
     costUsd += d.costUsd;
+    estUsd += d.estUsd ?? 0;
+    unestimatedRuns += d.unestimatedRuns ?? 0;
     runs += d.runs;
     rework += d.rework;
     if (d.finished > 0 && (!bestDay || d.finished > bestDay.finished)) bestDay = d;
@@ -41,6 +49,8 @@ export function summarizeStats(days: DayStats[]): StatsSummary {
     finished,
     avgFinished: days.length ? finished / days.length : 0,
     costUsd: Math.round(costUsd * 100) / 100,
+    estUsd: Math.round(estUsd * 100) / 100,
+    unestimatedRuns,
     runs,
     rework,
     reworkRate: runs >= MIN_RUNS_FOR_RATES ? rework / runs : null,

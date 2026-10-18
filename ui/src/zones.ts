@@ -46,6 +46,9 @@ export type Progress = {
   finishedYesterday: number;
   costToday: number;
   costYesterday: number;
+  /** Rate-table estimates (src/pricing.js) for runs with no reported cost — never in costToday/costYesterday. */
+  estToday: number;
+  estYesterday: number;
   /** `run_end`s in the events tail's window (≈48 h). */
   runs: number;
   /** Of those, how many ended `changes` — a rework loop. */
@@ -69,7 +72,7 @@ function midnight(now: number, daysAgo: number): number {
 export function progress(profile: Pick<ProfileView, "recentCosts" | "recentRuns">, tickets: TicketRow[], now: number): Progress {
   const today = midnight(now, 0);
   const yesterday = midnight(now, 1);
-  const p: Progress = { finishedToday: 0, finishedYesterday: 0, costToday: 0, costYesterday: 0, runs: 0, rework: 0, reworkRate: null };
+  const p: Progress = { finishedToday: 0, finishedYesterday: 0, costToday: 0, costYesterday: 0, estToday: 0, estYesterday: 0, runs: 0, rework: 0, reworkRate: null };
   for (const t of tickets) {
     const at = time(t.finishedAt);
     if (t.status !== "done" || !at) continue;
@@ -78,9 +81,10 @@ export function progress(profile: Pick<ProfileView, "recentCosts" | "recentRuns"
   }
   for (const c of profile.recentCosts ?? []) {
     const at = time(c.at);
-    if (!Number.isFinite(c.costUsd)) continue;
-    if (at >= today) p.costToday += c.costUsd;
-    else if (at >= yesterday) p.costYesterday += c.costUsd;
+    const cost = Number.isFinite(c.costUsd) ? c.costUsd : 0;
+    const est = Number.isFinite(c.estUsd) ? c.estUsd : 0;
+    if (at >= today) (p.costToday += cost), (p.estToday += est);
+    else if (at >= yesterday) (p.costYesterday += cost), (p.estYesterday += est);
   }
   for (const r of profile.recentRuns ?? []) {
     p.runs++;

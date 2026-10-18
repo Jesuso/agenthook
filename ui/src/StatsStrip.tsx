@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { StatsView } from "./contract";
 import { Segmented } from "./components";
 import type { FeedEntry } from "./feed";
-import { formatCost } from "./format";
+import { formatSpend } from "./format";
 import { DEFAULT_RANGE, RANGES, latestChange, shortDate, statsUrl, summarizeStats } from "./stats";
 import type { Range } from "./stats";
 
@@ -47,8 +47,9 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
       ) : (
         <>
           <p className="mb-1 font-mono text-label" data-stats-total>
-            {sum.finished} finished <span className="text-muted">({sum.avgFinished.toFixed(1)}/day)</span> · {sum.costUsd ? formatCost(sum.costUsd) : "$0"}
-            {sum.finished > 0 && sum.costUsd > 0 && <span className="text-muted"> ({formatCost(sum.costUsd / sum.finished)}/ticket)</span>}
+            {sum.finished} finished <span className="text-muted">({sum.avgFinished.toFixed(1)}/day)</span> · {formatSpend({ reported: sum.costUsd, est: sum.estUsd }) || "$0"}
+            {sum.finished > 0 && sum.costUsd + sum.estUsd > 0 && <span className="text-muted"> ({formatSpend({ reported: sum.costUsd / sum.finished, est: sum.estUsd / sum.finished })}/ticket)</span>}
+            {sum.unestimatedRuns > 0 && <span className="text-faint" data-stats-unestimated> · {sum.unestimatedRuns} run{sum.unestimatedRuns === 1 ? "" : "s"} no estimate</span>}
           </p>
           <Suspense fallback={<div className="h-[210px]" aria-hidden="true" />}>
             <StatsChart days={days} />

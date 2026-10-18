@@ -260,3 +260,33 @@ describe("overlapGuard", () => {
     expect(last()).toEqual({ name: "p" });
   });
 });
+
+const blur = (el: HTMLInputElement) =>
+  act(async () => {
+    el.focus();
+    el.blur();
+  });
+
+describe("pricing", () => {
+  it("add model → pattern + rates commit on blur as numbers (blank optional rates unset); remove drops the block", async () => {
+    const { root, last } = await live({ name: "p" });
+    const panel = () => root.querySelector<HTMLElement>("[data-pricing]")!;
+    await click(root.querySelector<HTMLButtonElement>("[data-add-pricing]")!);
+    const row = () => panel().querySelector<HTMLElement>('[data-pricing-row="0"]')!;
+    const input = (label: string) => row().querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+    await setInput(input("model pattern"), "qwen3.8*");
+    await setInput(input("Input $/Mtok"), "2");
+    await setInput(input("Output $/Mtok"), "10");
+    await blur(input("Output $/Mtok"));
+    expect(last().pricing).toEqual({ "qwen3.8*": { input: 2, output: 10 } });
+    await click(row().querySelector<HTMLButtonElement>('[aria-label="remove model"]')!);
+    expect(last()).toEqual({ name: "p" });
+  });
+
+  it("shows pricingErrors for an invalid rate", async () => {
+    const { root } = await live({ name: "p", pricing: { "qwen*": { input: -1 } } });
+    const text = root.querySelector("[data-pricing-panel]")!.textContent ?? "";
+    expect(text).toContain('pricing["qwen*"].input must be a finite number');
+    expect(text).toContain('pricing["qwen*"].output is required');
+  });
+});

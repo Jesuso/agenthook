@@ -115,6 +115,12 @@ describe("formatRunCost", () => {
     expect(formatRunCost({ costUsd: 1.5, unpriced: false })).toMatch(/^\$1\.5/);
     expect(formatRunCost({ costUsd: null, unpriced: false })).toBe("—");
   });
+  it("a rate-table estimate reads ~$x est., never as reported dollars", () => {
+    expect(formatRunCost({ costUsd: null, unpriced: true, estUsd: 0.42 })).toBe("~$0.42 est.");
+    expect(formatRunCost({ costUsd: 9, unpriced: true, estUsd: 0.42 })).toBe("~$0.42 est.");
+    expect(formatRunCost({ costUsd: 1.5, unpriced: false, estUsd: null })).toBe("$1.50");
+    expect(formatRunCost({ costUsd: null, unpriced: true, estUsd: null })).toBe("unpriced");
+  });
 });
 
 describe("outcomeTone", () => {

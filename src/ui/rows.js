@@ -9,6 +9,7 @@ import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { CANCELLED_REASON } from "../events.js";
 import { resolveIdentity } from "../identity.js";
+import { costOf, pricingOf } from "../pricing.js";
 
 /** Only the last N bytes of events.jsonl are read — the file is append-only and unbounded. */
 export const EVENTS_TAIL_BYTES = 256 * 1024;
@@ -223,16 +224,18 @@ const ticketEpic = (e) => {
  * event in the tail (pipeline_done/merged → done, failed → failed, or cancelled when the reason is
  * an operator cancel) > idle. A terminal event followed by a later `enqueued`/`run_start` for the
  * ref no longer counts (it was re-run), nor does a failed/cancelled one followed by `dismissed`.
- * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs.
+ * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs; `estUsd`
+ * sums the rate-table estimates of the runs with no reported cost (src/pricing.js `costOf`, the
+ * profile's `pricing` overrides from its heartbeat), kept apart.
  * `up` (default true) names whether the owning profile's receiver is live: when it's not,
  * `running` reads as `interrupted` and `queued` reads as `stalled` — the receiver that would
  * resolve those jobs isn't the one that wrote them; recovery happens on its next boot.
  * @param {string} profile
  * @param {ProfileState} state
- * @param {{ repository?: string|null, up?: boolean }} [opts]
+ * @param {{ repository?: string|null, up?: boolean, pricing?: Record<string, import('../pricing.js').Rate>|null }} [opts]
  * @returns {import('./contract.js').TicketRow[]}
  */
-export function buildRows(profile, state, { repository = null, up = true } = {}) {
+export function buildRows(profile, state, { repository = null, up = true, pricing = null } = {}) {
   const repo = typeof repository === "string" && REPOSITORY_RE.test(repository) ? repository : null;
   /** @type {Map<string, Record<string, any>[]>} */
   const eventsByRef = new Map();
@@ -270,6 +273,7 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
     /** @type {string|null} */
     let lastName = null;
     let costUsd = 0;
+    let estUsd = 0;
     /** @type {'ready'|'merged'|'closed'|null} */
     let prState = null;
     /** @type {string|null} */
@@ -291,7 +295,10 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
         terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
         failReason = str(e.reason);
       } else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
-      if (e.event === "run_end" && typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
+      if (e.event === "run_end") {
+        if (typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
+        estUsd += costOf(e, pricing).estUsd ?? 0;
+      }
       lastStep = str(e.step) ?? lastStep;
       lastName = str(e.name) ?? lastName;
     }
@@ -314,6 +321,7 @@ export function buildRows(profile, state, { repository = null, up = true } = {})
       model: run ? str(run.model) : str(lastStart?.model),
       startedAt: run ? str(run.startedAt) : str(lastStart?.ts),
       costUsd,
+      estUsd: Math.round(estUsd * 1e6) / 1e6,
       trackerUrl: trackerUrl && /^https?:\/\//i.test(trackerUrl) ? trackerUrl : null,
       prUrl: repo && Number.isInteger(pr) && pr > 0 ? `https://github.com/${repo}/pull/${pr}` : null,
       heldReason: str(held?.reason),
@@ -373,7 +381,7 @@ export function profileView(p) {
     lastSeenAt: str(p.lastSeenAt),
     ghost: p.ghost === true,
     configMissing: p.configMissing === true,
-    recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now()),
+    recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now(), pricingOf(hb)),
     recentRuns: recentRuns(p.events ?? [], p.now ?? Date.now()),
   };
 }
@@ -388,18 +396,23 @@ function identityOf(key, ui) {
 /** How far back `recentCosts` reaches: enough for the browser's "today" in any timezone. */
 export const RECENT_COSTS_MS = 48 * 60 * 60 * 1000;
 
-/** `run_end` events with a finite `costUsd` and a parseable `ts` within RECENT_COSTS_MS of
- * `now`, oldest first (the tail's order).
+/** `run_end` events with a finite `costUsd` or a rate-table estimate (src/pricing.js `costOf`) and
+ * a parseable `ts` within RECENT_COSTS_MS of `now`, oldest first (the tail's order). Each carries
+ * both figures, kept apart: `costUsd` 0 on an estimated run, `estUsd` 0 on a reported one.
  * @param {Record<string, any>[]} events @param {number} now
+ * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
  * @returns {import('./contract.js').RecentCost[]} */
-export function recentCosts(events, now) {
+export function recentCosts(events, now, pricing = null) {
   /** @type {import('./contract.js').RecentCost[]} */
   const out = [];
   for (const e of events) {
-    if (e.event !== "run_end" || typeof e.costUsd !== "number" || !Number.isFinite(e.costUsd)) continue;
+    if (e.event !== "run_end") continue;
+    const reported = typeof e.costUsd === "number" && Number.isFinite(e.costUsd) ? e.costUsd : null;
+    const est = reported === null ? costOf(e, pricing).estUsd ?? null : null;
+    if (reported === null && est === null) continue;
     const t = typeof e.ts === "string" ? Date.parse(e.ts) : NaN;
     if (Number.isNaN(t) || now - t > RECENT_COSTS_MS) continue;
-    out.push({ at: new Date(t).toISOString(), costUsd: e.costUsd });
+    out.push({ at: new Date(t).toISOString(), costUsd: reported ?? 0, estUsd: est ?? 0 });
   }
   return out;
 }
@@ -430,7 +443,7 @@ export function buildSnapshot(registry = registryDir) {
     const state = readProfileState(p.dir);
     snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name, events: state.events }));
     const repository = isObj(p.heartbeat) ? p.heartbeat.repository : null;
-    snap.tickets.push(...buildRows(p.stateKey, state, { repository, up: p.up }));
+    snap.tickets.push(...buildRows(p.stateKey, state, { repository, up: p.up, pricing: pricingOf(p.heartbeat) }));
   }
   return snap;
 }

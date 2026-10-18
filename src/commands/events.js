@@ -73,6 +73,7 @@ export function renderEvent(ev, meta) {
   if (ev.model != null) extra += `  model=${ev.model}`;
   if (ev.outcome != null) extra += `  outcome=${ev.outcome}`;
   if (ev.costUsd != null) extra += `  cost=$${Number(ev.costUsd).toFixed(4)}`;
+  if (ev.estUsd != null) extra += `  est=~$${Number(ev.estUsd).toFixed(4)}`;
   if (ev.reason != null) extra += `  reason=${ev.reason}`;
   return `${ts}  ${tag}  ${ref}  step=${step}${extra}`;
 }

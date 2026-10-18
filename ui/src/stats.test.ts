@@ -27,6 +27,10 @@ describe("summarizeStats", () => {
     expect(s.bestDay).toBeNull();
     expect(summarizeStats([])).toMatchObject({ finished: 0, avgFinished: 0, bestDay: null });
   });
+  it("keeps estimates and the no-estimate count apart from the reported cost", () => {
+    const s = summarizeStats([day("2026-10-13", { costUsd: 1, estUsd: 0.5, unestimatedRuns: 2 }), day("2026-10-14", { estUsd: 0.25, unestimatedRuns: 1 })]);
+    expect([s.costUsd, s.estUsd, s.unestimatedRuns]).toEqual([1, 0.75, 3]);
+  });
 });
 
 describe("date labels", () => {

@@ -41,36 +41,57 @@ export function nearestDay(m: { centers: number[]; plot: { left: number; right: 
 
 // --------------------------------------------------------------------------- 1. spend by step (stacked bars)
 
-export type Segment = { date: string; series: string; x: number; y: number; w: number; h: number; value: number };
-export type StackedModel = Frame & { segments: Segment[]; legend: { series: string; color: string; total: number }[]; yTicks: Tick[] };
+/** `est` = the rate-table estimate part of a step's spend (src/pricing.js) — its own series, never summed into the reported one. */
+export type Segment = { date: string; series: string; est: boolean; x: number; y: number; w: number; h: number; value: number };
+export type StackedModel = Frame & {
+  segments: Segment[];
+  legend: { series: string; color: string; total: number; est: number }[];
+  yTicks: Tick[];
+  /** Runs in range with neither a reported cost nor an estimate. */
+  unestimatedRuns: number;
+};
 
-/** Series (steps) ranked by total spend; beyond the palette the rest become `other`. */
+/** Series (steps) ranked by total spend, reported + estimated; beyond the palette the rest become `other`. */
 export function rankSteps(days: DayStats[], keep = SERIES_COLORS.length): string[] {
   const total = new Map<string, number>();
-  for (const d of days) for (const [k, v] of Object.entries(d.byStep)) total.set(k, (total.get(k) ?? 0) + v.costUsd);
+  for (const d of days) for (const [k, v] of Object.entries(d.byStep)) total.set(k, (total.get(k) ?? 0) + v.costUsd + (v.estUsd ?? 0));
   const ranked = [...total.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
   return ranked.length > keep ? [...ranked.slice(0, keep - 1), OTHER_STEPS] : ranked;
 }
 
-/** Spend on `series` that day (the folded `other` series sums every step outside `shown`). */
-function spend(d: DayStats, series: string, shown: string[]): number {
-  if (series !== OTHER_STEPS) return d.byStep[series]?.costUsd ?? 0;
-  return Object.entries(d.byStep).reduce((n, [k, v]) => (shown.includes(k) ? n : n + v.costUsd), 0);
+type Part = "costUsd" | "estUsd";
+/** Reported or estimated spend on `series` that day (the folded `other` series sums every step outside `shown`). */
+function spend(d: DayStats, series: string, shown: string[], part: Part = "costUsd"): number {
+  if (series !== OTHER_STEPS) return d.byStep[series]?.[part] ?? 0;
+  return Object.entries(d.byStep).reduce((n, [k, v]) => (shown.includes(k) ? n : n + (v[part] ?? 0)), 0);
 }
+
+/** Stack key of a step's estimated part: never a step id (those can't hold a NUL). */
+const estKey = (s: string) => `${s}\u0000est`;
 
 export function stackedModel(days: DayStats[], width: number, height: number): StackedModel {
   const f = frame(days, width, height);
   const series = rankSteps(days);
   const shown = series.filter((s) => s !== OTHER_STEPS);
-  const rows = days.map((d) => ({ date: d.date, ...Object.fromEntries(series.map((s) => [s, spend(d, s, shown)])) }) as Record<string, number | string>);
-  const layers = stack<Record<string, number | string>>().keys(series).value((r, k) => Number(r[k]))(rows);
+  // Each step stacks its reported spend, then its estimate right above it in the same hue.
+  const keys = series.flatMap((s) => [s, estKey(s)]);
+  const rows = days.map((d) => ({ date: d.date, ...Object.fromEntries(series.flatMap((s) => [[s, spend(d, s, shown)], [estKey(s), spend(d, s, shown, "estUsd")]])) }) as Record<string, number | string>);
+  const layers = stack<Record<string, number | string>>().keys(keys).value((r, k) => Number(r[k]))(rows);
   const top = max(layers, (l) => max(l, (p) => p[1]) ?? 0) ?? 0;
   const y = scaleLinear().domain([0, Math.max(0.01, top)]).nice(3).range([f.plot.bottom, f.plot.top]);
-  const segments: Segment[] = layers.flatMap((layer) =>
-    layer.flatMap((p, i) => (p[1] - p[0] > 0 ? [{ date: days[i].date, series: layer.key, x: f.x(days[i].date), y: y(p[1]), w: f.bandwidth, h: y(p[0]) - y(p[1]), value: p[1] - p[0] }] : [])),
-  );
-  const legend = series.map((s, i) => ({ series: s, color: SERIES_COLORS[i % SERIES_COLORS.length], total: days.reduce((n, d) => n + spend(d, s, shown), 0) }));
-  return { ...f, segments, legend, yTicks: y.ticks(3).map((t) => ({ pos: y(t), label: axisDollars(t) })) };
+  const segments: Segment[] = layers.flatMap((layer) => {
+    const est = layer.key.endsWith("\u0000est");
+    const name = est ? layer.key.slice(0, -4) : layer.key;
+    return layer.flatMap((p, i) => (p[1] - p[0] > 0 ? [{ date: days[i].date, series: name, est, x: f.x(days[i].date), y: y(p[1]), w: f.bandwidth, h: y(p[0]) - y(p[1]), value: p[1] - p[0] }] : []));
+  });
+  const legend = series.map((s, i) => ({
+    series: s,
+    color: SERIES_COLORS[i % SERIES_COLORS.length],
+    total: days.reduce((n, d) => n + spend(d, s, shown), 0),
+    est: days.reduce((n, d) => n + spend(d, s, shown, "estUsd"), 0),
+  }));
+  const unestimatedRuns = days.reduce((n, d) => n + (d.unestimatedRuns ?? 0), 0);
+  return { ...f, segments, legend, yTicks: y.ticks(3).map((t) => ({ pos: y(t), label: axisDollars(t) })), unestimatedRuns };
 }
 
 // --------------------------------------------------------------------------- 2. outcomes (diverging bars)

@@ -54,8 +54,9 @@ test("dailyStats: an unpriced run_end counts as a run but adds no spend; a local
   const [t] = dailyStats(events, { now: NOW, days: 1 });
   assert.equal(t.runs, 4);
   assert.equal(t.costUsd, 2);
-  assert.deepEqual(t.byStep.triage, { runs: 2, costUsd: 0 });
-  assert.deepEqual(t.byStep.code, { runs: 1, costUsd: 2 });
+  assert.deepEqual(t.byStep.triage, { runs: 2, costUsd: 0, estUsd: 0 });
+  assert.deepEqual(t.byStep.code, { runs: 1, costUsd: 2, estUsd: 0 });
+  assert.equal(t.unestimatedRuns, 3, "unpriced runs with no tokens have no estimate");
   assert.equal(t.finished, 2);
   assert.deepEqual(t.ticketCost, { n: 1, p10: 2, p50: 2, p90: 2 }, "the local-only ticket never enters ticketCost");
 });
@@ -143,10 +144,10 @@ test("dailyStats: spend and runs per step, outcomes per day (unknown outcome and
     ev("2026-10-15T10:25:00Z", "run_end", { step: "", outcome: "weird", costUsd: 1 }),
   ];
   const [t] = dailyStats(events, { now: NOW, days: 1 });
-  assert.deepEqual(t.byStep.code, { runs: 2, costUsd: 6 });
-  assert.deepEqual(t.byStep.triage, { runs: 1, costUsd: 1 });
-  assert.deepEqual(t.byStep.review, { runs: 2, costUsd: 0.5 });
-  assert.deepEqual(t.byStep["?"], { runs: 1, costUsd: 1 });
+  assert.deepEqual(t.byStep.code, { runs: 2, costUsd: 6, estUsd: 0 });
+  assert.deepEqual(t.byStep.triage, { runs: 1, costUsd: 1, estUsd: 0 });
+  assert.deepEqual(t.byStep.review, { runs: 2, costUsd: 0.5, estUsd: 0 });
+  assert.deepEqual(t.byStep["?"], { runs: 1, costUsd: 1, estUsd: 0 });
   assert.deepEqual(t.outcomes, { advance: 2, changes: 1, hold: 1, fail: 1, other: 1 });
 });
 
@@ -167,4 +168,64 @@ test("dailyStats: ticketCost is what each finished ticket cost since its last fi
   assert.equal(y.finished, 2, "the hand-finished ticket still counts as finished");
   assert.deepEqual(t.ticketCost, { n: 2, p10: 1.9, p50: 5.5, p90: 9.1 });
   assert.equal(dailyStats([ev("2026-10-15T10:00:00Z", "pipeline_done", { ref: "Z" })], { now: NOW, days: 1 })[0].ticketCost, null);
+});
+
+test("dailyStats: estimates sum apart from costUsd; unestimated runs counted; ticketEst over estimates only", () => {
+  const events = [
+    // Reported Claude run: costUsd only, unchanged.
+    ev("2026-10-15T09:00:00Z", "run_end", { ref: "A", step: "code", outcome: "advance", costUsd: 2, costBasis: "reported", model: "claude-opus-5-5", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0 }),
+    // Stamped estimate.
+    ev("2026-10-15T09:10:00Z", "run_end", { ref: "A", step: "review", outcome: "advance", unpriced: true, estUsd: 0.5, costBasis: "rate-table" }),
+    ev("2026-10-15T09:20:00Z", "pipeline_done", { ref: "A" }),
+    // Unstamped, priced at read time from tokens with the profile's overrides.
+    ev("2026-10-15T10:00:00Z", "run_end", { ref: "B", step: "code", outcome: "advance", unpriced: true, model: "ollama/qwen3.8", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0 }),
+    ev("2026-10-15T10:30:00Z", "pipeline_done", { ref: "B" }),
+    // Hermes: zero tokens → no estimate.
+    ev("2026-10-15T11:00:00Z", "run_end", { ref: "C", step: "code", outcome: "advance", unpriced: true, model: "claude-opus-5-5", input: 0, output: 0, cacheRead: 0, cacheCreate: 0 }),
+  ];
+  const [t] = dailyStats(events, { now: NOW, days: 1, pricing: { "qwen3.8*": { input: 3, output: 15 } } });
+  assert.equal(t.costUsd, 2, "the reported figure is untouched");
+  assert.equal(t.estUsd, 3.5);
+  assert.equal(t.unestimatedRuns, 1);
+  assert.deepEqual(t.byStep.code, { runs: 3, costUsd: 2, estUsd: 3 });
+  assert.deepEqual(t.byStep.review, { runs: 1, costUsd: 0, estUsd: 0.5 });
+  assert.deepEqual(t.ticketCost, { n: 1, p10: 2, p50: 2, p90: 2 });
+  assert.deepEqual(t.ticketEst, { n: 2, p10: 0.75, p50: 1.75, p90: 2.75 });
+  const [noOverrides] = dailyStats(events, { now: NOW, days: 1 });
+  assert.equal(noOverrides.estUsd, 0.5, "qwen has no default rate");
+  assert.equal(noOverrides.unestimatedRuns, 2);
+});
+
+test("readHistory: a run_end keeps model/tokens/estimate; an old one with no tokens joins usage.jsonl (±5 s, same ref+step)", () => {
+  const f = file();
+  const dir = path.dirname(f);
+  const usage = [
+    { ref: "1", stepId: "code", model: "claude-sonnet-5-5", startedAt: "2026-10-15T09:00:00Z", endedAt: "2026-10-15T10:00:00.000Z", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0, costUsd: 7, unpriced: true },
+    { ref: "2", stepId: "code", model: "claude-sonnet-5-5", startedAt: "2026-10-15T09:00:00Z", endedAt: "2026-10-15T10:00:00.000Z", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0, unpriced: true },
+    { ref: "3", stepId: "code", model: "claude-sonnet-5-5", startedAt: "2026-10-15T09:00:00Z", endedAt: "2026-10-15T10:00:00.000Z", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0, unpriced: true },
+  ];
+  fs.writeFileSync(path.join(dir, "usage.jsonl"), usage.map(line).join(""));
+  const before = fs.readFileSync(path.join(dir, "usage.jsonl"), "utf8");
+  fs.writeFileSync(
+    f,
+    [
+      { ts: "2026-10-15T10:00:01.000Z", event: "run_end", ref: "1", step: "code", outcome: "advance", unpriced: true }, // old shape: joined
+      { ts: "2026-10-15T10:00:09.000Z", event: "run_end", ref: "2", step: "code", outcome: "advance", unpriced: true }, // 9 s off: no join
+      { ts: "2026-10-15T10:00:00.500Z", event: "run_end", ref: "3", step: "review", outcome: "advance", unpriced: true }, // other step: no join
+      { ts: "2026-10-15T11:00:00.000Z", event: "run_end", ref: "4", step: "code", outcome: "advance", unpriced: true, model: "claude-opus-5-5", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0 },
+    ]
+      .map(line)
+      .join(""),
+  );
+  const evs = readHistory(f).events;
+  assert.equal(evs[0].model, "claude-sonnet-5-5");
+  assert.equal(evs[0].input, 1e6);
+  assert.equal(evs[1].input, undefined);
+  assert.equal(evs[2].input, undefined);
+  assert.equal(evs[3].model, "claude-opus-5-5");
+  const [t] = readStats(f, { now: NOW, days: 1 }).days;
+  assert.equal(t.costUsd, 0, "an unpriced raw costUsd never becomes reported spend");
+  assert.equal(t.estUsd, 6, "2 (joined sonnet) + 4 (opus with tokens)");
+  assert.equal(t.unestimatedRuns, 2);
+  assert.equal(fs.readFileSync(path.join(dir, "usage.jsonl"), "utf8"), before, "no file is rewritten");
 });

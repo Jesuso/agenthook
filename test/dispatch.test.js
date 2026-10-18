@@ -970,7 +970,7 @@ test("ci: a parked bounce yields to review's own changes/hold/fail verdict", asy
 // Fractional minutes keep the windows tiny (0.001 min = 60 ms); killGraceMs is injected.
 
 /** @param {string} script  fake `claude` body (sh) @param {any} step @param {number} [killGraceMs] */
-async function timeoutRun(script, step, killGraceMs = 2000) {
+async function timeoutRun(script, step, killGraceMs = 2000, cfgOver = {}) {
   const dir = tmpDir();
   const bin = path.join(dir, "fake-claude.sh");
   fs.writeFileSync(bin, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
@@ -981,6 +981,7 @@ async function timeoutRun(script, step, killGraceMs = 2000) {
     dataDir: dir,
     logDir: dir,
     instructionsFile: path.join(dir, "none.md"),
+    ...cfgOver,
   });
   /** @type {any[]} */
   const advanced = [];
@@ -1003,7 +1004,7 @@ async function timeoutRun(script, step, killGraceMs = 2000) {
     console.log = log;
   }
   const logText = fs.readdirSync(dir).filter((f) => f.endsWith(".log")).map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("");
-  return { advanced, events, children, elapsed: Date.now() - t0, logText, verdictLeft: fs.existsSync(path.join(dir, "verdicts", "42-code.json")) };
+  return { advanced, events, children, elapsed: Date.now() - t0, logText, verdictLeft: fs.existsSync(path.join(dir, "verdicts", "42-code.json")), usage: createStore(dir).readUsage() };
 }
 
 test("timeout: a run past maxMinutes is killed and fails with `timeout`; a pre-kill verdict file is ignored", async () => {
@@ -1213,4 +1214,28 @@ test("run_end: a non-Claude step model is unpriced — no costUsd", async () => 
   const end = r.events.find((e) => e.event === "run_end");
   assert.equal(end?.unpriced, true);
   assert.equal("costUsd" in end, false);
+  assert.equal("estUsd" in end, false, "no rate for qwen3-coder → no estimate");
+  assert.deepEqual([end.model, end.input, end.output], ["qwen3-coder", 10, 5], "model + tokens ride along");
+});
+
+test("run_end + usage record: a reported run is tagged costBasis reported, costUsd unchanged, no estUsd", async () => {
+  const r = await timeoutRun(`echo '${RESULT_LINE}'`, {});
+  const end = r.events.find((e) => e.event === "run_end");
+  assert.equal(end.costUsd, 0.75);
+  assert.equal(end.costBasis, "reported");
+  assert.equal("estUsd" in end, false);
+  assert.equal(r.usage[0].costUsd, 0.75);
+  assert.equal(r.usage[0].costBasis, "reported");
+  assert.equal("estUsd" in r.usage[0], false);
+});
+
+test("run_end + usage record: an unpriced run whose model has a `pricing` rate is stamped estUsd / rate-table", async () => {
+  const r = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "qwen3-coder" }, 2000, { pricing: { "qwen3*": { input: 1e5, output: 1e5 } } });
+  const end = r.events.find((e) => e.event === "run_end");
+  assert.equal("costUsd" in end, false, "costUsd stays reported-only");
+  assert.equal(end.estUsd, 1.5, "15 tokens × $100k/Mtok");
+  assert.equal(end.costBasis, "rate-table");
+  assert.equal(r.usage[0].costUsd, 0.75, "the raw figure is kept on the record");
+  assert.equal(r.usage[0].unpriced, true);
+  assert.equal(r.usage[0].estUsd, 1.5);
 });

@@ -15,6 +15,10 @@ import {
   effectiveBool,
   envEdit,
   envRows,
+  pricingEdit,
+  pricingErrors,
+  pricingRows,
+  PRICING_RATES,
   errorsForRepo,
   errorsForSink,
   escalateEdit,
@@ -59,7 +63,7 @@ import {
   stringListRemove,
   textEdit,
 } from "./configEdit";
-import type { CardList, Discover, StageKeys, StageOption, StageSource } from "./configEdit";
+import type { CardList, Discover, PricingRow, StageKeys, StageOption, StageSource } from "./configEdit";
 import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
 import { resolveIdentity } from "../../src/identity.js";
 import { schemaEntry } from "../../src/config-schema.js";
@@ -389,6 +393,51 @@ function EnvField(props: EditProps & { i: number; env: unknown }) {
       <div>
         <button type="button" className={BUTTON} onClick={() => setRows([...rows, ["", ""]])}>
           add variable
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The `pricing` editor: one row per model pattern with its four $/Mtok rates, plus "add model".
+ * Rows are a local draft committed on blur (a blank pattern is dropped); removing the last row
+ * removes `pricing`. Same shape as the step `env` editor.
+ */
+function PricingField(props: EditProps & { pricing: unknown }) {
+  const initial = pricingRows(props.pricing);
+  const [rows, setRows] = useState(initial);
+  const key = JSON.stringify(initial);
+  useEffect(() => setRows(initial), [key]);
+  const m = fieldMeta(["pricing"]);
+  const commit = (next: PricingRow[]) => props.onEdit(pricingEdit(props.text, next));
+  const change = (idx: number, col: keyof PricingRow, value: string) => setRows(rows.map((r, j) => (j === idx ? { ...r, [col]: value } : r)));
+  return (
+    <div className="flex flex-col gap-1" data-pricing>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {m.label}
+        <span className="ml-1 font-mono opacity-70">{m.hint}</span>
+        {m.help && <HelpTip label={m.label} help={m.help} />}
+      </span>
+      <ul className="flex flex-col gap-1">
+        {rows.map((r, idx) => (
+          <li key={idx} className="flex flex-wrap items-center gap-1" data-pricing-row={idx}>
+            <input className={INPUT} aria-label="model pattern" placeholder="qwen3.8*" value={r.pattern} onChange={(e) => change(idx, "pattern", e.target.value)} onBlur={() => commit(rows)} />
+            {PRICING_RATES.map((k) => {
+              const f = fieldMeta(["pricing", "*", k]);
+              return (
+                <input key={k} className={`${INPUT} w-24`} inputMode="decimal" aria-label={f.label} title={f.help} placeholder={k === "input" || k === "output" ? f.label : `${f.label} (opt.)`} value={r[k]} onChange={(e) => change(idx, k, e.target.value)} onBlur={() => commit(rows)} />
+              );
+            })}
+            <button type="button" className={ICON_BUTTON} aria-label="remove model" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+              remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div>
+        <button type="button" className={BUTTON} data-add-pricing onClick={() => setRows([...rows, { pattern: "", input: "", output: "", cacheRead: "", cacheWrite: "" }])}>
+          add model
         </button>
       </div>
     </div>
@@ -1438,6 +1487,15 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
           </div>
         </details>
         <ErrorList errors={digestErrors(raw?.digest)} />
+      </div>
+      <div className={PANEL} data-pricing-panel>
+        <h3 className="text-sm font-semibold">Pricing</h3>
+        <p className={NOTE}>
+          An agent that reports no dollars (Cursor, Hermes, OpenCode, a local model) gets an API-equivalent estimate, shown as{" "}
+          <span className="font-mono">~$x est.</span> and never added to reported cost. Claude models are built in; map any other model here.
+        </p>
+        <PricingField {...edit} pricing={raw?.pricing} />
+        <ErrorList errors={pricingErrors(raw?.pricing)} />
       </div>
       <div className={PANEL} data-overlap-guard>
         <h3 className="text-sm font-semibold">Overlap guard</h3>

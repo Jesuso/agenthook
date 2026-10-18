@@ -6,6 +6,7 @@ import { isEnvRef } from "../../src/ui/sensitive.js";
 import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, sinkErrors } from "../../src/sinks-config.js";
 import { digestErrors } from "../../src/digest-config.js";
 import { reposErrors } from "../../src/repos-config.js";
+import { pricingErrors } from "../../src/pricing.js";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -545,6 +546,48 @@ export function sinkEventEdit(text: string, i: number, events: unknown, name: st
 export function dropEmptyBlock(text: string, key: string): string {
   const raw = JSON.parse(text);
   return isObj(raw) && isObj(raw[key]) && Object.keys(raw[key]).length === 0 ? setPath(text, [key], undefined) : text;
+}
+
+export { pricingErrors };
+
+/** One `pricing` row as typed: the model pattern and its four $/Mtok rates ("" = unset). */
+export type PricingRow = { pattern: string; input: string; output: string; cacheRead: string; cacheWrite: string };
+export const PRICING_RATES = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+/** `pricing` as editable rows (insertion order); a non-object `pricing` reads as no rows. */
+export function pricingRows(pricing: unknown): PricingRow[] {
+  if (!isObj(pricing)) return [];
+  return Object.entries(pricing).map(([pattern, r]) => {
+    const rate = isObj(r) ? r : {};
+    const cell = (k: string) => (rate[k] === undefined ? "" : fieldText(rate[k]));
+    return { pattern, input: cell("input"), output: cell("output"), cacheRead: cell("cacheRead"), cacheWrite: cell("cacheWrite") };
+  });
+}
+
+/**
+ * `pricing` edit: a blank-pattern row is dropped, a blank rate is left unset, a numeric one is
+ * written as a number and anything else verbatim (so `pricingErrors` flags it, never a silent
+ * drop). No rows left removes `pricing`; absent stays absent (the `envEdit` guard).
+ */
+export function pricingEdit(text: string, rows: PricingRow[]): string {
+  const clean = rows.filter((r) => r.pattern.trim() !== "");
+  if (clean.length === 0) {
+    const raw = JSON.parse(text);
+    return isObj(raw) && raw.pricing !== undefined ? setPath(text, ["pricing"], undefined) : text;
+  }
+  const value = Object.fromEntries(
+    clean.map((r) => {
+      const rate: Record<string, unknown> = {};
+      for (const k of PRICING_RATES) {
+        const t = r[k].trim();
+        if (t === "") continue;
+        const n = Number(t);
+        rate[k] = Number.isFinite(n) ? n : t;
+      }
+      return [r.pattern.trim(), rate];
+    }),
+  );
+  return setPath(text, ["pricing"], value);
 }
 
 /** The `digest` block when it is an object, else undefined. */

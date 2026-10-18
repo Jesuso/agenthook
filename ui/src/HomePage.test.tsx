@@ -12,7 +12,7 @@ const profile = (name: string, over: Partial<ProfileView> = {}): ProfileView => 
   lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], ...over,
 });
 const held = (p: string, ref: string): TicketRow => ({
-  profile: p, ref, displayId: ref, title: null, step: null, status: "held", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null,
+  profile: p, ref, displayId: ref, title: null, step: null, status: "held", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null,
   summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null,
 });
 

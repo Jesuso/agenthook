@@ -20,7 +20,10 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *   ts    — ISO timestamp
  *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red | ci_green
  *           (run_end: `outcome`, `costUsd?`; a local-model run — step `bin` or a non-Claude model — has
- *             `unpriced: true` and no `costUsd`, so it adds nothing to any spend sum)
+ *             `unpriced: true` and no `costUsd`, so it adds nothing to any reported spend sum. `costBasis?` =
+ *             reported | rate-table; `estUsd?` = an API-equivalent rate-table estimate (src/pricing.js), never
+ *             summed into `costUsd`; when the agent returned a result, also `model?`, `input`, `output`,
+ *             `cacheRead`, `cacheCreate` so readers can price it)
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in
  *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
  *             tool/the UI feed — see HIDDEN_BY_DEFAULT)

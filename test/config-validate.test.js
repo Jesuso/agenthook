@@ -279,3 +279,11 @@ test("ui identity block: valid values pass, unknown colour / emoji / shape are e
   assert.match(bad({ emoji: "zz" })[0], /ui\.emoji must be one of/);
   assert.match(bad("teal")[0], /"ui" must be an object/);
 });
+
+test("pricing: invalid rates fail validation with a clear message; a valid block passes", () => {
+  assert.deepEqual(validateRawConfig(raw({ pricing: { "qwen3.8*": { input: 2, output: 10, cacheRead: 0.2 } } })), { ok: true });
+  const v = validateRawConfig(raw({ pricing: { "qwen*": { input: -1 } } }));
+  assert.equal(v.ok, false);
+  assert.ok(!v.ok && v.errors.some((e) => /pricing\["qwen\*"\]\.input must be a finite number ≥ 0/.test(e)), JSON.stringify(v));
+  assert.ok(!v.ok && v.errors.some((e) => /pricing\["qwen\*"\]\.output is required/.test(e)));
+});

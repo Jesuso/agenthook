@@ -2,7 +2,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // Pure-unit tests for usage aggregation helpers (no I/O, no network).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sumRecords, groupBy, utcDay, isoWeek, modelSplit, runCost } from "../src/commands/usage.js";
+import { sumRecords, groupBy, utcDay, isoWeek, modelSplit, runCost, spendCell } from "../src/commands/usage.js";
 
 /** @type {() => import('../src/types.js').UsageRecord} */
 function rec(overrides = {}) {
@@ -52,10 +52,26 @@ test("sumRecords: tokens sum every record, costUsd only priced + old (no-field) 
   assert.equal(sumRecords([rec({ unpriced: true }), rec({ unpriced: true })]).costUsd, undefined, "all unpriced → no cost");
 });
 
-test("runCost: an unpriced run prints unpriced, a priced one its dollars", () => {
-  assert.equal(runCost(rec({ costUsd: 9, unpriced: true })), "unpriced");
+test("runCost: reported dollars, else a rate-table estimate, else unpriced", () => {
   assert.equal(runCost(rec({ costUsd: 0.01 })), "$0.0100");
-  assert.equal(runCost(rec({ costUsd: undefined })), "—");
+  // claude-sonnet-4-6: 100×3 + 200×15 + 50×0.3 + 25×3.75 = 3408.75 µ$
+  assert.equal(runCost(rec({ costUsd: 9, unpriced: true })), "~$0.0034 est.", "the raw unpriced figure is never shown");
+  assert.equal(runCost(rec({ model: "qwen3.8", costUsd: 9, unpriced: true })), "unpriced", "no rate → no estimate");
+  assert.equal(runCost(rec({ model: "qwen3.8", costUsd: 9, unpriced: true }), { "qwen*": { input: 1, output: 1 } }), "~$0.0003 est.");
+  assert.equal(runCost(rec({ model: "mystery", costUsd: undefined })), "—");
+  assert.equal(runCost(rec({ costUsd: 9, unpriced: true, estUsd: 0.5 })), "~$0.5000 est.", "a stamped estimate is used as-is");
+});
+
+test("sumRecords + spendCell: reported and estimated stay apart; runs with neither are counted", () => {
+  const recs = [rec({ costUsd: 0.25 }), rec({ unpriced: true, estUsd: 0.1 }), rec({ model: "local", unpriced: true }), rec({ model: "local", unpriced: true, input: 0, output: 0, cacheRead: 0, cacheCreate: 0 })];
+  const t = sumRecords(recs);
+  assert.equal(t.costUsd, 0.25);
+  assert.ok(Math.abs(t.est - 0.1) < 1e-9);
+  assert.equal(t.unestimated, 2);
+  assert.equal(spendCell(t), "$0.2500 + ~$0.1000 est.");
+  assert.equal(spendCell({ costUsd: 0.25, est: 0 }), "$0.2500");
+  assert.equal(spendCell({ costUsd: undefined, est: 0.1 }), "~$0.1000 est.");
+  assert.equal(spendCell({ costUsd: undefined, est: 0 }), "—");
 });
 
 test("groupBy groups records by key", () => {

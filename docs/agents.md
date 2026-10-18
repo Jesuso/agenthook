@@ -41,6 +41,28 @@ record token counts; Hermes runs record none. OpenCode runs record token counts,
 priced only when OpenCode's own summed `cost` is above zero (a paid provider). A zero or missing
 cost (a local or free model) makes the run `unpriced`, so agenthook never shows made-up dollars.
 
+### Estimated cost (`estUsd`)
+
+An unpriced run whose model has a known rate gets an **estimate** instead: what its tokens would
+cost at API prices. It is a separate figure (`estUsd`, `costBasis: "rate-table"`) and is never
+added to `costUsd`, which always means "reported by the agent". Everywhere a total is shown, the
+two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.`
+
+- **Built-in rates** (`src/pricing.js`, `PRICING_VERSION` 2026-10-06): the Claude family at
+  Anthropic's first-party API prices (5-minute cache writes). A Cursor or OpenCode run on a Claude
+  model is therefore estimated with no config.
+- **Any other model** gets no estimate until you map it in the `pricing` config
+  ([configuration.md](configuration.md)), e.g. `"qwen3.8*": {"input": 2, "output": 10}`. Patterns
+  are case-insensitive globs (`*` only); an exact name beats a glob, a longer glob beats a shorter
+  one, and your `pricing` beats the built-in table. For OpenCode's `provider/model` the full string
+  is tried first, then the part after the last `/`.
+- **No guesses.** An unknown model, or a run that reported no tokens (Hermes), stays
+  "no estimate" — never $0. Totals count those runs (`N runs no estimate`).
+- **Stamped at write time.** Dispatch writes `estUsd`/`costBasis` on the run's `usage.jsonl`
+  record and its `run_end` event, together with the model and token counts, so a later rate change
+  never re-prices history. Older `run_end` rows without tokens are joined to `usage.jsonl` (same
+  ref + step, within 5 s) when the Stats are read; no history file is rewritten.
+
 ### Per-agent flags and limits
 
 - **`model`**: passed as `--model` (claude, cursor) or `-m` (hermes, opencode). OpenCode's model

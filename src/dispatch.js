@@ -16,6 +16,7 @@ import { resolveRepo, repoById, primaryRepo } from "./repos.js";
 import { CANCELLED_REASON, reportMoveFailure } from "./events.js";
 import { sanitizePaths, findBlocker, unionPaths } from "./overlap.js";
 import { agentFor } from "./agents/index.js";
+import { costOf } from "./pricing.js";
 
 // DEFAULT_MAX_ATTEMPTS (pipeline.js): how many times one step may run for a single ref
 // before a `changes` loop back into it is forced to fail. Caps an endless code↔review
@@ -939,6 +940,11 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // Built even without a result: `unpriced` must still reach run_end.
     const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: step.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString() });
     const unpriced = !!usage.unpriced;
+    // Stamp the basis (src/pricing.js): a reported run keeps `costUsd` alone; otherwise an
+    // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.
+    const priced = costOf(usage, cfg.pricing);
+    if (priced.estUsd !== undefined) usage.estUsd = priced.estUsd;
+    if (priced.costBasis) usage.costBasis = priced.costBasis;
     if (store && result) store.recordUsage(usage);
 
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
@@ -956,7 +962,16 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     }
 
     const costUsd = unpriced ? undefined : usage.costUsd;
-    emit?.("run_end", job.ref, step.id, { outcome: verdict.outcome, ...(costUsd !== undefined ? { costUsd } : {}), ...(unpriced ? { unpriced: true } : {}) });
+    // Model + tokens ride along when a result was seen, so Stats can price from events.jsonl alone.
+    const tokens = result ? { ...(usage.model ? { model: usage.model } : {}), input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheCreate: usage.cacheCreate } : {};
+    emit?.("run_end", job.ref, step.id, {
+      outcome: verdict.outcome,
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(unpriced ? { unpriced: true } : {}),
+      ...(usage.costBasis ? { costBasis: usage.costBasis } : {}),
+      ...(usage.estUsd !== undefined ? { estUsd: usage.estUsd } : {}),
+      ...tokens,
+    });
     if (verdict.outcome === "hold") {
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the
       // adapters' comment trigger), with the reply appended to the prompt.

@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { readProfileState, buildRows } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { localEpics, epicStats } from "./epics.js";
+import { sumCosts } from "./pricing.js";
 export { digestErrors, DIGEST_ACCESS } from "./digest-config.js";
 
 const WINDOW_MS = 48 * 3600 * 1000;
@@ -39,9 +40,11 @@ const clip = (v, n) => {
  * The profile snapshot the digest agent sees. Pure over the state dir's files. Everything
  * here is data about tickets, never instructions (the prompt says so).
  * @param {string} dir state dir
- * @param {{ repository?: string|null, now?: number, epics?: import('./epics.js').EpicStats[]|null, forge?: boolean }} [o]
+ * `last24h.costUsd` is reported spend only; `estUsd` is the rate-table estimate of the rest (src/pricing.js,
+ * `pricing` = the profile's overrides) and `unestimatedRuns` the runs with neither.
+ * @param {{ repository?: string|null, now?: number, epics?: import('./epics.js').EpicStats[]|null, forge?: boolean, pricing?: Record<string, import('./pricing.js').Rate>|null }} [o]
  */
-export function buildSnapshot(dir, { repository = null, now = Date.now(), epics, forge } = {}) {
+export function buildSnapshot(dir, { repository = null, now = Date.now(), epics, forge, pricing = null } = {}) {
   const state = readProfileState(dir);
   const recent = state.events.filter((e) => now - Date.parse(e.ts) <= WINDOW_MS);
   const rows = buildRows("digest", { ...state, events: recent }, { repository, up: true });
@@ -57,6 +60,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
   const finished = rows.filter((r) => r.status === "done" && r.finishedAt && now - Date.parse(r.finishedAt) <= DAY_MS);
   const runs = recent.filter((e) => e.event === "run_end" && now - Date.parse(e.ts) <= DAY_MS);
   const costUsd = runs.reduce((n, e) => n + (typeof e.costUsd === "number" ? e.costUsd : 0), 0);
+  const spend = sumCosts(runs, pricing);
   const outcomes = /** @type {Record<string, number>} */ ({});
   for (const e of runs) outcomes[e.outcome ?? "unknown"] = (outcomes[e.outcome ?? "unknown"] ?? 0) + 1;
 
@@ -83,7 +87,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
     needsYou: { held: held.slice(0, LIST_MAX), failed: failed.slice(0, LIST_MAX), prAwaitingMerge: prWaiting.slice(0, LIST_MAX) },
     running: running.slice(0, LIST_MAX),
     queued,
-    last24h: { finished: finished.length, finishedTickets: finished.slice(0, LIST_MAX).map(id), runs: runs.length, outcomes, costUsd: Math.round(costUsd * 100) / 100 },
+    last24h: { finished: finished.length, finishedTickets: finished.slice(0, LIST_MAX).map(id), runs: runs.length, outcomes, costUsd: Math.round(costUsd * 100) / 100, estUsd: Math.round(spend.est * 100) / 100, unestimatedRuns: spend.unestimated },
     agentNotes: notes,
     epics: compactEpics(epicStatsList, epicRows),
     epicsLive,
@@ -256,7 +260,7 @@ export function createDigester({ cfg, emit, run = defaultRunClaude, now = Date.n
         console.warn(`[digest] live epics read failed, falling back to local: ${e.message}`);
       }
     }
-    const snapshot = buildSnapshot(cfg.stateDir, { repository, now: t, epics });
+    const snapshot = buildSnapshot(cfg.stateDir, { repository, now: t, epics, pricing: cfg.pricing });
     const soul = readSoul(cfg.digest?.soul);
     const prompt = buildDigestPrompt({ soul, snapshot, profile: cfg.name });
     emit?.("digest_start", "", "");

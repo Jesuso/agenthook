@@ -9,7 +9,7 @@ function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; 
     step: null,
     model: null,
     startedAt: null,
-    costUsd: 0,
+    costUsd: 0, estUsd: 0,
     trackerUrl: null,
     prUrl: null,
     summary: null, heldReason: null,

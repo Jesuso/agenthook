@@ -233,3 +233,14 @@ test("createHeartbeat records the configured ui identity, null when unset", () =
   assert.deepEqual(write({ color: "teal" }), { color: "teal", emoji: null });
   assert.deepEqual(write({ color: "teal", emoji: "🚀" }), { color: "teal", emoji: "🚀" });
 });
+
+test("createHeartbeat carries the pricing overrides, null when unset", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hb-pricing-"));
+  const write = (/** @type {any} */ pricing) => {
+    const heartbeatFile = path.join(dir, `${Math.random()}.json`);
+    createHeartbeat(/** @type {any} */ ({ name: "n", stateKey: "n", heartbeatFile, pipeline: [], repoPath: dir, pricing }));
+    return JSON.parse(fs.readFileSync(heartbeatFile, "utf8")).pricing;
+  };
+  assert.equal(write(undefined), null);
+  assert.deepEqual(write({ "qwen*": { input: 1, output: 2 } }), { "qwen*": { input: 1, output: 2 } });
+});

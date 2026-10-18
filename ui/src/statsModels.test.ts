@@ -2,24 +2,24 @@ import { describe, it, expect } from "vitest";
 import { calendarModel, divergingModel, nearestDay, rangeModel, rankSteps, stackedModel, OTHER_STEPS, SERIES_COLORS } from "./statsModels";
 import { day } from "./statsFixtures";
 
-const steps = (triage: number, code: number, review: number) => ({ triage: { runs: 1, costUsd: triage }, code: { runs: 1, costUsd: code }, review: { runs: 1, costUsd: review } });
+const steps = (triage: number, code: number, review: number) => ({ triage: { runs: 1, costUsd: triage, estUsd: 0 }, code: { runs: 1, costUsd: code, estUsd: 0 }, review: { runs: 1, costUsd: review, estUsd: 0 } });
 const week = [
-  day("2026-10-12", { byStep: steps(1, 6, 2), costUsd: 9 }),
+  day("2026-10-12", { byStep: steps(1, 6, 2), costUsd: 9, estUsd: 0 }),
   day("2026-10-13"),
-  day("2026-10-14", { byStep: steps(0.5, 3, 1), costUsd: 4.5 }),
+  day("2026-10-14", { byStep: steps(0.5, 3, 1), costUsd: 4.5, estUsd: 0 }),
 ];
 
 describe("rankSteps", () => {
   it("orders steps by total spend and folds the tail into 'other' past the palette", () => {
     expect(rankSteps(week)).toEqual(["code", "review", "triage"]);
-    const many = day("2026-10-12", { byStep: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, { runs: 1, costUsd: 12 - i }])) });
+    const many = day("2026-10-12", { byStep: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, { runs: 1, costUsd: 12 - i, estUsd: 0 }])) });
     const r = rankSteps([many]);
     expect(r).toHaveLength(SERIES_COLORS.length);
     expect(r.at(-1)).toBe(OTHER_STEPS);
     expect(r[0]).toBe("s0");
   });
   it("ignores steps that cost nothing", () => {
-    expect(rankSteps([day("2026-10-12", { byStep: { a: { runs: 3, costUsd: 0 } } })])).toEqual([]);
+    expect(rankSteps([day("2026-10-12", { byStep: { a: { runs: 3, costUsd: 0, estUsd: 0 } } })])).toEqual([]);
   });
 });
 
@@ -41,10 +41,16 @@ describe("stackedModel", () => {
     expect(new Set(m.legend.map((l) => l.color)).size).toBe(3);
   });
   it("folds steps beyond the palette into one 'other' series without losing spend", () => {
-    const many = day("2026-10-12", { byStep: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, { runs: 1, costUsd: 1 }])) });
+    const many = day("2026-10-12", { byStep: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, { runs: 1, costUsd: 1, estUsd: 0 }])) });
     const mm = stackedModel([many], 640, 190);
     expect(mm.legend.at(-1)?.series).toBe(OTHER_STEPS);
     expect(mm.segments.reduce((n, s) => n + s.value, 0)).toBeCloseTo(12);
+  });
+  it("stacks a step's estimate as its own series right above its reported spend, never summed into it", () => {
+    const e = stackedModel([day("2026-10-12", { byStep: { code: { runs: 2, costUsd: 3, estUsd: 1 }, review: { runs: 1, costUsd: 0, estUsd: 2 } }, unestimatedRuns: 4 })], 640, 190);
+    expect(e.segments.map((s) => [s.series, s.est, s.value])).toEqual([["code", false, 3], ["code", true, 1], ["review", true, 2]]);
+    expect(e.legend).toEqual([expect.objectContaining({ series: "code", total: 3, est: 1 }), expect.objectContaining({ series: "review", total: 0, est: 2 })]);
+    expect(e.unestimatedRuns).toBe(4);
   });
   it("is empty and finite with no spend", () => {
     const z = stackedModel([day("2026-10-12")], 640, 190);

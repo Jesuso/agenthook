@@ -15,6 +15,7 @@ import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
 import { readProfileState, buildRows, readJson, isObj } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
+import { pricingOf } from "./pricing.js";
 
 const REASON_MAX = 200;
 const FAILED_MAX = 50;
@@ -217,7 +218,7 @@ export function compactEvent(e) {
   const { ts, event, ref, step, ...rest } = e;
   /** @type {Record<string, any>} */
   const out = { ts, e: event, ref, ...(step ? { step } : {}) };
-  for (const k of ["outcome", "reason", "detail", "costUsd", "unpriced", "target", "action", "displayId", "moveTo", "pr", "sha", "mergeable", "mergeState"]) {
+  for (const k of ["outcome", "reason", "detail", "costUsd", "estUsd", "costBasis", "unpriced", "target", "action", "displayId", "moveTo", "pr", "sha", "mergeable", "mergeState"]) {
     if (rest[k] !== undefined && rest[k] !== null) out[k] = k === "reason" || k === "detail" ? clip(rest[k], REASON_MAX) : rest[k];
   }
   return out;
@@ -411,7 +412,7 @@ export function readRuns(profile, ref, dir, registry = registryDir) {
   // The step's stored summary (summaries.json) goes on the exact run that wrote it, only.
   const stored = readJson(path.join(dir, "summaries.json"), {}, isObj);
   const mine = Object.hasOwn(stored, ref) && isObj(stored[ref]) ? stored[ref] : {};
-  return listRuns(registry, profile, ref, events).map((r) => {
+  return listRuns(registry, profile, ref, events, pricingOf(readJson(path.join(dir, "heartbeat.json"), null, isObj))).map((r) => {
     const s = Object.hasOwn(mine, r.step) ? mine[r.step] : null;
     return {
       run: r.run,
@@ -419,6 +420,8 @@ export function readRuns(profile, ref, dir, registry = registryDir) {
       at: r.startedAt,
       outcome: r.outcome,
       ...(r.costUsd !== null ? { costUsd: r.costUsd } : {}),
+      ...(r.estUsd !== null ? { estUsd: r.estUsd } : {}),
+      ...(r.costBasis !== null ? { costBasis: r.costBasis } : {}),
       ...(r.running ? { running: true } : {}),
       ...(isObj(s) && s.run === r.run && isObj(s.summary) ? { summary: s.summary } : {}),
     };

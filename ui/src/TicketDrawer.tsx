@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LogFrame, RunView, TicketRow, TicketStatus } from "./contract";
-import { formatCost, formatDuration, formatRelative, ticketTitle } from "./format";
+import { formatDuration, formatRelative, formatTicketSpend, ticketTitle } from "./format";
 import { prNumber } from "./tickets";
 import {
   applyFrame,
@@ -124,8 +124,8 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             </a>
           )}
           {ticket && (
-            <span className="text-label text-muted" title="total cost: the sum of run_end costs still in the events tail (an approximation)">
-              {formatCost(ticket.costUsd)}
+            <span className="text-label text-muted" title="total cost: the sum of run_end costs still in the events tail (an approximation); ~est. = rate-table estimate for runs with no reported cost">
+              {formatTicketSpend(ticket)}
             </span>
           )}
           <IconButton label="Close" onClick={props.onClose}>
