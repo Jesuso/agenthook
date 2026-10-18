@@ -11,6 +11,7 @@ export const create = createLocalAdapter;
 export const webhooks = false;
 export const handshake = false;
 export const assigneeScoped = false;
+export const resume = false; // no `@agent` comment path on the local board
 // No `fetch`: the adapter must never touch the network.
 
 export const refs = { ours: "L1" };

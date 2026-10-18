@@ -8,6 +8,7 @@ export const create = createLinearAdapter;
 export const webhooks = true;
 export const handshake = false;
 export const assigneeScoped = true;
+export const resume = true;
 
 const SECRET = "linear-hook-secret";
 const US = "user-bot";
@@ -102,3 +103,7 @@ const movedToCode = (key) => {
 };
 export const ourEvent = () => ({ ctx: movedToCode("ENG-1"), expect: { stepId: "code", ref: "ENG-1" } });
 export const notOursEvent = () => movedToCode("ENG-2");
+
+/** A new comment on ENG-1, by our viewer ("owner") or someone else. @param {any} _env @param {{author: string, body: string}} c */
+export const commentEvent = (_env, { author, body }) =>
+  signed({ action: "create", type: "Comment", data: { id: "comment-1", body, userId: author === "owner" ? US : "user-other", issueId: "uuid-ENG-1" } });

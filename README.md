@@ -123,7 +123,8 @@ every field is in [docs/configuration.md](docs/configuration.md).
 ## Install
 
 Requires Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
-ngrok ingress — [`ngrok`](https://ngrok.com). Plus a tracker API token, except for the local
+ngrok ingress — [`ngrok`](https://ngrok.com), or for the cloudflared ingress —
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/). Plus a tracker API token, except for the local
 quickstart below.
 
 ```bash
@@ -213,9 +214,11 @@ Full guide: **[docs/profiles.md](docs/profiles.md)**.
 ## Ingress and configuration
 
 `ingress.type` decides how the webhook reaches the receiver: **`ngrok`** (managed tunnel, zero
-setup) or **`hosted`** (your own stable HTTPS URL, best for production). The config file holds
-non-secret wiring plus `${ENV}` secret refs; `init` writes it for you and `agenthook ui` edits it
-with validation and backups. Every field and both ingress types are documented in
+setup), **`cloudflared`** (managed Cloudflare Tunnel: an account-less quick tunnel, or a named one
+for a stable URL and parallel profiles) or **`hosted`** (your own stable HTTPS URL, best for
+production). The config file holds non-secret wiring plus `${ENV}` secret refs; `init` writes it
+for you and `agenthook ui` edits it with validation and backups. Every field and every ingress type
+is documented in
 **[docs/configuration.md](docs/configuration.md)**; start from
 [`agenthook.config.example.json`](agenthook.config.example.json).
 

@@ -8,6 +8,7 @@ export const create = createGithubAdapter;
 export const webhooks = true;
 export const handshake = false;
 export const assigneeScoped = true;
+export const resume = true;
 
 const SECRET = "github-hook-secret";
 const US = "agent-bot";
@@ -69,10 +70,10 @@ export function stageOf(env, ref) {
   return stage;
 }
 
-/** A signed `issues` delivery of `ev`. @param {any} ev @param {string} [secret] */
-const signed = (ev, secret = SECRET) => {
+/** A signed delivery of `ev` (an `issues` event unless `kind` says otherwise). @param {any} ev @param {string} [secret] @param {string} [kind] */
+const signed = (ev, secret = SECRET, kind = "issues") => {
   const raw = JSON.stringify(ev);
-  return { pathname: "/github/", headers: { "x-github-event": "issues", "x-github-delivery": "d-1", "x-hub-signature-256": `sha256=${hmacHex(secret, raw)}` }, rawBody: raw };
+  return { pathname: "/github/", headers: { "x-github-event": kind, "x-github-delivery": "d-1", "x-hub-signature-256": `sha256=${hmacHex(secret, raw)}` }, rawBody: raw };
 };
 const ping = { action: "edited", issue: { number: 1 } };
 export const signedRequest = () => signed(ping);
@@ -82,3 +83,7 @@ export const badSignatureRequest = () => signed(ping, "wrong");
 const labeledCode = (n) => signed({ action: "labeled", label: { name: L.code }, issue: issue(n) });
 export const ourEvent = () => ({ ctx: labeledCode("7"), expect: { stepId: "code", ref: "7" } });
 export const notOursEvent = () => labeledCode("8");
+
+/** A new issue_comment on #7. @param {any} _env @param {{author: string, body: string}} o */
+export const commentEvent = (_env, { author, body }) =>
+  signed({ action: "created", issue: issue("7"), comment: { id: 501, body, user: { login: author === "owner" ? US : "someone-else" } } }, SECRET, "issue_comment");

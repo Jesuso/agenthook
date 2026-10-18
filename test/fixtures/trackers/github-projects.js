@@ -8,6 +8,7 @@ export const create = createGithubProjectsAdapter;
 export const webhooks = true;
 export const handshake = false;
 export const assigneeScoped = true;
+export const resume = false; // no `@agent` comment path on Projects v2
 
 const SECRET = "projects-hook-secret";
 const US = "agent-bot";
