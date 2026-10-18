@@ -9,11 +9,12 @@
 //   context.js     types only: the shared mutable engine state
 //
 // Boot sequence (server owns the ingress lifecycle; see boot.js):
-//   quota reading -> ingress.up(port) -> url, write publicUrl
+//   quota reading -> sandbox?.check() (abort boot if unavailable) -> ingress.up(port) -> url, write publicUrl
 //   listen -> startControl -> write pidfile              # BEFORE any webhook register
 //   if ingress.ephemeral: tracker.unregisterWebhooks()   # scrub dead-URL hooks
 //   tracker.ensureLabels?() -> tracker.registerWebhook(url)  # idempotent if stable
 //   forge?: (ephemeral: scrub) + registerWebhook(url)     # optional; best-effort
+//   sandbox?.reap()                                       # orphaned runs of a dead receiver
 //   recoverInterrupted -> restoreQueued -> puller.pull -> reconcile (reconcileOnBoot only)
 //   on exit: ingress.down(), clear pidfile/heartbeat
 //
@@ -35,6 +36,7 @@ import { createStore, isStateDedupKey } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { createIngress } from "../ingress/index.js";
 import { createForge } from "../forges/index.js";
+import { createSandbox } from "../sandbox/index.js";
 import { createCiGreen } from "../ci-green.js";
 import { createEpicChanged } from "../epic-changed.js";
 import { createQueue } from "../queue.js";
@@ -75,6 +77,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const forge = createForge(cfg, store);
   writeProfileMarker(cfg, { webhooks: adapter.describe().webhooks !== false || !!forge });
   const ingress = createIngress(cfg);
+  const sandbox = createSandbox(cfg); // null = agents run on the host
   const heartbeat = createHeartbeat(cfg);
   const startedAt = new Date().toISOString();
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
@@ -87,6 +90,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   let resetEpics;
   const epicChanged = createEpicChanged({ store, emit, invalidate: () => resetEpics?.() });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, {
+    sandbox,
     // A Claude run's quota reading: persisted (readable with the receiver down), shown, paced.
     onQuota: (q) => {
       try {
@@ -236,7 +240,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   });
 
   const { shutdown, onFatal } = createExits({
-    cfg, state, queue, ingress, heartbeat, children, store, quotaPacer,
+    cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox,
     isRestartPending: () => restarter.isPending(),
     isDecommissionPending: () => decommissioner.isPending(),
   });
@@ -244,7 +248,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   process.on("unhandledRejection", (err) => onFatal("unhandledRejection", err));
 
   const serve = createServe({
-    cfg, state, store, adapter, forge, ingress, heartbeat, queue, puller, quotaPacer, emit, releaseOverlap, startedAt,
+    cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, queue, puller, quotaPacer, emit, releaseOverlap, startedAt,
     restart: restarter.request, decommission: decommissioner.request, ops, shutdown, reconcileOnBoot,
   });
 
