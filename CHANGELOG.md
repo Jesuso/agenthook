@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+
+- Ticket titles, descriptions, review findings and the owner's `@agent` reply are now fenced as
+  untrusted data in every step prompt, behind a per-prompt nonce, with a standing rule to `hold` or
+  `fail` (quoting the text) instead of following embedded instructions. Comments the agent reads
+  count as answers only when posted by our own account. This is a mitigation, not a boundary; see
+  the new "Prompt injection" section in `SECURITY.md` (#471).
+
 ### Fixed
 
 - `agenthook init` now reads a `.env` beside the config (or in the current directory) for the tracker
