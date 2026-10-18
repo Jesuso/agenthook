@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { claudeProjectDir } from "../paths.js";
+import { quotaFromRateLimitEvent } from "../quota.js";
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
  * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
@@ -38,15 +39,19 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto }) {
  * one JSON object per line. Buffers partial lines across chunk boundaries, renders
  * assistant **text** content blocks to human-readable log text (non-text blocks and
  * non-JSON lines ignored — never throws), keeps a running token tally, and captures
- * the final `{type:"result"}` event. Pure (no I/O), stateful — feed chunks via push(),
- * flush() any tail at EOF, then read `.tally` / `.result`. Exported for unit tests.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number}, result:any}}
+ * the final `{type:"result"}` event, plus the latest subscription-quota reading from a
+ * `rate_limit_event` (src/quota.js; a malformed one leaves it unchanged). Pure (no I/O),
+ * stateful — feed chunks via push(), flush() any tail at EOF, then read `.tally` / `.result` /
+ * `.quota`. Exported for unit tests.
+ * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number}, result:any, quota:import('../quota.js').QuotaReading|null}}
  */
 export function createStreamParser() {
   let buf = "";
   const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   /** @type {any} */
   let result = null;
+  /** @type {import('../quota.js').QuotaReading|null} */
+  let quota = null;
 
   /** @param {any} ev @returns {string} human-readable log text for this event */
   function handleEvent(ev) {
@@ -79,6 +84,10 @@ export function createStreamParser() {
         if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
         if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
       }
+      return "";
+    }
+    if (ev.type === "rate_limit_event") {
+      quota = quotaFromRateLimitEvent(ev) ?? quota;
       return "";
     }
     return "";
@@ -122,6 +131,9 @@ export function createStreamParser() {
     },
     get result() {
       return result;
+    },
+    get quota() {
+      return quota;
     },
   };
 }
@@ -210,6 +222,9 @@ export const claude = {
       },
       get result() {
         return p.result;
+      },
+      get quota() {
+        return p.quota;
       },
       get sessionId() {
         const id = p.result?.session_id;

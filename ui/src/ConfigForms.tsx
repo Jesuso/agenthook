@@ -18,6 +18,8 @@ import {
   pricingEdit,
   pricingErrors,
   pricingRows,
+  quotaErrors,
+  readQuotaConfig,
   PRICING_RATES,
   errorsForRepo,
   errorsForSink,
@@ -1453,6 +1455,8 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
   const raw = props.raw as Record<string, unknown> | null;
   const sinkErrs = sinkErrors(raw?.sinks);
   const budget = fieldMeta(["digest", "maxBudgetUsd"]).entry!;
+  const quota = readQuotaConfig(props.raw);
+  const quotaEdit = { text: props.text, onEdit: (next: string) => props.onEdit(dropEmptyBlock(next, "quota")) };
   return (
     <div className={FORM_WRAP} data-integrations-form>
       <div className={PANEL} data-sinks>
@@ -1498,6 +1502,18 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
         </p>
         <PricingField {...edit} pricing={raw?.pricing} />
         <ErrorList errors={pricingErrors(raw?.pricing)} />
+      </div>
+      <div className={PANEL} data-quota-panel>
+        <h3 className="text-sm font-semibold">Quota pacing</h3>
+        <p className={NOTE}>
+          Claude runs report the subscription quota (5-hour and weekly windows). Set a threshold to pause new runs at or above it; they resume by
+          themselves when that window resets. Running agents always finish; your own pause or resume wins. Unset = never pauses.
+        </p>
+        <div className={FIELD_GRID}>
+          <NumberField {...quotaEdit} path={["quota", "pauseAboveSevenDay"]} value={quota?.pauseAboveSevenDay} />
+          <NumberField {...quotaEdit} path={["quota", "pauseAboveFiveHour"]} value={quota?.pauseAboveFiveHour} />
+        </div>
+        <ErrorList errors={quotaErrors(raw?.quota)} />
       </div>
       <div className={PANEL} data-overlap-guard>
         <h3 className="text-sm font-semibold">Overlap guard</h3>

@@ -27,7 +27,7 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
     configMissing: false,
     recentCosts: [],
     forge: null,
-    recentRuns: [],
+    recentRuns: [], quotaPaused: null, quota: null,
     ...overrides,
   };
 }

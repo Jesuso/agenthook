@@ -8,6 +8,8 @@ import { createStore } from "../store.js";
 import { classifyCgroup } from "../respawn.js";
 import { ago, day } from "./ls.js";
 import { costOf, formatSpend, pricingOf, sumCosts } from "../pricing.js";
+import { formatQuota, normalizeTrip } from "../quota.js";
+import { readQuota } from "../quota-file.js";
 
 /**
  * Format a token count as a human-readable string (e.g. "1.2M", "340K").
@@ -123,6 +125,11 @@ export async function status(args) {
   if (p.up && hb.queueStage) {
     for (const [stepId, q] of Object.entries(hb.queueStage)) console.log(`backlog : ${stepId} ${q.depth} waiting (as of ${ago(q.at)})`);
   }
+  // Claude subscription quota: quota.json outlives the heartbeat, so this shows while down too.
+  const quota = formatQuota(readQuota(p.dir), Date.now());
+  if (quota) console.log(`quota   : ${quota}`);
+  const trip = p.up ? normalizeTrip(hb.quotaPaused) : null;
+  if (trip) console.log(`paced   : new runs paused — ${trip.window} at ${Math.round(trip.utilization * 100)}% ≥ ${Math.round(trip.threshold * 100)}%, resumes at ${trip.resetsAt}`);
   if (hb.seen != null) console.log(`seen    : ${hb.seen} item(s)`);
   if (hb.startedAt) console.log(`started : ${ago(hb.startedAt)}`);
   if (hb.lastEvent) {

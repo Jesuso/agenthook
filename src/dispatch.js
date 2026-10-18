@@ -218,7 +218,9 @@ const readInstructions = (file) => {
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} [emit]  lifecycle event emitter (best-effort)
  * @param {import('./types.js').Forge|null} [forge]  optional; `ci` jobs call its CI methods
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
- * @param {{killGraceMs?: number}} [opts]  test hook: SIGTERM→SIGKILL grace for a timed-out agent
+ * @param {{killGraceMs?: number, onQuota?: (q: import('./quota.js').QuotaReading) => void}} [opts]  killGraceMs: test hook,
+ *   SIGTERM→SIGKILL grace for a timed-out agent; onQuota: the subscription-quota reading a run's agent
+ *   reported (claude only), stamped with `asOf` — the engine persists it and feeds the pacer
  */
 export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, opts = {}) {
   const killGraceMs = opts.killGraceMs ?? KILL_GRACE_MS;
@@ -320,7 +322,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
    * sits under the step's, so a step can override it; the verdict-file variable is set last
    * so a step can't override it.
    * @param {{agent: import('./types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
-   * @returns {Promise<{code: number, result: any, timedOut?: "max"|"idle"}>}
+   * @returns {Promise<{code: number, result: any, quota: import('./quota.js').QuotaReading|null, timedOut?: "max"|"idle"}>}
    */
   function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -418,7 +420,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
             /* best effort */
           }
         }
-        resolve({ code: c ?? 1, result: parser.result, ...(timedOut ? { timedOut } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}) });
       });
     });
   }
@@ -986,7 +988,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // A failed preflight resolves the run as `fail` with no agent spawned.
     const refused = agentPreflight(agent, step, provider, logPath);
     const agentEnv = agent.env?.({ cfg, step });
-    const { code, result, timedOut } = refused ? { code: 1, result: null, timedOut: undefined } : await spawnAgent({
+    const { code, result, quota, timedOut } = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
       agent,
       prompt,
       cwd,
@@ -1029,6 +1031,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
     killTimers.delete(job.ref);
     const wasCancelled = cancelled.delete(job.ref);
+    // The subscription-quota reading the agent reported (claude only), even from a failed run.
+    if (quota) {
+      try {
+        opts.onQuota?.({ ...quota, asOf: new Date().toISOString() });
+      } catch (e) {
+        console.error(`[dispatch] quota hook failed (continuing): ${e.message}`);
+      }
+    }
     // The step may just have opened the PR.
     await recordPr(job.ref, repo);
 

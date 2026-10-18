@@ -51,6 +51,10 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {number|null} active         agents running (heartbeat.queue.active); null when down
  * @property {number|null} queued         jobs waiting behind maxConcurrent; null when down
  * @property {boolean|null} paused       operator pause (heartbeat.paused; in-memory, a restart clears it); null when down
+ * @property {QuotaTrip|null} quotaPaused  the quota pacer holds new runs (heartbeat.quotaPaused; src/quota.js) — distinct from the
+ *                                        operator `paused`; null when not paused or down
+ * @property {QuotaReading|null} quota   the last Claude subscription-quota reading (quota.json, kept while down; validated
+ *                                        numbers only), with `asOf` so stale data shows; null when none
  * @property {boolean|null} restartPending a restart, decommission or shutdown drain holds the queue
  *                                        (heartbeat.restartPending || decommissionPending || draining); null when down
  * @property {LastEvent|null} lastEvent  the last job the receiver took in
@@ -70,6 +74,13 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @typedef {{ at: string, costUsd: number, estUsd: number }} RecentCost */
 
 /** @typedef {{ at: string, outcome: string|null }} RecentRun */
+
+/** One quota window: utilization 0–1, `resetsAt` ISO.
+ * @typedef {{ utilization: number, resetsAt: string }} QuotaWindow */
+
+/** @typedef {{ fiveHour?: QuotaWindow, sevenDay?: QuotaWindow, asOf?: string }} QuotaReading */
+
+/** @typedef {{ window: 'sevenDay'|'fiveHour', utilization: number, threshold: number, resetsAt: string }} QuotaTrip */
 
 /** @typedef {{ at: string|null, kind: string|null, ref: string|null, step: string|null }} LastEvent */
 

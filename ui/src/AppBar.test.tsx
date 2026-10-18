@@ -70,4 +70,13 @@ describe("AppBar", () => {
       expect(html).toContain(`aria-label="${label}"`);
     }
   });
+
+  it("shows the current profile's Claude quota inside a profile, nothing without one", () => {
+    const now = Date.parse("2026-10-16T16:45:00.000Z");
+    const quota = { sevenDay: { utilization: 0.66, resetsAt: "2026-10-18T21:00:00.000Z" }, asOf: "2026-10-16T16:42:00.000Z" };
+    const withQuota = [{ ...profiles[0], quota }, profiles[1]] as ProfileView[];
+    const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: { ...nav("overview"), profiles: withQuota, now } }));
+    expect(html).toContain("weekly 66% · resets in 2d 4h (as of 3m ago)");
+    expect(renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: nav("overview") }))).not.toContain("data-appbar-quota");
+  });
 });

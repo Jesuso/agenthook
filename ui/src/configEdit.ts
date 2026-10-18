@@ -7,6 +7,7 @@ import { DEFAULT_SINK_EVENTS, SINK_REQUIRED, sinkErrors } from "../../src/sinks-
 import { digestErrors } from "../../src/digest-config.js";
 import { reposErrors } from "../../src/repos-config.js";
 import { pricingErrors } from "../../src/pricing.js";
+import { quotaErrors } from "../../src/quota.js";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -549,6 +550,7 @@ export function dropEmptyBlock(text: string, key: string): string {
 }
 
 export { pricingErrors };
+export { quotaErrors };
 
 /** One `pricing` row as typed: the model pattern and its four $/Mtok rates ("" = unset). */
 export type PricingRow = { pattern: string; input: string; output: string; cacheRead: string; cacheWrite: string };
@@ -588,6 +590,11 @@ export function pricingEdit(text: string, rows: PricingRow[]): string {
     }),
   );
   return setPath(text, ["pricing"], value);
+}
+
+/** The `quota` block when it is an object, else undefined. */
+export function readQuotaConfig(raw: unknown): Record<string, unknown> | undefined {
+  return isObj(raw) && isObj(raw.quota) ? raw.quota : undefined;
 }
 
 /** The `digest` block when it is an object, else undefined. */
