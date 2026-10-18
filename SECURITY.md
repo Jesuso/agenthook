@@ -53,6 +53,8 @@ events**. The trust boundary is small and worth understanding:
 - Pair a stable ingress with a reserved domain over an ephemeral public tunnel; stop the tunnel
   when idle.
 - Keep the signing secret in `~/.agenthook/<name>/secrets.json` (0600) — never commit it.
+- Use a [GitHub App](docs/github-app.md) so agent runs get scoped, expiring tokens instead of your
+  personal token ([agent run tokens](docs/github-app.md#agent-run-tokens)).
 - Don't widen `agentEnvPassthrough` to `"*"`: list only the variables your agents need, so the
   ingress authtoken, App key and webhook secrets stay out of the agent's environment
   ([docs/agents.md#agent-environment](docs/agents.md#agent-environment)).

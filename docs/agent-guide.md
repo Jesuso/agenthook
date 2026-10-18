@@ -148,6 +148,10 @@ the step, or `run {ref, force:true}` to re-enter it from scratch.
 
 **A task failed** (`failed` event). `reason` is clipped; `runs {ref, tail}` has the real error.
 Decide: transient (re-enter with `run {ref, force:true}`), needs a fix elsewhere, or needs a human.
+A `reason` starting `GitHub run token:` means the receiver couldn't mint the run's scoped GitHub App
+token, so no agent ran. Usually the App lacks a permission (GitHub's message is in the reason;
+`agenthook doctor` checks it) or the issue and code repos are under different accounts. A human
+fixes the App or config, then `run {ref, force:true}`.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 

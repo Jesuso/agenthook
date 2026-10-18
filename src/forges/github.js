@@ -12,6 +12,7 @@
 //   registerWebhook(publicUrl) -> create the repo `pull_request`+`workflow_run` hook (best-effort)
 //   unregisterWebhooks()       -> delete this forge's own hook only (by stored id or its own URL)
 //   prHead / rerunFailedJobs / failedLogTail / prComment -> the red-CI calls dispatch makes
+//   runCredentials(o)          -> a per-run App token for one agent run (App auth only, #474)
 //
 // GitHub specifics:
 //   - Path: `/forge` (NOT ending in `/github`, so a github-tracker profile on the same
@@ -32,6 +33,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { verifyHubSignature } from "../hmac.js";
 import { createGithubAuth, githubFetch } from "../github-auth.js";
+import { githubRunCredentials, originUrl } from "../github-run-token.js";
 
 export const FORGE_PATH = "/forge";
 const BRANCH_PREFIX = "agent/";
@@ -263,8 +265,16 @@ export function createGithubForge(cfg, store) {
     };
   }
 
+  // Under App auth each agent run gets its own scoped token (#474). The code repo is the routed
+  // checkout's `origin` (else this forge's repository); the issue repo the task URL's (else a
+  // GitHub tracker's repository).
+  const forgeRepo = owner && repo ? `${owner}/${repo}` : null;
+  const trackerRepo = cfg.provider === "github" || cfg.provider === "github-projects" ? (cfg.tracker?.repository ?? null) : null;
+  const runCredentials = githubRunCredentials(fc, cfg, { codeRepo: (p) => parseGithubRemote(originUrl(p)) ?? forgeRepo, issueRepo: trackerRepo });
+
   return {
     describe: () => ({ name: "github", agentEnv: GITHUB_FORGE_AGENT_ENV }),
+    runCredentials,
 
     // No handshake and no opt-out: a missing/bad signature is always a reject.
     authenticate({ rawBody, headers }) {

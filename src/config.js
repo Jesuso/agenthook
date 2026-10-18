@@ -411,6 +411,10 @@ export function validateRawConfig(raw) {
     }
   }
 
+  if (cfg.githubRunToken != null && typeof cfg.githubRunToken !== "boolean") {
+    errors.push(`config: "githubRunToken" must be true or false.`);
+  }
+
   if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {
     errors.push(`config: "overlapGuard" must be true or false.`);
   }

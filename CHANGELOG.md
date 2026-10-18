@@ -6,7 +6,22 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Per-run GitHub App tokens for agents. Under GitHub App auth each agent run gets its own 1-hour
+  installation token, scoped to the run's repo(s) and to what the step kind needs (never
+  Workflows, admin or secrets). It lives in a per-run `gh` config dir that the receiver refreshes
+  before expiry, and it is revoked when the run ends. A run whose token can't be minted fails with
+  `GitHub run token: …` instead of falling back to your token. `doctor` mints and revokes one to
+  check the App's permissions. See `docs/github-app.md#agent-run-tokens` (#474).
+
 ### Changed
+
+- **Under GitHub App auth agents now push, comment and open PRs as the App (`<app>[bot]`)** with a
+  1h token scoped to the run's repo. Grant the App Contents and Pull requests write (the
+  [agent runs table](docs/github-app.md#minimal-permissions)). `githubRunToken: false` restores
+  your own credentials. The `github` tracker prompt now comments with
+  `gh issue comment <n> --repo <o>/<r>` instead of curl and `$GITHUB_TOKEN` (#474).
 
 - **Agents no longer inherit the receiver's environment.** A spawned agent gets only an allowlist:
   process basics (`PATH`, `HOME`, locale, `TERM`, `XDG_*`, proxies, `SSH_AUTH_SOCK`, toolchain

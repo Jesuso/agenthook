@@ -50,16 +50,17 @@ export function looksSecret(name) {
 }
 
 /**
- * The agent env. `source` (process.env) is filtered to `allow`, then each of `layers` is spread
- * on top, in order. Layers are explicit operator or adapter choices, so they are never filtered.
+ * The agent env. `source` (process.env) is filtered to `allow`, minus the names in `strip` (a
+ * run's per-run credentials replace them, #474), then each of `layers` is spread on top, in
+ * order. Layers are explicit operator or adapter choices, so they are never filtered.
  * Undefined values are dropped. Pure.
- * @param {{source: Record<string,string|undefined>, allow: readonly string[], layers?: (Record<string,string>|undefined)[], platform?: string}} o
+ * @param {{source: Record<string,string|undefined>, allow: readonly string[], strip?: readonly string[], layers?: (Record<string,string>|undefined)[], platform?: string}} o
  * @returns {Record<string,string>}
  */
-export function buildAgentEnv({ source, allow, layers = [], platform }) {
+export function buildAgentEnv({ source, allow, strip = [], layers = [], platform }) {
   /** @type {Record<string,string>} */
   const out = {};
-  for (const [k, v] of Object.entries(source)) if (v !== undefined && envNameMatches(k, allow, platform)) out[k] = v;
+  for (const [k, v] of Object.entries(source)) if (v !== undefined && envNameMatches(k, allow, platform) && !envNameMatches(k, strip, platform)) out[k] = v;
   for (const layer of layers) for (const [k, v] of Object.entries(layer ?? {})) if (v !== undefined) out[k] = v;
   return out;
 }

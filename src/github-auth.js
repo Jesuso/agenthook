@@ -40,6 +40,27 @@ export function appJwt({ appId, privateKey, now = Math.floor(Date.now() / 1000) 
   return `${input}.${b64url(sig)}`;
 }
 
+/**
+ * POST `/app/installations/{id}/access_tokens`. No `body` = the installation's full permissions on
+ * every repo it covers (the receiver's token); a `{repositories, permissions}` body narrows it (a
+ * per-run agent token, src/github-run-token.js). Never touches the cache below.
+ * @param {GithubAuthConfig} auth @param {{repositories?: string[], permissions?: Record<string,string>}|undefined} body
+ * @param {{fetch?: typeof fetch, now?: () => number}} [opts]  `now` in epoch ms
+ * @returns {Promise<{token: string, expiresAt: number}>} */
+export async function mintInstallationToken(auth, body, { fetch: f = (...a) => globalThis.fetch(...a), now = Date.now } = {}) {
+  if (!auth?.privateKey) throw new Error(`GitHub App ${auth?.appId}: no private key (set auth.privateKey or auth.privateKeyPath)`);
+  const jwt = appJwt({ appId: auth.appId, privateKey: auth.privateKey, now: Math.floor(now() / 1000) });
+  const res = await f(`${API}/app/installations/${auth.installationId}/access_tokens`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(body ? { "Content-Type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  /** @type {any} */
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !out?.token) throw new Error(`GitHub App installation token ${res.status}: ${out?.message || "no token in the response"}`);
+  return { token: out.token, expiresAt: Date.parse(out.expires_at) || now() + 60 * 60 * 1000 };
+}
+
 /** @type {Map<string, {token: string|null, expiresAt: number, inflight: Promise<string>|null}>} */
 const caches = new Map();
 
@@ -68,18 +89,10 @@ export function createGithubAuth(block, { fetch: f = (...a) => globalThis.fetch(
 
   /** @returns {Promise<string>} */
   async function mint() {
-    if (!auth?.privateKey) throw new Error(`GitHub App ${auth?.appId}: no private key (set auth.privateKey or auth.privateKeyPath)`);
-    const jwt = appJwt({ appId: auth.appId, privateKey: auth.privateKey, now: Math.floor(now() / 1000) });
-    const res = await f(`${API}/app/installations/${auth.installationId}/access_tokens`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${jwt}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
-    });
-    /** @type {any} */
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || !body?.token) throw new Error(`GitHub App installation token ${res.status}: ${body?.message || "no token in the response"}`);
-    cache.token = body.token;
-    cache.expiresAt = Date.parse(body.expires_at) || now() + 60 * 60 * 1000;
-    return body.token;
+    const { token, expiresAt } = await mintInstallationToken(/** @type {GithubAuthConfig} */ (auth), undefined, { fetch: f, now });
+    cache.token = token;
+    cache.expiresAt = expiresAt;
+    return token;
   }
 
   return {

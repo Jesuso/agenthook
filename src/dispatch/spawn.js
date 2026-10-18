@@ -14,20 +14,21 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** The spawn env for an agent run (#470): the receiver's env filtered to the allowlist — the
  * base names, the agent CLI's `envPassthrough`, the tracker prompt's and the forge's `agentEnv`,
- * then the operator's `agentEnvPassthrough` — with the adapter's `agent.env` and then the
- * step's `env` spread on top, unfiltered. Shared by `spawnAgent` and a post-exit
- * `agent.finalize` so the export sees the same `HERMES_HOME` the run used. Never includes
- * AGENTHOOK_VERDICT_FILE.
- * @param {{cfg: Pick<import('../types.js').Config, 'agentEnvPassthrough'>, agent: import('../types.js').AgentAdapter, meta?: import('../types.js').AdapterMeta, forge?: import('../types.js').Forge|null, agentEnv?: Record<string,string>, env?: Record<string,string>}} o
+ * then the operator's `agentEnvPassthrough` — minus the run credentials' `strip` names, with the
+ * adapter's `agent.env`, the run credentials' `env` (#474) and then the step's `env` spread on
+ * top, unfiltered. Shared by `spawnAgent` and a post-exit `agent.finalize` (which never gets
+ * `creds`: they are disposed by then) so the export sees the same `HERMES_HOME` the run used.
+ * Never includes AGENTHOOK_VERDICT_FILE.
+ * @param {{cfg: Pick<import('../types.js').Config, 'agentEnvPassthrough'>, agent: import('../types.js').AgentAdapter, meta?: import('../types.js').AdapterMeta, forge?: import('../types.js').Forge|null, agentEnv?: Record<string,string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string,string>}} o
  * @returns {Record<string,string>} */
-export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }) {
+export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env }) {
   const allow = agentEnvAllow({ agent: agent.envPassthrough, tracker: meta?.agentEnv, forge: forge?.describe?.().agentEnv, operator: cfg.agentEnvPassthrough });
-  return buildAgentEnv({ source: process.env, allow, layers: [agentEnv, env] });
+  return buildAgentEnv({ source: process.env, allow, strip: creds?.strip, layers: [agentEnv, creds?.env, env] });
 }
 
 /** @param {import('./context.js').DispatchState} ctx */
 export function createSpawn(ctx) {
-  const { cfg, children, killGraceMs, killTimers, meta, forge } = ctx;
+  const { cfg, adapter, children, killGraceMs, killTimers, meta, forge } = ctx;
   /** SIGTERM now, SIGKILL after the grace (cleared when the run ends, so a recycled pid is never hit).
    * @param {string} ref @param {number} pid */
   function killNow(ref, pid) {
@@ -61,12 +62,12 @@ export function createSpawn(ctx) {
    * SIGKILL after the grace, and `timedOut` says which.
    * `bin`/`env` are the step's optional agent binary and extra environment (unset → the adapter's
    * default bin, else cfg.claudeBin, and the allowlisted env, see agentSpawnEnv); `agentEnv` (the adapter's `env`)
-   * sits under the step's, so a step can override it; the verdict-file variable is set last
-   * so a step can't override it.
-   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
+   * and `creds` (the run's adapter-minted credentials) sit under the step's, so a step can override
+   * them; the verdict-file variable is set last so a step can't override it.
+   * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void}} o
    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle"}>}
    */
-  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
+  function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -83,7 +84,7 @@ export function createSpawn(ctx) {
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
         // read it after exit to route the step (advance/hold/changes/fail).
-        env: { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env }), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
+        env: { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env }), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
       });
       children?.add(child);
       onPid?.(child.pid);
@@ -184,6 +185,41 @@ export function createSpawn(ctx) {
     return path.join(dir, `${safeRef}-${stepId}.json`);
   }
 
+  /** The per-run dir an adapter's `runCredentials` may own (#474): `<dataDir>/run-creds/<safeRef>-<stepId>`.
+   * Not created here — the adapter wipes and creates it. @param {string} stepId @param {string} ref */
+  function runCredsDirFor(stepId, ref) {
+    const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+    return path.join(cfg.dataDir, "run-creds", `${safeRef}-${stepId}`);
+  }
+
+  /**
+   * The run's scoped credentials (#474): the forge's `runCredentials`, else the tracker's.
+   * `{creds: null}` = nothing to scope (the #470 env applies). A throw becomes `refused` — the
+   * run fails with that reason, written to the run log, and is never spawned; it never falls
+   * back to the operator's credentials.
+   * @param {import('../types.js').RunCredentialsInput} o
+   * @returns {Promise<{creds: import('../types.js').RunCredentials|null, refused?: string}>}
+   */
+  async function runCredentials(o) {
+    try {
+      const creds = (await forge?.runCredentials?.(o)) ?? (await adapter.runCredentials?.(o)) ?? null;
+      return { creds };
+    } catch (e) {
+      const refused = e?.message || String(e);
+      o.log(refused);
+      return { creds: null, refused };
+    }
+  }
+
+  /** Append one `[agenthook] <line>` to a run log (best-effort). @param {string} logPath @param {string} line */
+  function logLine(logPath, line) {
+    try {
+      fs.appendFileSync(logPath, `[agenthook] ${line}\n`);
+    } catch (e) {
+      console.error(`[run] log write failed for ${logPath}:`, e.message);
+    }
+  }
+
   /** The path an agent whose CLI takes the prompt from a file (`describe().promptFile`,
    * e.g. hermes' `--query-file`) reads it from — one per run, under the state dir;
    * `spawnAgent` removes it once the run exits. @param {string} stepId @param {string} ref */
@@ -219,7 +255,7 @@ export function createSpawn(ctx) {
     return reason;
   }
 
-  return { killNow, spawnAgent, logPathFor, verdictPathFor, promptFilePathFor, agentPreflight };
+  return { killNow, spawnAgent, logPathFor, verdictPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight };
 }
 
 /** @typedef {ReturnType<typeof createSpawn>} Spawn */

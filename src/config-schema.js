@@ -58,6 +58,7 @@ export const CONFIG_SCHEMA = [
   entry("port", "number", "Local port", "basics", "Local port the receiver listens on; the ingress forwards webhooks to it.", { default: 4123 }),
   entry("fullAuto", "boolean", "Full auto (skip permissions)", "basics", "Run agents with --dangerously-skip-permissions: no permission prompts, unsandboxed.", { sensitive: true, default: false }),
   entry("agentEnvPassthrough", "string-list", "Agent env passthrough", "basics", "Receiver env vars agents also get (NAME or PREFIX*); everything else is stripped. \"*\" = inherit all (0.9).", { advanced: true, sensitive: true }),
+  entry("githubRunToken", "boolean", "Per-run GitHub token", "basics", "Under GitHub App auth, give each agent run its own 1h token scoped to its repo instead of your token.", { advanced: true, sensitive: true, default: true }),
   entry("agent", "enum", "Agent", "basics", "The coding-agent CLI steps spawn unless a step names its own.", { advanced: true, options: AGENT_NAMES, default: DEFAULT_AGENT }),
   entry("agentProvider", "string", "Agent provider", "basics", "Default inference provider for steps (hermes --provider); a step's provider overrides it.", { advanced: true }),
   entry("claudeBin", "string", "Claude binary", "basics", "The claude CLI agents are spawned with: a name on PATH or an absolute path.", { advanced: true, sensitive: true, default: "claude" }),

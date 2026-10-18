@@ -58,7 +58,24 @@ a personal repo, or the org's settings for an org.
 | Issues | Write | PR comments (posted via `/issues/{n}/comments`) |
 | Webhooks | Read & write | creating the repo hook agenthook listens on |
 
-If the tracker and the forge use the same App, grant the union of the two lists.
+**Agent runs** ([agent run tokens](#agent-run-tokens), on by default under App auth), under
+*Repository permissions*:
+
+| Permission | Access | Used for |
+|---|---|---|
+| Metadata | Read | required by GitHub |
+| Contents | Read & write | the agent's `git push` |
+| Pull requests | Read & write | `gh pr create`, `gh pr view`, review comments |
+| Issues | Read & write | `gh issue comment`, `gh issue view` |
+| Checks | Read | the agent reading its PR's CI |
+| Commit statuses | Read | the same |
+| Actions | Read | CI run logs |
+
+A run token can only hold permissions the installation already has (GitHub answers 422
+otherwise), so the installation must grant at least these. Do **not** grant *Workflows*: without it
+no agent can push a change to `.github/workflows/`.
+
+If the tracker and the forge use the same App, grant the union of the lists.
 
 ## 2. Generate a private key and install the App
 
@@ -143,20 +160,88 @@ can't serve the tracker path and the forge path at once. It also delivers no eve
 If hook creation is refused (403/404), agenthook prints the same copy-pasteable manual setup as with
 a token. The hint names the App permission to add.
 
-## What still uses your own credentials
+## Agent run tokens
 
-The App authenticates **the receiver** only. The agents it spawns (`claude -p` …) get the
-[allowlisted environment](agents.md#agent-environment), including `GITHUB_TOKEN`/`GH_TOKEN` (see
-`agentEnvPassthrough`), and still use **their own** `$GITHUB_TOKEN` / `gh auth` for the comments,
-pushes and PRs they make. Keep those set up as before. Handing the agent a short-lived installation
-token is a possible follow-up, not part of this.
+Under App auth the receiver mints its own installation token, and each agent run gets a
+**separate** one, minted for that run only. Set `githubRunToken: false` to turn this off.
+
+- **Scoped to the run's repos.** That's the routed checkout's `origin` (https, `git@` or
+  `ssh://` github.com remotes) and the issue's repo (from the issue URL). On `github-projects` the
+  two can differ. Both must be under one account: an installation token can't span two, so a run
+  whose issue and code live under different owners is refused. When `origin` isn't on github.com
+  (with no App forge to fall back on), the token covers the issue repo only, with Metadata and
+  Issues permissions. The run then keeps your SSH agent, and pushes go out with your own git
+  credentials.
+- **Limited to what the step kind needs.** It never gets Workflows, Administration, Secrets,
+  Actions write or any org permission:
+
+  | Step kind | Permissions (plus Metadata: Read) |
+  |---|---|
+  | `implement`, `change` | Contents W, Pull requests W, Issues W, Checks R, Commit statuses R, Actions R |
+  | `review` | Contents R, Pull requests W, Issues W, Checks R, Commit statuses R |
+  | `triage` | Contents R, Issues W |
+
+- **Never in an env var.** A default run (`maxMinutes` 120) outlives a 1-hour token, and an env var
+  can't be refreshed inside a running process. So the token lives in a per-run `gh` config dir
+  (`<state>/run-creds/<ref>-<step>/gh/hosts.yml`, mode 0600), and the run gets `GH_CONFIG_DIR`
+  pointing at it. `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `SSH_AUTH_SOCK` are removed
+  from the run's env, because `gh` prefers an env token over its config. git gets
+  `gh auth git-credential` as its only github.com credential helper, and SSH github remotes are
+  rewritten to HTTPS (env-based git config, git ≥ 2.31). A push therefore uses the run token, not
+  your SSH key.
+- **Refreshed.** 10 minutes before the token expires, the receiver mints a fresh one with the same
+  scope and rewrites `hosts.yml`. `gh` and git read it again on every call. A failed refresh writes
+  one line to the run log and retries every minute until the token expires. It never kills the run.
+  Past expiry the agent's `gh`/git calls fail, and the agent says so in its verdict.
+- **Revoked** (`DELETE /installation/token`) and its dir deleted when the run ends: exit, timeout,
+  cancel or spawn error. A receiver crash skips that, but the token dies within the hour anyway.
+  The next run of the same ref and step wipes the dir first, and `agenthook cleanup` removes
+  `run-creds/*` dirs untouched for over 2 hours.
+- **Refused, not downgraded.** If a token can't be minted (e.g. a 422 because the App lacks
+  Contents write), the run fails with `GitHub run token: <GitHub's message>` and no agent is
+  spawned. It never falls back to your token.
+
+The run log names the token's scope and expiry (never the token), e.g.
+`GitHub App token: o/r (contents:write, pull_requests:write, issues:write), expires 14:05 UTC`.
+
+**The bot identity.** A run token acts as `<app>[bot]`, so agent pushes, PRs and comments appear as
+the App, not as you. PRs are still matched by their `agent/<ref>` branch. The bot is never counted
+as the owner: the prompt tells the agent that only comments by `@<assigneeLogin>` are answers, and
+the `@agent` resume already checks that login.
+
+**Workflow files.** A token without the Workflows permission can't push a commit that adds or
+changes a file under `.github/workflows/`; GitHub rejects the push. Under App auth an agent can't
+use CI as an escalation path.
+
+A step `env` that sets `GH_TOKEN`/`GITHUB_TOKEN` still wins over the run token. That's your
+explicit choice, and `doctor` warns about it.
+
+### Without an App
+
+GitHub has no API to create or narrow a personal token, so with a PAT nothing is minted. Agents get
+your `GITHUB_TOKEN`/`GH_TOKEN` through the [env allowlist](agents.md#agent-environment), and
+`doctor` notes it. To narrow what agents hold, create a **fine-grained PAT** limited to the repo
+(Contents, Pull requests and Issues: Read & write) and hand only that to agents through the step
+env: `"env": { "GH_TOKEN": "${AGENT_GH_TOKEN}" }`.
+
+**Other trackers and forges.** None of them gets a per-run token:
+
+- **GitLab** project access tokens can be created by API, but that needs the Maintainer role. Each
+  token also creates a bot user, and expiry is a whole date (at least a day), not an hour.
+- **Jira, Asana and Linear** have no API to mint a short-lived scoped token from an API key or PAT.
+
+Their comment tokens stay allowlisted.
 
 ## Check it
 
-`agenthook doctor` replaces the token check with three checks under App auth:
+`agenthook doctor` replaces the token check with these checks under App auth:
 
 - the private key parses;
 - an installation token can be fetched (one live call to GitHub);
+- with agent run tokens on, a run token for the `implement` permission set can be minted on the
+  repo, then it is revoked at once (one more call each way). A 422 means the App lacks Contents or
+  Pull requests write;
 - `tracker.assigneeLogin` is set.
 
-The forge gets the first two.
+The forge gets all but the last. `doctor` also warns when `githubRunToken` is false under App auth,
+when a step `env` overrides the run token, and when a repo's `origin` isn't on github.com.
