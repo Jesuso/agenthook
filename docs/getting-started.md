@@ -63,9 +63,9 @@ then uses your token to let you **pick** your workspace/project from a live list
 for those). It writes `./agenthook.config.json`.
 
 **What `init` does _not_ do yet:** it leaves the pipeline as a single placeholder `code` step with
-`TODO_*` section gids. You fill those in next. (`agenthook doctor` checks tokens/git/port but
-**not** these gids — so a green doctor with TODO gids still fires nothing. This is the #1 "why is
-nothing happening" cause.)
+`TODO_*` section gids. You fill those in next. (`agenthook doctor` flags any `TODO_*` left behind,
+but it can't tell whether a real gid is the *right* one — a gid for the wrong section passes doctor
+and still fires nothing. This is the #1 "why is nothing happening" cause.)
 
 ## 4. Map your sections to steps — the part that actually matters
 

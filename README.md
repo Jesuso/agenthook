@@ -187,7 +187,8 @@ $EDITOR .env              # add the token init prints (ASANA_TOKEN, JIRA_API_TOK
                           # GITHUB_TOKEN or LINEAR_API_KEY)
 
 # Fill in the pipeline — replace the TODO_* section gids and write the per-step
-# instruction files. THIS step is required; doctor won't catch missing gids.
+# instruction files. THIS step is required; doctor flags leftover TODO_* values but
+# can't tell a real gid that points at the wrong section.
 $EDITOR agenthook.config.json      # see Getting Started §4
 cp INSTRUCTIONS.example.md INSTRUCTIONS_CODE.md
 

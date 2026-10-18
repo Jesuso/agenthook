@@ -151,7 +151,7 @@ export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
           log.end();
           if (child === proc) child = null;
           if (settled) {
-            if (!stopping) console.error(`[cloudflared] exited (${code ?? signal}); the tunnel is down. See ${logPath}.`);
+            if (!stopping) console.error(`[cloudflared] exited (${code ?? signal}); the tunnel is down — webhooks can't reach this receiver until \`agenthook restart\`. See ${logPath}.`);
             return;
           }
           settle(new Error(`cloudflared (${mode}, port ${port}) exited (${code ?? signal}) before connecting. Last log lines:\n${tail(buf)}`));
