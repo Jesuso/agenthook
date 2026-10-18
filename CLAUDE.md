@@ -81,7 +81,8 @@ dedupKey, comment? }`. Adapters produce jobs; the engine only ever sees jobs. `s
   from elsewhere in `src/ui/*`.
 - A new config key needs a `src/config-schema.js` entry (a test enforces it).
 - Update `docs/agent-guide.md` when an MCP tool, event, or error message changes.
-- Never `pkill -f` a pattern that matches the calling shell; `stop` kills by the pidfile.
+- Never `pkill -f` a pattern that matches the calling shell; `stop` kills by the pidfile
+  (`cfg.pidFile` = `~/.agenthook/<stateKey>/server.pid`).
 - Runtime state is central (`~/.agenthook/<name>/`), outside any repo. In *this* repo,
   `agenthook.config.json`, `config.json`, `.env`, `INSTRUCTIONS.md`, and `logs/` are gitignored —
   verify before any commit.
