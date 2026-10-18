@@ -39,5 +39,18 @@
   (the `github` rule over the GraphQL shape); tickets = its native sub-issues, staged by their own
   card's Status (`""` on-board with no Status, `null` off-board); `listEpics` = epic cards on this
   board only. No `epic_changed` signals yet (the org hook carries no sub-issue events).
+- **Linear** — steps bind one team's **workflow state names** (`sourceStatus`/… — Jira's keys),
+  resolved case-insensitively to state ids from `tracker.team` (a team key or URL; team + states
+  memoised, an unknown name throws listing the team's states). API is **GraphQL**
+  (`api.linear.app/graphql`); a personal API key goes in `Authorization: <key>` with **no `Bearer`**.
+  `ref` = the issue **identifier** (`ENG-123`, which `issue(id:)` accepts). `advance` **sets** the
+  state via `issueUpdate({stateId})` — no transition graph, every move lands. One **team** webhook
+  (resource types Issue + Comment) is auto-created via `webhookCreate`, signed with an
+  agenthook-generated secret; creating it needs a Linear **admin**, else boot prints manual setup.
+  `authenticate`: `linear-signature` hex HMAC first, then `webhookTimestamp` must be within **60 s**
+  (replay window). Routes Issue `create` (`step:<id>:<ref>`) and `update` with `updatedFrom.stateId`
+  (`secmove:<issueId>:<updatedAt>`); Comment `create` is the `@agent` resume (author `userId` must
+  **strictly** equal `viewer.id`; dedup `trigger:<comment.id>`). 'Us' = GraphQL `viewer` id, resolved
+  lazily and memoised; the assignee check reads the payload's `assigneeId`; fail-closed. No epics.
 
 See [epics.md](epics.md) for the cross-provider epic model this feeds into.

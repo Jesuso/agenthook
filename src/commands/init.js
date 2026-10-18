@@ -17,7 +17,7 @@ import { registryDir } from "../config.js";
 import { tildify } from "../profile.js";
 
 /** @type {Record<string, string>} */
-const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN", "github-projects": "GITHUB_TOKEN" };
+const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN", "github-projects": "GITHUB_TOKEN", linear: "LINEAR_API_KEY" };
 
 // A starter pipeline: one coding step. When the tracker adapter can discover the
 // real stages (the common path — see each adapter's wizardSteps + pipelineBindings),
@@ -34,6 +34,7 @@ const PLACEHOLDER_PIPELINES = {
   jira: [{ ...base, sourceStatus: "TODO_SOURCE_STATUS", successStatus: "TODO_REVIEW_STATUS", failureStatus: "TODO_BLOCKED_STATUS" }],
   github: [{ ...base, sourceLabel: "TODO_SOURCE_LABEL", successLabel: "TODO_REVIEW_LABEL", failureLabel: "TODO_BLOCKED_LABEL" }],
   "github-projects": [{ ...base, sourceStatus: "TODO_SOURCE_STATUS", successStatus: "TODO_REVIEW_STATUS", failureStatus: "TODO_BLOCKED_STATUS" }],
+  linear: [{ ...base, sourceStatus: "TODO_SOURCE_STATE", successStatus: "TODO_REVIEW_STATE", failureStatus: "TODO_BLOCKED_STATE" }],
 };
 
 /** Turn collected answers into a config block: `<x>Env` answers become "${VAL}" refs.
