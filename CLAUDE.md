@@ -49,15 +49,18 @@ node bin/agenthook.js digest [name] [--json]  # write + print a profile's Digest
 node bin/agenthook.js watch [name…|--all] [--event a,b] [--cursor <n|json>] [--timeout s]  # block until the next event (exit 2 on timeout; ≥2 names/--all = first event from any, object cursor)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
-npm test                                  # node:test suites in test/ (pure units; no network/spawn)
+npm test                                  # node:test suites in test/ (units + test/e2e.test.js: real receiver, local tracker, stub agent)
 node --check bin/agenthook.js src/**/*.js # syntax check
 ```
 
 No build step, no bundler — plain Node ESM (`"type": "module"`, Node ≥ 22). The code ships as JS
 and runs unbuilt; TypeScript is used **only as a checker** via JSDoc + `checkJs` (`tsconfig.json`,
 `noEmit`). Tests use the built-in `node:test` runner (zero deps) and cover the pure units —
-`paths`, `pipeline`, `queue` (concurrency + coalescing), `store` (persistence); engine/adapter
-paths that need network or `claude -p` are still validated by manual smoke tests. CI
+`paths`, `pipeline`, `queue` (concurrency + coalescing), `store` (persistence). `test/e2e.test.js`
+boots a real receiver (`agenthook start`, child process) against a `local` tracker and a stub agent
+(`test/fixtures/stub-agent.mjs`, a step `bin` — never a model) and drives the happy / changes-cap /
+hold / crash loops end to end; paths that need a webhook tracker or real `claude -p` are still
+validated by manual smoke tests. CI
 (`.github/workflows/ci.yml`) runs typecheck + tests + `node --check` on Node 22 & 24. There is no
 lint config.
 
@@ -272,7 +275,9 @@ Key files:
   placeholder). `test/config-schema.test.js` parses `src/types.js` and fails when a config `@property` has neither
   an entry nor a `NO_FORM` reason, and holds the `sensitive` set equal to `SENSITIVE_FIELDS`.
 - `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
-  updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
+  updatedAt, webhooks}` — `webhooks` stamped by `createEngine` from `adapter.describe().webhooks`; a
+  prior value carries over when `writeProfileMarker` is called without it) and the boot rename gate
+  `claimStateDir`, run first in `createEngine` (and in the
   `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config
   already owns a marked sibling dir is removed and refused ("add `stateId`") instead of silently forking state.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.

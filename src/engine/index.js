@@ -43,7 +43,7 @@ import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
 import { createDigester } from "../digest.js";
-import { claimStateDir } from "../profile.js";
+import { claimStateDir, writeProfileMarker } from "../profile.js";
 import { createOps } from "../ops.js";
 import { readQuota, writeQuota } from "../quota-file.js";
 import { createEmitter } from "../events.js";
@@ -73,6 +73,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const store = createStore(cfg.dataDir);
   const adapter = createAdapter(cfg, store);
   const forge = createForge(cfg, store);
+  writeProfileMarker(cfg, { webhooks: adapter.describe().webhooks !== false || !!forge });
   const ingress = createIngress(cfg);
   const heartbeat = createHeartbeat(cfg);
   const startedAt = new Date().toISOString();

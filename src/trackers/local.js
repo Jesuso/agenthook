@@ -180,6 +180,7 @@ export function createLocalAdapter(cfg, _store) {
       trigger: cfg.trigger || "@agent",
       commentHowTo: "this is a local offline run — do not post comments anywhere; put any note in the verdict `reason`",
       usesPR: false,
+      webhooks: false,
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
 
