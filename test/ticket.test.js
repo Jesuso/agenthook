@@ -12,7 +12,8 @@ import { init, localScaffold, sanitizeName } from "../src/commands/init.js";
 import { ticket, ticketBody, ticketRows } from "../src/commands/ticket.js";
 import { TICKET_BODY_MAX } from "../src/ops.js";
 import { firstFreePort } from "../src/port.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, registryDir } from "../src/config.js";
+import { tildify } from "../src/profile.js";
 import { parse, HELP } from "../bin/agenthook.js";
 
 const tmp = (/** @type {string} */ p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
@@ -81,6 +82,30 @@ test("init --local --yes in a git repo with a commit: writes config + instructio
   await assert.rejects(() => inDir(repo, () => init({ _: [], local: true, yes: true, config: out })), /already exists/);
   await inDir(repo, () => init({ _: [], local: true, yes: true, force: true, "full-auto": true, config: out }));
   assert.equal(JSON.parse(fs.readFileSync(out, "utf8")).fullAuto, true, "--full-auto is the non-interactive opt-in");
+});
+
+test("init --local --yes summary prints the state dir under AGENTHOOK_HOME, not ~/.agenthook", async () => {
+  const repo = tmp("ah-init-statedir-");
+  git(repo, ["init", "-q"]);
+  git(repo, ["commit", "-q", "--allow-empty", "-m", "first"]);
+  const out = path.join(repo, "agenthook.config.json");
+  const lines = [];
+  const prev = process.cwd();
+  const { log, warn } = console;
+  process.chdir(repo);
+  console.log = (...a) => lines.push(a.join(" "));
+  console.warn = () => {};
+  try {
+    await init({ _: [], local: true, yes: true, name: "ah init statedir", config: out });
+  } finally {
+    process.chdir(prev);
+    Object.assign(console, { log, warn });
+  }
+
+  const config = JSON.parse(fs.readFileSync(out, "utf8"));
+  const expected = tildify(path.join(registryDir, config.name));
+  assert.ok(lines.some((l) => l.includes(expected)), "summary should contain the AGENTHOOK_HOME-derived state dir");
+  assert.ok(!lines.some((l) => l.includes("~/.agenthook/")), "summary should not hard-code ~/.agenthook");
 });
 
 test("init --local outside a git repo, or in one with no commits, refuses and writes nothing", async () => {
