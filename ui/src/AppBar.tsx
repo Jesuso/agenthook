@@ -38,9 +38,12 @@ export type ProfileNav = {
 /**
  * Brand + version and the connection dot. On Home that is all; inside a profile the bar also
  * carries `‹ Home`, a profile switcher and the Overview · Instructions · Config tabs. `nav`
- * absent (Home, loading / error screens) → no profile controls. Below `lg` the bar wraps (the view
- * tabs drop to their own row, scrolling sideways if even that is too narrow) so a phone or split
- * window never scrolls the page sideways; from `lg` up it is one 44px row.
+ * absent (Home, loading / error screens) → no profile controls. Below `lg` a forced line break
+ * (a `basis-full lg:hidden` spacer) keeps DOM/reading order (brand · profile · tabs · quota ·
+ * connection) intact across both rows instead of letting the tabs wrap behind the quota readout
+ * and the dot — row 1 is brand + profile, row 2 is tabs · quota · ● live (scrolling sideways if
+ * even that is too narrow) — so a phone or split window never scrolls the page sideways; from
+ * `lg` up the spacer collapses and it is one 44px row.
  */
 export function AppBar({ connection, nav }: { connection: ConnectionState; nav?: ProfileNav }) {
   const current = nav?.profiles.find((p) => p.name === nav.profile);
@@ -78,7 +81,8 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
               ))}
             </select>
           </div>
-          <nav aria-label="views" className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto max-lg:order-2">
+          <span aria-hidden="true" className="h-0 shrink-0 basis-full lg:hidden" />
+          <nav aria-label="views" className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto">
             {VIEWS.map((v) => (
               <button
                 key={v}

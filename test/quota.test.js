@@ -227,6 +227,39 @@ test("interplay: an operator resume during a quota pause overrides it until that
   assert.equal(h.pacer.state()?.resetsAt, next);
 });
 
+test("interplay: operator resume scopes the override to the tripped window — fiveHour", () => {
+  const h = pacerHarness({ thresholds: { pauseAboveFiveHour: 0.9 } });
+  h.pacer.reading({ fiveHour: { utilization: 0.95, resetsAt: RESET_5H } });
+  assert.equal(h.pacer.operatorResume(), RESET_5H);
+  h.pacer.reading({ fiveHour: { utilization: 0.97, resetsAt: RESET_5H } }); // same window, still above: no re-pause before its reset
+  assert.equal(h.pacer.state(), null);
+});
+
+test("interplay: operator resume during a fiveHour trip does not suppress a sevenDay crossing", () => {
+  const h = pacerHarness({ thresholds: { pauseAboveSevenDay: 0.9, pauseAboveFiveHour: 0.9 } });
+  h.pacer.reading({ fiveHour: { utilization: 0.95, resetsAt: RESET_5H }, sevenDay: { utilization: 0.5, resetsAt: RESET_7D } });
+  assert.equal(h.pacer.state()?.window, "fiveHour");
+  assert.equal(h.pacer.operatorResume(), RESET_5H);
+  h.pacer.reading({ fiveHour: { utilization: 0.1, resetsAt: RESET_5H }, sevenDay: { utilization: 0.91, resetsAt: RESET_7D } });
+  assert.equal(h.pacer.state()?.window, "sevenDay", "sevenDay was not tripped at resume time, so it still pauses on crossing");
+});
+
+test("interplay: both windows tripped — operator resume overrides each until its own reset, neither re-pausing before then", () => {
+  const h = pacerHarness({ thresholds: { pauseAboveSevenDay: 0.9, pauseAboveFiveHour: 0.9 } });
+  h.pacer.reading({ fiveHour: { utilization: 0.95, resetsAt: RESET_5H }, sevenDay: { utilization: 0.91, resetsAt: RESET_7D } });
+  assert.equal(h.pacer.state()?.window, "sevenDay", "the later-resetting trip is the one reported");
+  assert.equal(h.pacer.operatorResume(), RESET_7D);
+  // Both still read above threshold: neither re-pauses before its own reset.
+  h.pacer.reading({ fiveHour: { utilization: 0.96, resetsAt: RESET_5H }, sevenDay: { utilization: 0.93, resetsAt: RESET_7D } });
+  assert.equal(h.pacer.state(), null);
+  // Past fiveHour's override end, a fresh fiveHour window (new resetsAt) pauses again even
+  // though sevenDay's override (until the later RESET_7D) is still active.
+  h.c.advance(T(RESET_5H) + 1000);
+  const next5h = "2026-10-25T18:10:00.000Z";
+  h.pacer.reading({ fiveHour: { utilization: 0.97, resetsAt: next5h }, sevenDay: { utilization: 0.93, resetsAt: RESET_7D } });
+  assert.equal(h.pacer.state()?.window, "fiveHour");
+});
+
 test("interplay: while a restart/decommission lock holds the queue, the quota reset does not resume it", () => {
   const h = pacerHarness({ locked: () => true });
   h.pacer.reading(READING);

@@ -3,7 +3,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // binary it resumes with, and env values are never printed (only the keys).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resumeCommand } from "../src/commands/resume.js";
+import { resumeCommand, drainedReason } from "../src/commands/resume.js";
 
 const cfg = /** @type {any} */ ({
   claudeBin: "claude",
@@ -26,6 +26,23 @@ test("resumeCommand: the session's step bin is printed; its env is passed for --
 
 test("resumeCommand: an unknown step (renamed since) falls back to cfg.claudeBin", () => {
   assert.equal(resumeCommand(cfg, { id: "s3", step: "?" }, "/wt").bin, "claude");
+});
+
+test("drainedReason: claude and cursor (they keep transcripts) find the session by cwd", () => {
+  assert.equal(drainedReason(cfg, { id: "s1", step: "triage" }), "claude finds the session by its working directory");
+  assert.equal(drainedReason({ ...cfg, pipeline: [{ id: "triage", agent: "cursor" }] }, { id: "s1", step: "triage" }), "cursor finds the session by its working directory");
+});
+
+test("drainedReason: opencode (no transcripts, resumes from usage.jsonl) just needs to run in the worktree — never says claude", () => {
+  const reason = drainedReason({ ...cfg, pipeline: [{ id: "triage", agent: "opencode" }] }, { id: "s1", step: "triage" });
+  assert.equal(reason, "opencode runs in the worktree");
+  assert.doesNotMatch(reason, /claude/i);
+});
+
+test("drainedReason: an isolated hermes step names hermes and its own HERMES_HOME", () => {
+  const c = { ...cfg, stateDir: "/state/dev", pipeline: [{ id: "triage", agent: "hermes" }] };
+  const reason = drainedReason(c, { id: "s1", step: "triage" });
+  assert.equal(reason, "hermes runs in the worktree; its session lives in HERMES_HOME=/state/dev/hermes-home, which the command sets");
 });
 
 test("resumeCommand: an agent without transcripts refuses with a plain message", async (t) => {
