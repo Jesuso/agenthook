@@ -271,6 +271,18 @@ test("provider: unset or a non-empty string passes at the top level (agentProvid
   ]);
 });
 
+test("agentEnvPassthrough: names, PREFIX* and \"*\" pass; a non-array and bad entries fail", () => {
+  assert.deepEqual(validateRawConfig(raw({ agentEnvPassthrough: ["AWS_*", "OPENAI_API_KEY"] })), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ agentEnvPassthrough: ["*"] })), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ agentEnvPassthrough: [] })), { ok: true });
+  /** @param {any} r */
+  const errs = (r) => /** @type {any} */ (validateRawConfig(r)).errors;
+  assert.deepEqual(errs(raw({ agentEnvPassthrough: "AWS_*" })), [`config: "agentEnvPassthrough" must be an array of variable names, PREFIX*, or "*".`]);
+  for (const bad of ["A B", "*X", "X**", 5]) {
+    assert.deepEqual(errs(raw({ agentEnvPassthrough: [bad] })), [`config: "agentEnvPassthrough" entry ${JSON.stringify(bad)} must be a variable name, a PREFIX*, or "*".`], String(bad));
+  }
+});
+
 test("toolsets / isolated: valid shapes pass on a step; bad shapes and manual steps fail", () => {
   assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", toolsets: ["terminal", "file"], isolated: false }])), { ok: true });
   assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", toolsets: null, isolated: true }])), { ok: true });

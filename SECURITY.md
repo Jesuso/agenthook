@@ -53,6 +53,9 @@ events**. The trust boundary is small and worth understanding:
 - Pair a stable ingress with a reserved domain over an ephemeral public tunnel; stop the tunnel
   when idle.
 - Keep the signing secret in `~/.agenthook/<name>/secrets.json` (0600) — never commit it.
+- Don't widen `agentEnvPassthrough` to `"*"`: list only the variables your agents need, so the
+  ingress authtoken, App key and webhook secrets stay out of the agent's environment
+  ([docs/agents.md#agent-environment](docs/agents.md#agent-environment)).
 
 Full posture and the request-flow trust boundaries are in
 [docs/architecture.md#security-posture](docs/architecture.md#security-posture).

@@ -346,6 +346,8 @@ const QUEUE_KEYS = /** @type {const} */ ([
 
 /** A step `env` key: a portable shell variable name. */
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// An agentEnvPassthrough entry: a variable name, optionally a PREFIX* (src/agent-env.js).
+const ENV_PATTERN_RE = /^[A-Za-z_][A-Za-z0-9_]*\*?$/;
 
 /**
  * `${v}` for a user-supplied value rendered into a message — but an object whose toString is
@@ -398,6 +400,15 @@ export function validateRawConfig(raw) {
 
   if (cfg.agentProvider != null && (typeof cfg.agentProvider !== "string" || !cfg.agentProvider.trim())) {
     errors.push(`config: "agentProvider" must be a non-empty string.`);
+  }
+
+  if (cfg.agentEnvPassthrough != null) {
+    if (!Array.isArray(cfg.agentEnvPassthrough)) errors.push(`config: "agentEnvPassthrough" must be an array of variable names, PREFIX*, or "*".`);
+    else {
+      for (const n of cfg.agentEnvPassthrough) {
+        if (n !== "*" && (typeof n !== "string" || !ENV_PATTERN_RE.test(n))) errors.push(`config: "agentEnvPassthrough" entry ${JSON.stringify(n)} must be a variable name, a PREFIX*, or "*".`);
+      }
+    }
   }
 
   if (cfg.overlapGuard != null && typeof cfg.overlapGuard !== "boolean") {

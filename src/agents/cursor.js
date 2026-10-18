@@ -180,6 +180,7 @@ export function cursorSessionFiles(dir) {
 /** @type {import('../types.js').AgentAdapter} */
 export const cursor = {
   describe: () => ({ name: "cursor", stdout: "stream-json" }),
+  envPassthrough: ["CURSOR_API_KEY"],
   buildArgs: buildCursorArgs,
   createParser: createCursorStreamParser,
   usageRecord: (result, ctx) => buildCursorUsageRecord({ ...ctx, result }),

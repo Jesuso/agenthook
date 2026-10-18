@@ -157,6 +157,9 @@ export function extractRouteKeys(fields, routeField) {
     .filter((x) => typeof x === "string" && x.trim() !== "");
 }
 
+/** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
+export const JIRA_AGENT_ENV = /** @type {string[]} */ (["JIRA_API_TOKEN"]);
+
 /** @type {import('../types.js').AdapterFactory} */
 export function createJiraAdapter(cfg, store) {
   const pc = cfg.providerConfig;
@@ -402,6 +405,7 @@ export function createJiraAdapter(cfg, store) {
       trigger: cfg.trigger,
       commentHowTo: `post a comment with curl: curl -s -u "${pc.email}:$JIRA_API_TOKEN" -X POST ${baseUrl}/rest/api/2/issue/<key>/comment -H "Content-Type: application/json" -d '{"body":"<text>"}' (your token is in the env as $JIRA_API_TOKEN)`,
       readCommentsHowTo: `curl -s -u "${pc.email}:$JIRA_API_TOKEN" ${baseUrl}/rest/api/2/issue/<key>/comment`,
+      agentEnv: JIRA_AGENT_ENV,
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
 

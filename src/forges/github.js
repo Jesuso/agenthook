@@ -6,7 +6,7 @@
 // job, which dispatch turns into "re-run the failed jobs once, then bounce to code".
 //
 // Implements the Forge contract (src/types.js):
-//   describe()                 -> { name }
+//   describe()                 -> { name, agentEnv }
 //   authenticate(ctx)          -> {type:'accept'} | {type:'reject'}   (sync, no network)
 //   processEvents(ctx)         -> [job]   (merge + ci jobs only; everything else is [])
 //   registerWebhook(publicUrl) -> create the repo `pull_request`+`workflow_run` hook (best-effort)
@@ -98,6 +98,9 @@ export function fenceLog(text) {
 /** Does this request path belong to the forge? Tolerates a trailing slash.
  * @param {string} pathname */
 export const isForgePath = (pathname) => pathname === FORGE_PATH || pathname === `${FORGE_PATH}/`;
+
+/** Receiver env vars an agent gets with this forge (#470): `gh` (the agent's PR client) reads GH_TOKEN, then GITHUB_TOKEN. */
+export const GITHUB_FORGE_AGENT_ENV = /** @type {string[]} */ (["GH_TOKEN", "GITHUB_TOKEN"]);
 
 /** @type {import('../types.js').ForgeFactory} */
 export function createGithubForge(cfg, store) {
@@ -261,7 +264,7 @@ export function createGithubForge(cfg, store) {
   }
 
   return {
-    describe: () => ({ name: "github" }),
+    describe: () => ({ name: "github", agentEnv: GITHUB_FORGE_AGENT_ENV }),
 
     // No handshake and no opt-out: a missing/bad signature is always a reject.
     authenticate({ rawBody, headers }) {

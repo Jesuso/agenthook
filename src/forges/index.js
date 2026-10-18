@@ -2,8 +2,8 @@
 // come from", an ingress "how is the receiver reachable", a forge "what happened to
 // the code" (e.g. a PR merged). The active forge is `cfg.forge.type`; no `forge`
 // block = no forge, and the engine behaves exactly as without one.
-import { createGithubForge } from "./github.js";
-import { createGitlabForge } from "./gitlab.js";
+import { createGithubForge, GITHUB_FORGE_AGENT_ENV } from "./github.js";
+import { createGitlabForge, GITLAB_FORGE_AGENT_ENV } from "./gitlab.js";
 
 export { isForgePath } from "./github.js";
 
@@ -11,6 +11,13 @@ export { isForgePath } from "./github.js";
 export const FORGES = {
   github: createGithubForge,
   gitlab: createGitlabForge,
+};
+
+/** Each forge's `describe().agentEnv`, keyed like FORGES (doctor reads it without building one). */
+/** @type {Record<string, string[]>} */
+export const FORGE_AGENT_ENV = {
+  github: GITHUB_FORGE_AGENT_ENV,
+  gitlab: GITLAB_FORGE_AGENT_ENV,
 };
 
 /**

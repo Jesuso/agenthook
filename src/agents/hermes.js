@@ -195,6 +195,7 @@ export function hermesFinalize({ sessionId, bin, env, dir, timeoutMs }) {
 /** @type {import('../types.js').AgentAdapter} */
 export const hermes = {
   describe: () => ({ name: "hermes", stdout: "text", promptFile: true }),
+  envPassthrough: ["HERMES_HOME"],
   buildArgs: buildHermesArgs,
   createParser: createHermesParser,
   usageRecord: (result, ctx) => buildHermesUsageRecord({ ...ctx, result }),
