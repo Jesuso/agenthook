@@ -9,7 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks } from "../src/commands/doctor.js";
+import crypto from "node:crypto";
+import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
 import { loadConfig } from "../src/config.js";
 import { instructionTargets } from "../src/heartbeat.js";
@@ -587,4 +589,68 @@ test("ingressChecks: tailscale needs only its binary, not ingress.url", () => {
   assert.deepEqual(checks, [{ ok: true, label: "tailscale binary on PATH", manual: "install tailscale or put it on PATH (or set $TAILSCALE)" }]);
   assert.deepEqual(seen, ["tailscale"]);
   assert.equal(ingressChecks({ type: "tailscale" }, () => false)[0].ok, false);
+});
+
+// --- GitHub App auth: key parses, installation token fetchable, assigneeLogin set ---
+
+const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+/** @param {any} [over] */
+const appAuth = (over = {}) => ({ type: /** @type {const} */ ("app"), appId: "101", installationId: "202", privateKey: APP_PEM, ...over });
+/** A mocked access_tokens endpoint answering `status`. @param {number} status */
+const tokenFetch = (status) => {
+  const calls = /** @type {string[]} */ ([]);
+  /** @type {any} */
+  const f = async (/** @type {string} */ url) => {
+    calls.push(url);
+    return status < 300
+      ? { ok: true, status, json: async () => ({ token: "inst", expires_at: new Date(Date.now() + 3600e3).toISOString() }) }
+      : { ok: false, status, json: async () => ({ message: "Integration not found" }) };
+  };
+  return { f, calls };
+};
+
+test("githubAppChecks: a parsing key, a fetchable installation token and assigneeLogin → three ✓", async () => {
+  resetGithubAuthCache();
+  const { f, calls } = tokenFetch(201);
+  const checks = await githubAppChecks({ auth: appAuth({ privateKey: APP_PEM.replace(/\n/g, "\\n") }), assigneeLogin: "alice" }, "tracker", { fetch: f });
+  assert.deepEqual(checks.map((c) => [c.ok, c.label]), [
+    [true, "tracker GitHub App private key parses (app 101)"],
+    [true, "tracker GitHub App installation token fetchable (installation 202)"],
+    [true, "tracker.assigneeLogin set (the human the App acts for)"],
+  ]);
+  assert.deepEqual(calls, ["https://api.github.com/app/installations/202/access_tokens"]);
+});
+
+test("githubAppChecks: a bad key fails (and skips the live call); a missing assigneeLogin fails", async () => {
+  resetGithubAuthCache();
+  const { f, calls } = tokenFetch(201);
+  const checks = await githubAppChecks({ auth: appAuth({ privateKey: "not a pem" }) }, "tracker", { fetch: f });
+  assert.deepEqual(checks.map((c) => [c.ok, c.label.split(" (")[0]]), [
+    [false, "tracker GitHub App private key parses"],
+    [false, "tracker.assigneeLogin set"],
+  ]);
+  assert.equal(calls.length, 0);
+  assert.ok(checks.every((c) => c.fix && "manual" in c.fix));
+});
+
+test("githubAppChecks: an installation token the API refuses fails with its status; the forge has no login check", async () => {
+  resetGithubAuthCache();
+  const checks = await githubAppChecks({ auth: appAuth() }, "forge", { fetch: tokenFetch(404).f });
+  assert.deepEqual(checks.map((c) => c.ok), [true, false]);
+  assert.match(String(checks[1].note), /installation token 404: Integration not found/);
+});
+
+test("runChecks under App auth: the App checks replace the token check, for the tracker and a github forge", async () => {
+  resetGithubAuthCache();
+  const { cfg } = cleanProfile();
+  cfg.provider = "github";
+  cfg.providerConfig = /** @type {any} */ ({ type: "github", repository: "o/r", auth: appAuth(), assigneeLogin: "alice", pipeline: cfg.pipeline });
+  cfg.forge = /** @type {any} */ ({ type: "github", repository: "o/r", auth: appAuth() });
+  const checks = await runChecks(cfg, io({ fetch: tokenFetch(201).f }));
+  const labels = checks.map((c) => c.label);
+  assert.ok(!labels.some((l) => l.startsWith("tracker token resolved")), labels.join("\n"));
+  for (const l of ["tracker GitHub App private key parses", "tracker GitHub App installation token fetchable", "tracker.assigneeLogin set", "forge GitHub App private key parses", "forge GitHub App installation token fetchable"]) {
+    const c = checks.find((x) => x.label.startsWith(l));
+    assert.ok(c?.ok, `${l}: ${JSON.stringify(c)}`);
+  }
 });

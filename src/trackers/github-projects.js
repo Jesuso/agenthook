@@ -16,7 +16,9 @@
 //   - `ref` is the underlying ISSUE NUMBER (agents work the issue, not the card); a
 //     number is resolved back to its project item by scanning the project's items.
 //   - Auth: a PAT (classic `project` + `repo` scopes, or fine-grained Projects:RW +
-//     Issues:R) as `Bearer <token>`. Webhook signed like the `github` tracker
+//     Issues:R) as `Bearer <token>`, or a GitHub App (`auth: {type: "app", …}`,
+//     src/github-auth.js; org Projects + Webhooks RW, repo Issues RW) — then
+//     assigneeLogin is required and `viewer` is never used for identity. Webhook signed like the `github` tracker
 //     (agenthook-generated secret, or an explicit tracker.webhookSecret; `false`
 //     disables verification), verified via `x-hub-signature-256: sha256=<hex>`.
 //   - One `projects_v2_item` webhook (org-level) delivers created / edited. A status
@@ -27,9 +29,9 @@
 //     run behind a STABLE ingress. For an ORG-owned project registerWebhook auto-creates
 //     (and scrubs) the org hook via REST — subscribed to projects_v2_item + issue_comment,
 //     signed with the generated secret — falling back to PRINTED manual setup when the
-//     token lacks admin:org_hook. A USER-owned project has no PAT webhook path for item
-//     moves (projects_v2_item is delivered only by an org webhook or a GitHub App), so it
-//     prints why. The assignee "us" is the token owner's login (GraphQL `viewer`, cached).
+//     token lacks admin:org_hook. A USER-owned project has no webhook path for item moves
+//     (projects_v2_item fires only for ORG-level projects — a GitHub App doesn't change
+//     that), so it prints why. The assignee "us" is the token owner's login (GraphQL `viewer`, cached).
 //     Scoping is FAIL CLOSED.
 //   - The `@agent` resume rides `issue_comment` (comments live on the card's ISSUE, not
 //     the card): an OWNER-authored (strict isOwner, never isOurs) trigger comment on an
@@ -48,6 +50,7 @@ import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { MoveRefusedError } from "./owner.js";
 import { isEpicIssue } from "./github.js";
+import { createGithubAuth, githubFetch } from "../github-auth.js";
 
 /**
  * Route keys from the routeField single-select's option name → [name] or [].
@@ -124,7 +127,9 @@ export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubProjectsAdapter(cfg, store) {
   const pc = cfg.providerConfig;
-  const token = pc.token; // resolved from env/.env by loadConfig
+  // A personal token, or a GitHub App's installation token (src/github-auth.js). Both are
+  // resolved from env/.env by loadConfig.
+  const auth = createGithubAuth(pc);
   const epicType = pc.epicType || "Epic";
   const epicLabel = pc.epicLabel || "epic";
 
@@ -135,9 +140,9 @@ export function createGithubProjectsAdapter(cfg, store) {
    * HTTP transport failure.
    * @param {string} query @param {Record<string,any>} [variables] @returns {Promise<any>} */
   const gql = async (query, variables = {}) => {
-    const res = await fetch("https://api.github.com/graphql", {
+    const res = await githubFetch(auth, "https://api.github.com/graphql", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query, variables }),
     });
     if (!res.ok) throw new Error(`GraphQL ${res.status}`);
@@ -149,10 +154,9 @@ export function createGithubProjectsAdapter(cfg, store) {
    * `.ok`/`.status` and `.json()` (untyped: `any`).
    * @param {string} path @param {RequestInit} [init] @returns {Promise<Response>} */
   const rest = (path, init = {}) =>
-    fetch(`https://api.github.com${path}`, {
+    githubFetch(auth, `https://api.github.com${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "Content-Type": "application/json",
@@ -297,6 +301,8 @@ export function createGithubProjectsAdapter(cfg, store) {
   // An explicit assigneeLogin overrides; assigneeFilter:false = board-wide (any assignee).
   // FAIL CLOSED: if our login can't be resolved, nothing counts as ours, so a foreign
   // item is never moved (we never silently go open). Symmetric with the github tracker.
+  // Under GitHub App auth `viewer` is the App's `…[bot]`, so assigneeLogin — the human the
+  // App acts for — is REQUIRED (loadConfig enforces it) and `viewer` is never asked.
   const scopeToUser = pc.assigneeFilter !== false;
   let cachedLogin = pc.assigneeLogin || null;
   /** @type {Promise<string>|null} */
@@ -304,6 +310,7 @@ export function createGithubProjectsAdapter(cfg, store) {
   /** The token owner's login (the bot). Fetched once from `viewer`, then cached. */
   function ourLogin() {
     if (cachedLogin) return Promise.resolve(cachedLogin);
+    if (auth.app) return Promise.reject(new Error(`GitHub App auth needs tracker.assigneeLogin`));
     if (!loginPromise) {
       loginPromise = (async () => {
         const body = await gql(`query{ viewer{ login } }`);
@@ -349,7 +356,8 @@ export function createGithubProjectsAdapter(cfg, store) {
     return false;
   }
   // The token owner's USER node id (the bot), for the assign mutation `enterStage` runs.
-  // Separate from `ourLogin` (which routing/scoping uses) and memoised the same way.
+  // Separate from `ourLogin` (which routing/scoping uses) and memoised the same way. Under
+  // App auth it is assigneeLogin's id (`user(login:)`), never `viewer` (that is the bot).
   /** @type {string|null} */
   let cachedUserId = null;
   /** @type {Promise<string>|null} */
@@ -358,6 +366,13 @@ export function createGithubProjectsAdapter(cfg, store) {
     if (cachedUserId) return Promise.resolve(cachedUserId);
     if (!userIdPromise) {
       userIdPromise = (async () => {
+        if (auth.app) {
+          if (!pc.assigneeLogin) throw new Error(`GitHub App auth needs tracker.assigneeLogin`);
+          const body = await gql(`query($login:String!){ user(login:$login){ id } }`, { login: pc.assigneeLogin });
+          const id = body.data?.user?.id;
+          if (!id) throw new Error(`user "${pc.assigneeLogin}" id unresolved`);
+          return (cachedUserId = id);
+        }
         const body = await gql(`query{ viewer{ id } }`);
         const id = body.data?.viewer?.id;
         if (!id) throw new Error(`viewer id unresolved`);
@@ -857,7 +872,7 @@ export function createGithubProjectsAdapter(cfg, store) {
     // ingress). For an ORG-owned project: scrub our stale hooks, then create one org hook
     // (`projects_v2_item` + `issue_comment`, the `@agent` resume) signed with the generated
     // secret — falling back to PRINTED manual setup when the token lacks admin:org_hook
-    // (403/404). For a USER-owned project there is no PAT/UI webhook path for item moves,
+    // (403/404). For a USER-owned project there is no webhook path for item moves at all,
     // so we print why — plus the per-repo `issue_comment` hook that still carries the
     // resume (printed only: never auto-created, and no board read to enumerate repos).
     // registerWebhook is awaited UNGUARDED at boot, so it must never throw — every failure
@@ -881,8 +896,10 @@ export function createGithubProjectsAdapter(cfg, store) {
       const printManual = () =>
         console.log(
           [
-            `[github-projects] couldn't create the org webhook with this token (needs`,
-            `       admin:org_hook). Create it ONCE, by hand, as an org admin:`,
+            auth.app
+              ? `[github-projects] couldn't create the org webhook with this GitHub App (needs the`
+              : `[github-projects] couldn't create the org webhook with this token (needs`,
+            auth.app ? `       Webhooks: Read & write ORGANIZATION permission). Create it ONCE, by hand, as an org admin:` : `       admin:org_hook). Create it ONCE, by hand, as an org admin:`,
             `         Org Settings → Webhooks → Add webhook`,
             `           Payload URL:  ${target}`,
             `           Content type: application/json`,
@@ -908,14 +925,14 @@ export function createGithubProjectsAdapter(cfg, store) {
       }
 
       if (type !== "org") {
-        // User-owned Projects v2 have NO token/UI webhook path: GitHub's REST exposes only
-        // repo + org hooks, and projects_v2_item is an org-webhook (or GitHub App) event.
+        // User-owned Projects v2 have NO webhook path: GitHub fires projects_v2_item only for
+        // ORG-level projects (a GitHub App doesn't change that), delivered by an org webhook.
         console.log(
           [
-            `[github-projects] "${pc.project}" is USER-owned — Projects v2 webhooks can't be`,
-            `       registered with a PAT: GitHub delivers projects_v2_item only via an ORG`,
-            `       webhook or a GitHub App, and personal accounts have no webhook settings.`,
-            `       Move the project under an organization (or use a GitHub App) to receive events.`,
+            `[github-projects] "${pc.project}" is USER-owned — GitHub sends projects_v2_item`,
+            `       events only for ORGANIZATION-level projects (delivered by an org webhook),`,
+            `       and personal accounts have no webhook settings.`,
+            `       Move the project under an organization to receive events.`,
             ...repoHookLines,
             secret ? `         ↑ agenthook generated + stored this secret. Paste it verbatim.` : ``,
           ]
@@ -987,7 +1004,8 @@ export function createGithubProjectsAdapter(cfg, store) {
     },
 
     // `agenthook init` discovery. GITHUB_TOKEN is the only secret (handled by init's
-    // token-env step); the login is derived from `viewer`, so it isn't asked. The picked
+    // token-env step); the login is derived from `viewer`, so it isn't asked (init asks it
+    // for a GitHub App, along with the App's key). The picked
     // project's Status single-select options are discovered live and bound to the code
     // step (no TODO_* editing). Mirrors the github tracker's label discovery.
     wizardSteps: () => {
@@ -1011,7 +1029,9 @@ export function createGithubProjectsAdapter(cfg, store) {
           type: "select",
           // The token owner's projects: their user-owned boards plus every org they belong
           // to. Value is "owner/number" — the shape parseProject expects. Caps at 100 each;
-          // a project beyond that can be set by hand as "project": "owner/number".
+          // a project beyond that can be set by hand as "project": "owner/number". Under App
+          // auth there is no `viewer` to list from, so the board is typed in (below).
+          when: () => !auth.app,
           choices: async () => {
             const body = await gql(
               `query{ viewer{ login
@@ -1028,6 +1048,12 @@ export function createGithubProjectsAdapter(cfg, store) {
               for (const p of org.projectsV2?.nodes || []) out.push({ title: `${org.login}/${p.number} — ${p.title}`, value: `${org.login}/${p.number}` });
             return out;
           },
+        },
+        {
+          key: "project",
+          message: "Projects v2 board as org/number (org-owned — the App must be installed on the org)",
+          when: () => auth.app,
+          validate: (v) => (/^[^/\s]+\/\d+$/.test(String(v).trim()) ? true : "use org/number"),
         },
         { key: "_sourceStage", message: "Status that FIRES the code step (an item entering it triggers the agent)", type: "select", default: DEFAULTS[0], choices: statusOptions },
         { key: "_successStage", message: "Status to set on SUCCESS (hand off to review)", type: "select", default: DEFAULTS[1], choices: statusOptions },

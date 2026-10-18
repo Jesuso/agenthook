@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import { createGithubAdapter, epicChangeFromEvent, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
 import { ticketBucket } from "../src/epics.js";
+import { resetGithubAuthCache } from "../src/github-auth.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -1108,4 +1109,108 @@ test("a sub_issues delivery with a bad / absent signature is rejected", () => {
   const body = JSON.stringify(subIssuesEvt("sub_issue_added"));
   assert.equal(a.authenticate(/** @type {any} */ ({ rawBody: body, headers: { "x-github-event": "sub_issues", "x-hub-signature-256": "sha256=deadbeef" } })).type, "reject");
   assert.equal(a.authenticate(/** @type {any} */ ({ rawBody: body, headers: { "x-github-event": "sub_issues" } })).type, "reject");
+});
+
+// --- GitHub App auth (src/github-auth.js): installation token + human assigneeLogin ---
+
+const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+const APP_AUTH = { type: "app", appId: "101", installationId: "202", privateKey: APP_PEM };
+
+/** Stub global.fetch: the access_tokens endpoint mints "inst-tok"; every other call is recorded
+ * (method, url, Authorization) and answered by `route` (default: 201, `[]` for a GET, `{}` otherwise).
+ * @param {(url: string, init: any) => any} [route] */
+function stubAppFetch(route) {
+  resetGithubAuthCache();
+  /** @type {{method: string, url: string, auth: string, body: any}[]} */
+  const calls = [];
+  let mints = 0;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/app/installations/202/access_tokens")) {
+      mints++;
+      return /** @type {any} */ ({ ok: true, status: 201, json: async () => ({ token: "inst-tok", expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
+    }
+    calls.push({ method: init.method || "GET", url: String(url), auth: init.headers?.Authorization, body: init.body ? JSON.parse(init.body) : undefined });
+    return /** @type {any} */ (route?.(String(url), init) ?? { ok: true, status: 201, json: async () => (init.method ? {} : []) });
+  };
+  return { calls, mints: () => mints, restore: () => (global.fetch = orig) };
+}
+
+/** An App-auth adapter acting for the human "alice" (assignee scoping on). @param {object} [pc] @param {any} [store] */
+function appAdapter(pc = {}, store = makeStore()) {
+  const providerConfig = { type: "github", auth: APP_AUTH, assigneeLogin: "alice", repository: "o/r", ...pc };
+  return createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: heldPipeline, providerConfig }), /** @type {any} */ (store));
+}
+
+test("App auth: every API call carries Bearer <installation token>; enterStage assigns the human, never /user", async () => {
+  const { calls, mints, restore } = stubAppFetch();
+  try {
+    await /** @type {any} */ (appAdapter()).enterStage("42", "code");
+  } finally {
+    restore();
+  }
+  assert.ok(calls.length >= 2, `calls: ${JSON.stringify(calls)}`);
+  for (const c of calls) assert.equal(c.auth, "Bearer inst-tok", `${c.method} ${c.url}`);
+  assert.equal(mints(), 1, "one installation token served every call");
+  const assign = calls.find((c) => c.url.endsWith("/issues/42/assignees"));
+  assert.deepEqual(assign?.body, { assignees: ["alice"] });
+  assert.ok(!calls.some((c) => c.url.endsWith("/user")), "identity is never looked up from the App token");
+});
+
+test("App auth scoping: an issue assigned to the human is acted on; a foreign assignee is not", async () => {
+  const { calls, restore } = stubAppFetch();
+  try {
+    const a = appAdapter();
+    /** @param {string} login */
+    const labeled = (login) => /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 42, labels: [{ name: "agent:code" }], assignees: [{ login }] } }, { "x-github-delivery": `d-${login}` }));
+    assert.equal((await a.processEvents(labeled("Alice"))).length, 1);
+    assert.deepEqual(await a.processEvents(labeled("mallory")), []);
+    assert.deepEqual(await a.processEvents(labeled("my-app[bot]")), []);
+  } finally {
+    restore();
+  }
+  assert.ok(!calls.some((c) => c.url.endsWith("/user")));
+});
+
+test("App auth @agent: the human's reply resumes; the App's [bot] login or another user does not", async () => {
+  const { calls, restore } = stubAppFetch();
+  const store = { ...makeStore(), getHeld: () => ({ stepId: "triage", heldAt: "2026-09-24T00:00:00.000Z" }), getAttempt: () => 1 };
+  try {
+    const a = appAdapter({}, store);
+    /** @param {string} login @param {number} id */
+    const comment = (login, id) =>
+      /** @type {any} */ (evt({ action: "created", issue: { number: 42, labels: [{ name: "agent:held" }], assignees: [{ login: "alice" }] }, comment: { id, body: "@agent go", user: { login } } }, { "x-github-event": "issue_comment" }));
+    assert.deepEqual(await a.processEvents(comment("alice", 1)), [{ kind: "pipeline", ref: "42", stepId: "triage", dedupKey: "trigger:1", comment: "@agent go" }]);
+    assert.deepEqual(await a.processEvents(comment("my-app[bot]", 2)), []);
+    assert.deepEqual(await a.processEvents(comment("mallory", 3)), []);
+  } finally {
+    restore();
+  }
+  assert.ok(!calls.some((c) => c.url.endsWith("/user")));
+});
+
+test("App auth without assigneeLogin fails closed: nothing is ours and /user is never called", async () => {
+  const { calls, restore } = stubAppFetch();
+  try {
+    const a = appAdapter({ assigneeLogin: undefined });
+    const ev = /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 42, labels: [{ name: "agent:code" }], assignees: [{ login: "alice" }] } }));
+    assert.deepEqual(await a.processEvents(ev), []);
+  } finally {
+    restore();
+  }
+  assert.ok(!calls.some((c) => c.url.endsWith("/user")));
+});
+
+test("App auth init discovery lists the installation's repos (GET /installation/repositories)", async () => {
+  const { calls, restore } = stubAppFetch((url) => (url.includes("/installation/repositories") ? { ok: true, status: 200, json: async () => ({ repositories: [{ full_name: "o/r" }, { full_name: "o/s" }] }) } : undefined));
+  let choices;
+  try {
+    const step = /** @type {any} */ (appAdapter()).wizardSteps().find((/** @type {any} */ s) => s.key === "repository");
+    choices = await step.choices({});
+  } finally {
+    restore();
+  }
+  assert.deepEqual(choices, [{ title: "o/r", value: "o/r" }, { title: "o/s", value: "o/s" }]);
+  assert.ok(!calls.some((c) => c.url.includes("/user/repos")));
 });

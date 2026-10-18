@@ -20,6 +20,7 @@ import {
   forgeBlock,
 } from "../src/forges/github.js";
 import { createForge } from "../src/forges/index.js";
+import { resetGithubAuthCache } from "../src/github-auth.js";
 
 /** Minimal in-memory Store stub (only secrets are used). */
 function makeStore() {
@@ -668,4 +669,64 @@ test("ciStatus: whole check-run roll-up + mergeability for one PR head", async (
       s.restore();
     }
   }
+});
+
+// --- GitHub App auth (src/github-auth.js) ---
+
+const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+const APP_AUTH = { type: "app", appId: "101", installationId: "202", privateKey: APP_PEM };
+
+test("forgeBlock with the tracker's App auth: auth instead of token", () => {
+  assert.deepEqual(forgeBlock({ repository: "o/r", auth: /** @type {any} */ (APP_AUTH) }), { type: "github", repository: "o/r", auth: APP_AUTH });
+});
+
+test("App auth: forge calls carry Bearer <installation token>; a 401 mints a fresh one and retries once", async () => {
+  resetGithubAuthCache();
+  let mints = 0;
+  /** @type {string[]} */
+  const seen = [];
+  const orig = global.fetch;
+  // @ts-ignore - test stub: the first installation token is rejected (revoked), the second works
+  global.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/app/installations/202/access_tokens")) {
+      mints++;
+      return { ok: true, status: 201, json: async () => ({ token: `inst-${mints}`, expires_at: new Date(Date.now() + 3600e3).toISOString() }) };
+    }
+    const h = /** @type {any} */ (init.headers).Authorization;
+    seen.push(`${init.method || "GET"} ${url} ${h}`);
+    return h === "Bearer inst-2" ? { ok: true, status: 201, json: async () => ({}) } : { ok: false, status: 401, json: async () => ({ message: "Bad credentials" }) };
+  };
+  try {
+    await forge({ token: undefined, auth: APP_AUTH }).rerunFailedJobs(555);
+    await forge({ token: undefined, auth: APP_AUTH }).rerunFailedJobs(556);
+  } finally {
+    global.fetch = orig;
+  }
+  assert.deepEqual(seen, [
+    "POST https://api.github.com/repos/o/r/actions/runs/555/rerun-failed-jobs Bearer inst-1",
+    "POST https://api.github.com/repos/o/r/actions/runs/555/rerun-failed-jobs Bearer inst-2",
+    "POST https://api.github.com/repos/o/r/actions/runs/556/rerun-failed-jobs Bearer inst-2",
+  ]);
+  assert.equal(mints, 2);
+});
+
+test("App auth: registerWebhook on 403 names the App's Webhooks permission", async () => {
+  resetGithubAuthCache();
+  const orig = global.fetch;
+  const warn = console.warn;
+  /** @type {string[]} */
+  const warnings = [];
+  console.warn = (m) => warnings.push(String(m));
+  // @ts-ignore - test stub
+  global.fetch = async (url) =>
+    String(url).endsWith("/access_tokens")
+      ? { ok: true, status: 201, json: async () => ({ token: "inst", expires_at: new Date(Date.now() + 3600e3).toISOString() }) }
+      : { ok: false, status: 403, json: async () => ({}) };
+  try {
+    await forge({ token: undefined, auth: APP_AUTH }).registerWebhook("https://new.example");
+  } finally {
+    global.fetch = orig;
+    console.warn = warn;
+  }
+  assert.ok(warnings.some((w) => w.includes("GitHub App's Webhooks: Read & write")), warnings.join("\n"));
 });

@@ -33,8 +33,8 @@
   `projects_v2_item` hook (`created`/`edited`; `edited` acts only on a Status single-select change,
   re-reading the item live) signed like `github` → `x-hub-signature-256`. The hook auto-creates for
   an **org**-owned project (needs `admin:org_hook`) subscribed to `projects_v2_item` +
-  `issue_comment`, else prints manual setup; a **user-owned** project has **no PAT hook path** for
-  item moves. `issue_comment` (`created` only, PRs skipped) carries the `@agent` resume: author must
+  `issue_comment`, else prints manual setup; a **user-owned** project has **no hook path** for item
+  moves (GitHub sends `projects_v2_item` only for org-level projects — not via a GitHub App either). `issue_comment` (`created` only, PRs skipped) carries the `@agent` resume: author must
   strictly equal the `viewer` login (`isOwner`, never `isOurs`), then one `node(Issue){projectItems}`
   read maps the issue to its card on *this* project (no board scan; none → no job), `issueIsOurs`
   on that fresh issue, `resumeJob`, and — when the held step sets `holdStatus` — the card's live
@@ -45,6 +45,15 @@
   (the `github` rule over the GraphQL shape); tickets = its native sub-issues, staged by their own
   card's Status (`""` on-board with no Status, `null` off-board); `listEpics` = epic cards on this
   board only. No `epic_changed` signals yet (the org hook carries no sub-issue events).
+- **GitHub App auth** (`github`, `github-projects`, and the `github` forge) — an optional
+  `auth: {type:"app", appId, installationId, privateKey|privateKeyPath}` replaces `token`.
+  `src/github-auth.js` (node:crypto only) signs an RS256 JWT, exchanges it for an installation
+  token, and caches it module-wide per `appId:installationId` (shared by tracker + forge), refetching
+  5 min before `expires_at`. `githubFetch` retries a 401 once with a fresh token. An installation
+  token is a `[bot]`, so 'us' is **`tracker.assigneeLogin`** (required, validated) and never `/user`
+  or `viewer`. Projects v2 assigns via `user(login:){id}`. The App's own webhook stays inactive; the
+  same repo/org hooks are created with the installation token. User-facing:
+  [docs/github-app.md](../github-app.md).
 - **Linear** — steps bind one team's **workflow state names** (`sourceStatus`/… — Jira's keys),
   resolved case-insensitively to state ids from `tracker.team` (a team key or URL; team + states
   memoised, an unknown name throws listing the team's states). API is **GraphQL**

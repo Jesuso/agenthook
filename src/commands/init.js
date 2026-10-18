@@ -38,6 +38,39 @@ const PLACEHOLDER_PIPELINES = {
   linear: [{ ...base, sourceStatus: "TODO_SOURCE_STATE", successStatus: "TODO_REVIEW_STATE", failureStatus: "TODO_BLOCKED_STATE" }],
 };
 
+/** The minimal GitHub App permissions per surface (docs/github-app.md), printed when `init`
+ * sets up App auth. Events arrive through the repo/org hooks agenthook creates, so the App's
+ * own webhook stays inactive. */
+export const GITHUB_APP_PERMISSIONS = {
+  github: ["Repository: Metadata (read), Issues (read & write), Webhooks (read & write)"],
+  "github-projects": [
+    "Organization: Projects (read & write), Webhooks (read & write)",
+    "Repository: Metadata (read), Issues (read & write)",
+    "Org-owned projects only — GitHub sends Projects v2 item events for organization projects only",
+  ],
+  forge: ["Repository: Metadata (read), Pull requests (read), Checks (read), Actions (read & write), Issues (write), Webhooks (read & write)"],
+};
+
+/** The lines `init` prints for an App: the permissions to grant for this tracker (+ the forge's)
+ * and the inactive-webhook note. Pure. @param {string} trackerType @param {{forge?: boolean}} [o] */
+export function githubAppPermissionLines(trackerType, { forge = false } = {}) {
+  const perms = [...(GITHUB_APP_PERMISSIONS[/** @type {"github"|"github-projects"} */ (trackerType)] || []), ...(forge ? GITHUB_APP_PERMISSIONS.forge : [])];
+  return [
+    `GitHub App permissions to grant (${trackerType}${forge ? " + forge" : ""}):`,
+    ...perms.map((p) => `  - ${p}`),
+    `Leave the App's own webhook INACTIVE — agenthook creates the repo/org hooks itself.`,
+  ];
+}
+
+/** The `tracker.auth` / `forge.auth` block for the App answers: an UPPER_CASE answer is the env
+ * var holding the PEM (written as a ${VAR} ref), anything else a path to the .pem file. Pure.
+ * @param {{appId: string, installationId: string, privateKey: string}} ans
+ * @returns {import('../types.js').GithubAuthConfig} */
+export function githubAppAuthBlock({ appId, installationId, privateKey }) {
+  const key = String(privateKey).trim();
+  return /^[A-Z][A-Z0-9_]*$/.test(key) ? { type: "app", appId, installationId, privateKey: `\${${key}}` } : { type: "app", appId, installationId, privateKeyPath: key };
+}
+
 /** Which forge `init` offers, by the origin remote: a GitLab remote → the gitlab forge;
  * anything else → the github forge, exactly as before. Pure.
  * @param {{remoteUrl?: string, trackerType?: string, trackerRepository?: string}} opts
@@ -52,7 +85,7 @@ export function initForge({ remoteUrl, trackerType, trackerRepository } = {}) {
  * @returns {import('../types.js').ForgeConfig} */
 export function initForgeBlock(key, ans) {
   if (key === "gitlab") return gitlabForgeBlock({ project: ans.project, baseUrl: ans.baseUrl, tokenEnv: ans.tokenEnv });
-  return forgeBlock({ repository: ans.repository, tokenEnv: ans.tokenEnv });
+  return forgeBlock({ repository: ans.repository, tokenEnv: ans.tokenEnv, auth: ans._appAuth });
 }
 
 /** Turn collected answers into a config block: `<x>Env` answers become "${VAL}" refs.
@@ -132,6 +165,15 @@ export function localScaffold({ repoRoot, name, port, fullAuto, base = "main" })
 /** A profile name from free text: [A-Za-z0-9._-] only. @param {string} raw */
 export function sanitizeName(raw) {
   return String(raw).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "local";
+}
+
+/** A PEM file's text, or "" when unreadable. @param {string} file */
+function readPem(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 /** @param {string} cwd @param {string[]} gitArgs @returns {string|null} */
@@ -230,30 +272,69 @@ export async function init(args) {
   const trackerAns = await runWizard([
     { key: "type", message: "Tracker", type: "select", choices: Object.keys(TRACKERS).map((t) => ({ title: t, value: t })) },
   ]);
-  const tokenEnv = (
-    await runWizard([
-      {
-        key: "tokenEnv",
-        message: `Env var holding the ${trackerAns.type} API token`,
-        default: DEFAULT_TOKEN_ENV[trackerAns.type] || "API_TOKEN",
-      },
-    ])
-  ).tokenEnv;
+  // GitHub trackers may authenticate as a GitHub App instead of a personal token.
+  const isGithub = trackerAns.type === "github" || trackerAns.type === "github-projects";
+  const { _auth: authKind } = isGithub
+    ? await runWizard([
+        {
+          key: "_auth",
+          message: "Authenticate with",
+          type: "select",
+          choices: [
+            { title: "Personal token", value: "token" },
+            { title: "GitHub App (narrow per-repo permissions, short-lived tokens)", value: "app" },
+          ],
+        },
+      ])
+    : { _auth: "token" };
 
-  const token = process.env[tokenEnv];
-  if (!token) {
-    throw new Error(
-      `${tokenEnv} is not set. Export it (or add it to a .env here), then re-run \`agenthook init\` — ` +
-        `the live token is needed to look up your workspace/project/repo.`,
-    );
+  let tokenEnv = "";
+  /** @type {Record<string, any>} */
+  const probePc = { type: trackerAns.type };
+  if (authKind === "app") {
+    const app = await runWizard([
+      { key: "appId", message: "GitHub App id (App settings → General)", validate: (v) => (/^\d+$/.test(String(v).trim()) ? true : "a number") },
+      { key: "installationId", message: "Installation id (the number in …/settings/installations/<id>)", validate: (v) => (/^\d+$/.test(String(v).trim()) ? true : "a number") },
+      { key: "privateKey", message: "Private key: env var holding the PEM, or a path to the .pem file", default: "GITHUB_APP_PRIVATE_KEY" },
+      { key: "assigneeLogin", message: "Your GitHub login (the human the App acts for — work is scoped to issues assigned to it)", validate: (v) => (String(v).trim() ? true : "required") },
+    ]);
+    const authBlock = githubAppAuthBlock({ appId: String(app.appId).trim(), installationId: String(app.installationId).trim(), privateKey: app.privateKey });
+    const pem = authBlock.privateKeyPath ? readPem(path.resolve(authBlock.privateKeyPath)) : process.env[String(app.privateKey).trim()];
+    if (!pem) {
+      const what = authBlock.privateKeyPath ? `${authBlock.privateKeyPath} is not readable` : `${String(app.privateKey).trim()} is not set. Export it (or add it to a .env here)`;
+      throw new Error(`${what}, then re-run \`agenthook init\` — the App's key is needed to look up your repo/project.`);
+    }
+    console.log(`\n${githubAppPermissionLines(trackerAns.type).join("\n")}`);
+    trackerAns.auth = authBlock;
+    trackerAns.assigneeLogin = String(app.assigneeLogin).trim();
+    probePc.auth = { ...authBlock, privateKey: pem };
+  } else {
+    tokenEnv = (
+      await runWizard([
+        {
+          key: "tokenEnv",
+          message: `Env var holding the ${trackerAns.type} API token`,
+          default: DEFAULT_TOKEN_ENV[trackerAns.type] || "API_TOKEN",
+        },
+      ])
+    ).tokenEnv;
+
+    const token = process.env[tokenEnv];
+    if (!token) {
+      throw new Error(
+        `${tokenEnv} is not set. Export it (or add it to a .env here), then re-run \`agenthook init\` — ` +
+          `the live token is needed to look up your workspace/project/repo.`,
+      );
+    }
+    trackerAns.tokenEnv = tokenEnv;
+    probePc.token = token;
   }
-  trackerAns.tokenEnv = tokenEnv;
 
   // Build a throwaway adapter purely for its wizardSteps() discovery.
   /** @type {any} */
   const stubStore = { getSecret: () => undefined, setSecret: () => {}, secretCount: () => 0, reloadSeen: () => {}, hasSeen: () => false, markSeen: () => {}, unmarkSeen: () => {}, seenCount: () => 0, seenFile: "" };
   /** @type {any} */
-  const probeCfg = { provider: trackerAns.type, trigger: core.trigger, providerConfig: { type: trackerAns.type, token } };
+  const probeCfg = { provider: trackerAns.type, trigger: core.trigger, providerConfig: probePc };
   const adapter = createAdapter(probeCfg, stubStore);
   if (adapter.wizardSteps) await runWizard(adapter.wizardSteps(trackerAns), trackerAns);
 
@@ -297,7 +378,9 @@ export async function init(args) {
     forgeAns._forgeOffer = picked.offer;
     forgeAns._mergeStepCandidates = mergeStepCandidates(pipeline);
     if (forgeKey === "gitlab") forgeAns._defaultTokenEnv = "GITLAB_TOKEN";
-    else forgeAns._defaultTokenEnv = trackerAns.type === "github" || trackerAns.type === "github-projects" ? tokenEnv : DEFAULT_TOKEN_ENV.github;
+    else forgeAns._defaultTokenEnv = isGithub && tokenEnv ? tokenEnv : DEFAULT_TOKEN_ENV.github;
+    // A GitHub forge reuses the tracker's App auth (one installation, one cached token).
+    if (forgeKey === "github" && trackerAns.auth) forgeAns._appAuth = trackerAns.auth;
     await runWizard(forge.wizardSteps(forgeAns), forgeAns);
   }
 
@@ -319,7 +402,8 @@ export async function init(args) {
 
   let forgeTokenEnv = "";
   if (forgeAns._useForge) {
-    forgeTokenEnv = forgeAns.tokenEnv;
+    forgeTokenEnv = forgeAns.tokenEnv || "";
+    if (forgeAns._appAuth) console.log(`\n${GITHUB_APP_PERMISSIONS.forge.map((p) => `forge App permissions: ${p}`).join("\n")}`);
     config.forge = initForgeBlock(forgeKey, forgeAns);
     if (forgeAns._completeOnMerge) {
       const step = pipeline.find((s) => s.id === forgeAns._completeOnMerge);
@@ -336,8 +420,10 @@ export async function init(args) {
   if (ah) console.log(installAh().message);
 
   console.log(`\nNext:`);
-  const envs = [tokenEnv, ...(forgeTokenEnv && forgeTokenEnv !== tokenEnv ? [forgeTokenEnv] : [])];
-  console.log(`  - ensure ${envs.join(", ")}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
+  const appKeyVar = /^\$\{(\w+)\}$/.exec(String(tracker.auth?.privateKey ?? ""))?.[1];
+  const envs = [...(tokenEnv ? [tokenEnv] : []), ...(appKeyVar ? [appKeyVar] : []), ...(forgeTokenEnv && forgeTokenEnv !== tokenEnv ? [forgeTokenEnv] : [])];
+  if (envs.length) console.log(`  - ensure ${envs.join(", ")}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
+  if (tracker.auth) console.log(`  - GitHub App: see docs/github-app.md (agents still push and comment with their own $GITHUB_TOKEN / gh auth)`);
   if (bindings) console.log(`  - tracker.pipeline is bound to the stages you picked — add more steps for a longer pipeline`);
   else console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
   console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);
@@ -345,7 +431,7 @@ export async function init(args) {
     console.log(`  - forge webhook is served on /forge (auto-created on start; needs ngrok or a stable ingress URL)`);
     if (forgeKey === "gitlab") {
       console.log(`  - forge token: api scope + Maintainer role on ${config.forge.project} (see docs/gitlab.md)`);
-    } else if (trackerAns.type !== "github" && trackerAns.type !== "github-projects") {
+    } else if (!isGithub) {
       console.log(`  - forge token scopes: repo + admin:repo_hook (classic), or Webhooks + Actions + Pull requests RW (fine-grained)`);
     }
   }

@@ -70,8 +70,6 @@ stack is more likely covered on their first look.
 
 - **Linear** tracker.
 - **cloudflared** and **Tailscale Funnel** ingress (stable URLs; removes the one-tunnel ngrok limit).
-- **GitHub App** auth as an alternative to personal tokens: narrower scopes, and a hook path for
-  user-owned Projects v2 boards.
 - **`@agent` resume** on Jira and Projects v2.
 - **GitLab** forge adapter.
 - `agenthook doctor --fix` for the common setup mistakes.

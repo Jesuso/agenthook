@@ -123,8 +123,8 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   matching the new Status (dedup `secmove:<delivery>`).
 - The org hook is **auto-created via REST for an org-owned project** (scrubbed + recreated like
   `github`), falling back to **printed manual setup** when the token lacks `admin:org_hook`. A
-  **user-owned project has no PAT webhook path at all** (`projects_v2_item` is org-webhook- or
-  GitHub-App-only), so `registerWebhook` just prints why. The URL is **fixed**, so pair this tracker
+  **user-owned project has no webhook path at all** (GitHub sends `projects_v2_item` only for
+  organization-level projects — a GitHub App doesn't change that), so `registerWebhook` just prints why. The URL is **fixed**, so pair this tracker
   with a **stable ingress** (ngrok reserved `domain`, or `hosted`) — never an ephemeral tunnel. The
   assignee "us" is the token owner's login (GraphQL `viewer`, cached); scoping is fail-closed.
 

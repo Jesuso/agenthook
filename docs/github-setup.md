@@ -30,6 +30,10 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 `init` reads the token owner via `/user`, so the assignee login used for scoping is derived
 automatically — you never paste it.
 
+Prefer narrow, short-lived tokens? Use a [GitHub App](github-app.md) instead: `tracker.auth`
+replaces `tracker.token`, and `tracker.assigneeLogin` (your login) becomes required, because an
+installation token has no `/user`.
+
 ## 2. Labels are your "sections"
 
 There are no gids and no statuses — steps reference **label names** (matched case-insensitively):

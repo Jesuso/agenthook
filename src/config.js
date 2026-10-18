@@ -280,6 +280,19 @@ export function loadConfig(opts = {}) {
   cfg.ingress = cfg.ingress || { type: "manual" };
   if (!cfg.ingress.type) cfg.ingress.type = "manual";
 
+  // GitHub App auth: a privateKeyPath is read (relative to the config file) into privateKey,
+  // so src/github-auth.js only ever sees the PEM.
+  for (const [at, block] of /** @type {const} */ ([["tracker.auth", cfg.tracker], ["forge.auth", cfg.forge]])) {
+    const auth = block?.auth;
+    if (auth?.type !== "app" || !auth.privateKeyPath) continue;
+    auth.privateKeyPath = resolvePath(auth.privateKeyPath, configDir);
+    try {
+      auth.privateKey = fs.readFileSync(auth.privateKeyPath, "utf8");
+    } catch (e) {
+      throw new Error(`config: cannot read "${at}.privateKeyPath" ${auth.privateKeyPath}: ${e.message}`);
+    }
+  }
+
   // The active tracker's config block, mirrored to providerConfig so adapters
   // (which read cfg.providerConfig.token/userGid/…) stay unchanged. `type` carries
   // the adapter key; token/webhookSecret are already interpolated from env above.
@@ -509,6 +522,24 @@ export function validateRawConfig(raw) {
   errors.push(...energyErrors(cfg.energy));
   errors.push(...quotaErrors(cfg.quota));
 
+  // GitHub App auth (src/github-auth.js). Under it the identity can't be derived from the token
+  // (an installation token is the App's bot), so the tracker's assigneeLogin is required —
+  // fail closed rather than fall back to /user or `viewer`.
+  if (tracker?.auth != null) {
+    if (tracker.type !== "github" && tracker.type !== "github-projects") errors.push(`config: "tracker.auth" is only supported on the github and github-projects trackers.`);
+    else {
+      errors.push(...githubAuthErrors(tracker.auth, "tracker.auth"));
+      const login = tracker.assigneeLogin;
+      if (tracker.auth?.type === "app" && (typeof login !== "string" || !login.trim())) {
+        errors.push(`config: GitHub App auth needs "tracker.assigneeLogin" — the human login the App acts for (scoping and the @agent author check use it; it is never derived from the App token).`);
+      }
+    }
+  }
+  if (cfg.forge?.auth != null) {
+    if (cfg.forge.type !== "github") errors.push(`config: "forge.auth" is only supported on the github forge.`);
+    else errors.push(...githubAuthErrors(cfg.forge.auth, "forge.auth"));
+  }
+
   // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
   if (cfg.forge && !cfg.forge.type) errors.push(`config: "forge.type" is required when a forge block is set (e.g. "github").`);
   // No ciTarget lookup against a missing pipeline: that would only add a spurious "not a step id".
@@ -519,6 +550,25 @@ export function validateRawConfig(raw) {
   }
 
   return errors.length ? { ok: false, errors } : { ok: true };
+}
+
+/**
+ * Structural errors in a GitHub `auth` block (`tracker.auth` / `forge.auth`). Pure.
+ * @param {any} auth @param {string} at @returns {string[]}
+ */
+function githubAuthErrors(auth, at) {
+  if (!auth || typeof auth !== "object" || Array.isArray(auth)) return [`config: "${at}" must be an object ({ "type": "app", … }).`];
+  if (auth.type !== "app") return [`config: "${at}.type" must be "app" (a GitHub App).`];
+  /** @type {string[]} */
+  const out = [];
+  /** @param {any} v */
+  const filled = (v) => (typeof v === "string" && v.trim() !== "") || (typeof v === "number" && Number.isFinite(v));
+  if (!filled(auth.appId)) out.push(`config: "${at}.appId" is required (the GitHub App's id).`);
+  if (!filled(auth.installationId)) out.push(`config: "${at}.installationId" is required (the App's installation on the repo/org).`);
+  const hasKey = typeof auth.privateKey === "string" && auth.privateKey.trim() !== "";
+  const hasPath = typeof auth.privateKeyPath === "string" && auth.privateKeyPath.trim() !== "";
+  if (hasKey === hasPath) out.push(`config: "${at}" needs exactly one of "privateKey" (the PEM, e.g. "\${GITHUB_APP_PRIVATE_KEY}") or "privateKeyPath".`);
+  return out;
 }
 
 /** The list lives in src/ui/sensitive.js (the config editor bundles it); re-exported for the server side. */

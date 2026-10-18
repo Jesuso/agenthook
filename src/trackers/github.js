@@ -9,7 +9,9 @@
 //   - Auth: a Personal Access Token (classic or fine-grained) as `Bearer <token>`.
 //     Needs `repo` (read/write issues) + `admin:repo_hook` (create the webhook),
 //     or the fine-grained equivalents (Issues: RW, Webhooks: RW, Metadata: R).
-//     GITHUB_TOKEN is the only secret a user supplies.
+//     GITHUB_TOKEN is the only secret a user supplies. Or a GitHub App (`auth: {type:
+//     "app", …}`, src/github-auth.js) with the same repository permissions; then
+//     assigneeLogin is required (an installation token has no user).
 //   - Webhook: auto-created via REST like Asana, but signed with an agenthook-
 //     GENERATED secret like Jira (or an explicit tracker.webhookSecret; `false`
 //     disables verification). Verified via `x-hub-signature-256: sha256=<hex>`.
@@ -28,6 +30,7 @@ import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
 import { checkOwner, MoveRefusedError } from "./owner.js";
+import { createGithubAuth, githubFetch } from "../github-auth.js";
 
 /** Is `issue` an epic — its type matches `epicType`, OR it carries `epicLabel` (any
  * case). A plain parent with sub-issues but no type/label is never an epic.
@@ -158,16 +161,17 @@ export function extractRouteKeys(labels, prefix, pipelineLabels = []) {
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
   const pc = cfg.providerConfig;
-  const token = pc.token; // resolved from env/.env by loadConfig
+  // A personal token, or a GitHub App's installation token (src/github-auth.js). Both are
+  // resolved from env/.env by loadConfig.
+  const auth = createGithubAuth(pc);
   // owner/repo come from `repository: "owner/name"` or explicit owner+repo. Resolved
-  // loosely so the init probe (which has only {type, token}) can still call wizardSteps.
+  // loosely so the init probe (which has only {type, token|auth}) can still call wizardSteps.
   const [owner, repo] = pc.repository ? String(pc.repository).split("/") : [pc.owner, pc.repo];
   /** @param {string} p @param {RequestInit} [init] */
   const api = (p, init = {}) =>
-    fetch(`https://api.github.com${p}`, {
+    githubFetch(auth, `https://api.github.com${p}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "Content-Type": "application/json",
@@ -223,6 +227,8 @@ export function createGithubAdapter(cfg, store) {
   // assigneeLogin overrides the lookup; assigneeFilter:false = repo-wide (any assignee).
   // FAIL CLOSED: if our login can't be resolved, nothing counts as ours, so a foreign
   // issue is never touched (we never silently go open). Symmetric with Asana/Jira.
+  // Under GitHub App auth the installation token has no user (/user 403s), so assigneeLogin
+  // — the human the App acts for — is REQUIRED (loadConfig enforces it) and never looked up.
   const scopeToUser = pc.assigneeFilter !== false;
   let cachedLogin = pc.assigneeLogin || null;
   /** @type {Promise<string>|null} */
@@ -232,6 +238,7 @@ export function createGithubAdapter(cfg, store) {
    * clears it so a later call retries (rather than caching the rejection). */
   function ourLogin() {
     if (cachedLogin) return Promise.resolve(cachedLogin);
+    if (auth.app) return Promise.reject(new Error(`GitHub App auth needs tracker.assigneeLogin`));
     if (!loginPromise) {
       loginPromise = (async () => {
         const res = await api(`/user`);
@@ -818,7 +825,12 @@ export function createGithubAdapter(cfg, store) {
       });
       const body = await json(res);
       if (!res.ok) {
-        const hint = res.status === 404 || res.status === 403 ? ` — the token needs admin:repo_hook (classic) or Webhooks: Read & write (fine-grained) on ${owner}/${repo}` : "";
+        const hint =
+          res.status === 404 || res.status === 403
+            ? auth.app
+              ? ` — the GitHub App needs the Webhooks: Read & write repository permission, installed on ${owner}/${repo}`
+              : ` — the token needs admin:repo_hook (classic) or Webhooks: Read & write (fine-grained) on ${owner}/${repo}`
+            : "";
         throw new Error(`GitHub create hook ${res.status}: ${JSON.stringify(body)}${hint}`);
       }
       console.log(`Webhook created: id=${body.id} active=${body.active} -> ${target}`);
@@ -863,7 +875,8 @@ export function createGithubAdapter(cfg, store) {
     },
 
     // `agenthook init` discovery. GITHUB_TOKEN is the only secret (handled by init's
-    // token-env step). The login is derived from /user, so it isn't asked. The chosen
+    // token-env step). The login is derived from /user, so it isn't asked (init asks it
+    // for a GitHub App, along with the App's key). The chosen
     // repo's labels are discovered live and bound to the code step (no TODO_* editing).
     wizardSteps: () => {
       // Sensible default labels for the three stages. They needn't exist yet: boot's
@@ -884,9 +897,15 @@ export function createGithubAdapter(cfg, store) {
           key: "repository",
           message: "Repository whose issue labels drive the pipeline",
           type: "select",
-          // The token owner's repos (most-recently-updated first). Caps at 100 — a repo
-          // beyond that can be set by hand as `"repository": "owner/name"` in the config.
+          // The token owner's repos (most-recently-updated first) — or, under App auth, the
+          // repos the installation can reach. Caps at 100 — a repo beyond that can be set by
+          // hand as `"repository": "owner/name"` in the config.
           choices: async () => {
+            if (auth.app) {
+              const res = await api(`/installation/repositories?per_page=100`);
+              if (!res.ok) throw new Error(`GitHub /installation/repositories ${res.status}`);
+              return ((await json(res))?.repositories || []).map((/** @type {any} */ r) => ({ title: r.full_name, value: r.full_name }));
+            }
             const res = await api(`/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`);
             if (!res.ok) throw new Error(`GitHub /user/repos ${res.status}`);
             return ((await json(res)) || []).map((/** @type {any} */ r) => ({ title: r.full_name, value: r.full_name }));

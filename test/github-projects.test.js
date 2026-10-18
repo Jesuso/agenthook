@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createGithubProjectsAdapter, extractRouteKeys, isEpicGqlIssue, toRestShape, mapProjectEpics, mapProjectEpicTickets } from "../src/trackers/github-projects.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
+import { resetGithubAuthCache } from "../src/github-auth.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -622,7 +623,8 @@ test("registerWebhook on a USER-owned project prints a clear not-supported messa
   }
   assert.equal(calls.posts.length, 0, "no hook is created for a user-owned project");
   assert.equal(calls.lists, 0, "and we never even list org hooks");
-  assert.ok(lines.some((l) => /USER-owned/.test(l) && /GitHub App/.test(l)));
+  assert.ok(lines.some((l) => /USER-owned/.test(l) && /ORGANIZATION-level/.test(l)));
+  assert.ok(!lines.some((l) => /GitHub App/.test(l)), "never suggests a GitHub App fixes a user-owned board (it doesn't)");
   const out = lines.join("\n");
   assert.match(out, /REPO hook/, "prints the per-repo issue_comment hook for the @agent resume");
   assert.match(out, /"Issue comments"/);
@@ -1075,4 +1077,88 @@ test("issue_comment: a duplicate delivery of the same comment carries the same d
   assert.equal(result.length, 2);
   assert.equal(result[0].dedupKey, result[1].dedupKey);
   assert.equal(result[0].dedupKey, "trigger:9001");
+});
+
+// --- GitHub App auth (src/github-auth.js): installation token + human assigneeLogin ---
+
+const APP_PEM = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+const APP_PC = { token: undefined, auth: { type: "app", appId: "101", installationId: "202", privateKey: APP_PEM }, assigneeLogin: "alice" };
+
+/** Wrap the currently stubbed global.fetch: mint "inst-tok" on the access_tokens endpoint, answer
+ * `user(login:)` with U_<login>, record every other call's Authorization + GraphQL query, and pass
+ * it on. Call AFTER the inner stub is installed; restore() BEFORE the inner one's restore. */
+function withAppToken() {
+  resetGithubAuthCache();
+  /** @type {{url: string, auth: string, query?: string}[]} */
+  const calls = [];
+  const inner = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/app/installations/202/access_tokens")) {
+      return /** @type {any} */ ({ ok: true, status: 201, json: async () => ({ token: "inst-tok", expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
+    }
+    const body = init.body ? JSON.parse(String(init.body)) : {};
+    calls.push({ url: String(url), auth: init.headers?.Authorization, query: body.query });
+    if (body.query?.includes("user(login:$login){ id }")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ data: { user: { id: `U_${body.variables.login}` } } }) });
+    return inner(url, init);
+  };
+  return { calls, restore: () => (global.fetch = inner) };
+}
+
+test("App auth: GraphQL carries Bearer <installation token>; enterStage assigns the human via user(login:), never viewer", async () => {
+  const { captured, restore } = stubGraphql({ status: "In Review" });
+  const app = withAppToken();
+  try {
+    await adapter(APP_PC).enterStage("42", "code", {});
+  } finally {
+    app.restore();
+    restore();
+  }
+  assert.ok(app.calls.length > 0);
+  for (const c of app.calls) assert.equal(c.auth, "Bearer inst-tok", c.query);
+  assert.deepEqual(captured.assigned.u, ["U_alice"], "assigned the human's user id");
+  assert.ok(!app.calls.some((c) => c.query?.includes("viewer")), "no viewer query under App auth");
+});
+
+test("App auth scoping: an item assigned to the human is acted on; a foreign or [bot] assignee is not", async () => {
+  for (const [assignee, want] of /** @type {const} */ ([["alice", 1], ["mallory", 0], ["my-app[bot]", 0]])) {
+    const { restore } = stubGraphql({ status: "In Progress", assignees: [assignee], viewer: "my-app[bot]" });
+    const app = withAppToken();
+    try {
+      const jobs = await adapter({ ...APP_PC, assigneeFilter: true }).processEvents(
+        /** @type {any} */ (evt({ action: "created", projects_v2_item: { node_id: "PVTI_42", content_type: "Issue" } })),
+      );
+      assert.equal(jobs.length, want, assignee);
+      assert.ok(!app.calls.some((c) => c.query?.includes("viewer")), "identity never comes from viewer");
+    } finally {
+      app.restore();
+      restore();
+    }
+  }
+});
+
+test("App auth @agent: the human's reply resumes; the App's [bot] login or another user does not", async () => {
+  for (const [author, want] of /** @type {const} */ ([["alice", 1], ["my-app[bot]", 0], ["mallory", 0]])) {
+    const { result, queries } = await withProjects({ me: "my-app[bot]", assignee: "alice" }, async () => {
+      const app = withAppToken();
+      try {
+        return await commentAdapter({ pc: APP_PC }).processEvents(commentEvt({ author }));
+      } finally {
+        app.restore();
+      }
+    });
+    assert.equal(result.length, want, author);
+    assert.ok(!queries.some((q) => q.includes("viewer")), "identity never comes from viewer");
+  }
+});
+
+test("App auth init: the board is typed as org/number (no viewer listing)", () => {
+  const steps = /** @type {any} */ (adapter(APP_PC)).wizardSteps();
+  const project = steps.filter((/** @type {any} */ s) => s.key === "project");
+  assert.equal(project.length, 2);
+  const [listed, typed] = project;
+  assert.equal(listed.when({}), false, "the viewer-backed picker is skipped");
+  assert.equal(typed.when({}), true);
+  assert.equal(typed.validate("acme/7"), true);
+  assert.notEqual(typed.validate("acme"), true);
 });

@@ -68,6 +68,8 @@ const GROUPS = [
   ["IngressConfig", ["ingress"], [...typedefProps("IngressConfig").keys()]],
   ["SinkConfig", ["sinks", "*"], [...typedefProps("SinkConfig").keys()]],
   ["ForgeConfig", ["forge"], [...typedefProps("ForgeConfig").keys()]],
+  ["GithubAuthConfig (tracker)", ["tracker", "auth"], [...typedefProps("GithubAuthConfig").keys()]],
+  ["GithubAuthConfig (forge)", ["forge", "auth"], [...typedefProps("GithubAuthConfig").keys()]],
   ["RepoConfig", ["repos", "*"], [...typedefProps("RepoConfig").keys()]],
   ["Config.ui", ["ui"], literalKeys(config.get("ui") ?? "")],
   ["Config.digest", ["digest"], literalKeys(config.get("digest") ?? "")],
