@@ -33,9 +33,22 @@ const KILL_GRACE_MS = 10000;
 // setTimeout fires immediately past this (~24.8 days), so clamp a huge cap to it.
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
+// Upper bound on an agent's best-effort post-exit usage export (hermes' `sessions export`,
+// #395): bounds the extra wait past the run itself, on top of the adapter's own timeout.
+const FINALIZE_TIMEOUT_MS = 10_000;
+
 /** The fail reason for a killed run. @param {"max"|"idle"} kind @param {number} minutes */
 export function timeoutReason(kind, minutes) {
   return kind === "max" ? `timeout: exceeded maxMinutes=${minutes}` : `timeout: no output for idleMinutes=${minutes}`;
+}
+
+/** The spawn env for an agent run (adapter's `agent.env` under the step's `env`), shared by
+ * `spawnAgent` and a post-exit `agent.finalize` so the export sees the same `HERMES_HOME`
+ * the run used. Never includes AGENTHOOK_VERDICT_FILE.
+ * @param {Record<string,string>|undefined} agentEnv @param {Record<string,string>|undefined} env
+ * @returns {Record<string,string>} */
+function agentSpawnEnv(agentEnv, env) {
+  return /** @type {Record<string,string>} */ ({ ...process.env, ...(agentEnv ?? {}), ...(env ?? {}) });
 }
 
 /** @typedef {(cmd: string, args: string[], opts: {cwd: string, timeout: number}) => Promise<string>} ExecFn */
@@ -326,7 +339,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
         stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
         // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
         // read it after exit to route the step (advance/hold/changes/fail).
-        env: { ...process.env, ...(agentEnv ?? {}), ...(env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
+        env: { ...agentSpawnEnv(agentEnv, env), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) },
       });
       children?.add(child);
       onPid?.(child.pid);
@@ -435,6 +448,59 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     fs.mkdirSync(dir, { recursive: true });
     const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
     return path.join(dir, `${safeRef}-${stepId}.md`);
+  }
+
+  /**
+   * Best-effort post-exit usage capture via `agent.finalize` (e.g. hermes' `sessions
+   * export`, #395): same bin/env the run used, a scratch dir under the state dir — never
+   * the repo or worktree — removed afterwards, bounded by FINALIZE_TIMEOUT_MS on top of the
+   * adapter's own timeout. A throw, a timeout or a null result is logged and treated as
+   * "no usage"; it never touches the run's code/verdict.
+   * @param {import('./types.js').AgentAdapter} agent
+   * @param {{sessionId: string, bin?: string, agentEnv?: Record<string,string>, env?: Record<string,string>, stepId: string, ref: string, logPath: string}} o
+   */
+  async function finalizeUsage(agent, { sessionId, bin, agentEnv, env, stepId, ref, logPath }) {
+    if (!agent.finalize) return null;
+    const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+    const dir = path.join(cfg.dataDir, "exports", `${safeRef}-${stepId}`);
+    fs.mkdirSync(dir, { recursive: true });
+    /** @param {string} reason */
+    const warn = (reason) => {
+      const msg = `[agenthook] hermes usage export failed: ${reason}`;
+      console.error(msg);
+      try {
+        fs.appendFileSync(logPath, `${msg}\n`);
+      } catch {
+        /* best effort */
+      }
+    };
+    const TIMED_OUT = Symbol("finalize-timeout");
+    try {
+      /** @type {NodeJS.Timeout|undefined} */
+      let timer;
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), FINALIZE_TIMEOUT_MS);
+      });
+      const run = agent
+        .finalize({ sessionId, bin: bin || agent.defaults.bin || cfg.claudeBin, env: agentSpawnEnv(agentEnv, env), dir, timeoutMs: FINALIZE_TIMEOUT_MS })
+        .catch((e) => {
+          warn(e.message);
+          return null;
+        });
+      const result = await Promise.race([run, timeout]);
+      clearTimeout(timer);
+      if (result === TIMED_OUT) {
+        warn(`timed out after ${FINALIZE_TIMEOUT_MS}ms`);
+        return null;
+      }
+      return result;
+    } finally {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+    }
   }
 
   /**
@@ -919,6 +985,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     const provider = step.provider ?? cfg.agentProvider;
     // A failed preflight resolves the run as `fail` with no agent spawned.
     const refused = agentPreflight(agent, step, provider, logPath);
+    const agentEnv = agent.env?.({ cfg, step });
     const { code, result, timedOut } = refused ? { code: 1, result: null, timedOut: undefined } : await spawnAgent({
       agent,
       prompt,
@@ -931,7 +998,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
       toolsets: step.toolsets,
       isolated: step.isolated,
       bin: step.bin,
-      agentEnv: agent.env?.({ cfg, step }),
+      agentEnv,
       env: step.env,
       verdictFile,
       maxMs: maxMinutes * 60000,
@@ -965,12 +1032,25 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
     // The step may just have opened the PR.
     await recordPr(job.ref, repo);
 
+    // Best-effort post-exit token capture (hermes' `sessions export`, #395): only when the
+    // run actually spawned and came back with a session id to export.
+    const finalized = !refused && typeof result?.session_id === "string" ? await finalizeUsage(agent, { sessionId: result.session_id, bin: step.bin, agentEnv, env: step.env, stepId: step.id, ref: job.ref, logPath }) : null;
+
     // Persist the final per-run usage record from the captured result (token totals +
     // cost). Append-only usage.jsonl, distinct from the rewritten state files. The adapter
     // decides `unpriced` (e.g. a local-model run — step `bin`, or a non-Claude model — whose
     // dollar figure is made up), so run_end drops the cost and the usage record is tagged.
     // Built even without a result: `unpriced` must still reach run_end.
     const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: step.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString() });
+    if (finalized) {
+      for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) {
+        if (typeof finalized[k] === "number" && Number.isFinite(finalized[k]) && finalized[k] >= 0) usage[k] = finalized[k];
+      }
+      // Only overlay the model when the step resolved none of its own — the record's model
+      // is still the adapter's unpriced placeholder (hermes: "hermes"), which the rate table
+      // can't match.
+      if (finalized.model && !model) usage.model = finalized.model;
+    }
     const unpriced = !!usage.unpriced;
     // Stamp the basis (src/pricing.js): a reported run keeps `costUsd` alone; otherwise an
     // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.

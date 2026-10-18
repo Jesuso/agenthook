@@ -411,6 +411,7 @@
  * @property {(sessionId: string) => string[]} [resumeCommand]  resume argv (after the binary) for an agent with `sessions: null` whose session ids come from usage.jsonl (opencode)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for)
+ * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  */
 

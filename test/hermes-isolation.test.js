@@ -254,9 +254,33 @@ async function runHermes(stepOver, { yaml = LOCAL_YAML, agentProvider } = {}) {
   const bin = path.join(dir, "fake-hermes.sh");
   const argvOut = path.join(dir, "argv.txt");
   const envOut = path.join(dir, "env.txt");
+  const exportEnvOut = path.join(dir, "export-env.txt");
+  const exportArgvOut = path.join(dir, "export-argv.txt");
+  // dispatch's post-exit finalize (#395) re-invokes this same fake bin for `sessions
+  // export`: branch on $1 so that call doesn't clobber the `chat` probe files. It dumps its
+  // own HERMES_HOME (so a test can check it matches the run's) and writes a usage row to
+  // the file it's given (its last argv) — unless FAKE_EXPORT_FAIL is set, to drive the
+  // failure path.
   fs.writeFileSync(
     bin,
-    `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "\${HERMES_HOME-<unset>}" > "${envOut}"\necho "session_id: fake-1" >&2\nprintf '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+    `#!/bin/sh
+if [ "$1" = "chat" ]; then
+  printf '%s\\n' "$@" > "${argvOut}"
+  printf '%s' "\${HERMES_HOME-<unset>}" > "${envOut}"
+  if [ -z "$FAKE_NO_SESSION" ]; then
+    echo "session_id: fake-1" >&2
+  fi
+  printf '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"
+else
+  printf '%s\\n' "$@" > "${exportArgvOut}"
+  printf '%s' "\${HERMES_HOME-<unset>}" > "${exportEnvOut}"
+  if [ -n "$FAKE_EXPORT_FAIL" ]; then
+    exit 7
+  fi
+  for file in "$@"; do :; done
+  printf '%s\\n' "\${FAKE_EXPORT_ROW:-{\\"input_tokens\\":18010,\\"output_tokens\\":1371,\\"cache_read_tokens\\":102182,\\"cache_write_tokens\\":0}}" > "$file"
+fi
+`,
     { mode: 0o755 },
   );
   const cfg = /** @type {any} */ ({
@@ -297,6 +321,8 @@ async function runHermes(stepOver, { yaml = LOCAL_YAML, agentProvider } = {}) {
     events,
     argv: read(argvOut)?.trim().split("\n") ?? null,
     hermesHome: read(envOut),
+    exportArgv: read(exportArgvOut)?.trim().split("\n") ?? null,
+    exportHermesHome: read(exportEnvOut),
     log: logFile ? fs.readFileSync(path.join(dir, logFile), "utf8") : "",
     usage: store.readUsage(),
   };
@@ -340,4 +366,53 @@ test("dispatch: isolated:false keeps today's argv and injects no HERMES_HOME; a 
   assert.equal(own.hermesHome, "/elsewhere");
   assert.ok(own.argv?.includes("--ignore-rules"), "still isolated argv");
   assert.equal(own.advanced[0].outcome, "advance", "the step manages its own home: no preflight");
+});
+
+// --- post-exit finalize: hermes `sessions export` token capture (#395) ---
+
+test("dispatch: finalize success — usage.jsonl/run_end carry the export's tokens, unpriced, no costUsd; export ran with the run's HERMES_HOME", async () => {
+  const r = await runHermes({ provider: "ollama-launch" });
+  assert.deepEqual(r.exportArgv?.slice(0, 2), ["sessions", "export"]);
+  assert.ok(r.exportArgv?.includes("--session-id") && r.exportArgv?.includes("fake-1"));
+  assert.equal(r.exportHermesHome, r.hermesHome, "the export sees the same isolated HERMES_HOME the chat run used");
+  assert.deepEqual([r.usage[0].input, r.usage[0].output, r.usage[0].cacheRead, r.usage[0].cacheCreate], [18010, 1371, 102182, 0]);
+  assert.equal(r.usage[0].unpriced, true);
+  assert.equal("costUsd" in r.usage[0] && r.usage[0].costUsd !== undefined, false);
+  const end = r.events.find((e) => e[0] === "run_end")?.[3];
+  assert.deepEqual([end.input, end.output, end.cacheRead, end.cacheCreate], [18010, 1371, 102182, 0]);
+  assert.equal(end.unpriced, true);
+  assert.equal("costUsd" in end, false);
+  // the scratch export dir is gone once the run is done
+  assert.equal(fs.existsSync(path.join(r.dir, "exports", "42-code")), false);
+});
+
+test("dispatch: finalize failure (export exits non-zero) — tokens stay 0, one log line, outcome unaffected", async () => {
+  process.env.FAKE_EXPORT_FAIL = "1";
+  try {
+    const r = await runHermes({ provider: "ollama-launch" });
+    assert.deepEqual([r.usage[0].input, r.usage[0].output, r.usage[0].cacheRead, r.usage[0].cacheCreate], [0, 0, 0, 0]);
+    assert.equal(r.usage[0].unpriced, true);
+    assert.match(r.log, /\[agenthook\] hermes usage export failed:/);
+    assert.equal(r.advanced[0].outcome, "advance", "a finalize failure never touches the verdict");
+    assert.equal(fs.existsSync(path.join(r.dir, "exports", "42-code")), false, "the scratch dir is still cleaned up");
+  } finally {
+    delete process.env.FAKE_EXPORT_FAIL;
+  }
+});
+
+test("dispatch: no session id (no session_id: line) — finalize is never invoked", async () => {
+  process.env.FAKE_NO_SESSION = "1";
+  try {
+    const r = await runHermes({ provider: "ollama-launch" });
+    assert.equal(r.exportArgv, null, "sessions export was never run");
+    assert.equal(r.usage.length, 0, "no result (no session_id) -> no usage record at all");
+  } finally {
+    delete process.env.FAKE_NO_SESSION;
+  }
+});
+
+test("dispatch: a preflight-refused run (no local provider) — finalize is never invoked", async () => {
+  const r = await runHermes({});
+  assert.equal(r.argv, null, "no agent spawned");
+  assert.equal(r.exportArgv, null, "no export either");
 });
