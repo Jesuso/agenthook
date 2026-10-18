@@ -40,6 +40,19 @@ test("buildSnapshot: groups what needs a human, what runs, what finished, cost",
   assert.ok(Object.values(s.agentNotes).some((n) => String(n).includes("DB choice")), "verdict summary of a held ticket rides along");
 });
 
+test("buildSnapshot: last24h keeps rate-table estimates and no-estimate runs apart from reported cost", () => {
+  const dir = stateDir();
+  fs.appendFileSync(path.join(dir, "events.jsonl"), [
+    { ts: ago(50), event: "run_end", ref: "3", step: "code", outcome: "advance", unpriced: true, estUsd: 0.5, costBasis: "rate-table" },
+    { ts: ago(40), event: "run_end", ref: "3", step: "review", outcome: "advance", unpriced: true, model: "qwen3", input: 1e6, output: 0, cacheRead: 0, cacheCreate: 0 },
+    { ts: ago(30), event: "run_end", ref: "3", step: "fix", outcome: "advance", unpriced: true, model: "mystery", input: 5, output: 5, cacheRead: 0, cacheCreate: 0 },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const s = buildSnapshot(dir, { now: NOW, pricing: { "qwen*": { input: 2, output: 2 } } });
+  assert.equal(s.last24h.costUsd, 1.23, "reported only");
+  assert.equal(s.last24h.estUsd, 2.5, "stamped 0.5 + qwen override 2");
+  assert.equal(s.last24h.unestimatedRuns, 1, "the unknown model");
+});
+
 test("buildSnapshot: a finished ticket awaits merge only with a known PR", () => {
   const dir = stateDir();
   assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge, [], "no refmeta.pr → just finished");

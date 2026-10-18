@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
 import { digestErrors } from "./digest-config.js";
+import { pricingErrors } from "./pricing.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
@@ -182,7 +183,8 @@ const STATE_ID_ERROR = `config: "stateId" must match [A-Za-z0-9._-]+ (it keys th
  * a profile; everything else stays loadConfig's job.
  * @param {{ configPath?: string }} [opts]
  * `agentBins` = the agent binaries the file names (see `rawAgentBins`), for `agents`' ps match.
- * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string, agentBins: string[] }}
+ * `pricing` = the file's valid `pricing` block (src/pricing.js), for `status` with the receiver down.
+ * @returns {{ name: string, stateKey: string, configPath: string, configDir: string, stateDir: string, logDir: string, agentBins: string[], pricing?: Record<string, import('./pricing.js').Rate> }}
  */
 export function peekConfig(opts = {}) {
   const { configPath, configDir, raw } = readRawConfig(opts.configPath);
@@ -191,7 +193,9 @@ export function peekConfig(opts = {}) {
   if (raw.stateId !== undefined && !validName(raw.stateId)) throw new Error(STATE_ID_ERROR);
   const stateKey = raw.stateId ?? name;
   const stateDir = path.join(registryDir, stateKey);
-  return { name, stateKey, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs"), agentBins: rawAgentBins(raw) };
+  // `pricing` holds no secrets or ${VAR}s; an invalid block is dropped (`status` falls back to the built-in rates).
+  const pricing = raw.pricing != null && !pricingErrors(raw.pricing).length ? raw.pricing : undefined;
+  return { name, stateKey, configPath, configDir, stateDir, logDir: path.join(stateDir, "logs"), agentBins: rawAgentBins(raw), pricing };
 }
 
 /**
@@ -476,6 +480,7 @@ export function validateRawConfig(raw) {
   errors.push(...sinkErrors(cfg.sinks));
   errors.push(...identityErrors(cfg.ui));
   errors.push(...digestErrors(cfg.digest));
+  errors.push(...pricingErrors(cfg.pricing));
 
   // Optional forge axis (PR awareness). Absent = undefined, nothing changes.
   if (cfg.forge && !cfg.forge.type) errors.push(`config: "forge.type" is required when a forge block is set (e.g. "github").`);

@@ -96,8 +96,13 @@ export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
   return r.outcome ?? (r.running ? "running" : "—");
 }
 
-/** A run's cost cell: "unpriced" for a run with no real cost (non-Claude agent or local model), else its cost ("—" when none). */
-export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced">): string {
+/**
+ * A run's cost cell: the reported cost; else "~$x est." — a rate-table estimate (src/pricing.js),
+ * for a non-Claude agent or a local model; else "unpriced" (no real cost and no rate), "—" when none.
+ */
+export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial<Pick<RunView, "estUsd">>): string {
+  if (!r.unpriced && r.costUsd) return formatCost(r.costUsd);
+  if (typeof r.estUsd === "number" && r.estUsd > 0) return `~${formatCost(r.estUsd)} est.`;
   return r.unpriced ? "unpriced" : formatCost(r.costUsd ?? 0);
 }
 

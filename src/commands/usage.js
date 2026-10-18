@@ -6,14 +6,18 @@
 //   usage --week       group by ISO week (--week wins if both given)
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
+import { costOf, sumCosts } from "../pricing.js";
 
 /**
  * Aggregate an array of UsageRecords into summed totals. Tokens sum every record; `costUsd`
- * sums only priced ones (an `unpriced` local-model run's figure is not real spend).
+ * sums only priced ones (an `unpriced` local-model run's figure is not real spend). `est` /
+ * `unestimated` are src/pricing.js `sumCosts` over the rest (the rate-table estimate, and the
+ * runs with no rate or no tokens), with the profile's `pricing` overrides.
  * @param {import('../types.js').UsageRecord[]} recs
- * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined }}
+ * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]
+ * @returns {{ input: number, output: number, cacheRead: number, cacheCreate: number, costUsd: number|undefined, est: number, unestimated: number }}
  */
-export function sumRecords(recs) {
+export function sumRecords(recs, pricing) {
   let input = 0, output = 0, cacheRead = 0, cacheCreate = 0, costUsd = /** @type {number|undefined} */ (undefined);
   for (const r of recs) {
     input += r.input;
@@ -22,7 +26,17 @@ export function sumRecords(recs) {
     cacheCreate += r.cacheCreate;
     if (!r.unpriced && typeof r.costUsd === "number") costUsd = (costUsd ?? 0) + r.costUsd;
   }
-  return { input, output, cacheRead, cacheCreate, costUsd };
+  const { est, unestimated } = sumCosts(recs, pricing);
+  return { input, output, cacheRead, cacheCreate, costUsd, est, unestimated };
+}
+
+/** A group/TOTAL `$` cell: reported and estimated side by side, never summed — `$1.2345 + ~$0.0400 est.`
+ * (src/pricing.js `formatSpend`'s shape at this table's precision); `—` when neither. Exported for tests.
+ * @param {{ costUsd: number|undefined, est: number }} t */
+export function spendCell(t) {
+  const est = t.est > 0 ? `~${fmtCost(t.est)} est.` : "";
+  if (t.costUsd === undefined) return est || "—";
+  return est ? `${fmtCost(t.costUsd)} + ${est}` : fmtCost(t.costUsd);
 }
 
 /**
@@ -87,8 +101,15 @@ function fmtCost(usd) {
   return typeof usd === "number" ? `$${usd.toFixed(4)}` : "—";
 }
 
-/** A per-run cost cell: `unpriced` for a run with no real cost (non-Claude agent or local model). Exported for tests. @param {import('../types.js').UsageRecord} r */
-export function runCost(r) {
+/**
+ * A per-run cost cell: the reported `$0.1234`, else the rate-table `~$0.0400 est.`, else
+ * `unpriced` for a run with no real cost and no estimate (no rate, or no tokens). Exported for tests.
+ * @param {import('../types.js').UsageRecord} r @param {Record<string, import('../pricing.js').Rate>|null} [pricing]
+ */
+export function runCost(r, pricing) {
+  const c = costOf(r, pricing);
+  if (c.costUsd !== undefined) return fmtCost(c.costUsd);
+  if (c.estUsd !== undefined) return `~${fmtCost(c.estUsd)} est.`;
   return r.unpriced ? "unpriced" : fmtCost(r.costUsd);
 }
 
@@ -101,6 +122,7 @@ function tok(n) {
 export async function usage(args) {
   const cfg = loadConfig({ configPath: args.config });
   const store = createStore(cfg.dataDir);
+  const pricing = cfg.pricing ?? null;
   let recs = store.readUsage();
 
   if (!recs.length) {
@@ -124,14 +146,14 @@ export async function usage(args) {
   if (byWeek || byDay) {
     const keyFn = byWeek ? (/** @type {import('../types.js').UsageRecord} */ r) => isoWeek(r.startedAt) : (/** @type {import('../types.js').UsageRecord} */ r) => utcDay(r.startedAt);
     const groups = groupBy(recs, keyFn);
-    const header = ["Period", "Runs", "Input", "Output", "CacheRead", "CacheCreate", "$", "Models"];
+    const header = ["Period", "Runs", "Input", "Output", "CacheRead", "CacheCreate", "$", "No est.", "Models"];
     const rows = [header];
     for (const [period, grp] of groups) {
-      const t = sumRecords(grp);
-      rows.push([period, String(grp.length), tok(t.input), tok(t.output), tok(t.cacheRead), tok(t.cacheCreate), fmtCost(t.costUsd), modelSplit(grp)]);
+      const t = sumRecords(grp, pricing);
+      rows.push([period, String(grp.length), tok(t.input), tok(t.output), tok(t.cacheRead), tok(t.cacheCreate), spendCell(t), String(t.unestimated), modelSplit(grp)]);
     }
-    const tot = sumRecords(recs);
-    rows.push(["TOTAL", String(recs.length), tok(tot.input), tok(tot.output), tok(tot.cacheRead), tok(tot.cacheCreate), fmtCost(tot.costUsd), ""]);
+    const tot = sumRecords(recs, pricing);
+    rows.push(["TOTAL", String(recs.length), tok(tot.input), tok(tot.output), tok(tot.cacheRead), tok(tot.cacheCreate), spendCell(tot), String(tot.unestimated), ""]);
     printTable(rows);
     return;
   }
@@ -143,11 +165,12 @@ export async function usage(args) {
   const header = ["Ref", "Step", "Model", "Input", "Output", "CacheRead", "CacheCreate", "$"];
   const rows = [header];
   for (const r of slice) {
-    rows.push([r.ref, r.stepId, r.model ?? "—", tok(r.input), tok(r.output), tok(r.cacheRead), tok(r.cacheCreate), runCost(r)]);
+    rows.push([r.ref, r.stepId, r.model ?? "—", tok(r.input), tok(r.output), tok(r.cacheRead), tok(r.cacheCreate), runCost(r, pricing)]);
   }
   // Totals always over full filtered set (not just the slice)
-  const tot = sumRecords(recs);
-  rows.push(["TOTAL", "", "", tok(tot.input), tok(tot.output), tok(tot.cacheRead), tok(tot.cacheCreate), fmtCost(tot.costUsd)]);
+  const tot = sumRecords(recs, pricing);
+  const noEst = tot.unestimated ? ` (${tot.unestimated} runs no estimate)` : "";
+  rows.push(["TOTAL", "", "", tok(tot.input), tok(tot.output), tok(tot.cacheRead), tok(tot.cacheCreate), spendCell(tot) + noEst]);
   printTable(rows);
 }
 

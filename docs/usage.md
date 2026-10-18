@@ -16,8 +16,8 @@ emit one JSON object per line on stdout. agenthook parses that stream live:
 - **Token/cost tally** — on a clean exit, the stream emits a `result` event. agenthook reads its
   `usage` fields and `total_cost_usd`, then appends one `UsageRecord` to `usage.jsonl`.
 
-`total_cost_usd` is the `claude` CLI's own cost figure, surfaced verbatim. agenthook does not
-compute or estimate costs itself.
+`total_cost_usd` is the `claude` CLI's own cost figure, surfaced verbatim as `costUsd` — the
+**reported** cost. agenthook never changes it or mixes anything into it.
 
 The exception is an **unpriced** run: a step on a local model (a step `bin` other than
 `claudeBin`, or a non-Claude `model`). `claude` still prices it from its Claude price table, so
@@ -26,6 +26,12 @@ cost out (tokens still count): `ah usage` shows `unpriced` in its `$` cell, and 
 carries no `costUsd`, so the web UI's costs exclude it too. See
 [Mixed pipelines / local models](local-models.md). Cursor and Hermes runs are always unpriced
 (see [Agents](agents.md)).
+
+An unpriced run whose model has a rate (the built-in Claude table, or your `pricing` config) gets
+an **estimate**: `estUsd` with `costBasis: "rate-table"`, stamped on the record at write time.
+Estimates are always shown apart from reported cost (`$0.2500 + ~$0.1000 est.`); an unknown model
+or a run with zero tokens gets no estimate and is counted as such. See
+[Agents → Estimated cost](agents.md#estimated-cost-estusd).
 
 ## Where records live
 
@@ -53,6 +59,8 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `costUsd`     | number?  | `result.total_cost_usd` (the CLI's own cost figure)     |
 | `sessionId`   | string?  | `result.session_id`                                     |
 | `unpriced`    | `true`?  | Local-model run: `costUsd` is kept for audit but left out of every spend total |
+| `costBasis`   | string?  | `reported` (a priced run's `costUsd`) or `rate-table` (an `estUsd` estimate) |
+| `estUsd`      | number?  | An unpriced run's API-equivalent estimate; never added to `costUsd` |
 
 ## `ah usage`
 
@@ -65,8 +73,10 @@ ah usage --limit <n>        # cap rows shown (totals are still over the full set
 ```
 
 **Default per-run table** columns: `Ref`, `Step`, `Model`, `Input`, `Output`, `CacheRead`,
-`CacheCreate`, `$`. A `TOTAL` row is appended. An unpriced run's `$` cell reads `unpriced`; the
-`TOTAL` (and rollup) `$` sums priced runs only, `—` when none is priced.
+`CacheCreate`, `$`. A `TOTAL` row is appended. An unpriced run's `$` cell reads `~$x est.` when it
+has an estimate, else `unpriced`; the `TOTAL` (and rollup) `$` is `$reported + ~$estimate est.`
+(each part only when non-zero, `—` when neither), followed by `(N runs no estimate)` when some runs
+have neither.
 
 ```
 Ref   Step    Model                Input   Output  CacheRead  CacheCreate       $
@@ -77,7 +87,7 @@ TOTAL                              21 440   5 030     17 200          420   $0.0
 ```
 
 **Rollup tables** (`--day` / `--week`) columns: `Period`, `Runs`, `Input`, `Output`, `CacheRead`,
-`CacheCreate`, `$`, `Models`. The `Models` column shows a per-model token breakdown for that period.
+`CacheCreate`, `$`, `No est.`, `Models`. The `Models` column shows a per-model token breakdown for that period.
 
 If `usage.jsonl` doesn't exist yet (no runs have completed), `ah usage` prints:
 

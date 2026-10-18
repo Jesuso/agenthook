@@ -43,7 +43,8 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       const word = RUN_END_WORD[outcome] ?? (outcome || "ended");
       tone = RUN_END_TONE[outcome] ?? "idle";
       text = `${event.step ?? "?"} ${word}`;
-      if (typeof event.costUsd === "number") text += ` · $${event.costUsd.toFixed(2)}`;
+      if (typeof event.costUsd === "number" && event.unpriced !== true) text += ` · $${event.costUsd.toFixed(2)}`;
+      else if (typeof event.estUsd === "number") text += ` · ~$${event.estUsd.toFixed(2)} est.`;
       break;
     }
     case "enqueued": {

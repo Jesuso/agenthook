@@ -1,5 +1,10 @@
 import type { ProfileView, TicketRow } from "./contract";
 
+import { formatSpend } from "../../src/pricing.js";
+
+/** "$12.40 + ~$3.10 est." — reported and estimated spend side by side, never summed (src/pricing.js). */
+export { formatSpend };
+
 /** "up" / "down" — the profile row's liveness cell; pid and port only in its tooltip. */
 export function formatUp(p: Pick<ProfileView, "up" | "pid" | "port">): { text: string; title?: string } {
   const parts = [p.up && p.pid ? `pid ${p.pid}` : null, p.port ? `port ${p.port}` : null].filter(Boolean);
@@ -77,6 +82,11 @@ export function formatRelative(iso: string | null, now: number): string {
 export function formatCost(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "—";
   return `$${n.toFixed(2)}`;
+}
+
+/** A ticket's spend cell: "$1.20", "~$0.40 est.", "$1.20 + ~$0.40 est.", "—" when neither. */
+export function formatTicketSpend(t: Pick<TicketRow, "costUsd"> & Partial<Pick<TicketRow, "estUsd">>): string {
+  return formatSpend({ reported: Number.isFinite(t.costUsd) ? t.costUsd : 0, est: t.estUsd ?? 0 }) || "—";
 }
 
 /** "2026-10-08" / "?" — the date part of an ISO timestamp. */

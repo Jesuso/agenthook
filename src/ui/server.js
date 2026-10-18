@@ -29,6 +29,7 @@ import { readDigest } from "../digest.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
 import { readStats } from "./stats.js";
+import { pricingOf } from "../pricing.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -512,7 +513,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         /** @type {string} */
         let body;
         try {
-          body = JSON.stringify({ runs: listRuns(registry, profile, ref, readEventsTail(path.join(dir, "events.jsonl"))) });
+          const pricing = pricingOf(readProfile(profile, registry)?.heartbeat);
+          body = JSON.stringify({ runs: listRuns(registry, profile, ref, readEventsTail(path.join(dir, "events.jsonl")), pricing) });
         } catch {
           return send(res, 500);
         }
@@ -525,7 +527,8 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         const days = Number(params.get("days") ?? 14);
         const tz = Number(params.get("tz") ?? 0);
         if (!Number.isFinite(days) || !Number.isFinite(tz) || Math.abs(tz) > 14 * 60) return send(res, 400);
-        return sendJson(res, () => readStats(path.join(dir, "events.jsonl"), { days, tzOffset: tz }));
+        const pricing = pricingOf(readProfile(params.get("profile") || "", registry)?.heartbeat);
+        return sendJson(res, () => readStats(path.join(dir, "events.jsonl"), { days, tzOffset: tz, pricing }));
       }
       if (p === DIGEST) {
         const dir = profileDir(registry, params.get("profile") || "");

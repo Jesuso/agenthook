@@ -7,9 +7,9 @@ import type { ProfileView } from "./contract";
 
 const profile = { name: "dev", label: "dev", up: true, color: "teal", emoji: "🚀", forge: null } as unknown as ProfileView;
 const days = [
-  day("2026-10-12", { finished: 4, runs: 6, costUsd: 9, byStep: { code: { runs: 3, costUsd: 6 }, review: { runs: 3, costUsd: 3 } }, outcomes: { advance: 4, changes: 1, hold: 0, fail: 1, other: 0 }, ticketCost: { n: 4, p10: 1, p50: 2, p90: 5 } }),
+  day("2026-10-12", { finished: 4, runs: 6, costUsd: 9, estUsd: 0, byStep: { code: { runs: 3, costUsd: 6, estUsd: 0 }, review: { runs: 3, costUsd: 3, estUsd: 0 } }, outcomes: { advance: 4, changes: 1, hold: 0, fail: 1, other: 0 }, ticketCost: { n: 4, p10: 1, p50: 2, p90: 5 } }),
   day("2026-10-13"),
-  day("2026-10-14", { finished: 9, runs: 10, costUsd: 5, byStep: { code: { runs: 10, costUsd: 5 } }, outcomes: { advance: 9, changes: 1, hold: 0, fail: 0, other: 0 }, ticketCost: { n: 9, p10: 0.4, p50: 0.5, p90: 0.9 } }),
+  day("2026-10-14", { finished: 9, runs: 10, costUsd: 5, estUsd: 0, byStep: { code: { runs: 10, costUsd: 5, estUsd: 0 } }, outcomes: { advance: 9, changes: 1, hold: 0, fail: 0, other: 0 }, ticketCost: { n: 9, p10: 0.4, p50: 0.5, p90: 0.9 } }),
 ];
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
@@ -28,6 +28,15 @@ describe("the four charts", () => {
     expect(out).toContain('data-chart="spend-by-step"');
     expect(out.match(/<rect /g)).toHaveLength(3); // Mon code+review, Wed code; the zero day draws nothing
     expect(out.indexOf("code $")).toBeLessThan(out.indexOf("review $"));
+  });
+
+  it("spend by step: an estimate is a dashed, separate rect and the legend says ~est.; runs with no estimate are counted", () => {
+    const out = html(createElement(Stacked, { days: [day("2026-10-12", { runs: 3, estUsd: 2, unestimatedRuns: 1, byStep: { code: { runs: 3, costUsd: 1, estUsd: 2 } } })] }));
+    expect(out.match(/<rect /g)).toHaveLength(2);
+    expect(out.match(/data-est=/g)).toHaveLength(1);
+    expect(out).toContain("stroke-dasharray");
+    expect(out).toContain("code $1.00 + ~$2.00 est.");
+    expect(out).toContain("1 run with no estimate");
   });
 
   it("outcomes: one rect per outcome present, a legend for all four", () => {

@@ -66,7 +66,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  *                                        (approximate: the tail is byte-bounded)
  */
 
-/** @typedef {{ at: string, costUsd: number }} RecentCost */
+/** `costUsd` = reported (0 on an estimated run); `estUsd` = rate-table estimate (0 on a reported run). Never summed together.
+ * @typedef {{ at: string, costUsd: number, estUsd: number }} RecentCost */
 
 /** @typedef {{ at: string, outcome: string|null }} RecentRun */
 
@@ -89,6 +90,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} model          from running.json, else the last run_start
  * @property {string|null} startedAt
  * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)
+ * @property {number} estUsd              sum of the tail's rate-table estimates (runs with no reported cost; src/pricing.js), never in costUsd
  * @property {string|null} trackerUrl     refmeta.url
  * @property {string|null} prUrl          https://github.com/<repository>/pull/<refmeta.pr>
  * @property {string|null} heldReason
@@ -145,6 +147,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
  * @property {number|null} costUsd
  * @property {boolean} unpriced           run_end.unpriced: no real cost (non-Claude agent or local model; costUsd null)
+ * @property {number|null} estUsd         rate-table estimate (src/pricing.js `costOf`) when nothing was reported; never in costUsd
+ * @property {'reported'|'rate-table'|null} costBasis  which figure stands for the run; null = no cost and no estimate
  * @property {boolean} running            no outcome yet, newest run, and running.json has it
  * @property {number} bytes               log size when listed
  */

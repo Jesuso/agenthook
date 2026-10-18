@@ -9,6 +9,7 @@ import { StringDecoder } from "node:string_decoder";
 import { listProfiles } from "../heartbeat.js";
 import { DEBOUNCE_MS } from "./watch.js";
 import { isObj, readStateFile } from "./rows.js";
+import { costOf } from "../pricing.js";
 
 /** The `init` frame carries at most this much of the log's tail. */
 export const LOG_TAIL_BYTES = 64 * 1024;
@@ -62,12 +63,14 @@ const stampOf = (name) => {
  * A ref's runs, newest first. `outcome`/`costUsd` come from the first `run_end` for the same
  * (ref, step) at or after the log's stamp and before that step's next run; null when it isn't
  * in `events` (still running, or older than the events tail). `running` = no outcome yet, it's
- * the ref's newest run, and running.json has the ref on that step.
+ * the ref's newest run, and running.json has the ref on that step. `estUsd`/`costBasis` follow
+ * src/pricing.js `costOf` (the run_end's stamp, else the profile's rates).
  * @param {string} registry @param {string} profile @param {string} ref
  * @param {Record<string, any>[]} events  the profile's events tail, oldest first
+ * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
  * @returns {import('./contract.js').RunView[]}
  */
-export function listRuns(registry, profile, ref, events) {
+export function listRuns(registry, profile, ref, events, pricing = null) {
   const dir = profileDir(registry, profile);
   if (!dir) return [];
   const logs = path.join(dir, "logs");
@@ -114,6 +117,7 @@ export function listRuns(registry, profile, ref, events) {
     const next = found.slice(i + 1).find((n) => n.step === r.step)?.startedAt ?? null;
     const end = ends.find((e) => e.step === r.step && e.ts >= r.startedAt && (next === null || e.ts < next)) || null;
     const outcome = end && typeof end.outcome === "string" ? end.outcome : null;
+    const c = end ? costOf(end, pricing) : {};
     out.push({
       run: r.run,
       step: r.step,
@@ -121,6 +125,8 @@ export function listRuns(registry, profile, ref, events) {
       outcome,
       costUsd: end && typeof end.costUsd === "number" && Number.isFinite(end.costUsd) ? end.costUsd : null,
       unpriced: !!end && end.unpriced === true,
+      estUsd: c.estUsd ?? null,
+      costBasis: c.costBasis ?? null,
       endedAt: end && typeof end.ts === "string" ? end.ts : null,
       running: !end && i === found.length - 1 && !!cur && cur.stepId === r.step,
       bytes: r.bytes,

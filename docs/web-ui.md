@@ -80,8 +80,10 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
 
 - `GET /api/snapshot` → full state on connect. `GET /api/stream` (SSE) → typed deltas. The browser
   `EventSource` reconnects by itself and re-fetches the snapshot on reconnect.
-- `ProfileView.recentCosts` → `{at, costUsd}[]`: the `run_end` events with a finite `costUsd` from
-  the last 48 h of the profile's events tail, oldest first. The dashboard's "cost today (approx.)"
+- `ProfileView.recentCosts` → `{at, costUsd, estUsd}[]`: the `run_end` events with a reported cost
+  or a rate-table estimate (`src/pricing.js` `costOf`, the heartbeat's `pricing` overrides) from
+  the last 48 h of the profile's events tail, oldest first; the field that doesn't apply is 0.
+  Tiles show `$x + ~$y est.`, never one blended sum. The dashboard's "cost today (approx.)"
   tile buckets them by the browser's local midnight — approximate because the tail is
   byte-bounded (256 KB). A new `run_end` re-emits the profile over SSE.
 - `ProfileView.paused` (the operator pause, `heartbeat.paused`) and `ProfileView.restartPending`
@@ -90,7 +92,7 @@ browser edit ──POST {path, baseHash, content}──► atomic write ──�
   a dead heartbeat keeps its last flags. They back the dashboard row's Paused pill and its
   Restart when idle / Pause new runs / Resume actions (below).
 - Run-log viewer: `GET /api/runs?profile=&ref=` → `{ runs: RunView[] }` listed straight from the
-  profile's `logs/` (outcome/cost/`endedAt` joined from `run_end`; `endedAt` = its `ts`, `null`
+  profile's `logs/` (outcome/cost/`estUsd`/`costBasis`/`endedAt` joined from `run_end`; `endedAt` = its `ts`, `null`
   while running or once it aged out of the events tail). `GET /api/log/stream?profile=&run=` (SSE)
   → `init` (last ≤ 64 KB from a line boundary), `append`, `reset` — a per-connection `fs.watch` on
   the `logs/` dir, closed with the connection. `run` must be a run-log basename actually listed in
@@ -120,7 +122,8 @@ type TicketRow = {
   status: 'running' | 'queued' | 'held' | 'failed' | 'cancelled' | 'done' | 'idle' | 'interrupted' | 'stalled';
   model: string | null;       // from run_start
   startedAt: string | null;
-  costUsd: number;            // sum of run_end.costUsd
+  costUsd: number;            // sum of run_end.costUsd (reported)
+  estUsd: number;             // sum of rate-table estimates (runs with no reported cost); shown "~$x est."
   trackerUrl: string | null;  // refmeta.url
   prUrl: string | null;       // derived from refmeta.pr + forge repository
   heldReason: string | null;
@@ -533,6 +536,14 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
      hand-finished tickets have no agent spend and are not sampled). A candlestick has no open/close in
      our data, so this range chart stands in for it.
   Day payload (`DayStats`) gained `byStep`, `outcomes` and `ticketCost`; `days` may now be up to 366.
+- **Estimated spend** (#394): `DayStats` also carries `estUsd` (rate-table estimates, never in
+  `costUsd`), `unestimatedRuns` (runs with neither), `byStep[step].estUsd` and `ticketEst` (the
+  ticket-cost spread over estimates). Every reader prices through `src/pricing.js` `costOf` with the
+  heartbeat's `pricing` overrides; an old `run_end` with no tokens is joined to `usage.jsonl` by
+  ref + step within 5 s. The History line reads `$12.40 + ~$3.10 est.` plus `N runs no estimate`;
+  *Spend by step* stacks each step's estimate above its reported spend as its own washed-out,
+  dash-outlined series, with the no-estimate count under the legend; the ticket-cost tooltip adds
+  the estimate median. The Digest's `last24h` gains `estUsd` and `unestimatedRuns`.
 - Out of scope: anything cross-profile (ADR 0001).
 
 ### What a ticket is about (built)

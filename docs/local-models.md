@@ -66,10 +66,12 @@ sets a `bin` other than `claudeBin`, or when the model that ran is not a Claude 
 `claude-…` id, a Bedrock/Vertex `anthropic.claude-…` id, or an alias such as `opus`, `sonnet`,
 `haiku`, `default`). Setting only `env` with a Claude model name does not mark a run unpriced.
 
-An unpriced run keeps its tokens but shows no dollars:
+An unpriced run keeps its tokens but shows no reported dollars:
 
-- its `run_end` event has `unpriced: true` and no `costUsd`, so the web UI's ticket cost, Stats
-  spend and per-ticket cost leave it out, and the ticket drawer shows `local` in its cost column;
+- its `run_end` event has `unpriced: true` and no `costUsd`, so the web UI's reported ticket cost,
+  Stats spend and per-ticket cost leave it out. Map the model in the `pricing` config (e.g.
+  `"qwen3.8*": {"input": 2, "output": 10}`) to get an API-equivalent `~$x est.` beside them,
+  never added in — see [Agents → Estimated cost](agents.md#estimated-cost-estusd);
 - its `usage.jsonl` record has `unpriced: true` (and `bin` when overridden). `ah usage`,
   `ah status` and `ah ls` leave its cost out of every total. See [Token & cost tracking](usage.md).
 

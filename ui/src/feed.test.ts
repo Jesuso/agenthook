@@ -35,6 +35,7 @@ describe("formatFeedEvent", () => {
 
   it("maps run_end by outcome, with cost suffix", () => {
     expect(formatFeedEvent({ event: "run_end", ref: "1", step: "code", outcome: "advance", costUsd: 0.5 }, null).text).toBe("code passed · $0.50");
+    expect(formatFeedEvent({ event: "run_end", ref: "1", step: "code", outcome: "advance", unpriced: true, estUsd: 0.25, costBasis: "rate-table" }, null).text).toBe("code passed · ~$0.25 est.");
     expect(formatFeedEvent({ event: "run_end", ref: "1", step: "code", outcome: "hold" }, null)).toMatchObject({ text: "code held", tone: "held" });
     expect(formatFeedEvent({ event: "run_end", ref: "1", step: "code", outcome: "changes" }, null)).toMatchObject({ text: "code → changes", tone: "queued" });
     expect(formatFeedEvent({ event: "run_end", ref: "1", step: "code", outcome: "fail" }, null)).toMatchObject({ text: "code failed", tone: "failed" });

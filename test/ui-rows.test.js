@@ -376,8 +376,8 @@ test("profileView: recentCosts = run_end with a finite costUsd and a parseable t
   ];
   const base = { name: "p", pid: 0, up: false, heartbeat: null };
   assert.deepEqual(profileView({ ...base, events, now }).recentCosts, [
-    { at: ago(RECENT_COSTS_MS), costUsd: 0.5 },
-    { at: ago(1000), costUsd: 1.25 },
+    { at: ago(RECENT_COSTS_MS), costUsd: 0.5, estUsd: 0 },
+    { at: ago(1000), costUsd: 1.25, estUsd: 0 },
   ]);
   assert.deepEqual(profileView(base).recentCosts, []);
 });
@@ -393,7 +393,7 @@ test("buildSnapshot: recentCosts comes from the profile's events tail (down prof
   });
   writeState(path.join(reg, "q"), {});
   const snap = buildSnapshot(reg);
-  assert.deepEqual(profileNamed(snap.profiles, "p").recentCosts, [{ at: ts, costUsd: 0.42 }]);
+  assert.deepEqual(profileNamed(snap.profiles, "p").recentCosts, [{ at: ts, costUsd: 0.42, estUsd: 0 }]);
   assert.deepEqual(profileNamed(snap.profiles, "q").recentCosts, []);
 });
 

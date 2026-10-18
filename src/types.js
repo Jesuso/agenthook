@@ -172,6 +172,8 @@
  * @property {number} [costUsd]    result.total_cost_usd (kept raw even when `unpriced` — readers ignore it then)
  * @property {string} [sessionId]  result.session_id
  * @property {true} [unpriced]     local model (step `bin` or a non-Claude model): `costUsd` is not real spend
+ * @property {number} [estUsd]     rate-table estimate (src/pricing.js `costOf`), stamped at write time; absent on a reported run or with no rate/tokens
+ * @property {'reported'|'rate-table'} [costBasis]  which figure stands for this run: `costUsd` (reported) or `estUsd` (rate-table)
  */
 
 /**
@@ -491,6 +493,7 @@
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
  * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config
+ * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/pricing.js); checked before the built-in Claude rates
  * @property {number} port
  * @property {string} trigger
  * @property {number} maxConcurrent

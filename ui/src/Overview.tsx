@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ProfileView, Snapshot, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatDuration, formatModel, formatRelative, ticketTitle } from "./format";
+import { formatCost, formatDuration, formatModel, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
@@ -281,7 +281,7 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
         <>
           <span className="font-mono text-label text-muted" title={model.title}>{model.text}</span>
           <span className="font-mono text-label" title="elapsed">{elapsed}</span>
-          <span className="font-mono text-label text-muted" title="cost so far (approx.)">{formatCost(t.costUsd)}</span>
+          <span className="font-mono text-label text-muted" title="cost so far (approx.)">{formatTicketSpend(t)}</span>
           <button type="button" className={`${LINK} ${REVEAL}`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
             Follow log
           </button>
@@ -331,7 +331,8 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
           <span className="font-mono">{prog.finishedToday}</span> <span className="text-label font-normal text-muted">{delta(prog.finishedToday, prog.finishedYesterday)}</span>
         </Tile>
         <Tile label="cost today (approx.)">
-          <span className="font-mono">{formatCost(prog.costToday)}</span> <span className="text-label font-normal text-muted">{prog.costYesterday ? `yesterday ${formatCost(prog.costYesterday)}` : ""}</span>
+          <span className="font-mono">{formatSpend({ reported: prog.costToday, est: prog.estToday }) || formatCost(0)}</span>{" "}
+          <span className="text-label font-normal text-muted">{prog.costYesterday || prog.estYesterday ? `yesterday ${formatSpend({ reported: prog.costYesterday, est: prog.estYesterday })}` : ""}</span>
         </Tile>
         <Tile label="rework rate" title="share of agent runs that ended in a rework loop (changes), over the last ~48 h of events">
           {rate === null ? (

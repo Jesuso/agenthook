@@ -3,6 +3,7 @@
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { createStore } from "../store.js";
+import { formatSpend, pricingOf, sumCosts } from "../pricing.js";
 
 /** Humanize an ISO timestamp as a relative age. @param {string|null} iso */
 export function ago(iso) {
@@ -50,19 +51,19 @@ function fmtTokens(n) {
   return String(n);
 }
 
-/** Total tokens + cost from a profile's usage.jsonl; blanks when absent/unreadable. @param {string} dir */
-function usageOf(dir) {
+/**
+ * Total tokens + spend from a profile's usage.jsonl — reported and rate-table estimated kept
+ * apart (src/pricing.js `formatSpend`), priced with the heartbeat's `pricing` overrides; blanks
+ * when absent/unreadable.
+ * @param {string} dir @param {any} [heartbeat]
+ */
+function usageOf(dir, heartbeat) {
   try {
     const records = createStore(dir).readUsage();
     if (!records.length) return { tokens: "", cost: "" };
     let totalTokens = 0;
-    let totalCost = 0;
-    let hasCost = false;
-    for (const r of records) {
-      totalTokens += (r.input || 0) + (r.output || 0);
-      if (r.costUsd != null && !r.unpriced) { totalCost += r.costUsd; hasCost = true; }
-    }
-    return { tokens: fmtTokens(totalTokens), cost: hasCost ? `$${totalCost.toFixed(2)}` : "" };
+    for (const r of records) totalTokens += (r.input || 0) + (r.output || 0);
+    return { tokens: fmtTokens(totalTokens), cost: formatSpend(sumCosts(records, pricingOf(heartbeat))) };
   } catch {
     return { tokens: "", cost: "" }; // usage.jsonl absent or unreadable — leave blank
   }
@@ -93,14 +94,15 @@ export function formatLs(profiles, usage = () => ({ tokens: "", cost: "" })) {
     };
   });
   const w = Math.max(16, ...rows.map((r) => r.name.length + 2));
+  const cw = Math.max(9, ...rows.map((r) => r.cost.length + 2)); // "$12.40 + ~$3.10 est." widens COST
   const lines = [
     `${pad("NAME", w)}${pad("UP", 4)}${pad("PORT", 7)}${pad("TRACKER", 9)}${pad("INGRESS", 9)}${pad("REPOS", 7)}` +
-      `${pad("AGENTS", 8)}${pad("QUEUE", 7)}${pad("TOKENS", 9)}${pad("COST", 9)}${pad("LAST EVENT", 12)}CONFIG`,
+      `${pad("AGENTS", 8)}${pad("QUEUE", 7)}${pad("TOKENS", 9)}${pad("COST", cw)}${pad("LAST EVENT", 12)}CONFIG`,
   ];
   for (const r of rows) {
     lines.push(
       `${pad(r.name, w)}${pad(r.up, 4)}${pad(r.port, 7)}${pad(r.tracker, 9)}${pad(r.ingress, 9)}${pad(r.repos, 7)}` +
-        `${pad(r.agents, 8)}${pad(r.queue, 7)}${pad(r.tokens, 9)}${pad(r.cost, 9)}${pad(r.last, 12)}${r.config}`,
+        `${pad(r.agents, 8)}${pad(r.queue, 7)}${pad(r.tokens, 9)}${pad(r.cost, cw)}${pad(r.last, 12)}${r.config}`,
     );
   }
   /** @type {Map<string, string[]>} */
@@ -118,5 +120,5 @@ export async function ls() {
     console.log("no profiles yet. Run `agenthook init` in a project dir to create one.");
     return;
   }
-  for (const line of formatLs(profiles, (p) => usageOf(p.dir))) console.log(line);
+  for (const line of formatLs(profiles, (p) => usageOf(p.dir, p.heartbeat))) console.log(line);
 }
