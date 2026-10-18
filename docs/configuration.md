@@ -115,6 +115,12 @@ absolute `/usr/bin/curl` doesn't match a `curl` rule. Path rules cover the agent
 not a subprocess that opens files itself. The policy closes the easy paths and makes the step's
 intent explicit; the structural boundary is the sandbox. `doctor` warns about each of these.
 
+`allow` is also not the *only* source of allow rules. Claude Code unions `--allowedTools` with the
+`permissions.allow` rules in `~/.claude/settings.json` and in the repo's own `.claude/settings.json`
+/ `settings.local.json`. The repo files live in the agent's worktree, so an agent can write one
+that widens a later run of the same ticket. Until #476 pins the settings sources, keep broad
+allow rules out of your user settings and treat a `.claude/` change in an agent PR as a red flag.
+
 | Agent | `allow` / `deny` |
 |-------|------------------|
 | `claude` | enforced through its permission flags |
