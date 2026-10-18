@@ -263,7 +263,9 @@ Key files:
   placeholder). `test/config-schema.test.js` parses `src/types.js` and fails when a config `@property` has neither
   an entry nor a `NO_FORM` reason, and holds the `sensitive` set equal to `SENSITIVE_FIELDS`.
 - `src/profile.js` — the per-state-dir `profile.json` marker (`{configPath, stateKey, name, createdAt,
-  updatedAt}`) and the boot rename gate `claimStateDir`, run first in `createEngine` (and in the
+  updatedAt, webhooks}` — `webhooks` stamped by `createEngine` from `adapter.describe().webhooks`; a
+  prior value carries over when `writeProfileMarker` is called without it) and the boot rename gate
+  `claimStateDir`, run first in `createEngine` (and in the
   `start --detach` parent): a *fresh* state dir (no marker, nothing but an empty `logs/`) whose config
   already owns a marked sibling dir is removed and refused ("add `stateId`") instead of silently forking state.
 - `src/prompts.js` — blind prompt builders; platform words come from `adapter.describe()`.

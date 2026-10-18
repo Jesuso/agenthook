@@ -14,14 +14,19 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-remove-"));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 let n = 0;
-/** A fresh registry holding the given state dirs. @param {Record<string, {name?: string, configPath?: string, running?: boolean}>} dirs */
+/** A fresh registry holding the given state dirs. @param {Record<string, {name?: string, configPath?: string, running?: boolean, webhooks?: boolean}>} dirs */
 function registryWith(dirs) {
   const registry = path.join(root, `reg${n++}`, ".agenthook");
   for (const [key, o] of Object.entries(dirs)) {
     const dir = path.join(registry, key);
     fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
     fs.writeFileSync(path.join(dir, "queue.json"), "[]");
-    if (o.name || o.configPath) fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ stateKey: key, name: o.name ?? key, configPath: o.configPath }));
+    if (o.name || o.configPath || o.webhooks !== undefined) {
+      fs.writeFileSync(
+        path.join(dir, "profile.json"),
+        JSON.stringify({ stateKey: key, name: o.name ?? key, configPath: o.configPath, ...(o.webhooks !== undefined ? { webhooks: o.webhooks } : {}) }),
+      );
+    }
     if (o.running) fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
   }
   return registry;
@@ -78,6 +83,20 @@ test("stopped without profile.json: says config path unknown", async () => {
   const { out, opts } = harness();
   await removeProfile({ nameOrKey: "legacy", yes: true, registry, ...opts });
   assert.match(out.join("\n"), /config path unknown/);
+});
+
+test("stopped with webhooks:false marker: no unregister hint", async () => {
+  const registry = registryWith({ prof: { configPath: "/cfg/x.json", webhooks: false } });
+  const { out, opts } = harness();
+  await removeProfile({ nameOrKey: "prof", yes: true, registry, ...opts });
+  assert.doesNotMatch(out.join("\n"), /agenthook unregister/);
+});
+
+test("stopped with webhooks:true marker: unregister hint still printed", async () => {
+  const registry = registryWith({ prof: { configPath: "/cfg/x.json", webhooks: true } });
+  const { out, opts } = harness();
+  await removeProfile({ nameOrKey: "prof", yes: true, registry, ...opts });
+  assert.match(out.join("\n"), /agenthook unregister/);
 });
 
 test("--keep-hooks: no unregister hint", async () => {

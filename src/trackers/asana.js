@@ -1,7 +1,7 @@
 // Asana adapter — the reference implementation of the tracker interface.
 //
 // An adapter implements:
-//   describe()                         -> { platform, taskNoun, trigger, commentHowTo }
+//   describe()                         -> { platform, taskNoun, trigger, commentHowTo, webhooks }
 //   authenticate({pathname,headers,rawBody}) -> {type:'handshake',headers} | {type:'reject'} | {type:'accept'}
 //                                         (fast, no network — lets the engine ACK <10s)
 //   processEvents({pathname,headers,rawBody}) -> [job]   (async; may hit the API)
