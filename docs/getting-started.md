@@ -144,8 +144,9 @@ Extra step fields you'll want to know:
   per-step cost data. Omit it to use the CLI default; an invalid value is dropped with a warning.
 - `bin` / `env` — run this step's agent with a different CLI (`"bin": "claude-local"`, a name on
   PATH or an absolute path; default the top-level `claudeBin`) and/or extra environment for that
-  agent only (`"env": { "CLAUDE_CONFIG_DIR": "/home/me/.claude-alt" }`, merged over the receiver's
-  env). Put secret values in `${VAR}` refs, not literals. `AGENTHOOK_VERDICT_FILE` is reserved.
+  agent only (`"env": { "CLAUDE_CONFIG_DIR": "/home/me/.claude-alt" }`, merged over the agent's
+  [allowlisted env](agents.md#agent-environment)). A step `env` may set any name, including one the
+  allowlist strips. Put secret values in `${VAR}` refs, not literals. `AGENTHOOK_VERDICT_FILE` is reserved.
   `agenthook doctor` checks each step `bin` is on PATH; `agenthook resume` reuses the step's
   `bin`/`env`.
 - `requireVerdict` (default off) — a clean exit with a missing/unparseable/unrecognized verdict

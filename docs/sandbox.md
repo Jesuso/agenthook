@@ -82,8 +82,10 @@ writes in the worktree stay yours.
 
 ### Limits
 
-- **Env is not stripped yet** (#470): every variable the receiver has is passed by name, so tokens
-  in its env are visible to the agent.
+- **The sandbox bounds the filesystem, not the env**: the container gets the same allowlisted
+  agent env a host run gets (see `agentEnvPassthrough`), minus host-only keys (`PATH`, `HOME`,
+  `SSH_AUTH_SOCK`, …). Any token that allowlist passes — the tracker token the prompt names,
+  `GH_TOKEN` — is visible to the agent.
 - **Network is open** (#473): the agent can reach anything the host can.
 - **The common git dir is writable**: an agent can touch other branches' refs and other
   worktrees' admin dirs. A per-run clone is the follow-up.

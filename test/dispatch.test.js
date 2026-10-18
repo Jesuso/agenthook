@@ -143,19 +143,21 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
 // A fake `claude` (a tiny sh script, no network) writes $FAKE_VERDICT to the verdict
 // file and records the prompt it was handed, so runClaude runs end to end.
 
-/** @param {{steps?: any[]}} [o] */
-function heldHarness({ steps } = {}) {
+/** @param {{steps?: any[], meta?: any, cfg?: any}} [o] */
+function heldHarness({ steps, meta, cfg: cfgOver } = {}) {
   const dir = tmpDir();
   const bin = path.join(dir, "fake-claude.sh");
   fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$2" > "$FAKE_PROMPT_OUT"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
   const cfg = /** @type {any} */ ({
     pipeline: steps || [{ id: "triage", kind: "triage" }, { id: "code" }, { id: "done", manual: true, drainWorktree: true }],
+    agentEnvPassthrough: ["FAKE_*"], // the fake reads its knobs from the receiver's env (#470)
     claudeBin: bin,
     repoPath: dir,
     worktreePrefix: path.join(dir, "wt"),
     dataDir: dir,
     logDir: dir,
     instructionsFile: path.join(dir, "none.md"),
+    ...cfgOver,
   });
   const store = createStore(dir);
   /** @type {any[]} */
@@ -163,7 +165,7 @@ function heldHarness({ steps } = {}) {
   /** @type {any[]} */
   const events = [];
   const adapter = /** @type {any} */ ({
-    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment", ...meta }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
   });
@@ -339,8 +341,9 @@ test("dispatch: the manual drain step clears the held record", async () => {
 });
 
 // --- per-step agent binary + env (#357) ---
-// A fake bin that records which binary ran, its argv[1], a step-only variable and the
-// verdict-file path, then writes $FAKE_VERDICT like the shared fake.
+// A fake bin that records which binary ran, its argv[1], a step-only variable, the
+// verdict-file path and a few receiver variables (#470's allowlist), then writes
+// $FAKE_VERDICT like the shared fake.
 
 /** @param {string} dir @param {string} name */
 function envDumpBin(dir, name) {
@@ -348,24 +351,56 @@ function envDumpBin(dir, name) {
   const out = `${bin}.out`;
   fs.writeFileSync(
     bin,
-    `#!/bin/sh\nprintf 'bin=%s\\nargv1=%s\\nSTEP_ONLY=%s\\nVF=%s\\n' "$0" "$1" "\${STEP_ONLY-unset}" "$AGENTHOOK_VERDICT_FILE" > "${out}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`,
+    `#!/bin/sh\nprintf 'bin=%s\\nargv1=%s\\nSTEP_ONLY=%s\\nVF=%s\\nSOME_SECRET=%s\\nPATH=%s\\nGITHUB_TOKEN=%s\\n' "$0" "$1" "\${STEP_ONLY-unset}" "$AGENTHOOK_VERDICT_FILE" "\${SOME_SECRET-unset}" "\${PATH-unset}" "\${GITHUB_TOKEN-unset}" > "${out}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`,
     { mode: 0o755 },
   );
   const read = () => Object.fromEntries(fs.readFileSync(out, "utf8").trim().split("\n").map((l) => /** @type {[string, string]} */ (l.split(/=(.*)/s).slice(0, 2))));
   return { bin, read };
 }
 
-test("dispatch: a step without bin/env spawns cfg.claudeBin with the receiver's env + the verdict file", async () => {
+test("dispatch: a step without bin/env spawns cfg.claudeBin with the allowlisted env + the verdict file", async () => {
   const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }] });
   const fake = envDumpBin(h.dir, "fake-claude.sh"); // overwrite cfg.claudeBin with the env dumper
   delete process.env.STEP_ONLY;
-  await h.runStep("code", { outcome: "advance" }, undefined, { prompt: false });
+  const saved = { SOME_SECRET: process.env.SOME_SECRET, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  Object.assign(process.env, { SOME_SECRET: "x", GITHUB_TOKEN: "gh-x" });
+  try {
+    await h.runStep("code", { outcome: "advance" }, undefined, { prompt: false });
+  } finally {
+    for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+  }
   const got = fake.read();
   assert.equal(got.bin, fake.bin);
   assert.equal(got.argv1, "-p");
   assert.equal(got.STEP_ONLY, "unset");
   assert.match(got.VF, /code\.json$/);
+  assert.equal(got.SOME_SECRET, "unset", "a receiver secret is stripped");
+  assert.equal(got.GITHUB_TOKEN, "unset", "a tracker that names no env var passes none");
+  assert.notEqual(got.PATH, "unset", "PATH is in the base allowlist");
   assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
+});
+
+test("dispatch: the tracker's agentEnv and the operator's agentEnvPassthrough reach the child (#470)", async () => {
+  const saved = { SOME_SECRET: process.env.SOME_SECRET, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  Object.assign(process.env, { SOME_SECRET: "x", GITHUB_TOKEN: "gh-x" });
+  try {
+    const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }], meta: { agentEnv: ["GITHUB_TOKEN"] } });
+    const fake = envDumpBin(h.dir, "fake-claude.sh");
+    await h.runStep("code", { outcome: "advance" }, undefined, { prompt: false });
+    let got = fake.read();
+    assert.equal(got.GITHUB_TOKEN, "gh-x", "the tracker prompt's token passes");
+    assert.equal(got.SOME_SECRET, "unset");
+
+    const h2 = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }], cfg: { agentEnvPassthrough: ["FAKE_*", "SOME_SECRET"] } });
+    const fake2 = envDumpBin(h2.dir, "fake-claude.sh");
+    await h2.runStep("code", { outcome: "advance" }, undefined, { prompt: false });
+    got = fake2.read();
+    assert.equal(got.SOME_SECRET, "x", "agentEnvPassthrough widens the allowlist");
+    assert.equal(got.GITHUB_TOKEN, "unset");
+    assert.deepEqual(h2.advanced, [["42", "code", "advance"]]);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+  }
 });
 
 test("dispatch: a step's bin is spawned, its env reaches the child, the verdict file still wins", async () => {
@@ -639,6 +674,7 @@ test("dispatch routing: a routed task sticks; a later step with changed routeKey
   assert.equal(store.getRepo("42"), "ios", "sticky repo persisted");
   assert.match(first?.prompt ?? "", /^IOS REPO CONTEXT\n\n[\s\S]*=== TICKET ===/, "repo instructions lead the prompt");
   assert.match(first?.prompt ?? "", new RegExp(`Repo: ios \\(${ios.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+  assert.match(first?.prompt ?? "", /<<<UNTRUSTED TICKET_DESCRIPTION [0-9a-f]{12}>>>/, "description is fenced with a fresh nonce");
 
   const second = await runStep("review", ["android"]);
   assert.equal(second?.cwd, fs.realpathSync(ios), "sticky repo wins over the new route keys");

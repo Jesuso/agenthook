@@ -4,6 +4,7 @@ import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
 import path from "node:path";
 import { stepPrompt } from "../prompts.js";
+import { newNonce } from "../untrusted.js";
 import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath } from "../worktree.js";
 import { reportMoveFailure } from "../events.js";
@@ -16,7 +17,7 @@ import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstruct
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
 export function createStep(ctx) {
-  const { cfg, adapter, store, emit, releaseOverlap, meta, pids, cancelled, preSpawn, sandbox } = ctx;
+  const { cfg, adapter, store, emit, releaseOverlap, meta, forge, pids, cancelled, preSpawn, sandbox } = ctx;
   const { resolveRoute, leavePipeline, recordPr } = ctx;
   const { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, agentPreflight } = ctx;
   const { startEnergy, stopEnergy, finishStep } = ctx;
@@ -180,6 +181,7 @@ export function createStep(ctx) {
       findings,
       resumeComment: job.comment,
       overlapGuard: cfg.overlapGuard,
+      nonce: newNonce(),
       ...(cfg.multiRepo ? { repo: { id: repo.id, path: repo.path } } : {}),
     });
     const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
@@ -230,7 +232,7 @@ export function createStep(ctx) {
     const provider = step.provider ?? cfg.agentProvider;
     const agentEnv = agent.env?.({ cfg, step });
     // A failed preflight resolves the run as `fail` with no agent spawned.
-    let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: agentSpawnEnv(agentEnv, step.env) });
+    let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: step.env }) });
     /** @type {Parameters<typeof spawnAgent>[0]['sandboxed']} */
     let sandboxedRun;
     if (sandboxed && sandbox && agent.sandbox && !refused) {

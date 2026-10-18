@@ -244,9 +244,11 @@ test("hermesLints: warns for an isolated hermes step with no source config.yaml 
 /**
  * Run one hermes `code` step through the real dispatcher with a fake `hermes` that records
  * its argv + HERMES_HOME and writes an advance verdict.
- * @param {any} stepOver @param {{yaml?: string|null, agentProvider?: string, finalizeTimeoutMs?: number}} [o]
+ * The fake reads its FAKE_* knobs from the receiver's env, so the cfg passes them through
+ * (#470); `passthrough` overrides that.
+ * @param {any} stepOver @param {{yaml?: string|null, agentProvider?: string, finalizeTimeoutMs?: number, passthrough?: string[]}} [o]
  */
-async function runHermes(stepOver, { yaml = LOCAL_YAML, agentProvider, finalizeTimeoutMs } = {}) {
+async function runHermes(stepOver, { yaml = LOCAL_YAML, agentProvider, finalizeTimeoutMs, passthrough = ["FAKE_*"] } = {}) {
   const dir = tmp("dispatch");
   const src = process.env.HERMES_HOME ?? "";
   fs.rmSync(path.join(src, "config.yaml"), { force: true });
@@ -293,6 +295,7 @@ fi
     pipeline: [{ id: "code", agent: "hermes", bin, ...stepOver }, { id: "done", manual: true }],
     agent: "hermes",
     ...(agentProvider ? { agentProvider } : {}),
+    agentEnvPassthrough: passthrough,
     claudeBin: bin,
     repoPath: dir,
     worktreePrefix: path.join(dir, "wt"),
@@ -409,6 +412,19 @@ test("dispatch: finalize failure (export exits non-zero) — tokens stay 0, one 
     assert.match(r.log, /\[agenthook\] hermes usage export failed:/);
     assert.equal(r.advanced[0].outcome, "advance", "a finalize failure never touches the verdict");
     assert.equal(fs.existsSync(path.join(r.dir, "exports", "42-code")), false, "the scratch dir is still cleaned up");
+  } finally {
+    delete process.env.FAKE_EXPORT_FAIL;
+  }
+});
+
+test("dispatch: finalize gets the filtered env — FAKE_EXPORT_* reaches the export only through agentEnvPassthrough", async () => {
+  process.env.FAKE_EXPORT_FAIL = "1";
+  try {
+    const r = await runHermes({ provider: "ollama-launch" }, { passthrough: [] });
+    assert.ok(r.exportArgv, "the export ran");
+    assert.equal(r.log.match(/usage export failed/g), null, "FAKE_EXPORT_FAIL was stripped, so the export succeeded");
+    assert.deepEqual([r.usage[0].input, r.usage[0].output], [18010, 1371]);
+    assert.equal(r.exportHermesHome, r.hermesHome, "the export still sees the run's isolated HERMES_HOME");
   } finally {
     delete process.env.FAKE_EXPORT_FAIL;
   }

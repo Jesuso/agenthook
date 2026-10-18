@@ -115,7 +115,7 @@ const FAKE_DOCKER = `#!/usr/bin/env node
 import fs from "node:fs";
 import { spawn } from "node:child_process";
 const args = process.argv.slice(2);
-fs.appendFileSync(process.env.FAKE_DOCKER_LOG, JSON.stringify(args) + "\\n");
+fs.appendFileSync(process.env.DOCKER_FAKE_LOG, JSON.stringify(args) + "\\n");
 if (args[0] !== "run") process.exit(0);
 const valued = new Set(["--pull", "--name", "--label", "--cap-drop", "--security-opt", "--pids-limit", "--memory", "--cpus", "--user", "--mount"]);
 const names = [];
@@ -168,9 +168,9 @@ function sandboxHarness(steps, { inner } = {}) {
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ v) => void advanced.push({ ref, step, ...v }),
   });
-  const saved = { DOCKER: process.env.DOCKER, FAKE_DOCKER_LOG: process.env.FAKE_DOCKER_LOG, HOME: process.env.HOME, SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK };
+  const saved = { DOCKER: process.env.DOCKER, DOCKER_FAKE_LOG: process.env.DOCKER_FAKE_LOG, HOME: process.env.HOME, SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK };
   process.env.DOCKER = docker;
-  process.env.FAKE_DOCKER_LOG = log;
+  process.env.DOCKER_FAKE_LOG = log;
   process.env.HOME = path.join(root, "home"); // claude's transcript dir is created under it
   process.env.SSH_AUTH_SOCK = "/tmp/host-agent.sock";
   const restore = () => {
@@ -197,7 +197,7 @@ function sandboxHarness(steps, { inner } = {}) {
 }
 
 test("sandbox e2e: a claude step runs through the runtime, routes on its per-run verdict, mounts its worktree", async () => {
-  const h = sandboxHarness([{ id: "code", createsWorktree: true, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  const h = sandboxHarness([{ id: "code", createsWorktree: true, env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-secret-9f3a" } }, { id: "done", manual: true }]);
   try {
     await h.go("code");
     assert.deepEqual(h.advanced.map((a) => [a.step, a.outcome, a.reason]), [["code", "advance", "ok"]]);
@@ -208,11 +208,11 @@ test("sandbox e2e: a claude step runs through the runtime, routes on its per-run
     assert.ok(mounts.includes(`type=bind,src=${wt},dst=${wt}`), mounts.join("\n"));
     assert.ok(mounts.includes(`type=bind,src=${path.join(h.repo, ".git", "config")},dst=${path.join(h.repo, ".git", "config")},readonly`));
     assert.ok(mounts.some((m) => m.startsWith(`type=bind,src=${path.join(h.root, "home", ".claude", "projects")}`)), "the transcript dir");
-    assert.ok(!run.some((/** @type {string} */ x) => x.includes("tok")), "no env value in argv");
+    assert.ok(!run.some((/** @type {string} */ x) => x.includes("sk-secret-9f3a")), "no env value in argv");
     const got = h.innerOut();
     assert.match(got?.VF ?? "", /\/verdicts\/run-42-code\/verdict\.json$/);
     assert.equal(got?.SSH, "unset", "host-only keys never reach the container");
-    assert.equal(got?.TOKEN, "tok");
+    assert.equal(got?.TOKEN, "sk-secret-9f3a");
     assert.equal(got?.PWD, wt);
     assert.equal(got?.NOAUTO, "1");
     assert.notEqual(got?.GITCOUNT, "unset");

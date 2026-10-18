@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -724,4 +724,102 @@ test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step 
 test("agentBinChecks: a sandboxed step's binary resolves in the image, not on the host PATH", () => {
   const groups = agentBinChecks(/** @type {any} */ ({ claudeBin: "claude", sandbox: { type: "docker" }, pipeline: [{ id: "code" }, { id: "host", sandbox: false, bin: "claude-local" }] }));
   assert.deepEqual(groups, [{ bin: "claude-local", agent: "claude", steps: ["host"] }]);
+});
+
+// --- agent env lints (#470): names only, never values ---
+
+/** A config file whose tracker token is `token` (tokenVar reads the raw file). @param {string} token */
+function rawConfigFile(token) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-doctor-env-"));
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({ tracker: { type: "github", token } }));
+  return file;
+}
+
+/** @param {any} [over] @returns {any} */
+const envCfg = (over = {}) => ({ provider: "local", pipeline: [{ id: "code" }, { id: "done", manual: true }], configPath: "/nonexistent.json", ...over });
+const base = { PATH: "/usr/bin", HOME: "/home/u", LANG: "C.UTF-8" };
+/** @param {any[]} ls */
+const byLabel = (ls) => Object.fromEntries(ls.map((l) => [l.label, l]));
+
+test("agentEnvLints: a plain claude profile gets nothing extra", () => {
+  assert.deepEqual(agentEnvLints(envCfg(), { env: base, platform: "linux" }), []);
+});
+
+test("agentEnvLints: the migration view names the stripped credentials, never their values", () => {
+  const ls = agentEnvLints(envCfg(), { env: { ...base, NGROK_AUTHTOKEN: "s3cr3t", ANTHROPIC_API_KEY: "sk" }, platform: "linux" });
+  const got = byLabel(ls);
+  assert.equal(got["agent env: not passed to agents"].level, "info");
+  assert.equal(got["agent env: not passed to agents"].note, "NGROK_AUTHTOKEN");
+  assert.equal(got["agent env: credentials agents still get"].note, "ANTHROPIC_API_KEY (claude)");
+  assert.ok(!JSON.stringify(ls).includes("s3cr3t"), "no value is ever printed");
+});
+
+test("agentEnvLints: tags each passed credential with its source", () => {
+  const ls = agentEnvLints(envCfg({ provider: "github", forge: { type: "github" }, agentEnvPassthrough: ["OPENAI_API_KEY"] }), {
+    env: { ...base, GITHUB_TOKEN: "t", GH_TOKEN: "t", OPENAI_API_KEY: "k" },
+    platform: "linux",
+  });
+  assert.equal(byLabel(ls)["agent env: credentials agents still get"].note, "GH_TOKEN (forge (gh)), GITHUB_TOKEN (tracker prompt, forge (gh)), OPENAI_API_KEY (agentEnvPassthrough)");
+});
+
+test("agentEnvLints: \"*\" warns that agents inherit everything", () => {
+  const ls = agentEnvLints(envCfg({ agentEnvPassthrough: ["*"] }), { env: { ...base, NGROK_AUTHTOKEN: "x" }, platform: "linux" });
+  assert.deepEqual(ls.map((l) => [l.level, l.label]), [["warn", `agent env: agentEnvPassthrough is "*"`]]);
+  assert.match(ls[0].note ?? "", /whole environment, including NGROK_AUTHTOKEN/);
+});
+
+test("agentEnvLints: claude on Bedrock warns about the stripped AWS_* names", () => {
+  const ls = agentEnvLints(envCfg(), { env: { ...base, CLAUDE_CODE_USE_BEDROCK: "1", AWS_ACCESS_KEY_ID: "a", AWS_REGION: "us-east-1" }, platform: "linux" });
+  const w = byLabel(ls)["agent env: claude on Bedrock loses AWS credentials"];
+  assert.equal(w.level, "warn");
+  assert.match(w.note, /AWS_ACCESS_KEY_ID/);
+  assert.match(w.fix.manual, /AWS_\* to agentEnvPassthrough/);
+  // passed through → silent
+  const ok = agentEnvLints(envCfg({ agentEnvPassthrough: ["AWS_*"] }), { env: { ...base, CLAUDE_CODE_USE_BEDROCK: "1", AWS_ACCESS_KEY_ID: "a" }, platform: "linux" });
+  assert.equal(ok.some((l) => /Bedrock/.test(l.label)), false);
+});
+
+test("agentEnvLints: an opencode step warns about stripped provider keys", () => {
+  const ls = agentEnvLints(envCfg({ agent: "opencode" }), { env: { ...base, OPENAI_API_KEY: "k" }, platform: "linux" });
+  const w = byLabel(ls)["agent env: opencode provider keys stripped"];
+  assert.equal(w.level, "warn");
+  assert.match(w.note, /opencode may read provider keys from env: OPENAI_API_KEY/);
+  // claude doesn't read OPENAI_API_KEY: only the info line
+  assert.equal(agentEnvLints(envCfg(), { env: { ...base, OPENAI_API_KEY: "k" }, platform: "linux" }).some((l) => l.level === "warn"), false);
+});
+
+test("agentEnvLints: a ${GH_PAT} tracker token while the prompt names an unset $GITHUB_TOKEN", () => {
+  const configPath = rawConfigFile("${GH_PAT}");
+  const ls = agentEnvLints(envCfg({ provider: "github", configPath }), { env: { ...base, GH_PAT: "p" }, platform: "linux" });
+  const w = ls.find((l) => /tracker token/.test(l.label));
+  assert.equal(w?.level, "warn");
+  assert.equal(w?.label, "agent env: tracker token is ${GH_PAT} but the prompt tells agents to use $GITHUB_TOKEN, which is unset");
+  // GITHUB_TOKEN set, or the token is ${GITHUB_TOKEN} itself → silent
+  assert.equal(agentEnvLints(envCfg({ provider: "github", configPath }), { env: { ...base, GH_PAT: "p", GITHUB_TOKEN: "t" }, platform: "linux" }).some((l) => /tracker token/.test(l.label)), false);
+  assert.equal(agentEnvLints(envCfg({ provider: "github", configPath: rawConfigFile("${GITHUB_TOKEN}") }), { env: base, platform: "linux" }).some((l) => /tracker token/.test(l.label)), false);
+});
+
+test("agentEnvLints: git settings the agent loses", () => {
+  const ls = agentEnvLints(envCfg(), { env: { ...base, GIT_SSH_COMMAND: "ssh -i k", GIT_CONFIG_COUNT: "1" }, platform: "linux" });
+  assert.match(byLabel(ls)["agent env: git in the agent loses its settings"].note, /GIT_CONFIG_COUNT, GIT_SSH_COMMAND/);
+});
+
+test("ghAuthLints: runs gh auth status with the filtered agent env; a failure warns", () => {
+  /** @type {any[]} */
+  const calls = [];
+  const spawn = (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => (calls.push({ cmd, args, env: opts.env }), { status: 1 });
+  const env = { ...base, SOME_SECRET: "x", GH_TOKEN: "g" };
+  const ls = ghAuthLints(envCfg({ provider: "asana", forge: { type: "github" } }), { spawn, onPath: () => true, env, platform: "linux" });
+  assert.deepEqual(calls.map((c) => [c.cmd, c.args]), [["gh", ["auth", "status"]]]);
+  assert.equal("SOME_SECRET" in calls[0].env, false, "the receiver's secrets never reach the probe");
+  assert.equal(calls[0].env.GH_TOKEN, "g", "the forge's GH_TOKEN does");
+  assert.equal(calls[0].env.PATH, "/usr/bin");
+  assert.deepEqual(ls.map((l) => [l.level, l.label]), [["warn", "gh is not authenticated for agents (they open and review PRs with gh)"]]);
+  // authenticated → silent; local tracker → never probed; gh missing → one warn, no probe
+  assert.deepEqual(ghAuthLints(envCfg({ provider: "asana" }), { spawn: () => ({ status: 0 }), onPath: () => true, env, platform: "linux" }), []);
+  calls.length = 0;
+  assert.deepEqual(ghAuthLints(envCfg(), { spawn, onPath: () => true, env, platform: "linux" }), []);
+  assert.deepEqual(ghAuthLints(envCfg({ provider: "asana" }), { spawn, onPath: () => false, env, platform: "linux" }).map((l) => l.label), ["gh not on PATH"]);
+  assert.equal(calls.length, 0);
 });

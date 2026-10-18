@@ -428,7 +428,7 @@ export async function init(args) {
   const appKeyVar = /^\$\{(\w+)\}$/.exec(String(tracker.auth?.privateKey ?? ""))?.[1];
   const envs = [...(tokenEnv ? [tokenEnv] : []), ...(appKeyVar ? [appKeyVar] : []), ...(forgeTokenEnv && forgeTokenEnv !== tokenEnv ? [forgeTokenEnv] : [])];
   if (envs.length) console.log(`  - ensure ${envs.join(", ")}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
-  if (tracker.auth) console.log(`  - GitHub App: see docs/github-app.md (agents still push and comment with their own $GITHUB_TOKEN / gh auth)`);
+  if (tracker.auth) console.log(`  - GitHub App: see docs/github-app.md (agents still push and comment with their own $GITHUB_TOKEN / gh auth, passed through the agent env allowlist — see agentEnvPassthrough)`);
   if (bindings) console.log(`  - tracker.pipeline is bound to the stages you picked — add more steps for a longer pipeline`);
   else console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
   console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);

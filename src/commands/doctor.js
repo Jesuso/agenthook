@@ -25,6 +25,9 @@ import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
 import { sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
+import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
+import { TRACKER_AGENT_ENV } from "../trackers/index.js";
+import { FORGE_AGENT_ENV } from "../forges/index.js";
 
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
@@ -82,6 +85,113 @@ export function agentLints(cfg) {
     out.push({ level: "warn", label: `step "${s.id}" requires a verdict`, note: `${d.name} output is plain text — with requireVerdict:false a run that wrote no verdict file advances` });
   }
   return out;
+}
+
+/** The agent env allowlist's pattern sources for this profile (#470), each tagged for doctor's
+ * lines: the tracker prompt's, the forge's, the operator's, and each agent the pipeline spawns.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'>} cfg */
+function agentEnvSources(cfg) {
+  const tracker = TRACKER_AGENT_ENV[cfg.provider] ?? [];
+  const forge = cfg.forge ? (FORGE_AGENT_ENV[cfg.forge.type] ?? []) : [];
+  const operator = cfg.agentEnvPassthrough ?? [];
+  /** @type {Map<string, {name: string, envPassthrough: string[], steps: import('../types.js').Step[]}>} */
+  const agents = new Map();
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual);
+  for (const s of steps.length ? steps : [undefined]) {
+    const a = agentFor(cfg, s);
+    const name = a.describe().name;
+    const g = agents.get(name) ?? { name, envPassthrough: a.envPassthrough ?? [], steps: [] };
+    if (s) g.steps.push(s);
+    agents.set(name, g);
+  }
+  /** The allowlist one agent's runs get. @param {string[]} agentPatterns */
+  const allowFor = (agentPatterns) => agentEnvAllow({ agent: agentPatterns, tracker, forge, operator });
+  return { tracker, forge, operator, agents: [...agents.values()], allowFor };
+}
+
+/** Agent env lints (#470), names only — never values. The migration view (receiver credentials
+ * no longer passed), the credentials agents still get and why, a `"*"` passthrough, and the
+ * variables a run likely needs but loses: Bedrock/Vertex for claude, provider keys for opencode
+ * or a non-isolated hermes, a tracker token the prompt names under a different variable, git's
+ * own settings. Pure given `env` (and the config file `tokenVar` reads).
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'|'configPath'>} cfg
+ * @param {{env?: Record<string, string|undefined>, platform?: string}} [io]
+ * @returns {{ level: 'info'|'warn', label: string, note?: string, fix?: Fix }[]} */
+export function agentEnvLints(cfg, { env = process.env, platform = process.platform } = {}) {
+  /** @type {{ level: 'info'|'warn', label: string, note?: string, fix?: Fix }[]} */
+  const out = [];
+  const { tracker, forge, operator, agents, allowFor } = agentEnvSources(cfg);
+  const set = Object.keys(env).filter((k) => env[k] !== undefined);
+  const stripFor = (/** @type {string[]} */ agentPatterns) => strippedNames({ source: env, allow: allowFor(agentPatterns), platform });
+  // A name stripped for every agent the pipeline spawns.
+  const stripped = agents.map((a) => new Set(stripFor(a.envPassthrough))).reduce((acc, s2) => new Set([...acc].filter((n) => s2.has(n))));
+  const passthroughFix = (/** @type {string[]} */ names) => ({ manual: `add ${names.join(", ")} to agentEnvPassthrough in the config (or set them in the step's env)` });
+
+  if (operator.includes("*")) {
+    const secrets = set.filter(looksSecret).sort();
+    out.push({ level: "warn", label: `agent env: agentEnvPassthrough is "*"`, note: `agents inherit the receiver's whole environment${secrets.length ? `, including ${secrets.join(", ")}` : ""}`, fix: { manual: `list only the names agents need in agentEnvPassthrough` } });
+  } else {
+    const gone = [...stripped].filter(looksSecret).sort();
+    if (gone.length) out.push({ level: "info", label: "agent env: not passed to agents", note: gone.join(", ") });
+    /** @type {[string, readonly string[]][]} */
+    const sources = [
+      ["tracker prompt", tracker],
+      [`forge (${cfg.forge?.type === "github" ? "gh" : cfg.forge?.type})`, forge],
+      ...agents.map((a) => /** @type {[string, readonly string[]]} */ ([a.name, a.envPassthrough])),
+      ["agentEnvPassthrough", operator],
+    ];
+    const kept = set
+      .filter((k) => looksSecret(k) && !stripped.has(k))
+      .sort()
+      .map((k) => `${k} (${sources.filter(([, p]) => envNameMatches(k, p, platform)).map(([src]) => src).join(", ") || "allowlist"})`);
+    if (kept.length) out.push({ level: "info", label: "agent env: credentials agents still get", note: kept.join(", ") });
+  }
+
+  const truthy = (/** @type {string} */ k) => !!env[k] && env[k] !== "0" && env[k]?.toLowerCase() !== "false";
+  const claude = agents.find((a) => a.name === "claude");
+  if (claude) {
+    const lost = new Set(stripFor(claude.envPassthrough));
+    if (truthy("CLAUDE_CODE_USE_BEDROCK")) {
+      const aws = [...lost].filter((n) => n.startsWith("AWS_"));
+      if (aws.length) out.push({ level: "warn", label: "agent env: claude on Bedrock loses AWS credentials", note: `stripped: ${aws.join(", ")}`, fix: passthroughFix(["AWS_*"]) });
+    }
+    if (truthy("CLAUDE_CODE_USE_VERTEX")) {
+      const gcp = ["GOOGLE_APPLICATION_CREDENTIALS", "CLOUD_ML_REGION", "GOOGLE_CLOUD_PROJECT"].filter((n) => lost.has(n));
+      if (gcp.length) out.push({ level: "warn", label: "agent env: claude on Vertex loses its Google settings", note: `stripped: ${gcp.join(", ")}`, fix: passthroughFix(gcp) });
+    }
+  }
+  for (const a of agents) {
+    if (a.name !== "opencode" && !(a.name === "hermes" && a.steps.some((s) => s.isolated === false))) continue;
+    const keys = stripFor(a.envPassthrough).filter((n) => /_API_KEY$/.test(n));
+    if (keys.length) out.push({ level: "warn", label: `agent env: ${a.name} provider keys stripped`, note: `${a.name} may read provider keys from env: ${keys.join(", ")}; add the ones it uses to agentEnvPassthrough`, fix: passthroughFix(keys) });
+  }
+
+  const v = cfg.provider === "local" ? null : tokenVar(cfg.configPath);
+  for (const name of tracker) {
+    if (v && v !== name && env[name] === undefined) {
+      out.push({ level: "warn", label: `agent env: tracker token is \${${v}} but the prompt tells agents to use $${name}, which is unset`, note: "agents can't comment", fix: { manual: `also set ${name} in .env (or set it in each step's env: {"${name}": "\${${v}}"})` } });
+    }
+  }
+
+  const git = [...stripped].filter((n) => n === "GIT_SSH_COMMAND" || n === "GIT_ASKPASS" || n.startsWith("GIT_CONFIG_"));
+  if (git.length) out.push({ level: "warn", label: "agent env: git in the agent loses its settings", note: `git in the agent loses ${git.join(", ")}`, fix: passthroughFix(git) });
+  return out;
+}
+
+/** Can the agents' `gh` authenticate (#470)? Every non-local tracker's prompts open and review PRs
+ * with `gh`, which reads GH_TOKEN / GITHUB_TOKEN or its own login — run `gh auth status` with the
+ * env the profile's default agent would get. The receiver's own env never reaches the probe.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'provider'|'forge'|'agentEnvPassthrough'>} cfg
+ * @param {{spawn: Spawner, onPath: (bin: string) => boolean, env?: Record<string, string|undefined>, platform?: string}} io
+ * @returns {Finding[]} */
+export function ghAuthLints(cfg, { spawn, onPath: have, env = process.env, platform = process.platform }) {
+  if (cfg.provider === "local") return [];
+  if (!have("gh")) return [{ level: "warn", label: "gh not on PATH", note: "agents open and review PRs with gh", fix: { manual: "install the GitHub CLI (https://cli.github.com)" } }];
+  const { allowFor } = agentEnvSources(cfg);
+  const agentEnv = buildAgentEnv({ source: env, allow: allowFor(agentFor(cfg).envPassthrough ?? []), platform });
+  const r = spawn("gh", ["auth", "status"], { stdio: "ignore", env: agentEnv, timeout: 15000 });
+  if (r.status === 0) return [];
+  return [{ level: "warn", label: "gh is not authenticated for agents (they open and review PRs with gh)", fix: { manual: "add GH_TOKEN to agentEnvPassthrough (or set it in the step env), or run gh auth login" } }];
 }
 
 /** Isolated hermes steps (the default) whose run would fail for want of credentials: the
@@ -273,7 +383,7 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
       continue;
     }
     if (name === "claude") {
-      const problem = sandboxCredentialProblem(agentSpawnEnv(agent.env?.({ cfg, step: s }), s.env));
+      const problem = sandboxCredentialProblem(agentSpawnEnv({ cfg, agent, agentEnv: agent.env?.({ cfg, step: s }), env: s.env }));
       out.push({ ok: !problem, label: `step "${s.id}" has a claude credential for the sandbox`, note: problem ? "no CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY / …" : "", fix: { manual: problem ?? "" } });
     }
     const stepBin = s.bin || agent.defaults.bin || cfg.claudeBin;
@@ -302,7 +412,7 @@ export function portCheck({ port, busy, profile }) {
 /** @typedef {{ ok: boolean, warn?: boolean, info?: boolean, label: string, note?: string, fix?: Fix }} Check */
 /** A detector's problem. @typedef {{ level: 'fail'|'warn', label: string, note?: string, fix?: Fix }} Finding */
 /** The child-process seam for the two fixers that shell out (tests inject a recorder).
- * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any}) => { status: number|null }} Spawner */
+ * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any, env?: Record<string, string>, timeout?: number}) => { status: number|null }} Spawner */
 
 /** A pidfile's raw text and pid (0 when unparsable); null when absent/unreadable. @param {string} file */
 function readPidFile(file) {
@@ -553,6 +663,7 @@ export function tokenVar(configPath) {
  *   fetch?: typeof fetch,
  *   run?: import('../types.js').IngressRun,
  *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null },
+ *   env?: Record<string, string|undefined>,
  * }} DoctorIo */
 
 /** Run every check against a loaded config; prints nothing.
@@ -570,6 +681,7 @@ export async function runChecks(cfg, io = {}) {
     fetch: f,
     run = execRun,
     build,
+    env = process.env,
   } = io;
   /** @type {Check[]} */
   const checks = [];
@@ -629,6 +741,8 @@ export async function runChecks(cfg, io = {}) {
     warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");
   }
   for (const l of agentLints(cfg)) warn(l.label, l.note);
+  for (const l of agentEnvLints(cfg, { env, platform })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note, l.fix);
+  ghAuthLints(cfg, { spawn, onPath: have, env, platform }).forEach(finding);
   const readFile = (/** @type {string} */ f) => {
     try {
       return fs.readFileSync(f, "utf8");

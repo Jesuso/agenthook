@@ -222,6 +222,7 @@ export function sandboxCredentialProblem(env) {
 /** @type {import('../types.js').AgentAdapter} */
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json" }),
+  envPassthrough: ["ANTHROPIC_*", "CLAUDE_*"],
   buildArgs: buildClaudeArgs,
   createParser() {
     const p = createStreamParser();

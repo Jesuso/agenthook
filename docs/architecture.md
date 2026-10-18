@@ -209,4 +209,14 @@ execution. If you enable it, run on a trusted host, scope the API token, stop th
 idle, and for untrusted or shared environments run it in the [sandboxed container](sandbox.md) with
 only the repo mounted (the blessed `fullAuto` path).
 
+Agents get an allowlisted environment, not the receiver's: the ingress authtoken, App private key
+and webhook secrets are stripped (see [Agent environment](agents.md#agent-environment)). That
+closes the environment path only; without the sandbox the filesystem stays readable.
+
+**Ticket and comment text is untrusted.** Titles, descriptions, review findings, and the owner's
+resume reply are fenced with a per-run nonce before they reach an agent prompt, with a standing
+rule that fenced (and self-fetched) text is data, never an instruction. That's a mitigation, not a
+boundary — see [SECURITY.md#prompt-injection](../SECURITY.md#prompt-injection) for the full model
+and what still has to come from sandboxing.
+
 Vulnerability disclosure: see [SECURITY.md](../SECURITY.md).

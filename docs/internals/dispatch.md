@@ -5,7 +5,9 @@
 - `src/dispatch.js` — a one-line re-export shim (the public path every importer uses) over
   `src/dispatch/`, split by concern around one per-dispatcher state object (`context.js` typedefs;
   `index.js` = `createDispatcher` wiring + `runClaude`/`cancel`): `prompt.js`/`verdict.js`/`pr.js`
-  pure helpers, factories `spawn.js` (spawn, log streaming, timeouts/kill), `usage.js` (finalize,
+  pure helpers, factories `spawn.js` (spawn, log streaming, timeouts/kill; `agentSpawnEnv` = the
+  receiver env filtered to `src/agent-env.js`'s allowlist — base + agent `envPassthrough` + tracker/forge
+  `agentEnv` + `cfg.agentEnvPassthrough` — under `agent.env` then step `env`, #470), `usage.js` (finalize,
   energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`). **Verdict**:
@@ -20,7 +22,7 @@
   `result`/`sessionId`; optional `pushStderr` feeds stderr to the parser, e.g. hermes' `session_id:` line),
   `usageRecord(result|null, ctx)` (decides `unpriced`), `sessions`
   (`{transcriptDir, resumeCommand, files, cwdDirs}` or null — backs `follow`/`resume`/`sessions.js`, which union every agent the profile + its steps run; a null-`sessions` agent with an optional top-level `resumeCommand` — opencode — is resumed from `usage.jsonl` session ids instead), `defaults`
-  (`requireVerdict`/`bin`, under the step's), optional `env({cfg,step})` (agent env under the step's `env`, also in `resume`)
+  (`requireVerdict`/`bin`, under the step's), optional `env({cfg,step})` (agent env under the step's `env`, also in `resume`), optional `envPassthrough` (receiver env names the CLI needs, added to the allowlist)
   and `preflight({cfg,step,provider,sandboxed,env})` (a reason fails the run with no spawn; on a sandboxed step
   `agentPreflight` first refuses an agent with no `sandbox` hook), optional `sandbox({cfg,step,cwd,ownsCwd,home}) → {mounts, env?}`
   (claude: its transcript dir mounted under the container HOME — for a no-worktree run (`ownsCwd` false) a receiver-owned
