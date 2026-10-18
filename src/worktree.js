@@ -39,14 +39,17 @@ export function worktreePath(cfg, ref, repo = primaryRepo(cfg)) {
 
 /** Every worktree git knows for a repo (`git worktree list --porcelain`), main checkout
  * included. Callers filter to agent worktrees by path prefix. Throws if git fails.
- * @param {string} repoPath @returns {{ path: string, branch: string }[]} */
+ * `prunable` is set (true) only on a record git reports as prunable (its dir is gone).
+ * @param {string} repoPath @returns {{ path: string, branch: string, prunable?: boolean }[]} */
 export function listWorktrees(repoPath) {
-  /** @type {{ path: string, branch: string }[]} */
+  /** @type {{ path: string, branch: string, prunable?: boolean }[]} */
   const records = [];
+  /** @type {{ path: string, branch: string, prunable?: boolean }} */
   let cur = { path: "", branch: "" };
   for (const line of git(repoPath, ["worktree", "list", "--porcelain"]).split("\n")) {
     if (line.startsWith("worktree ")) cur = { path: line.slice(9), branch: "" };
     else if (line.startsWith("branch ")) cur.branch = line.slice(7).replace("refs/heads/", "");
+    else if (line === "prunable" || line.startsWith("prunable ")) cur.prunable = true;
     else if (line === "") {
       if (cur.path) records.push(cur);
       cur = { path: "", branch: "" };
