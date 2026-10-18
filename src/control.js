@@ -102,6 +102,25 @@ function reply(socket, msg) {
 }
 
 /**
+ * Throws if `sockPath` is too long to bind on POSIX: Node's `server.listen(path)` does not
+ * error on an over-limit `sun_path` — it silently binds a truncated path elsewhere, so every
+ * client that resolves the real path gets ENOENT against a receiver that looks up and running.
+ * No-op on win32, where control uses a named pipe instead of a filesystem path.
+ * @param {string} sockPath @param {string} [platform]
+ */
+export function checkSockPath(sockPath, platform = process.platform) {
+  if (platform === "win32") return;
+  const limit = platform === "linux" ? 108 : 104;
+  const len = Buffer.byteLength(sockPath);
+  if (len >= limit) {
+    throw new Error(
+      `control socket path too long for this OS (${len} bytes, max ${limit - 1}): ${sockPath} — ` +
+        `use a shorter AGENTHOOK_HOME/home dir or a shorter profile name`,
+    );
+  }
+}
+
+/**
  * @param {import('./types.js').Config} cfg
  * @param {{startedAt: string, adapter?: import('./types.js').Adapter, now?(): number, restart?: (args: any) => Promise<any>, decommission?: (args: any) => Promise<any>, commands?: Record<string, (args: any) => Promise<any>>}} opts
  *   restart: the engine's restart requester; the `restart` command exists only when given.
@@ -112,6 +131,8 @@ function reply(socket, msg) {
 export async function startControl(cfg, { startedAt, adapter, now = Date.now, restart, decommission, commands: extra }) {
   const sockPath = cfg.controlSock;
   const posix = process.platform !== "win32";
+
+  checkSockPath(sockPath);
 
   if (posix && fs.existsSync(sockPath)) {
     const ownerPid = readPid(cfg.pidFile);
@@ -201,6 +222,7 @@ export async function startControl(cfg, { startedAt, adapter, now = Date.now, re
  * @returns {Promise<void>}
  */
 export async function listenPrivate(server, sockPath) {
+  checkSockPath(sockPath);
   const posix = process.platform !== "win32";
   const prev = posix ? process.umask(0o077) : null;
   try {
