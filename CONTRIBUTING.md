@@ -96,6 +96,14 @@ one, something's off; open an issue to discuss.
 - Green CI is required to merge.
 - For anything user-facing, update the relevant doc under `docs/` and add a line to
   [`CHANGELOG.md`](CHANGELOG.md) under "Unreleased".
+- A config key whose meaning or default changes, or that's removed, follows the compatibility
+  policy in [`RELEASING.md`](RELEASING.md) — a deprecation warning for at least one minor release
+  before the change.
+
+## Releases
+
+Maintainers cut releases following [`RELEASING.md`](RELEASING.md): cadence, the checklist, and the
+config compatibility policy.
 
 ## Security
 

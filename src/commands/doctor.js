@@ -13,8 +13,13 @@ import { reposOf, defaultRepo } from "../repos.js";
 import { listWorktrees } from "../worktree.js";
 import { readProfile } from "../heartbeat.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
+import { fileURLToPath } from "node:url";
 import { agentFor } from "../agents/index.js";
 import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
+import { uiBundleState } from "../ui-bundle.js";
+
+const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
+const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
 
 /** Is a TCP port already bound on 127.0.0.1? @param {number} port */
 function portInUse(port) {
@@ -249,6 +254,10 @@ export async function doctor(args) {
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "");
 
   for (const l of forgeLints(cfg)) warn(l.label, l.note);
+
+  const bundle = uiBundleState({ srcDir: UI_SRC_DIR, distDir: UI_DIST_DIR });
+  if (bundle.state === "missing") warn("UI bundle built", "ui/dist missing — run `npm run build:ui`");
+  else if (bundle.state === "stale") warn("UI bundle up to date", `${bundle.newest} is newer than ui/dist — run \`npm run build:ui\``);
 
   if (process.platform === "linux") {
     const scopeOn = systemdScopeAvailable();
