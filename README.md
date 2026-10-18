@@ -175,6 +175,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 - [Security posture](docs/architecture.md#security-posture) · [Sandbox](docs/sandbox.md) — running `fullAuto` safely
 - [Providers](docs/providers.md) — add a tracker or ingress adapter
 - [Agent interface (MCP)](docs/mcp.md) · [Agent guide](docs/agent-guide.md) — let an EM loop or Claude Code session read and manage the pipeline
+- [Roadmap](ROADMAP.md) — where the project is going, milestone by milestone
 
 ## Profiles & parallel runs
 
