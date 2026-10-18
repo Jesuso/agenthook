@@ -3,7 +3,8 @@
 // (`board`, `prs`, `epics`) and writes that need the engine (`pause`, `cancel`, `run`, …) live here;
 // everything readable from the state dir is read by the MCP process directly, receiver up or not.
 //
-// Every write is audited to <stateDir>/control-audit.jsonl (0600) with the caller's `actor`.
+// Every write is audited to <stateDir>/control-audit.jsonl (0600) with the caller's `actor`;
+// free text (a `release` comment, a `ticket_add` body) is logged as its length only.
 // Writes never bypass a gate: `run` is the `agenthook run` move (the webhook then fires the
 // step), `release` reuses the `@agent` resume gate (held + under the attempt cap), and the
 // dispatcher's own fail-closed assignee check still decides whether any agent spawns.
@@ -24,6 +25,8 @@ const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
 /** Known-PR state lookups per `prs` cache fill (each is one forge GET). */
 const MAX_PR_STATE_LOOKUPS = 20;
 const COMMENT_MAX = 8000;
+/** A `ticket_add` body's cap: the whole request must fit control.sock's 64 KB line. */
+export const TICKET_BODY_MAX = 48 * 1024;
 const MAX_ERROR_CHARS = 500;
 const RELEASE_SETTLE_MS = 15_000;
 
@@ -119,12 +122,16 @@ export function createOps(deps) {
 
   /** @param {string} cmd @param {any} args @param {{ok: boolean, error?: string}} outcome */
   function audit(cmd, args, outcome) {
-    const { comment, actor, ...rest } = args && typeof args === "object" ? args : /** @type {any} */ ({});
+    const { comment, body, actor, ...rest } = args && typeof args === "object" ? args : /** @type {any} */ ({});
     const line = {
       ts: new Date().toISOString(),
       cmd,
       actor: typeof actor === "string" ? actor.slice(0, 40) : "unknown",
-      args: { ...rest, ...(typeof comment === "string" ? { commentChars: comment.length } : {}) },
+      args: {
+        ...rest,
+        ...(typeof comment === "string" ? { commentChars: comment.length } : {}),
+        ...(typeof body === "string" ? { bodyChars: body.length } : {}),
+      },
       ...outcome,
     };
     appendControlAudit(cfg.stateDir, line);
@@ -408,6 +415,15 @@ export function createOps(deps) {
       await adapter.ensureLabels?.();
       const entered = await adapter.enterStage(ref, step.id, { assign: args.assign !== false });
       return { ref, step: step.id, stage: entered.stage, note: "the tracker webhook fires the step; `reconcile` if it does not. Already resting there? use `catchup` instead" };
+    }),
+    // `agenthook ticket add` with the receiver up: the board write and its push must happen in
+    // this process (the adapter's in-process sink lives here). Local tracker only (createTask).
+    ticket_add: write("ticket_add", async (args) => {
+      const title = needString(args.title, "title");
+      if (typeof adapter.createTask !== "function") throw new Error(`tracker "${cfg.provider}" has no ticket add — add the item on its board, then \`run\` it`);
+      const body = typeof args.body === "string" ? args.body.slice(0, TICKET_BODY_MAX) : "";
+      const created = await adapter.createTask({ name: title, description: body, ...(args.step ? { stepId: String(args.step) } : {}) });
+      return { ref: created.ref, step: created.stepId, stage: created.stage };
     }),
     catchup: write("catchup", async (args) => {
       const ref = needString(args.ref, "ref");

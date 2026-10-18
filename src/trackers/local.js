@@ -243,6 +243,29 @@ export function createLocalAdapter(cfg, _store) {
       console.log(`[stage] moved ${ref} -> ${stage} (${stepId}:${outcome}${outcome === "changes" ? `->${target}` : ""})`);
     },
 
+    // Add ONE item (the `ticket add` path; seedBoard replaces the whole board). The ref is the
+    // next free number, picked inside the serialized chain so two adds never share one. Lands in
+    // the target step's source stage (default: the first non-manual step), then — once the write
+    // is on disk — pushes that step's created-in-stage job when a sink is wired.
+    /** @param {{name: string, description?: string, stepId?: string}} t */
+    async createTask({ name, description, stepId }) {
+      if (typeof name !== "string" || !name.trim()) throw new Error("local: a task needs a name");
+      const step = stepId ? stepById(stepId) : pipeline?.find((s) => !s.manual);
+      if (!step) throw new Error(stepId ? `local: no step "${stepId}" in the pipeline` : "local: the pipeline has no non-manual step");
+      if (step.manual) throw new Error(`local: step "${step.id}" is manual — a task can't be added there`);
+      const stage = step.sourceStatus;
+      if (!stage) throw new Error(`local: step "${step.id}" has no sourceStatus to add a task to`);
+      let ref = "";
+      await update((board) => {
+        const max = Math.max(0, ...Object.keys(board).map(Number).filter((n) => Number.isInteger(n)));
+        ref = String(max + 1);
+        board[ref] = { name: name.trim(), description: description || "", url: `local://${ref}`, stage };
+      });
+      const job = sink ? createdJob(cfg, ref, stage) : null;
+      if (job) sink?.([job]);
+      return { ref, stage, stepId: step.id };
+    },
+
     /** @param {string} ref @param {string} stepId */
     async enterStage(ref, stepId) {
       const step = stepById(stepId);

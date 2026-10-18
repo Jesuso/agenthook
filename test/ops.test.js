@@ -675,3 +675,31 @@ test("epics {ref}: per-ticket bucket + status; unknown ref → no epic; unsafe r
   await assert.rejects(ops.epics({ tz: 9999 }), /invalid tz/);
   assert.equal(calls.listEpics, before, "adapter never called for a bad ref");
 });
+
+test("ticket_add: creates the item through adapter.createTask; audit logs the body's length, never its text", async () => {
+  /** @type {any[]} */
+  const created = [];
+  const s = setup({
+    adapter: {
+      createTask: async (/** @type {any} */ t) => (created.push(t), { ref: "4", stage: "review", stepId: t.stepId ?? "code" }),
+    },
+  });
+  const r = await s.ops.ticket_add({ actor: "cli", title: "  fix the thing ", body: "secret spec text", step: "review" });
+  assert.deepEqual(r, { ref: "4", step: "review", stage: "review" });
+  assert.deepEqual(created, [{ name: "fix the thing", description: "secret spec text", stepId: "review" }]);
+  const [line] = s.audit();
+  assert.equal(line.cmd, "ticket_add");
+  assert.equal(line.ok, true);
+  assert.equal(line.args.bodyChars, 16);
+  assert.equal(line.args.title, "  fix the thing ");
+  assert.ok(!JSON.stringify(line).includes("secret spec text"), "body text must not reach the audit log");
+});
+
+test("ticket_add: refuses (exposed) without createTask or without a title; adapter errors surface", async () => {
+  const none = setup();
+  await assert.rejects(() => none.ops.ticket_add({ title: "x" }), (e) => e.expose === true && /has no ticket add/.test(e.message));
+  assert.equal(none.audit()[0].ok, false);
+  const s = setup({ adapter: { createTask: async () => { throw new Error('local: step "done" is manual'); } } });
+  await assert.rejects(() => s.ops.ticket_add({ title: " " }), /title is required/);
+  await assert.rejects(() => s.ops.ticket_add({ title: "x", step: "done" }), /is manual/);
+});

@@ -2,6 +2,7 @@
 // agenthook CLI — one entry point for every subcommand. See docs/agenthook-v2.md.
 //
 //   agenthook init                 scaffold agenthook.config.json in the current dir
+//   agenthook init --local [--yes] [--full-auto] [--name <n>]  zero-setup local-board profile (no token, no tunnel)
 //   agenthook start [--detach]     boot this profile (ingress up → register → serve)
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
 //   agenthook rename <newName> [--move]  relabel this profile (--move: state dir follows)
@@ -18,6 +19,8 @@
 //   agenthook catchup <ref> [--force]   replay a missed item through the live server
 //   agenthook run <ref> [stepId]   start work on an item: assign + enter the step's source stage
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
+//   agenthook ticket add "<title>" [--body <text>|--file <path>] [--step <id>]  add a ticket (local profiles)
+//   agenthook ticket ls [--json]   the local board
 //   agenthook doctor               preflight checks for this profile
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
 //   agenthook ui [--port <n>] [--no-open]  local web dashboard + editors (127.0.0.1 only)
@@ -55,12 +58,13 @@ import { tick } from "../src/commands/tick.js";
 import { epics } from "../src/commands/epics.js";
 import { digest } from "../src/commands/digest.js";
 import { watch } from "../src/commands/watch.js";
+import { ticket } from "../src/commands/ticket.js";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "body", "file", "step", "name"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -90,13 +94,16 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch };
 
-const HELP = `agenthook — event-driven agentic development receiver
+export const HELP = `agenthook — event-driven agentic development receiver
 
 usage: agenthook <command> [args] [--config <path>]
 
   init                      scaffold agenthook.config.json (interactive)
+  init --local [--yes] [--full-auto] [--name <n>] [--force]
+                            zero-setup profile on a local board in this git repo: no token, no tunnel
+                            (fullAuto stays off unless --full-auto or an explicit yes)
   start [--detach]          boot this profile
   stop [--keep-hooks]       stop the receiver
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
@@ -114,6 +121,9 @@ usage: agenthook <command> [args] [--config <path>]
   catchup <ref> [--force]   replay a missed item
   run <ref> [stepId] [--force]  start work: assign + enter the step's source stage (alias: kick)
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
+  ticket add "<title>" [--body <text> | --file <path>] [--step <id>]
+                            add a ticket to a local profile's board (the receiver fires it at once)
+  ticket ls [--json]        a local profile's board: ref, stage, title
   doctor                    preflight checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
