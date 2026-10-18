@@ -19,11 +19,20 @@ import path from "node:path";
 import { worktreeDir } from "./paths.js";
 import { primaryRepo } from "./repos.js";
 
+/** Prepended to every host git call against a repo a sandboxed agent can write: the agent
+ * controls the branch's files, so a `core.hooksPath` pointing into them (husky's `.husky/_`)
+ * would run agent-written hooks on the host at the next `git worktree add` (post-checkout). */
+export const HOST_GIT_SAFE = /** @type {const} */ (["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"]);
+
+/** The host git argv for `args` in `repo`: HOST_GIT_SAFE first when the profile has a sandbox. Pure.
+ * @param {{sandbox?: unknown}} cfg @param {string} repo @param {string[]} args */
+export const gitArgv = (cfg, repo, args) => [...(cfg.sandbox ? HOST_GIT_SAFE : []), "-C", repo, ...args];
+
 // stderr piped (not inherited) so a probe that throws (e.g. no origin/HEAD) doesn't
 // spam the receiver log — the message is still on the thrown error if a caller cares.
-/** @param {string} repo @param {string[]} args */
-const git = (repo, args) =>
-  execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+/** @param {{sandbox?: unknown}} cfg @param {string} repo @param {string[]} args */
+const git = (cfg, repo, args) =>
+  execFileSync("git", gitArgv(cfg, repo, args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
 const execFileP = promisify(execFile);
 
@@ -46,7 +55,7 @@ export function listWorktrees(repoPath) {
   const records = [];
   /** @type {{ path: string, branch: string, prunable?: boolean }} */
   let cur = { path: "", branch: "" };
-  for (const line of git(repoPath, ["worktree", "list", "--porcelain"]).split("\n")) {
+  for (const line of git({}, repoPath, ["worktree", "list", "--porcelain"]).split("\n")) {
     if (line.startsWith("worktree ")) cur = { path: line.slice(9), branch: "" };
     else if (line.startsWith("branch ")) cur.branch = line.slice(7).replace("refs/heads/", "");
     else if (line === "prunable" || line.startsWith("prunable ")) cur.prunable = true;
@@ -65,19 +74,19 @@ export function branchName(ref) {
 }
 
 /** repo's default branch (origin/HEAD), falling back to the current HEAD.
- * @param {string} repo */
-function defaultBranch(repo) {
+ * @param {{sandbox?: unknown}} cfg @param {string} repo */
+function defaultBranch(cfg, repo) {
   try {
-    return git(repo, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).replace(/^origin\//, "");
+    return git(cfg, repo, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).replace(/^origin\//, "");
   } catch {
-    return git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    return git(cfg, repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
   }
 }
 
-/** @param {string} repo @param {string} branch */
-function branchExists(repo, branch) {
+/** @param {{sandbox?: unknown}} cfg @param {string} repo @param {string} branch */
+function branchExists(cfg, repo, branch) {
   try {
-    git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
+    git(cfg, repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
     return true;
   } catch {
     return false;
@@ -89,31 +98,31 @@ function branchExists(repo, branch) {
  * possible, else the local default branch. The fetch is async (never block the event loop /
  * webhook ACKs), best-effort, and touches only `refs/remotes/origin/<name>` — never the
  * checkout's branches, index or working tree.
- * @param {string} repo @returns {Promise<{ ref: string, sha: string }>}
+ * @param {{sandbox?: unknown}} cfg @param {string} repo @returns {Promise<{ ref: string, sha: string }>}
  */
-async function resolveBase(repo) {
-  const name = defaultBranch(repo);
+async function resolveBase(cfg, repo) {
+  const name = defaultBranch(cfg, repo);
   let ref = name;
   let hasOrigin = true;
   try {
-    git(repo, ["remote", "get-url", "origin"]);
+    git(cfg, repo, ["remote", "get-url", "origin"]);
   } catch {
     hasOrigin = false;
   }
   if (hasOrigin) {
     try {
-      await execFileP("git", ["-C", repo, "fetch", "--quiet", "origin", name], {
+      await execFileP("git", gitArgv(cfg, repo, ["fetch", "--quiet", "origin", name]), {
         timeout: 10_000,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       });
-      git(repo, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${name}`]);
+      git(cfg, repo, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${name}`]);
       ref = `origin/${name}`;
     } catch (e) {
       const msg = String(e.stderr || e.message || e).trim().split("\n")[0];
       console.warn(`[worktree] fetch origin ${name} failed: ${msg}; basing on local ${name}`);
     }
   }
-  return { ref, sha: git(repo, ["rev-parse", "--short", ref]) };
+  return { ref, sha: git(cfg, repo, ["rev-parse", "--short", ref]) };
 }
 
 /**
@@ -128,13 +137,13 @@ export async function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
   const branch = branchName(ref);
   if (fs.existsSync(worktree)) return { worktree, branch, created: false };
   fs.mkdirSync(path.dirname(worktree), { recursive: true });
-  if (branchExists(repo.path, branch)) {
-    git(repo.path, ["worktree", "add", worktree, branch]);
+  if (branchExists(cfg, repo.path, branch)) {
+    git(cfg, repo.path, ["worktree", "add", worktree, branch]);
     return { worktree, branch, created: true };
   }
-  const base = await resolveBase(repo.path);
+  const base = await resolveBase(cfg, repo.path);
   // --no-track: a plain `git push` from the agent must not target origin/<default>.
-  git(repo.path, ["worktree", "add", "--no-track", "-b", branch, worktree, base.ref]);
+  git(cfg, repo.path, ["worktree", "add", "--no-track", "-b", branch, worktree, base.ref]);
   return { worktree, branch, created: true, base };
 }
 
@@ -144,6 +153,6 @@ export async function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
 export function drainWorktree(cfg, ref, repo = primaryRepo(cfg)) {
   const worktree = worktreePath(cfg, ref, repo);
   if (!fs.existsSync(worktree)) return false;
-  git(repo.path, ["worktree", "remove", "--force", worktree]);
+  git(cfg, repo.path, ["worktree", "remove", "--force", worktree]);
   return true;
 }

@@ -10,7 +10,7 @@ import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
 import { worktreeDir } from "../paths.js";
-import { listWorktrees } from "../worktree.js";
+import { listWorktrees, gitArgv } from "../worktree.js";
 import { reposOf } from "../repos.js";
 
 /** @param {string} cmd @param {string[]} args @param {string} [cwd] */
@@ -70,7 +70,7 @@ export async function cleanup(args) {
       if (reasons.length) {
         console.log(`${tag}REMOVE  ${rec.path}  [branch=${rec.branch || "?"} item=${ref} pr=${prstate || "none"} -> ${reasons.join(",")}]`);
         if (apply) {
-          const rm = run("git", ["-C", repo.path, "worktree", "remove", ...(force ? ["--force"] : []), rec.path]);
+          const rm = run("git", gitArgv(cfg, repo.path, ["worktree", "remove", ...(force ? ["--force"] : []), rec.path]));
           console.log(rm.ok ? "        removed." : `        SKIP (dirty? use --force): ${rm.err}`);
           if (rm.ok) removed++;
         }
@@ -79,7 +79,7 @@ export async function cleanup(args) {
       }
     }
 
-    if (apply) run("git", ["-C", repo.path, "worktree", "prune"]);
+    if (apply) run("git", gitArgv(cfg, repo.path, ["worktree", "prune"]));
   }
 
   if (apply) {
