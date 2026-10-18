@@ -23,7 +23,7 @@ const base = path.basename(verdictFile);
 const ref = base.endsWith(suffix) ? base.slice(0, -suffix.length) : base;
 
 const script = JSON.parse(fs.readFileSync(scriptFile, "utf8"));
-const entries = script?.[ref]?.[step];
+const entries = (script?.[ref] ?? script?.["*"])?.[step];
 if (!Array.isArray(entries) || !entries.length) {
   console.error(`stub-agent: no script for ref "${ref}" step "${step}"`);
   process.exit(2);
