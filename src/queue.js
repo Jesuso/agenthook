@@ -64,6 +64,19 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
     job.kind === "ci" ? job.dedupKey : `${job.kind === "pipeline" ? "" : `${job.kind}:`}${job.ref}:${job.stepId ?? job.dedupKey}`;
   /** @type {Map<string, (() => void)[]>} work key -> waiters for that key to leave the queue/finish */
   const freeWaiters = new Map();
+  /** @type {Map<string, number>} ref -> its queued + active jobs (any kind) */
+  const byRef = new Map();
+  /** @type {Map<string, (() => void)[]>} ref -> waiters for its last job to leave the queue/settle */
+  const refWaiters = new Map();
+  /** One of `ref`'s jobs left the queue or settled; at zero, wake its waiters. @param {string} ref */
+  const releaseRef = (ref) => {
+    const n = (byRef.get(ref) ?? 1) - 1;
+    if (n > 0) return void byRef.set(ref, n);
+    byRef.delete(ref);
+    const waiters = refWaiters.get(ref) ?? [];
+    refWaiters.delete(ref);
+    for (const w of waiters) w();
+  };
   let active = 0;
   let closed = false; // drain: refuse new work, let in-flight + queued finish
   let paused = false; // restart pending: accept + persist new work, but start nothing
@@ -124,6 +137,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
           inflight.delete(workKey(job));
           for (const w of freeWaiters.get(workKey(job)) ?? []) w();
           freeWaiters.delete(workKey(job));
+          releaseRef(job.ref);
           report();
           pump();
           resolveIdle();
@@ -146,6 +160,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
         return false;
       }
       inflight.add(key);
+      byRef.set(job.ref, (byRef.get(job.ref) ?? 0) + 1);
       queue.push(job);
       persist?.onAdd?.(job);
       report();
@@ -193,6 +208,18 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
         freeWaiters.set(key, [...(freeWaiters.get(key) ?? []), wake]);
       });
     },
+    /** True while any job for `ref` (any step or kind) is queued or running. @param {string} ref */
+    hasRef: (ref) => byRef.has(ref),
+    /**
+     * Call `fn` once `ref` has no queued or running job — synchronously now if it has none, else
+     * from the settle of its last one, AFTER that run's promise (and all its cleanup) resolved.
+     * Event-driven, no timeout: the push sink parks a ref's next job here (see engine.js).
+     * @param {string} ref @param {() => void} fn
+     */
+    whenRefFree(ref, fn) {
+      if (!byRef.has(ref)) return fn();
+      refWaiters.set(ref, [...(refWaiters.get(ref) ?? []), fn]);
+    },
     /** {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap) only when step caps are set. */
     state: snapshot,
     /**
@@ -231,6 +258,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
         queue.splice(i, 1);
         inflight.delete(workKey(j));
         persist?.onRemove?.(j);
+        releaseRef(j.ref);
         dropped.unshift(j);
       }
       if (dropped.length) {

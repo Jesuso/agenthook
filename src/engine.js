@@ -101,6 +101,40 @@ export function releaseOnSettle(run, store) {
 }
 
 /**
+ * The sink an in-process event source (`adapter.onJobs`) pushes into. A push caused by a
+ * run's own stage move (local `advance`) lands INSIDE that run, before dispatch's per-ref
+ * cleanup (busy/preSpawn sets, leavePipeline, clear*) — starting the next step then would
+ * have that cleanup wipe the new run's state. So a job whose ref still has a queued or
+ * running job is parked and flushed through `intake` when the ref's last job settles
+ * (`whenRefFree`, event-driven); any other job goes straight to `intake`.
+ * @param {{hasRef: (ref: string) => boolean, whenRefFree: (ref: string, fn: () => void) => void, intake: (jobs: import('./types.js').Job[]) => unknown}} deps
+ * @returns {(jobs: import('./types.js').Job[]) => void}
+ */
+export function createPushSink({ hasRef, whenRefFree, intake }) {
+  /** @type {Map<string, import('./types.js').Job[]>} ref → jobs parked behind its current run */
+  const parked = new Map();
+  return (jobs) => {
+    for (const job of jobs || []) {
+      const waiting = parked.get(job.ref);
+      if (waiting) {
+        waiting.push(job);
+        continue;
+      }
+      if (!hasRef(job.ref)) {
+        intake([job]);
+        continue;
+      }
+      parked.set(job.ref, [job]);
+      whenRefFree(job.ref, () => {
+        const flush = parked.get(job.ref) || [];
+        parked.delete(job.ref);
+        intake(flush);
+      });
+    }
+  };
+}
+
+/**
  * The overlapGuard release (see src/overlap.js): `blocker` left the pipeline, so clear
  * its lock and re-intake every ref waiting on it. The dedup key is `overlap:<blocker>:<ref>`;
  * intake is forced because the overlap.json entry — cleared just before — is the one-shot
@@ -530,6 +564,9 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     emit,
     onDepth: (queueStage) => heartbeat.update({ queueStage }),
   });
+
+  // An in-process event source (local tracker) pushes its jobs here instead of over HTTP.
+  adapter.onJobs?.(createPushSink({ hasRef: queue.hasRef, whenRefFree: queue.whenRefFree, intake }));
 
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {

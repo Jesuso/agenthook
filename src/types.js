@@ -292,6 +292,7 @@
  * @property {() => AdapterMeta} describe
  * @property {(ctx: EventCtx) => AuthResult} authenticate
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
+ * @property {(emit: (jobs: Job[]) => void) => void} [onJobs]  optional; an in-process event source (local tracker: no webhooks). The engine calls it once at boot with a sink that feeds intake (settle-safe per ref); the adapter pushes the jobs its own stage moves cause. Absent on webhook trackers
  * @property {(ref: string) => Promise<Task>} fetchTask
  * @property {(ref: string, stepId: string, verdict: Verdict) => Promise<void>} advance  resolve a finished step's transition (move to the section its outcome maps to)
  * @property {(ref: string, stepId: string, opts?: {assign?: boolean}) => Promise<{stage: string}>} [enterStage]  optional; `agenthook run` uses it. Assign the item to us (unless opts.assign===false), then move it INTO the step's source stage (add source label / addTask to source section / transition to source status) — the live webhook then fires the step. Returns the source stage entered
