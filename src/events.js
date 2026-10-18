@@ -37,6 +37,9 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           | epic_skipped (a pipeline job reached an item that is an epic; no agent ran, nothing moved; `name`, `url`)
  *           | epic_changed (the tracker delivered an epic-structure change — GitHub: a sub-issue added/removed, an issue
  *             typed/untyped; Jira: a child's parent changed, an issue created/deleted under an epic, an epic created/retyped; `ref` = the epic, step ""; signal only, src/epic-changed.js; hidden by default, not in the sinks' default set)
+ *           | quota_pause | quota_resume (the opt-in Claude quota pacer, src/quota.js; ref/step ""; `quota_pause` has
+ *             `window`, `utilization`, `threshold`, `resetsAt`, `quota_resume` has `window`, `reason` reset|below|operator;
+ *             not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
  *   ref   — task ref (provider-native id)

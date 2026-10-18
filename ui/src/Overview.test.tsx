@@ -12,7 +12,7 @@ const local = (h: number, day = 8) => new Date(2026, 9, day, h).toISOString();
 const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
   name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
   startedAt: null, updatedAt: null, active: 1, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], ...over,
+  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, estUsd: 0, trackerUrl: null,
@@ -133,5 +133,13 @@ describe("Overview", () => {
     expect(render(profile(), [])).not.toMatch(/<details[^>]*data-all-tickets[^>]*open/);
     expect(render(profile(), [], { statusFilter: "failed" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
     expect(render(profile(), [], { epicFilter: "E1" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
+  });
+
+  it("shows the Claude quota tile (with a passed reset as reset) and a distinct quota-paused badge", () => {
+    const quota = { sevenDay: { utilization: 0.66, resetsAt: new Date(NOW + 2 * 86400e3 + 4 * 3600e3).toISOString() }, fiveHour: { utilization: 0.08, resetsAt: new Date(NOW - 1).toISOString() } };
+    const html = render(profile({ quota, quotaPaused: { window: "sevenDay", utilization: 0.92, threshold: 0.9, resetsAt: quota.sevenDay.resetsAt } }), []);
+    expect(html).toContain("weekly 66% · resets in 2d 4h · 5h reset");
+    expect(html).toContain("quota paused");
+    expect(render(profile(), [])).not.toContain("data-quota");
   });
 });

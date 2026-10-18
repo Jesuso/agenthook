@@ -9,7 +9,7 @@ const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
 const profile = (name: string, over: Partial<ProfileView> = {}): ProfileView => ({
   name, label: name, up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 2,
   startedAt: null, updatedAt: null, active: 1, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], ...over,
+  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
 });
 const held = (p: string, ref: string): TicketRow => ({
   profile: p, ref, displayId: ref, title: null, step: null, status: "held", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null,

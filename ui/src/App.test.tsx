@@ -30,7 +30,7 @@ const base: ProfileView = {
   configMissing: false,
   recentCosts: [],
   forge: null,
-  recentRuns: [],
+  recentRuns: [], quotaPaused: null, quota: null,
 };
 
 describe("ProfileNameCell", () => {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ProfileView, Snapshot, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatDuration, formatModel, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
+import { formatCost, formatDuration, formatModel, formatQuota, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
@@ -73,6 +73,13 @@ export function Overview(props: OverviewProps) {
         <Tile label="queued">
           <span className="font-mono">{profile.up ? profile.queued ?? 0 : "—"}</span>
         </Tile>
+        {profile.quota && (
+          <Tile label="claude quota" title="Claude subscription quota, as of the last Claude run">
+            <span className="text-body" data-quota>
+              {formatQuota(profile.quota, now)}
+            </span>
+          </Tile>
+        )}
       </div>
 
       <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />

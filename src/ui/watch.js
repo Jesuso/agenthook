@@ -110,6 +110,7 @@ export function createWatcher(registry, onEvent) {
       heartbeat: p.heartbeat,
       ...profileMeta(p.dir, p.heartbeat, p.marker),
       events: p.state.events,
+      quota: p.state.quota,
     });
 
   /** @param {Prof} p */
@@ -384,7 +385,7 @@ export function createWatcher(registry, onEvent) {
       removed: false,
       heartbeat: null,
       pid: 0,
-      state: { running: {}, queue: [], held: {}, refmeta: {}, events: [] },
+      state: { running: {}, queue: [], held: {}, refmeta: {}, quota: null, events: [] },
       eventBytes: [],
       eventTotal: 0,
       offset: 0,

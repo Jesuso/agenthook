@@ -10,6 +10,7 @@ import { tildify } from "../profile.js";
 import { CANCELLED_REASON } from "../events.js";
 import { resolveIdentity } from "../identity.js";
 import { costOf, pricingOf } from "../pricing.js";
+import { normalizeQuota, normalizeTrip } from "../quota.js";
 
 /** Only the last N bytes of events.jsonl are read — the file is append-only and unbounded. */
 export const EVENTS_TAIL_BYTES = 256 * 1024;
@@ -168,9 +169,10 @@ export function hashFile(file) {
  * @property {Record<string, any>} held       held.json
  * @property {Record<string, any>} refmeta    refmeta.json
  * @property {Record<string, any>[]} events   events.jsonl tail, oldest first
+ * @property {Record<string, any>|null} quota  quota.json (src/quota-file.js), unvalidated — readers `normalizeQuota` it
  */
 
-/** @typedef {'running'|'queue'|'held'|'refmeta'} StateKey */
+/** @typedef {'running'|'queue'|'held'|'refmeta'|'quota'} StateKey */
 
 /** @type {Record<StateKey, [file: string, empty: () => any, ok: (v: any) => boolean]>} */
 export const STATE_FILES = {
@@ -178,6 +180,7 @@ export const STATE_FILES = {
   queue: ["queue.json", () => [], Array.isArray],
   held: ["held.json", () => ({}), isObj],
   refmeta: ["refmeta.json", () => ({}), isObj],
+  quota: ["quota.json", () => null, isObj],
 };
 
 /** Read one state file (see readJson for the `prev` torn-read rule).
@@ -199,6 +202,7 @@ export function readProfileState(dir, events) {
     queue: readStateFile(dir, "queue"),
     held: readStateFile(dir, "held"),
     refmeta: readStateFile(dir, "refmeta"),
+    quota: readStateFile(dir, "quota"),
     events: events ?? readEventsTail(path.join(dir, "events.jsonl")),
   };
 }
@@ -358,7 +362,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
  * `recentCosts` is derived from the optional `events` tail (default none) relative to `now`.
  * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any,
  *   configPath?: string|null, createdAt?: string|null, lastSeenAt?: string|null, ghost?: boolean, configMissing?: boolean,
- *   events?: Record<string, any>[], now?: number }} p
+ *   events?: Record<string, any>[], now?: number, quota?: any }} p
  * @returns {import('./contract.js').ProfileView}
  */
 export function profileView(p) {
@@ -382,6 +386,8 @@ export function profileView(p) {
     active: p.up ? num(hb?.queue?.active) : null,
     queued: p.up ? num(hb?.queue?.queued) : null,
     paused: p.up ? hb?.paused === true : null,
+    quotaPaused: p.up ? normalizeTrip(hb?.quotaPaused) : null,
+    quota: normalizeQuota(p.quota),
     restartPending: p.up ? hb?.restartPending === true || hb?.decommissionPending === true || hb?.draining === true : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
@@ -451,7 +457,7 @@ export function buildSnapshot(registry = registryDir) {
   const snap = { profiles: [], tickets: [] };
   for (const p of listProfiles(registry)) {
     const state = readProfileState(p.dir);
-    snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name, events: state.events }));
+    snap.profiles.push(profileView({ ...p, name: p.stateKey, label: p.name, events: state.events, quota: state.quota }));
     const repository = isObj(p.heartbeat) ? p.heartbeat.repository : null;
     snap.tickets.push(...buildRows(p.stateKey, state, { repository, up: p.up, pricing: pricingOf(p.heartbeat) }));
   }

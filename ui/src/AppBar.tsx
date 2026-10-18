@@ -4,7 +4,7 @@ import { Pill, ProfileMark } from "./components";
 import { VIEWS } from "./route";
 import type { View } from "./route";
 import type { ProfileView } from "./contract";
-import { profileLabel } from "./format";
+import { formatQuota, profileLabel } from "./format";
 
 const DOT_CLASS: Record<ConnectionState, string> = {
   connected: "bg-success",
@@ -31,6 +31,8 @@ export type ProfileNav = {
   onView: (v: View) => void;
   onProfile: (name: string) => void;
   onHome: () => void;
+  /** Render clock for the quota readout's countdown and age. */
+  now?: number;
 };
 
 /**
@@ -41,6 +43,8 @@ export type ProfileNav = {
  * window never scrolls the page sideways; from `lg` up it is one 44px row.
  */
 export function AppBar({ connection, nav }: { connection: ConnectionState; nav?: ProfileNav }) {
+  const current = nav?.profiles.find((p) => p.name === nav.profile);
+  const quota = current?.quota ? formatQuota(current.quota, nav?.now ?? Date.now()) : "";
   return (
     <header className="sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-1.5 lg:h-11 lg:flex-nowrap lg:gap-x-6 lg:py-0">
       <div className="flex shrink-0 items-center gap-2">
@@ -58,7 +62,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
             >
               ‹ Home
             </button>
-            {nav.profiles.find((p) => p.name === nav.profile) && <ProfileMark p={nav.profiles.find((p) => p.name === nav.profile)!} size="sm" />}
+            {current && <ProfileMark p={current} size="sm" />}
             <select
               aria-label="switch profile"
               data-profile-switcher
@@ -90,6 +94,11 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
               </button>
             ))}
           </nav>
+          {quota && (
+            <span data-appbar-quota className="min-w-0 truncate text-label text-muted" title="Claude subscription quota, as of the last Claude run">
+              {quota}
+            </span>
+          )}
         </>
       )}
       <div className="ml-auto shrink-0">

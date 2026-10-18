@@ -20,6 +20,8 @@ import {
   energyEdit,
   readEnergy,
   pricingRows,
+  quotaErrors,
+  readQuotaConfig,
   PRICING_RATES,
   errorsForRepo,
   errorsForSink,
@@ -1460,6 +1462,8 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
   const energy = readEnergy(props.raw);
   const source = energy && typeof energy.source === "object" && energy.source && !Array.isArray(energy.source) ? (energy.source as Record<string, unknown>) : undefined;
   const energyEdits = { text: props.text, onEdit: (next: string) => props.onEdit(energyEdit(props.text, next)) };
+  const quota = readQuotaConfig(props.raw);
+  const quotaEdit = { text: props.text, onEdit: (next: string) => props.onEdit(dropEmptyBlock(next, "quota")) };
   return (
     <div className={FORM_WRAP} data-integrations-form>
       <div className={PANEL} data-sinks>
@@ -1520,6 +1524,18 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
           {(source?.type === "watts" || source?.watts !== undefined) && <NumberField {...energyEdits} path={["energy", "source", "watts"]} value={source?.watts} />}
         </div>
         <ErrorList errors={energyErrors(raw?.energy)} />
+      </div>
+      <div className={PANEL} data-quota-panel>
+        <h3 className="text-sm font-semibold">Quota pacing</h3>
+        <p className={NOTE}>
+          Claude runs report the subscription quota (5-hour and weekly windows). Set a threshold to pause new runs at or above it; they resume by
+          themselves when that window resets. Running agents always finish; your own pause or resume wins. Unset = never pauses.
+        </p>
+        <div className={FIELD_GRID}>
+          <NumberField {...quotaEdit} path={["quota", "pauseAboveSevenDay"]} value={quota?.pauseAboveSevenDay} />
+          <NumberField {...quotaEdit} path={["quota", "pauseAboveFiveHour"]} value={quota?.pauseAboveFiveHour} />
+        </div>
+        <ErrorList errors={quotaErrors(raw?.quota)} />
       </div>
       <div className={PANEL} data-overlap-guard>
         <h3 className="text-sm font-semibold">Overlap guard</h3>

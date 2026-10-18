@@ -2,6 +2,8 @@ import type { ProfileView, TicketRow } from "./contract";
 
 import { formatSpend } from "../../src/pricing.js";
 import { formatEnergy } from "../../src/energy.js";
+import { formatQuota } from "../../src/quota.js";
+import type { QuotaTrip } from "./contract";
 
 /** "$12.40 + ~$3.10 est." — reported and estimated spend side by side, never summed (src/pricing.js). */
 export { formatSpend };
@@ -124,4 +126,13 @@ export function formatDuration(ms: number | null): string {
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m ${String(secs % 60).padStart(2, "0")}s`;
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+}
+
+/** The Claude quota readout, e.g. `weekly 65% · resets in 2d 4h · 5h 8% (as of 3m ago)` (src/quota.js). */
+export { formatQuota };
+
+/** The "quota paused" badge's tooltip. */
+export function quotaPausedTitle(t: QuotaTrip): string {
+  const win = t.window === "sevenDay" ? "weekly" : "5-hour";
+  return `quota pacer: ${win} use ${Math.round(t.utilization * 100)}% ≥ ${Math.round(t.threshold * 100)}% — no new runs start until it resets (${t.resetsAt}); running agents finish. Resume overrides it.`;
 }
