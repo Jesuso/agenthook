@@ -25,7 +25,7 @@ const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
 /** Known-PR state lookups per `prs` cache fill (each is one forge GET). */
 const MAX_PR_STATE_LOOKUPS = 20;
 const COMMENT_MAX = 8000;
-/** A `ticket_add` body's cap: the whole request must fit control.sock's 64 KB line. */
+/** A `ticket_add` body's cap in JSON-encoded UTF-8 bytes: the whole request must fit control.sock's 64 KB line. */
 export const TICKET_BODY_MAX = 48 * 1024;
 const MAX_ERROR_CHARS = 500;
 const RELEASE_SETTLE_MS = 15_000;

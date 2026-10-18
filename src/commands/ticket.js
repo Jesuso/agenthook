@@ -84,7 +84,10 @@ export function ticketBody(args) {
       return { error: `ticket add: cannot read ${args.file} (${e.code || e.message})` };
     }
   }
-  if (body.length > TICKET_BODY_MAX) return { error: `ticket add: the body is ${body.length} chars — keep it under ${TICKET_BODY_MAX}` };
+  // Measure what goes on the wire: control.sock caps the request line in bytes, and JSON
+  // escaping (quotes, newlines) plus multi-byte UTF-8 make that larger than body.length.
+  const bytes = Buffer.byteLength(JSON.stringify(body), "utf8");
+  if (bytes > TICKET_BODY_MAX) return { error: `ticket add: the body is ${bytes} bytes encoded — keep it under ${TICKET_BODY_MAX}` };
   return body;
 }
 
