@@ -470,6 +470,7 @@
  * @property {(sessionId: string) => string[]} resumeCommand  resume argv (after the binary)
  * @property {(dir: string) => {id: string, file: string, at?: number}[]} files  the session transcripts in a transcript dir; `at` = start-time fallback when lines carry no timestamp
  * @property {(baseCwd: string) => {dirs: string[], searched: string}} cwdDirs  existing transcript dirs of every cwd under `baseCwd` (+ the pattern searched, for errors)
+ * @property {(stateDir: string, cwd: string) => string} [sandboxTranscriptDir]  the transcript dir of a sandboxed run in a `cwd` it doesn't own (a no-worktree step), so `follow` finds it
  */
 
 /** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
@@ -483,7 +484,7 @@
  * @property {(sessionId: string) => string[]} [resumeCommand]  resume argv (after the binary) for an agent with `sessions: null` whose session ids come from usage.jsonl (opencode)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string, sandboxed?: boolean, env?: Record<string, string>}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for; claude: refuse a sandboxed run with no credential var in `env`, the spawn env)
- * @property {(ctx: {cfg: Config, step: Step, cwd: string, home: string}) => {mounts: SandboxMount[], env?: Record<string, string>}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`); an agent without it is refused when sandboxed
+ * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string}) => {mounts: SandboxMount[], env?: Record<string, string>}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. An agent without it is refused when sandboxed
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  */

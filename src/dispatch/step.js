@@ -235,7 +235,7 @@ export function createStep(ctx) {
     let sandboxedRun;
     if (sandboxed && sandbox && agent.sandbox && !refused) {
       try {
-        const own = agent.sandbox({ cfg, step, cwd, home: sandbox.describe().home });
+        const own = agent.sandbox({ cfg, step, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home });
         const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: gitDirsFor(cwd)?.commonDir, agentMounts: own.mounts });
         const facts = hostGitFacts(repo.path);
         const gitEnv = gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author });

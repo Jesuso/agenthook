@@ -223,6 +223,24 @@ test("sandbox e2e: a claude step runs through the runtime, routes on its per-run
   }
 });
 
+test("sandbox e2e: a no-worktree claude step (triage) mounts nothing under the host ~/.claude — its transcript goes to a receiver-owned dir", async () => {
+  const h = sandboxHarness([{ id: "triage", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  g(h.repo, ["worktree", "remove", "--force", path.join(h.root, "wts", "42")]); // no worktree yet: cwd = the main checkout
+  try {
+    await h.go("triage");
+    assert.equal(h.advanced[0]?.outcome, "advance");
+    const run = h.calls().find((c) => c[0] === "run");
+    assert.ok(run, "the runtime client was spawned");
+    const srcs = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1].split(",")[1].slice("src=".length)] : []));
+    const hostClaude = path.join(h.root, "home", ".claude");
+    assert.ok(!srcs.some((/** @type {string} */ s) => s === hostClaude || s.startsWith(hostClaude + path.sep)), srcs.join("\n"));
+    assert.ok(srcs.includes(path.join(h.state, "sandbox-transcripts", h.repo.replace(/[^A-Za-z0-9]/g, "-"))), "the receiver-owned transcript dir");
+    assert.ok(run.some((/** @type {string} */ x) => x === `type=bind,src=${h.repo},dst=${h.repo},readonly`), "the main checkout, read-only");
+  } finally {
+    h.restore();
+  }
+});
+
 test("sandbox e2e: a sandboxed cursor step is refused and the runtime is never spawned", async () => {
   const h = sandboxHarness([{ id: "code", agent: "cursor" }, { id: "done", manual: true }]);
   try {

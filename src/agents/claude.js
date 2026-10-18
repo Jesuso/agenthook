@@ -6,7 +6,7 @@
 // (src/types.js) — this is the reference adapter.
 import fs from "node:fs";
 import path from "node:path";
-import { claudeProjectDir, mangle } from "../paths.js";
+import { claudeProjectDir, mangle, sandboxClaudeProjectDir } from "../paths.js";
 import { quotaFromRateLimitEvent } from "../quota.js";
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
@@ -256,14 +256,17 @@ export const claude = {
       const prefix = path.basename(base) + "-";
       return { dirs: entries(projects).filter((e) => e.startsWith(prefix)).map((e) => path.join(projects, e)), searched: path.join(projects, `${prefix}*`) };
     },
+    sandboxTranscriptDir: sandboxClaudeProjectDir,
   },
   preflight: ({ sandboxed, env }) => (sandboxed ? sandboxCredentialProblem(env) : undefined),
   // Sandboxed: only this run's transcript dir is shared (at the container HOME's
   // `.claude/projects/<mangle(cwd)>`, where claude writes it), so follow/resume read it on the
   // host. Never ~/.claude or ~/.claude.json — other projects' transcripts and the OAuth
-  // credentials stay on the host.
-  sandbox({ cwd, home }) {
-    const dir = claudeProjectDir(cwd);
+  // credentials stay on the host. A cwd the run doesn't own (no-worktree: the main checkout)
+  // gets a receiver-owned dir instead: the host's dir for that cwd holds the operator's own
+  // sessions and auto-memory, which a hostile ticket must neither read nor plant into.
+  sandbox({ cfg, cwd, ownsCwd, home }) {
+    const dir = ownsCwd ? claudeProjectDir(cwd) : sandboxClaudeProjectDir(cfg.stateDir, cwd);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     return {
       mounts: [{ path: dir, dst: path.posix.join(home, ".claude", "projects", mangle(cwd)) }],

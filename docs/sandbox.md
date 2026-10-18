@@ -62,7 +62,7 @@ come from `gh auth git-credential` (GitHub, needs `GH_TOKEN`/`GITHUB_TOKEN`) or 
 | `<repo>/.git/config`, `<repo>/.git/hooks` | host | **read-only** overlays — an agent can't plant a hook the host runs |
 | the run's verdict dir | `<dataDir>/verdicts/run-<ref>-<step>/` | fresh per run, removed after the verdict is read |
 | `/home/agent` (HOME) | `<stateDir>/sandbox-home/<run>/` | fresh per run (0700), removed when the run ends |
-| `/home/agent/.claude/projects/<mangled>` | host `~/.claude/projects/<mangled>` | the transcript, so `follow` / `sessions` still work |
+| `/home/agent/.claude/projects/<mangled>` | host `~/.claude/projects/<mangled worktree>`; for a no-worktree step `<stateDir>/sandbox-transcripts/<mangled repo>` | the transcript, so `follow` / `sessions` still work. A no-worktree step never gets the host dir for your main checkout: that holds your own Claude sessions and auto-memory |
 
 The container runs as your uid (docker `--user`, podman `--userns=keep-id`), with
 `--cap-drop ALL`, `--security-opt no-new-privileges`, `--pids-limit 1024` and `--init`. The state

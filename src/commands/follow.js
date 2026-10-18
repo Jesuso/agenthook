@@ -5,7 +5,7 @@
 // marker "=== TICKET ===", which a hand-run session won't have).
 //
 // Transcripts live under the agent's launch-cwd mangle: the repo root for steps without
-// a worktree, the task's worktree for the rest. So it searches, per repo (or only the one
+// a worktree (a sandboxed one: under the state dir), the task's worktree for the rest. So it searches, per repo (or only the one
 // `--repo <id>` names), the repo mangle plus every worktree mangle under the repo's base.
 // The transcript layout comes from each agent adapter the profile runs (`sessions`,
 // src/agents/): the profile's and every step's own `agent`.
@@ -33,6 +33,12 @@ export function transcriptDirs(cfg, repos) {
       const root = sessions.transcriptDir(repo.path);
       searched.push(root);
       if (fs.existsSync(root) && !dirs.has(root)) dirs.set(root, sessions);
+      // A sandboxed no-worktree run keeps its transcript in a receiver-owned dir, not `root`.
+      if (cfg.sandbox && sessions.sandboxTranscriptDir) {
+        const sbx = sessions.sandboxTranscriptDir(cfg.stateDir, repo.path);
+        searched.push(sbx);
+        if (fs.existsSync(sbx) && !dirs.has(sbx)) dirs.set(sbx, sessions);
+      }
       const under = sessions.cwdDirs(cfg.multiRepo ? path.join(worktreeDir(cfg, repo), repo.id) : worktreeDir(cfg, repo));
       searched.push(under.searched);
       for (const d of under.dirs) if (!dirs.has(d)) dirs.set(d, sessions);
