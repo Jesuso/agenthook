@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-18
+
+Stabilize and land (epic #412): a first run needs no tracker token and no tunnel, and the two
+largest modules are split with no behaviour change. See [ROADMAP.md](ROADMAP.md).
+
 ### Added
 
 - `RELEASING.md` — release cadence, checklist, and the config compatibility policy (a key whose
@@ -19,6 +24,31 @@ All notable changes to this project are documented here. The format is based on
   (through the running receiver's new `ticket_add` control op, so the step fires at once) and
   `agenthook ticket ls` lists the board. `fullAuto` stays off unless you pass `--full-auto` or
   answer yes. `doctor` no longer flags the missing token on a local profile.
+- **Event-driven `local` tracker** — stage changes on a local board push their jobs into the
+  receiver in-process (a new optional adapter capability, `onJobs`), so steps chain with no
+  poller and no network. `ah run <ref>` on a local profile goes through the running receiver.
+- A quickstart demo recording at the top of the README, and [ROADMAP.md](ROADMAP.md).
+
+### Changed
+
+- `src/dispatch.js` and `src/engine.js` are split into `src/dispatch/` and `src/engine/`
+  modules. The old paths re-export everything, so importers are unchanged; no behaviour change.
+- `CLAUDE.md` is now a short core; per-area detail moved to `docs/internals/`.
+- A local item in a stage no step binds (e.g. `backlog`) is no longer reported as completed, so
+  `ah run` accepts it and `cleanup` leaves it alone.
+
+### Fixed
+
+- `ah remove` and the UI's remove dialog no longer warn about un-unregistered webhooks for a
+  profile that never had any (a `local` tracker with no forge).
+- `ah ticket add` caps the body by its encoded size, so a large multi-byte body is refused with a
+  clear message instead of being reported as "receiver is down".
+
+### Internal
+
+- A shared tracker conformance suite runs every tracker adapter against one contract
+  (`test/conformance/`), and an end-to-end test drives a real receiver, the local tracker and a
+  stub agent through the whole pipeline on every PR.
 
 ## [0.7.0] — 2026-10-18
 
@@ -430,7 +460,8 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Jesuso/agenthook/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Jesuso/agenthook/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Jesuso/agenthook/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Jesuso/agenthook/compare/v0.4.0...v0.5.0
