@@ -13,7 +13,18 @@ All notable changes to this project are documented here. The format is based on
   Workflows, admin or secrets). It lives in a per-run `gh` config dir that the receiver refreshes
   before expiry, and it is revoked when the run ends. A run whose token can't be minted fails with
   `GitHub run token: …` instead of falling back to your token. `doctor` mints and revokes one to
-  check the App's permissions. See `docs/github-app.md#agent-run-tokens` (#474).
+  check the App's permissions. Under the container sandbox the config dir is bind-mounted
+  read-only at the same path so a sandboxed run sees the refreshed token too. See
+  `docs/github-app.md#agent-run-tokens` (#474).
+- Per-run container sandbox (`"sandbox": { "type": "docker" | "podman" }`, optional `image`,
+  `memory`, `cpus`; a step opts out with `"sandbox": false`). Each agent run gets its own
+  throwaway container as your user with all capabilities dropped, mounting only its worktree, the
+  repo's git dir (config and hooks read-only), a per-run verdict dir and its own transcript dir;
+  env is passed by name, never in argv. Boot refuses if the runtime is unavailable and reaps
+  orphaned containers; cancel and timeout kill the container. Only `claude` is supported for now:
+  a sandboxed `cursor`, `hermes` or `opencode` step is refused, never run on the host. `doctor --fix`
+  builds the image. Network is still open (#473 adds the egress allowlist). See `docs/sandbox.md`
+  (#472).
 
 ### Changed
 

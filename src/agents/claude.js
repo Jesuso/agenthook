@@ -6,7 +6,7 @@
 // (src/types.js) — this is the reference adapter.
 import fs from "node:fs";
 import path from "node:path";
-import { claudeProjectDir } from "../paths.js";
+import { claudeProjectDir, mangle, sandboxClaudeProjectDir } from "../paths.js";
 import { quotaFromRateLimitEvent } from "../quota.js";
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
@@ -208,6 +208,17 @@ const entries = (dir) => {
 /** `.jsonl` names in a dir ([] if unreadable). @param {string} dir */
 const jsonls = (dir) => entries(dir).filter((f) => f.endsWith(".jsonl"));
 
+/** The env vars a sandboxed claude can authenticate with (the host login can't be shared: it
+ * lives in the macOS Keychain, and a shared ~/.claude/.credentials.json races the host's refresh). */
+export const SANDBOX_CREDENTIAL_VARS = /** @type {const} */ (["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"]);
+
+/** Why a sandboxed claude run can't authenticate with `env` (the spawn env), else undefined. Pure.
+ * @param {Record<string, string|undefined>|undefined} env */
+export function sandboxCredentialProblem(env) {
+  if (SANDBOX_CREDENTIAL_VARS.some((k) => env?.[k])) return undefined;
+  return "sandboxed claude has no credentials — run `claude setup-token` and put CLAUDE_CODE_OAUTH_TOKEN in the profile's .env (or set ANTHROPIC_API_KEY)";
+}
+
 /** @type {import('../types.js').AgentAdapter} */
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json" }),
@@ -246,6 +257,22 @@ export const claude = {
       const prefix = path.basename(base) + "-";
       return { dirs: entries(projects).filter((e) => e.startsWith(prefix)).map((e) => path.join(projects, e)), searched: path.join(projects, `${prefix}*`) };
     },
+    sandboxTranscriptDir: sandboxClaudeProjectDir,
+  },
+  preflight: ({ sandboxed, env }) => (sandboxed ? sandboxCredentialProblem(env) : undefined),
+  // Sandboxed: only this run's transcript dir is shared (at the container HOME's
+  // `.claude/projects/<mangle(cwd)>`, where claude writes it), so follow/resume read it on the
+  // host. Never ~/.claude or ~/.claude.json — other projects' transcripts and the OAuth
+  // credentials stay on the host. A cwd the run doesn't own (no-worktree: the main checkout)
+  // gets a receiver-owned dir instead: the host's dir for that cwd holds the operator's own
+  // sessions and auto-memory, which a hostile ticket must neither read nor plant into.
+  sandbox({ cfg, cwd, ownsCwd, home }) {
+    const dir = ownsCwd ? claudeProjectDir(cwd) : sandboxClaudeProjectDir(cfg.stateDir, cwd);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return {
+      mounts: [{ path: dir, dst: path.posix.join(home, ".claude", "projects", mangle(cwd)) }],
+      env: { DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
+    };
   },
   defaults: {},
 };

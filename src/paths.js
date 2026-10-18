@@ -18,6 +18,12 @@ export const cursorMangle = (p) => p.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+
 /** Claude's transcript dir for the repo the agents work in. @param {string} repoPath */
 export const claudeProjectDir = (repoPath) => path.join(os.homedir(), ".claude", "projects", mangle(repoPath));
 
+/** Where a sandboxed claude run in a cwd it doesn't own (a no-worktree step, cwd = the main
+ * checkout) keeps its transcript: receiver-owned, under the state dir. Never the host's
+ * `claudeProjectDir(repoPath)` — that dir holds the operator's own sessions and auto-memory.
+ * @param {string} stateDir @param {string} cwd */
+export const sandboxClaudeProjectDir = (stateDir, cwd) => path.join(stateDir, "sandbox-transcripts", mangle(cwd));
+
 /** The agent worktree base, resolved against the repo (default: the profile's default repo).
  * A per-repo worktreePrefix overrides the global one.
  * @param {import('./types.js').Config} cfg @param {import('./types.js').RepoConfig} [repo] */

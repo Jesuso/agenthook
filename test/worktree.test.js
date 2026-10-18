@@ -105,3 +105,35 @@ test("existing branch is reused with no fetch/base", async () => {
     fs.rmSync(s.root, { recursive: true, force: true });
   }
 });
+
+test("HOST_GIT_SAFE: with a sandbox, every host git argv starts with it; without, the argv is unchanged", async () => {
+  const { gitArgv, HOST_GIT_SAFE } = await import("../src/worktree.js");
+  assert.deepEqual(HOST_GIT_SAFE, ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"]);
+  assert.deepEqual(gitArgv({ sandbox: { type: "docker" } }, "/r", ["worktree", "add", "/w", "b"]), [...HOST_GIT_SAFE, "-C", "/r", "worktree", "add", "/w", "b"]);
+  assert.deepEqual(gitArgv({}, "/r", ["worktree", "add", "/w", "b"]), ["-C", "/r", "worktree", "add", "/w", "b"]);
+});
+
+test("HOST_GIT_SAFE: an agent-written hooksPath never runs on the host when a sandboxed worktree is re-added", async () => {
+  const s = setup();
+  try {
+    // The operator's repo points core.hooksPath at a dir the agent's branch controls (husky-style).
+    const hooks = path.join(s.root, "agent-hooks");
+    fs.mkdirSync(hooks);
+    const marker = path.join(s.root, "pwned");
+    fs.writeFileSync(path.join(hooks, "post-checkout"), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    g(s.repoPath, ["config", "core.hooksPath", hooks]);
+    const cfg = { ...s.cfg, sandbox: { type: "docker" } };
+    await ensureWorktree(wtCfg(cfg), "9");
+    assert.equal(fs.existsSync(marker), false, "post-checkout did not run");
+    const { drainWorktree } = await import("../src/worktree.js");
+    drainWorktree(wtCfg(cfg), "9");
+    await ensureWorktree(wtCfg(cfg), "9"); // existing branch: `git worktree add <wt> <branch>`
+    assert.equal(fs.existsSync(marker), false);
+    // Control: without the sandbox the same re-add runs the hook.
+    drainWorktree(wtCfg(s.cfg), "9");
+    await ensureWorktree(wtCfg(s.cfg), "9");
+    assert.equal(fs.existsSync(marker), true);
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});

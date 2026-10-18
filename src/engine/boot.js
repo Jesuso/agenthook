@@ -1,8 +1,8 @@
 // The engine's boot sequence (`serve()`). The real order — listen + control socket + pidfile
 // come BEFORE any webhook scrub/register (a registered hook POSTs a handshake at once):
-//   quota reading → ingress.up(port) → write publicUrl → server.listen → startControl →
-//   write pidfile → (ephemeral) tracker.unregisterWebhooks → tracker.ensureLabels? →
-//   tracker.registerWebhook → forge? (ephemeral scrub, register; best-effort) →
+//   quota reading → sandbox?.check() → ingress.up(port) → write publicUrl → server.listen →
+//   startControl → write pidfile → (ephemeral) tracker.unregisterWebhooks → tracker.ensureLabels? →
+//   tracker.registerWebhook → forge? (ephemeral scrub, register; best-effort) → sandbox?.reap() →
 //   recoverInterrupted → restoreQueued → puller.pull → reconcile (reconcileOnBoot only) →
 //   SIGINT/SIGTERM handlers. A failure after ingress.up downs the ingress and closes control.
 import fs from "node:fs";
@@ -40,6 +40,7 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
  *   adapter: import('../types.js').Adapter,
  *   forge: import('../types.js').Forge | null,
  *   ingress: import('../types.js').Ingress,
+ *   sandbox: import('../types.js').Sandbox | null,
  *   heartbeat: ReturnType<typeof import('../heartbeat.js').createHeartbeat>,
  *   queue: ReturnType<typeof import('../queue.js').createQueue>,
  *   puller: ReturnType<typeof import('../pull.js').createPuller>,
@@ -56,10 +57,10 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
  * @returns {() => Promise<void>}
  */
 export function createServe(deps) {
-  const { cfg, state, store, adapter, forge, ingress, heartbeat, puller, quotaPacer, emit, releaseOverlap, startedAt, restart, decommission, ops, shutdown, reconcileOnBoot } = deps;
+  const { cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, puller, quotaPacer, emit, releaseOverlap, startedAt, restart, decommission, ops, shutdown, reconcileOnBoot } = deps;
   return async function serve() {
     const meta = ingress.describe();
-    console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}`);
+    console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}${sandbox ? `, sandbox ${sandbox.describe().name}` : ""}`);
 
     for (const dir of [cfg.stateDir, cfg.logDir]) {
       const result = ensurePrivateDir(dir, { tighten: true });
@@ -92,6 +93,13 @@ export function createServe(deps) {
     // The persisted quota reading, evaluated once before any work is admitted (a pause holds
     // the restored queue and the boot pull too).
     quotaPacer.reading(readQuota(cfg.stateDir));
+
+    // A configured sandbox that isn't there must never mean "run on the host": refuse to boot,
+    // before anything is brought up.
+    if (sandbox) {
+      const c = await sandbox.check();
+      if (!c.ok) throw new Error(`sandbox (${sandbox.describe().name}) unavailable: ${c.reason}`);
+    }
 
     let ingressUp = false;
     try {
@@ -143,6 +151,17 @@ export function createServe(deps) {
         }
       }
 
+      // A run that outlived a killed receiver keeps editing its worktree (and could write a
+      // verdict for a run the board shows as failed): remove it before failing its record.
+      // Best-effort — the runs fail below either way, and a later reap finishes the job.
+      if (sandbox) {
+        try {
+          const reaped = await sandbox.reap();
+          if (reaped.length) console.log(`[recover] removed ${reaped.length} orphaned sandbox container(s): ${reaped.join(", ")}`);
+        } catch (e) {
+          console.error("[recover] sandbox reap failed (continuing):", e.message);
+        }
+      }
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
       const runningRefs = Object.keys(store.listRunning());
       await recoverInterrupted(store, adapter, emit, releaseOverlap);

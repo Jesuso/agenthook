@@ -152,6 +152,9 @@ A `reason` starting `GitHub run token:` means the receiver couldn't mint the run
 token, so no agent ran. Usually the App lacks a permission (GitHub's message is in the reason;
 `agenthook doctor` checks it) or the issue and code repos are under different accounts. A human
 fixes the App or config, then `run {ref, force:true}`.
+On a profile with a `sandbox`, two reasons need a config fix, not a retry: `<agent> does not support
+the sandbox yet` (set `"sandbox": false` on that step) and `sandboxed claude has no credentials`
+(put `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` in the profile's `.env`).
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 
