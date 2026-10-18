@@ -196,7 +196,7 @@ test("down: kills only our child; idempotent and a no-op before up", async () =>
 
 test("doctor ingressChecks: cloudflared checks its binary and never demands ingress.url", () => {
   const has = () => true;
-  assert.deepEqual(ingressChecks({ type: "cloudflared" }, has), [{ ok: true, label: "cloudflared binary on PATH" }]);
+  assert.deepEqual(ingressChecks({ type: "cloudflared" }, has).map(({ ok, label }) => ({ ok, label })), [{ ok: true, label: "cloudflared binary on PATH" }]);
   assert.equal(ingressChecks({ type: "cloudflared" }, () => false)[0].ok, false);
   const half = ingressChecks({ type: "cloudflared", tunnel: "agenthook" }, has);
   assert.equal(half[1].ok, false);

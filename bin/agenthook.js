@@ -21,7 +21,7 @@
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook ticket add "<title>" [--body <text>|--file <path>] [--step <id>]  add a ticket (local profiles)
 //   agenthook ticket ls [--json]   the local board
-//   agenthook doctor               preflight checks for this profile
+//   agenthook doctor [--fix [--dry-run]]  preflight checks for this profile (--fix: apply safe local fixes)
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
 //   agenthook ui [--port <n>] [--no-open]  local web dashboard + editors (127.0.0.1 only)
 //   agenthook mcp [--read-only]    MCP server (stdio) for external agents — docs/mcp.md
@@ -124,7 +124,7 @@ usage: agenthook <command> [args] [--config <path>]
   ticket add "<title>" [--body <text> | --file <path>] [--step <id>]
                             add a ticket to a local profile's board (the receiver fires it at once)
   ticket ls [--json]        a local profile's board: ref, stage, title
-  doctor                    preflight checks
+  doctor [--fix [--dry-run]]  preflight checks; --fix applies the safe local fixes, then re-checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
