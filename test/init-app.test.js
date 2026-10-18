@@ -35,3 +35,21 @@ test("initForgeBlock: a github forge reuses the tracker's App auth instead of as
   assert.deepEqual(initForgeBlock("github", { repository: "o/r", _appAuth: auth }), { type: "github", repository: "o/r", auth });
   assert.deepEqual(initForgeBlock("github", { repository: "o/r", tokenEnv: "GITHUB_TOKEN" }), { type: "github", repository: "o/r", token: "${GITHUB_TOKEN}" });
 });
+
+test("loadEnv: reads a .env into process.env without clobbering an exported var (init relies on it for the tracker token)", async () => {
+  const { loadEnv } = await import("../src/config.js");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-env-"));
+  fs.writeFileSync(path.join(dir, ".env"), "AH_TEST_FROM_DOTENV=fromfile\nAH_TEST_EXPORTED=fromfile\n");
+  process.env.AH_TEST_EXPORTED = "exported";
+  try {
+    loadEnv(path.join(dir, ".env"));
+    assert.equal(process.env.AH_TEST_FROM_DOTENV, "fromfile");
+    assert.equal(process.env.AH_TEST_EXPORTED, "exported");
+  } finally {
+    delete process.env.AH_TEST_FROM_DOTENV;
+    delete process.env.AH_TEST_EXPORTED;
+  }
+});

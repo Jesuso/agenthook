@@ -14,7 +14,7 @@ import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js
 import { parseGitlabRemote, forgeOffer as gitlabForgeOffer, forgeBlock as gitlabForgeBlock } from "../forges/gitlab.js";
 import { installAh } from "./alias.js";
 import { firstFreePort } from "../port.js";
-import { registryDir } from "../config.js";
+import { registryDir, loadEnv } from "../config.js";
 import { tildify } from "../profile.js";
 
 /** @type {Record<string, string>} */
@@ -247,6 +247,11 @@ export async function init(args) {
     throw new Error(`${out} already exists. Re-run with --force to overwrite.`);
   }
   if (args.local) return initLocal(args, out);
+
+  // The wizard needs the live token to look up the workspace, and the prompts tell the user a .env
+  // is enough — so read it (shell-exported vars still win), as loadConfig does for every other command.
+  loadEnv(path.join(path.dirname(out), ".env"));
+  if (path.resolve(process.cwd()) !== path.dirname(out)) loadEnv(path.join(process.cwd(), ".env"));
 
   // --- core ---
   /** @type {Record<string, any>} */

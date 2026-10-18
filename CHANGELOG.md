@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- `agenthook init` now reads a `.env` beside the config (or in the current directory) for the tracker
+  token, as its own error message promised. Before, it only saw exported variables and refused with
+  "LINEAR_API_KEY is not set" even when the `.env` had it (#468).
+
 ## [0.9.0] — 2026-10-18
 
 ### Added
