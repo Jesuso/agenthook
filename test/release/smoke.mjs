@@ -339,7 +339,7 @@ async function upgradePhase(d) {
     tracker: { type: "local", pipeline: [step("code", { successStatus: "review", createsWorktree: true }), step("review", { successStatus: "done" }), { id: "done", manual: true, sourceStatus: "done", drainWorktree: true }] },
   };
   fs.writeFileSync(path.join(repo, "agenthook.config.json"), JSON.stringify(config, null, 2));
-  // A real profile has its standing instructions; doctor fails a step that would run without them.
+  // A real profile has its standing instructions; doctor warns about a step that would run without them.
   fs.writeFileSync(path.join(repo, "INSTRUCTIONS.md"), "Standing instructions for the upgrade smoke.\n");
   const old = path.join(oldPrefix, "bin", "agenthook");
   run(`${q(old)} start --detach`, d);

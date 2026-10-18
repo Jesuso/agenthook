@@ -16,6 +16,11 @@ when run with `--detach`) carries the routing lines quoted below — `[section]`
 `[assignee]`, `[reject]`, `[advance]`, `[coalesce]`. Grep those first; they say exactly what the
 engine decided.
 
+`agenthook doctor` lists what's wrong with the profile; `agenthook doctor --fix` repairs the safe,
+local problems it finds (state-dir permissions, a stale pidfile or control socket, missing
+instruction files, stale worktree entries) and says what it can't fix. Add `--dry-run` to see the
+plan first. It never edits `.env`, the config or webhooks.
+
 If a detached receiver died outright, check `~/.agenthook/<profile>/crash.json` — written by the
 uncaught-exception/rejection handler with the error, stack, and any refs that were mid-step.
 
@@ -35,11 +40,12 @@ process lifetime yourself (e.g. under your own service manager).
 
 ## "doctor is green but nothing happens when I move a task"
 
-The single most common cause. `doctor` validates the token, git repo, binaries, and port — **not**
-your section gids or the webhook. Check, in order:
+The single most common cause. `doctor` validates the token, git repo, binaries and port, and flags
+leftover `TODO_*` bindings — but not whether a real gid or status is the one you meant, nor the
+webhook. Check, in order:
 
-1. **TODO gids still in the config.** `init` leaves `sourceSectionGid: "TODO_..."`. If any remain,
-   no task position matches a step. Fill them ([asana-setup §3](asana-setup.md#3-section-gids--the-one-thing-you-fill-by-hand) / [jira-setup §2](jira-setup.md#2-statuses-are-your-sections)).
+1. **TODO gids still in the config.** `init` leaves `sourceSectionGid: "TODO_..."` where it couldn't
+   pick for you; doctor's "pipeline bindings filled" line names any that remain. Fill them ([asana-setup §3](asana-setup.md#3-section-gids--the-one-thing-you-fill-by-hand) / [jira-setup §2](jira-setup.md#2-statuses-are-your-sections)).
 2. **The section/status doesn't match a step.** The task must land in a section whose gid equals
    some step's `sourceSectionGid` (Asana) or whose name equals a `sourceStatus` (Jira, case-
    insensitive). A typo'd status name silently matches nothing.
