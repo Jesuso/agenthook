@@ -14,6 +14,7 @@ import { listWorktrees } from "../worktree.js";
 import { readProfile } from "../heartbeat.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 import { agentFor } from "../agents/index.js";
+import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
 
 /** Is a TCP port already bound on 127.0.0.1? @param {number} port */
 function portInUse(port) {
@@ -67,6 +68,34 @@ export function agentLints(cfg) {
     const d = agentFor(cfg, s).describe();
     if (d.stdout !== "text") continue;
     out.push({ level: "warn", label: `step "${s.id}" requires a verdict`, note: `${d.name} output is plain text — with requireVerdict:false a run that wrote no verdict file advances` });
+  }
+  return out;
+}
+
+/** Isolated hermes steps (the default) whose run would fail for want of credentials: the
+ * source `config.yaml` an isolated home copies is missing, or the step's provider (step →
+ * cfg.agentProvider → config.yaml `model.provider`) is not a local `providers:` entry.
+ * Pure given `readFile` (returns the text, or null when missing); an undecidable provider
+ * stays silent, like the run's own fail-open check.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'agentProvider'>} cfg
+ * @param {{sourceHome: string, readFile: (file: string) => string|null}} io
+ * @returns {{ level: 'warn', label: string, note: string }[]} */
+export function hermesLints(cfg, { sourceHome, readFile }) {
+  /** @type {{ level: 'warn', label: string, note: string }[]} */
+  const out = [];
+  const file = path.join(sourceHome, "config.yaml");
+  /** @type {string|null|undefined} */
+  let text;
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || s.isolated === false || s.env?.HERMES_HOME || agentFor(cfg, s).describe().name !== "hermes") continue;
+    if (text === undefined) text = readFile(file);
+    const label = `step "${s.id}" isolated hermes home`;
+    if (text === null) {
+      out.push({ level: "warn", label, note: `${file} is missing — the run will fail; create it or set isolated:false` });
+      continue;
+    }
+    const { effective, local } = hermesProviderInfo(text, s.provider ?? cfg.agentProvider);
+    if (local === false) out.push({ level: "warn", label, note: `provider "${effective}" is not a local providers: entry in ${file} — an isolated run has no credentials; use a local provider or set isolated:false` });
   }
   return out;
 }
@@ -196,6 +225,14 @@ export async function doctor(args) {
     warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");
   }
   for (const l of agentLints(cfg)) warn(l.label, l.note);
+  const readFile = (/** @type {string} */ f) => {
+    try {
+      return fs.readFileSync(f, "utf8");
+    } catch {
+      return null;
+    }
+  };
+  for (const l of hermesLints(cfg, { sourceHome: hermesSourceHome(), readFile })) warn(l.label, l.note);
 
   if (cfg.ingress.type === "ngrok") {
     add(onPath(process.env.NGROK || "ngrok"), "ngrok binary on PATH");

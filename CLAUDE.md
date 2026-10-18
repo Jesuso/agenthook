@@ -134,7 +134,9 @@ Key files:
   `result`/`sessionId`; optional `pushStderr` feeds stderr to the parser, e.g. hermes' `session_id:` line),
   `usageRecord(result|null, ctx)` (decides `unpriced`), `sessions`
   (`{transcriptDir, resumeCommand, files, cwdDirs}` or null — backs `follow`/`resume`/`sessions.js`, which union every agent the profile + its steps run; a null-`sessions` agent with an optional top-level `resumeCommand` — opencode — is resumed from `usage.jsonl` session ids instead), `defaults`
-  (`requireVerdict`/`bin`, under the step's). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →
+  (`requireVerdict`/`bin`, under the step's), optional `env({cfg,step})` (agent env under the step's `env`, also in `resume`)
+  and `preflight({cfg,step,provider})` (a reason fails the run with no spawn). Hermes steps are `isolated` by default
+  (`hermes-home.js`: own `HERMES_HOME` at `<stateDir>/hermes-home`, only `config.yaml` copied, local providers only). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →
   `cfg.agent` → `claude`); `names.js` = the import-free `AGENT_NAMES` the config schema + validation use.
 - `src/pipeline.js` + `src/worktree.js` — the pipeline (`tracker.pipeline[]`, **required**). A task
   entering a step's `sourceSectionGid` fires that step; a clean exit advances to `successSectionGid`

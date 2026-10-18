@@ -271,6 +271,23 @@ test("provider: unset or a non-empty string passes at the top level (agentProvid
   ]);
 });
 
+test("toolsets / isolated: valid shapes pass on a step; bad shapes and manual steps fail", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", toolsets: ["terminal", "file"], isolated: false }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", toolsets: null, isolated: true }])), { ok: true });
+  /** @param {any} r */
+  const errs = (r) => /** @type {any} */ (validateRawConfig(r)).errors;
+  const bad = `config: pipeline step "code" toolsets must be a non-empty array of non-empty strings.`;
+  assert.deepEqual(errs(raw({}, [{ id: "code", toolsets: "terminal" }])), [bad]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", toolsets: [] }])), [bad]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", toolsets: ["terminal", 5] }])), [bad]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", toolsets: [" "] }])), [bad]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", isolated: "yes" }])), [`config: pipeline step "code" isolated must be true or false.`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code" }, { id: "done", manual: true, toolsets: ["file"], isolated: false }])), [
+    `config: pipeline step "done" toolsets has no effect on a manual step (no agent runs).`,
+    `config: pipeline step "done" isolated has no effect on a manual step (no agent runs).`,
+  ]);
+});
+
 test("ui identity block: valid values pass, unknown colour / emoji / shape are errors", () => {
   assert.deepEqual(validateRawConfig(raw({ ui: { color: "teal", emoji: "🚀" } })), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ ui: {} })), { ok: true });

@@ -81,20 +81,25 @@ export function resumeArgs(cfg, session) {
  * How to resume one session: the binary + env of the step that ran it (a step `bin`/`env`
  * overrides the agent's default bin, else cfg.claudeBin / adds to process.env, as at spawn),
  * the printable command, and — when the step sets env — a note naming its keys only (values
- * may be secrets; never printed). Pure; exported for tests.
- * @param {Pick<import('../types.js').Config, 'agent'|'claudeBin'|'pipeline'>} cfg
+ * may be secrets; never printed). The agent's own env (`agent.env`, e.g. an isolated hermes
+ * step's HERMES_HOME — a path, not a secret) sits under the step's and is printed inline.
+ * Pure; exported for tests.
+ * @param {Pick<import('../types.js').Config, 'agent'|'claudeBin'|'pipeline'|'stateDir'|'dataDir'>} cfg
  * @param {{id: string, step: string, agent?: string}} session @param {string} wt  the worktree (the agent's cwd)
  * @returns {{bin: string, env: Record<string, string>|undefined, line: string, envNote: string|null}}
  */
 export function resumeCommand(cfg, session, wt) {
   const { step, agent } = sessionAgent(cfg, session);
   const bin = step?.bin ?? agent.defaults.bin ?? cfg.claudeBin;
-  const env = step?.env && Object.keys(step.env).length ? step.env : undefined;
+  const stepEnv = step?.env && Object.keys(step.env).length ? step.env : undefined;
+  const agentEnv = Object.fromEntries(Object.entries(agent.env?.({ cfg, step }) ?? {}).filter(([k]) => !stepEnv || !(k in stepEnv)));
+  const env = stepEnv || Object.keys(agentEnv).length ? { ...agentEnv, ...(stepEnv ?? {}) } : undefined;
+  const prefix = Object.entries(agentEnv).map(([k, v]) => `${k}=${v} `).join("");
   return {
     bin,
     env,
-    line: `cd ${wt} && ${[bin, ...resumeArgs(cfg, session)].join(" ")}   # ${session.step}`,
-    envNote: env ? `step "${session.step}" sets env ${Object.keys(env).join(", ")} for its agent — export them too (--exec does)` : null,
+    line: `cd ${wt} && ${prefix}${[bin, ...resumeArgs(cfg, session)].join(" ")}   # ${session.step}`,
+    envNote: stepEnv ? `step "${session.step}" sets env ${Object.keys(stepEnv).join(", ")} for its agent — export them too (--exec does)` : null,
   };
 }
 

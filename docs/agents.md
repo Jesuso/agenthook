@@ -26,7 +26,7 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 | | `claude` | `cursor` | `hermes` | `opencode` |
 |---|---|---|---|---|
 | Default binary | `claudeBin` (default `claude`) | `agent` | `hermes` | `opencode` |
-| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>]` | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] -- <prompt>` |
+| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>] --ignore-rules --source tool -t terminal,file` (isolated, the default; see [Hermes isolation](#hermes-isolation)) | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] -- <prompt>` |
 | Stdout | stream-json | stream-json | plain text | JSONL events |
 | Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (Hermes reports no usage) | yes, per model step (`step_finish`) |
 | Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` | priced only when OpenCode reports a non-zero cost, else `unpriced` |
@@ -96,6 +96,38 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   with no verdict file holds the task instead of advancing it. `ah doctor` warns when a Hermes
   step sets `requireVerdict: false`.
 
+### Hermes isolation
+
+Hermes steps are **isolated** by default (step `isolated`, default `true`), so one ticket can't
+read or write another ticket's Hermes memory or skills, or your own:
+
+- **Own home.** The agent runs with `HERMES_HOME=~/.agenthook/<stateKey>/hermes-home` (mode 0700),
+  shared by the profile's isolated hermes steps. Only your `config.yaml` is copied there (mode
+  0600), from `$HERMES_HOME` if the receiver has one, else `~/.hermes`. It is re-copied before
+  a run whenever its sha256 changes. Nothing else is copied: no `auth.json`, `.env`, memories,
+  skills, sessions or `state.db`. Sessions land in the isolated home's `state.db`, not yours.
+- **Minimal tools.** `-t terminal,file` by default. Set step `toolsets` (e.g.
+  `["terminal", "file", "web"]`) to change it. Dropping memory, skills, session_search, cron and
+  delegation cut a trivial task's prompt from about 15,500 to 5,200 input tokens.
+- **No user rules.** `--ignore-rules` skips `AGENTS.md`, `SOUL.md`, memory injection and
+  preloaded skills. `--source tool` keeps the run out of your session lists.
+- **Local providers only.** No credentials are copied, so an isolated run can only reach a
+  provider that needs none: a `providers:` entry in `config.yaml` whose URL is on loopback
+  (`127.0.0.1`, `localhost`, `::1`), e.g. Ollama. The effective provider is the step's `provider`,
+  else `agentProvider`, else `config.yaml`'s `model.provider`. If it is a cloud provider (e.g. an
+  `openai-codex` default), the run fails before any agent starts, with
+  `hermes step is isolated and has no credentials; use a local provider or set isolated:false`.
+  A missing `config.yaml` fails the same way:
+  `hermes step is isolated but <home>/config.yaml is missing; create it or set isolated:false`.
+  If agenthook can't tell from `config.yaml` (it reads it with a small built-in scanner), the run
+  goes ahead and Hermes reports any error itself. `ah doctor` warns about both cases ahead of time.
+- **Escape hatch.** `isolated: false` runs Hermes exactly as before: your real home, no
+  `--ignore-rules`/`--source`, and `-t` only if `toolsets` is set. Use it for a cloud provider. A
+  step `env` that sets `HERMES_HOME` also wins: agenthook then leaves that home to you.
+- **Resume.** `ah resume <ref>` lists Hermes sessions from the session ids in `usage.jsonl` and
+  prints `cd <worktree> && HERMES_HOME=<isolated home> hermes chat --resume <id>`; `--exec` sets
+  the same `HERMES_HOME`.
+
 ## Recipes
 
 ### A Cursor review step
@@ -137,8 +169,10 @@ Triage with Hermes (Nous Research's agent CLI). `model` is optional and passed t
 ```
 
 Leave `requireVerdict` unset (Hermes defaults it to `true`). Put the triage rules and the verdict
-format in the step's `instructionsFile`. Hermes runs have no transcripts, so `follow`/`resume`
-don't cover them; read the run log in the UI or `logs/` instead.
+format in the step's `instructionsFile`. Hermes runs have no transcripts, so `follow` doesn't cover
+them; read the run log in the UI or `logs/` instead. `ah resume` does (see
+[Hermes isolation](#hermes-isolation)). The step runs isolated, so it needs a local `provider`, or
+`isolated: false` for a cloud one.
 
 ### A local Qwen recipe (Hermes + Ollama)
 
@@ -155,7 +189,10 @@ provider — set `provider` so Hermes routes to it:
 ```
 
 No wrapper script needed (a step `bin` pointing at a shim that appended `--provider ollama-launch`
-was the only way to do this before `provider` existed). Memory note: a 17 GB-weights / 98K-context
+was the only way to do this before `provider` existed). The step runs [isolated](#hermes-isolation)
+by default, which suits a local model: `provider` must name the `providers:` entry in your
+`config.yaml` (here `ollama-launch` → `http://127.0.0.1:11434/v1`). Without it, the run falls
+back to your `config.yaml` default; if that is a cloud provider, the run fails before it starts. Memory note: a 17 GB-weights / 98K-context
 model got OOM-killed on a loaded machine — size `maxConcurrent` and the model's context to what
 the host actually has free.
 
@@ -185,7 +222,7 @@ An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`sr
 
 - `describe()` → `{name, stdout, promptFile?}`. `stdout` is `"stream-json"` or `"text"`.
   `promptFile: true` makes dispatch write the prompt to a file and pass it as `promptFile`.
-- `buildArgs({prompt, model, effort, provider, fullAuto, promptFile, maxMs})` → the argv after the binary. Drop
+- `buildArgs({prompt, model, effort, provider, fullAuto, promptFile, maxMs, toolsets, isolated})` → the argv after the binary. Drop
   unsupported options with a warning instead of passing them through.
 - `createParser()` → an incremental stdout parser: `push(chunk)` / `flush()` return log text, plus
   `tally`, `result` and `sessionId`. Optional `pushStderr` reads stderr (Hermes gets its session id
@@ -196,6 +233,10 @@ An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`sr
   An agent with `sessions: null` can still be resumed through an optional top-level
   `resumeCommand(id)`: `ah resume` then takes its session ids from `usage.jsonl` (OpenCode).
 - `defaults` → `{bin?, requireVerdict?}`. A step's own `bin`/`requireVerdict` wins.
+- Optional `env({cfg, step})` → extra environment for the agent, at spawn and in `ah resume`. A
+  step's own `env` wins over it (Hermes: the isolated `HERMES_HOME`).
+- Optional `preflight({cfg, step, provider})` → runs before spawn; a returned reason fails the run
+  without starting the agent (Hermes: prepares the isolated home and refuses a cloud provider).
 
 `src/agents/claude.js` documents the interface in full. Then:
 

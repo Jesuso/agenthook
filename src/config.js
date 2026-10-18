@@ -433,6 +433,20 @@ export function validateRawConfig(raw) {
         errors.push(`config: pipeline step "${sid}" provider has no effect on a manual step (no agent runs).`);
       }
     }
+    if (step.toolsets != null) {
+      if (!Array.isArray(step.toolsets) || !step.toolsets.length || step.toolsets.some((/** @type {unknown} */ t) => typeof t !== "string" || !t.trim())) {
+        errors.push(`config: pipeline step "${sid}" toolsets must be a non-empty array of non-empty strings.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" toolsets has no effect on a manual step (no agent runs).`);
+      }
+    }
+    if (step.isolated != null) {
+      if (typeof step.isolated !== "boolean") {
+        errors.push(`config: pipeline step "${sid}" isolated must be true or false.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" isolated has no effect on a manual step (no agent runs).`);
+      }
+    }
     if (step.env != null) {
       if (typeof step.env !== "object" || Array.isArray(step.env)) {
         errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);

@@ -236,7 +236,7 @@ test("listSessions: an opencode step in a claude profile — transcripts + usage
 
 test("lookedIn: an agent with neither transcripts nor a resume argv keeps its plain error", async (t) => {
   const { getAgent } = await import("../src/agents/index.js");
-  AGENTS.blind = { ...getAgent("hermes"), describe: () => ({ name: "blind", stdout: "text" }) };
+  AGENTS.blind = { ...getAgent("hermes"), resumeCommand: undefined, describe: () => ({ name: "blind", stdout: "text" }) };
   t.after(() => delete AGENTS.blind);
   const cfg = /** @type {any} */ ({ repoPath: "/b/solo", worktreePrefix: "/b/wt", agent: "blind", pipeline: [{ id: "code" }] });
   assert.equal(lookedIn(cfg, "1", undefined), "blind runs have no transcripts to follow/resume");

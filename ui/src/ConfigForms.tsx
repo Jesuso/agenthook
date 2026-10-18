@@ -834,6 +834,8 @@ export function PipelineForm(
       </div>
       {steps.map((s, i) => {
         const at = (k: string) => stepPath(i, k);
+        // provider / isolated / toolsets are hermes-only keys: shown on a hermes step, or once set
+        const isHermes = (s.agent ?? (props.raw as any)?.agent ?? "claude") === "hermes";
         const isOpen = open.has(i);
         const errs = errors.get(i) ?? [];
         const incomplete = errs.length > 0 && pristine.has(i);
@@ -1005,9 +1007,9 @@ export function PipelineForm(
                       <SelectField {...edit} path={at("agent")} value={s.agent} />
                       <TextField {...edit} path={at("bin")} value={s.bin} />
                       <EnvField {...edit} i={i} env={s.env} />
-                      {(((s.agent ?? (props.raw as any)?.agent ?? "claude") === "hermes") || s.provider !== undefined) && (
-                        <TextField {...edit} path={at("provider")} value={s.provider} />
-                      )}
+                      {(isHermes || s.provider !== undefined) && <TextField {...edit} path={at("provider")} value={s.provider} />}
+                      {(isHermes || s.isolated !== undefined) && <CheckField {...edit} path={at("isolated")} value={s.isolated} defaultValue={true} />}
+                      {(isHermes || s.toolsets !== undefined) && <StringListField {...edit} path={at("toolsets")} value={s.toolsets} />}
                     </div>
                     <EscalateGroup {...edit} i={i} step={s} />
                     <LiteGroup {...edit} i={i} step={s} />

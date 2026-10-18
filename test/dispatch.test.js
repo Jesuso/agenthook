@@ -194,7 +194,7 @@ test("runStep passes step.provider (over cfg.agentProvider) and maxMs through to
   const argvOut = path.join(dir, "argv.txt");
   fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
   const cfg = /** @type {any} */ ({
-    pipeline: [{ id: "code", agent: "hermes", bin, provider: "ollama-launch", maxMinutes: 2 }],
+    pipeline: [{ id: "code", agent: "hermes", bin, provider: "ollama-launch", maxMinutes: 2, isolated: false }],
     agent: "hermes",
     agentProvider: "openai-codex",
     claudeBin: bin,
@@ -232,7 +232,7 @@ test("runStep falls back to cfg.agentProvider when the step sets no provider", a
   const argvOut = path.join(dir, "argv.txt");
   fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
   const cfg = /** @type {any} */ ({
-    pipeline: [{ id: "code", agent: "hermes", bin }],
+    pipeline: [{ id: "code", agent: "hermes", bin, isolated: false }],
     agent: "hermes",
     agentProvider: "openai-codex",
     claudeBin: bin,
