@@ -4,10 +4,12 @@
 // ephemeral flag to decide whether to scrub stale webhooks on boot.
 import { createNgrokIngress } from "./ngrok.js";
 import { createManualIngress } from "./manual.js";
+import { createCloudflaredIngress } from "./cloudflared.js";
 
 /** @type {Record<string, import('../types.js').IngressFactory>} */
 export const INGRESS = {
   ngrok: createNgrokIngress,
+  cloudflared: createCloudflaredIngress,
   manual: createManualIngress,
   hosted: createManualIngress, // alias: a static, externally-managed URL
 };

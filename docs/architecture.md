@@ -144,8 +144,8 @@ A comment triggers a resume only when **all** of these hold. Anything uncertain 
 log line:
 
 - the author is **exactly the tracker identity** agenthook runs as (Asana `userGid`, GitHub the
-  token's login). This check is independent of `assigneeFilter`, and an unset/unresolvable identity
-  rejects every comment (fail-closed);
+  token's login, Jira the token's `/myself` accountId). This check is independent of
+  `assigneeFilter`, and an unset/unresolvable identity rejects every comment (fail-closed);
 - the body starts with `trigger` (agents are told never to start their own comments with it);
 - the item passes the normal assignee gate;
 - the item has a held record naming a non-manual step;
@@ -153,8 +153,9 @@ log line:
   bounds a self-trigger loop.
 
 Any run of any step for the item consumes the held record, as do `fail` and the drain step. Supported
-on **Asana** (story `comment_added`) and **GitHub** labels (`issue_comment`). Not yet on Jira or
-GitHub Projects; there, resume by moving the item back to the step's source status.
+on **Asana** (story `comment_added`), **GitHub** labels (`issue_comment`) and **Jira**
+(`comment_created`). Not yet on GitHub Projects; there, resume by moving the item back to the step's
+source status.
 
 ### File-overlap guard (`overlapGuard`, opt-in)
 

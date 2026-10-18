@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Jira supports the `@agent` resume: an `@agent …` comment from the token owner on a held issue
+  re-runs the held step with the reply in its prompt, behind the same fail-closed gate as Asana and
+  GitHub. Tick **Comment → created** on the hand-made Jira webhook to enable it (#447).
+
 ### Fixed
 
 - A control socket path over the OS limit (a long `AGENTHOOK_HOME` or profile name) now refuses to

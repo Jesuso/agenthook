@@ -417,8 +417,8 @@ export function sectionFields(section: "tracker" | "forge" | "ingress", trackerT
   return { common: list.filter((e) => !e.advanced), advanced: list.filter((e) => e.advanced) };
 }
 
-/** The keys each ingress adapter reads (src/ingress/ngrok.js, manual.js); the rest stay in the file, hidden. */
-const INGRESS_KEYS: Record<string, string[]> = { ngrok: ["authtoken", "domain", "webAddr"], manual: ["url"], hosted: ["url"] };
+/** The keys each ingress adapter reads (src/ingress/ngrok.js, cloudflared.js, manual.js); the rest stay in the file, hidden. */
+const INGRESS_KEYS: Record<string, string[]> = { ngrok: ["authtoken", "domain", "webAddr"], cloudflared: ["tunnel", "hostname"], manual: ["url"], hosted: ["url"] };
 
 /** `sectionFields("ingress")` narrowed to what the effective ingress type reads; an unknown type shows none. */
 export function ingressFields(type: string): { common: SchemaEntry[]; advanced: SchemaEntry[] } {
