@@ -8,6 +8,11 @@ Code agent picks it up *the instant it lands*, works in its own git worktree, op
 and hands the ticket to the next stage — all while you do something else. agenthook is the
 receiver, the pipeline and the dashboard that make that safe to leave running.
 
+![A real run: init --local, start, ticket add, the dashboard as the ticket goes code → review → done, then the diff](docs/img/quickstart.gif)
+
+**Try it in five commands — no token, no tunnel:** [docs/quickstart.md](docs/quickstart.md).
+(Also as [MP4](docs/img/quickstart.mp4); a real `claude -p` run, waits sped up.)
+
 ![Needs you, Now and Progress for one profile](docs/img/ui-overview.png)
 
 ## What it solves
@@ -27,8 +32,8 @@ goes only where a human is actually needed.
   side without colliding. One receiver per project, any number of projects at once.
 - **Your attention, boiled down.** The web UI shows what **needs you** (held questions, failures,
   PRs waiting to merge), what is **running now**, and how the day is going — one project at a time.
-- **Works with the tools you have.** Asana, Jira, GitHub Issues and GitHub Projects v2 today;
-  ngrok or your own HTTPS endpoint for ingress. Each is one small adapter, so more are easy to add.
+- **Works with the tools you have.** Asana, Jira, GitHub Issues and GitHub Projects v2 today, or
+  a local board with no account at all; ngrok or your own HTTPS endpoint for ingress. Each is one small adapter, so more are easy to add.
 
 ```
  move to a stage         webhook POST            route to step        headless `claude -p`
