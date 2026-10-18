@@ -61,11 +61,11 @@
  * @property {string} [failureSectionGid]      Asana: move here on a failed/interrupted run
  * @property {string} [holdSectionGid]         Asana: move here on `hold` (waiting on a human); absent → leave in place
  * @property {string} [queueSectionGid]        Asana: opt-in queue stage (backlog section) this step pulls from, in section order, when a slot frees
- * @property {string} [sourceStatus]           Jira: entering this status fires the step (status name)
- * @property {string} [successStatus]          Jira: transition here on a clean finish (advance)
- * @property {string} [failureStatus]          Jira: transition here on a failed/interrupted run
- * @property {string} [holdStatus]             Jira: transition here on `hold`; absent → leave in place
- * @property {string} [queueStatus]            Jira / github-projects / local: opt-in queue stage (backlog status) this step pulls from, in board order, when a slot frees
+ * @property {string} [sourceStatus]           Jira / github-projects / local / Linear: entering this status (Linear: team workflow state) fires the step (status name)
+ * @property {string} [successStatus]          Jira / github-projects / local / Linear: move here on a clean finish (advance)
+ * @property {string} [failureStatus]          Jira / github-projects / local / Linear: move here on a failed/interrupted run
+ * @property {string} [holdStatus]             Jira / github-projects / local / Linear: move here on `hold`; absent → leave in place
+ * @property {string} [queueStatus]            Jira / github-projects / local / Linear: opt-in queue stage (backlog status) this step pulls from, in board order, when a slot frees
  * @property {string} [sourceLabel]            GitHub: an issue carrying this label fires the step
  * @property {string} [successLabel]           GitHub: swap to this label on a clean finish (advance)
  * @property {string} [failureLabel]           GitHub: swap to this label on a failed/interrupted run
@@ -335,7 +335,7 @@
  * @property {string} [site]              Jira: site shortname ("<site>.atlassian.net"); or set baseUrl
  * @property {string} [baseUrl]           Jira: full base URL (overrides site)
  * @property {string} [email]             Jira: account email for Basic auth (typically a "${JIRA_EMAIL}" ref)
- * @property {string|false} [webhookSecret]  Jira/GitHub: explicit webhook signing secret; omit to let agenthook generate+store one; false disables verification
+ * @property {string|false} [webhookSecret]  Jira/GitHub/Linear: explicit webhook signing secret; omit to let agenthook generate+store one; false disables verification
  * @property {string} [projectKey]        Jira: project key whose statuses drive the pipeline (e.g. "CAHUI")
  * @property {string} [assigneeAccountId] Jira: the bot's accountId — scope work to its issues
  * @property {string} [repository]         GitHub: "owner/name" whose issue labels drive the pipeline
@@ -343,6 +343,7 @@
  * @property {string} [repo]               GitHub: repo name (alternative to repository)
  * @property {string} [assigneeLogin]      GitHub / github-projects: the bot's login — scope work to its issues (else derived from /user or GraphQL viewer)
  * @property {string} [project]            github-projects: the Projects v2 board as "owner/number" or its URL, whose Status field drives the pipeline
+ * @property {string} [team]  Linear: team key or URL whose workflow states drive the pipeline
  * @property {Step[]} [pipeline]  the ordered steps; a task entering a step's source section fires it
  * @property {string} [routeField]  name of the tracker field whose value(s) become Task.routeKeys (multi-repo routing; read by the adapter)
  * @property {string} [epicType]  Asana/GitHub/github-projects/Jira: the custom type name (Asana) / issue type name (GitHub, Projects v2, Jira) an epic is tagged with (Asana, GitHub, Projects v2 default "Epic"; Jira default = the project issue type at hierarchy level 1)
@@ -353,11 +354,13 @@
  * The ingress config block (`ingress` in agenthook.config.json). `type` selects the
  * adapter; the rest are adapter-specific options (already env-interpolated).
  * @typedef {object} IngressConfig
- * @property {string} type           ingress adapter key ("ngrok" | "manual" | "hosted")
+ * @property {string} type           ingress adapter key ("ngrok" | "cloudflared" | "manual" | "hosted")
  * @property {string} [url]          static public base URL (manual/hosted)
  * @property {string} [authtoken]    ngrok authtoken ("${NGROK_AUTHTOKEN}")
  * @property {string} [domain]       ngrok reserved domain (makes the URL stable)
  * @property {string} [webAddr]      ngrok local web-API address (default 127.0.0.1:4040)
+ * @property {string} [tunnel]       cloudflared named tunnel name or UUID (blank = quick tunnel)
+ * @property {string} [hostname]     cloudflared: public hostname routed to the named tunnel
  */
 
 /** What an ingress adapter reports about itself.
@@ -374,8 +377,8 @@
  * @property {() => import('./wizard.js').WizardStep[]} [wizardSteps]
  */
 
-/** A factory `(cfg) => Ingress`.
- * @typedef {(cfg: Config) => Ingress} IngressFactory */
+/** A factory `(cfg) => Ingress`. `timeoutMs` bounds a managed tunnel's startup (cloudflared; tests shorten it).
+ * @typedef {(cfg: Config, opts?: { timeoutMs?: number }) => Ingress} IngressFactory */
 
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
  * push() chunks, flush() the tail at EOF, then read `result` / `sessionId`.

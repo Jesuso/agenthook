@@ -7,6 +7,25 @@ Set by `ingress.type` in the config; the server owns its lifecycle (brings the t
 
 - **`ngrok`** — managed tunnel, URL rotates each boot (so agenthook scrubs + re-registers the
   webhook on every `start`). A reserved `domain` makes it stable. Needs `NGROK_AUTHTOKEN`.
+- **`cloudflared`** — managed Cloudflare Tunnel, one `cloudflared` process per profile (no shared
+  local API, so parallel profiles don't collide). Two modes:
+  - **quick** (leave `tunnel` / `hostname` blank) — no Cloudflare account; a
+    `https://<random>.trycloudflare.com` URL that rotates each boot (scrub + re-register on every
+    `start`, like ngrok). Quick tunnels refuse to start when `~/.cloudflared/config.yml` exists —
+    move it aside or use a named tunnel.
+  - **named** (`ingress.tunnel` = tunnel name or UUID, `ingress.hostname` = its public hostname) —
+    a stable `https://<hostname>`, so no re-register churn. Creating the tunnel and its DNS route is
+    yours to do once:
+    ```bash
+    cloudflared tunnel login
+    cloudflared tunnel create agenthook
+    cloudflared tunnel route dns agenthook hook.example.com
+    ```
+    then set `"ingress": { "type": "cloudflared", "tunnel": "agenthook", "hostname": "hook.example.com" }`.
+
+  The binary comes from `CLOUDFLARED` or `PATH` (`brew install cloudflared`, `winget install --id
+  Cloudflare.cloudflared`, or Cloudflare's apt repo). Its output goes to `<stateDir>/logs/cloudflared.log`;
+  `start` fails if the tunnel isn't connected within 30s.
 - **`hosted`** (alias `manual`) — you front the receiver (`127.0.0.1:<port>`) with anything
   giving a stable HTTPS URL (Caddy, Cloudflare Tunnel, a load balancer) and set
   `ingress.url`. Stable URL → no re-register churn. Best for parallel/production.
@@ -32,8 +51,8 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | `quota` | Optional, default off. Claude quota pacing: `{ "pauseAboveSevenDay": 0.9, "pauseAboveFiveHour": 0.95 }`, each a utilization fraction in (0, 1]. When a Claude run's reading is at or above a window's threshold, new runs stop starting (running agents finish) until that window resets. A key you leave out never pauses. See [Claude quota](operating.md#claude-quota-readout-and-pacing). |
 | `agent` | The coding-agent CLI steps run: `claude` (default), `cursor`, `hermes` or `opencode`. A step's own `agent` overrides it. See [Agents](agents.md). |
 | `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` = agents prompt for permission. |
-| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), or `github-projects` (Projects v2 board columns); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). |
-| `ingress` | `{ type, … }` — `ngrok` / `hosted`; type-specific options. |
+| `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), `github-projects` (Projects v2 board columns), or `linear` (a team's workflow states — see [linear-setup.md](linear-setup.md)); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). |
+| `ingress` | `{ type, … }` — `ngrok` / `cloudflared` / `hosted`; type-specific options. |
 
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.

@@ -482,3 +482,120 @@ test("listEpics is [] when the project has no level-1 type, and on an API error 
     console.log = log;
   }
 });
+
+// --- the `@agent` comment trigger (comment_created → resume the held step) ---
+
+const heldPipeline = [
+  { id: "triage", sourceStatus: "Triage", successStatus: "To Do", failureStatus: "Blocked", holdStatus: "Held" },
+  { id: "code", sourceStatus: "To Do", successStatus: "In Review", failureStatus: "Blocked", holdStatus: "Held" },
+];
+
+/** Adapter over a store stub whose held record / attempt count the test controls. "Us" is
+ * derived from /myself (no assigneeAccountId), so each case runs under `withJira`'s stub.
+ * @param {{pc?: object, held?: any, ran?: number}} [o] */
+function commentAdapter({ pc = {}, held = { stepId: "triage", heldAt: "2026-10-18T00:00:00.000Z" }, ran = 1 } = {}) {
+  const store = { ...makeStore(), getHeld: () => held, getAttempt: () => ran };
+  const providerConfig = { type: "jira", token: "t", site: "acme", email: "bot@x.com", webhookSecret: false, ...pc };
+  return createJiraAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: heldPipeline, providerConfig }), /** @type {any} */ (store));
+}
+
+/** A comment_created delivery (Jira abbreviates `issue.fields` here — no assignee).
+ * @param {{author?: string, body?: string, id?: string}} [o] */
+function commentEvt({ author = "acc-bot", body = "@agent use Postgres", id = "10042" } = {}) {
+  const ev = { webhookEvent: "comment_created", issue: { key: "PROJ-7", fields: { summary: "S" } }, comment: { id, body, author: { accountId: author } } };
+  return /** @type {any} */ ({ rawBody: JSON.stringify(ev), headers: {} });
+}
+
+/** Run `fn` with a fake Jira: /myself → `me` (or a 500 when null), the fresh assignee fetch of
+ * PROJ-7 → `assignee`. Returns the request URLs alongside fn's result.
+ * @template T @param {{me?: string|null, assignee?: string}} o @param {() => Promise<T>} fn */
+async function withJira({ me = "acc-bot", assignee = "acc-bot" }, fn) {
+  /** @type {string[]} */
+  const urls = [];
+  const orig = global.fetch;
+  const log = console.log;
+  const error = console.error;
+  console.log = () => {};
+  console.error = () => {};
+  // @ts-ignore - test stub
+  global.fetch = async (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (u.endsWith("/myself")) return /** @type {any} */ (me ? { ok: true, status: 200, json: async () => ({ accountId: me }) } : { ok: false, status: 500, json: async () => ({}) });
+    if (u.includes("/issue/PROJ-7?fields=assignee")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ fields: { assignee: { accountId: assignee } } }) });
+    return /** @type {any} */ ({ ok: false, status: 404, json: async () => ({}) });
+  };
+  try {
+    return { result: await fn(), urls };
+  } finally {
+    global.fetch = orig;
+    console.log = log;
+    console.error = error;
+  }
+}
+
+test("comment_created: an owner's @agent reply on a held issue resumes the held step", async () => {
+  const { result, urls } = await withJira({}, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, [{ kind: "pipeline", ref: "PROJ-7", stepId: "triage", dedupKey: "trigger:10042", comment: "@agent use Postgres" }]);
+  assert.ok(urls.some((u) => u.includes("/issue/PROJ-7?fields=assignee")), "the assignee is fetched fresh, not read off the payload");
+});
+
+test("comment_created: a leading-whitespace trigger still matches", async () => {
+  const { result } = await withJira({}, () => commentAdapter().processEvents(commentEvt({ body: "  \n@agent go" })));
+  assert.equal(result.length, 1);
+  assert.equal(result[0].comment, "  \n@agent go");
+});
+
+test("comment_created: a non-owner author yields no job — including with assigneeFilter:false", async () => {
+  for (const pc of [{}, { assigneeFilter: false }]) {
+    const { result } = await withJira({}, () => commentAdapter({ pc }).processEvents(commentEvt({ author: "acc-mallory" })));
+    assert.deepEqual(result, [], JSON.stringify(pc));
+  }
+});
+
+test("comment_created: an unresolvable /myself fails closed (no job)", async () => {
+  const { result } = await withJira({ me: null }, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, []);
+});
+
+test("comment_created: no held record, or the held step at its attempt cap, yields no job", async () => {
+  assert.deepEqual((await withJira({}, () => commentAdapter({ held: null }).processEvents(commentEvt()))).result, []);
+  assert.deepEqual((await withJira({}, () => commentAdapter({ ran: 3 }).processEvents(commentEvt()))).result, []);
+});
+
+test("comment_created: a body not starting with the trigger yields no job", async () => {
+  const { result, urls } = await withJira({}, () => commentAdapter().processEvents(commentEvt({ body: "thanks @agent, use Postgres" })));
+  assert.deepEqual(result, []);
+  assert.deepEqual(urls, [], "a non-trigger comment costs no API call");
+});
+
+test("comment_created: an issue assigned to someone else yields no job (fresh ownedByUs fetch)", async () => {
+  const { result } = await withJira({ assignee: "acc-other" }, () => commentAdapter().processEvents(commentEvt()));
+  assert.deepEqual(result, []);
+});
+
+test("comment_created: a duplicate delivery of the same comment carries the same dedupKey", async () => {
+  const a = commentAdapter();
+  const { result } = await withJira({}, async () => [...(await a.processEvents(commentEvt())), ...(await a.processEvents(commentEvt()))]);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].dedupKey, result[1].dedupKey);
+  assert.equal(result[0].dedupKey, "trigger:10042");
+});
+
+test("issue_updated for a comment (issue_commented, no status changelog) yields no job", async () => {
+  const ev = { webhookEvent: "jira:issue_updated", issue_event_type_name: "issue_commented", issue: { key: "PROJ-7", fields: {} }, comment: { id: "1", body: "@agent go", author: { accountId: "acc-bot" } } };
+  assert.deepEqual(await routed().processEvents(/** @type {any} */ ({ rawBody: JSON.stringify(ev) })), []);
+});
+
+test("registerWebhook's manual setup lists Comment → created", async () => {
+  /** @type {string[]} */
+  const out = [];
+  const log = console.log;
+  console.log = (/** @type {any} */ s) => out.push(String(s));
+  try {
+    await routed().registerWebhook("https://example.test");
+  } finally {
+    console.log = log;
+  }
+  assert.match(out.join("\n"), /Comment → created/);
+});

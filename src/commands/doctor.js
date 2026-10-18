@@ -1,6 +1,6 @@
 // `agenthook doctor` — preflight a profile before you trust it. Loads the config,
 // then checks the things that silently break a run: missing token, repoPath not a
-// git repo, agent/ngrok binaries absent, port already taken, ingress misconfigured.
+// git repo, agent/tunnel binaries absent, port already taken, ingress misconfigured.
 // Multi-repo profiles also get routing lints; ⚠ warnings print but don't fail the run.
 // (Duplicate repo ids / paths / route keys and >1 default are already fatal in loadConfig.)
 // `--fix` applies the safe, local, idempotent fixes a ✗/⚠ check carries, then re-checks.
@@ -158,6 +158,24 @@ export function forgeLints(cfg) {
   return [{ level: "warn", label: "forge configured", note: "no forge block — merge/CI events will not arrive" }];
 }
 
+/** The ingress preflight: a managed tunnel needs its binary on PATH (cloudflared also both or
+ * neither of tunnel/hostname); a static ingress needs ingress.url.
+ * @param {import('../types.js').IngressConfig} ingress @param {(bin: string) => boolean} [has]
+ * @returns {{ ok: boolean, label: string, note?: string, manual: string }[]} */
+export function ingressChecks(ingress, has = onPath) {
+  if (ingress.type === "ngrok") return [{ ok: has(process.env.NGROK || "ngrok"), label: "ngrok binary on PATH", manual: "install ngrok or put it on PATH (or set $NGROK)" }];
+  if (ingress.type === "cloudflared") {
+    /** @type {{ ok: boolean, label: string, note?: string, manual: string }[]} */
+    const checks = [{ ok: has(process.env.CLOUDFLARED || "cloudflared"), label: "cloudflared binary on PATH", manual: "install cloudflared or put it on PATH (or set $CLOUDFLARED)" }];
+    if (ingress.tunnel || ingress.hostname) {
+      const ok = !!ingress.tunnel && !!ingress.hostname;
+      checks.push({ ok, label: "cloudflared named tunnel: tunnel + hostname both set", note: ok ? "" : `missing ingress.${ingress.tunnel ? "hostname" : "tunnel"}`, manual: "set both ingress.tunnel and ingress.hostname, or neither for a quick tunnel" });
+    }
+    return checks;
+  }
+  return [{ ok: !!ingress.url, label: `ingress.url set (${ingress.type})`, note: ingress.url || "missing", manual: "set ingress.url in the config" }];
+}
+
 /** Whether a busy port is this profile's own receiver (info, not a problem) or a real
  * conflict (fail). Pure.
  * @param {{ port: number, busy: boolean, profile: { up: boolean, pid: number, heartbeatPort?: number|null } }} args
@@ -283,7 +301,7 @@ export function instructionLints(cfg) {
   for (const t of instructionTargets(cfg)) {
     if (t.scope === "soul" || fs.existsSync(t.path)) continue;
     out.push({
-      level: "fail",
+      level: "warn", // a warning, not a ✗: configs that ran this way before must not start failing doctor
       label: `instructions file exists: ${t.path}`,
       note: `missing — ${t.scope === "repo" ? "repo" : "step"} ${t.ids.join(", ")} would run with empty standing instructions`,
       fix: {
@@ -469,11 +487,7 @@ export async function runChecks(cfg, io = {}) {
   };
   for (const l of hermesLints(cfg, { sourceHome: hermesSourceHome(), readFile })) warn(l.label, l.note);
 
-  if (cfg.ingress.type === "ngrok") {
-    add(have(process.env.NGROK || "ngrok"), "ngrok binary on PATH", undefined, { manual: "install ngrok or put it on PATH (or set $NGROK)" });
-  } else {
-    add(!!cfg.ingress.url, `ingress.url set (${cfg.ingress.type})`, cfg.ingress.url || "missing", { manual: "set ingress.url in the config" });
-  }
+  for (const c of ingressChecks(cfg.ingress, have)) add(c.ok, c.label, c.note, { manual: c.manual });
 
   const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });

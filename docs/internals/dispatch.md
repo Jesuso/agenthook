@@ -46,5 +46,5 @@ the comment as `job.comment` (appended to the prompt). Gate (all required, fail-
 **strictly** = our tracker identity (independent of `assigneeFilter` — never reuse `isOurs`), body
 starts with the trigger, the item passes the assignee gate, `store.getHeld(ref)` names a non-manual
 step, and that step is under its `maxAttempts` cap (agent and owner share one token, so the cap
-bounds self-triggering). Adapter-neutral half: `resumeJob` in `src/pipeline.js`. Asana + GitHub
-labels only; Jira / Projects v2 not yet.
+bounds self-triggering). Adapter-neutral half: `resumeJob` in `src/pipeline.js`. Asana, GitHub
+labels and Jira (`comment_created`); Projects v2 not yet.

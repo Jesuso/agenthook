@@ -24,7 +24,10 @@
 //     one-time manual setup instructions and unregisterWebhooks is a no-op. The
 //     hand-made webhook URL can't rotate, so run behind a STABLE ingress
 //     (ngrok reserved domain, or a hosted URL) — never an ephemeral tunnel.
+//   - `@agent` resume: a `comment_created` from our own accountId (strict — see
+//     isOwner) on a held issue re-runs the held step with the comment in its prompt.
 import crypto from "node:crypto";
+import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { checkOwner, MoveRefusedError } from "./owner.js";
 
 // Epics (ADR 0005): Jira has them natively. An issue IS an epic when its issue type sits at
@@ -285,6 +288,19 @@ export function createJiraAdapter(cfg, store) {
       return false;
     }
   }
+  /** Is this comment author the token owner? STRICT and independent of assigneeFilter
+   * (unlike isOurs): an `@agent` resume only counts from our own identity. An
+   * unresolvable /myself fails closed. @param {string|null|undefined} id @returns {Promise<boolean>} */
+  async function isOwner(id) {
+    if (!id) return false;
+    try {
+      const me = await ourAccountId();
+      return !!me && id === me;
+    } catch (e) {
+      console.error(`[myself] could not resolve our accountId (failing closed):`, e.message);
+      return false;
+    }
+  }
   /** @param {string} id */
   const stepById = (id) => pipeline?.find((s) => s.id === id);
   /** @param {string|null|undefined} status → the step whose sourceStatus an issue now rests in */
@@ -341,6 +357,28 @@ export function createJiraAdapter(cfg, store) {
     });
   }
 
+  /** The `@agent` comment trigger for a comment_created event. Emits a resume job only
+   * when ALL hold (anything uncertain → no job): the body starts with cfg.trigger, the
+   * author is our accountId (strict — assigneeFilter:false does NOT open this up), a
+   * FRESH assignee fetch says the issue is ours (a comment payload's `issue.fields` may
+   * be abbreviated), and it is held on a runnable step still under its attempt cap
+   * (resumeJob). Dedup: `trigger:<comment.id>`.
+   * @param {any} ev @param {string} key @returns {Promise<import('../types.js').Job[]>} */
+  async function resumeFromComment(ev, key) {
+    const c = ev.comment;
+    if (c?.id == null || !startsWithTrigger(cfg.trigger, c.body)) return [];
+    if (!(await isOwner(c.author?.accountId))) {
+      console.log(`[trigger] ${key}: comment ${c.id} not by our account — ignoring`);
+      return [];
+    }
+    if ((await ownedByUs(key)) !== "ours") {
+      console.log(`[trigger] ${key}: not assigned to us — ignoring`);
+      return [];
+    }
+    const job = resumeJob(cfg, store, key, String(c.id), c.body);
+    return job ? [job] : [];
+  }
+
   // The project's workflow statuses — live. Flattens issue-type groups and dedups by
   // name (the binding key). Shared by the init wizard's stage picks and listStages.
   /** @param {string} base @param {string} auth @param {string|undefined} projectKey @returns {Promise<import('../types.js').StageOption[]>} */
@@ -386,6 +424,10 @@ export function createJiraAdapter(cfg, store) {
     //   jira:issue_updated → only when the changelog carries a `status` change;
     //                        route to the step matching the NEW status (changelog
     //                        `toString`), deduped by the unique changelog id.
+    //   comment_created    → the `@agent` resume of a held issue (resumeFromComment;
+    //                        key `trigger:<comment.id>`). Gated by its own strict
+    //                        author + fresh assignee checks, so it runs before the
+    //                        payload-assignee gate (a comment payload may omit it).
     async processEvents({ rawBody }) {
       let ev;
       try {
@@ -402,6 +444,7 @@ export function createJiraAdapter(cfg, store) {
       const delivery = ev.changelog?.id ?? `${ev.webhookEvent}:${key}:${ev.timestamp ?? ""}`;
       /** @type {import('../types.js').Job[]} */
       const epicJobs = epicChangesFromEvent(ev, epicType).map((epicKey) => ({ kind: "epic_changed", ref: epicKey, stepId: "", dedupKey: `epic:${delivery}:${epicKey}` }));
+      if (ev.webhookEvent === "comment_created") return [...epicJobs, ...(await resumeFromComment(ev, key))];
       if (!(await isOurs(issue.fields?.assignee?.accountId))) {
         if (epicJobs.length === 0) console.log(`[assignee] skip ${key} — not assigned to us`);
         return epicJobs;
@@ -605,6 +648,7 @@ export function createJiraAdapter(cfg, store) {
           `         Settings → System → WebHooks → Create a WebHook`,
           `           URL:    ${target}`,
           `           Events: Issue → created, updated, deleted (deleted only feeds the epic view)`,
+          `                   Comment → created (the @agent resume of a held issue)`,
           secret
             ? `           Secret: ${secret}`
             : `           Secret: (none — verification disabled via "webhookSecret": false)`,

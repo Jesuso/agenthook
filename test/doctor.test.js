@@ -408,11 +408,11 @@ test("doctor --fix: a missing instruction file (and its dir) → created from IN
   assert.equal(fs.readFileSync(target, "utf8"), fs.readFileSync(path.join(cfg.installDir, "INSTRUCTIONS.example.md"), "utf8"));
 });
 
-test("doctor --fix: a missing instruction file is ✗ (runs get empty instructions); the SOUL file is never checked", async () => {
+test("doctor --fix: a missing instruction file is ⚠ (runs get empty instructions); the SOUL file is never checked", async () => {
   const { cfg, root } = cleanProfile();
   fs.rmSync(path.join(root, "INSTRUCTIONS.md"));
   const lints = instructionLints(cfg);
-  assert.deepEqual(lints.map((l) => [l.level, l.label]), [["fail", `instructions file exists: ${path.join(root, "INSTRUCTIONS.md")}`]]);
+  assert.deepEqual(lints.map((l) => [l.level, l.label]), [["warn", `instructions file exists: ${path.join(root, "INSTRUCTIONS.md")}`]]);
   assert.ok(!fs.existsSync(cfg.digest.soul), "no SOUL.md, yet no lint for it");
 });
 

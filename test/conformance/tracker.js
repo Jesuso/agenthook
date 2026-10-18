@@ -12,14 +12,16 @@
 //   refs                      { ours, notOurs? } — `ours` is assigned to us and rests in pipeline[1]'s
 //                             source stage; `notOurs` (assigneeScoped only) rests there too, assigned
 //                             to someone else
-//   webhooks, handshake, assigneeScoped   capability flags; a false flag SKIPS (reported as skipped)
-//                             the checks that need it — the suite never special-cases a tracker
+//   webhooks, handshake, assigneeScoped, resume   capability flags; a false flag SKIPS (reported as
+//                             skipped) the checks that need it — the suite never special-cases a tracker
 //   setup?(env)               seed state before the adapter is built (board file, handshake secret)
 //   fetch?(url, init, env)    the fake tracker API (undefined → 404). Absent = the adapter must make
 //                             NO network call at all (any fetch fails the check)
 //   signedRequest(env) / badSignatureRequest(env) / handshakeRequest(env)  → EventCtx
 //   ourEvent(env)             → { ctx, expect: {stepId, ref} } — a delivery for `ours`
 //   notOursEvent(env)         → EventCtx — the same delivery for `notOurs`
+//   commentEvent(env, {author: "owner"|"other", body})  (resume only) → EventCtx — a new comment on
+//                             `ours` with that body, by our own identity ("owner") or someone else
 //   stageOf(env, ref)         the stage the adapter's LAST move wrote for `ref` (read off env.calls or
 //                             the board), or null when it never moved it
 //
@@ -201,6 +203,32 @@ export function checkFailClosedOnLookupError(fixture) {
   );
 }
 
+/** With resume: an owner `@agent` comment on `ours`, held on pipeline[1], yields exactly one
+ * pipeline job resuming that step (dedupKey `trigger:…`, comment = the body); the same comment
+ * with no held record yields none. @param {any} fixture */
+export async function checkResume(fixture) {
+  const body = `${fixture.makeCfg().trigger} the answer is 42`;
+  await withEnv(fixture, async (env) => {
+    const { step } = steps(env);
+    const ref = fixture.refs.ours;
+    env.store.setHeld(ref, { stepId: step.id });
+    const jobs = await env.adapter.processEvents(fixture.commentEvent(env, { author: "owner", body }));
+    for (const j of jobs) checkJob(j, env.cfg, fixture.name);
+    const pipelineJobs = jobs.filter((/** @type {any} */ j) => j.kind === "pipeline");
+    assert.equal(pipelineJobs.length, 1, `${fixture.name}: an owner @agent comment on a held item must yield exactly one pipeline job, got ${JSON.stringify(jobs)}`);
+    const [j] = pipelineJobs;
+    assert.equal(j.ref, ref, `${fixture.name}: the resume job must name ${ref}`);
+    assert.equal(j.stepId, step.id, `${fixture.name}: the resume job must re-run the held step ${step.id}`);
+    assert.ok(j.dedupKey.startsWith("trigger:"), `${fixture.name}: the resume dedupKey must be trigger:-prefixed, got ${j.dedupKey}`);
+    assert.equal(j.comment, body, `${fixture.name}: the resume job must carry the comment body`);
+  });
+  await withEnv(fixture, async (env) => {
+    const jobs = await eventsOrNone(env, fixture.commentEvent(env, { author: "owner", body }));
+    const pipelineJobs = jobs.filter((/** @type {any} */ j) => j.kind === "pipeline");
+    assert.equal(pipelineJobs.length, 0, `${fixture.name}: an @agent comment with no held record must yield no pipeline job, got ${JSON.stringify(pipelineJobs)}`);
+  });
+}
+
 /** advance(ref, step, verdict) lands in the stage each outcome maps to: advance → success,
  * fail → failure, hold → hold, changes(target) → the target's source. @param {any} fixture */
 export async function checkAdvance(fixture) {
@@ -364,6 +392,7 @@ export function runTrackerConformance(fixture) {
     const why = await checkFailClosedOnLookupError(fixture);
     if (why) t.skip(why);
   });
+  test(`${n}: an owner @agent comment resumes the held step`, { skip: noWebhooks || unless(fixture.resume, "no @agent resume") }, () => checkResume(fixture));
   test(`${n}: advance moves to the stage each verdict maps to`, () => checkAdvance(fixture));
   test(`${n}: advance refuses a not-ours item with MoveRefusedError`, { skip: notScoped }, () => checkAdvanceRefusesNotOurs(fixture));
   test(`${n}: fetchTask returns a Task`, () => checkFetchTask(fixture));

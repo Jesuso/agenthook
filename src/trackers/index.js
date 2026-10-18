@@ -6,9 +6,11 @@ import { createJiraAdapter } from "./jira.js";
 import { createGithubAdapter } from "./github.js";
 import { createGithubProjectsAdapter } from "./github-projects.js";
 import { createLocalAdapter } from "./local.js";
+import { createLinearAdapter } from "./linear.js";
 
 // GitHub has no board sections, so it drives the pipeline off issue LABELS (see github.js).
-// github-projects instead drives off a Projects v2 board's Status field (see that file).
+// github-projects instead drives off a Projects v2 board's Status field (see that file);
+// linear off one team's workflow states (see linear.js).
 /** @type {Record<string, import('../types.js').AdapterFactory>} */
 export const TRACKERS = {
   asana: createAsanaAdapter,
@@ -16,6 +18,7 @@ export const TRACKERS = {
   github: createGithubAdapter,
   "github-projects": createGithubProjectsAdapter,
   local: createLocalAdapter,
+  linear: createLinearAdapter,
 };
 
 /**
