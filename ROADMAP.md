@@ -40,7 +40,7 @@ agent, forge), event-driven with no implicit polling, and fail-closed assignee s
 
 ## Milestones
 
-### 0.8 — Stabilize and land
+### 0.8 — Stabilize and land ✅ shipped 2026-10-18 (epic #412)
 
 *Goal: a stranger goes from `npm i -g` to a finished agent run in under five minutes, on a codebase
 that is easier to change. Feature freeze outside this list.*
@@ -58,11 +58,15 @@ that is easier to change. Feature freeze outside this list.*
 - **Slim `CLAUDE.md`**: a short core plus per-area internals docs.
 - **Release discipline**: weekly cadence, a release checklist, and a config-compatibility policy
   (deprecation warnings before a key changes meaning).
-- **Launch**: a short demo recording and an announcement post.
+- **Launch**: a short demo recording and an announcement post (drafted; posting moved to 0.9).
 
-### 0.9 — Reach
+### 0.9 — Reach (epic #453)
 
 *Goal: fit the stacks people actually use, with stable URLs and fewer manual steps.*
+
+Launch is split around it: a small post (r/ClaudeAI, the Claude Code Discord) once the first batch
+lands, for feedback that can reorder the rest; the Show HN post once 0.9 ships, so a visitor's
+stack is more likely covered on their first look.
 
 - **Linear** tracker.
 - **cloudflared** and **Tailscale Funnel** ingress (stable URLs; removes the one-tunnel ngrok limit).
