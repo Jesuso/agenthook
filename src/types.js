@@ -41,7 +41,7 @@
  * @property {boolean} [manual]                no agent; entering the step only runs system actions
  * @property {boolean} [completeOnMerge]       manual steps only, at most one: a forge merge event moves the task INTO this step (then marks it completed)
  * @property {string} [model]                  per-step `claude --model` override
- * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step reasoning-effort override (claude `--effort`, hermes `--reasoning`; cursor ignores it)
+ * @property {'low'|'medium'|'high'|'xhigh'|'max'} [effort]  per-step reasoning-effort override (claude `--effort`, hermes `--reasoning`, opencode `--variant`; cursor ignores it)
  * @property {string} [agent]                  agent adapter this step spawns (src/agents/; default cfg.agent, else "claude")
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
@@ -404,6 +404,7 @@
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume
+ * @property {(sessionId: string) => string[]} [resumeCommand]  resume argv (after the binary) for an agent with `sessions: null` whose session ids come from usage.jsonl (opencode)
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  */
 

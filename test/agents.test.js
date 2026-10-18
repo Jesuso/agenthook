@@ -76,6 +76,16 @@ test("a hermes agent (prompt via --query-file) is attributed through its running
   assert.equal(agentMatcher(["hermes"]).test("hermes chat -Q"), false);
 });
 
+test("an opencode agent (`opencode run --format json … <prompt>`) is listed with its step and ref", () => {
+  const line = `  80004 01:02 /home/x/.opencode/bin/opencode run --format json --auto -m ollama/qwen3.8:27b-64k You are working the "code" stage of a GitHub issue Ref: 390`;
+  assert.deepEqual(parsePsAgents(line), []);
+  assert.deepEqual(parsePsAgents(line, ["claude", "opencode"]).map((r) => [r.pid, r.step, r.ref]), [["80004", "code", "390"]]);
+  // a hand-run `opencode run` (default format) or the TUI isn't the receiver's shape
+  assert.equal(agentMatcher(["opencode"]).test("opencode run hello"), false);
+  assert.equal(agentMatcher(["opencode"]).test("opencode -s ses_1"), false);
+  assert.equal(agentMatcher(["opencode"]).test("bash -c echo xopencode run --format json"), false);
+});
+
 test("default scope: only the active profile's agents (refs in its running.json)", () => {
   const rows = selectAgents(PS, [DOGFOOD, ALEPH], { active: "agenthook-dogfood" });
   assert.equal(rows.length, 1);

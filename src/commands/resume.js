@@ -28,9 +28,21 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 /** @param {number} ms */
 const iso = (ms) => new Date(ms).toISOString();
 
-/** Count a ref's session transcripts across every agent's dir (0 if none exist).
+/** Count a ref's sessions (transcripts + usage.jsonl ones; 0 if none exist).
  * @param {import('../types.js').Config} cfg @param {string} ref @param {any} store */
-const sessionCount = (cfg, ref, store) => sessionDirs(cfg, ref, store).reduce((n, { sessions, dir }) => n + sessions.files(dir).length, 0);
+const sessionCount = (cfg, ref, store) => listSessions(cfg, ref, store).length;
+
+/** Where listSessions looked, for the "no session" error: the transcript dirs, else (no agent
+ * of the profile keeps transcripts) the agents' plain error, or usage.jsonl when one resumes from it.
+ * @param {import('../types.js').Config} cfg @param {string} ref @param {any} store */
+export function lookedIn(cfg, ref, store) {
+  try {
+    return `looked in ${sessionDirs(cfg, ref, store).map((d) => d.dir).join(", ")}`;
+  } catch (e) {
+    const agents = [agentFor(cfg), ...(cfg.pipeline ?? []).filter((s) => !s.manual).map((s) => agentFor(cfg, s))];
+    return agents.some((a) => a.resumeCommand) ? "looked in usage.jsonl" : e.message;
+  }
+}
 
 /** Pick a session by exact id, unique prefix, or 1-based list index.
  * @param {{id:string, step:string}[]} sessions @param {string} sel */
@@ -55,11 +67,14 @@ function sessionAgent(cfg, session) {
   return { step, agent: session.agent ? getAgent(session.agent) : agentFor(cfg, step) };
 }
 
-/** The resume argv (after the binary) for one session, from the agent that wrote it.
- * Throws for an agent with no transcripts.
+/** The resume argv (after the binary) for one session, from the agent that wrote it: its
+ * transcripts' `resumeCommand`, else its top-level one (no transcripts, ids from usage.jsonl).
+ * Throws for an agent with neither.
  * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg @param {{id: string, step: string, agent?: string}} session */
 export function resumeArgs(cfg, session) {
-  return agentSessions(sessionAgent(cfg, session).agent).resumeCommand(session.id);
+  const { agent } = sessionAgent(cfg, session);
+  const cmd = agent.sessions?.resumeCommand ?? agent.resumeCommand;
+  return cmd ? cmd(session.id) : agentSessions(agent).resumeCommand(session.id);
 }
 
 /**
@@ -110,7 +125,7 @@ export async function resume(args) {
   }
 
   const sessions = listSessions(cfg, ref, store);
-  if (!sessions.length) throw new Error(`no recorded agent session for ref ${ref} (looked in ${sessionDirs(cfg, ref, store).map((d) => d.dir).join(", ")})`);
+  if (!sessions.length) throw new Error(`no recorded agent session for ref ${ref} (${lookedIn(cfg, ref, store)})`);
   const wt = worktreePath(cfg, ref, refRepo(cfg, ref, store));
   const present = fs.existsSync(wt);
 
