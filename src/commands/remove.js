@@ -57,7 +57,9 @@ export async function removeProfile({
     throw new Error(`remove: "${p.name}" is running — --purge needs a stopped receiver; run \`agenthook remove ${p.name}\` (archive) or stop it first`);
   }
 
-  const configPath = p.heartbeat?.configPath ?? readMarker(p.dir)?.configPath ?? null;
+  const marker = readMarker(p.dir);
+  const configPath = p.heartbeat?.configPath ?? marker?.configPath ?? null;
+  const hooks = marker?.webhooks !== false;
   const root = archiveRoot(registry);
   log(`profile "${p.name}" (state key "${p.stateKey}")`);
   log(`  state dir:  ${p.dir}`);
@@ -67,7 +69,7 @@ export async function removeProfile({
   if (purge) log("  --purge:    the archived copy is then PERMANENTLY deleted");
   if (p.up) {
     log(keepHooks ? "  webhooks:   kept (--keep-hooks)" : "  webhooks:   the receiver unregisters them before it exits");
-  } else if (!keepHooks) {
+  } else if (!keepHooks && hooks) {
     log(unregisterHint(configPath, "before removing, while the state is still in place"));
   }
   noteWorktrees(p.up ? p.heartbeat?.repos : reposFromConfig(configPath), configPath, log);
@@ -83,7 +85,7 @@ export async function removeProfile({
 
   const { archivedTo } = archiveStateDir({ stateKey: p.stateKey, registry, reason: "remove", source: "cli" });
   log(`archived ${p.dir} → ${archivedTo}`);
-  if (!keepHooks) {
+  if (!keepHooks && hooks) {
     log(
       `${unregisterHint(configPath, "after moving the archive back")} — unregister needs the state dir (it refuses a ` +
         `never-started profile), so move ${archivedTo} back to ${path.join(registry, p.stateKey)}${path.sep} first, then ` +
