@@ -12,9 +12,13 @@ Release when it's worth it — **at most weekly**. No release train, no deadline
 2. Bump the version: `npm version <minor|patch> --no-git-tag-version` (or edit `package.json` +
    `package-lock.json` by hand).
 3. Open a release PR titled `chore(release): x.y.z`. Merge it.
-4. Tag the merge commit: `git tag vX.Y.Z` and push the tag.
-5. `npm publish --otp <code>` — runs `prepublishOnly` (`typecheck`, `test`, `build:ui`).
-6. Create a GitHub Release from the tag, using the CHANGELOG section as the release notes.
+4. Run the release smoke on the merge commit with the **real** agent — CI already runs it with the
+   stub on every PR: `npm run release:smoke -- --agent claude --upgrade-from latest` (a few cents of
+   model use; it installs the packed tarball into a temp prefix and walks the quickstart, the CLI's
+   own remedy hints, restart and teardown). Anything it flags blocks the tag.
+5. Tag the merge commit: `git tag vX.Y.Z` and push the tag.
+6. `npm publish --otp <code>` — runs `prepublishOnly` (`typecheck`, `test`, `build:ui`).
+7. Create a GitHub Release from the tag, using the CHANGELOG section as the release notes.
 
 ## Config compatibility policy
 

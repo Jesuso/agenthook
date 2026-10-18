@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- A control socket path over the OS limit (a long `AGENTHOOK_HOME` or profile name) now refuses to
+  start with a clear message; before, Node silently bound a truncated path and the CLI reported a
+  running receiver as down (#439).
+
+### Internal
+
+- Release smoke (`npm run release:smoke`, `test/release/smoke.mjs`): installs the packed tarball
+  into a temp prefix and runs `docs/quickstart.md` verbatim, the failure tour, the CLI's own remedy
+  hints, restart, teardown and an upgrade, with a stub agent. Runs in CI on every PR;
+  `--agent claude` before a release (see RELEASING.md).
+
 ## [0.8.0] — 2026-10-18
 
 Stabilize and land (epic #412): a first run needs no tracker token and no tunnel, and the two

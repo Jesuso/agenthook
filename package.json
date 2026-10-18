@@ -24,7 +24,8 @@
     "build:ui": "vite build ui",
     "typecheck:ui": "tsc -p ui --noEmit",
     "test:ui": "vitest run --root ui",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build:ui"
+    "prepublishOnly": "npm run typecheck && npm test && npm run build:ui",
+    "release:smoke": "node test/release/smoke.mjs"
   },
   "engines": {
     "node": ">=22"

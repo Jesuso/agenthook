@@ -46,3 +46,23 @@ jobs:
           # @tailwindcss/node; it never lands in ui/dist, so it's excluded by
           # name rather than widening --onlyAllow. Any other non-allowlisted
           # license still fails this step.
+
+  # The packed tarball, installed like a user would, running docs/quickstart.md verbatim with a
+  # stub agent, plus the failure tour, the CLI's own remedy hints, restart, teardown and an
+  # upgrade from the latest published version. See test/release/smoke.mjs.
+  release-smoke:
+    runs-on: ubuntu-latest
+    name: release smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run release:smoke -- --upgrade-from latest --json release-smoke.json
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke
+          path: release-smoke.json
