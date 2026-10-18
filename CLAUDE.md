@@ -25,6 +25,7 @@ from cwd); `--config <path>` selects one explicitly.
 
 ```bash
 node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd)
+node bin/agenthook.js init --local [--yes] [--full-auto] [--name <n>]  # zero-setup local-board profile in this git repo (no token/tunnel)
 node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress)
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
 node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --move also moves the state dir (at idle if running)
@@ -40,6 +41,8 @@ node bin/agenthook.js register <url>     # manual webhook create (hosted/static 
 node bin/agenthook.js unregister         # delete this profile's webhooks
 node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through the live server
 node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections (explicit poll)
+node bin/agenthook.js ticket add "<title>" [--body <t>|--file <p>] [--step <id>]  # local profiles: add a ticket (receiver up → `ticket_add` op over control.sock)
+node bin/agenthook.js ticket ls [--json] # local profiles: the board (ref, stage, title)
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
 node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink beside the agenthook bin)
 node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashboard (127.0.0.1, token→cookie; no config)
@@ -120,7 +123,9 @@ Key files:
   the local `queue.json`), optional `openBlockers(ref)` (unresolved blockers, fail-open; `dispatch.js`
   re-checks it at run time so a dependency added while a job waited in the local queue still gates it),
   optional `onJobs(emit)` (an in-process event source — `local` only, no webhooks: the engine wires a
-  sink at boot; `createPushSink` parks a ref's pushed job until its current run settles).
+  sink at boot; `createPushSink` parks a ref's pushed job until its current run settles), optional
+  `createTask({name, description?, stepId?})` (`local` only: add one item under the next numeric ref and push
+  its `step:<id>:<ref>` job — `agenthook ticket add`).
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
   static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
@@ -242,8 +247,8 @@ Key files:
   (minus per-day `velocity.days`) or `epicsError`. `mcp/server.js` is a zero-dep stdio JSON-RPC MCP transport, `mcp/tools.js` the tool
   table (`--read-only` unlists + refuses every write). Live-only reads (`board`, `prs`) and all writes go
   over `control.sock` to `ops.js` (`createOps`, wired in `engine.js`, passed to `startControl({commands})`):
-  `pause/resume/set_concurrency/cancel/run/release/reconcile/pull`, each audited to `control-audit.jsonl`
-  (0600, comment text never logged), refusals exposed to the caller (`e.expose`). `cancel` = `queue.remove`
+  `pause/resume/set_concurrency/cancel/run/release/reconcile/pull/ticket_add`, each audited to `control-audit.jsonl`
+  (0600, comment/body text never logged), refusals exposed to the caller (`e.expose`). `cancel` = `queue.remove`
   + `runClaude.cancel(ref)` (SIGTERM→SIGKILL; resolves as `fail`, "cancelled by operator"). `release`
   reuses `resumeJob` (the `@agent` gate); `run` is `agenthook run`'s move incl. `entryBlock`. Forge
   `listAgentPrs` (github) backs `prs`. The read `epics` (`{ref?, fresh?, tz?}`) lists every epic + its tickets

@@ -13,6 +13,12 @@ All notable changes to this project are documented here. The format is based on
   least one minor release before the change).
 - `ah doctor` and `ah ui` warn (⚠) when the built `ui/dist` bundle is missing or older than
   `ui/src` — previously a stale bundle was served silently.
+- **Zero-setup quickstart** ([docs/quickstart.md](docs/quickstart.md)): `agenthook init --local`
+  scaffolds a local-board profile (code → review → done) in the current git repo with no tracker
+  token and no tunnel; `agenthook ticket add "<title>" [--body|--file] [--step]` adds a ticket
+  (through the running receiver's new `ticket_add` control op, so the step fires at once) and
+  `agenthook ticket ls` lists the board. `fullAuto` stays off unless you pass `--full-auto` or
+  answer yes. `doctor` no longer flags the missing token on a local profile.
 
 ## [0.7.0] — 2026-10-18
 

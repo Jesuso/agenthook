@@ -39,7 +39,7 @@ const JOB_KINDS = new Set(["pipeline", "merge", "ci", "ci_green", "epic_changed"
 const STAGE_KEY_NAMES = ["source", "success", "failure", "hold", "queue"];
 const OPTIONAL = [
   "enterStage", "currentStage", "listQueued", "openBlockers", "ownership", "forgeCatchup", "listStages",
-  "listEpics", "listEpicTickets", "complete", "ensureLabels", "wizardSteps", "pipelineBindings",
+  "listEpics", "listEpicTickets", "complete", "ensureLabels", "wizardSteps", "pipelineBindings", "createTask",
 ];
 
 /**

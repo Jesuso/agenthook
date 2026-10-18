@@ -137,6 +137,9 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   with the receiver up goes **through the live receiver** (its `run` control op) so the push lands
   in the receiver's process; with it down the item just rests in the stage until `reconcile`.
   `currentStage` reports only pipeline-bound stages, so an item in e.g. `backlog` can be `run`.
+  `createTask` (local only) adds one item under the next numeric ref at a step's source stage and
+  pushes its `step:<id>:<ref>` job — `agenthook ticket add`, via the `ticket_add` control op when
+  the receiver is up.
   Unwired (no engine), nothing is pushed: the offline driver `docs/experiments/run-sweep.mjs` still
   drives the pipeline by polling `listResting()`.
 

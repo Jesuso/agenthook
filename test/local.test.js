@@ -278,3 +278,50 @@ test("currentStage: null for an unbound stage, the stage for a pipeline-bound on
   // A backlog item has not entered the pipeline, so it is not completed (ops `run` would refuse it).
   assert.equal((await a.fetchTask("B1")).completed, false);
 });
+
+// ── Single-item add (createTask — `agenthook ticket add`) ─────────────────────
+
+test("createTask: next numeric ref at the first non-manual step's source; unwired pushes nothing", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "E1", name: "named ref" }, { ref: "7", name: "seven" }], "code");
+  const a = adapter(cfg);
+  const r = await /** @type {any} */ (a.createTask)({ name: "  add a thing ", description: "why" });
+  assert.deepEqual(r, { ref: "8", stage: "triage", stepId: "triage" });
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  assert.deepEqual(board["8"], { name: "add a thing", description: "why", url: "local://8", stage: "triage" });
+  assert.equal(board.E1.name, "named ref", "the rest of the board is kept (not a reseed)");
+  assert.equal(fs.existsSync(path.join(cfg.dataDir, "local-seq.json")), false);
+});
+
+test("createTask: an empty board starts at ref 1; concurrent adds never share a ref", async () => {
+  const cfg = makeCfg();
+  const a = /** @type {any} */ (adapter(cfg));
+  const refs = await Promise.all([a.createTask({ name: "a" }), a.createTask({ name: "b" }), a.createTask({ name: "c" })]);
+  assert.deepEqual(refs.map((r) => r.ref), ["1", "2", "3"]);
+  assert.equal(Object.keys(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"))).length, 3);
+});
+
+test("createTask: with a sink, pushes exactly one created-in-stage job after the write", async () => {
+  const cfg = makeCfg();
+  const { a, pushed } = wired(cfg);
+  /** @type {any[]} */
+  const stagesAtPush = [];
+  a.onJobs?.((jobs) => {
+    pushed.push(...jobs);
+    stagesAtPush.push(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"))[jobs[0].ref]?.stage);
+  });
+  const r = await /** @type {any} */ (a.createTask)({ name: "x", stepId: "code" });
+  assert.deepEqual(r, { ref: "1", stage: "code", stepId: "code" });
+  assert.deepEqual(pushed, [{ kind: "pipeline", ref: "1", stepId: "code", dedupKey: "step:code:1" }]);
+  assert.deepEqual(stagesAtPush, ["code"], "the board already holds the item when its job is pushed");
+});
+
+test("createTask: --step review lands in review; a manual or unknown step throws, writing nothing", async () => {
+  const cfg = makeCfg();
+  const a = /** @type {any} */ (adapter(cfg));
+  assert.equal((await a.createTask({ name: "x", stepId: "review" })).stage, "review");
+  await assert.rejects(() => a.createTask({ name: "y", stepId: "done" }), /manual/);
+  await assert.rejects(() => a.createTask({ name: "y", stepId: "nope" }), /no step "nope"/);
+  await assert.rejects(() => a.createTask({ name: "  " }), /needs a name/);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"))), ["1"]);
+});

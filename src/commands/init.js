@@ -12,6 +12,7 @@ import { INGRESS } from "../ingress/index.js";
 import { FORGES } from "../forges/index.js";
 import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
 import { installAh } from "./alias.js";
+import { firstFreePort } from "../port.js";
 
 /** @type {Record<string, string>} */
 const DEFAULT_TOKEN_ENV = { asana: "ASANA_TOKEN", jira: "JIRA_API_TOKEN", github: "GITHUB_TOKEN", "github-projects": "GITHUB_TOKEN" };
@@ -47,12 +48,142 @@ function blockFromAnswers(type, ans) {
   return block;
 }
 
+/** @param {string} base the branch agent worktrees start from */
+const LOCAL_CODE_INSTRUCTIONS = (base) => `# Standing instructions — \`code\` step
+
+You are an autonomous coding agent working in an isolated git worktree of this repo, on its own
+branch (started from \`${base}\`). The task is appended below the \`=== TICKET ===\` marker.
+
+- Make the smallest change that does what the task asks. Match the surrounding code's style.
+- Stay in scope: don't reformat, rename or "tidy" unrelated code.
+- If the repo has tests, run them and make them pass.
+- Commit your work on this branch with a clear message. Don't push and don't open a PR — the
+  branch is the deliverable.
+- If the task is unclear or unsafe to do unattended, write a \`hold\` verdict with your question
+  instead of guessing.
+`;
+
+/** @param {string} base the branch agent worktrees start from */
+const LOCAL_REVIEW_INSTRUCTIONS = (base) => `# Standing instructions — \`review\` step
+
+You review a change another agent made in this worktree. The task is appended below the
+\`=== TICKET ===\` marker.
+
+- Read everything the branch adds over its base: \`git log --oneline ${base}..HEAD\` and
+  \`git diff ${base}...HEAD\`, plus \`git diff\` for anything left uncommitted.
+- Check the change does what the task asks, stays in scope, and doesn't break anything. If the
+  repo has tests, run them.
+- Don't edit code. Report problems as a \`changes\` verdict with concrete findings; a correct,
+  safe change \`advance\`s.
+`;
+
+/**
+ * The `init --local` scaffold, pure: a local-tracker profile (code → review → done, no token,
+ * no tunnel) plus its two starter instruction files (paths relative to the config's dir).
+ * @param {{repoRoot: string, name: string, port: number, fullAuto: boolean, base?: string}} o
+ * @returns {{config: Record<string, any>, files: Record<string, string>}}
+ */
+export function localScaffold({ repoRoot, name, port, fullAuto, base = "main" }) {
+  const lanes = { failureStatus: "blocked", holdStatus: "held" };
+  return {
+    config: {
+      name,
+      repoPath: repoRoot,
+      maxConcurrent: 2,
+      port,
+      fullAuto,
+      claudeBin: "claude",
+      // Nothing calls this URL (the local tracker registers no webhook); it only satisfies manual.up().
+      ingress: { type: "manual", url: `http://127.0.0.1:${port}` },
+      tracker: {
+        type: "local",
+        pipeline: [
+          { id: "code", kind: "implement", sourceStatus: "code", successStatus: "review", ...lanes, createsWorktree: true, instructionsFile: "./INSTRUCTIONS_CODE.md" },
+          { id: "review", kind: "review", sourceStatus: "review", successStatus: "done", ...lanes, instructionsFile: "./INSTRUCTIONS_REVIEW.md" },
+          { id: "done", manual: true, sourceStatus: "done", drainWorktree: true },
+        ],
+      },
+    },
+    files: { "INSTRUCTIONS_CODE.md": LOCAL_CODE_INSTRUCTIONS(base), "INSTRUCTIONS_REVIEW.md": LOCAL_REVIEW_INSTRUCTIONS(base) },
+  };
+}
+
+/** A profile name from free text: [A-Za-z0-9._-] only. @param {string} raw */
+export function sanitizeName(raw) {
+  return String(raw).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "local";
+}
+
+/** @param {string} cwd @param {string[]} gitArgs @returns {string|null} */
+function gitOut(cwd, gitArgs) {
+  try {
+    return execFileSync("git", gitArgs, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `agenthook init --local`: a zero-setup profile on the local tracker — no tracker token, ingress
+ * or forge wizard. One summary confirmation (--yes skips it) and a separate fullAuto opt-in that
+ * defaults to No: only an interactive "y" or --full-auto enables it, never --yes.
+ * @param {any} args @param {string} out
+ */
+async function initLocal(args, out) {
+  const hint = "init --local must run inside a git repository (git init && git commit first)";
+  const repoRoot = gitOut(process.cwd(), ["rev-parse", "--show-toplevel"]);
+  if (!repoRoot || gitOut(repoRoot, ["rev-parse", "--verify", "HEAD"]) == null) throw new Error(hint); // worktrees need a HEAD; the CLI exits 1
+  const base = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "origin/HEAD"])?.replace(/^origin\//, "") || gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
+  const name = sanitizeName(typeof args.name === "string" ? args.name : path.basename(repoRoot));
+  const port = await firstFreePort(4123);
+
+  console.log(`\nagenthook init --local`);
+  console.log(`  repo    ${repoRoot}`);
+  console.log(`  name    ${name}  (state dir ~/.agenthook/${name})`);
+  console.log(`  port    ${port}`);
+  console.log(`  steps   code → review → done  (local board, no token, no tunnel)`);
+  console.log(`  config  ${out}`);
+  if (!args.yes) {
+    const { ok } = await runWizard([{ key: "ok", message: "Write this profile?", type: "confirm", default: true }]);
+    if (!ok) return console.log("aborted — nothing written.");
+  }
+  let fullAuto = args["full-auto"] === true;
+  if (!fullAuto && !args.yes) {
+    ({ fullAuto } = await runWizard([
+      { key: "fullAuto", message: "fullAuto: run claude with --dangerously-skip-permissions (UNSANDBOXED code exec in this repo, no permission prompts)?", type: "confirm", default: false },
+    ]));
+  }
+
+  const { config, files } = localScaffold({ repoRoot, name, port, fullAuto: !!fullAuto, base });
+  fs.writeFileSync(out, JSON.stringify(config, null, 2) + "\n");
+  console.log(`\nwrote ${out}`);
+  for (const [file, text] of Object.entries(files)) {
+    const p = path.join(path.dirname(out), file);
+    if (fs.existsSync(p)) console.log(`kept existing ${p}`);
+    else {
+      fs.writeFileSync(p, text);
+      console.log(`wrote ${p}`);
+    }
+  }
+  if (!config.fullAuto) {
+    console.warn(
+      `\n[warn] fullAuto is off: the code step can't edit files unless this repo's .claude/settings.json ` +
+        `allows Edit/Write/Bash, or you re-run \`agenthook init --local --force --full-auto\` (see docs/sandbox.md).`,
+    );
+  }
+  console.log(`\nNext:`);
+  console.log(`  agenthook start --detach           # boot the receiver`);
+  console.log(`  agenthook ticket add "<what to do>" # the code step fires at once`);
+  console.log(`  agenthook ui                       # watch it (or: agenthook events --follow)`);
+  console.log(`  git log -p HEAD..agent/<ref>       # the result, once it reaches done`);
+}
+
 /** @param {any} args */
 export async function init(args) {
   const out = args.config ? path.resolve(args.config) : path.join(process.cwd(), "agenthook.config.json");
   if (fs.existsSync(out) && !args.force) {
     throw new Error(`${out} already exists. Re-run with --force to overwrite.`);
   }
+  if (args.local) return initLocal(args, out);
 
   // --- core ---
   /** @type {Record<string, any>} */

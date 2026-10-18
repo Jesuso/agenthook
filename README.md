@@ -118,13 +118,33 @@ every field is in [docs/configuration.md](docs/configuration.md).
 ## Install
 
 Requires Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
-ngrok ingress — [`ngrok`](https://ngrok.com). Plus a tracker API token.
+ngrok ingress — [`ngrok`](https://ngrok.com). Plus a tracker API token, except for the local
+quickstart below.
 
 ```bash
 npm i -g @jesuso/agenthook   # installs the `agenthook` command; or run ad-hoc with `npx @jesuso/agenthook <cmd>`
 ```
 
 ## Quickstart
+
+**Try it first — no token, no tunnel.** In any git repo with a commit, a local board drives a
+ticket through code → review → done ([docs/quickstart.md](docs/quickstart.md)):
+
+```bash
+cd ~/my-project
+agenthook init --local            # local-board profile; fullAuto stays off unless you opt in
+agenthook start --detach
+agenthook ticket add "add a subtract(a, b) function to math.js, with a test"
+agenthook ui                      # watch it (or: agenthook events --follow)
+git log -p HEAD..agent/1          # the result, once the ticket reaches done
+agenthook stop
+```
+
+The code step can only edit files with `--full-auto` (unsandboxed — read the
+[quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile)) or a repo `.claude/settings.json`
+that allows edits.
+
+### With your tracker
 
 > **New here? Follow the [Getting Started guide](docs/getting-started.md)** — it walks the full
 > path end to end, including the two manual steps below (finding section gids, writing the
@@ -166,6 +186,7 @@ commit or share — the actual tokens stay in `.env` (gitignored) or your shell.
 
 ## Documentation
 
+- **[Quickstart](docs/quickstart.md)** — a first run on a local board: no token, no tunnel
 - **[Getting Started](docs/getting-started.md)** — install → token → pipeline → first run, end to end
 - [Asana setup](docs/asana-setup.md) · [Jira setup](docs/jira-setup.md) · [GitHub Issues setup](docs/github-setup.md) · [GitHub Projects v2 setup](docs/github-projects-setup.md) — token + board specifics
 - [Web UI](docs/web-ui.md) — the `agenthook ui` dashboard: Home, Overview, Stats, editors

@@ -4,7 +4,7 @@
 // Multi-repo profiles also get routing lints; ⚠ warnings print but don't fail the run.
 // (Duplicate repo ids / paths / route keys and >1 default are already fatal in loadConfig.)
 import fs from "node:fs";
-import net from "node:net";
+import { portInUse } from "../port.js";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadConfig } from "../config.js";
@@ -20,18 +20,6 @@ import { uiBundleState } from "../ui-bundle.js";
 
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
-
-/** Is a TCP port already bound on 127.0.0.1? @param {number} port */
-function portInUse(port) {
-  return new Promise((resolve) => {
-    const s = net.createConnection({ port, host: "127.0.0.1" });
-    s.on("connect", () => {
-      s.destroy();
-      resolve(true);
-    });
-    s.on("error", () => resolve(false));
-  });
-}
 
 /** @param {string} bin */
 function onPath(bin) {
@@ -198,7 +186,8 @@ export async function doctor(args) {
 
   const profile = readProfile(cfg.stateKey);
 
-  add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref");
+  if (cfg.provider === "local") info("local tracker — no token needed");
+  else add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref");
 
   for (const repo of reposOf(cfg)) {
     const isGit = fs.existsSync(path.join(repo.path, ".git"));
