@@ -19,8 +19,9 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   sink at boot; `createPushSink` parks a ref's pushed job until its current run settles), optional
   `createTask({name, description?, stepId?})` (`local` only: add one item under the next numeric ref and push
   its `step:<id>:<ref>` job — `agenthook ticket add`).
-- `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `manual`/`hosted`
-  static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
+- `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `cloudflared`
+  managed — quick tunnel ephemeral, named tunnel (`tunnel` + `hostname`) stable; logs to
+  `<logDir>/cloudflared.log` — and `manual`/`hosted` static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
   `up(port) → {url}`, `down()`, optional `wizardSteps`.
 - `src/forges/*.js` + `index.js` — optional forge adapters (`github`). Registry `FORGES` keyed by
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:

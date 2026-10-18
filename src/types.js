@@ -353,11 +353,13 @@
  * The ingress config block (`ingress` in agenthook.config.json). `type` selects the
  * adapter; the rest are adapter-specific options (already env-interpolated).
  * @typedef {object} IngressConfig
- * @property {string} type           ingress adapter key ("ngrok" | "manual" | "hosted")
+ * @property {string} type           ingress adapter key ("ngrok" | "cloudflared" | "manual" | "hosted")
  * @property {string} [url]          static public base URL (manual/hosted)
  * @property {string} [authtoken]    ngrok authtoken ("${NGROK_AUTHTOKEN}")
  * @property {string} [domain]       ngrok reserved domain (makes the URL stable)
  * @property {string} [webAddr]      ngrok local web-API address (default 127.0.0.1:4040)
+ * @property {string} [tunnel]       cloudflared named tunnel name or UUID (blank = quick tunnel)
+ * @property {string} [hostname]     cloudflared: public hostname routed to the named tunnel
  */
 
 /** What an ingress adapter reports about itself.
@@ -374,8 +376,8 @@
  * @property {() => import('./wizard.js').WizardStep[]} [wizardSteps]
  */
 
-/** A factory `(cfg) => Ingress`.
- * @typedef {(cfg: Config) => Ingress} IngressFactory */
+/** A factory `(cfg) => Ingress`. `timeoutMs` bounds a managed tunnel's startup (cloudflared; tests shorten it).
+ * @typedef {(cfg: Config, opts?: { timeoutMs?: number }) => Ingress} IngressFactory */
 
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
  * push() chunks, flush() the tail at EOF, then read `result` / `sessionId`.
