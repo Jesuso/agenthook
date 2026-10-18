@@ -5,7 +5,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { startControl, listenPrivate } from "../src/control.js";
+import { startControl, listenPrivate, checkSockPath } from "../src/control.js";
 
 /** @param {string} dir */
 function cfgIn(dir) {
@@ -527,6 +527,70 @@ test("control protocol: injected decommission gets args; result -> ok, throw -> 
     assert.deepEqual(await reader.waitFor(2), { id: 2, ok: false, error: "decommission failed" });
     assert.deepEqual(calls, [{ when: "idle", unregister: false }, { when: "now" }]);
     socket.end();
+  } finally {
+    control?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** @param {number} bytes */
+function pathOfByteLength(bytes) {
+  return "a".repeat(bytes);
+}
+
+test("checkSockPath: no-op on win32 regardless of length", () => {
+  assert.doesNotThrow(() => checkSockPath(pathOfByteLength(500), "win32"));
+});
+
+test("checkSockPath: throws over the linux limit (108 bytes incl. NUL)", () => {
+  assert.throws(() => checkSockPath(pathOfByteLength(108), "linux"), /too long/);
+  assert.throws(() => checkSockPath(pathOfByteLength(108), "linux"), /108/);
+});
+
+test("checkSockPath: ok at the max linux length (107 bytes)", () => {
+  assert.doesNotThrow(() => checkSockPath(pathOfByteLength(107), "linux"));
+});
+
+test("checkSockPath: throws over the darwin/bsd limit (104 bytes incl. NUL)", () => {
+  assert.throws(() => checkSockPath(pathOfByteLength(104), "darwin"), /too long/);
+});
+
+test("checkSockPath: ok at the max darwin/bsd length (103 bytes)", () => {
+  assert.doesNotThrow(() => checkSockPath(pathOfByteLength(103), "darwin"));
+});
+
+/** Builds a path under `dir` of exactly `totalBytes` bytes (dir + sep + padding). @param {string} dir @param {number} totalBytes */
+function sockPathOfLength(dir, totalBytes) {
+  const prefix = dir + path.sep;
+  const padLen = totalBytes - Buffer.byteLength(prefix);
+  assert.ok(padLen > 0, "dir too long for this test's target length");
+  return prefix + "a".repeat(padLen);
+}
+
+test("startControl: rejects an over-limit path with no socket file left behind", async () => {
+  if (process.platform === "win32") return; // sockPath is a pipe name on win32, not length-limited
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const limit = process.platform === "linux" ? 108 : 104;
+  const sockPath = sockPathOfLength(dir, limit);
+  const cfg = cfgIn(dir);
+  cfg.controlSock = sockPath;
+  await assert.rejects(startControl(cfg, { startedAt: "x" }), /too long/);
+  assert.equal(fs.readdirSync(dir).length, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("startControl: listens fine at exactly the max length", async () => {
+  if (process.platform === "win32") return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const limit = process.platform === "linux" ? 108 : 104;
+  const sockPath = sockPathOfLength(dir, limit - 1);
+  assert.equal(Buffer.byteLength(sockPath), limit - 1);
+  const cfg = cfgIn(dir);
+  cfg.controlSock = sockPath;
+  const control = await startControl(cfg, { startedAt: "x" });
+  try {
+    assert.ok(control);
+    assert.ok(fs.existsSync(sockPath));
   } finally {
     control?.close();
     fs.rmSync(dir, { recursive: true, force: true });
