@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Per-run container sandbox (`"sandbox": { "type": "docker" | "podman" }`, optional `image`,
+  `memory`, `cpus`; a step opts out with `"sandbox": false`). Each agent run gets its own
+  throwaway container as your user with all capabilities dropped, mounting only its worktree, the
+  repo's git dir (config and hooks read-only), a per-run verdict dir and its own transcript dir;
+  env is passed by name, never in argv. Boot refuses if the runtime is unavailable and reaps
+  orphaned containers; cancel and timeout kill the container. Only `claude` is supported for now:
+  a sandboxed `cursor`, `hermes` or `opencode` step is refused, never run on the host. `doctor --fix`
+  builds the image. Network is still open (#473 adds the egress allowlist). See `docs/sandbox.md`
+  (#472).
+
 ### Changed
 
 - **Agents no longer inherit the receiver's environment.** A spawned agent gets only an allowlist:
