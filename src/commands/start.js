@@ -14,6 +14,7 @@ import { claimStateDir } from "../profile.js";
 import fs from "node:fs";
 import { startArgv, spawnDetached } from "../respawn.js";
 import { isAlive } from "../heartbeat.js";
+import { checkSockPath } from "../control.js";
 
 /** @param {any} args */
 export async function start(args) {
@@ -24,6 +25,9 @@ export async function start(args) {
   if (existing.up) {
     throw new Error(`profile "${cfg.name}" is already running (pid ${existing.pid}). Run \`agenthook stop\` first.`);
   }
+
+  // Refuse here too, so the reason lands in this terminal rather than only in receiver.log.
+  checkSockPath(cfg.controlSock);
 
   if (args.detach) {
     // Check here, not only in the child: spawnDetached writes receiver.log into the state dir
