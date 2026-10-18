@@ -559,8 +559,9 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         const profile = params.get("profile") || "";
         return sendJson(res, () => {
           if (!resolveProfileSock(registry, profile)) return null;
-          const { name, up } = readProfile(profile, registry);
+          const { name, up, dir } = readProfile(profile, registry);
           const configPath = profileConfigPath(profile);
+          const hasHooks = readMarker(dir)?.webhooks !== false;
           /** @type {import('./contract.js').RemovePreview} */
           const preview = {
             profile,
@@ -568,7 +569,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
             up,
             configPath: configPath && tildify(configPath),
             archivePattern: tildify(path.join(archiveRoot(registry), `${profile}-<YYYY-MM-DDTHH-MM-SS>`)) + "/",
-            webhookHint: webhookHint(configPath && tildify(configPath)),
+            webhookHint: hasHooks ? webhookHint(configPath && tildify(configPath)) : null,
           };
           return preview;
         });

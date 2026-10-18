@@ -36,6 +36,7 @@ const AGAIN = profile("again");
 const FAIL = profile("fail");
 const TIMEOUT = profile("timeout");
 const STOPPED = profile("stopped", { configPath: "/cfg/agenthook.config.json", stateKey: "stopped", name: "Stopped Label" });
+const NOHOOKS = profile("nohooks", { configPath: "/cfg/local.config.json", stateKey: "nohooks", name: "nohooks", webhooks: false });
 const LEGACY = profile("legacy"); // no profile.json, no heartbeat
 const ZOMBIE = profile("zombie"); // live pid, no socket
 fs.writeFileSync(path.join(ZOMBIE.dir, "server.pid"), String(process.pid));
@@ -236,6 +237,16 @@ test("GET /api/profile/remove-preview: configPath, archivePattern from the injec
   assert.equal(legacy.configPath, null);
   assert.equal(legacy.webhookHint, null);
   assert.equal(JSON.parse((await getPreview("running")).body).up, false); // no pidfile: up follows the pid, not the socket
+});
+
+test("remove-preview + POST remove: a webhooks:false marker (local tracker, no forge) → no webhookHint", async () => {
+  const preview = JSON.parse((await getPreview("nohooks")).body);
+  assert.equal(preview.configPath, "/cfg/local.config.json");
+  assert.equal(preview.webhookHint, null);
+  const res = await postRemove({ profile: "nohooks" });
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).webhookHint, null);
+  assert.equal(fs.existsSync(NOHOOKS.dir), false);
 });
 
 test("POST /api/profile/remove: stopped → 200, dir archived under <registry>-archive with the audit line + webhookHint", async () => {
