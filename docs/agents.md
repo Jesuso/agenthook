@@ -26,7 +26,7 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 | | `claude` | `cursor` | `hermes` | `opencode` |
 |---|---|---|---|---|
 | Default binary | `claudeBin` (default `claude`) | `agent` | `hermes` | `opencode` |
-| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>]` | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] <prompt>` |
+| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>]` | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] -- <prompt>` |
 | Stdout | stream-json | stream-json | plain text | JSONL events |
 | Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (Hermes reports no usage) | yes, per model step (`step_finish`) |
 | Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` | priced only when OpenCode reports a non-zero cost, else `unpriced` |

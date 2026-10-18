@@ -44,7 +44,7 @@ function warns(fn) {
 }
 
 test("buildOpencodeArgs: run --format json, prompt last; no --auto/-m/--variant unless asked", () => {
-  assert.deepEqual(buildOpencodeArgs({ prompt: "hi" }), ["run", "--format", "json", "hi"]);
+  assert.deepEqual(buildOpencodeArgs({ prompt: "hi" }), ["run", "--format", "json", "--", "hi"]);
 });
 
 test("buildOpencodeArgs: --auto only under fullAuto, -m provider/model, effort verbatim as --variant", () => {
@@ -57,15 +57,23 @@ test("buildOpencodeArgs: --auto only under fullAuto, -m provider/model, effort v
     "ollama/qwen3.8:27b-64k",
     "--variant",
     "max",
+    "--",
     "hi",
   ]);
+});
+
+test("buildOpencodeArgs: a dash-led prompt (bullet, YAML front-matter) sits behind -- so it is never read as flags", () => {
+  for (const prompt of ["- hello", "---\ntitle: x\n---\nhello"]) {
+    const args = buildOpencodeArgs({ prompt, model: "m" });
+    assert.deepEqual(args.slice(-2), ["--", prompt]);
+  }
 });
 
 test("buildOpencodeArgs: provider never reaches argv and is warned about", () => {
   /** @type {string[]} */
   let args = [];
   const w = warns(() => (args = buildOpencodeArgs({ prompt: "hi", provider: "ollama-launch" })));
-  assert.deepEqual(args, ["run", "--format", "json", "hi"]);
+  assert.deepEqual(args, ["run", "--format", "json", "--", "hi"]);
   assert.equal(w.length, 1);
   assert.match(w[0], /provider "ollama-launch"/);
   assert.deepEqual(warns(() => buildOpencodeArgs({ prompt: "hi", effort: "high" })), []);
@@ -111,6 +119,14 @@ test("parser: unknown event types and non-JSON lines are ignored, never throw", 
   assert.equal(out + p.flush(), "");
   assert.equal(p.sessionId, undefined);
   assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+});
+
+test("parser: an error event becomes a one-line ⚠ in the log, never throws on odd shapes", () => {
+  const p = createOpencodeParser();
+  const line = JSON.stringify({ type: "error", sessionID: SID, error: { name: "ProviderModelNotFoundError", data: { message: "model ollama/nope not found" } } });
+  assert.equal(p.push(line + "\n"), "⚠ ProviderModelNotFoundError: model ollama/nope not found\n");
+  assert.equal(p.sessionId, SID);
+  assert.equal(p.push('{"type":"error"}\n{"type":"error","error":{"name":5,"data":"x"}}\n{"type":"error","error":{"name":"E"}}\n'), "⚠ error\n⚠ error\n⚠ E\n");
 });
 
 test("parser: result is null until an event, non-null from the first sessionID (so a killed run still records its session)", () => {
@@ -272,9 +288,9 @@ test("dispatch: a stand-in opencode replaying a priced run → live tally, usage
   }
 
   const argv = JSON.parse(fs.readFileSync(path.join(dir, "argv.json"), "utf8"));
-  assert.deepEqual(argv.slice(0, 7), ["run", "--format", "json", "-m", "ollama/qwen3.8:27b-64k", "--variant", "high"]);
-  assert.equal(argv.length, 8);
-  assert.match(argv[7], /Ref: 390/, "the prompt is the last positional");
+  assert.deepEqual(argv.slice(0, 8), ["run", "--format", "json", "-m", "ollama/qwen3.8:27b-64k", "--variant", "high", "--"]);
+  assert.equal(argv.length, 9);
+  assert.match(argv[8], /Ref: 390/, "the prompt is the last positional, behind --");
   const usage = store.readUsage();
   assert.equal(usage.length, 1);
   assert.deepEqual([usage[0].sessionId, usage[0].output, usage[0].costUsd, usage[0].unpriced], [SID, 58, 0.75, undefined]);

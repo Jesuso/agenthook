@@ -9,7 +9,8 @@
 
 /**
  * Build the `opencode run` argv (pure; exported for tests). The prompt is positional, so it
- * goes last. `--auto` (auto-approve permissions) only under `fullAuto`, matching claude's
+ * goes last, behind `--`: yargs would otherwise read a prompt starting with `-` (a `- ` bullet,
+ * YAML front-matter) as flags and exit 1 with its usage text. `--auto` (auto-approve permissions) only under `fullAuto`, matching claude's
  * `--dangerously-skip-permissions`. The model is `-m provider/model`, so a step `provider` is
  * dropped with a warning; `effort` maps verbatim to `--variant` (its levels are
  * provider-specific, so there is no set to check against). `maxMs` is ignored — the
@@ -19,7 +20,7 @@
  */
 export function buildOpencodeArgs({ prompt, model, effort, provider, fullAuto }) {
   if (provider) console.warn(`[dispatch] ignoring provider "${provider}" — opencode takes the provider in the model ("-m provider/model")`);
-  return ["run", "--format", "json", ...(fullAuto ? ["--auto"] : []), ...(model ? ["-m", model] : []), ...(effort ? ["--variant", effort] : []), prompt];
+  return ["run", "--format", "json", ...(fullAuto ? ["--auto"] : []), ...(model ? ["-m", model] : []), ...(effort ? ["--variant", effort] : []), "--", prompt];
 }
 
 /** A non-negative number, else 0. @param {any} n */
@@ -29,7 +30,8 @@ const num = (n) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0
  * Incremental parser for `opencode run --format json` stdout: one JSON object per line.
  * Same contract as cursor.js's parser — buffers partial lines across chunks, ignores unknown
  * event types and non-JSON lines, never throws. `text` events render their `part.text`;
- * `tool_use` a one-line `🔧 <tool>`. Each `step_finish` adds its output + reasoning tokens
+ * `tool_use` a one-line `🔧 <tool>`; `error` (a failed model/provider call — OpenCode then exits
+ * 1) a one-line `⚠ <name>: <message>`, so the run log says why. Each `step_finish` adds its output + reasoning tokens
  * to `tally.output`, sets input/cache to that step's (the latest context), and adds its
  * `part.cost`. The session id is the first `sessionID` any event carried. `result` is
  * non-null once a session id or a `step_finish` was seen, so dispatch records the usage
@@ -51,6 +53,12 @@ export function createOpencodeParser() {
     const part = ev.part && typeof ev.part === "object" ? ev.part : {};
     if (ev.type === "text") return typeof part.text === "string" && part.text ? part.text + "\n" : "";
     if (ev.type === "tool_use") return typeof part.tool === "string" ? `🔧 ${part.tool}\n` : "";
+    if (ev.type === "error") {
+      const err = ev.error && typeof ev.error === "object" ? ev.error : {};
+      const name = typeof err.name === "string" && err.name ? err.name : "error";
+      const msg = err.data && typeof err.data === "object" && typeof err.data.message === "string" ? err.data.message : "";
+      return `⚠ ${name}${msg ? `: ${msg}` : ""}\n`;
+    }
     if (ev.type === "step_finish") {
       steps++;
       const t = part.tokens && typeof part.tokens === "object" ? part.tokens : {};
