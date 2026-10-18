@@ -470,7 +470,7 @@ export function createOps(deps) {
     }),
     reconcile: write("reconcile", async () => {
       const lines = /** @type {string[]} */ ([]);
-      const r = await runReconcile(cfg, { store, adapter, log: (m) => lines.push(m) });
+      const r = await runReconcile(cfg, { store, adapter, intake, log: (m) => lines.push(m) });
       return { ...r, log: lines.slice(-20) };
     }),
     // The Digest (src/digest.js): a tool-less summary outside the slot pool. Waits for the result;

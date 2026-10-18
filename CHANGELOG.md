@@ -26,7 +26,9 @@ largest modules are split with no behaviour change. See [ROADMAP.md](ROADMAP.md)
   answer yes. `doctor` no longer flags the missing token on a local profile.
 - **Event-driven `local` tracker** — stage changes on a local board push their jobs into the
   receiver in-process (a new optional adapter capability, `onJobs`), so steps chain with no
-  poller and no network. `ah run <ref>` on a local profile goes through the running receiver.
+  poller and no network. `ah run <ref>` and `ah reconcile` on a local profile go through the
+  running receiver, and `start --detach` returns once the receiver is serving, so a command typed
+  next reaches it.
 - A quickstart demo recording at the top of the README, and [ROADMAP.md](ROADMAP.md).
 
 ### Changed
