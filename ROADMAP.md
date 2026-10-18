@@ -62,7 +62,7 @@ that is easier to change. Feature freeze outside this list.*
   (deprecation warnings before a key changes meaning).
 - **Launch**: a short demo recording and an announcement post (drafted; posting moved to 0.9).
 
-### 0.9 — Reach ✅ done (epic #453)
+### 0.9 — Reach (epic #453) — all features merged, release pending
 
 *Goal: fit the stacks people actually use, with stable URLs and fewer manual steps.*
 
