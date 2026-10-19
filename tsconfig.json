@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.js", "bin/**/*.js"]
+  "include": ["src/**/*.js", "src/**/*.mjs", "bin/**/*.js"]
 }

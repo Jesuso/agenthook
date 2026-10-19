@@ -24,6 +24,7 @@ Add a `sandbox` block to the profile config:
 | `image` | Image to run (default `agenthook-agent:<version>`). |
 | `memory` | `--memory` limit, e.g. `4g`. |
 | `cpus` | `--cpus` limit, e.g. `2`. |
+| `egress` | Network policy, `{ "mode", "allow", "deny" }` — see [Egress](#egress). Default: allowlist. |
 
 A step can opt out with `"sandbox": false` — it then runs on the host as before. Every other
 step runs sandboxed. A configured sandbox that is unavailable **refuses to boot**; a run is never
@@ -82,6 +83,83 @@ Cancel, timeout and shutdown kill the container (`<runtime> kill`); on boot the 
 any container left from a previous process (labelled `agenthook.profile=<stateKey>`) before it
 fails the interrupted runs.
 
+### Egress
+
+A sandboxed run has **no route out** except an allowlisting HTTPS proxy. Each run gets its own
+`--internal` network (no gateway) and a small proxy container (`<run>-proxy`, the built-in image
+running `src/sandbox/egress-proxy.mjs`) attached to that network and to the runtime's default
+one (`bridge` / `podman`). The agent's container is on the internal network only, with
+`HTTPS_PROXY` / `HTTP_PROXY` (and the lower-case forms) pointing at the proxy and `NO_PROXY` set
+to loopback. Claude Code, git over HTTPS, `gh`, curl, npm and pip honour them; a tool that
+ignores them has no route at all, so it fails closed. Both containers and the network are removed
+when the run ends (and reaped on boot).
+
+The proxy only sees `host:port` (a `CONNECT`, or an absolute `http://` URL). It matches the
+**requested hostname** against the run's rules; an IP literal is denied unless a rule names it.
+The connection then goes to the address the name resolved to, and it is refused when that
+address is loopback, link-local (`169.254/16` — cloud metadata — and `fe80::/10`), RFC1918,
+CGNAT (`100.64/10`) or ULA (`fc00::/7`), unless the rule ends in `!private`. So an allowlisted
+name can't be pointed at your LAN.
+
+**Allowed by default** (`mode: "allowlist"`, the default whenever `sandbox` is set):
+
+| Source | Hosts |
+|--------|-------|
+| model API (the agent) | `api.anthropic.com`; the host of `ANTHROPIC_BASE_URL` when set; `bedrock-runtime.<AWS_REGION>.amazonaws.com` with `CLAUDE_CODE_USE_BEDROCK`; `<CLOUD_ML_REGION>-aiplatform.googleapis.com` + `oauth2.googleapis.com` with `CLAUDE_CODE_USE_VERTEX` |
+| tracker (the prompt tells the agent to read and post comments) | asana `app.asana.com`, jira the `baseUrl` host, linear `api.linear.app`, github / github-projects `api.github.com`; local: none |
+| forge | github `github.com`, `api.github.com`, `uploads.github.com`, `*.githubusercontent.com`; gitlab the `baseUrl` host |
+| origin | the host of the repo's `origin` remote (an SSH origin is pushed over HTTPS, so port 443) |
+
+**Package registries are opt-in.** `agenthook doctor` suggests a preset when it sees a lockfile:
+
+| Preset | Hosts |
+|--------|-------|
+| `@npm` | `registry.npmjs.org` |
+| `@yarn` | `registry.yarnpkg.com`, `repo.yarnpkg.com` |
+| `@pypi` | `pypi.org`, `files.pythonhosted.org` |
+| `@crates` | `crates.io`, `index.crates.io`, `static.crates.io` |
+| `@go` | `proxy.golang.org`, `sum.golang.org` |
+| `@rubygems` | `rubygems.org`, `index.rubygems.org` |
+| `@maven` | `repo.maven.apache.org`, `repo1.maven.org` |
+
+**Config** — on the profile, and per step (a step's `mode` overrides the profile's; its `allow`
+and `deny` add to the profile's):
+
+```jsonc
+"sandbox": { "type": "podman",
+  "egress": { "mode": "allowlist", "allow": ["@npm", "registry.internal:8443"], "deny": [] } },
+"tracker": { "pipeline": [
+  { "id": "review", "egress": { "deny": ["api.github.com"] } },   // this step may not comment
+  { "id": "triage", "egress": { "mode": "none" } }                 // …or reach anything
+] }
+```
+
+| Key | Meaning |
+|-----|---------|
+| `mode` | `allowlist` (default), `none` (`--network none`, no proxy) or `open` (the runtime's default network — unrestricted; doctor warns) |
+| `allow` | rules or `@presets`. A rule is `host` (port 443), `*.domain` (any subdomain, not the apex), `host:port`, an IP literal (`10.0.0.5`, `[fd00::1]:8443`), each optionally ending `!private` |
+| `deny` | rules or `@presets` removed from the defaults: every rule with that host pattern, or only that port's when the entry names one |
+
+A step `egress` needs a profile `sandbox`, and is an error on a manual step or a
+`"sandbox": false` step. The proxy runs the **built-in** image even when `sandbox.image` is
+custom, so doctor (and boot) then also require `agenthook-agent:<version>`; `doctor --fix` builds
+it. `doctor` lists each sandboxed step's effective allowlist.
+
+**A denied request** gets `403 Forbidden` with `X-Agenthook-Egress: denied` and the body
+`agenthook egress: <host>:<port> is not in this sandbox's allowlist (add it to sandbox.egress.allow)`,
+which the agent can quote in a `hold` reason. When the run ends, the run log gets one line per
+denied host —
+`[agenthook] egress denied: example.com:443 (3×) — add it to sandbox.egress.allow (or the step's egress.allow) if this step needs it`
+— and `run_end` carries `egressDenied: ["example.com:443", …]` (at most 20). A denial never
+changes the run's outcome. To allow the host, add it to `sandbox.egress.allow` (or the step's
+`egress.allow`); the next run picks it up.
+
+**Out of scope.** The allowed hosts are exfiltration channels **by design**: the model API sees
+the prompt and whatever the agent sends it, the forge accepts a pushed branch (or a gist, with a
+broad token), and the tracker accepts a comment. Scoped short-lived tokens (#474) narrow the forge
+leg. The proxy does no TLS inspection, per-path rules or size limits (it only sees `host:port`),
+and non-HTTP protocols have no route at all. Unsandboxed (host) runs get no egress control.
+
 ### Rootless podman
 
 Prefer rootless podman: membership in the `docker` group is root-equivalent on the host (doctor
@@ -94,7 +172,8 @@ writes in the worktree stay yours.
   agent env a host run gets (see `agentEnvPassthrough`), minus host-only keys (`PATH`, `HOME`,
   `SSH_AUTH_SOCK`, …). Any token that allowlist passes — the tracker token the prompt names,
   `GH_TOKEN` — is visible to the agent.
-- **Network is open** (#473): the agent can reach anything the host can.
+- **Network is allowlisted, not closed**: the model API, the forge and the tracker stay
+  reachable, so each remains a way out for data the agent can read (see [Egress](#egress)).
 - **The common git dir is writable**: an agent can touch other branches' refs and other
   worktrees' admin dirs, and can break host git on that repo (a corrupt or FIFO `HEAD` or
   `packed-refs`). Host git calls are time-capped, so a wedged repo fails later runs with a git error

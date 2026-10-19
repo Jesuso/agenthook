@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { claudeProjectDir, mangle, sandboxClaudeProjectDir } from "../paths.js";
 import { quotaFromRateLimitEvent } from "../quota.js";
+import { urlRule } from "../sandbox/egress.js";
 
 /** Reasoning-effort levels `claude -p --effort` accepts. An out-of-set value is
  * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
@@ -219,6 +220,37 @@ export function sandboxCredentialProblem(env) {
   return "sandboxed claude has no credentials — run `claude setup-token` and put CLAUDE_CODE_OAUTH_TOKEN in the profile's .env (or set ANTHROPIC_API_KEY)";
 }
 
+/** @param {string|undefined} v */
+const truthy = (v) => !!v && !/^(0|false|no|off)$/i.test(v.trim());
+
+/**
+ * The model-API egress rules of a claude run with spawn env `env`: api.anthropic.com, the host
+ * of ANTHROPIC_BASE_URL (another model behind a compatible endpoint), and the Bedrock or
+ * Vertex endpoints when those are switched on. Telemetry needs nothing: a sandboxed claude
+ * sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC. Pure.
+ * @param {Record<string, string|undefined>} env @returns {string[]}
+ */
+export function claudeEgressHosts(env) {
+  const out = ["api.anthropic.com"];
+  /** @param {string|undefined} url */
+  const add = (url) => {
+    const rule = urlRule(url);
+    if (rule) out.push(rule);
+  };
+  add(env.ANTHROPIC_BASE_URL);
+  if (truthy(env.CLAUDE_CODE_USE_BEDROCK)) {
+    const region = env.AWS_REGION || env.AWS_DEFAULT_REGION;
+    if (region) out.push(`bedrock-runtime.${region}.amazonaws.com`);
+    add(env.ANTHROPIC_BEDROCK_BASE_URL);
+  }
+  if (truthy(env.CLAUDE_CODE_USE_VERTEX)) {
+    const region = env.CLOUD_ML_REGION;
+    out.push(region && region !== "global" ? `${region}-aiplatform.googleapis.com` : "aiplatform.googleapis.com", "oauth2.googleapis.com");
+    add(env.ANTHROPIC_VERTEX_BASE_URL);
+  }
+  return out;
+}
+
 /** @type {import('../types.js').AgentAdapter} */
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json" }),
@@ -260,6 +292,7 @@ export const claude = {
     sandboxTranscriptDir: sandboxClaudeProjectDir,
   },
   preflight: ({ sandboxed, env }) => (sandboxed ? sandboxCredentialProblem(env) : undefined),
+  egressHosts: claudeEgressHosts,
   // Sandboxed: only this run's transcript dir is shared (at the container HOME's
   // `.claude/projects/<mangle(cwd)>`, where claude writes it), so follow/resume read it on the
   // host. Never ~/.claude or ~/.claude.json — other projects' transcripts and the OAuth

@@ -68,11 +68,12 @@ export function createSpawn(ctx) {
    * sits under the step's, so a step can override it; the verdict-file variable is set last
    * so a step can't override it.
    * `sandboxed` runs it through the profile's sandbox instead: `wrap()` turns the same argv and
-   * env (minus host-only keys, plus `sandboxed.env`) into a runtime-client spawn with `mounts`;
+   * env (minus host-only keys, plus `sandboxed.env`) into a runtime-client spawn with `mounts`
+   * and `egress` (the run's network policy);
    * a `wrap()` rejection fails the run (`refused`) with nothing spawned. The run's sandbox report
    * comes back as `sandboxReport`.
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, bin?: string, agentEnv?: Record<string, string>, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
-   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>}}} o
+   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress}}} o
    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, bin, agentEnv, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
@@ -102,7 +103,7 @@ export function createSpawn(ctx) {
         if (promptFile) fs.rmSync(promptFile, { force: true });
       };
       try {
-        box = await sandbox.wrap({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step });
+        box = await sandbox.wrap({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}) });
       } catch (e) {
         const reason = `sandbox (${sandbox.describe().name}) could not start the run: ${e.message}`;
         unspawned(reason);

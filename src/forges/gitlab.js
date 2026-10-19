@@ -30,6 +30,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { FORGE_PATH, refFromBranch, fenceLog } from "./github.js";
+import { urlRule } from "../sandbox/egress.js";
 
 const BRANCH_PREFIX = "agent/";
 const SECRET_KEY = "forge:gitlab:webhookSecret";
@@ -92,6 +93,12 @@ function ciFromPipeline(pipeline) {
 
 /** Receiver env vars an agent gets with this forge (#470): none. */
 export const GITLAB_FORGE_AGENT_ENV = /** @type {string[]} */ ([]);
+/** What a sandboxed run needs to push: the instance's host[:port] (git over HTTPS and the API).
+ * @param {{baseUrl?: string}} fc */
+export const gitlabForgeEgressHosts = (fc) => {
+  const rule = urlRule(fc.baseUrl || DEFAULT_BASE_URL);
+  return rule ? [rule] : [];
+};
 
 /** @type {import('../types.js').ForgeFactory} */
 export function createGitlabForge(cfg, store) {
@@ -237,7 +244,7 @@ export function createGitlabForge(cfg, store) {
   }
 
   return {
-    describe: () => ({ name: "gitlab", agentEnv: GITLAB_FORGE_AGENT_ENV }),
+    describe: () => ({ name: "gitlab", agentEnv: GITLAB_FORGE_AGENT_ENV, egressHosts: gitlabForgeEgressHosts(fc) }),
 
     // A shared token, not a signature (see the header). No opt-out: missing/wrong is a reject.
     authenticate({ headers }) {

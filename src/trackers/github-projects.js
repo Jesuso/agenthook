@@ -126,6 +126,8 @@ export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
 
 /** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
 export const GITHUB_PROJECTS_AGENT_ENV = /** @type {string[]} */ (["GITHUB_TOKEN"]);
+/** The API host `gh issue …` (commentHowTo / readCommentsHowTo) calls: a sandboxed run's egress allows it. */
+export const githubProjectsEgressHosts = () => ["api.github.com"];
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubProjectsAdapter(cfg, store) {
@@ -606,6 +608,7 @@ export function createGithubProjectsAdapter(cfg, store) {
       commentHowTo: `post a comment with: gh issue comment <number> --body "<text>" (run inside the repo; gh is authenticated via $GITHUB_TOKEN)`,
       readCommentsHowTo: `gh issue view <number> --comments (run inside the repo)`,
       agentEnv: GITHUB_PROJECTS_AGENT_ENV,
+      egressHosts: githubProjectsEgressHosts(),
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
 

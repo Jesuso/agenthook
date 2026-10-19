@@ -118,6 +118,8 @@ export function mapEpicTickets(data, projectGid, displayIdField) {
 
 /** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
 export const ASANA_AGENT_ENV = /** @type {string[]} */ (["ASANA_TOKEN"]);
+/** The API host commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it. */
+export const asanaEgressHosts = () => ["app.asana.com"];
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createAsanaAdapter(cfg, store) {
@@ -325,6 +327,7 @@ export function createAsanaAdapter(cfg, store) {
       commentHowTo: `post via the Asana API (token in env ASANA_TOKEN) using POST /tasks/<gid>/stories`,
       readCommentsHowTo: `GET /tasks/<gid>/stories via the Asana API (token in env ASANA_TOKEN); comments are stories with type "comment"`,
       agentEnv: ASANA_AGENT_ENV,
+      egressHosts: asanaEgressHosts(),
       stageKeys: { source: "sourceSectionGid", success: "successSectionGid", failure: "failureSectionGid", hold: "holdSectionGid", queue: "queueSectionGid" },
     }),
 

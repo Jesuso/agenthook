@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, egressLints } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -719,6 +719,50 @@ test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step 
   } finally {
     if (saved !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = saved;
   }
+});
+
+test("sandboxChecks: allowlist with a custom image also checks the built-in image (the egress proxy), with the build fix", async () => {
+  /** @type {string[]} */
+  const inspected = [];
+  /** @type {import('../src/types.js').IngressRun} */
+  const run = async (_bin, args) => {
+    if (args[0] === "image") inspected.push(args[2]);
+    return { code: args[0] === "image" && args[2] !== "mine:1" ? 1 : 0, stdout: "", stderr: "" };
+  };
+  const checks = await sandboxChecks(sbCfg({ sandbox: { type: "docker", image: "mine:1" } }), { run, has: () => true });
+  assert.deepEqual(inspected.length, 2);
+  const proxy = checks.find((c) => c.label.endsWith("(egress proxy)"));
+  assert.equal(proxy?.ok, false);
+  assert.ok(proxy?.fix && "apply" in proxy.fix, "doctor --fix builds it");
+  inspected.length = 0;
+  await sandboxChecks(sbCfg({ sandbox: { type: "docker", image: "mine:1", egress: { mode: "open" } } }), { run, has: () => true });
+  assert.deepEqual(inspected, ["mine:1"], "open: no proxy, so no built-in image needed");
+});
+
+test("egressLints: ⚠ open (profile or step), ⚠ loopback ANTHROPIC_BASE_URL, ℹ @npm for a package-lock.json, ℹ the effective allowlist", () => {
+  const base = { provider: "github", providerConfig: {}, forge: { type: "github" } };
+  const open = egressLints(sbCfg({ ...base, sandbox: { type: "docker", egress: { mode: "open" } } }), { env: {} });
+  assert.ok(open.some((l) => l.level === "warn" && l.label === `sandbox egress mode is "open"` && /exfiltrate the worktree and its env/.test(l.note ?? "")));
+  const stepOpen = egressLints(sbCfg({ ...base, pipeline: [{ id: "code", egress: { mode: "open" } }] }), { env: {} });
+  assert.ok(stepOpen.some((l) => l.level === "warn" && l.label === `step "code" egress mode is "open"`));
+
+  const loop = egressLints(sbCfg(base), { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:11434" } });
+  const lw = loop.find((l) => l.label.startsWith("ANTHROPIC_BASE_URL is loopback"));
+  assert.equal(lw?.level, "warn");
+  assert.match(lw?.note ?? "", /the sandbox cannot reach http:\/\/127\.0\.0\.1:11434; use a host-reachable address \(host\.docker\.internal \/ host\.containers\.internal\) and allow it/);
+  const stepLoop = egressLints(sbCfg({ ...base, pipeline: [{ id: "code", env: { ANTHROPIC_BASE_URL: "http://localhost:8080" } }] }), { env: {} });
+  assert.ok(stepLoop.some((l) => l.label === "ANTHROPIC_BASE_URL is loopback (steps: code)"));
+
+  const npm = egressLints(sbCfg(base), { files: ["package-lock.json", "README.md"], env: {} });
+  const hint = npm.find((l) => l.label.includes("package-lock.json"));
+  assert.equal(hint?.level, "info");
+  assert.match(hint?.note ?? "", /add "@npm" to sandbox\.egress\.allow/);
+  assert.equal(egressLints(sbCfg({ ...base, sandbox: { type: "docker", egress: { allow: ["@npm"] } } }), { files: ["package-lock.json"], env: {} }).some((l) => l.label.includes("package-lock")), false, "already allowed");
+
+  const rules = npm.find((l) => l.label === `step "code" egress allowlist`);
+  assert.equal(rules?.level, "info");
+  assert.match(rules?.note ?? "", /^api\.anthropic\.com, api\.github\.com, github\.com, uploads\.github\.com, \*\.githubusercontent\.com \+ the repo's origin host$/);
+  assert.deepEqual(egressLints(sbCfg({ sandbox: undefined }), { env: {} }), []);
 });
 
 test("agentBinChecks: a sandboxed step's binary resolves in the image, not on the host PATH", () => {

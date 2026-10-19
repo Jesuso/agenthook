@@ -24,7 +24,8 @@ import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
-import { SANDBOX_NAMES } from "./sandbox/names.js";
+import { SANDBOX_NAMES, EGRESS_MODES } from "./sandbox/names.js";
+import { egressEntryProblem } from "./sandbox/egress.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
 // The installed package root (this file is src/config.js). Used only to read
@@ -490,6 +491,12 @@ export function validateRawConfig(raw) {
         errors.push(`config: pipeline step "${sid}" sandbox has no effect on a manual step (no agent runs).`);
       }
     }
+    if (step.egress != null) {
+      if (step.manual) errors.push(`config: pipeline step "${sid}" egress has no effect on a manual step (no agent runs).`);
+      else if (step.sandbox === false) errors.push(`config: pipeline step "${sid}" egress has no effect: the step runs on the host ("sandbox": false).`);
+      else if (cfg.sandbox == null) errors.push(`config: pipeline step "${sid}" egress needs a profile "sandbox" (egress is enforced by the sandbox's network).`);
+      errors.push(...egressErrors(step.egress, `pipeline step "${sid}" egress`));
+    }
     if (step.env != null) {
       if (typeof step.env !== "object" || Array.isArray(step.env)) {
         errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
@@ -586,6 +593,33 @@ function sandboxErrors(sb) {
   if (sb.image != null && (typeof sb.image !== "string" || !sb.image.trim())) errors.push(`config: "sandbox.image" must be a non-empty string.`);
   if (sb.memory != null && (typeof sb.memory !== "string" || !/^\d+[kmg]?$/i.test(sb.memory))) errors.push(`config: "sandbox.memory" must be a size like "4g", "512m" or bytes.`);
   if (sb.cpus != null && (typeof sb.cpus !== "number" || !Number.isFinite(sb.cpus) || sb.cpus <= 0)) errors.push(`config: "sandbox.cpus" must be a number > 0.`);
+  if (sb.egress != null) errors.push(...egressErrors(sb.egress, `"sandbox.egress"`));
+  return errors;
+}
+
+/**
+ * Structural errors in an `egress` block (`sandbox.egress` or a step's): the mode, and every
+ * `allow`/`deny` entry a valid rule or a known `@preset`. Pure.
+ * @param {any} eg @param {string} at  e.g. `"sandbox.egress"` or `pipeline step "code" egress`
+ * @returns {string[]}
+ */
+function egressErrors(eg, at) {
+  if (typeof eg !== "object" || Array.isArray(eg) || eg === null) return [`config: ${at} must be an object ({ "mode", "allow", "deny" }).`];
+  /** @type {string[]} */
+  const errors = [];
+  if (eg.mode != null && !(/** @type {readonly unknown[]} */ (EGRESS_MODES).includes(eg.mode))) errors.push(`config: ${at} mode ${JSON.stringify(eg.mode)} must be one of ${EGRESS_MODES.join(", ")}.`);
+  for (const key of ["allow", "deny"]) {
+    const list = eg[key];
+    if (list == null) continue;
+    if (!Array.isArray(list)) {
+      errors.push(`config: ${at} ${key} must be a list of host rules or @presets.`);
+      continue;
+    }
+    for (const entry of list) {
+      const problem = egressEntryProblem(entry);
+      if (problem) errors.push(`config: ${at} ${key} entry ${JSON.stringify(entry)}: ${problem}.`);
+    }
+  }
   return errors;
 }
 

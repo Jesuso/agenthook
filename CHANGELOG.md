@@ -15,8 +15,18 @@ All notable changes to this project are documented here. The format is based on
   env is passed by name, never in argv. Boot refuses if the runtime is unavailable and reaps
   orphaned containers; cancel and timeout kill the container. Only `claude` is supported for now:
   a sandboxed `cursor`, `hermes` or `opencode` step is refused, never run on the host. `doctor --fix`
-  builds the image. Network is still open (#473 adds the egress allowlist). See `docs/sandbox.md`
-  (#472).
+  builds the image. Network is allowlisted by default (see the next entry). See
+  `docs/sandbox.md` (#472).
+- Egress allowlist for sandboxed runs (`sandbox.egress`, and a per-step `egress`). Each run sits
+  on its own internal network with no route out except a per-run HTTPS proxy that lets through only
+  the model API (`api.anthropic.com`, `ANTHROPIC_BASE_URL`'s host, Bedrock/Vertex), the forge, the
+  tracker API the prompt uses, the origin host and what you `allow` — host rules or registry presets
+  (`@npm`, `@pypi`, `@crates`, `@go`, `@rubygems`, `@maven`, `@yarn`; none by default, doctor
+  suggests them from lockfiles). Names that resolve to loopback, link-local (cloud metadata) or
+  private addresses are refused. A denied host gets a 403 the agent can quote, a line in the run log
+  and `egressDenied` on `run_end`; the outcome is unchanged. `mode: "none"` cuts the network,
+  `"open"` restores the runtime default (doctor warns). The proxy runs the built-in image, so a
+  custom `sandbox.image` also needs `agenthook-agent:<version>` (#473).
 
 ### Changed
 

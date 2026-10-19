@@ -26,8 +26,9 @@ import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/imag
 import { sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
-import { TRACKER_AGENT_ENV } from "../trackers/index.js";
-import { FORGE_AGENT_ENV } from "../forges/index.js";
+import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
+import { FORGE_AGENT_ENV, FORGE_EGRESS_HOSTS } from "../forges/index.js";
+import { egressPolicy, egressRules, needsEgressProxy } from "../sandbox/egress.js";
 
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
@@ -359,21 +360,24 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
     return out;
   }
   out.push({ ok: true, label: `sandbox: \`${bin} info\` succeeds`, note: rootNote });
-  const img = await run(bin, ["image", "inspect", image], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
-  out.push({
-    ok: img.code === 0,
-    label: `sandbox image present: ${image}`,
-    note: img.code === 0 ? "" : "missing",
-    fix: image === DEFAULT_IMAGE
-      ? {
-          describe: `build ${image}`,
-          apply: () => {
-            const r = build(bin, buildImageArgs(runtime, image), AGENT_DOCKERFILE);
-            if (r.status !== 0) throw new Error(`\`${bin} build\` exited ${r.status}`);
-          },
-        }
-      : { manual: `build ${image} (FROM ${DEFAULT_IMAGE}, with sh, git, gh and the agent CLI on PATH) — see docs/sandbox.md` },
-  });
+  // The egress proxy runs the built-in image, so an allowlist profile with a custom image needs both.
+  for (const img of new Set([image, ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])])) {
+    const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+    out.push({
+      ok: r.code === 0,
+      label: `sandbox image present: ${img}${img !== image ? " (egress proxy)" : ""}`,
+      note: r.code === 0 ? "" : "missing",
+      fix: img === DEFAULT_IMAGE
+        ? {
+            describe: `build ${img}`,
+            apply: () => {
+              const b = build(bin, buildImageArgs(runtime, img), AGENT_DOCKERFILE);
+              if (b.status !== 0) throw new Error(`\`${bin} build\` exited ${b.status}`);
+            },
+          }
+        : { manual: `build ${img} (FROM ${DEFAULT_IMAGE}, with sh, git, gh and the agent CLI on PATH) — see docs/sandbox.md` },
+    });
+  }
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || !isSandboxed(cfg, s)) continue;
     const agent = agentFor(cfg, s);
@@ -390,6 +394,88 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
     if (path.isAbsolute(stepBin)) {
       out.push({ ok: true, warn: true, label: `step "${s.id}" agent binary is a host path: ${stepBin}`, note: "a sandboxed run resolves it inside the image — likely exit 127; use a name on the image's PATH" });
     }
+  }
+  return out;
+}
+
+/** Lockfiles at a repo root → the registry preset its agents likely need. */
+const LOCKFILE_PRESETS = /** @type {[RegExp, string][]} */ ([
+  [/^(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml)$/, "@npm"],
+  [/^yarn\.lock$/, "@yarn"],
+  [/^(poetry\.lock|requirements.*\.txt|uv\.lock|pyproject\.toml)$/, "@pypi"],
+  [/^Cargo\.lock$/, "@crates"],
+  [/^go\.sum$/, "@go"],
+  [/^Gemfile\.lock$/, "@rubygems"],
+  [/^(pom\.xml|build\.gradle.*)$/, "@maven"],
+]);
+
+/** @param {string|undefined} url */
+function isLoopbackUrl(url) {
+  try {
+    const h = new URL(String(url)).hostname.replace(/^\[(.*)\]$/, "$1").toLowerCase();
+    return h === "localhost" || h.endsWith(".localhost") || /^127\./.test(h) || h === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Egress lints for a sandboxed profile (#473): ⚠ an `open` mode (profile or step), ⚠ a loopback
+ * ANTHROPIC_BASE_URL a container can't reach, ℹ a registry preset a repo-root lockfile suggests
+ * (when a sandboxed allowlist step lacks it), and ℹ each sandboxed step's effective policy.
+ * Pure given `files` (the repo root listing) and `env` (the receiver env agents draw from).
+ * @param {import('../types.js').Config} cfg
+ * @param {{files?: string[], env?: Record<string, string|undefined>}} [io]
+ * @returns {{ level: 'info'|'warn', label: string, note?: string }[]} */
+export function egressLints(cfg, { files = [], env = process.env } = {}) {
+  if (!cfg.sandbox) return [];
+  /** @type {{ level: 'info'|'warn', label: string, note?: string }[]} */
+  const out = [];
+  const exfil = "sandboxed runs can reach any host — an injected agent can exfiltrate the worktree and its env";
+  if (cfg.sandbox.egress?.mode === "open") out.push({ level: "warn", label: `sandbox egress mode is "open"`, note: exfil });
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual && isSandboxed(cfg, s));
+  for (const s of steps) if (s.egress?.mode === "open") out.push({ level: "warn", label: `step "${s.id}" egress mode is "open"`, note: exfil });
+
+  const tracker = TRACKER_AGENT_ENV[cfg.provider] ?? [];
+  const forge = cfg.forge ? (FORGE_AGENT_ENV[cfg.forge.type] ?? []) : [];
+  /** @type {Map<string, string[]>} */
+  const loopback = new Map();
+  for (const s of steps) {
+    const agent = agentFor(cfg, s);
+    const allow = agentEnvAllow({ agent: agent.envPassthrough, tracker, forge, operator: cfg.agentEnvPassthrough });
+    const spawnEnv = buildAgentEnv({ source: env, allow, layers: [agent.env?.({ cfg, step: s }), s.env] });
+    const base = spawnEnv.ANTHROPIC_BASE_URL;
+    if (agent.describe().name === "claude" && base && isLoopbackUrl(base)) loopback.set(base, [...(loopback.get(base) ?? []), s.id]);
+    const policy = egressPolicy(cfg, s);
+    if (policy.mode !== "allowlist") {
+      if (policy.mode === "none") out.push({ level: "info", label: `step "${s.id}" egress: none`, note: "no network at all" });
+      continue;
+    }
+    try {
+      const rules = egressRules({
+        agentHosts: agent.egressHosts?.(spawnEnv) ?? [],
+        trackerHosts: TRACKER_EGRESS_HOSTS[cfg.provider]?.(cfg.providerConfig) ?? [],
+        forgeHosts: cfg.forge ? (FORGE_EGRESS_HOSTS[cfg.forge.type]?.(cfg.forge) ?? []) : [],
+        allow: policy.allow,
+        deny: policy.deny,
+      });
+      out.push({ level: "info", label: `step "${s.id}" egress allowlist`, note: `${rules.join(", ")} + the repo's origin host` });
+    } catch (e) {
+      out.push({ level: "warn", label: `step "${s.id}" egress allowlist`, note: e.message });
+    }
+  }
+  for (const [url, ids] of loopback) {
+    out.push({ level: "warn", label: `ANTHROPIC_BASE_URL is loopback (steps: ${ids.join(", ")})`, note: `the sandbox cannot reach ${url}; use a host-reachable address (host.docker.internal / host.containers.internal) and allow it` });
+  }
+  const allowSteps = steps.filter((s) => egressPolicy(cfg, s).mode === "allowlist");
+  /** @type {Map<string, string[]>} */
+  const hints = new Map();
+  for (const f of files) {
+    const preset = LOCKFILE_PRESETS.find(([re]) => re.test(f))?.[1];
+    if (preset && allowSteps.some((s) => !egressPolicy(cfg, s).allow.includes(preset))) hints.set(preset, [...(hints.get(preset) ?? []), f]);
+  }
+  for (const [preset, found] of hints) {
+    out.push({ level: "info", label: `egress: ${found.join(", ")} found — registries are not allowed by default`, note: `add "${preset}" to sandbox.egress.allow (or a step's egress.allow) if agents install packages` });
   }
   return out;
 }
@@ -754,6 +840,15 @@ export async function runChecks(cfg, io = {}) {
 
   for (const c of ingressChecks(cfg.ingress, have)) add(c.ok, c.label, c.note, { manual: c.manual });
   checks.push(...(await sandboxChecks(cfg, { run, has: have, build })));
+  const rootFiles = (/** @type {string} */ dir) => {
+    try {
+      return fs.readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  const files = [...new Set(reposOf(cfg).flatMap((r) => rootFiles(r.path)))];
+  for (const l of egressLints(cfg, { files, env })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });

@@ -160,6 +160,8 @@ export function extractRouteKeys(labels, prefix, pipelineLabels = []) {
 
 /** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
 export const GITHUB_AGENT_ENV = /** @type {string[]} */ (["GITHUB_TOKEN"]);
+/** The API host commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it. */
+export const githubEgressHosts = () => ["api.github.com"];
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
@@ -478,6 +480,7 @@ export function createGithubAdapter(cfg, store) {
       commentHowTo: `post a comment with curl: curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -X POST https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments -d '{"body":"<text>"}' (your token is in the env as $GITHUB_TOKEN)`,
       readCommentsHowTo: `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments (or gh issue view <number> --comments)`,
       agentEnv: GITHUB_AGENT_ENV,
+      egressHosts: githubEgressHosts(),
       stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" },
     }),
 
