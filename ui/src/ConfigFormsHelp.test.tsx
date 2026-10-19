@@ -82,6 +82,18 @@ describe("BasicsForm help", () => {
     expect(warning!.hidden).toBe(false);
   });
 
+  it("the Sandbox backend select writes via sandboxTypeEdit (Off removes the whole block)", async () => {
+    const withSandbox = { ...raw, sandbox: { type: "docker", memory: "4g" } };
+    const onEdit = vi.fn();
+    m = await mount(createElement(BasicsForm, { text: JSON.stringify(withSandbox, null, 2), onEdit, raw: withSandbox, stateKey: "p" }));
+    const select = m.root.querySelector<HTMLSelectElement>('select[name="sandbox.type"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, "");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(JSON.parse(onEdit.mock.calls.at(-1)![0]).sandbox).toBeUndefined();
+  });
+
   it("a number edit yields the same buffer as numberEdit (no clamping)", async () => {
     const onEdit = vi.fn();
     m = await mount(basics(onEdit));

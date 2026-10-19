@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Config editor: Basics → Sandbox group sets the profile's `sandbox` block (backend, image,
+  memory, cpus, egress) — previously Raw-only. An inline warning shows when `fullAuto` is on with
+  no sandbox configured.
+
 ## [0.10.0] — 2026-10-18
 
 **Trust release:** agents get less of your machine by default, and can optionally run in a per-run
