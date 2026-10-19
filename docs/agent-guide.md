@@ -160,7 +160,9 @@ A sandboxed run can only reach the hosts its egress allowlist names: a `run_end`
 what the proxy refused, and an agent that needed one of them usually holds or fails quoting the
 proxy's 403 text (`<host>:<port> is not in this sandbox's allowlist`). That is a config change for
 the user (add the host or a preset like `@npm` to `sandbox.egress.allow` or the step's
-`egress.allow`), not a retry — surface it rather than re-running.
+`egress.allow`), not a retry — surface it rather than re-running. `run_end` may also carry
+`egressDeniedTruncated?` (number): the proxy's own denied-log cap was hit, so that many extra
+denials were counted but not logged individually — `egressDenied` still lists the top hosts.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 

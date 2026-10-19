@@ -267,7 +267,7 @@ test("done() (allowlist): removes the proxy then the network, folds denied.jsonl
   const r = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).wrap(wrapArgs({ mode: "allowlist", rules: [] }));
   const before = s.calls.length;
   const report = await r.done();
-  assert.deepEqual(s.calls.slice(before).map((c) => c.slice(1)), [["rm", "-f", `${r.id}-proxy`], ["network", "rm", `${r.id}-net`]]);
+  assert.deepEqual(s.calls.slice(before).map((c) => c.slice(1)), [["stop", "-t", "5", `${r.id}-proxy`], ["rm", "-f", `${r.id}-proxy`], ["network", "rm", `${r.id}-net`]]);
   assert.deepEqual(report.extra, { egressDenied: ["example.com:443", "evil.io:80", "pypi.org:443"] });
   assert.deepEqual(report.notes, [
     "egress denied: example.com:443 (3×) — add it to sandbox.egress.allow (or the step's egress.allow) if this step needs it",
@@ -276,7 +276,7 @@ test("done() (allowlist): removes the proxy then the network, folds denied.jsonl
   ]);
   assert.equal(fs.existsSync(path.join(cfg.stateDir, "egress", r.id)), false);
   assert.deepEqual(await r.done(), report, "idempotent");
-  assert.equal(s.calls.length, before + 2, "nothing removed twice");
+  assert.equal(s.calls.length, before + 3, "nothing removed twice");
 });
 
 test("egressReport: nothing denied → {}; more than 20 hosts are capped with '… and N more'", () => {
@@ -286,6 +286,35 @@ test("egressReport: nothing denied → {}; more than 20 hosts are capped with '�
   assert.equal(r.notes?.length, 21);
   assert.equal(r.notes?.at(-1), "… and 3 more");
   assert.equal(r.extra?.egressDenied.length, 20);
+});
+
+test("egressReport: a {truncated} summary line adds egressDeniedTruncated + a note, egressDenied unchanged", () => {
+  const lines = [{ host: "example.com", port: 443 }, { host: "evil.io", port: 80 }].map((d) => JSON.stringify(d)).join("\n") + "\n" + JSON.stringify({ truncated: 7 });
+  const r = egressReport(lines);
+  assert.equal(r.extra?.egressDeniedTruncated, 7);
+  assert.deepEqual(r.extra?.egressDenied, ["evil.io:80", "example.com:443"]);
+  assert.ok(r.notes?.at(-1).includes("7 more denied request(s) not logged (denied.jsonl cap)"));
+  const noSummary = egressReport([{ host: "example.com", port: 443 }].map((d) => JSON.stringify(d)).join("\n"));
+  assert.equal(noSummary.extra?.egressDeniedTruncated, undefined, "unaffected when nothing was truncated");
+});
+
+test("done() (allowlist): teardownEgress runs `stop -t 5` before `rm -f`; a benign 'is not running' stop error is not logged", async () => {
+  const cfg = tmpCfg();
+  const s = egressRun({ answers: { stop: { code: 1, stderr: "Error: container is not running" } } });
+  const errors = [];
+  const origError = console.error;
+  console.error = (...a) => errors.push(a.join(" "));
+  try {
+    const r = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).wrap(wrapArgs({ mode: "allowlist", rules: [] }));
+    const before = s.calls.length;
+    await r.done();
+    const calls = s.calls.slice(before).map((c) => c.slice(1));
+    assert.deepEqual(calls[0], ["stop", "-t", "5", `${r.id}-proxy`]);
+    assert.deepEqual(calls[1], ["rm", "-f", `${r.id}-proxy`]);
+    assert.ok(!errors.some((e) => e.includes("stop")), "a 'not running' stop failure is benign");
+  } finally {
+    console.error = origError;
+  }
 });
 
 test("wrap() mode none: --network none, no proxy, no proxy env", async () => {
