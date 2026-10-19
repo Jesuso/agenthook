@@ -139,11 +139,9 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
   assert.deepEqual(sensitive, expected);
 });
 
-// Raw-only on purpose, each with its ticket: the per-run sandbox block (#472) and its egress
-// policy (#473) get their form with the isolation report (#476).
+// Raw-only on purpose, each with its ticket: the per-step egress policy (#473) gets its form
+// with the isolation report (#476). The profile sandbox* keys got a Basics form in #494.
 const RAW_ONLY = new Set([
-  "sandbox", "sandbox.type", "sandbox.image", "sandbox.memory", "sandbox.cpus",
-  "sandbox.egress", "sandbox.egress.mode", "sandbox.egress.allow", "sandbox.egress.deny",
   "tracker.pipeline.*.egress", "tracker.pipeline.*.egress.mode", "tracker.pipeline.*.egress.allow", "tracker.pipeline.*.egress.deny",
 ]);
 

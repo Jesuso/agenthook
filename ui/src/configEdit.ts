@@ -80,12 +80,23 @@ export type Basics = {
   agentProvider?: unknown;
   claudeBin?: unknown;
   stateId?: unknown;
+  sandbox?: Record<string, unknown>;
 };
 
 export function readBasics(raw: unknown): Basics {
   if (!isObj(raw)) return {};
-  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, agent, agentProvider, claudeBin, stateId } = raw;
-  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, agent, agentProvider, claudeBin, stateId };
+  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, agent, agentProvider, claudeBin, stateId, sandbox } = raw;
+  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, agent, agentProvider, claudeBin, stateId, sandbox: isObj(sandbox) ? sandbox : undefined };
+}
+
+/**
+ * The Sandbox backend select's edit: `""` removes the whole `sandbox` block (never leaves `{}`
+ * behind); `"docker"` / `"podman"` sets `sandbox.type` only, keeping any other key already there
+ * (so switching backends doesn't drop `image`/`memory`/`cpus`/`egress`).
+ */
+export function sandboxTypeEdit(text: string, type: "" | "docker" | "podman"): string {
+  if (type === "") return setPath(text, ["sandbox"], undefined);
+  return setPath(text, ["sandbox", "type"], type);
 }
 
 /** `tracker.pipeline` as-is (a non-object element reads as `{}`); [] when absent. */

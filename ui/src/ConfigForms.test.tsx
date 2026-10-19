@@ -80,6 +80,54 @@ describe("BasicsForm", () => {
   });
 });
 
+describe("BasicsForm Sandbox group (#494)", () => {
+  const render = (raw: object) => renderToStaticMarkup(createElement(BasicsForm, { text: JSON.stringify(raw), onEdit: () => {}, raw, stateKey: "p" }));
+
+  it("hides image/memory/cpus/egress when the backend is Off", () => {
+    const html = render({ name: "p" });
+    expect(html).not.toMatch(/name="sandbox\.image"/);
+    expect(html).not.toMatch(/name="sandbox\.memory"/);
+    expect(html).not.toMatch(/name="sandbox\.cpus"/);
+    expect(html).not.toMatch(/name="sandbox\.egress\.mode"/);
+  });
+
+  it("shows image/memory/cpus/egress once a backend is set", () => {
+    const html = render({ name: "p", sandbox: { type: "docker" } });
+    expect(html).toMatch(/name="sandbox\.image"/);
+    expect(html).toMatch(/name="sandbox\.memory"/);
+    expect(html).toMatch(/name="sandbox\.cpus"/);
+    expect(html).toMatch(/name="sandbox\.egress\.mode"/);
+    expect(html).toMatch(/name="sandbox\.egress\.allow"/);
+    expect(html).toMatch(/name="sandbox\.egress\.deny"/);
+  });
+
+  it('shows the open-egress warning only when egress.mode is "open"', () => {
+    const open = render({ name: "p", sandbox: { type: "docker", egress: { mode: "open" } } });
+    expect(open).toContain("unrestricted network: a hijacked agent can send data anywhere");
+    const allowlist = render({ name: "p", sandbox: { type: "docker", egress: { mode: "allowlist" } } });
+    expect(allowlist).not.toContain("unrestricted network");
+    const none = render({ name: "p", sandbox: { type: "docker", egress: { mode: "none" } } });
+    expect(none).not.toContain("unrestricted network");
+  });
+
+  it("shows the fullAuto-without-sandbox warning only when fullAuto is true and no sandbox block is set", () => {
+    const warned = render({ name: "p", fullAuto: true });
+    expect(warned).toContain("fullAuto without a sandbox");
+
+    const withSandbox = render({ name: "p", fullAuto: true, sandbox: { type: "docker" } });
+    expect(withSandbox).not.toContain("fullAuto without a sandbox");
+
+    const fullAutoOff = render({ name: "p", fullAuto: false });
+    expect(fullAutoOff).not.toContain("fullAuto without a sandbox");
+  });
+
+  it("renders the doctor --fix help text", () => {
+    const html = render({ name: "p" });
+    expect(html).toContain("agenthook doctor --fix");
+    expect(html).toContain("docs/sandbox.md");
+  });
+});
+
 describe("modelSelectState", () => {
   it("selects a known model directly", () => {
     expect(modelSelectState("claude-opus-5-5")).toEqual({ selectValue: "claude-opus-5-5", showCustom: false });

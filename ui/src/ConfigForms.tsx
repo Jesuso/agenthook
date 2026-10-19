@@ -50,6 +50,7 @@ import {
   removeStep,
   renameEdit,
   repoDefaultEdit,
+  sandboxTypeEdit,
   repoFieldPath,
   reposErrors,
   secretState,
@@ -603,6 +604,60 @@ export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null
   return parts.join(" · ");
 }
 
+const SANDBOX_TYPE_OPTIONS = [
+  { value: "", label: "Off" },
+  { value: "docker", label: "Docker" },
+  { value: "podman", label: "Podman" },
+] as const;
+
+/**
+ * The Basics form's Sandbox group: a backend select (Off removes the whole `sandbox` block) and,
+ * once a backend is set, the image/memory/cpus/egress fields. Egress `open` gets an inline warning;
+ * static help points at `agenthook doctor --fix` and docs/sandbox.md.
+ */
+function SandboxGroup(props: EditProps & { sandbox: Record<string, unknown> | undefined }) {
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const typeMeta = fieldMeta(["sandbox", "type"]);
+  const cur = fieldText(props.sandbox?.type);
+  const egressRaw = props.sandbox?.egress;
+  const egress = egressRaw && typeof egressRaw === "object" && !Array.isArray(egressRaw) ? (egressRaw as Record<string, unknown>) : undefined;
+  return (
+    <div className="col-span-full flex flex-col gap-2">
+      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Sandbox</h4>
+      <div className={FIELD_GRID}>
+        <Field label={typeMeta.label} hint={typeMeta.hint} help={typeMeta.help}>
+          <select className={INPUT} name="sandbox.type" value={cur} onChange={(e) => props.onEdit(sandboxTypeEdit(props.text, e.target.value as "" | "docker" | "podman"))}>
+            {SANDBOX_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {props.sandbox !== undefined && (
+          <>
+            <TextField {...edit} path={["sandbox", "image"]} value={props.sandbox.image} />
+            <TextField {...edit} path={["sandbox", "memory"]} value={props.sandbox.memory} />
+            <NumberField {...edit} path={["sandbox", "cpus"]} value={props.sandbox.cpus} />
+            <SelectField {...edit} path={["sandbox", "egress", "mode"]} value={egress?.mode} />
+            <StringListField {...edit} path={["sandbox", "egress", "allow"]} value={egress?.allow} />
+            <StringListField {...edit} path={["sandbox", "egress", "deny"]} value={egress?.deny} />
+          </>
+        )}
+      </div>
+      {props.sandbox !== undefined && egress?.mode === "open" && (
+        <p className="text-xs text-status-held">unrestricted network: a hijacked agent can send data anywhere</p>
+      )}
+      <p className={NOTE}>
+        A sandboxed claude step needs <span className="font-mono">CLAUDE_CODE_OAUTH_TOKEN</span> (from{" "}
+        <span className="font-mono">claude setup-token</span>) or <span className="font-mono">ANTHROPIC_API_KEY</span> in this profile's{" "}
+        <span className="font-mono">.env</span>, and the agent image: run <span className="font-mono">agenthook doctor --fix</span>. See{" "}
+        <span className="font-mono">docs/sandbox.md</span>.
+      </p>
+    </div>
+  );
+}
+
 export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }) {
   const b = readBasics(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -634,7 +689,13 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
           <p className="text-xs text-status-held">
             fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
           </p>
+          {b.fullAuto === true && b.sandbox === undefined && (
+            <p className="text-xs text-status-held">
+              fullAuto without a sandbox: a verified webhook runs code on this host as your user. Enable the sandbox below.
+            </p>
+          )}
         </div>
+        <SandboxGroup {...edit} sandbox={b.sandbox} />
         <details className="col-span-full" data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
             Advanced · {(["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length} set

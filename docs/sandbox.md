@@ -27,6 +27,9 @@ block boot.
 
 ## Quick start
 
+The config editor's Basics → Sandbox group sets the same `sandbox` block (backend, image,
+memory, cpus, egress) — switching the backend select to Off removes it entirely.
+
 Add a `sandbox` block to the profile config:
 
 ```json

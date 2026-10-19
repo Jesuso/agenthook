@@ -39,6 +39,7 @@ import {
   setCount,
   removeStep,
   renameEdit,
+  sandboxTypeEdit,
   setPath,
   showTerminalFlag,
   stageKeysFor,
@@ -134,6 +135,30 @@ describe("renameEdit", () => {
     const d = lineDiff(withId, out);
     expect(d.added).toEqual(['  "name": "renamed",']);
     expect(d.removed).toEqual(['  "name": "myproject",']);
+  });
+});
+
+describe("sandboxTypeEdit (#494)", () => {
+  it('"" removes the whole sandbox block, leaving no {} behind', () => {
+    const withBlock = setPath(example, ["sandbox"], { type: "docker", memory: "4g" });
+    const out = sandboxTypeEdit(withBlock, "");
+    expect(JSON.parse(out).sandbox).toBeUndefined();
+  });
+
+  it('"" on a config with no sandbox block is a no-op', () => {
+    expect(JSON.parse(example).sandbox).toBeUndefined();
+    expect(sandboxTypeEdit(example, "")).toBe(example);
+  });
+
+  it('"docker" on a config with no block writes just {"type":"docker"}', () => {
+    const out = sandboxTypeEdit(example, "docker");
+    expect(JSON.parse(out).sandbox).toEqual({ type: "docker" });
+  });
+
+  it("switching to podman keeps memory/cpus/egress", () => {
+    const withBlock = setPath(example, ["sandbox"], { type: "docker", memory: "4g", cpus: 2, egress: { mode: "none" } });
+    const out = sandboxTypeEdit(withBlock, "podman");
+    expect(JSON.parse(out).sandbox).toEqual({ type: "podman", memory: "4g", cpus: 2, egress: { mode: "none" } });
   });
 });
 
