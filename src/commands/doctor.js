@@ -25,7 +25,7 @@ import { runTokenPermissions, revokeRunToken, originUrl } from "../github-run-to
 import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
-import { sandboxCredentialProblem } from "../agents/claude.js";
+import { claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV } from "../trackers/index.js";
@@ -85,6 +85,50 @@ export function agentLints(cfg) {
     const d = agentFor(cfg, s).describe();
     if (d.stdout !== "text") continue;
     out.push({ level: "warn", label: `step "${s.id}" requires a verdict`, note: `${d.name} output is plain text — with requireVerdict:false a run that wrote no verdict file advances` });
+  }
+  return out;
+}
+
+/** First words of an `allow.commands` entry that run arbitrary code (interpreters, shells, build
+ * tools, wrappers): allowing one makes the allowlist advisory. */
+const CODE_RUNNERS = new Set(["node", "python", "python3", "sh", "bash", "zsh", "npx", "npm", "pnpm", "yarn", "bun", "deno", "make", "perl", "ruby", "env", "xargs", "eval", "docker"]);
+
+/** Per-step `allow`/`deny` policy lints (#475). Pure (config only). ✗ a policy the step's agent
+ * can't enforce (its runs are refused); ⚠ an allowed command that runs arbitrary code, an allow
+ * policy outside the sandbox, an implement/worktree step whose allowlist lacks git (or gh with a
+ * forge) the prompt asks for; ℹ the effective claude rules.
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'sandbox'|'forge'>} cfg
+ * @returns {{ level: 'fail'|'warn'|'info', label: string, note: string }[]} */
+export function policyLints(cfg) {
+  /** @type {{ level: 'fail'|'warn'|'info', label: string, note: string }[]} */
+  const out = [];
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || (!s.allow && !s.deny)) continue;
+    const d = agentFor(cfg, s).describe();
+    const unenforced = /** @type {const} */ (["allow", "deny"]).filter((k) => s[k] && !d.policy?.[k]);
+    for (const k of unenforced) {
+      out.push({ level: "fail", label: `step "${s.id}" ${k} policy`, note: `${d.name} cannot enforce it — runs of this step are refused; use agent "claude" or remove the policy` });
+    }
+    if (!s.allow) {
+      if (!unenforced.length) out.push({ level: "info", label: `step "${s.id}" claude rules`, note: claudePolicyArgs({ deny: s.deny, cwd: "/<cwd>" }).join(" ") });
+      continue;
+    }
+    const label = `step "${s.id}" allow policy`;
+    const cmds = s.allow.commands ?? [];
+    for (const c of cmds) {
+      if (CODE_RUNNERS.has(c) || CODE_RUNNERS.has(c.split(/\s+/)[0]) || c.startsWith("git -c")) {
+        out.push({ level: "warn", label, note: `"${c}" lets the agent run arbitrary code — the allowlist is advisory for this step` });
+      }
+    }
+    if (!isSandboxed(cfg, s)) {
+      out.push({ level: "warn", label, note: "without a sandbox the allow policy is advisory against an injected agent (sh -c, absolute paths and interpreters bypass it); path limits are only structural inside the sandbox" });
+    }
+    if (s.createsWorktree || (s.kind ?? "implement") === "implement") {
+      const covers = (/** @type {string} */ tool) => cmds.some((c) => c === tool || c.startsWith(`${tool} `));
+      const missing = ["git", ...(cfg.forge ? ["gh"] : [])].filter((t) => !covers(t));
+      for (const t of missing) out.push({ level: "warn", label, note: `allow.commands has no "${t}" entry — the prompt asks for it` });
+    }
+    if (!unenforced.length) out.push({ level: "info", label: `step "${s.id}" claude rules`, note: claudePolicyArgs({ allow: s.allow, deny: s.deny, cwd: "/<cwd>", verdictFile: "/<verdictFile>" }).join(" ") });
   }
   return out;
 }
@@ -412,7 +456,7 @@ export function portCheck({ port, busy, profile }) {
  * action for a problem that is never auto-fixed. Only ✗/⚠ checks carry one.
  * @typedef {{ describe: string, apply: () => void|Promise<void> } | { manual: string }} Fix */
 /** @typedef {{ ok: boolean, warn?: boolean, info?: boolean, label: string, note?: string, fix?: Fix }} Check */
-/** A detector's problem. @typedef {{ level: 'fail'|'warn', label: string, note?: string, fix?: Fix }} Finding */
+/** A detector's problem (`info`: a ✓-side note, never a problem). @typedef {{ level: 'fail'|'warn'|'info', label: string, note?: string, fix?: Fix }} Finding */
 /** The child-process seam for the two fixers that shell out (tests inject a recorder).
  * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any, env?: Record<string, string>, timeout?: number}) => { status: number|null }} Spawner */
 
@@ -744,7 +788,7 @@ export async function runChecks(cfg, io = {}) {
   /** An ℹ line: informational only, never carries a fix. @param {string} label @param {string} [note] */
   const info = (label, note) => checks.push({ ok: true, info: true, label, note });
   /** @param {Finding} f */
-  const finding = (f) => (f.level === "fail" ? add(false, f.label, f.note, f.fix) : warn(f.label, f.note, f.fix));
+  const finding = (f) => (f.level === "fail" ? add(false, f.label, f.note, f.fix) : f.level === "info" ? info(f.label, f.note) : warn(f.label, f.note, f.fix));
 
   add(true, `config loaded: ${cfg.configPath}`);
   if (fs.existsSync(cfg.stateDir)) add(true, `profile "${cfg.name}" — state ${cfg.stateDir}`);
@@ -796,6 +840,7 @@ export async function runChecks(cfg, io = {}) {
     warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");
   }
   for (const l of agentLints(cfg)) warn(l.label, l.note);
+  policyLints(cfg).forEach(finding);
   for (const l of agentEnvLints(cfg, { env, platform })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note, l.fix);
   ghAuthLints(cfg, { spawn, onPath: have, env, platform }).forEach(finding);
   const readFile = (/** @type {string} */ f) => {

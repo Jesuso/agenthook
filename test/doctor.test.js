@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, runTokenLints } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, runTokenLints } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -183,6 +183,39 @@ test("agentLints: warns only for a text-only agent (hermes) with requireVerdict:
   assert.equal(lints[0].level, "warn");
   assert.match(lints[0].label, /h-off/);
   assert.equal(agentLints(/** @type {any} */ ({ agent: "hermes", pipeline: [{ id: "x", requireVerdict: false }] })).length, 1, "profile agent counts");
+});
+
+test("policyLints: ✗ an unenforceable policy, ⚠ code runners / no sandbox / missing git, ℹ the claude rules", () => {
+  /** @param {any} cfg */
+  const lints = (cfg) => policyLints(cfg);
+  /** @param {any[]} ls @param {string} level @param {RegExp} re */
+  const has = (ls, level, re) => ls.some((l) => l.level === level && re.test(`${l.label} ${l.note}`));
+
+  const h = lints({ pipeline: [{ id: "rev", kind: "review", agent: "hermes", allow: { commands: ["git"] } }] });
+  assert.ok(has(h, "fail", /step "rev" allow policy hermes cannot enforce it — runs of this step are refused/));
+  assert.ok(!h.some((l) => l.level === "info"), "no claude rules for a refused step");
+
+  const node = lints({ pipeline: [{ id: "rev", kind: "review", allow: { commands: ["node"] } }] });
+  assert.ok(has(node, "warn", /"node" lets the agent run arbitrary code/));
+  assert.ok(has(lints({ pipeline: [{ id: "rev", kind: "review", allow: { commands: ["npm run build"] } }] }), "warn", /"npm run build" lets the agent run arbitrary code/));
+  assert.ok(!has(lints({ pipeline: [{ id: "rev", kind: "review", allow: { commands: ["gh pr"] } }] }), "warn", /arbitrary code/));
+
+  const sandbox = /without a sandbox the allow policy is advisory/;
+  assert.ok(has(node, "warn", sandbox));
+  assert.ok(!has(lints({ sandbox: { type: "docker" }, pipeline: [{ id: "rev", kind: "review", allow: { commands: ["git"] } }] }), "warn", sandbox));
+  assert.ok(has(lints({ sandbox: { type: "docker" }, pipeline: [{ id: "rev", kind: "review", sandbox: false, allow: { commands: ["git"] } }] }), "warn", sandbox));
+
+  const wt = lints({ forge: { type: "github" }, pipeline: [{ id: "code", createsWorktree: true, allow: { commands: ["npm test"] } }] });
+  assert.ok(has(wt, "warn", /no "git" entry — the prompt asks for it/));
+  assert.ok(has(wt, "warn", /no "gh" entry — the prompt asks for it/));
+  const okWt = lints({ forge: { type: "github" }, pipeline: [{ id: "code", createsWorktree: true, allow: { commands: ["git", "gh pr"] } }] });
+  assert.ok(!has(okWt, "warn", /the prompt asks for it/));
+
+  const info = lints({ pipeline: [{ id: "rev", kind: "review", allow: { commands: ["git"], paths: ["src/**"] }, deny: { commands: ["curl"] } }] }).find((l) => l.level === "info");
+  assert.equal(info?.label, 'step "rev" claude rules');
+  assert.equal(info?.note, "--permission-mode dontAsk --allowedTools Read(//<cwd>/**) Bash(git) Bash(git *) Edit(//<cwd>/src/**) Edit(//<verdictFile>) --disallowedTools Bash(curl) Bash(curl *)");
+
+  assert.deepEqual(lints({ pipeline: [{ id: "code", createsWorktree: true }, { id: "m", manual: true }] }), []);
 });
 
 test("portCheck: busy + this profile up → info, names the pid", () => {

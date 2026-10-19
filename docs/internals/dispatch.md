@@ -21,13 +21,14 @@
   `adapter.complete` (Asana: `completed:true`) → emit `merged`.
 - `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`, `hermes`, `opencode`). Interface
   `AgentAdapter` (`src/types.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
-  file, not argv, e.g. hermes' `--query-file`), `buildArgs`, `createParser` (stdout → log text + tally +
+  file, not argv, e.g. hermes' `--query-file`; optional `policy: {allow, deny}` — which step policies the CLI
+  enforces, claude only), `buildArgs` (also gets the step's `allow`/`deny`, `cwd` and `verdictFile`), `createParser` (stdout → log text + tally +
   `result`/`sessionId`; optional `pushStderr` feeds stderr to the parser, e.g. hermes' `session_id:` line),
   `usageRecord(result|null, ctx)` (decides `unpriced`), `sessions`
   (`{transcriptDir, resumeCommand, files, cwdDirs}` or null — backs `follow`/`resume`/`sessions.js`, which union every agent the profile + its steps run; a null-`sessions` agent with an optional top-level `resumeCommand` — opencode — is resumed from `usage.jsonl` session ids instead), `defaults`
   (`requireVerdict`/`bin`, under the step's), optional `env({cfg,step})` (agent env under the step's `env`, also in `resume`), optional `envPassthrough` (receiver env names the CLI needs, added to the allowlist)
-  and `preflight({cfg,step,provider,sandboxed,env})` (a reason fails the run with no spawn; on a sandboxed step
-  `agentPreflight` first refuses an agent with no `sandbox` hook), optional `sandbox({cfg,step,cwd,ownsCwd,home}) → {mounts, env?}`
+  and `preflight({cfg,step,provider,sandboxed,env})` (a reason fails the run with no spawn; `agentPreflight` first
+  refuses a step `allow`/`deny` the agent's `describe().policy` can't enforce, then, on a sandboxed step, an agent with no `sandbox` hook), optional `sandbox({cfg,step,cwd,ownsCwd,home}) → {mounts, env?}`
   (claude: its transcript dir mounted under the container HOME — for a no-worktree run (`ownsCwd` false) a receiver-owned
   `<stateDir>/sandbox-transcripts/<mangle>`, never the operator's `~/.claude/projects/<mangle(repo)>`, and `follow` searches it; see [adapters.md](adapters.md) for the sandbox axis). Hermes steps are `isolated` by default
   (`hermes-home.js`: own `HERMES_HOME` at `<stateDir>/hermes-home`, only `config.yaml` copied, local providers only). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →

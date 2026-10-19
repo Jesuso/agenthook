@@ -94,7 +94,7 @@ replay (`catchup` / `reconcile`) for the gaps.
 > **agenthook turns a webhook into code execution on your host.** With `fullAuto` enabled it runs
 > `claude -p --dangerously-skip-permissions` — a verified webhook leads straight to *unsandboxed*
 > command execution, gated only by the HMAC signature and a non-guessable URL. `fullAuto` is **off
-> by default** (agents prompt for permission). Turn it on only on a trusted host with a scoped
+> by default** (privileged tool calls are denied — headless agents cannot prompt). Turn it on only on a trusted host with a scoped
 > token, ideally inside the [sandboxed container](docs/sandbox.md) (the blessed `fullAuto` path —
 > only the repo mounted). Read the full threat model in
 > [docs/architecture.md#security-posture](docs/architecture.md#security-posture) and report issues

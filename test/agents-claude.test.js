@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // and the usage record / unpriced tagging. Moved verbatim from test/dispatch.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildClaudeArgs, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
+import { buildClaudeArgs, claudePolicyArgs, claude, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -62,6 +62,40 @@ test("buildClaudeArgs: provider is ignored with a warn, argv unchanged", () => {
 test("buildClaudeArgs: fullAuto adds --dangerously-skip-permissions last", () => {
   const args = buildClaudeArgs({ prompt: "hi", model: "m", effort: "max", fullAuto: true });
   assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "m", "--effort", "max", "--dangerously-skip-permissions"]);
+});
+
+// --- step allow/deny policy (#475) ---
+
+test("claudePolicyArgs: allow → dontAsk + cwd-scoped reads, both command forms, writable paths, then the verdict file", () => {
+  assert.deepEqual(claudePolicyArgs({ allow: { commands: ["git", "npm test"], paths: ["src/**"] }, cwd: "/w", verdictFile: "/d/v.json" }), [
+    "--permission-mode", "dontAsk", "--allowedTools", "Read(//w/**)", "Bash(git)", "Bash(git *)", "Bash(npm test)", "Bash(npm test *)", "Edit(//w/src/**)", "Edit(//d/v.json)",
+  ]);
+  // No allow.paths: only the verdict file is writable (a reviewer).
+  assert.deepEqual(claudePolicyArgs({ allow: { commands: ["gh pr"] }, cwd: "/w", verdictFile: "/d/v.json" }), [
+    "--permission-mode", "dontAsk", "--allowedTools", "Read(//w/**)", "Bash(gh pr)", "Bash(gh pr *)", "Edit(//d/v.json)",
+  ]);
+  assert.deepEqual(claudePolicyArgs({ cwd: "/w" }), []);
+});
+
+test("buildClaudeArgs: allow drops --dangerously-skip-permissions even under fullAuto (allow rules do nothing in bypass)", () => {
+  const args = buildClaudeArgs({ prompt: "hi", model: "m", fullAuto: true, allow: { commands: ["git"] }, cwd: "/w", verdictFile: "/d/v.json" });
+  assert.ok(!args.includes("--dangerously-skip-permissions"));
+  assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "m", "--permission-mode", "dontAsk", "--allowedTools", "Read(//w/**)", "Bash(git)", "Bash(git *)", "Edit(//d/v.json)"]);
+});
+
+test("buildClaudeArgs: deny alone keeps fullAuto's bypass and appends --disallowedTools last", () => {
+  const args = buildClaudeArgs({ prompt: "hi", fullAuto: true, deny: { commands: ["curl"], paths: [".env*"] }, cwd: "/w", verdictFile: "/d/v.json" });
+  assert.ok(args.includes("--dangerously-skip-permissions"));
+  assert.deepEqual(args.slice(-5),["--disallowedTools", "Bash(curl)", "Bash(curl *)", "Read(//w/.env*)", "Edit(//w/.env*)"]);
+});
+
+test("buildClaudeArgs: no policy → argv unchanged by cwd/verdictFile", () => {
+  assert.deepEqual(buildClaudeArgs({ prompt: "hi", model: "m", effort: "max", fullAuto: true, cwd: "/w", verdictFile: "/d/v.json" }), ["-p", "hi", ...SJ, "--model", "m", "--effort", "max", "--dangerously-skip-permissions"]);
+  assert.deepEqual(buildClaudeArgs({ prompt: "hi", cwd: "/w", verdictFile: "/d/v.json" }), ["-p", "hi", ...SJ]);
+});
+
+test("claude adapter declares it enforces both policies", () => {
+  assert.deepEqual(claude.describe().policy, { allow: true, deny: true });
 });
 
 // --- stream-json parser: log rendering + token tally + result capture ---

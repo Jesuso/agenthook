@@ -16,6 +16,13 @@ All notable changes to this project are documented here. The format is based on
   check the App's permissions. Under the container sandbox the config dir is bind-mounted
   read-only at the same path so a sandboxed run sees the refreshed token too. See
   `docs/github-app.md#agent-run-tokens` (#474).
+- Per-step `allow` / `deny` policy (`{ "commands": [...], "paths": [...] }`). For `claude`,
+  `allow` runs the step with `--permission-mode dontAsk --allowedTools …` (and drops
+  `--dangerously-skip-permissions` even under `fullAuto`); `deny` adds `--disallowedTools …`, which
+  holds in every mode. A step with a policy on an agent that can't enforce it (`cursor`, `opencode`,
+  `hermes`) is refused before spawn, never run unrestricted. `doctor` lists each step's effective
+  rules and warns where they are advisory (no sandbox, interpreters on the allowlist). Steps without
+  a policy get exactly the same argv as before. See `docs/configuration.md` (#475).
 - Per-run container sandbox (`"sandbox": { "type": "docker" | "podman" }`, optional `image`,
   `memory`, `cpus`; a step opts out with `"sandbox": false`). Each agent run gets its own
   throwaway container as your user with all capabilities dropped, mounting only its worktree, the

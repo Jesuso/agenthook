@@ -7,8 +7,9 @@
 
 /**
  * Config paths whose change the audit line names and the config editor confirms twice: the
- * agent's permission mode, binary, env passthrough, per-run GitHub token switch and per-step binary/env, the energy command (it runs a shell command), the sandbox backend/image and a
- * step's opt-out of it, the tracker identity that scopes which items are ours,
+ * agent's permission mode, binary, env passthrough, per-run GitHub token switch and per-step
+ * binary/env/allow/deny policy, the energy command (it runs a shell command), the sandbox
+ * backend/image and a step's opt-out of it, the tracker identity that scopes which items are ours,
  * and every src/config.js SECRET_FIELDS path (a test keeps that list a subset of this one).
  * `[*]` expands every element of an array.
  */
@@ -33,6 +34,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "tracker.pipeline[*].bin",
   "tracker.pipeline[*].env",
   "tracker.pipeline[*].sandbox",
+  "tracker.pipeline[*].allow",
+  "tracker.pipeline[*].deny",
   "energy.source.cmd",
   "sandbox.type",
   "sandbox.image",
