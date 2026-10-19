@@ -1013,9 +1013,9 @@ test("isolationReport: egress row — n/a without a sandbox, allowlist (defaults
 });
 
 test("isolationReport: credentials row — own token (⚠ under fullAuto), App + all sandboxed ℹ, App + host step ⚠, force-SSH ⚠", () => {
-  const own = rowsOf(iso({}), /isolation · credentials/);
+  const own = rowsOf(iso({ provider: "asana" }), /isolation · credentials/);
   assert.deepEqual(own.map((r) => [r.level, r.note]), [["info", "your own token (tracker/forge token or gh login) — usable until you revoke it"]]);
-  assert.equal(rowsOf(iso({ fullAuto: true }), /isolation · credentials/)[0].level, "warn");
+  assert.equal(rowsOf(iso({ provider: "asana", fullAuto: true }), /isolation · credentials/)[0].level, "warn");
   const gh = { provider: "github", providerConfig: APP };
   assert.deepEqual(rowsOf(iso({ ...gh, sandbox: { type: "podman" } }), /isolation · credentials/).map((r) => [r.level, r.note]), [["info", "per-run GitHub App token (1h, repo-scoped)"]]);
   // A forge App counts too; githubRunToken:false turns it off.
@@ -1031,6 +1031,17 @@ test("isolationReport: credentials row — own token (⚠ under fullAuto), App +
   assert.match(ssh[0].note, /\(url\.git@github\.com:\.insteadof\) — run pushes use your SSH key; remove the rule or enable the sandbox$/);
   assert.equal(rowsOf(iso({ ...gh, sandbox: { type: "podman" } }, { gitInsteadOf: rule }), /to SSH/).length, 0, "every step sandboxed: the host rule can't apply");
   assert.equal(rowsOf(iso({}, { gitInsteadOf: rule }), /to SSH/).length, 0, "no run tokens: the operator's own key is used anyway");
+});
+
+test("isolationReport: credentials row — none for a local/no-forge profile with nothing passed to agents (#491)", () => {
+  assert.deepEqual(rowsOf(iso({}), /isolation · credentials/).map((r) => [r.level, r.note]), [["info", "none (local tracker, no forge)"]]);
+  assert.deepEqual(rowsOf(iso({ fullAuto: true }), /isolation · credentials/).map((r) => [r.level, r.note]), [["info", "none (local tracker, no forge)"]]);
+  // a GH token passthrough or a step env gives agents something, so it's "your own token" again
+  assert.match(rowsOf(iso({ agentEnvPassthrough: ["GH_TOKEN"] }), /isolation · credentials/)[0].note, /^your own token/);
+  assert.match(rowsOf(iso({ agentEnvPassthrough: ["*"] }), /isolation · credentials/)[0].note, /^your own token/);
+  assert.match(rowsOf(iso({ pipeline: [{ id: "code", env: { GITHUB_TOKEN: "x" } }, { id: "done", manual: true }] }), /isolation · credentials/)[0].note, /^your own token/);
+  // a forge on top of the local tracker also means credentials exist
+  assert.match(rowsOf(iso({ forge: { type: "github" } }), /isolation · credentials/)[0].note, /^your own token/);
 });
 
 test("parseForceSshRewrites: git@github.com: and ssh:// bases rewriting https://github.com match; reverse and other hosts don't", () => {
