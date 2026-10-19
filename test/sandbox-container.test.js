@@ -382,3 +382,10 @@ test("proxyArgs: hardened, labelled, script read-only, egress dir rw", () => {
   assert.ok(a.includes("no-new-privileges"));
   assert.ok(a.includes("type=bind,src=/s/egress/ah-p-1-c-abcd,dst=/egress"));
 });
+
+test("containerArgs: a file mask binds /dev/null read-only, a dir mask an empty 0555 tmpfs", () => {
+  const a = argsFor({ mounts: [{ path: "/repo", ro: true }, { path: "/repo/.env", mask: "file" }, { path: "/repo/secrets", mask: "dir" }] });
+  assert.ok(a.includes("type=bind,src=/dev/null,dst=/repo/.env,readonly"));
+  assert.ok(a.includes("type=tmpfs,dst=/repo/secrets,tmpfs-size=4096,tmpfs-mode=0555"));
+  assert.ok(!a.some((x) => x.includes("src=/repo/.env") || x.includes("src=/repo/secrets")), "a masked path is never a mount source");
+});

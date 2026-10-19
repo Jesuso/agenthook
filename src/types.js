@@ -454,6 +454,7 @@
  * @property {string} path   absolute host path; mounted at the SAME path inside the container unless `dst` is set
  * @property {string} [dst]  absolute container path (only for a mount under the sandbox's `home`, e.g. a transcript dir)
  * @property {boolean} [ro]  read-only
+ * @property {"file"|"dir"} [mask]  hide `path` instead of mounting it: a file behind /dev/null, a dir behind an empty tmpfs
  */
 
 /** What a run's sandbox has to say once it exits (generic, so a sandbox feature needs no new plumbing).

@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, mergeGitConfigEnv, hostOf, hostGitFacts, inferredForgeEgressHosts } from "../src/dispatch/sandbox.js";
+import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, mergeGitConfigEnv, hostOf, hostGitFacts, inferredForgeEgressHosts, checkoutMasks } from "../src/dispatch/sandbox.js";
 import { runGitEnv } from "../src/github-run-token.js";
 import { HOST_GIT_TIMEOUT_MS, listWorktrees } from "../src/worktree.js";
 
@@ -133,6 +133,7 @@ test("gitSandboxEnv: an SSH github origin pushes over HTTPS with gh's helper, sa
     ["url.https://github.com/.insteadOf", "ssh://git@github.com/"],
     ["credential.https://github.com.helper", "!gh auth git-credential"],
     ["safe.directory", "*"],
+    ["push.default", "current"],
   ]);
   assert.equal(env.GIT_AUTHOR_NAME, "Op");
   assert.equal(env.GIT_COMMITTER_NAME, "Op");
@@ -147,12 +148,12 @@ test("gitSandboxEnv: gitlab takes the host from forge.baseUrl and a GITLAB_TOKEN
   assert.equal(pairs[2][0], "credential.https://gitlab.acme.io.helper");
   assert.match(pairs[2][1], /GITLAB_TOKEN/);
   assert.equal(env.GIT_AUTHOR_NAME, undefined);
-  assert.deepEqual(pairsOf(gitSandboxEnv({})), [["safe.directory", "*"]]);
+  assert.deepEqual(pairsOf(gitSandboxEnv({})), [["safe.directory", "*"], ["push.default", "current"]]);
 });
 
 test("gitSandboxEnv skipHostAuth: a run-token sandboxed run drops the insteadOf/credential pairs, keeps safe.directory + author", () => {
   const env = gitSandboxEnv({ originUrl: "git@github.com:o/r.git", author: { name: "Op", email: "op@x" }, skipHostAuth: true });
-  assert.deepEqual(pairsOf(env), [["safe.directory", "*"]]);
+  assert.deepEqual(pairsOf(env), [["safe.directory", "*"], ["push.default", "current"]]);
   assert.equal(env.GIT_AUTHOR_NAME, "Op");
 });
 
@@ -172,13 +173,14 @@ test("mergeGitConfigEnv re-indexes a run token's git env (#474) and the sandbox'
   const creds = runGitEnv(); // GIT_CONFIG_COUNT=4 (reset, gh helper, two insteadOf), plus GIT_TERMINAL_PROMPT
   const sbx = gitSandboxEnv({ originUrl: "git@github.com:o/r.git", author: { name: "Op", email: "op@x" }, skipHostAuth: true }); // just safe.directory + author
   const merged = mergeGitConfigEnv(creds, sbx);
-  assert.equal(Number(merged.GIT_CONFIG_COUNT), 5);
+  assert.equal(Number(merged.GIT_CONFIG_COUNT), 6);
   assert.deepEqual(pairsOf(merged), [
     ["credential.https://github.com.helper", ""],
     ["credential.https://github.com.helper", "!gh auth git-credential"],
     ["url.https://github.com/.insteadOf", "git@github.com:"],
     ["url.https://github.com/.insteadOf", "ssh://git@github.com/"],
     ["safe.directory", "*"],
+    ["push.default", "current"],
   ]);
   assert.equal(merged.GIT_TERMINAL_PROMPT, "0");
   assert.equal(merged.GIT_AUTHOR_NAME, "Op");
@@ -632,4 +634,39 @@ test("sandbox e2e: egress mode none runs with --network none and starts no proxy
   } finally {
     h.restore();
   }
+});
+
+test("checkoutMasks: gitignored files and dirs plus the config/.env extras are masked; tracked files, symlinks and outside paths are not", () => {
+  const { root, repo } = fixture();
+  fs.writeFileSync(path.join(repo, ".gitignore"), ".env\nagenthook.config.json\nlogs/\nnode_modules/\n");
+  fs.writeFileSync(path.join(repo, ".env"), "SECRET=x");
+  fs.writeFileSync(path.join(repo, "agenthook.config.json"), "{}");
+  fs.mkdirSync(path.join(repo, "logs"));
+  fs.writeFileSync(path.join(repo, "logs", "r.log"), "x");
+  fs.writeFileSync(path.join(repo, "notes.local"), "untracked, not ignored");
+  fs.symlinkSync(path.join(repo, ".env"), path.join(repo, "envlink"));
+  fs.appendFileSync(path.join(repo, ".gitignore"), "envlink\n");
+  const m = checkoutMasks(repo, { extra: [path.join(repo, "cfg.json"), path.join(root, "outside.env"), undefined] });
+  fs.writeFileSync(path.join(repo, "cfg.json"), "{}"); // created after: a missing extra is skipped
+  assert.deepEqual(m, [
+    { path: path.join(repo, ".env"), mask: "file" },
+    { path: path.join(repo, "agenthook.config.json"), mask: "file" },
+    { path: path.join(repo, "logs"), mask: "dir" },
+  ]);
+  assert.deepEqual(checkoutMasks(repo, { extra: [path.join(repo, "cfg.json")] }).map((x) => path.basename(x.path)), [".env", "agenthook.config.json", "cfg.json", "logs"]);
+});
+
+test("checkoutMasks: a dir git can't list throws (the run is refused, never started with secrets visible)", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ah-nogit-")));
+  assert.throws(() => checkoutMasks(dir), /could not list .*gitignored files/);
+});
+
+test("sandboxMounts: masks follow the read-only checkout of a no-worktree run, and are ignored for a worktree run", () => {
+  const { repo, wt } = fixture();
+  const common = path.join(repo, ".git");
+  const masks = [{ path: path.join(repo, ".env"), mask: /** @type {const} */ ("file") }];
+  const m = sandboxMounts({ cwd: repo, hasWorktree: false, verdictDir: "/v", gitCommonDir: common, masks });
+  assert.deepEqual(m.slice(0, 2), [{ path: repo, ro: true }, masks[0]]);
+  const w = sandboxMounts({ cwd: wt, hasWorktree: true, verdictDir: "/v", gitCommonDir: common, masks });
+  assert.ok(!w.some((x) => x.mask));
 });

@@ -24,6 +24,15 @@ export const BASE_AGENT_ENV = [
   "PROGRAMDATA", "PROGRAMFILES", "HOMEDRIVE", "HOMEPATH",
 ];
 
+/** The parent Claude Code session's own variables, set when the receiver is started from inside
+ * one: its session id, IPC socket and messaging token (which would let an agent message that
+ * session), entrypoint, pid and effort. `CLAUDE_*` passthrough would otherwise hand them to every
+ * claude run; they are stripped whatever the allowlist says (a step `env` can still set one). */
+export const HOST_SESSION_ENV = /** @type {const} */ ([
+  "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SSE_PORT",
+  "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_*", "CLAUDE_CODE_BRIDGE_*", "CLAUDE_CODE_MESSAGING_*",
+]);
+
 /** The allowlist for one agent run, in order: the base names, the agent CLI's `envPassthrough`,
  * the tracker prompt's `agentEnv`, the forge's `agentEnv`, the operator's `agentEnvPassthrough`. Pure.
  * @param {{agent?: readonly string[], tracker?: readonly string[], forge?: readonly string[], operator?: readonly string[]}} [o]
@@ -50,8 +59,8 @@ export function looksSecret(name) {
 }
 
 /**
- * The agent env. `source` (process.env) is filtered to `allow`, minus the names in `strip` (a
- * run's per-run credentials replace them, #474), then each of `layers` is spread on top, in
+ * The agent env. `source` (process.env) is filtered to `allow`, minus HOST_SESSION_ENV and the
+ * names in `strip` (a run's per-run credentials replace them, #474), then each of `layers` is spread on top, in
  * order. Layers are explicit operator or adapter choices, so they are never filtered.
  * Undefined values are dropped. Pure.
  * @param {{source: Record<string,string|undefined>, allow: readonly string[], strip?: readonly string[], layers?: (Record<string,string>|undefined)[], platform?: string}} o
@@ -60,15 +69,15 @@ export function looksSecret(name) {
 export function buildAgentEnv({ source, allow, strip = [], layers = [], platform }) {
   /** @type {Record<string,string>} */
   const out = {};
-  for (const [k, v] of Object.entries(source)) if (v !== undefined && envNameMatches(k, allow, platform) && !envNameMatches(k, strip, platform)) out[k] = v;
+  for (const [k, v] of Object.entries(source)) if (v !== undefined && envNameMatches(k, allow, platform) && !envNameMatches(k, HOST_SESSION_ENV, platform) && !envNameMatches(k, strip, platform)) out[k] = v;
   for (const layer of layers) for (const [k, v] of Object.entries(layer ?? {})) if (v !== undefined) out[k] = v;
   return out;
 }
 
-/** Names in `source` that `allow` drops (sorted). Doctor and tests use it. Pure.
+/** Names in `source` that `allow` (or HOST_SESSION_ENV) drops (sorted). Doctor and tests use it. Pure.
  * @param {{source: Record<string,string|undefined>, allow: readonly string[], platform?: string}} o @returns {string[]} */
 export function strippedNames({ source, allow, platform }) {
   return Object.keys(source)
-    .filter((k) => source[k] !== undefined && !envNameMatches(k, allow, platform))
+    .filter((k) => source[k] !== undefined && (!envNameMatches(k, allow, platform) || envNameMatches(k, HOST_SESSION_ENV, platform)))
     .sort();
 }

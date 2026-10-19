@@ -68,6 +68,7 @@ come from `gh auth git-credential` (GitHub, needs `GH_TOKEN`/`GITHUB_TOKEN`) or 
 | Inside the container | Source | Notes |
 |----------------------|--------|-------|
 | the worktree (same path as on the host) | the run's worktree | read-write; read-only for a no-worktree step (the repo itself) |
+| nothing at each gitignored path of the repo, for a no-worktree step | `/dev/null` (file) or an empty read-only tmpfs (dir) | your checkout holds `.env`, `agenthook.config.json`, `logs/` and other ignored files a fresh worktree never has; each is masked, as are the profile's config and the `.env` beside it. Untracked files that aren't ignored stay visible. A checkout git can't list, or one with more than 500 ignored paths, fails the run with `sandbox setup failed: …` |
 | the repo's common git dir | `<repo>/.git` | read-write (commits, refs); read-only for a no-worktree step |
 | `<repo>/.git/config`, `<repo>/.git/hooks` | host | **read-only** overlays — an agent can't plant a hook the host runs |
 | the run's verdict dir | `<dataDir>/verdicts/run-<ref>-<step>/` | fresh per run, removed after the verdict is read |
@@ -87,6 +88,11 @@ rewrote either to point outside `<repoPath>/.git/worktrees/`, or replaced `confi
 a symlink, the run fails with `sandbox setup failed: …` instead of mounting it. The verdict
 file is read only when it is a regular file of at most 1 MiB; a symlink, FIFO or larger file
 is removed and counts as no verdict.
+
+`.git/config` being read-only means `git push -u` / `git branch --set-upstream-to` print
+`could not write config file … Device or resource busy` and save no upstream (git still exits 0).
+The container sets `push.default=current`, so a later bare `git push` still pushes the branch to
+`origin` under its own name.
 
 Cancel, timeout and shutdown kill the container (`<runtime> kill`); on boot the receiver removes
 any container left from a previous process (labelled `agenthook.profile=<stateKey>`) before it

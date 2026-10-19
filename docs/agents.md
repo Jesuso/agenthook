@@ -118,7 +118,7 @@ started would otherwise read all of it with one `env` call. Instead it gets an a
 
    | Agent | Passed | Also reaches its login through |
    |---|---|---|
-   | `claude` | `ANTHROPIC_*`, `CLAUDE_*` | `HOME` (`~/.claude`, macOS Keychain) |
+   | `claude` | `ANTHROPIC_*`, `CLAUDE_*` (minus the parent Claude Code session's own: `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_CODE_SESSION_*`/`MESSAGING_*`/`BRIDGE_*`, …) | `HOME` (`~/.claude`, macOS Keychain) |
    | `cursor` | `CURSOR_API_KEY` | `HOME` (`~/.cursor`) |
    | `opencode` | `OPENCODE_*` | `HOME` / `XDG_*` (`opencode auth login`) |
    | `hermes` | `HERMES_HOME` | `HOME` (`~/.hermes`); an isolated step gets its own `HERMES_HOME` |

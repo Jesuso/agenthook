@@ -2,7 +2,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // The agent spawn env allowlist (#470): pure, no process.env reads beyond the defaults.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BASE_AGENT_ENV, agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../src/agent-env.js";
+import { BASE_AGENT_ENV, agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames, HOST_SESSION_ENV } from "../src/agent-env.js";
 import { AGENTS } from "../src/agents/index.js";
 import { TRACKER_AGENT_ENV, TRACKERS } from "../src/trackers/index.js";
 import { FORGE_AGENT_ENV, FORGES } from "../src/forges/index.js";
@@ -74,4 +74,14 @@ test("declarations: each agent's envPassthrough, each tracker's and forge's agen
   assert.deepEqual(TRACKER_AGENT_ENV, { asana: ["ASANA_TOKEN"], jira: ["JIRA_API_TOKEN"], github: ["GITHUB_TOKEN"], "github-projects": ["GITHUB_TOKEN"], local: [], linear: ["LINEAR_API_KEY"] });
   assert.deepEqual(Object.keys(FORGE_AGENT_ENV).sort(), Object.keys(FORGES).sort());
   assert.deepEqual(FORGE_AGENT_ENV, { github: ["GH_TOKEN", "GITHUB_TOKEN"], gitlab: [] });
+});
+
+test("buildAgentEnv: the parent Claude Code session's variables are stripped even under CLAUDE_* or \"*\"", () => {
+  const src = { PATH: "/usr/bin", CLAUDE_CODE_OAUTH_TOKEN: "tok", CLAUDE_CODE_MESSAGING_TOKEN: "m", CLAUDE_CODE_MESSAGING_SOCKET: "/s", CLAUDE_CODE_SESSION_ID: "id", CLAUDE_CODE_BRIDGE_SESSION_ID: "b", CLAUDE_PID: "1", CLAUDE_EFFORT: "high", CLAUDECODE: "1" };
+  for (const allow of [agentEnvAllow({ agent: AGENTS.claude.envPassthrough }), ["*"]]) {
+    assert.deepEqual(Object.keys(buildAgentEnv({ source: src, allow })).sort(), ["CLAUDE_CODE_OAUTH_TOKEN", "PATH"]);
+  }
+  assert.equal(buildAgentEnv({ source: src, allow: ["*"], layers: [{ CLAUDE_EFFORT: "low" }] }).CLAUDE_EFFORT, "low", "a step env layer may still set one");
+  assert.ok(strippedNames({ source: src, allow: ["*"] }).includes("CLAUDE_CODE_MESSAGING_TOKEN"));
+  assert.ok(HOST_SESSION_ENV.length > 0);
 });
