@@ -75,6 +75,13 @@ const checked = (p) => {
 /** @param {string} src @param {string} dst @param {boolean} [ro] */
 const mount = (src, dst, ro) => ["--mount", `type=bind,src=${checked(src)},dst=${checked(dst)}${ro ? ",readonly" : ""}`];
 
+/** A mask hides a host path under a read-only mount: a file behind /dev/null, a dir behind an
+ * empty root-owned 0555 tmpfs. @param {import('../types.js').SandboxMount} m */
+const maskOrMount = (m) =>
+  m.mask === "dir" ? ["--mount", `type=tmpfs,dst=${checked(m.path)},tmpfs-size=4096,tmpfs-mode=0555`]
+  : m.mask === "file" ? mount("/dev/null", m.path, true)
+  : mount(m.path, m.dst ?? m.path, m.ro);
+
 /** @param {string} runtime @param {number} uid @param {number} gid */
 const userArgs = (runtime, uid, gid) => (runtime === "podman" ? ["--userns=keep-id"] : ["--user", `${uid}:${gid}`]);
 
@@ -104,7 +111,7 @@ export function containerArgs(o) {
     ...(o.network ? ["--network", o.network] : []),
     ...mount(o.home, SANDBOX_HOME),
     "-e", `HOME=${SANDBOX_HOME}`,
-    ...o.mounts.flatMap((m) => mount(m.path, m.dst ?? m.path, m.ro)),
+    ...o.mounts.flatMap(maskOrMount),
     "--workdir", o.cwd,
     ...Object.keys(o.env).flatMap((k) => ["-e", k]),
     o.image,

@@ -83,7 +83,9 @@ All notable changes to this project are documented here. The format is based on
   authtokens, App private keys, webhook secrets and anything else in `.env` or your shell are
   stripped. **Migration:** run `agenthook doctor`. It lists what is no longer passed and what your
   agents likely need. Add those names to `"agentEnvPassthrough": ["AWS_*", "OPENAI_API_KEY"]`, or
-  set `"agentEnvPassthrough": ["*"]` to keep the 0.9 behaviour. This closes the environment path
+  set `"agentEnvPassthrough": ["*"]` to keep the 0.9 behaviour. Either way, a receiver started from
+  inside Claude Code no longer hands agents that session's own variables (`CLAUDE_CODE_SESSION_ID`,
+  `CLAUDE_CODE_MESSAGING_*`, `CLAUDE_EFFORT`, `CLAUDECODE`, …). This closes the environment path
   only: without a sandbox the agent can still read `.env` and your credential files from disk
   (#470).
 

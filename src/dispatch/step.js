@@ -13,7 +13,7 @@ import { agentFor } from "../agents/index.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
-import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts } from "./sandbox.js";
+import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
@@ -253,7 +253,7 @@ export function createStep(ctx) {
         // The per-run GH_CONFIG_DIR (#474) is mounted read-only next to the agent's own mounts:
         // a refresh rewrites hosts.yml with an atomic rename, which the container sees because
         // the mount is the directory, not the file.
-        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: trustedGitDirs(repo.path, cwd).commonDir, agentMounts: own.mounts, credsMount: creds?.env?.GH_CONFIG_DIR });
+        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: trustedGitDirs(repo.path, cwd).commonDir, agentMounts: own.mounts, credsMount: creds?.env?.GH_CONFIG_DIR, masks: hasWorktree ? [] : checkoutMasks(cwd, { extra: [cfg.configPath, cfg.configPath && path.join(path.dirname(cfg.configPath), ".env")] }) });
         const facts = hostGitFacts(repo.path);
         // When creds already supplies github.com's credential helper and insteadOf rewrite
         // (runGitEnv, under GH_CONFIG_DIR), skip gitSandboxEnv's own copy of those pairs —

@@ -72,13 +72,16 @@ export function trustedGitDirs(repoPath, cwd) {
  * run-credentials dir (#474, `credsMount`) is mounted read-only next to `agentMounts`: it is a
  * receiver-owned dir under `dataDir`, never a path derived from anything agent-writable, so a
  * refreshed token (an atomic rename on the host) is visible inside the container at the same
- * path (`GH_CONFIG_DIR`).
- * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types.js').SandboxMount[], credsMount?: string}} o
+ * path (`GH_CONFIG_DIR`). `masks` (from `checkoutMasks`) hide the main checkout's gitignored
+ * files from a no-worktree run: the checkout is the operator's, so it holds `.env` and the
+ * profile config, which a fresh worktree never does.
+ * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types.js').SandboxMount[], credsMount?: string, masks?: import('../types.js').SandboxMount[]}} o
  * @returns {import('../types.js').SandboxMount[]}
  */
-export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agentMounts = [], credsMount }) {
+export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agentMounts = [], credsMount, masks = [] }) {
   /** @type {import('../types.js').SandboxMount[]} */
   const mounts = [{ path: cwd, ro: !hasWorktree }];
+  if (!hasWorktree) mounts.push(...masks);
   if (gitCommonDir) {
     mounts.push({ path: gitCommonDir, ro: !hasWorktree });
     if (hasWorktree) {
@@ -175,7 +178,9 @@ export function inferredForgeEgressHosts(originUrl) {
  * Git config for a container with no ~/.gitconfig, as GIT_CONFIG_COUNT/KEY_n/VALUE_n env (names
  * only reach argv): an SSH `origin` rewritten to HTTPS, a credential helper from the forge's
  * token in the env (github: `gh auth git-credential` over GH_TOKEN/GITHUB_TOKEN; gitlab:
- * GITLAB_TOKEN), `safe.directory=*`, and the host's commit identity. `skipHostAuth` omits the
+ * GITLAB_TOKEN), `safe.directory=*`, `push.default=current` (the read-only `.git/config` can't
+ * save an upstream, so `git push -u` records none; a bare `git push` still pushes the branch to
+ * its own name), and the host's commit identity. `skipHostAuth` omits the
  * insteadOf/credential-helper pairs: a per-run GitHub App token (#474) already supplies them
  * via its own `GH_CONFIG_DIR`-backed env (`runGitEnv`), and setting both would double the
  * GIT_CONFIG_COUNT indices — merge with `mergeGitConfigEnv` instead. `skipHostAuth` only applies
@@ -195,6 +200,7 @@ export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author, skip
     else if (kind === "gitlab") pairs.push([`credential.https://${host}.helper`, `!f() { test "$1" = get && echo username=oauth2 && echo "password=$GITLAB_TOKEN"; }; f`]);
   }
   pairs.push(["safe.directory", "*"]);
+  pairs.push(["push.default", "current"]);
   /** @type {Record<string, string>} */
   const env = { GIT_CONFIG_COUNT: String(pairs.length) };
   pairs.forEach(([k, v], i) => {
@@ -247,6 +253,49 @@ function hostGit(repo, args, timeoutMs) {
   } catch {
     return "";
   }
+}
+
+/** At most this many paths are masked; a checkout with more refuses the run (fail closed). */
+export const MAX_CHECKOUT_MASKS = 500;
+
+/**
+ * The masks a no-worktree run's read-only checkout mount needs: every gitignored path git
+ * reports (`--directory` collapses an ignored dir to one entry) plus `extra` (the profile's
+ * config and its `.env`, which may sit in the checkout without being ignored), each existing
+ * one under `cwd`. A file is overlaid with /dev/null, a dir with an empty read-only tmpfs.
+ * Symlinks are skipped: their targets outside the mounts aren't reachable anyway, and one
+ * pointing inside is masked at its own path. Throws when git can't list them or there are
+ * more than MAX_CHECKOUT_MASKS — the run is refused rather than started with secrets visible.
+ * @param {string} cwd @param {{extra?: (string|undefined)[], timeoutMs?: number}} [o]
+ * @returns {import('../types.js').SandboxMount[]}
+ */
+export function checkoutMasks(cwd, { extra = [], timeoutMs = HOST_GIT_READ_TIMEOUT_MS } = {}) {
+  let out;
+  try {
+    out = execFileSync("git", [...HOST_GIT_SAFE, "-C", cwd, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024 });
+  } catch (e) {
+    const why = (e.stderr ? String(e.stderr) : e.message).trim().split("\n")[0];
+    throw new Error(`sandbox: could not list ${cwd}'s gitignored files to hide them (${why})`);
+  }
+  const root = path.resolve(cwd);
+  const under = (/** @type {string} */ p) => p.startsWith(root + path.sep);
+  const paths = new Set(out.split("\0").filter(Boolean).map((r) => path.join(root, r.replace(/\/$/, ""))));
+  for (const p of extra) if (p) paths.add(path.resolve(p));
+  /** @type {import('../types.js').SandboxMount[]} */
+  const masks = [];
+  for (const p of [...paths].sort()) {
+    if (!under(p)) continue;
+    let st;
+    try {
+      st = fs.lstatSync(p);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) continue;
+    masks.push({ path: p, mask: st.isDirectory() ? "dir" : "file" });
+  }
+  if (masks.length > MAX_CHECKOUT_MASKS) throw new Error(`sandbox: ${cwd} has ${masks.length} gitignored paths to hide (max ${MAX_CHECKOUT_MASKS}) — clean the checkout or give the step a worktree`);
+  return masks;
 }
 
 /** The host side of `gitSandboxEnv`: the repo's origin URL and commit identity, read once per run.
