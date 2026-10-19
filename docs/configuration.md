@@ -71,10 +71,10 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | `agent` | The coding-agent CLI steps run: `claude` (default), `cursor`, `hermes` or `opencode`. A step's own `agent` overrides it. See [Agents](agents.md). |
 | `agentEnvPassthrough` | Optional. Extra receiver env var names agents also get, each a `NAME` or a `PREFIX*`: `["AWS_*", "OPENAI_API_KEY"]`. Everything outside the [agent env allowlist](agents.md#agent-environment) is stripped; `["*"]` restores the 0.9 behaviour (agents inherit everything — `doctor` warns). `agenthook doctor` lists what is stripped and what your agents likely need. |
 | `githubRunToken` | Optional, default `true`. Only acts under [GitHub App auth](github-app.md) (tracker or forge): each agent run gets its own 1-hour installation token, scoped to the run's repo and to what the step kind needs, refreshed while the run lasts and revoked when it ends ([agent run tokens](github-app.md#agent-run-tokens)). `false` = agents get your own `GITHUB_TOKEN` / `gh auth` through the env allowlist. |
-| `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (unsandboxed code exec from a webhook — see the warning above). `false` (default) = privileged tool calls are denied (headless agents cannot prompt) unless allowed by a step `allow` policy or your agent's own settings. |
+| `fullAuto` | **Off by default.** `true` adds `--dangerously-skip-permissions` to `claude -p` (code exec from a webhook, on the host unless `sandbox` is set — see the warning above). `false` (default): headless agents can't prompt: privileged tool calls are denied unless an allow rule (repo `.claude/settings.json` or a step `allow` policy) permits them. Claude runs are pinned (`--setting-sources user,project --permission-mode dontAsk`), so a `defaultMode` in `~/.claude/settings.json` doesn't apply ([permissions](sandbox.md#permissions-inside-and-outside-the-sandbox)). |
 | `tracker` | `{ type, token, …, pipeline: [...] }` — `type` is `asana`, `jira`, `github` (labels), `github-projects` (Projects v2 board columns), or `linear` (a team's workflow states — see [linear-setup.md](linear-setup.md)); `pipeline` is the ordered steps (required). Per-step keys, including `requireVerdict`, are documented in [getting-started.md](getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters). To run some steps on a local model (per-step `bin`/`env`/`model`), see [Mixed pipelines / local models](local-models.md). Per-step `allow`/`deny` policies: see [Step policy](#step-policy-allow--deny) below. |
 | `ingress` | `{ type, … }` — `ngrok` / `cloudflared` / `tailscale` / `hosted`; type-specific options. |
-| `sandbox` | Optional per-run container: `{ "type": "docker" \| "podman", "image"?, "memory"?, "cpus"?, "egress"? }`. Each agent run gets its own container with only its worktree mounted; boot is refused when the runtime or image is missing. A step sets `"sandbox": false` to run on the host. Only `claude` steps are supported. See [Sandboxed runs](sandbox.md#per-run-sandbox-010). |
+| `sandbox` | Optional per-run container: `{ "type": "docker" \| "podman", "image"?, "memory"?, "cpus"?, "egress"? }`. Each agent run gets its own container with only its worktree mounted; boot is refused when the runtime or image is missing. A step sets `"sandbox": false` to run on the host. Only `claude` steps are supported. See [Sandboxed runs](sandbox.md#quick-start). |
 | `sandbox.egress` | The sandboxed runs' network: `{ "mode": "allowlist" \| "none" \| "open", "allow"?: [...], "deny"?: [...] }`. `allowlist` (the default) lets a run reach only the model API, the forge, the tracker API, the origin host and `allow` (rules like `host`, `*.domain`, `host:port`, or presets `@npm` `@yarn` `@pypi` `@crates` `@go` `@rubygems` `@maven`); `deny` drops a default. A step's `egress` overrides `mode` and adds to `allow`/`deny`. See [Egress](sandbox.md#egress). |
 
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
@@ -118,10 +118,15 @@ not a subprocess that opens files itself. The policy closes the easy paths and m
 intent explicit; the structural boundary is the sandbox. `doctor` warns about each of these.
 
 `allow` is also not the *only* source of allow rules. Claude Code unions `--allowedTools` with the
-`permissions.allow` rules in `~/.claude/settings.json` and in the repo's own `.claude/settings.json`
-/ `settings.local.json`. The repo files live in the agent's worktree, so an agent can write one
-that widens a later run of the same ticket. Until #476 pins the settings sources, keep broad
-allow rules out of your user settings and treat a `.claude/` change in an agent PR as a red flag.
+`permissions.allow` rules from the settings it loads. Every pinned claude run (any step with
+`allow`, and every non-`fullAuto` step) passes `--setting-sources user,project`: it reads
+`~/.claude/settings.json` and the repo's `.claude/settings.json` (and the repo `CLAUDE.md`), never
+`.claude/settings.local.json`, and its `--disallowedTools` denies editor writes to both
+`.claude/settings.json` and `.claude/settings.local.json` in the worktree, so a run can't widen a
+later run of the same ticket through its file tools. Allow rules in your **user** settings still
+apply to every pinned step, and `agenthook doctor` ⚠ flags a broad one (`Bash`, `Edit(*)`, …). An
+allowed Bash interpreter can still write the repo file, so treat a `.claude/` change in an agent PR
+as a red flag ([sandbox.md](sandbox.md#what-it-does-not-protect)).
 
 | Agent | `allow` / `deny` |
 |-------|------------------|

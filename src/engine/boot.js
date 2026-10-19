@@ -12,6 +12,7 @@ import { startControl } from "../control.js";
 import { readQuota } from "../quota-file.js";
 import { runReconcile } from "../commands/reconcile.js";
 import { recoverInterrupted } from "./recovery.js";
+import { fullAutoBanner } from "./banner.js";
 
 /**
  * Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
@@ -67,18 +68,10 @@ export function createServe(deps) {
       if (result.tightened) console.error(`[boot] tightened ${dir} permissions 0${result.from.toString(8)} → 0700`);
     }
 
-    if (cfg.fullAuto) {
-      // fullAuto runs agents with --dangerously-skip-permissions: a verified webhook
-      // leads straight to unsandboxed code execution on this host. Make that loud at
-      // every boot so it's never a silent default. See docs/architecture.md#security-posture.
-      console.error(
-        "\n  ⚠  fullAuto is ON — agents run `claude -p --dangerously-skip-permissions`.\n" +
-          "     A verified webhook executes code on this host, UNSANDBOXED. The only gate\n" +
-          "     is the HMAC signature + a non-guessable URL. Run on a trusted host with a\n" +
-          "     scoped token, or in a container/VM with only the repo mounted. Set\n" +
-          "     fullAuto:false to require per-action permission prompts (the safe default).\n",
-      );
-    }
+    // fullAuto runs agents with their CLI's skip-permissions flag: loud at every boot unless every
+    // step is sandboxed. Warn only. See docs/sandbox.md.
+    const banner = fullAutoBanner(cfg);
+    if (banner) console.error(banner);
 
     if (cfg.overlapGuard && !(cfg.pipeline || []).some((s) => s.drainWorktree) && !forge) {
       // Locks release on a drain, a fail, or a forge merge. Without a drain step or a

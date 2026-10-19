@@ -92,11 +92,13 @@ replay (`catchup` / `reconcile`) for the gaps.
 
 > [!WARNING]
 > **agenthook turns a webhook into code execution on your host.** With `fullAuto` enabled it runs
-> `claude -p --dangerously-skip-permissions` — a verified webhook leads straight to *unsandboxed*
-> command execution, gated only by the HMAC signature and a non-guessable URL. `fullAuto` is **off
-> by default** (privileged tool calls are denied — headless agents cannot prompt). Turn it on only on a trusted host with a scoped
-> token, ideally inside the [sandboxed container](docs/sandbox.md) (the blessed `fullAuto` path —
-> only the repo mounted). Read the full threat model in
+> `claude -p --dangerously-skip-permissions` — a verified webhook leads straight to command
+> execution, gated only by the HMAC signature and a non-guessable URL, and on the host itself unless
+> the profile sets a [per-run sandbox](docs/sandbox.md). `fullAuto` is **off by default**: headless
+> agents can't prompt: privileged tool calls are denied unless an allow rule (repo
+> `.claude/settings.json` or a step `allow` policy) permits them. Turn `fullAuto` on only with the
+> per-run sandbox (each run sees only its worktree) or on a trusted host with a scoped token;
+> `agenthook doctor` shows the isolation report. Read the full threat model in
 > [docs/architecture.md#security-posture](docs/architecture.md#security-posture) and report issues
 > per [SECURITY.md](SECURITY.md) before you point this at anything real.
 
@@ -150,9 +152,9 @@ git log -p HEAD..agent/1          # the result, once the ticket reaches done
 agenthook stop
 ```
 
-The code step can only edit files with `--full-auto` (unsandboxed — read the
-[quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile)) or a repo `.claude/settings.json`
-that allows edits.
+The code step can only edit files with `--full-auto` (on the host unless you add a
+[per-run sandbox](docs/sandbox.md) — read the [quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile))
+or a repo `.claude/settings.json` that allows edits.
 
 ## Pick your stack
 

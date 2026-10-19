@@ -39,7 +39,9 @@ agent does.
 > step needs either `fullAuto` (agents run `claude --dangerously-skip-permissions`, **unsandboxed**,
 > in this repo) or a `.claude/settings.json` in the repo that allows Edit/Write/Bash. `init --local`
 > asks, defaulting to **No**; `--full-auto` turns it on non-interactively (`--yes` never does). Only
-> enable it on a repo and host you trust, or run inside the [sandbox](sandbox.md).
+> enable it on a repo and host you trust, or add a per-run sandbox (`"sandbox": {"type": "podman"}`,
+> [sandbox.md](sandbox.md#quick-start)) so each run sees only its worktree. `agenthook doctor`
+> shows the isolation report either way.
 
 `agenthook doctor` checks the profile; a fresh one reports no problems.
 

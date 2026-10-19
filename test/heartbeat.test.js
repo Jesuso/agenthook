@@ -244,3 +244,16 @@ test("createHeartbeat carries the pricing overrides, null when unset", () => {
   assert.equal(write(undefined), null);
   assert.deepEqual(write({ "qwen*": { input: 1, output: 2 } }), { "qwen*": { input: 1, output: 2 } });
 });
+
+test("createHeartbeat carries the sandbox backend next to fullAuto, null without one", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hb-sbx-"));
+  const write = (/** @type {any} */ sandbox) => {
+    const heartbeatFile = path.join(dir, `${Math.random()}.json`);
+    createHeartbeat(/** @type {any} */ ({ name: "n", stateKey: "n", heartbeatFile, pipeline: [], repoPath: dir, fullAuto: true, sandbox }));
+    return JSON.parse(fs.readFileSync(heartbeatFile, "utf8"));
+  };
+  assert.equal(write(undefined).sandbox, null);
+  const hb = write({ type: "podman" });
+  assert.equal(hb.sandbox, "podman");
+  assert.equal(hb.fullAuto, true);
+});

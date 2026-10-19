@@ -14,6 +14,11 @@ import { urlRule } from "../sandbox/egress.js";
  * dropped (warn + omit the flag) so a typo falls back to the CLI default, never crashes. */
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
+/** A cwd-relative glob made absolute for a permission rule (`//<cwd>/<glob>`). @param {string} cwd @param {string} p */
+const absRule = (cwd, p) => "/" + path.posix.join(cwd, p);
+/** Both command forms of each prefix (`Bash(git)`, `Bash(git *)`). @param {string[]} [cmds] */
+const bashRules = (cmds = []) => cmds.flatMap((c) => [`Bash(${c})`, `Bash(${c} *)`]);
+
 /**
  * The argv tail that enforces a step's `allow`/`deny` policy (pure). `allow` pins
  * `--permission-mode dontAsk` and lists what may run: reads under cwd, each command prefix, writes
@@ -24,26 +29,59 @@ const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
  * @returns {string[]}
  */
 export function claudePolicyArgs({ allow, deny, cwd = "", verdictFile }) {
-  const abs = (/** @type {string} */ p) => "/" + path.posix.join(cwd, p);
-  const bash = (/** @type {string[]} */ cmds = []) => cmds.flatMap((c) => [`Bash(${c})`, `Bash(${c} *)`]);
   const out = [];
   if (allow) {
-    out.push("--permission-mode", "dontAsk", "--allowedTools", `Read(${abs("**")})`, ...bash(allow.commands));
-    for (const p of allow.paths ?? []) out.push(`Edit(${abs(p)})`);
+    out.push("--permission-mode", "dontAsk", "--allowedTools", `Read(${absRule(cwd, "**")})`, ...bashRules(allow.commands));
+    for (const p of allow.paths ?? []) out.push(`Edit(${absRule(cwd, p)})`);
     if (verdictFile) out.push(`Edit(/${verdictFile})`);
   }
   if (deny) {
-    out.push("--disallowedTools", ...bash(deny.commands));
-    for (const p of deny.paths ?? []) out.push(`Read(${abs(p)})`, `Edit(${abs(p)})`);
+    out.push("--disallowedTools", ...bashRules(deny.commands));
+    for (const p of deny.paths ?? []) out.push(`Read(${absRule(cwd, p)})`, `Edit(${absRule(cwd, p)})`);
   }
   return out;
 }
 
 /**
+ * What every pinned (`dontAsk`) claude run adds so one run can't widen the next (pure): load only
+ * user + project settings (`.claude/settings.local.json` is never read; the repo CLAUDE.md still
+ * is) and deny editor writes to the worktree's `.claude/settings.json` / `.claude/settings.local.json`.
+ * No `cwd` → no settings-file rules.
+ * @param {{cwd?: string}} o
+ * @returns {{sources: string[], disallow: string[]}}
+ */
+export function claudeSettingsGuardArgs({ cwd }) {
+  return {
+    sources: ["--setting-sources", "user,project"],
+    disallow: cwd ? [".claude/settings.json", ".claude/settings.local.json"].map((f) => `Edit(${absRule(cwd, f)})`) : [],
+  };
+}
+
+/**
+ * The permission argv tail of a claude run (pure). `fullAuto` without `allow` = bypass:
+ * `--dangerously-skip-permissions` plus the step's deny group, nothing else. Every other run is
+ * pinned, so the user's `defaultMode` never decides: `--setting-sources user,project
+ * --permission-mode dontAsk`, the `allow` policy's rules (or just the verdict file), then one
+ * `--disallowedTools` group with the deny rules and the settings-file guard. A flag whose list is
+ * empty is omitted. The flags are variadic, so nothing positional may follow this tail.
+ * @param {{fullAuto?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
+ * @returns {string[]}
+ */
+export function claudePermissionArgs({ fullAuto, allow, deny, cwd, verdictFile }) {
+  if (fullAuto && !allow) return ["--dangerously-skip-permissions", ...claudePolicyArgs({ deny, cwd })];
+  const guard = claudeSettingsGuardArgs({ cwd });
+  const allowed = allow ? claudePolicyArgs({ allow, cwd, verdictFile }).slice(3) : verdictFile ? [`Edit(/${verdictFile})`] : [];
+  const disallowed = [...(deny ? claudePolicyArgs({ deny, cwd }).slice(1) : []), ...guard.disallow];
+  const out = [...guard.sources, "--permission-mode", "dontAsk"];
+  if (allowed.length) out.push("--allowedTools", ...allowed);
+  if (disallowed.length) out.push("--disallowedTools", ...disallowed);
+  return out;
+}
+
+/**
  * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
- * without a real spawn). Order is stable: prompt, then --model, --effort, then
- * --dangerously-skip-permissions (only when fullAuto and the step has no `allow`: allow rules
- * do nothing in bypass mode), then the step policy tail (claudePolicyArgs) last.
+ * without a real spawn). Order is stable: prompt, then --model, --effort, then the permission
+ * tail (claudePermissionArgs) last.
  * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
  * @returns {string[]}
  */
@@ -57,8 +95,7 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, all
     else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${EFFORT_LEVELS.join("|")})`);
   }
   if (provider) console.warn(`[dispatch] ignoring provider "${provider}" — claude has no provider flag`);
-  if (fullAuto && !allow) args.push("--dangerously-skip-permissions");
-  args.push(...claudePolicyArgs({ allow, deny, cwd, verdictFile }));
+  args.push(...claudePermissionArgs({ fullAuto, allow, deny, cwd, verdictFile }));
   return args;
 }
 

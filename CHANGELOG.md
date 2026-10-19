@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `agenthook doctor` prints an **isolation report**: `isolation ·` rows for the sandbox (type and
+  image), the agent env, egress, credentials (your own token or per-run App tokens, and whether
+  unsandboxed steps can still read the host `gh` login and `~/.ssh`), each step's permission mode,
+  and prompt fencing. ⚠ rows flag `fullAuto` without a sandbox, a `sandbox: false` step under
+  `fullAuto`, a `defaultMode: "acceptEdits"` or a broad allow rule (`Bash`, `Edit(*)`, …) in
+  `~/.claude/settings.json`, and a global git `insteadOf` rule that rewrites `https://github.com/`
+  to SSH (run-token pushes would use your SSH key). Warn-only; nothing ever refuses. `status` gains a
+  `sandbox :` line and the heartbeat a `sandbox` field (#476).
 - Per-run GitHub App tokens for agents. Under GitHub App auth each agent run gets its own 1-hour
   installation token, scoped to the run's repo(s) and to what the step kind needs (never
   Workflows, admin or secrets). It lives in a per-run `gh` config dir that the receiver refreshes
@@ -45,6 +53,22 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **`fullAuto: false` claude steps run pinned.** Every claude run that isn't a `fullAuto` bypass
+  (no `allow` policy) now passes `--setting-sources user,project --permission-mode dontAsk`, allows
+  writing its own verdict file, and denies editor writes to the worktree's `.claude/settings.json`
+  and `.claude/settings.local.json`. They no longer follow a `defaultMode` in
+  `~/.claude/settings.json` (a user-level `bypassPermissions` used to make them silently full-auto)
+  and no longer read `.claude/settings.local.json`; the repo `CLAUDE.md` and `.claude/settings.json`
+  still load. Steps with an `allow` policy get the same sources and settings-file guard. `fullAuto`
+  bypass argv is unchanged. **Migration:** to let a non-fullAuto step edit files, allow it
+  explicitly: `"permissions": {"allow": ["Edit", "Bash(npm test)"]}` in the repo's
+  `.claude/settings.json`, or a step `allow` policy (docs/configuration.md) (#476).
+- The boot `fullAuto` banner depends on the sandbox: the full ⚠ block without one (it no longer
+  suggests "permission prompts" — headless agents can't prompt), the same block naming the steps
+  that set `sandbox: false`, or one `[boot] fullAuto inside the <type> sandbox` line when every step
+  is sandboxed. `status` prints `auto    : headless (privileged tools denied unless allowed)`
+  instead of `permissioned`. `docs/sandbox.md` is restructured around "what a bad ticket can reach"
+  (#476).
 - **Under GitHub App auth agents now push, comment and open PRs as the App (`<app>[bot]`)** with a
   1h token scoped to the run's repo. Grant the App Contents and Pull requests write (the
   [agent runs table](docs/github-app.md#minimal-permissions)). `githubRunToken: false` restores

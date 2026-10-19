@@ -195,20 +195,24 @@ finishes cleanly never releases its lock, and the receiver warns about this at b
 
 ## Security posture
 
-**Default is locked down.** `fullAuto` defaults to `false`, so the receiver runs a
-permission-gated `claude -p` — privileged tool calls are denied (headless agents cannot prompt)
-unless allowed by a step `allow` policy (see [Step policy](configuration.md#step-policy-allow--deny))
-or your agent's own settings, and the boot logs no warning. This is the posture to ship and to point at any untrusted board.
+**Default is locked down.** `fullAuto` defaults to `false`. Headless agents can't prompt:
+privileged tool calls are denied unless an allow rule (repo `.claude/settings.json` or a step
+`allow` policy — see [Step policy](configuration.md#step-policy-allow--deny)) permits them.
+agenthook pins that on every claude run (`--setting-sources user,project --permission-mode
+dontAsk`, editor writes to `.claude/settings*.json` denied), so a user-level `defaultMode` can't
+turn it into full-auto ([sandbox.md](sandbox.md#permissions-inside-and-outside-the-sandbox)). The
+boot logs no warning. This is the posture to ship and to point at any untrusted board.
 
 **`fullAuto: true` is the dangerous opt-in.** It adds `--dangerously-skip-permissions`, and then
 a verified webhook leads straight to code execution on your machine, gated only by the signature
-check (HMAC) plus a non-guessable public URL. It is **not** sandboxed, and the server prints a
-loud warning at every boot while it's on. Mitigations baked into the flow regardless: agents
+check (HMAC) plus a non-guessable public URL. Without a `sandbox` block that code runs on the
+host, and the server prints a loud warning at every boot (it names any `sandbox: false` step when
+a sandbox is set); it never refuses to boot. Mitigations baked into the flow regardless: agents
 branch off the default branch, open *draft* PRs, and ask rather than guess on ambiguous work; the
 `changes` rework loop is capped by `maxAttempts` so a code↔review ping-pong can't become unbounded
-execution. If you enable it, run on a trusted host, scope the API token, stop the tunnel when
-idle, and for untrusted or shared environments run it in the [sandboxed container](sandbox.md) with
-only the repo mounted (the blessed `fullAuto` path).
+execution. If you enable it, configure the [per-run sandbox](sandbox.md) (each run gets its own
+container with only its worktree mounted, and allowlisted egress), scope the API token and stop
+the tunnel when idle. `agenthook doctor`'s isolation report shows what each step's runs can reach.
 
 Agents get an allowlisted environment, not the receiver's: the ingress authtoken, App private key
 and webhook secrets are stripped (see [Agent environment](agents.md#agent-environment)). That

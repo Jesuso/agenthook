@@ -7,6 +7,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import { portInUse } from "../port.js";
 import path from "node:path";
 import { execFile, spawnSync } from "node:child_process";
@@ -25,7 +26,7 @@ import { runTokenPermissions, revokeRunToken, originUrl } from "../github-run-to
 import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
-import { claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
+import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
@@ -98,12 +99,14 @@ const CODE_RUNNERS = new Set(["node", "python", "python3", "sh", "bash", "zsh", 
 /** Per-step `allow`/`deny` policy lints (#475). Pure (config only). ✗ a policy the step's agent
  * can't enforce (its runs are refused); ⚠ an allowed command that runs arbitrary code, an allow
  * policy outside the sandbox, an implement/worktree step whose allowlist lacks git (or gh with a
- * forge) the prompt asks for; ℹ the effective claude rules.
- * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'sandbox'|'forge'>} cfg
+ * forge) the prompt asks for; ℹ the effective claude permission tail (claudePermissionArgs).
+ * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'|'sandbox'|'forge'|'fullAuto'>} cfg
  * @returns {{ level: 'fail'|'warn'|'info', label: string, note: string }[]} */
 export function policyLints(cfg) {
   /** @type {{ level: 'fail'|'warn'|'info', label: string, note: string }[]} */
   const out = [];
+  /** @param {import('../types.js').Step} s */
+  const rules = (s) => claudePermissionArgs({ fullAuto: cfg.fullAuto, allow: s.allow, deny: s.deny, cwd: "/<cwd>", verdictFile: "/<verdictFile>" }).join(" ");
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || (!s.allow && !s.deny)) continue;
     const d = agentFor(cfg, s).describe();
@@ -112,7 +115,7 @@ export function policyLints(cfg) {
       out.push({ level: "fail", label: `step "${s.id}" ${k} policy`, note: `${d.name} cannot enforce it — runs of this step are refused; use agent "claude" or remove the policy` });
     }
     if (!s.allow) {
-      if (!unenforced.length) out.push({ level: "info", label: `step "${s.id}" claude rules`, note: claudePolicyArgs({ deny: s.deny, cwd: "/<cwd>" }).join(" ") });
+      if (!unenforced.length) out.push({ level: "info", label: `step "${s.id}" claude rules`, note: rules(s) });
       continue;
     }
     const label = `step "${s.id}" allow policy`;
@@ -130,7 +133,7 @@ export function policyLints(cfg) {
       const missing = ["git", ...(cfg.forge ? ["gh"] : [])].filter((t) => !covers(t));
       for (const t of missing) out.push({ level: "warn", label, note: `allow.commands has no "${t}" entry — the prompt asks for it` });
     }
-    if (!unenforced.length) out.push({ level: "info", label: `step "${s.id}" claude rules`, note: claudePolicyArgs({ allow: s.allow, deny: s.deny, cwd: "/<cwd>", verdictFile: "/<verdictFile>" }).join(" ") });
+    if (!unenforced.length) out.push({ level: "info", label: `step "${s.id}" claude rules`, note: rules(s) });
   }
   return out;
 }
@@ -545,7 +548,7 @@ export function portCheck({ port, busy, profile }) {
 /** @typedef {{ ok: boolean, warn?: boolean, info?: boolean, label: string, note?: string, fix?: Fix }} Check */
 /** A detector's problem (`info`: a ✓-side note, never a problem). @typedef {{ level: 'fail'|'warn'|'info', label: string, note?: string, fix?: Fix }} Finding */
 /** The child-process seam for the two fixers that shell out (tests inject a recorder).
- * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any, env?: Record<string, string>, timeout?: number}) => { status: number|null }} Spawner */
+ * @typedef {(cmd: string, args: string[], opts: {cwd?: string, stdio?: any, env?: Record<string, string>, timeout?: number, encoding?: BufferEncoding}) => { status: number|null, stdout?: string|Buffer }} Spawner */
 
 /** A pidfile's raw text and pid (0 when unparsable); null when absent/unreadable. @param {string} file */
 function readPidFile(file) {
@@ -822,6 +825,112 @@ export function runTokenLints(cfg, { originRepo = (p) => parseGithubRemote(origi
   return out;
 }
 
+/** Whether agents get per-run GitHub App tokens (#474): a GitHub tracker or forge on App auth, and
+ * `githubRunToken` not false — the same condition runTokenLints uses. Pure.
+ * @param {Pick<import('../types.js').Config, 'provider'|'providerConfig'|'forge'|'githubRunToken'>} cfg */
+const usesRunTokens = (cfg) =>
+  cfg.githubRunToken !== false && (((cfg.provider === "github" || cfg.provider === "github-projects") && isAppAuth(cfg.providerConfig)) || (cfg.forge?.type === "github" && isAppAuth(cfg.forge)));
+
+/** The git `url.<base>.insteadof` rules that rewrite https://github.com/ to SSH ("force SSH"):
+ * a run token's HTTPS push then goes out over SSH with the operator's key. `text` is the stdout of
+ * `git config --global --get-regexp '^url\..*\.insteadof$'` (`url.<base>.insteadof <value>` per
+ * line, key case-insensitive). Returns the matched keys. Pure.
+ * @param {string} text @returns {string[]} */
+export function parseForceSshRewrites(text) {
+  /** @type {string[]} */
+  const out = [];
+  for (const line of String(text ?? "").split("\n")) {
+    const m = /^url\.(.+)\.insteadof\s+(\S+)$/i.exec(line.trim());
+    if (!m) continue;
+    const [, base, value] = m;
+    const v = value.toLowerCase();
+    if (!(v === "https://github.com" || v.startsWith("https://github.com/"))) continue;
+    if (base.toLowerCase().startsWith("git@github.com:") || base.toLowerCase().startsWith("ssh://")) out.push(`url.${base}.insteadof`);
+  }
+  return out;
+}
+
+/** The fullAuto:false migration line (CHANGELOG, doctor). */
+const PINNED_MIGRATION = 'to let a non-fullAuto step edit files, allow it explicitly: "permissions": {"allow": ["Edit", "Bash(npm test)"]} in the repo\'s .claude/settings.json, or a step allow policy (docs/configuration.md)';
+
+/** A `permissions.allow` rule that grants a whole tool: a bare tool name, or `<Tool>(*)` / `(**)` / `(//**)`. */
+const BROAD_RULE = /^(Bash|Edit|Write|MultiEdit|NotebookEdit)(\((\*|\*\*|\/\/\*\*)\))?$/;
+
+/** How many rules claudePolicyArgs emits for a policy (flags and the mode value left out). @param {string[]} args */
+const ruleCount = (args) => args.filter((a) => !a.startsWith("--") && a !== "dontAsk").length;
+
+/**
+ * The isolation report (#476): one view of what a run can reach — sandbox, env, egress,
+ * credentials, each step's permission mode, prompt fencing. Rows are ℹ or ⚠, never ✗ (fullAuto
+ * without a sandbox is warn-only). Pure given `userClaudeSettings` (parsed ~/.claude/settings.json,
+ * or null) and `gitInsteadOf` (the global `url.*.insteadof` rules, or "").
+ * @param {import('../types.js').Config} cfg
+ * @param {{userClaudeSettings?: any, gitInsteadOf?: string, user?: string}} [io]
+ * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
+export function isolationReport(cfg, { userClaudeSettings = null, gitInsteadOf = "", user = os.userInfo().username } = {}) {
+  /** @type {{ level: 'info'|'warn', label: string, note: string }[]} */
+  const out = [];
+  /** @param {'info'|'warn'} level @param {string} what @param {string} note */
+  const row = (level, what, note) => out.push({ level, label: `isolation · ${what}`, note });
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual);
+  const onHost = steps.filter((s) => !isSandboxed(cfg, s)).map((s) => s.id);
+
+  row("info", "sandbox", cfg.sandbox ? `${cfg.sandbox.type}, image ${cfg.sandbox.image ?? DEFAULT_IMAGE}` : "none (agents run on this host)");
+  if (cfg.fullAuto && !cfg.sandbox) row("warn", "sandbox", `fullAuto without a sandbox — a verified webhook runs code on this host as ${user}; see docs/sandbox.md`);
+  if (cfg.fullAuto && cfg.sandbox) for (const id of onHost) row("warn", "sandbox", `step "${id}" runs on the host under fullAuto`);
+
+  const passthrough = cfg.agentEnvPassthrough ?? [];
+  if (passthrough.includes("*")) row(cfg.fullAuto ? "warn" : "info", "env", `not stripped — agents inherit the receiver's full env ("*")`);
+  else row("info", "env", `stripped; passes through ${passthrough.length ? passthrough.join(", ") : "nothing extra"}`);
+
+  if (!cfg.sandbox) row("info", "egress", "n/a (no sandbox — the host's network)");
+  else {
+    const mode = cfg.sandbox.egress?.mode ?? "allowlist";
+    const overrides = steps.filter((s) => isSandboxed(cfg, s) && s.egress?.mode).map((s) => `${s.id}=${s.egress?.mode}`);
+    row("info", "egress", `${mode === "allowlist" ? `allowlist (defaults + ${cfg.sandbox.egress?.allow?.length ?? 0} extra)` : mode}${overrides.length ? `; step overrides: ${overrides.join(", ")}` : ""}`);
+  }
+
+  const runTokens = usesRunTokens(cfg);
+  if (runTokens && !onHost.length) row("info", "credentials", "per-run GitHub App token (1h, repo-scoped)");
+  else if (runTokens) row("warn", "credentials", `step(s) ${onHost.join(", ")}: scoped run token given, but the host gh login and ~/.ssh stay readable`);
+  else row(cfg.fullAuto ? "warn" : "info", "credentials", "your own token (tracker/forge token or gh login) — usable until you revoke it");
+  const forceSsh = runTokens && onHost.length ? parseForceSshRewrites(gitInsteadOf) : [];
+  if (forceSsh.length) row("warn", "credentials", `host git config rewrites https://github.com/ to SSH (${forceSsh.join(", ")}) — run pushes use your SSH key; remove the rule or enable the sandbox`);
+
+  let claudeSteps = 0;
+  let pinned = 0;
+  for (const s of steps) {
+    const name = agentFor(cfg, s).describe().name;
+    const deny = s.deny ? `, deny policy (${ruleCount(claudePolicyArgs({ deny: s.deny, cwd: "/<cwd>" }))} rules)` : "";
+    let mode;
+    if (name !== "claude") mode = cfg.fullAuto ? "skip-permissions (fullAuto)" : "agent CLI default";
+    else {
+      claudeSteps++;
+      if (cfg.fullAuto && !s.allow) mode = `skip-permissions (fullAuto)${deny}`;
+      else {
+        pinned++;
+        mode = s.allow ? `allow policy (dontAsk, ${ruleCount(claudePolicyArgs({ allow: s.allow, cwd: "/<cwd>" }))} rules)${deny}` : `dontAsk (pinned; repo/user allow rules apply)${deny}`;
+      }
+    }
+    row("info", "permissions", `step "${s.id}" (${name}): ${mode}`);
+  }
+  const defaultMode = userClaudeSettings?.permissions?.defaultMode;
+  if (claudeSteps && typeof defaultMode === "string" && defaultMode) {
+    const ignored = `~/.claude/settings.json defaultMode "${defaultMode}" is ignored — agenthook pins the mode`;
+    if (defaultMode === "acceptEdits") row("warn", "permissions", `${ignored}; ${PINNED_MIGRATION}`);
+    else row("info", "permissions", ignored);
+  }
+  const userAllow = userClaudeSettings?.permissions?.allow;
+  if (pinned && Array.isArray(userAllow)) {
+    for (const r of userAllow) {
+      if (typeof r === "string" && BROAD_RULE.test(r.trim())) row("warn", "permissions", `~/.claude/settings.json allows "${r}" — it widens every pinned claude step (allow policies included)`);
+    }
+  }
+
+  row("info", "untrusted input", "ticket/comment text is fenced as data (SECURITY.md#prompt-injection) — a mitigation, not a boundary");
+  return out;
+}
+
 /** The env var the raw config's `tracker.token` references (`${VAR}`), for the remedy text.
  * @param {string} configPath @returns {string|null} */
 export function tokenVar(configPath) {
@@ -847,7 +956,27 @@ export function tokenVar(configPath) {
  *   run?: import('../types.js').IngressRun,
  *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null },
  *   env?: Record<string, string|undefined>,
+ *   userClaudeSettings?: any,
  * }} DoctorIo */
+
+/** Parsed ~/.claude/settings.json, or null (missing/unreadable). Read only, never written. */
+function readUserClaudeSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "settings.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** The global git `url.*.insteadof` rules (`git config --get-regexp` stdout), "" on any failure. @param {Spawner} spawn */
+function readGitInsteadOf(spawn) {
+  try {
+    const r = spawn("git", ["config", "--global", "--get-regexp", "^url\\..*\\.insteadof$"], { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8", timeout: 5000 });
+    return r.status === 0 && typeof r.stdout === "string" ? r.stdout : "";
+  } catch {
+    return "";
+  }
+}
 
 /** Run every check against a loaded config; prints nothing.
  * @param {import('../types.js').Config} cfg @param {DoctorIo} [io] @returns {Promise<Check[]>} */
@@ -865,6 +994,7 @@ export async function runChecks(cfg, io = {}) {
     run = execRun,
     build,
     env = process.env,
+    userClaudeSettings = readUserClaudeSettings(),
   } = io;
   /** @type {Check[]} */
   const checks = [];
@@ -963,6 +1093,9 @@ export async function runChecks(cfg, io = {}) {
   for (const l of forgeLints(cfg)) warn(l.label, l.note);
   if (cfg.forge?.type === "github" && isAppAuth(cfg.forge)) checks.push(...(await githubAppChecks(cfg.forge, "forge", { fetch: f, runTokenRepo: cfg.githubRunToken !== false ? blockRepo(cfg.forge) : null })));
   for (const l of runTokenLints(cfg)) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
+  // The global force-SSH rules only matter when a run token is used on the host: read them then.
+  const gitInsteadOf = usesRunTokens(cfg) && (cfg.pipeline ?? []).some((s) => !s.manual && !isSandboxed(cfg, s)) ? readGitInsteadOf(spawn) : "";
+  isolationReport(cfg, { userClaudeSettings, gitInsteadOf }).forEach(finding);
 
   uiBundleLints(uiBundle(), { installDir: cfg.installDir, spawn }).forEach(finding);
   worktreeLints(cfg, { listWorktrees: list, spawn }).forEach(finding);

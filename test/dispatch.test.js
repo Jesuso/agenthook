@@ -270,7 +270,8 @@ async function policyRun(step) {
   const dir = tmpDir();
   const bin = path.join(dir, "fake-agent.sh");
   const argvOut = path.join(dir, "argv.txt");
-  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cwdOut = path.join(dir, "cwd.txt");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\npwd > "${cwdOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
   const cfg = /** @type {any} */ ({
     pipeline: [{ id: "code", bin, ...step }, { id: "done", manual: true }],
     agentEnvPassthrough: ["FAKE_*"],
@@ -298,7 +299,8 @@ async function policyRun(step) {
     console.log = log;
   }
   const argv = fs.existsSync(argvOut) ? fs.readFileSync(argvOut, "utf8").trim().split("\n") : null;
-  return { advanced, argv };
+  const cwd = fs.existsSync(cwdOut) ? fs.readFileSync(cwdOut, "utf8").trim() : null;
+  return { advanced, argv, cwd };
 }
 
 test("dispatch: a step allow/deny policy on an agent that can't enforce it is refused, nothing spawned", async () => {
@@ -320,6 +322,17 @@ test("dispatch: a claude step with allow spawns with dontAsk and an Edit rule fo
   assert.equal(argv[argv.indexOf("--permission-mode") + 1], "dontAsk");
   assert.ok(!argv.includes("--dangerously-skip-permissions"));
   assert.ok(argv.some((a) => /^Edit\(\/\/.*\/verdicts\/42-code\.json\)$/.test(a)), argv.join(" "));
+});
+
+test("dispatch: a fullAuto:false claude step without a policy runs pinned — dontAsk, user+project settings, verdict writable, settings files not (#476)", async () => {
+  const { advanced, argv, cwd } = await policyRun({});
+  assert.ok(argv, "claude was not spawned");
+  assert.equal(advanced[0]?.outcome, "advance");
+  assert.equal(argv[argv.indexOf("--setting-sources") + 1], "user,project");
+  assert.equal(argv[argv.indexOf("--permission-mode") + 1], "dontAsk");
+  assert.ok(!argv.includes("--dangerously-skip-permissions"));
+  assert.ok(argv.some((a) => /^Edit\(\/\/.*\/verdicts\/42-code\.json\)$/.test(a)), argv.join(" "));
+  assert.ok(argv.includes(`Edit(/${fs.realpathSync(String(cwd))}/.claude/settings.local.json)`) || argv.includes(`Edit(/${cwd}/.claude/settings.local.json)`), argv.join(" "));
 });
 
 test("dispatch: a hold verdict writes held.json[ref]; the next run of any step clears it", async () => {

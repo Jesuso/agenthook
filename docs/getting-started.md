@@ -9,8 +9,10 @@ Budget ~15 minutes. You need: Node ≥ 22, the [`claude` CLI](https://claude.com
 ingress — an [ngrok](https://ngrok.com) account.
 
 > ⚠️ Before a real run, read the [security posture](architecture.md#security-posture). With
-> `fullAuto` on, a verified webhook executes code on your host. It ships **off** (privileged tool
-> calls are denied — headless agents cannot prompt); enable it only on a trusted host or in the [sandbox](sandbox.md).
+> `fullAuto` on, a verified webhook executes code on your host. It ships **off**: headless agents
+> can't prompt: privileged tool calls are denied unless an allow rule (repo `.claude/settings.json`
+> or a step `allow` policy) permits them. Enable it only with a [per-run sandbox](sandbox.md) or on
+> a trusted host; `agenthook doctor` shows the isolation report.
 
 ## The mental model in one paragraph
 
@@ -155,7 +157,7 @@ Extra step fields you'll want to know:
   `bin` is a weak/local model. Not valid on a `manual` step.
 - `sandbox` — `false` runs this step on the host even when the profile has a top-level `sandbox`
   block (needed for a `cursor`/`hermes`/`opencode` step, which the sandbox refuses). Not valid on a
-  `manual` step. See [Sandboxed runs](sandbox.md#per-run-sandbox-010).
+  `manual` step. See [Sandboxed runs](sandbox.md#quick-start).
 - `allow` / `deny` — `{ "commands"?: [...], "paths"?: [...] }`: the commands and cwd-relative paths
   this step's agent may (or may never) use. Enforced for `claude` only; a step on another agent is
   refused. Not valid on a `manual` step. See [Step policy](configuration.md#step-policy-allow--deny).

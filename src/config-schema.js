@@ -58,7 +58,7 @@ export const CONFIG_SCHEMA = [
   entry("trigger", "string", "Resume trigger", "basics", "Start your reply on a held task with this to re-run the held step with the reply as context.", { default: "@agent" }),
   entry("maxConcurrent", "number", "Max concurrent agents", "basics", "How many agents may run at once, across every step.", { default: 1, min: 1 }),
   entry("port", "number", "Local port", "basics", "Local port the receiver listens on; the ingress forwards webhooks to it.", { default: 4123 }),
-  entry("fullAuto", "boolean", "Full auto (skip permissions)", "basics", "--dangerously-skip-permissions. Off: privileged calls are denied (headless) unless a step allow policy permits them.", { sensitive: true, default: false }),
+  entry("fullAuto", "boolean", "Full auto (skip permissions)", "basics", "--dangerously-skip-permissions. Off: headless; privileged calls denied unless a repo/step allow rule permits.", { sensitive: true, default: false }),
   entry("agentEnvPassthrough", "string-list", "Agent env passthrough", "basics", "Receiver env vars agents also get (NAME or PREFIX*); everything else is stripped. \"*\" = inherit all (0.9).", { advanced: true, sensitive: true }),
   entry("githubRunToken", "boolean", "Per-run GitHub token", "basics", "Under GitHub App auth, give each agent run its own 1h token scoped to its repo instead of your token.", { advanced: true, sensitive: true, default: true }),
   entry("agent", "enum", "Agent", "basics", "The coding-agent CLI steps spawn unless a step names its own.", { advanced: true, options: AGENT_NAMES, default: DEFAULT_AGENT }),

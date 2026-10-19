@@ -76,3 +76,21 @@ test("status: the quota line shows with the receiver down (quota.json outlives t
   const out = await runStatus("status-quota");
   assert.equal(out.find((l) => l.startsWith("quota")), "quota   : weekly 66% · resets in 2d 4h · 5h 8% (as of 3m ago)");
 });
+
+test("status: the auto line says headless for fullAuto:false; the sandbox line shows the backend, none for an old heartbeat", async () => {
+  /** @param {string} key @param {any} hb */
+  const seed = (key, hb) => {
+    const dir = path.join(registryDir, key);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: key, stateKey: key, configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+    fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: key, stateKey: key, tracker: "local", updatedAt: new Date().toISOString(), ...hb }));
+  };
+  seed("status-headless", { fullAuto: false });
+  seed("status-sbx", { fullAuto: true, sandbox: "podman" });
+  const headless = await runStatus("status-headless");
+  assert.ok(headless.includes("auto    : headless (privileged tools denied unless allowed)"), headless.join("\n"));
+  assert.ok(headless.includes("sandbox : none (runs on this host)"), headless.join("\n"));
+  const sbx = await runStatus("status-sbx");
+  assert.ok(sbx.includes("auto    : fullAuto (skip-permissions)"), sbx.join("\n"));
+  assert.ok(sbx.includes("sandbox : podman"), sbx.join("\n"));
+});

@@ -1,14 +1,31 @@
-# Sandboxed runs (recommended for `fullAuto`)
+# Sandboxing agent runs
 
-`fullAuto` runs agents with `--dangerously-skip-permissions`: a verified webhook leads straight to
-code execution. Two ways to confine it:
+A verified webhook leads to an agent running code on your host. With `fullAuto` that agent runs
+with its CLI's skip-permissions flag; without it, a headless agent still runs whatever its allow
+rules permit. This page covers what confines it: the **per-run sandbox** (each run gets its own
+short-lived container), the layers around it, and what none of them stop.
 
-- **Per-run sandbox** (0.10) — the receiver stays on the host; each agent run gets its own
-  short-lived container that mounts only what that run needs. Recommended.
-- **[Receiver in a container](#alternative-run-the-receiver-itself-in-a-container)** — the whole
-  receiver and every agent share one container. Weaker; kept for hosts without the per-run setup.
+## What a bad ticket can reach
 
-## Per-run sandbox (0.10)
+A ticket is untrusted input: anyone who can file or comment on it can try to steer the agent.
+Each layer narrows what a hijacked run reaches:
+
+| Layer | Protection | Unsandboxed (host) run | Sandboxed run |
+|-------|------------|------------------------|---------------|
+| filesystem | per-run container (#472) | everything your user can read: `~/.ssh`, other repos, `~/.agenthook` | only its worktree, the repo's git dir and its verdict dir |
+| env | agent env stripped to an allowlist (#470, `agentEnvPassthrough`) | the allowlist (tracker token the prompt names, `GH_TOKEN`, the agent's own keys) | the same allowlist |
+| network | egress allowlist (#473, [Network](#network)) | the host's network, unrestricted | model API, forge, tracker, origin, opted-in registries |
+| tokens | per-run GitHub App token (#474, [docs/github-app.md](github-app.md#agent-run-tokens)) | a 1h repo-scoped token, but the host `gh` login and `~/.ssh` stay readable | a 1h repo-scoped token only |
+| tools / paths | step `allow` / `deny` policy (#475, [configuration.md](configuration.md#step-policy-allow--deny)) | advisory: interpreters and absolute paths bypass it | paths outside the mounts don't exist; in-worktree rules are defence in depth |
+| prompt | ticket text fenced as data (#471, [SECURITY.md](../SECURITY.md#prompt-injection)) | a mitigation, not a boundary | a mitigation, not a boundary |
+
+`agenthook doctor` prints the profile's **isolation report**: one `isolation ·` row each for the
+sandbox, env, egress, credentials, every step's permission mode and prompt fencing, with ⚠ where a
+layer is missing (`fullAuto` without a sandbox, a `sandbox: false` step, a broad allow rule in
+`~/.claude/settings.json`, a host git rule that pushes over SSH). The ⚠ rows never fail doctor or
+block boot.
+
+## Quick start
 
 Add a `sandbox` block to the profile config:
 
@@ -21,40 +38,32 @@ Add a `sandbox` block to the profile config:
 | Key | Meaning |
 |-----|---------|
 | `type` | `docker` or `podman` (required). `DOCKER` / `PODMAN` env override the binary. |
-| `image` | Image to run (default `agenthook-agent:<version>`). |
+| `image` | Image to run (default `agenthook-agent:<version>`). See [Custom images](#custom-images). |
 | `memory` | `--memory` limit, e.g. `4g`. |
 | `cpus` | `--cpus` limit, e.g. `2`. |
-| `egress` | Network policy, `{ "mode", "allow", "deny" }` — see [Egress](#egress). Default: allowlist. |
+| `egress` | Network policy, `{ "mode", "allow", "deny" }` — see [Network](#network). Default: allowlist. |
 
-A step can opt out with `"sandbox": false` — it then runs on the host as before. Every other
-step runs sandboxed. A configured sandbox that is unavailable **refuses to boot**; a run is never
-silently moved onto the host.
+1. **Prefer rootless podman.** Membership in the `docker` group is root-equivalent on the host
+   (doctor notes this). With podman, `--userns=keep-id` maps your uid into the container so files
+   the agent writes in the worktree stay yours.
+2. **Build the image** once, and after each agenthook upgrade (the tag carries the version):
+   `agenthook doctor --fix` builds `agenthook-agent:<version>` when it is missing.
+3. **Give Claude a token.** The container gets no host `~/.claude`. Run `claude setup-token` and put
+   `CLAUDE_CODE_OAUTH_TOKEN=…` in the profile's `.env` (or set `ANTHROPIC_API_KEY`). Without one a
+   sandboxed claude run is refused and `agenthook doctor` shows ✗.
+4. **Allow the registries your agents install from**, e.g. `"egress": {"allow": ["@npm"]}`.
+   Doctor suggests a preset when it sees a lockfile ([presets](#network)).
 
-### Image
-
-Build the default image once (and after each agenthook upgrade — the tag carries the version):
-
-```bash
-agenthook doctor --fix        # builds agenthook-agent:<version> when it is missing
-```
-
-or by hand, piping the recipe from `src/sandbox/image.js` (`AGENT_DOCKERFILE`) to
-`docker build -t agenthook-agent:<version> -`. The image is `node:22-bookworm-slim` + `git`, `gh`
-and the `claude` CLI. A custom `image` must provide `sh`, `git`, `gh` and the agent CLI; the
-receiver runs it with `--pull never`, so it must already be present locally.
-
-### Credentials
-
-The container gets no host `~/.claude`, so Claude needs a token in the env. Run
-`claude setup-token` and put `CLAUDE_CODE_OAUTH_TOKEN=…` in the profile's `.env` (or set
-`ANTHROPIC_API_KEY`). Without one a sandboxed claude run is refused and `agenthook doctor` shows ✗.
+A step can opt out with `"sandbox": false` — it then runs on the host as before, and the boot
+banner and doctor name it. Every other step runs sandboxed. A configured sandbox that is
+unavailable **refuses to boot**; a run is never silently moved onto the host.
 
 Env reaches the container **by name** (`-e NAME`), never as a value on the command line. Git push
 goes over HTTPS: `git@host:` / `ssh://` remotes are rewritten with `insteadOf`, and credentials
 come from `gh auth git-credential` (GitHub, needs `GH_TOKEN`/`GITHUB_TOKEN`) or `GITLAB_TOKEN`
 (GitLab). `SSH_AUTH_SOCK` is not passed.
 
-### What a run sees
+## What a run's container sees
 
 | Inside the container | Source | Notes |
 |----------------------|--------|-------|
@@ -83,7 +92,9 @@ Cancel, timeout and shutdown kill the container (`<runtime> kill`); on boot the 
 any container left from a previous process (labelled `agenthook.profile=<stateKey>`) before it
 fails the interrupted runs.
 
-### Egress
+## Network
+
+<a id="egress"></a>
 
 A sandboxed run has **no route out** except an allowlisting HTTPS proxy. Each run gets its own
 `--internal` network (no gateway) and a small proxy container (`<run>-proxy`, the built-in image
@@ -168,52 +179,82 @@ the rest and appends one summary line on exit. `run_end` then also carries
 `egressDeniedTruncated: <n>` (the count of denials dropped from the log), omitted when nothing
 was truncated.
 
-**Out of scope.** The allowed hosts are exfiltration channels **by design**: the model API sees
+**Not filtered.** The allowed hosts are exfiltration channels **by design**: the model API sees
 the prompt and whatever the agent sends it, the forge accepts a pushed branch (or a gist, with a
 broad token), and the tracker accepts a comment. Scoped short-lived tokens (#474) narrow the forge
 leg. The proxy does no TLS inspection, per-path rules or size limits (it only sees `host:port`),
 and non-HTTP protocols have no route at all. Unsandboxed (host) runs get no egress control.
 
-### Rootless podman
+## Custom images
 
-Prefer rootless podman: membership in the `docker` group is root-equivalent on the host (doctor
-notes this). With podman, `--userns=keep-id` maps your uid into the container so files the agent
-writes in the worktree stay yours.
+The default image is `node:22-bookworm-slim` + `git`, `gh` and the `claude` CLI; its recipe is
+`AGENT_DOCKERFILE` in `src/sandbox/image.js`. Build it by hand by piping that recipe to
+`docker build -t agenthook-agent:<version> -`, or let `agenthook doctor --fix` do it.
 
-### Limits
+A custom `image` (e.g. one built `FROM` the default with your toolchain added) must provide `sh`,
+`git`, `gh` and the agent CLI. The receiver runs it with `--pull never`, so it must already be
+present locally. The egress proxy always runs the built-in image, so a profile with a custom
+`image` still needs `agenthook-agent:<version>`.
 
-- **The sandbox bounds the filesystem, not the env**: the container gets the same allowlisted
-  agent env a host run gets (see `agentEnvPassthrough`), minus host-only keys (`PATH`, `HOME`,
-  `SSH_AUTH_SOCK`, …). Any token that allowlist passes — the tracker token the prompt names,
-  `GH_TOKEN` — is visible to the agent.
-- **Network is allowlisted, not closed**: the model API, the forge and the tracker stay
-  reachable, so each remains a way out for data the agent can read (see [Egress](#egress)).
+## Permissions inside and outside the sandbox
+
+Agents run headless: stdin is closed, so nobody can answer a permission prompt. **Headless agents
+can't prompt: privileged tool calls are denied unless an allow rule (repo `.claude/settings.json`
+or a step `allow` policy) permits them.** For `claude`, agenthook pins the mode on every run, so a
+`defaultMode` in your `~/.claude/settings.json` never decides it:
+
+| Step | Permission flags |
+|------|------------------|
+| `fullAuto`, no `allow` (bypass) | `--dangerously-skip-permissions` (+ `--disallowedTools …` for a `deny` policy) |
+| `allow` set (any `fullAuto`) | `--setting-sources user,project --permission-mode dontAsk --allowedTools <policy rules> <verdict file> --disallowedTools <deny rules> <settings files>` |
+| not `fullAuto`, no `allow` | `--setting-sources user,project --permission-mode dontAsk --allowedTools Edit(//<verdict file>) --disallowedTools <deny rules> <settings files>` |
+
+- `--setting-sources user,project` loads `~/.claude/settings.json` and the repo's
+  `.claude/settings.json` (and the repo `CLAUDE.md`), but never `.claude/settings.local.json`.
+- `<settings files>` are `Edit(//<cwd>/.claude/settings.json)` and
+  `Edit(//<cwd>/.claude/settings.local.json)`: a run can't widen the next run of the same ticket
+  through the editor.
+- Allow rules in your **user** settings still apply to every pinned step, allow policies
+  included. Doctor ⚠ flags a broad one (`Bash`, `Edit(*)`, …).
+- The verdict file is always writable, so a run's verdict routes.
+- `cursor`, `opencode` and `hermes` keep their CLI's default (doctor reports `agent CLI default`);
+  under `fullAuto` they get their own skip-permissions flag.
+
+To restrict what a step may run, give it a [step policy](configuration.md#step-policy-allow--deny).
+Inside the sandbox, paths outside the worktree and the verdict dir structurally don't exist, and
+`allow.paths` / `deny.paths` add in-worktree granularity as defence in depth (a script the agent
+runs can still bypass them). Without the sandbox, every part of the policy is advisory. Commands
+are never structurally enforced.
+
+## What it does NOT protect
+
+- **Allowed hosts are exfiltration channels.** The model API, the forge and the tracker stay
+  reachable, so each remains a way out for data the agent can read (see [Network](#network)).
+- **The env is filtered, not empty**: the container gets the same allowlisted agent env a host run
+  gets (see `agentEnvPassthrough`), minus host-only keys (`PATH`, `HOME`, `SSH_AUTH_SOCK`, …). Any
+  token that allowlist passes — the tracker token the prompt names, `GH_TOKEN` — is visible to the
+  agent.
 - **The common git dir is writable**: an agent can touch other branches' refs and other
   worktrees' admin dirs, and can break host git on that repo (a corrupt or FIFO `HEAD` or
   `packed-refs`). Host git calls are time-capped, so a wedged repo fails later runs with a git error
   instead of freezing the receiver; fix the repo by hand. A per-run clone is the follow-up.
-- Only `claude` is supported. A sandboxed `cursor`, `hermes` or `opencode` step is refused —
-  set `"sandbox": false` on it to run it on the host.
-
-### With a step policy
-
-Inside the sandbox, paths outside the worktree and the verdict dir structurally don't exist. A
-step's [`allow.paths` / `deny.paths`](configuration.md#step-policy-allow--deny) add in-worktree
-granularity on top, as defence in depth: a script the agent runs can still bypass them. Without
-the sandbox, every part of the policy is advisory. Commands are never structurally enforced, and
-network egress is #473.
+- **An allowed interpreter runs anything** inside the container: `node`, `python`, `npm run`, `sh`
+  in `allow.commands` make the command allowlist advisory (doctor warns).
+- **An allowed Bash interpreter can still write `.claude/settings.json`.** Only editor writes are
+  denied. A script can plant an allow rule that widens the next run; only the sandbox and a
+  reviewer catch it. Treat a `.claude/` change in an agent PR as a red flag.
+- **Steps with `"sandbox": false`** run on the host with your user's full reach.
+- **Unsupported agents** are refused, not run unsandboxed: a sandboxed `cursor`, `hermes` or
+  `opencode` step fails; set `"sandbox": false` on it to run it on the host.
 
 ## Alternative: run the receiver itself in a container
 
-> ⚠ Here agents share the receiver's user, env, state volume (signing secrets, dedup state) and
-> network. A prompt-injected agent can read the webhook secrets and forge events. Prefer the
-> per-run sandbox above.
+> ⚠ This does **not** isolate tickets from each other or from the receiver's secrets: every agent
+> shares the receiver's user, env, state volume (signing secrets, dedup state) and network. A
+> prompt-injected agent can read the webhook secrets and forge events. Prefer the per-run sandbox.
 
-Run the whole receiver — and therefore every `claude -p` agent it spawns — inside a container that
-mounts only the repo. Then "code execution from a webhook" is confined to the container, not your
-machine.
-
-### What the container sees
+`docker/docker-compose.yml` runs the whole receiver — and every agent it spawns — in one container
+that mounts only the repo:
 
 | Inside the container | Source | Notes |
 |----------------------|--------|-------|
@@ -223,32 +264,15 @@ machine.
 | `/home/node/.claude` | named volume (or host mount for OAuth) | Claude transcripts + credentials |
 | tracker token, `NGROK_AUTHTOKEN`, Claude creds | `.env` / env | secrets, never baked into the image |
 
-Everything else on the host is invisible. A prompt-injected or buggy agent can trash the repo
-worktree and burn tokens — but it can't read your SSH keys, touch other projects, or persist
-outside the named volumes.
-
-### One-time config
-
-The receiver discovers `agenthook.config.json` by walking up from its cwd (`/work/repo`). Because
-paths inside the container differ from the host, that config **must** use container paths:
+The config the receiver discovers (`/work/repo/agenthook.config.json`) must use container paths,
+including `worktreePrefix` (the default sibling dir would land outside the mount):
 
 ```json
-{
-  "repoPath": "/work/repo",
-  "worktreePrefix": "/work/worktrees",
-  "fullAuto": true
-}
+{ "repoPath": "/work/repo", "worktreePrefix": "/work/worktrees", "fullAuto": true }
 ```
 
-Keep this as a separate `agenthook.config.json` in the repo you mount (or a docker-specific copy you
-bind over it). `worktreePrefix` is required — without it worktrees default to a sibling of the repo
-(`../agenthook-worktrees`), which would land outside the mount.
-
-Pair it with a **stable ingress**: the `hosted` type behind your own reverse proxy (publish the
-receiver port), or `ngrok` with a reserved `domain` and `NGROK_AUTHTOKEN`. An ephemeral tunnel
-re-registers a new URL on every restart, which fights container lifecycle.
-
-### Run it
+Pair it with a **stable ingress** (`hosted` behind your reverse proxy, or `ngrok` with a reserved
+`domain`): an ephemeral tunnel re-registers a new URL on every restart.
 
 ```bash
 export REPO_PATH=/abs/path/to/your/repo
@@ -256,27 +280,11 @@ cp .env.example docker/.env        # fill in tracker token, NGROK_AUTHTOKEN, ANT
 docker compose -f docker/docker-compose.yml up --build
 ```
 
-Claude auth: simplest is `ANTHROPIC_API_KEY` in `.env` (headless, no host mount). OAuth users
-instead uncomment the `~/.claude` bind in the compose file and drop the API key.
+Claude auth: simplest is `ANTHROPIC_API_KEY` in `.env`. OAuth users instead uncomment the
+`~/.claude` bind in the compose file. To build from local source, `npm pack` and set
+`AGENTHOOK_SPEC=jesuso-agenthook-<version>.tgz` for the compose build; `.dockerignore` keeps
+secrets and local config out of the image.
 
-### Building from a local tarball
-
-To build the image from local source (a release candidate, or a patch you haven't published):
-
-```bash
-npm pack                                   # produces jesuso-agenthook-<version>.tgz
-AGENTHOOK_SPEC=jesuso-agenthook-0.1.0.tgz \
-  docker compose -f docker/docker-compose.yml up --build
-```
-
-The `.dockerignore` keeps the build context to source + that tarball; secrets and local config
-never enter the image.
-
-### What this does and doesn't buy you
-
-- **Does**: confine `fullAuto` code execution to the container; isolate the repo from the rest of
-  the host; keep secrets out of the image; make agent damage limited to the mounted repo + volumes.
-- **Doesn't**: protect the repo itself (the agent has full read-write there — that's the job), make
-  a leaked signing secret or ingress URL safe (still treat both as credentials — see
-  [SECURITY.md](../SECURITY.md)), or sandbox network egress (the container can reach the internet;
-  add an egress policy if your threat model needs it).
+This confines code execution to the container and keeps the rest of the host out of reach. It
+doesn't protect the repo itself, make a leaked signing secret or ingress URL safe, or restrict
+network egress.

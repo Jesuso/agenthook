@@ -4,30 +4,32 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // and the usage record / unpriced tagging. Moved verbatim from test/dispatch.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildClaudeArgs, claudePolicyArgs, claude, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
+import { buildClaudeArgs, claudePolicyArgs, claudePermissionArgs, claudeSettingsGuardArgs, claude, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
 const SJ = ["--output-format", "stream-json", "--verbose"];
+// A non-fullAuto run with no cwd/verdictFile: the pinned mode and setting sources only (#476).
+const PIN = ["--setting-sources", "user,project", "--permission-mode", "dontAsk"];
 
-test("buildClaudeArgs: no model/effort -> prompt + stream-json flags", () => {
+test("buildClaudeArgs: no model/effort -> prompt + stream-json flags + the pinned mode", () => {
   const args = buildClaudeArgs({ prompt: "hi" });
-  assert.deepEqual(args, ["-p", "hi", ...SJ]);
+  assert.deepEqual(args, ["-p", "hi", ...SJ, ...PIN]);
 });
 
 test("buildClaudeArgs: effort set -> --effort after the stream-json flags", () => {
   const args = buildClaudeArgs({ prompt: "hi", effort: "low" });
-  assert.deepEqual(args, ["-p", "hi", ...SJ, "--effort", "low"]);
+  assert.deepEqual(args, ["-p", "hi", ...SJ, "--effort", "low", ...PIN]);
 });
 
 test("buildClaudeArgs: --effort pushed after --model", () => {
   const args = buildClaudeArgs({ prompt: "hi", model: "claude-opus-4-8", effort: "high" });
-  assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "claude-opus-4-8", "--effort", "high"]);
+  assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "claude-opus-4-8", "--effort", "high", ...PIN]);
 });
 
 test("buildClaudeArgs: every valid effort level is accepted", () => {
   for (const level of ["low", "medium", "high", "xhigh", "max"]) {
-    assert.deepEqual(buildClaudeArgs({ prompt: "p", effort: level }), ["-p", "p", ...SJ, "--effort", level]);
+    assert.deepEqual(buildClaudeArgs({ prompt: "p", effort: level }), ["-p", "p", ...SJ, "--effort", level, ...PIN]);
   }
 });
 
@@ -37,7 +39,7 @@ test("buildClaudeArgs: invalid effort dropped with a warn, no --effort flag", ()
   console.warn = (m) => warnings.push(m);
   try {
     const args = buildClaudeArgs({ prompt: "hi", effort: "turbo" });
-    assert.deepEqual(args, ["-p", "hi", ...SJ]);
+    assert.deepEqual(args, ["-p", "hi", ...SJ, ...PIN]);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /invalid effort "turbo"/);
   } finally {
@@ -51,7 +53,7 @@ test("buildClaudeArgs: provider is ignored with a warn, argv unchanged", () => {
   console.warn = (m) => warnings.push(m);
   try {
     const args = buildClaudeArgs({ prompt: "hi", provider: "ollama-launch" });
-    assert.deepEqual(args, ["-p", "hi", ...SJ]);
+    assert.deepEqual(args, ["-p", "hi", ...SJ, ...PIN]);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /ignoring provider "ollama-launch"/);
   } finally {
@@ -80,7 +82,7 @@ test("claudePolicyArgs: allow → dontAsk + cwd-scoped reads, both command forms
 test("buildClaudeArgs: allow drops --dangerously-skip-permissions even under fullAuto (allow rules do nothing in bypass)", () => {
   const args = buildClaudeArgs({ prompt: "hi", model: "m", fullAuto: true, allow: { commands: ["git"] }, cwd: "/w", verdictFile: "/d/v.json" });
   assert.ok(!args.includes("--dangerously-skip-permissions"));
-  assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "m", "--permission-mode", "dontAsk", "--allowedTools", "Read(//w/**)", "Bash(git)", "Bash(git *)", "Edit(//d/v.json)"]);
+  assert.deepEqual(args, ["-p", "hi", ...SJ, "--model", "m", ...PIN, "--allowedTools", "Read(//w/**)", "Bash(git)", "Bash(git *)", "Edit(//d/v.json)", "--disallowedTools", "Edit(//w/.claude/settings.json)", "Edit(//w/.claude/settings.local.json)"]);
 });
 
 test("buildClaudeArgs: deny alone keeps fullAuto's bypass and appends --disallowedTools last", () => {
@@ -89,9 +91,57 @@ test("buildClaudeArgs: deny alone keeps fullAuto's bypass and appends --disallow
   assert.deepEqual(args.slice(-5),["--disallowedTools", "Bash(curl)", "Bash(curl *)", "Read(//w/.env*)", "Edit(//w/.env*)"]);
 });
 
-test("buildClaudeArgs: no policy → argv unchanged by cwd/verdictFile", () => {
+test("buildClaudeArgs: fullAuto without a policy → argv unchanged by cwd/verdictFile", () => {
   assert.deepEqual(buildClaudeArgs({ prompt: "hi", model: "m", effort: "max", fullAuto: true, cwd: "/w", verdictFile: "/d/v.json" }), ["-p", "hi", ...SJ, "--model", "m", "--effort", "max", "--dangerously-skip-permissions"]);
-  assert.deepEqual(buildClaudeArgs({ prompt: "hi", cwd: "/w", verdictFile: "/d/v.json" }), ["-p", "hi", ...SJ]);
+});
+
+test("buildClaudeArgs: not fullAuto, no policy → the pinned tail (verdict writable, settings files not)", () => {
+  assert.deepEqual(buildClaudeArgs({ prompt: "hi", cwd: "/w", verdictFile: "/d/v.json" }), [
+    "-p", "hi", ...SJ, ...PIN, "--allowedTools", "Edit(//d/v.json)", "--disallowedTools", "Edit(//w/.claude/settings.json)", "Edit(//w/.claude/settings.local.json)",
+  ]);
+});
+
+// --- pinned permission mode (#476) ---
+
+const GUARD = ["Edit(//w/.claude/settings.json)", "Edit(//w/.claude/settings.local.json)"];
+const DENY = { commands: ["curl"], paths: [".env*"] };
+const DENY_RULES = ["Bash(curl)", "Bash(curl *)", "Read(//w/.env*)", "Edit(//w/.env*)"];
+
+test("claudePermissionArgs: not fullAuto → pinned dontAsk, the verdict file allowed, the settings files denied", () => {
+  assert.deepEqual(claudePermissionArgs({ fullAuto: false, cwd: "/w", verdictFile: "/d/v.json" }), [
+    "--setting-sources", "user,project", "--permission-mode", "dontAsk", "--allowedTools", "Edit(//d/v.json)", "--disallowedTools", "Edit(//w/.claude/settings.json)", "Edit(//w/.claude/settings.local.json)",
+  ]);
+});
+
+test("claudePermissionArgs: fullAuto bypass is byte-identical — the skip flag, plus only #475's deny group", () => {
+  assert.deepEqual(claudePermissionArgs({ fullAuto: true, cwd: "/w", verdictFile: "/d/v.json" }), ["--dangerously-skip-permissions"]);
+  assert.deepEqual(claudePermissionArgs({ fullAuto: true, deny: DENY, cwd: "/w", verdictFile: "/d/v.json" }), ["--dangerously-skip-permissions", "--disallowedTools", ...DENY_RULES]);
+});
+
+test("claudePermissionArgs: allow (either fullAuto) → pinned, one --disallowedTools with deny + settings-file rules", () => {
+  for (const fullAuto of [true, false]) {
+    const plain = claudePermissionArgs({ fullAuto, allow: { commands: ["git"] }, cwd: "/w", verdictFile: "/d/v.json" });
+    assert.ok(!plain.includes("--dangerously-skip-permissions"));
+    assert.deepEqual(plain, [...PIN, "--allowedTools", "Read(//w/**)", "Bash(git)", "Bash(git *)", "Edit(//d/v.json)", "--disallowedTools", ...GUARD]);
+    const both = claudePermissionArgs({ fullAuto, allow: { commands: ["git"] }, deny: DENY, cwd: "/w", verdictFile: "/d/v.json" });
+    assert.deepEqual(both.slice(0, 2), ["--setting-sources", "user,project"]);
+    assert.equal(both.filter((a) => a === "--disallowedTools").length, 1);
+    assert.deepEqual(both.slice(both.indexOf("--disallowedTools") + 1), [...DENY_RULES, ...GUARD]);
+  }
+});
+
+test("claudePermissionArgs: not fullAuto + deny only → the pinned tail, deny and settings-file rules in one group", () => {
+  assert.deepEqual(claudePermissionArgs({ fullAuto: false, deny: DENY, cwd: "/w", verdictFile: "/d/v.json" }), [
+    ...PIN, "--allowedTools", "Edit(//d/v.json)", "--disallowedTools", ...DENY_RULES, ...GUARD,
+  ]);
+});
+
+test("claudePermissionArgs: no cwd → no settings-file rules; no verdictFile → no verdict rule (empty flags omitted)", () => {
+  assert.deepEqual(claudePermissionArgs({ cwd: "/w" }), [...PIN, "--disallowedTools", ...GUARD]);
+  assert.deepEqual(claudePermissionArgs({ verdictFile: "/d/v.json" }), [...PIN, "--allowedTools", "Edit(//d/v.json)"]);
+  assert.deepEqual(claudePermissionArgs({}), PIN);
+  assert.deepEqual(claudeSettingsGuardArgs({}), { sources: ["--setting-sources", "user,project"], disallow: [] });
+  assert.deepEqual(claudeSettingsGuardArgs({ cwd: "/w" }).disallow, GUARD);
 });
 
 test("claude adapter declares it enforces both policies", () => {
