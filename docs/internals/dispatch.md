@@ -7,7 +7,10 @@
   `index.js` = `createDispatcher` wiring + `runClaude`/`cancel`): `prompt.js`/`verdict.js`/`pr.js`
   pure helpers, factories `spawn.js` (spawn, log streaming, timeouts/kill; `agentSpawnEnv` = the
   receiver env filtered to `src/agent-env.js`'s allowlist — base + agent `envPassthrough` + tracker/forge
-  `agentEnv` + `cfg.agentEnvPassthrough` — under `agent.env` then step `env`, #470), `usage.js` (finalize,
+  `agentEnv` + `cfg.agentEnvPassthrough` — minus the run credentials' `strip`, under `agent.env`, then the run
+  credentials' `env`, then step `env`, #470/#474; `runCredentials` = `forge.runCredentials` else
+  `adapter.runCredentials` — a throw refuses the run like a preflight, `step.js` disposes them in a `finally`
+  once the run settles; the GitHub App per-run token lives in `src/github-run-token.js`), `usage.js` (finalize,
   energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`). **Verdict**:

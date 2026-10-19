@@ -107,6 +107,11 @@ for (const kind of ["triage", "implement"]) {
     const p = stepPrompt(task, meta, step(kind), ctx);
     assert.match(p, /Only comments posted by the account you\s+are running as/);
   });
+  test(`stepPrompt(${kind}) comments line names meta.ownerHint as the owner when set (#474)`, () => {
+    const p = stepPrompt(task, { ...meta, ownerHint: "@me" }, step(kind), ctx);
+    assert.match(p, /Only comments posted by @me \(the owner\)/);
+    assert.doesNotMatch(p, /the account you\s+are running as/);
+  });
 }
 
 // --- the `@agent` resume section (ctx.resumeComment): appended, delimited, to every kind ---

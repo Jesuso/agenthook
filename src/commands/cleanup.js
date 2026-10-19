@@ -5,6 +5,7 @@
 // item completion through the active tracker adapter. Dry-run unless --apply.
 // Multi-repo profiles sweep every declared repo, tagging each line with its id.
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
@@ -29,6 +30,37 @@ async function itemDone(adapter, ref) {
   } catch {
     return "unknown";
   }
+}
+
+// A live run's credentials dir is rewritten at least hourly (its token refresh), so one
+// untouched this long belongs to a run that crashed before disposing it (#474).
+export const RUN_CREDS_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+/** Per-run credential dirs (`<dataDir>/run-creds/*`) untouched for `maxAgeMs`: the newest mtime
+ * of the dir, its `gh/` and `gh/hosts.yml` (the refresh rewrites the file, not the dir).
+ * @param {string} dataDir @param {{now?: number, maxAgeMs?: number}} [o] @returns {string[]} */
+export function staleRunCreds(dataDir, { now = Date.now(), maxAgeMs = RUN_CREDS_MAX_AGE_MS } = {}) {
+  const root = path.join(dataDir, "run-creds");
+  let names;
+  try {
+    names = fs.readdirSync(root);
+  } catch {
+    return [];
+  }
+  return names
+    .map((n) => path.join(root, n))
+    .filter((dir) => {
+      const newest = Math.max(
+        ...[dir, path.join(dir, "gh"), path.join(dir, "gh", "hosts.yml")].map((p) => {
+          try {
+            return fs.statSync(p).mtimeMs;
+          } catch {
+            return 0;
+          }
+        }),
+      );
+      return now - newest > maxAgeMs;
+    });
 }
 
 /** @param {any} args */
@@ -80,6 +112,12 @@ export async function cleanup(args) {
     }
 
     if (apply) run("git", gitArgv(cfg, repo.path, ["worktree", "prune"]));
+  }
+
+  // Crash leftovers: a run that died before dispose. Its token has already expired (1h).
+  for (const dir of staleRunCreds(cfg.dataDir)) {
+    console.log(`REMOVE  ${dir}  [run credentials untouched > 2h]`);
+    if (apply) fs.rmSync(dir, { recursive: true, force: true });
   }
 
   if (apply) {

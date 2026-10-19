@@ -51,6 +51,8 @@ import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { MoveRefusedError } from "./owner.js";
 import { isEpicIssue } from "./github.js";
 import { createGithubAuth, githubFetch } from "../github-auth.js";
+import { githubRunCredentials, originUrl } from "../github-run-token.js";
+import { parseGithubRemote } from "../forges/github.js";
 
 /**
  * Route keys from the routeField single-select's option name → [name] or [].
@@ -603,13 +605,18 @@ export function createGithubProjectsAdapter(cfg, store) {
       platform: "GitHub Projects",
       taskNoun: "issue",
       trigger: cfg.trigger,
-      commentHowTo: `post a comment with: gh issue comment <number> --body "<text>" (run inside the repo; gh is authenticated via $GITHUB_TOKEN)`,
+      commentHowTo: `post a comment with: gh issue comment <number> --body "<text>" (run inside the repo; gh is already authenticated)`,
       readCommentsHowTo: `gh issue view <number> --comments (run inside the repo)`,
       agentEnv: GITHUB_PROJECTS_AGENT_ENV,
+      ...(pc.assigneeLogin ? { ownerHint: `@${pc.assigneeLogin}` } : {}),
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
 
     listStages: () => fetchStatusOptions(pc.project),
+
+    // Under App auth each agent run gets its own token scoped to the card's issue repo and the
+    // routed checkout's `origin` (#474). The board spans repos, so the issue repo comes from the task URL.
+    runCredentials: githubRunCredentials(pc, cfg, { codeRepo: (p) => parseGithubRemote(originUrl(p)), issueRepo: pc.repository ? String(pc.repository) : null }),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
     // accept. Sync + no network so the receiver ACKs inside GitHub's 10s window.

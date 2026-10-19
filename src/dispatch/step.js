@@ -12,14 +12,14 @@ import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { agentSpawnEnv } from "./spawn.js";
-import { trustedGitDirs, gitSandboxEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
+import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
 export function createStep(ctx) {
   const { cfg, adapter, store, emit, releaseOverlap, meta, forge, pids, cancelled, preSpawn, sandbox } = ctx;
   const { resolveRoute, leavePipeline, recordPr } = ctx;
-  const { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, agentPreflight } = ctx;
+  const { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight } = ctx;
   const { startEnergy, stopEnergy, finishStep } = ctx;
 
   /** @param {import('../types.js').Job} job */
@@ -233,14 +233,30 @@ export function createStep(ctx) {
     const agentEnv = agent.env?.({ cfg, step });
     // A failed preflight resolves the run as `fail` with no agent spawned.
     let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: step.env }) });
+    // Per-run credentials (#474): the forge's, else the tracker's. One that should have scoped
+    // and couldn't refuses the run exactly like a preflight — never the operator's token instead.
+    /** @type {import('../types.js').RunCredentials|null} */
+    let creds = null;
+    if (!refused) {
+      const got = await runCredentials({ ref: job.ref, step, task, repoPath: repo.path, dir: runCredsDirFor(step.id, job.ref), log: (line) => logLine(logPath, line) });
+      creds = got.creds;
+      refused = got.refused;
+      if (creds) logLine(logPath, creds.label);
+    }
     /** @type {Parameters<typeof spawnAgent>[0]['sandboxed']} */
     let sandboxedRun;
     if (sandboxed && sandbox && agent.sandbox && !refused) {
       try {
         const own = agent.sandbox({ cfg, step, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home });
-        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: trustedGitDirs(repo.path, cwd).commonDir, agentMounts: own.mounts });
+        // The per-run GH_CONFIG_DIR (#474) is mounted read-only next to the agent's own mounts:
+        // a refresh rewrites hosts.yml with an atomic rename, which the container sees because
+        // the mount is the directory, not the file.
+        const mounts = sandboxMounts({ cwd, hasWorktree, verdictDir: path.dirname(verdictFile), gitCommonDir: trustedGitDirs(repo.path, cwd).commonDir, agentMounts: own.mounts, credsMount: creds?.env?.GH_CONFIG_DIR });
         const facts = hostGitFacts(repo.path);
-        const gitEnv = gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author });
+        // When creds already supplies github.com's credential helper and insteadOf rewrite
+        // (runGitEnv, under GH_CONFIG_DIR), skip gitSandboxEnv's own copy of those pairs —
+        // mergeGitConfigEnv re-indexes what's left (safe.directory, author identity) after it.
+        const gitEnv = mergeGitConfigEnv(creds?.env, gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author, skipHostAuth: !!creds }));
         sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv } };
       } catch (e) {
         refused = `sandbox setup failed: ${e.message}`;
@@ -253,51 +269,63 @@ export function createStep(ctx) {
     }
     // Energy (#396): only an opted-in step that actually spawns is sampled.
     const energyRun = !refused && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
-    const spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
-      agent,
-      prompt,
-      cwd,
-      logPath,
-      promptFile,
-      model,
-      effort,
-      provider,
-      toolsets: step.toolsets,
-      isolated: step.isolated,
-      allow: step.allow,
-      deny: step.deny,
-      bin: step.bin,
-      agentEnv,
-      env: step.env,
-      verdictFile,
-      sandboxed: sandboxedRun,
-      maxMs: maxMinutes * 60000,
-      ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
-      onPid: (p) => {
-        pid = p;
-        if (p) pids.set(job.ref, p);
-        // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
-        preSpawn.delete(job.ref);
-        if (p && cancelled.has(job.ref)) killNow(job.ref, p);
-        try {
-          store?.setRunning(job.ref, { ...baseRunning, pid });
-        } catch (e) {
-          console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
-        }
-      },
-      // Live token tally onto the running record (throttled — per assistant/result event).
-      onTally: (t) => {
-        try {
-          store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate });
-        } catch (e) {
-          console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
-        }
-      },
-    }).catch(async (e) => {
-      if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
-      throw e;
-    });
-    const { code, result, quota, timedOut, sandboxReport } = /** @type {Awaited<ReturnType<typeof spawnAgent>>} */ (spawned);
+    /** @type {Awaited<ReturnType<typeof spawnAgent>>} */
+    let spawned;
+    try {
+      spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
+        agent,
+        prompt,
+        cwd,
+        logPath,
+        promptFile,
+        model,
+        effort,
+        provider,
+        toolsets: step.toolsets,
+        isolated: step.isolated,
+        allow: step.allow,
+        deny: step.deny,
+        bin: step.bin,
+        agentEnv,
+        creds,
+        env: step.env,
+        verdictFile,
+        sandboxed: sandboxedRun,
+        maxMs: maxMinutes * 60000,
+        ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
+        onPid: (p) => {
+          pid = p;
+          if (p) pids.set(job.ref, p);
+          // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
+          preSpawn.delete(job.ref);
+          if (p && cancelled.has(job.ref)) killNow(job.ref, p);
+          try {
+            store?.setRunning(job.ref, { ...baseRunning, pid });
+          } catch (e) {
+            console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
+          }
+        },
+        // Live token tally onto the running record (throttled — per assistant/result event).
+        onTally: (t) => {
+          try {
+            store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate });
+          } catch (e) {
+            console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
+          }
+        },
+      }).catch(async (e) => {
+        if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
+        throw e;
+      });
+    } finally {
+      // The run has settled (exit, timeout or cancel kill, spawn error): stop refreshing and revoke.
+      try {
+        await creds?.dispose();
+      } catch (e) {
+        console.error(`[run] run credentials dispose failed for ${job.ref}:`, e.message);
+      }
+    }
+    const { code, result, quota, timedOut, sandboxReport } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
     return finishStep(job, { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport });
   }

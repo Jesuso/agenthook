@@ -160,6 +160,20 @@ test("describe().stageKeys names the label binding family", () => {
   });
 });
 
+test("describe(): comments go through gh with --repo, and ownerHint names assigneeLogin (#474)", () => {
+  const m = adapter().describe();
+  assert.equal(m.commentHowTo, `post a comment with: gh issue comment <number> --repo o/r --body "<text>" (gh is already authenticated)`);
+  assert.equal(m.readCommentsHowTo, "gh issue view <number> --repo o/r --comments");
+  assert.doesNotMatch(`${m.commentHowTo} ${m.readCommentsHowTo}`, /curl|\$GITHUB_TOKEN/);
+  assert.equal(m.ownerHint, undefined, "no assigneeLogin → #471's wording");
+  assert.equal(adapter({ assigneeLogin: "alice" }).describe().ownerHint, "@alice");
+});
+
+test("runCredentials: null under a personal token (the #470 env applies)", async () => {
+  const a = adapter();
+  assert.equal(await a.runCredentials?.(/** @type {any} */ ({ ref: "1", step: { id: "code" }, task: { url: "https://github.com/o/r/issues/1" }, repoPath: "/nope", dir: "/nope", log: () => {} })), null);
+});
+
 test("listStages returns only the repo's existing labels, excluding the synthetic defaults", async () => {
   const orig = global.fetch;
   // @ts-ignore - test stub

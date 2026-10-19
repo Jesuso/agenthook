@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, runTokenLints } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -686,6 +686,60 @@ test("runChecks under App auth: the App checks replace the token check, for the 
     const c = checks.find((x) => x.label.startsWith(l));
     assert.ok(c?.ok, `${l}: ${JSON.stringify(c)}`);
   }
+});
+
+// --- per-run GitHub App tokens (#474) ---
+
+/** A mocked GitHub for the run-token check: the receiver mint answers 201; a scoped mint (a
+ * body) answers `scoped`; DELETE /installation/token answers 204. @param {number} scoped */
+const runTokenFetch = (scoped) => {
+  const calls = /** @type {{url: string, method: string, body?: any}[]} */ ([]);
+  /** @type {any} */
+  const f = async (/** @type {string} */ url, /** @type {any} */ init = {}) => {
+    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined });
+    if (init.method === "DELETE") return { ok: true, status: 204, json: async () => ({}) };
+    if (init.body && scoped >= 300) return { ok: false, status: scoped, json: async () => ({ message: "The permissions requested are not granted to this installation." }) };
+    return { ok: true, status: 201, json: async () => ({ token: init.body ? "run" : "inst", expires_at: new Date(Date.now() + 3600e3).toISOString() }) };
+  };
+  return { f, calls };
+};
+
+test("githubAppChecks with runTokenRepo: mints an implement-scoped run token and revokes it at once → ✓", async () => {
+  resetGithubAuthCache();
+  const { f, calls } = runTokenFetch(201);
+  const checks = await githubAppChecks({ auth: appAuth() }, "forge", { fetch: f, runTokenRepo: "o/r" });
+  assert.deepEqual(checks.map((c) => [c.ok, c.label]), [
+    [true, "forge GitHub App private key parses (app 101)"],
+    [true, "forge GitHub App installation token fetchable (installation 202)"],
+    [true, "forge GitHub App can mint agent run tokens (contents:write, pull_requests:write, issues:write)"],
+  ]);
+  assert.deepEqual(calls[1].body.repositories, ["r"]);
+  assert.equal(calls[1].body.permissions.contents, "write");
+  assert.deepEqual(calls[2], { url: "https://api.github.com/installation/token", method: "DELETE", body: undefined });
+});
+
+test("githubAppChecks with runTokenRepo: a 422 is ✗ with GitHub's message and the grant-permissions fix", async () => {
+  resetGithubAuthCache();
+  const { f } = runTokenFetch(422);
+  const checks = await githubAppChecks({ auth: appAuth() }, "forge", { fetch: f, runTokenRepo: "o/r" });
+  const c = checks[2];
+  assert.equal(c.ok, false);
+  assert.match(String(c.note), /422: The permissions requested are not granted/);
+  assert.match(String(c.fix && "manual" in c.fix ? c.fix.manual : ""), /Contents: Read & write and Pull requests: Read & write \(docs\/github-app\.md#agent-run-tokens\)/);
+});
+
+test("runTokenLints: a PAT is an ℹ; App + githubRunToken:false and a step env GH_TOKEN are ⚠; a non-github origin is issues-only", () => {
+  const base = /** @type {any} */ ({ provider: "github", providerConfig: { type: "github", token: "t" }, pipeline: [{ id: "code" }], repoPath: "/r" });
+  const github = () => "o/r";
+  assert.deepEqual(runTokenLints(base, { originRepo: github }), [{ level: "info", label: "agents use your personal GitHub token (no GitHub App)", note: "an App gives each run a 1h token scoped to one repo: docs/github-app.md#agent-run-tokens" }]);
+  assert.deepEqual(runTokenLints({ ...base, provider: "asana", providerConfig: {} }, { originRepo: github }), [], "no GitHub anywhere");
+  const app = { ...base, providerConfig: { type: "github", auth: appAuth(), assigneeLogin: "a" } };
+  assert.deepEqual(runTokenLints(app, { originRepo: github }), []);
+  assert.deepEqual(runTokenLints({ ...app, githubRunToken: false }, { originRepo: github }).map((l) => [l.level, l.label]), [["warn", "agents use your own GitHub credentials, not a scoped run token"]]);
+  assert.deepEqual(runTokenLints({ ...app, pipeline: [{ id: "code", env: { GH_TOKEN: "${X}" } }] }, { originRepo: github }).map((l) => [l.level, l.label]), [["warn", `step "code" env GH_TOKEN overrides the per-run App token`]]);
+  assert.deepEqual(runTokenLints(app, { originRepo: () => null }).map((l) => [l.level, l.label]), [["warn", `run tokens for "default" cover issues only; pushes use your own git credentials`]]);
+  const forgeApp = { ...base, forge: { type: "github", repository: "o/r", auth: appAuth() } };
+  assert.deepEqual(runTokenLints(forgeApp, { originRepo: () => null }), [], "an App forge falls back to its repository");
 });
 
 // --- sandboxChecks (a profile `sandbox` block) ---
