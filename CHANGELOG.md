@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-18
+
+**Trust release:** agents get less of your machine by default, and can optionally run in a per-run
+container. **Before upgrading, read these three:**
+
+- **Agents no longer inherit the receiver's environment.** Run `agenthook doctor`: it lists what
+  is no longer passed. Add what your agents need to `agentEnvPassthrough` (`["*"]` restores 0.9).
+- **`fullAuto: false` claude runs are pinned** to `--setting-sources user,project --permission-mode
+  dontAsk`. They need Claude Code ≥ 2.1.303 (older versions fail those runs), and file edits must be
+  allowed explicitly (repo `.claude/settings.json` or a step `allow` policy).
+- **GitHub App auth now mints a per-run token** (`githubRunToken`, on by default). An App without
+  Contents and Pull requests write refuses runs. Grant them, or set `githubRunToken: false`.
+
 ### Added
 
 - `agenthook doctor` prints an **isolation report**: `isolation ·` rows for the sandbox (type and
@@ -614,7 +627,8 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Jesuso/agenthook/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Jesuso/agenthook/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Jesuso/agenthook/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Jesuso/agenthook/compare/v0.6.0...v0.7.0
