@@ -263,6 +263,65 @@ test("runStep falls back to cfg.agentProvider when the step sets no provider", a
   assert.equal(argv[argv.indexOf("--provider") + 1], "openai-codex");
 });
 
+// --- step allow/deny policy (#475): refused on an agent that can't enforce it, flags on claude ---
+
+/** Run one `code` step with an argv-recording fake as every agent's bin. @param {any} step */
+async function policyRun(step) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-agent.sh");
+  const argvOut = path.join(dir, "argv.txt");
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvOut}"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", bin, ...step }, { id: "done", manual: true }],
+    agentEnvPassthrough: ["FAKE_*"],
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  /** @type {any[]} */
+  const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ verdict) => advanced.push(verdict),
+  });
+  const run = createDispatcher(cfg, adapter, undefined, createStore(dir), () => {});
+  process.env.FAKE_VERDICT = JSON.stringify({ outcome: "advance" });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code" });
+  } finally {
+    console.log = log;
+  }
+  const argv = fs.existsSync(argvOut) ? fs.readFileSync(argvOut, "utf8").trim().split("\n") : null;
+  return { advanced, argv };
+}
+
+test("dispatch: a step allow/deny policy on an agent that can't enforce it is refused, nothing spawned", async () => {
+  for (const agent of ["cursor", "opencode"]) {
+    const { advanced, argv } = await policyRun({ agent, allow: { commands: ["git"] } });
+    assert.equal(argv, null, `${agent} was spawned`);
+    assert.equal(advanced[0]?.outcome, "fail");
+    assert.match(advanced[0].reason, new RegExp(`${agent} cannot enforce step "code" allow policy — the run is refused rather than run unrestricted`));
+  }
+  const { advanced, argv } = await policyRun({ agent: "cursor", deny: { commands: ["curl"] } });
+  assert.equal(argv, null);
+  assert.match(advanced[0].reason, /cursor cannot enforce step "code" deny policy/);
+});
+
+test("dispatch: a claude step with allow spawns with dontAsk and an Edit rule for its verdict file", async () => {
+  const { advanced, argv } = await policyRun({ allow: { commands: ["git"], paths: ["src/**"] } });
+  assert.ok(argv, "claude was not spawned");
+  assert.equal(advanced[0]?.outcome, "advance");
+  assert.equal(argv[argv.indexOf("--permission-mode") + 1], "dontAsk");
+  assert.ok(!argv.includes("--dangerously-skip-permissions"));
+  assert.ok(argv.some((a) => /^Edit\(\/\/.*\/verdicts\/42-code\.json\)$/.test(a)), argv.join(" "));
+});
+
 test("dispatch: a hold verdict writes held.json[ref]; the next run of any step clears it", async () => {
   const { store, runStep } = heldHarness();
   await runStep("triage", { outcome: "hold", reason: "which DB?" });

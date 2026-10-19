@@ -28,6 +28,14 @@
  */
 
 /**
+ * A step's `allow` or `deny` policy. Advisory without the sandbox: an allowed interpreter runs
+ * anything, and path rules cover the agent's file tools, not a subprocess that opens files itself.
+ * @typedef {object} StepPolicy
+ * @property {string[]} [commands]  command prefixes, word-boundary matched (`"npm test"` covers `npm test -- foo`)
+ * @property {string[]} [paths]     gitignore-style globs relative to the run's cwd (the worktree, or the main checkout on a no-worktree step)
+ */
+
+/**
  * One stage of a pipeline (cfg.pipeline[]). The platform-neutral fields are read by
  * the engine; the tracker adapter reads its own binding (e.g. Asana section gids)
  * off the same object. A step with `manual: true` has no agent — entering it only
@@ -50,6 +58,8 @@
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over the agent's filtered env (see agentEnvPassthrough; AGENTHOOK_VERDICT_FILE is reserved)
  * @property {boolean} [sandbox]              false = run this step on the host even when the profile has a `sandbox` (the operator's explicit escape hatch)
+ * @property {StepPolicy} [allow]           the only commands this step's agent may run and the only cwd-relative paths it may write (reads inside cwd stay allowed); enforced through the agent CLI (claude only — other agents' runs are refused)
+ * @property {StepPolicy} [deny]            commands this step's agent may never run and cwd-relative paths it may never read or write; enforced even under fullAuto (claude only)
  * @property {EgressConfig} [egress]          this step's network policy: `mode` overrides the profile's `sandbox.egress.mode`; `allow`/`deny` are added to the profile's. Needs a profile `sandbox`
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
@@ -494,8 +504,8 @@
 /** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
  * resume reach the CLI only through it.
  * @typedef {object} AgentAdapter
- * @property {() => {name: string, stdout: string, promptFile?: boolean}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv
- * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, promptFile?: string, maxMs?: number, toolsets?: string[], isolated?: boolean}) => string[]} buildArgs  argv after the executable
+ * @property {() => {name: string, stdout: string, promptFile?: boolean, policy?: {allow: boolean, deny: boolean}}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv; `policy` = which step policies (`allow`/`deny`) the CLI can enforce — a step setting one it can't is refused
+ * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, promptFile?: string, maxMs?: number, toolsets?: string[], isolated?: boolean, allow?: StepPolicy, deny?: StepPolicy, cwd?: string, verdictFile?: string}) => string[]} buildArgs  argv after the executable
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume
@@ -603,7 +613,7 @@
  * @property {string} trigger
  * @property {number} maxConcurrent
  * @property {boolean} [overlapGuard]  opt-in (default false); hold a createsWorktree step while its predicted paths overlap another in-flight ref's lock
- * @property {boolean} [fullAuto]   opt-in; adds --dangerously-skip-permissions (unsandboxed code exec from a webhook). Default false = agents prompt for permission.
+ * @property {boolean} [fullAuto]   opt-in; adds --dangerously-skip-permissions (unsandboxed code exec from a webhook). Default false = privileged tool calls are denied (headless agents cannot prompt) unless allowed by a step `allow` policy or your agent's own settings.
  * @property {string} repoPath     the default repo's path (else the first declared) — ops readers use it; dispatch goes through `repos`
  * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath
  * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)

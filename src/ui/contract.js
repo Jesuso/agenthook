@@ -7,8 +7,8 @@
 
 /**
  * Config paths whose change the audit line names and the config editor confirms twice: the
- * agent's permission mode, binary, env passthrough and per-step binary/env, the energy command (it runs a shell command), the sandbox backend/image, egress mode and a
- * step's opt-out of it (and its egress mode), the tracker identity that scopes which items are ours,
+ * agent's permission mode, binary, env passthrough and per-step binary/env/allow/deny policy, the energy command (it runs a shell command), the sandbox
+ * backend/image/egress mode and a step's opt-out of it (and its egress mode), the tracker identity that scopes which items are ours,
  * and every src/config.js SECRET_FIELDS path (a test keeps that list a subset of this one).
  * `[*]` expands every element of an array.
  */
@@ -32,6 +32,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "tracker.pipeline[*].bin",
   "tracker.pipeline[*].env",
   "tracker.pipeline[*].sandbox",
+  "tracker.pipeline[*].allow",
+  "tracker.pipeline[*].deny",
   "tracker.pipeline[*].egress.mode",
   "energy.source.cmd",
   "sandbox.type",

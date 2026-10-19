@@ -300,6 +300,37 @@ test("toolsets / isolated: valid shapes pass on a step; bad shapes and manual st
   ]);
 });
 
+test("allow / deny: valid policies pass; bad shapes, unsafe entries and manual steps fail", () => {
+  const ok = { allow: { commands: ["git", "npm test"], paths: ["src/**", "test/**"] }, deny: { commands: ["curl"], paths: [".github/workflows/**", ".env*"] } };
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", ...ok }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "review", allow: { commands: ["gh pr"] } }])), { ok: true });
+  /** @param {any} step */
+  const errs = (step) => /** @type {any} */ (validateRawConfig(raw({}, [{ id: "code", ...step }]))).errors;
+  /** @param {any} step @param {RegExp} re */
+  const rejects = (step, re) => {
+    const e = errs(step);
+    assert.equal(e?.length, 1, JSON.stringify(step));
+    assert.match(e[0], /^config: pipeline step "code" (allow|deny)/);
+    assert.match(e[0], re);
+  };
+  rejects({ allow: { commands: ["git"], files: ["x"] } }, /unknown key\(s\) "files"/);
+  rejects({ deny: {} }, /must set "commands" or "paths"/);
+  rejects({ allow: ["git"] }, /must be an object/);
+  rejects({ allow: { commands: [] } }, /allow\.commands must be a non-empty array/);
+  rejects({ allow: { paths: [5] } }, /allow\.paths entry 5/);
+  rejects({ allow: { commands: [" git"] } }, /trimmed/);
+  rejects({ allow: { paths: ["/etc/**"] } }, /relative to the run's cwd/);
+  rejects({ deny: { paths: ["~/.ssh/**"] } }, /relative to the run's cwd/);
+  rejects({ allow: { paths: ["C:/x"] } }, /relative to the run's cwd/);
+  rejects({ allow: { paths: ["src/../../etc"] } }, /relative to the run's cwd/);
+  rejects({ deny: { commands: ["curl)"] } }, /no newline, "\(", "\)" or ","/);
+  rejects({ allow: { commands: ["git\nrm"] } }, /no newline/);
+  assert.deepEqual(/** @type {any} */ (validateRawConfig(raw({}, [{ id: "code" }, { id: "done", manual: true, ...ok }]))).errors, [
+    `config: pipeline step "done" allow has no effect on a manual step (no agent runs).`,
+    `config: pipeline step "done" deny has no effect on a manual step (no agent runs).`,
+  ]);
+});
+
 test("ui identity block: valid values pass, unknown colour / emoji / shape are errors", () => {
   assert.deepEqual(validateRawConfig(raw({ ui: { color: "teal", emoji: "🚀" } })), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ ui: {} })), { ok: true });
