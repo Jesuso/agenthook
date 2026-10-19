@@ -188,7 +188,9 @@ Under App auth the receiver mints its own installation token, and each agent run
   from the run's env, because `gh` prefers an env token over its config. git gets
   `gh auth git-credential` as its only github.com credential helper, and SSH github remotes are
   rewritten to HTTPS (env-based git config, git ≥ 2.31). A push therefore uses the run token, not
-  your SSH key.
+  your SSH key — unless your own `~/.gitconfig` has a "force SSH" rule
+  (`url."git@github.com:".insteadOf https://github.com/`), which rewrites the push URL back to
+  SSH on a host run. Remove that rule, or run with the [sandbox](sandbox.md) (no `~/.gitconfig`).
 - **Refreshed.** 10 minutes before the token expires, the receiver mints a fresh one with the same
   scope and rewrites `hosts.yml`. `gh` and git read it again on every call. A failed refresh writes
   one line to the run log and retries every minute until the token expires. It never kills the run.
@@ -210,8 +212,14 @@ as the owner: the prompt tells the agent that only comments by `@<assigneeLogin>
 the `@agent` resume already checks that login.
 
 **Workflow files.** A token without the Workflows permission can't push a commit that adds or
-changes a file under `.github/workflows/`; GitHub rejects the push. Under App auth an agent can't
-use CI as an escalation path.
+changes a file under `.github/workflows/`; GitHub rejects the push. With the run token, an agent
+can't use CI as an escalation path.
+
+**A boundary only with the sandbox.** Without [`sandbox`](sandbox.md) the agent runs as you, with
+your `HOME`: it can still read your own `gh` login (`~/.config/gh/hosts.yml` or the keyring) and
+any unencrypted `~/.ssh` key, and use those instead of the run token. On a bare host, run tokens
+are hygiene (what the agent is *given* is scoped and expires); they contain a hostile agent only
+when `sandbox` is on.
 
 A step `env` that sets `GH_TOKEN`/`GITHUB_TOKEN` still wins over the run token. That's your
 explicit choice, and `doctor` warns about it.
