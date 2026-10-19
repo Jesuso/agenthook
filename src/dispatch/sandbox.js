@@ -68,11 +68,15 @@ export function trustedGitDirs(repoPath, cwd) {
  * would hand code execution back to the host. `hooks` is created (empty) first when missing, so
  * the agent can't create it. A no-worktree step (triage) gets the main checkout and its git dir
  * read-only. Then the per-run verdict dir (rw) and the agent's own mounts. Creates `hooks`;
- * throws when `config`/`hooks` is not a regular file/real dir (e.g. a planted symlink).
- * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types.js').SandboxMount[]}} o
+ * throws when `config`/`hooks` is not a regular file/real dir (e.g. a planted symlink). The
+ * run-credentials dir (#474, `credsMount`) is mounted read-only next to `agentMounts`: it is a
+ * receiver-owned dir under `dataDir`, never a path derived from anything agent-writable, so a
+ * refreshed token (an atomic rename on the host) is visible inside the container at the same
+ * path (`GH_CONFIG_DIR`).
+ * @param {{cwd: string, hasWorktree: boolean, verdictDir: string, gitCommonDir?: string, agentMounts?: import('../types.js').SandboxMount[], credsMount?: string}} o
  * @returns {import('../types.js').SandboxMount[]}
  */
-export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agentMounts = [] }) {
+export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agentMounts = [], credsMount }) {
   /** @type {import('../types.js').SandboxMount[]} */
   const mounts = [{ path: cwd, ro: !hasWorktree }];
   if (gitCommonDir) {
@@ -92,6 +96,7 @@ export function sandboxMounts({ cwd, hasWorktree, verdictDir, gitCommonDir, agen
     }
   }
   mounts.push({ path: verdictDir }, ...agentMounts);
+  if (credsMount) mounts.push({ path: credsMount, ro: true });
   return mounts;
 }
 
@@ -170,15 +175,21 @@ export function inferredForgeEgressHosts(originUrl) {
  * Git config for a container with no ~/.gitconfig, as GIT_CONFIG_COUNT/KEY_n/VALUE_n env (names
  * only reach argv): an SSH `origin` rewritten to HTTPS, a credential helper from the forge's
  * token in the env (github: `gh auth git-credential` over GH_TOKEN/GITHUB_TOKEN; gitlab:
- * GITLAB_TOKEN), `safe.directory=*`, and the host's commit identity. Pure.
- * @param {{originUrl?: string, forgeType?: string, forgeBaseUrl?: string, author?: {name?: string, email?: string}}} o
+ * GITLAB_TOKEN), `safe.directory=*`, and the host's commit identity. `skipHostAuth` omits the
+ * insteadOf/credential-helper pairs: a per-run GitHub App token (#474) already supplies them
+ * via its own `GH_CONFIG_DIR`-backed env (`runGitEnv`), and setting both would double the
+ * GIT_CONFIG_COUNT indices — merge with `mergeGitConfigEnv` instead. `skipHostAuth` only applies
+ * when the resolved host is github.com — a run token (#474) never covers another forge's host, so
+ * skipping there would leave that host's push credentials dropped with nothing to replace them.
+ * Pure.
+ * @param {{originUrl?: string, forgeType?: string, forgeBaseUrl?: string, author?: {name?: string, email?: string}, skipHostAuth?: boolean}} o
  * @returns {Record<string, string>}
  */
-export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author }) {
+export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author, skipHostAuth = false }) {
   const { host, kind } = forgeOf({ originUrl, forgeType, forgeBaseUrl });
   /** @type {[string, string][]} */
   const pairs = [];
-  if (host) {
+  if (host && !(skipHostAuth && host === "github.com")) {
     pairs.push([`url.https://${host}/.insteadOf`, `git@${host}:`], [`url.https://${host}/.insteadOf`, `ssh://git@${host}/`]);
     if (kind === "github") pairs.push([`credential.https://${host}.helper`, "!gh auth git-credential"]);
     else if (kind === "gitlab") pairs.push([`credential.https://${host}.helper`, `!f() { test "$1" = get && echo username=oauth2 && echo "password=$GITLAB_TOKEN"; }; f`]);
@@ -193,6 +204,34 @@ export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author }) {
   if (author?.name) env.GIT_AUTHOR_NAME = env.GIT_COMMITTER_NAME = author.name;
   if (author?.email) env.GIT_AUTHOR_EMAIL = env.GIT_COMMITTER_EMAIL = author.email;
   return env;
+}
+
+/** Concatenate several `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` env objects into one, re-indexed in
+ * argument order, so a per-run token's git config (#474) and the sandbox's own (`gitSandboxEnv`)
+ * never collide on the same index. Non-GIT_CONFIG_* keys are shallow-merged, later wins. Pure.
+ * @param {...(Record<string, string>|undefined)} envs
+ * @returns {Record<string, string>} */
+export function mergeGitConfigEnv(...envs) {
+  /** @type {[string, string][]} */
+  const pairs = [];
+  /** @type {Record<string, string>} */
+  const rest = {};
+  for (const env of envs) {
+    if (!env) continue;
+    const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+    for (let i = 0; i < count; i++) pairs.push([env[`GIT_CONFIG_KEY_${i}`], env[`GIT_CONFIG_VALUE_${i}`]]);
+    for (const [k, v] of Object.entries(env)) {
+      if (/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) continue;
+      rest[k] = v;
+    }
+  }
+  /** @type {Record<string, string>} */
+  const out = { ...rest, GIT_CONFIG_COUNT: String(pairs.length) };
+  pairs.forEach(([k, v], i) => {
+    out[`GIT_CONFIG_KEY_${i}`] = k;
+    out[`GIT_CONFIG_VALUE_${i}`] = v;
+  });
+  return out;
 }
 
 /** Cap on one host git read at run start: a FIFO the agent planted in the common git dir must

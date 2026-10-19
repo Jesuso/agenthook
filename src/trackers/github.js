@@ -31,6 +31,8 @@ import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { verifyHubSignature } from "../hmac.js";
 import { checkOwner, MoveRefusedError } from "./owner.js";
 import { createGithubAuth, githubFetch } from "../github-auth.js";
+import { githubRunCredentials, originUrl } from "../github-run-token.js";
+import { parseGithubRemote } from "../forges/github.js";
 
 /** Is `issue` an epic — its type matches `epicType`, OR it carries `epicLabel` (any
  * case). A plain parent with sub-issues but no type/label is never an epic.
@@ -477,14 +479,20 @@ export function createGithubAdapter(cfg, store) {
       platform: "GitHub",
       taskNoun: "issue",
       trigger: cfg.trigger,
-      commentHowTo: `post a comment with curl: curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -X POST https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments -d '{"body":"<text>"}' (your token is in the env as $GITHUB_TOKEN)`,
-      readCommentsHowTo: `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/${owner}/${repo}/issues/<number>/comments (or gh issue view <number> --comments)`,
+      // `--repo`: the agent's cwd may be another repo (multi-repo, or repo.path for triage).
+      commentHowTo: `post a comment with: gh issue comment <number> --repo ${owner}/${repo} --body "<text>" (gh is already authenticated)`,
+      readCommentsHowTo: `gh issue view <number> --repo ${owner}/${repo} --comments`,
       agentEnv: GITHUB_AGENT_ENV,
       egressHosts: githubEgressHosts(),
+      ...(pc.assigneeLogin ? { ownerHint: `@${pc.assigneeLogin}` } : {}),
       stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" },
     }),
 
     listStages: () => fetchLabels(owner, repo),
+
+    // Under App auth each agent run gets its own token scoped to the issue's repo and the
+    // routed checkout's `origin` (#474).
+    runCredentials: githubRunCredentials(pc, cfg, { codeRepo: (p) => parseGithubRemote(originUrl(p)), issueRepo: owner && repo ? `${owner}/${repo}` : null }),
 
     // No handshake. With a secret: verify the HMAC. Without one (webhookSecret:false):
     // accept. Sync + no network so the receiver ACKs inside GitHub's 10s window.

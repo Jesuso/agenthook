@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Per-run GitHub App tokens for agents. Under GitHub App auth each agent run gets its own 1-hour
+  installation token, scoped to the run's repo(s) and to what the step kind needs (never
+  Workflows, admin or secrets). It lives in a per-run `gh` config dir that the receiver refreshes
+  before expiry, and it is revoked when the run ends. A run whose token can't be minted fails with
+  `GitHub run token: …` instead of falling back to your token. `doctor` mints and revokes one to
+  check the App's permissions. Under the container sandbox the config dir is bind-mounted
+  read-only at the same path so a sandboxed run sees the refreshed token too. See
+  `docs/github-app.md#agent-run-tokens` (#474).
 - Per-step `allow` / `deny` policy (`{ "commands": [...], "paths": [...] }`). For `claude`,
   `allow` runs the step with `--permission-mode dontAsk --allowedTools …` (and drops
   `--dangerously-skip-permissions` even under `fullAuto`); `deny` adds `--disallowedTools …`, which
@@ -15,7 +23,6 @@ All notable changes to this project are documented here. The format is based on
   `hermes`) is refused before spawn, never run unrestricted. `doctor` lists each step's effective
   rules and warns where they are advisory (no sandbox, interpreters on the allowlist). Steps without
   a policy get exactly the same argv as before. See `docs/configuration.md` (#475).
-
 - Per-run container sandbox (`"sandbox": { "type": "docker" | "podman" }`, optional `image`,
   `memory`, `cpus`; a step opts out with `"sandbox": false`). Each agent run gets its own
   throwaway container as your user with all capabilities dropped, mounting only its worktree, the
@@ -37,6 +44,12 @@ All notable changes to this project are documented here. The format is based on
   custom `sandbox.image` also needs `agenthook-agent:<version>` (#473).
 
 ### Changed
+
+- **Under GitHub App auth agents now push, comment and open PRs as the App (`<app>[bot]`)** with a
+  1h token scoped to the run's repo. Grant the App Contents and Pull requests write (the
+  [agent runs table](docs/github-app.md#minimal-permissions)). `githubRunToken: false` restores
+  your own credentials. The `github` tracker prompt now comments with
+  `gh issue comment <n> --repo <o>/<r>` instead of curl and `$GITHUB_TOKEN` (#474).
 
 - **Agents no longer inherit the receiver's environment.** A spawned agent gets only an allowlist:
   process basics (`PATH`, `HOME`, locale, `TERM`, `XDG_*`, proxies, `SSH_AUTH_SOCK`, toolchain

@@ -7,7 +7,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf, hostGitFacts, inferredForgeEgressHosts } from "../src/dispatch/sandbox.js";
+import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, mergeGitConfigEnv, hostOf, hostGitFacts, inferredForgeEgressHosts } from "../src/dispatch/sandbox.js";
+import { runGitEnv } from "../src/github-run-token.js";
 import { HOST_GIT_TIMEOUT_MS, listWorktrees } from "../src/worktree.js";
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
@@ -149,6 +150,54 @@ test("gitSandboxEnv: gitlab takes the host from forge.baseUrl and a GITLAB_TOKEN
   assert.deepEqual(pairsOf(gitSandboxEnv({})), [["safe.directory", "*"]]);
 });
 
+test("gitSandboxEnv skipHostAuth: a run-token sandboxed run drops the insteadOf/credential pairs, keeps safe.directory + author", () => {
+  const env = gitSandboxEnv({ originUrl: "git@github.com:o/r.git", author: { name: "Op", email: "op@x" }, skipHostAuth: true });
+  assert.deepEqual(pairsOf(env), [["safe.directory", "*"]]);
+  assert.equal(env.GIT_AUTHOR_NAME, "Op");
+});
+
+// Review pass on #484's sandbox rework: skipHostAuth must only drop the insteadOf/credential
+// pairs when the *resolved* host is github.com. A run token (#474) never covers another forge's
+// host, so skipping there would strip that host's push credentials with nothing to replace them
+// — a sandboxed run that could push before this merge would be unable to push after it.
+test("gitSandboxEnv skipHostAuth: a non-github host keeps its own insteadOf/credential pairs (a github run token never covers it)", () => {
+  const env = gitSandboxEnv({ originUrl: "git@gitlab.acme.io:o/r.git", forgeType: "gitlab", forgeBaseUrl: "https://gitlab.acme.io", skipHostAuth: true });
+  const pairs = pairsOf(env);
+  assert.deepEqual(pairs[0], ["url.https://gitlab.acme.io/.insteadOf", "git@gitlab.acme.io:"]);
+  assert.equal(pairs[2][0], "credential.https://gitlab.acme.io.helper");
+  assert.match(pairs[2][1], /GITLAB_TOKEN/);
+});
+
+test("mergeGitConfigEnv re-indexes a run token's git env (#474) and the sandbox's own, with no duplicate GIT_CONFIG_COUNT indices", () => {
+  const creds = runGitEnv(); // GIT_CONFIG_COUNT=4 (reset, gh helper, two insteadOf), plus GIT_TERMINAL_PROMPT
+  const sbx = gitSandboxEnv({ originUrl: "git@github.com:o/r.git", author: { name: "Op", email: "op@x" }, skipHostAuth: true }); // just safe.directory + author
+  const merged = mergeGitConfigEnv(creds, sbx);
+  assert.equal(Number(merged.GIT_CONFIG_COUNT), 5);
+  assert.deepEqual(pairsOf(merged), [
+    ["credential.https://github.com.helper", ""],
+    ["credential.https://github.com.helper", "!gh auth git-credential"],
+    ["url.https://github.com/.insteadOf", "git@github.com:"],
+    ["url.https://github.com/.insteadOf", "ssh://git@github.com/"],
+    ["safe.directory", "*"],
+  ]);
+  assert.equal(merged.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(merged.GIT_AUTHOR_NAME, "Op");
+  // Only a single, re-indexed GIT_CONFIG_COUNT — never two conflicting sets of KEY_n/VALUE_n.
+  assert.equal(Object.keys(merged).filter((k) => k === "GIT_CONFIG_COUNT").length, 1);
+});
+
+test("sandboxMounts: the per-run GH_CONFIG_DIR (#474) mounts read-only as the directory, not a file, so a refresh's atomic rename is visible inside", () => {
+  const { repo, wt } = fixture();
+  const common = path.join(repo, ".git");
+  const credsDir = path.join(path.dirname(repo), "run-creds-dir");
+  fs.mkdirSync(credsDir);
+  const m = sandboxMounts({ cwd: wt, hasWorktree: true, verdictDir: "/v", gitCommonDir: common, credsMount: credsDir });
+  const mount = m.find((x) => x.path === credsDir);
+  assert.ok(mount, "GH_CONFIG_DIR mount present");
+  assert.equal(mount.ro, true);
+  assert.ok(fs.statSync(mount.path).isDirectory(), "mount source is the dir, not hosts.yml itself");
+});
+
 // --- end to end through the real dispatcher, with $DOCKER pointing at a fake client ---
 // The fake records its argv, and for `run` execs the inner `<bin> <args>` on the host in
 // --workdir with only the `-e` names it was given (values from its own env) — like a runtime.
@@ -199,8 +248,8 @@ child.on("exit", (code) => process.exit(code ?? 1));
 /** The agent's `run` (not the egress proxy's `run -d`). @param {string[]} c */
 const isAgentRun = (c) => c[0] === "run" && c[1] !== "-d";
 
-/** @param {any[]} steps @param {{inner?: string, forge?: any, sandbox?: any}} [o] */
-function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker", image: "img:1" } } = {}) {
+/** @param {any[]} steps @param {{inner?: string, forge?: any, sandbox?: any, runCredentials?: (o: any) => Promise<any>, agentEnvPassthrough?: string[]}} [o] */
+function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker", image: "img:1" }, runCredentials, agentEnvPassthrough } = {}) {
   const { root, repo } = fixture();
   const state = path.join(root, "state");
   fs.mkdirSync(state);
@@ -211,7 +260,7 @@ function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker"
   fs.writeFileSync(
     claude,
     inner ??
-      `#!/bin/sh\nprintf 'VF=%s\\nSSH=%s\\nTOKEN=%s\\nPWD=%s\\nNOAUTO=%s\\nGITCOUNT=%s\\n' "$AGENTHOOK_VERDICT_FILE" "\${SSH_AUTH_SOCK-unset}" "\${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(pwd)" "\${DISABLE_AUTOUPDATER-unset}" "\${GIT_CONFIG_COUNT-unset}" > "${out}"\nprintf '%s' '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+      `#!/bin/sh\nprintf 'VF=%s\\nSSH=%s\\nTOKEN=%s\\nPWD=%s\\nNOAUTO=%s\\nGITCOUNT=%s\\nGHCFG=%s\\nGHTOK=%s\\n' "$AGENTHOOK_VERDICT_FILE" "\${SSH_AUTH_SOCK-unset}" "\${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(pwd)" "\${DISABLE_AUTOUPDATER-unset}" "\${GIT_CONFIG_COUNT-unset}" "\${GH_CONFIG_DIR-unset}" "\${GITHUB_TOKEN-unset}" > "${out}"\nprintf '%s' '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
     { mode: 0o755 },
   );
   const log = path.join(root, "docker.log");
@@ -219,6 +268,7 @@ function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker"
     pipeline: steps, claudeBin: claude, repoPath: repo, worktreePrefix: path.join(root, "wts"),
     stateKey: "p", stateDir: state, dataDir: state, logDir: state, instructionsFile: path.join(root, "none.md"),
     sandbox,
+    ...(agentEnvPassthrough ? { agentEnvPassthrough } : {}),
   });
   /** @type {any[]} */
   const advanced = [];
@@ -226,6 +276,7 @@ function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker"
     describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment", egressHosts: ["api.tracker.test"] }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ v) => void advanced.push({ ref, step, ...v }),
+    ...(runCredentials ? { runCredentials } : {}),
   });
   const saved = { DOCKER: process.env.DOCKER, DOCKER_FAKE_LOG: process.env.DOCKER_FAKE_LOG, DOCKER_FAKE_DENY: process.env.DOCKER_FAKE_DENY, HOME: process.env.HOME, SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK };
   process.env.DOCKER = docker;
@@ -281,6 +332,43 @@ test("sandbox e2e: a claude step runs through the runtime, routes on its per-run
     assert.equal(fs.existsSync(path.join(h.state, "verdicts", "run-42-code")), false, "per-run verdict dir removed");
     assert.deepEqual(fs.readdirSync(path.join(h.state, "sandbox-home")), [], "per-run HOME removed");
   } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: a run-token adapter (#474) mounts GH_CONFIG_DIR read-only, passes its env, strips GITHUB_TOKEN from the container, and disposes once", async () => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-run-creds-"));
+  fs.mkdirSync(path.join(credsDir, "gh"));
+  fs.writeFileSync(path.join(credsDir, "gh", "hosts.yml"), "github.com:\n  oauth_token: ghs_x\n");
+  let disposeCalls = 0;
+  const runCredentials = async () => ({
+    env: { GH_CONFIG_DIR: path.join(credsDir, "gh"), GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.https://github.com.helper", GIT_CONFIG_VALUE_0: "!gh auth git-credential" },
+    strip: ["GH_TOKEN", "GITHUB_TOKEN"],
+    label: "GitHub App token: o/r, expires soon",
+    dispose: async () => void disposeCalls++,
+  });
+  const h = sandboxHarness([{ id: "code", createsWorktree: true, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { runCredentials, agentEnvPassthrough: ["GITHUB_TOKEN"] });
+  const savedToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = "ghp_operator_secret";
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance");
+    const run = h.calls().find(isAgentRun);
+    assert.ok(run, "the runtime client was spawned");
+    const mounts = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1]] : []));
+    assert.ok(mounts.includes(`type=bind,src=${path.join(credsDir, "gh")},dst=${path.join(credsDir, "gh")},readonly`), mounts.join("\n"));
+    assert.ok(run.includes("GH_CONFIG_DIR"), "GH_CONFIG_DIR passed by name");
+    assert.ok(run.includes("GIT_CONFIG_COUNT"), "a single, merged GIT_CONFIG_COUNT passed by name");
+    assert.ok(!run.includes("GITHUB_TOKEN"), "stripped even though allowlisted and set in the receiver env");
+    const got = h.innerOut();
+    assert.equal(got?.GHCFG, path.join(credsDir, "gh"));
+    assert.equal(got?.GHTOK, "unset", "the container never sees the receiver's GITHUB_TOKEN");
+    assert.notEqual(got?.GITCOUNT, "unset");
+    assert.equal(disposeCalls, 1, "dispose runs once after a normal exit");
+  } finally {
+    if (savedToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedToken;
+    fs.rmSync(credsDir, { recursive: true, force: true });
     h.restore();
   }
 });

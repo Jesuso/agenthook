@@ -12,7 +12,7 @@ import path from "node:path";
 import { execFile, spawnSync } from "node:child_process";
 import { loadConfig, ensurePrivateDir } from "../config.js";
 import { worktreeDir } from "../paths.js";
-import { reposOf, defaultRepo } from "../repos.js";
+import { reposOf, defaultRepo, primaryRepo } from "../repos.js";
 import { listWorktrees } from "../worktree.js";
 import { readProfile, isAlive, instructionTargets } from "../heartbeat.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
@@ -20,7 +20,9 @@ import { fileURLToPath } from "node:url";
 import { agentFor } from "../agents/index.js";
 import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
 import { uiBundleState } from "../ui-bundle.js";
-import { isAppAuth, normalizePem, createGithubAuth } from "../github-auth.js";
+import { isAppAuth, normalizePem, createGithubAuth, mintInstallationToken } from "../github-auth.js";
+import { runTokenPermissions, revokeRunToken, originUrl } from "../github-run-token.js";
+import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
 import { claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
@@ -736,10 +738,12 @@ export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn 
 
 /** GitHub App auth preflight for one config block (`tracker` or `forge`), in place of the token
  * check: the private key parses, an installation token is fetchable (one live call), and — for
- * the tracker — `assigneeLogin` (the human the App acts for) is set.
+ * the tracker — `assigneeLogin` (the human the App acts for) is set. With `runTokenRepo`
+ * ("owner/name", agent run tokens on, #474) it also mints a run token for the `implement`
+ * permission set on that repo and revokes it at once (one more call each way).
  * @param {{auth?: import('../types.js').GithubAuthConfig, assigneeLogin?: string}} block
- * @param {'tracker'|'forge'} at @param {{fetch?: typeof fetch}} [io] @returns {Promise<Check[]>} */
-export async function githubAppChecks(block, at, { fetch: f } = {}) {
+ * @param {'tracker'|'forge'} at @param {{fetch?: typeof fetch, runTokenRepo?: string|null}} [io] @returns {Promise<Check[]>} */
+export async function githubAppChecks(block, at, { fetch: f, runTokenRepo } = {}) {
   const auth = /** @type {import('../types.js').GithubAuthConfig} */ (block.auth);
   /** @type {Check[]} */
   const out = [];
@@ -762,10 +766,58 @@ export async function githubAppChecks(block, at, { fetch: f } = {}) {
       tokNote = e?.message ?? String(e);
     }
     out.push({ ok: tokOk, label: `${at} GitHub App installation token fetchable (installation ${auth.installationId})`, note: tokNote, fix: { manual: `check ${at}.auth.appId / installationId and that the App is installed on the repo/org (see docs/github-app.md)` } });
+    if (tokOk && runTokenRepo) {
+      const permissions = runTokenPermissions("implement");
+      const writes = Object.keys(permissions).filter((k) => permissions[k] === "write");
+      let runOk = false;
+      let runNote = "";
+      try {
+        const { token } = await mintInstallationToken(auth, { repositories: [runTokenRepo.split("/")[1]], permissions }, f ? { fetch: f } : {});
+        runOk = true;
+        await revokeRunToken(token, f ? { fetch: f } : {});
+      } catch (e) {
+        runNote = e?.message ?? String(e);
+      }
+      out.push({ ok: runOk, label: `${at} GitHub App can mint agent run tokens (${writes.map((k) => `${k}:write`).join(", ")})`, note: runNote || runTokenRepo, fix: { manual: "grant the App Contents: Read & write and Pull requests: Read & write (docs/github-app.md#agent-run-tokens)" } });
+    }
   }
   if (at === "tracker") {
     const login = typeof block.assigneeLogin === "string" ? block.assigneeLogin.trim() : "";
     out.push({ ok: !!login, label: `tracker.assigneeLogin set (the human the App acts for)`, note: login || "missing", fix: { manual: "set tracker.assigneeLogin to your GitHub login" } });
+  }
+  return out;
+}
+
+/** "owner/name" a GitHub config block names (`repository`, or `owner` + `repo`), else null.
+ * @param {{repository?: string, owner?: string, repo?: string}|undefined} block */
+const blockRepo = (block) => (block?.repository ? String(block.repository) : block?.owner && block?.repo ? `${block.owner}/${block.repo}` : null);
+
+/** Per-run GitHub App tokens (#474), from config alone (plus each repo's `origin`): an ℹ when
+ * GitHub agents use a personal token (no App), a ⚠ when App auth is on but `githubRunToken` is
+ * false, when a step `env` overrides the run token with GH_TOKEN/GITHUB_TOKEN, or when a repo's
+ * `origin` isn't github.com under a GitHub tracker (its run tokens cover issues only).
+ * @param {Pick<import('../types.js').Config, 'provider'|'providerConfig'|'forge'|'pipeline'|'githubRunToken'|'repos'|'repoPath'>} cfg
+ * @param {{originRepo?: (repoPath: string) => string|null}} [io]
+ * @returns {{ level: 'info'|'warn', label: string, note?: string }[]} */
+export function runTokenLints(cfg, { originRepo = (p) => parseGithubRemote(originUrl(p)) } = {}) {
+  const githubTracker = cfg.provider === "github" || cfg.provider === "github-projects";
+  const githubForge = cfg.forge?.type === "github";
+  if (!githubTracker && !githubForge) return [];
+  const forgeApp = githubForge && isAppAuth(cfg.forge);
+  if (!(githubTracker && isAppAuth(cfg.providerConfig)) && !forgeApp) {
+    return [{ level: "info", label: "agents use your personal GitHub token (no GitHub App)", note: "an App gives each run a 1h token scoped to one repo: docs/github-app.md#agent-run-tokens" }];
+  }
+  if (cfg.githubRunToken === false) return [{ level: "warn", label: "agents use your own GitHub credentials, not a scoped run token", note: "githubRunToken is false under GitHub App auth" }];
+  /** @type {{ level: 'info'|'warn', label: string, note?: string }[]} */
+  const out = [];
+  for (const s of cfg.pipeline ?? []) {
+    for (const name of ["GH_TOKEN", "GITHUB_TOKEN"]) if (s.env?.[name]) out.push({ level: "warn", label: `step "${s.id}" env ${name} overrides the per-run App token` });
+  }
+  // A github App forge falls back to its own repository, so only a tracker-only App is issues-only.
+  if (githubTracker && !forgeApp) {
+    for (const repo of reposOf(/** @type {import('../types.js').Config} */ (cfg))) {
+      if (!originRepo(repo.path)) out.push({ level: "warn", label: `run tokens for "${repo.id}" cover issues only; pushes use your own git credentials`, note: "its origin is not a github.com remote" });
+    }
   }
   return out;
 }
@@ -835,7 +887,10 @@ export async function runChecks(cfg, io = {}) {
   const profile = readProfile(cfg.stateKey);
 
   if (cfg.provider === "local") info("local tracker — no token needed");
-  else if (isAppAuth(cfg.providerConfig)) checks.push(...(await githubAppChecks(cfg.providerConfig, "tracker", { fetch: f })));
+  else if (isAppAuth(cfg.providerConfig)) {
+    const runTokenRepo = cfg.githubRunToken !== false ? (blockRepo(cfg.providerConfig) ?? parseGithubRemote(originUrl(primaryRepo(cfg).path))) : null;
+    checks.push(...(await githubAppChecks(cfg.providerConfig, "tracker", { fetch: f, runTokenRepo })));
+  }
   else {
     const v = tokenVar(cfg.configPath);
     add(!!cfg.providerConfig.token, `tracker token resolved (${cfg.provider})`, cfg.providerConfig.token ? "" : "empty — check the ${ENV} ref", { manual: v ? `set ${v} in .env (or the env), then re-run doctor` : "set tracker.token to a ${VAR} ref, set that VAR in .env (or the env), then re-run doctor" });
@@ -906,7 +961,8 @@ export async function runChecks(cfg, io = {}) {
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "", { manual: `fill ${unfilled.join(", ")} in the config with real tracker stages` });
 
   for (const l of forgeLints(cfg)) warn(l.label, l.note);
-  if (cfg.forge?.type === "github" && isAppAuth(cfg.forge)) checks.push(...(await githubAppChecks(cfg.forge, "forge", { fetch: f })));
+  if (cfg.forge?.type === "github" && isAppAuth(cfg.forge)) checks.push(...(await githubAppChecks(cfg.forge, "forge", { fetch: f, runTokenRepo: cfg.githubRunToken !== false ? blockRepo(cfg.forge) : null })));
+  for (const l of runTokenLints(cfg)) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   uiBundleLints(uiBundle(), { installDir: cfg.installDir, spawn }).forEach(finding);
   worktreeLints(cfg, { listWorktrees: list, spawn }).forEach(finding);

@@ -272,6 +272,20 @@
  * @property {boolean} [webhooks]    does this tracker register webhooks? Default true. false (e.g. local) means there's nothing to unregister
  * @property {string[]} [agentEnv]   receiver env vars the commentHowTo / readCommentsHowTo tell the agent to use (e.g. GITHUB_TOKEN); passed to agents through the env allowlist (src/agent-env.js)
  * @property {string[]} [egressHosts] egress rules (host, host:port) for the API the commentHowTo / readCommentsHowTo call; a sandboxed run's allowlist includes them. Omitted when the tracker has no comment channel
+ * @property {string} [ownerHint]  who "the owner" is in the held-comments line (e.g. "@octocat"), for a tracker whose agents may post as another account (a GitHub App run token posts as `<app>[bot]`); omitted = "the account you are running as"
+ */
+
+/** Per-run credentials an adapter hands one agent run (#474; src/github-run-token.js).
+ * @typedef {object} RunCredentials
+ * @property {Record<string,string>} env    layered over the #470 allowlisted env, under the step's env
+ * @property {string[]} strip               allowlisted names to remove for this run (e.g. GH_TOKEN, GITHUB_TOKEN)
+ * @property {string} label                 one line for the run log, e.g. "GitHub App token: o/r (contents:write, pull_requests:write, issues:write), expires 14:05 UTC"; never the token
+ * @property {() => Promise<void>} dispose  stop refreshing, revoke, delete the run dir; idempotent, never throws
+ */
+
+/** What dispatch passes `runCredentials`: the run's ref, step and task, the routed checkout,
+ * the per-run dir the adapter may own (`<dataDir>/run-creds/<safeRef>-<stepId>`), and a run-log writer.
+ * @typedef {{ref: string, step: Step, task: Task, repoPath: string, dir: string, log: (line: string) => void}} RunCredentialsInput
  */
 
 /**
@@ -325,6 +339,7 @@
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(answers: Record<string, any>) => (Partial<Step>|null)} [pipelineBindings]  optional; `agenthook init` turns the wizard's live stage picks (the `_*Stage` answers) into the code step's tracker bindings (real source/success/failure), so no TODO_* editing is needed. Null ⇒ init keeps the placeholder skeleton
  * @property {() => Promise<StageOption[]>} [listStages]  optional; the tracker's available stages (Asana sections, Jira statuses, GitHub labels, Projects Status options) for the UI's stage pickers, read off the adapter's own configured board — no credentials leave the receiver
+ * @property {(o: RunCredentialsInput) => Promise<RunCredentials|null>} [runCredentials]  optional; scoped credentials for one agent run (GitHub App: a per-run token). null = nothing to scope (the #470 env applies); a throw refuses the run (`fail`, no spawn). Dispatch asks the forge first
  * @property {() => Promise<Epic[]>} [listEpics]  optional; every epic in the tracker's configured scope. Absent = the tracker has no epics
  * @property {(epicRef: string) => Promise<EpicTicket[]>} [listEpicTickets]  optional; the epic's tickets (direct children in scope). Absent = the tracker has no epics
  */
@@ -565,6 +580,7 @@
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
+ * @property {(o: RunCredentialsInput) => Promise<RunCredentials|null>} [runCredentials]  optional; same contract as Adapter.runCredentials. Dispatch asks the forge first, then the tracker when this returns null
  */
 
 /** One open agent PR as `listAgentPrs` reports it.
@@ -619,6 +635,7 @@
  * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)
  * @property {string} [agent]      profile-default agent adapter (src/agents/; default "claude"); a step's `agent` overrides it
  * @property {string[]} [agentEnvPassthrough]  extra receiver env var names (or PREFIX*) passed to agents; "*" = all. Default: only the allowlist (src/agent-env.js)
+ * @property {boolean} [githubRunToken]  default true; only acts under GitHub App auth (tracker or forge). false = agents get the #470 env (your own GITHUB_TOKEN / gh auth)
  * @property {string} [agentProvider]  profile-default inference provider for a step's agent (hermes `--provider`); a step's `provider` overrides it
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]

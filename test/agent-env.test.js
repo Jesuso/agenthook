@@ -37,6 +37,12 @@ test("buildAgentEnv: layers override in order and may set a name the allowlist d
   assert.deepEqual(env, { PATH: "/usr/bin", HERMES_HOME: "/a", X: "2", SOME_SECRET: "step" });
 });
 
+test("buildAgentEnv: strip removes allowlisted source names, but a layer may still set them (#474)", () => {
+  const src = { ...source, GITHUB_TOKEN: "pat", GH_TOKEN: "pat2" };
+  const env = buildAgentEnv({ source: src, allow: ["PATH", "GITHUB_TOKEN", "GH_TOKEN"], strip: ["GITHUB_TOKEN", "GH_TOKEN"], layers: [{ GH_CONFIG_DIR: "/run/gh" }, { GH_TOKEN: "step" }], platform: "linux" });
+  assert.deepEqual(env, { PATH: "/usr/bin", GH_CONFIG_DIR: "/run/gh", GH_TOKEN: "step" });
+});
+
 test("envNameMatches: case-insensitive on win32 only", () => {
   assert.equal(envNameMatches("Path", ["PATH"], "win32"), true);
   assert.equal(envNameMatches("Path", ["PATH"], "linux"), false);
