@@ -205,6 +205,31 @@ A custom `image` (e.g. one built `FROM` the default with your toolchain added) m
 present locally. The egress proxy always runs the built-in image, so a profile with a custom
 `image` still needs `agenthook-agent:<version>`.
 
+The image's `claude` is whatever `npm i -g @anthropic-ai/claude-code@latest` resolved when it was
+built, so two builds on different days can differ. `agenthook doctor --fix` passes no build
+argument; to pin, build the recipe yourself with `--build-arg CLAUDE_VERSION=<version>`. The pinned
+permission mode needs Claude Code 2.1.303 or newer.
+
+## What won't run inside the sandbox
+
+The sandbox confines a run to its worktree, its verdict dir and the egress allowlist. That is the
+point, and it also means anything that needs more fails inside it. Check your project's test and
+build commands against this list before turning it on:
+
+| Needs | Why it fails | What to do |
+|-------|--------------|------------|
+| a database or cache on your machine (`localhost:5432`, Redis, MinIO, LocalStack, a `docker compose` stack) | the container's network is `--internal`; it has no route to your host's loopback or private networks, and the proxy refuses loopback and RFC1918 targets even when a rule names them | an in-memory or embedded fake (`sqlite`, `ioredis-mock`), a custom image that bundles and starts the service, or run that step with `"sandbox": false` |
+| the Docker socket (Testcontainers, `docker build`, `docker compose` from the agent) | not mounted, on purpose: it would give the run root-equivalent control of the host | the same options; there is no flag to mount it |
+| a browser (Cypress, Playwright) | the default image has none | a custom image that installs one, plus a service the browser can reach |
+| a toolchain other than node 22, git, gh, curl and claude (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
+| packages from a registry | blocked unless allowed | `"egress": {"allow": ["@npm"]}` (see [Network](#network)) |
+| cloud or database credentials in your shell or home (`~/.aws`, `~/.pgpass`, `AWS_PROFILE`, an SSM tunnel on localhost) | none of them reach the container | by design: they are what a hijacked run would use |
+
+There is no sidecar-service feature today: a run cannot be given its own Postgres or Redis. The
+escape hatch is per step: `"sandbox": false` runs that step on the host, as before, and the boot
+banner and `agenthook doctor` name it. Use it only on a profile where nobody untrusted can file
+or comment on tickets, and keep the steps that don't need services (triage, review) sandboxed.
+
 ## Permissions inside and outside the sandbox
 
 Agents run headless: stdin is closed, so nobody can answer a permission prompt. **Headless agents
