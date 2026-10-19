@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, mergeGitConfigEnv, hostOf, hostGitFacts } from "../src/dispatch/sandbox.js";
+import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, mergeGitConfigEnv, hostOf, hostGitFacts, inferredForgeEgressHosts } from "../src/dispatch/sandbox.js";
 import { runGitEnv } from "../src/github-run-token.js";
 import { HOST_GIT_TIMEOUT_MS, listWorktrees } from "../src/worktree.js";
 
@@ -212,7 +212,17 @@ import { spawn } from "node:child_process";
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.DOCKER_FAKE_LOG, JSON.stringify(args) + "\\n");
 if (args[0] !== "run") process.exit(0);
-const valued = new Set(["--pull", "--name", "--label", "--cap-drop", "--security-opt", "--pids-limit", "--memory", "--cpus", "--user", "--mount"]);
+if (args[1] === "-d") {
+  // The egress proxy: come up at once (ready), with any denials the test asked for.
+  const m = args.find((a) => a.endsWith(",dst=/egress"));
+  const dir = m && m.slice("type=bind,src=".length, -",dst=/egress".length);
+  if (dir) {
+    fs.writeFileSync(dir + "/ready", "3128");
+    if (process.env.DOCKER_FAKE_DENY) fs.writeFileSync(dir + "/denied.jsonl", process.env.DOCKER_FAKE_DENY);
+  }
+  process.exit(0);
+}
+const valued = new Set(["--pull", "--name", "--label", "--cap-drop", "--security-opt", "--pids-limit", "--memory", "--cpus", "--user", "--mount", "--network"]);
 const names = [];
 let workdir;
 let i = 1;
@@ -235,8 +245,11 @@ process.on("SIGTERM", () => child.kill("SIGTERM"));
 child.on("exit", (code) => process.exit(code ?? 1));
 `;
 
-/** @param {any[]} steps @param {{inner?: string, runCredentials?: (o: any) => Promise<any>, agentEnvPassthrough?: string[]}} [o] */
-function sandboxHarness(steps, { inner, runCredentials, agentEnvPassthrough } = {}) {
+/** The agent's `run` (not the egress proxy's `run -d`). @param {string[]} c */
+const isAgentRun = (c) => c[0] === "run" && c[1] !== "-d";
+
+/** @param {any[]} steps @param {{inner?: string, forge?: any, sandbox?: any, runCredentials?: (o: any) => Promise<any>, agentEnvPassthrough?: string[]}} [o] */
+function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker", image: "img:1" }, runCredentials, agentEnvPassthrough } = {}) {
   const { root, repo } = fixture();
   const state = path.join(root, "state");
   fs.mkdirSync(state);
@@ -254,18 +267,18 @@ function sandboxHarness(steps, { inner, runCredentials, agentEnvPassthrough } = 
   const cfg = /** @type {any} */ ({
     pipeline: steps, claudeBin: claude, repoPath: repo, worktreePrefix: path.join(root, "wts"),
     stateKey: "p", stateDir: state, dataDir: state, logDir: state, instructionsFile: path.join(root, "none.md"),
-    sandbox: { type: "docker", image: "img:1" },
+    sandbox,
     ...(agentEnvPassthrough ? { agentEnvPassthrough } : {}),
   });
   /** @type {any[]} */
   const advanced = [];
   const adapter = /** @type {any} */ ({
-    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment", egressHosts: ["api.tracker.test"] }),
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ v) => void advanced.push({ ref, step, ...v }),
     ...(runCredentials ? { runCredentials } : {}),
   });
-  const saved = { DOCKER: process.env.DOCKER, DOCKER_FAKE_LOG: process.env.DOCKER_FAKE_LOG, HOME: process.env.HOME, SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK };
+  const saved = { DOCKER: process.env.DOCKER, DOCKER_FAKE_LOG: process.env.DOCKER_FAKE_LOG, DOCKER_FAKE_DENY: process.env.DOCKER_FAKE_DENY, HOME: process.env.HOME, SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK };
   process.env.DOCKER = docker;
   process.env.DOCKER_FAKE_LOG = log;
   process.env.HOME = path.join(root, "home"); // claude's transcript dir is created under it
@@ -277,7 +290,10 @@ function sandboxHarness(steps, { inner, runCredentials, agentEnvPassthrough } = 
     }
   };
   const store = createStore(state);
-  const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 200, sandbox: createSandbox(cfg) });
+  /** @type {{event: string, ref: string, stepId: string, data: any}[]} */
+  const events = [];
+  const emit = (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ data) => void events.push({ event, ref, stepId, data });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit, forge, undefined, { killGraceMs: 200, sandbox: createSandbox(cfg) });
   /** @param {string} stepId */
   const go = async (stepId) => {
     const l = console.log;
@@ -290,7 +306,7 @@ function sandboxHarness(steps, { inner, runCredentials, agentEnvPassthrough } = 
   };
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []);
   const innerOut = () => (fs.existsSync(out) ? Object.fromEntries(fs.readFileSync(out, "utf8").trim().split("\n").map((l) => /** @type {[string, string]} */ (l.split(/=(.*)/s).slice(0, 2)))) : null);
-  return { root, repo, state, cfg, run, go, store, advanced, calls, innerOut, restore };
+  return { root, repo, state, cfg, run, go, store, advanced, calls, innerOut, restore, events };
 }
 
 test("sandbox e2e: a claude step runs through the runtime, routes on its per-run verdict, mounts its worktree", async () => {
@@ -298,7 +314,7 @@ test("sandbox e2e: a claude step runs through the runtime, routes on its per-run
   try {
     await h.go("code");
     assert.deepEqual(h.advanced.map((a) => [a.step, a.outcome, a.reason]), [["code", "advance", "ok"]]);
-    const run = h.calls().find((c) => c[0] === "run");
+    const run = h.calls().find(isAgentRun);
     assert.ok(run, "the runtime client was spawned");
     const wt = path.join(h.root, "wts", "42");
     const mounts = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1]] : []));
@@ -337,7 +353,7 @@ test("sandbox e2e: a run-token adapter (#474) mounts GH_CONFIG_DIR read-only, pa
   try {
     await h.go("code");
     assert.equal(h.advanced[0]?.outcome, "advance");
-    const run = h.calls().find((c) => c[0] === "run");
+    const run = h.calls().find(isAgentRun);
     assert.ok(run, "the runtime client was spawned");
     const mounts = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1]] : []));
     assert.ok(mounts.includes(`type=bind,src=${path.join(credsDir, "gh")},dst=${path.join(credsDir, "gh")},readonly`), mounts.join("\n"));
@@ -363,7 +379,7 @@ test("sandbox e2e: a no-worktree claude step (triage) mounts nothing under the h
   try {
     await h.go("triage");
     assert.equal(h.advanced[0]?.outcome, "advance");
-    const run = h.calls().find((c) => c[0] === "run");
+    const run = h.calls().find(isAgentRun);
     assert.ok(run, "the runtime client was spawned");
     const srcs = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1].split(",")[1].slice("src=".length)] : []));
     const hostClaude = path.join(h.root, "home", ".claude");
@@ -421,11 +437,11 @@ test("sandbox e2e: a cancel mid-run force-stops the container (`kill <id>`) and 
   try {
     const done = h.go("code");
     // Wait for the fake client to be up (it logs first), not just spawned.
-    for (let i = 0; i < 200 && !h.calls().some((c) => c[0] === "run"); i++) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 200 && !h.calls().some(isAgentRun); i++) await new Promise((r) => setTimeout(r, 25));
     assert.ok(h.store.listRunning()["42"]?.pid, "running");
     assert.equal(h.run.cancel("42"), true);
     await done;
-    const run = h.calls().find((c) => c[0] === "run");
+    const run = h.calls().find(isAgentRun);
     const name = run[run.indexOf("--name") + 1];
     assert.ok(h.calls().some((c) => c[0] === "kill" && c[1] === name), JSON.stringify(h.calls().map((c) => c.slice(0, 2))));
     assert.equal(h.advanced[0].outcome, "fail");
@@ -441,7 +457,7 @@ test("sandbox e2e: a cancel landing before the spawn (wrap pending) never starts
     const done = h.go("code");
     assert.equal(h.run.cancel("42"), true, "flagged in the pre-spawn window");
     await done;
-    assert.equal(h.calls().some((c) => c[0] === "run"), false);
+    assert.equal(h.calls().some(isAgentRun), false);
     assert.equal(h.advanced[0].outcome, "fail");
     assert.equal(h.advanced[0].reason, "cancelled by operator");
   } finally {
@@ -506,4 +522,114 @@ test("worktree host git calls are time-capped (a FIFO HEAD can't wedge listWorkt
   assert.ok(HOST_GIT_TIMEOUT_MS > 0 && HOST_GIT_TIMEOUT_MS <= 120_000);
   const { repo } = fixture();
   assert.ok(listWorktrees(repo).length >= 2, "sanity: the capped helper still works");
+});
+
+// --- egress (#473), through the real container sandbox and dispatcher ---
+
+test("sandbox e2e: the default allowlist puts the run on its internal network behind the proxy, with the tracker, forge and origin hosts", async () => {
+  const forge = { describe: () => ({ name: "github", egressHosts: ["github.com", "api.github.com"] }) };
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { forge });
+  g(h.repo, ["remote", "add", "origin", "https://git.origin.test:4443/o/r.git"]);
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance");
+    const calls = h.calls();
+    const net = calls.find((c) => c[0] === "network" && c[1] === "create");
+    assert.ok(net?.includes("--internal"), JSON.stringify(calls.map((c) => c.slice(0, 2))));
+    const agentRun = calls.find((c) => c[0] === "run" && c[1] !== "-d");
+    assert.equal(agentRun[agentRun.indexOf("--network") + 1], net.at(-1));
+    // allow.json is gone with the run's egress dir; the proxy's argv names the dir, the rules went in first.
+    const proxy = calls.find((c) => c[0] === "run" && c[1] === "-d");
+    assert.ok(proxy, "the proxy was started");
+    assert.ok(calls.some((c) => c[0] === "rm" && c[1] === "-f" && c[2] === `${agentRun[agentRun.indexOf("--name") + 1]}-proxy`), "done() removed the proxy");
+    assert.ok(calls.some((c) => c[0] === "network" && c[1] === "rm"), "done() removed the network");
+    assert.deepEqual(fs.readdirSync(path.join(h.state, "egress")), [], "per-run egress dir removed");
+    const end = h.events.find((e) => e.event === "run_end");
+    assert.equal(end?.data.outcome, "advance");
+    assert.equal(end?.data.egressDenied, undefined, "no denials, no field");
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: wrap() receives egress.rules with the model API, tracker, forge and origin hosts", async () => {
+  const forge = { describe: () => ({ name: "github", egressHosts: ["github.com", "api.github.com"] }) };
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" }, egress: { allow: ["@npm"] } }, { id: "done", manual: true }], { forge, sandbox: { type: "docker", image: "img:1", egress: { deny: ["api.github.com"] } } });
+  g(h.repo, ["remote", "add", "origin", "https://git.origin.test:4443/o/r.git"]);
+  /** @type {any[]} */
+  const wraps = [];
+  const sb = /** @type {any} */ (createSandbox(h.cfg));
+  const wrap = sb.wrap.bind(sb);
+  sb.wrap = (/** @type {any} */ o) => (wraps.push(o), wrap(o));
+  const run = createDispatcher(h.cfg, /** @type {any} */ ({ describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "c", egressHosts: ["api.tracker.test"] }), fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", assignedToUs: true }), advance: async () => {} }), undefined, h.store, () => {}, /** @type {any} */ (forge), undefined, { killGraceMs: 200, sandbox: sb });
+  const l = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = l;
+    h.restore();
+  }
+  assert.equal(wraps.length, 1);
+  assert.deepEqual(wraps[0].egress, { mode: "allowlist", rules: ["api.anthropic.com", "api.tracker.test", "github.com", "git.origin.test:4443", "registry.npmjs.org"] }, "profile deny drops api.github.com; the step's allow adds @npm");
+});
+
+test("inferredForgeEgressHosts: a profile with no forge block gets the forge hosts its origin implies", () => {
+  assert.deepEqual(inferredForgeEgressHosts("git@github.com:o/r.git"), ["github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"]);
+  assert.deepEqual(inferredForgeEgressHosts("https://github.com/o/r"), inferredForgeEgressHosts("git@github.com:o/r.git"));
+  assert.deepEqual(inferredForgeEgressHosts("git@gitlab.acme.io:g/p.git"), ["gitlab.acme.io"]);
+  assert.deepEqual(inferredForgeEgressHosts("https://git.acme.io/o/r.git"), [], "an unknown forge contributes nothing (the origin rule still covers the push)");
+  assert.deepEqual(inferredForgeEgressHosts(undefined), []);
+});
+
+test("sandbox e2e: no forge block + a github origin → wrap() still allows api.github.com, so gh pr … works", async () => {
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  g(h.repo, ["remote", "add", "origin", "git@github.com:o/r.git"]);
+  /** @type {any[]} */
+  const wraps = [];
+  const sb = /** @type {any} */ (createSandbox(h.cfg));
+  const wrap = sb.wrap.bind(sb);
+  sb.wrap = (/** @type {any} */ o) => (wraps.push(o), wrap(o));
+  const asana = /** @type {any} */ ({ describe: () => ({ platform: "Asana", taskNoun: "task", trigger: "@agent", commentHowTo: "c", egressHosts: ["app.asana.com"] }), fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", assignedToUs: true }), advance: async () => {} });
+  const run = createDispatcher(h.cfg, asana, undefined, h.store, () => {}, null, undefined, { killGraceMs: 200, sandbox: sb });
+  const l = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = l;
+    h.restore();
+  }
+  assert.equal(wraps.length, 1);
+  assert.deepEqual(wraps[0].egress.rules, ["api.anthropic.com", "app.asana.com", "github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"]);
+});
+
+test("sandbox e2e: a denial reported by done() lands in the run log and on run_end; the outcome is unchanged", async () => {
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  process.env.DOCKER_FAKE_DENY = [{ host: "example.com", port: 443 }, { host: "example.com", port: 443 }, { host: "169.254.169.254", port: 80 }].map((d) => JSON.stringify(d)).join("\n") + "\n";
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance", "denials never change the outcome");
+    const end = h.events.find((e) => e.event === "run_end");
+    assert.equal(end?.data.outcome, "advance");
+    assert.deepEqual(end?.data.egressDenied, ["example.com:443", "169.254.169.254:80"]);
+    const log = fs.readdirSync(h.state).filter((f) => f.endsWith(".log")).map((f) => fs.readFileSync(path.join(h.state, f), "utf8")).join("\n");
+    assert.match(log, /\[agenthook\] egress denied: example\.com:443 \(2×\) — add it to sandbox\.egress\.allow/);
+    assert.match(log, /\[agenthook\] egress denied: 169\.254\.169\.254:80 \(1×\)/);
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: egress mode none runs with --network none and starts no proxy", async () => {
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" }, egress: { mode: "none" } }, { id: "done", manual: true }]);
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance");
+    const calls = h.calls();
+    assert.deepEqual(calls.map((c) => c[0]), ["run"], "no network, no proxy");
+    assert.equal(calls[0][calls[0].indexOf("--network") + 1], "none");
+  } finally {
+    h.restore();
+  }
 });

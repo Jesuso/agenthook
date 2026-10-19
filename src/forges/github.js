@@ -103,6 +103,8 @@ export const isForgePath = (pathname) => pathname === FORGE_PATH || pathname ===
 
 /** Receiver env vars an agent gets with this forge (#470): `gh` (the agent's PR client) reads GH_TOKEN, then GITHUB_TOKEN. */
 export const GITHUB_FORGE_AGENT_ENV = /** @type {string[]} */ (["GH_TOKEN", "GITHUB_TOKEN"]);
+/** What a sandboxed run needs to push and run `gh`: git over HTTPS, the API, release/asset uploads and raw content. */
+export const githubForgeEgressHosts = () => ["github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"];
 
 /** @type {import('../types.js').ForgeFactory} */
 export function createGithubForge(cfg, store) {
@@ -273,7 +275,7 @@ export function createGithubForge(cfg, store) {
   const runCredentials = githubRunCredentials(fc, cfg, { codeRepo: (p) => parseGithubRemote(originUrl(p)) ?? forgeRepo, issueRepo: trackerRepo });
 
   return {
-    describe: () => ({ name: "github", agentEnv: GITHUB_FORGE_AGENT_ENV }),
+    describe: () => ({ name: "github", agentEnv: GITHUB_FORGE_AGENT_ENV, egressHosts: githubForgeEgressHosts() }),
     runCredentials,
 
     // No handshake and no opt-out: a missing/bad signature is always a reject.

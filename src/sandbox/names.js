@@ -5,6 +5,10 @@
 /** Every registered sandbox backend. */
 export const SANDBOX_NAMES = /** @type {const} */ (["docker", "podman"]);
 
+/** Every `egress.mode` (src/sandbox/egress.js): allowlist (the default) = only the model API,
+ * forge, tracker and allowed hosts; none = no network; open = unrestricted. */
+export const EGRESS_MODES = /** @type {const} */ (["allowlist", "open", "none"]);
+
 /** Whether a step's runs go through the profile's sandbox: a `sandbox` block is set and the
  * step didn't opt out with `sandbox: false`. Pure.
  * @param {{sandbox?: unknown}} cfg @param {{sandbox?: boolean}|undefined} step */

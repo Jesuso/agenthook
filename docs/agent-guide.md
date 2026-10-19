@@ -155,6 +155,12 @@ fixes the App or config, then `run {ref, force:true}`.
 On a profile with a `sandbox`, two reasons need a config fix, not a retry: `<agent> does not support
 the sandbox yet` (set `"sandbox": false` on that step) and `sandboxed claude has no credentials`
 (put `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` in the profile's `.env`).
+A sandboxed run can only reach the hosts its egress allowlist names: a `run_end` with
+`egressDenied: ["host:port", …]` (and `[agenthook] egress denied: …` lines in the run log) lists
+what the proxy refused, and an agent that needed one of them usually holds or fails quoting the
+proxy's 403 text (`<host>:<port> is not in this sandbox's allowlist`). That is a config change for
+the user (add the host or a preset like `@npm` to `sandbox.egress.allow` or the step's
+`egress.allow`), not a retry — surface it rather than re-running.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 

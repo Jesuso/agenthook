@@ -29,6 +29,7 @@
 import crypto from "node:crypto";
 import { startsWithTrigger, resumeJob } from "../pipeline.js";
 import { checkOwner, MoveRefusedError } from "./owner.js";
+import { urlRule } from "../sandbox/egress.js";
 
 // Epics (ADR 0005): Jira has them natively. An issue IS an epic when its issue type sits at
 // hierarchy level 1 (Jira's own "Epic" level; `tracker.epicType` pins a type by name instead);
@@ -159,6 +160,12 @@ export function extractRouteKeys(fields, routeField) {
 
 /** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
 export const JIRA_AGENT_ENV = /** @type {string[]} */ (["JIRA_API_TOKEN"]);
+/** The API host (baseUrl's host[:port]) commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it.
+ * @param {{baseUrl?: string, site?: string}} pc */
+export const jiraEgressHosts = (pc) => {
+  const rule = urlRule(pc.baseUrl || `https://${pc.site}.atlassian.net`);
+  return rule ? [rule] : [];
+};
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createJiraAdapter(cfg, store) {
@@ -406,6 +413,7 @@ export function createJiraAdapter(cfg, store) {
       commentHowTo: `post a comment with curl: curl -s -u "${pc.email}:$JIRA_API_TOKEN" -X POST ${baseUrl}/rest/api/2/issue/<key>/comment -H "Content-Type: application/json" -d '{"body":"<text>"}' (your token is in the env as $JIRA_API_TOKEN)`,
       readCommentsHowTo: `curl -s -u "${pc.email}:$JIRA_API_TOKEN" ${baseUrl}/rest/api/2/issue/<key>/comment`,
       agentEnv: JIRA_AGENT_ENV,
+      egressHosts: jiraEgressHosts(pc),
       stageKeys: { source: "sourceStatus", success: "successStatus", failure: "failureStatus", hold: "holdStatus", queue: "queueStatus" },
     }),
 

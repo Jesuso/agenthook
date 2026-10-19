@@ -39,6 +39,15 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `insteadOf` + credential-helper env for HTTPS push. Host git calls on a sandboxed profile go
   through `worktree.js` `gitArgv` (`HOST_GIT_SAFE`: no hooks, no fsmonitor). An agent without a
   `sandbox()` hook is refused on a sandboxed step (`agentPreflight`).
+  Egress (#473): `wrap`'s optional `egress: {mode, rules}` — `allowlist` creates a per-run
+  `--internal` network plus a proxy container (`egress-proxy.mjs`, standalone `.mjs`, `node:`
+  imports only, run in the built-in image) and hands the agent `HTTPS_PROXY`; `none` =
+  `--network none`; absent/`open` = unchanged. `done()` tears both down and reports
+  `denied.jsonl` as `notes` + `extra.egressDenied`; `reap()` also removes labelled networks.
+  `egress.js` `egressRules` builds the rule list from what dispatch hands it — the agent's
+  `egressHosts(env)`, the tracker meta's and forge `describe()`'s `egressHosts`, the origin —
+  so `src/sandbox/` names no tracker, forge or agent (`TRACKER_EGRESS_HOSTS` /
+  `FORGE_EGRESS_HOSTS` give doctor the same lists without building an adapter).
 - `src/forges/*.js` + `index.js` — optional forge adapters (`github`, `gitlab`). Registry `FORGES` keyed by
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
   `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The

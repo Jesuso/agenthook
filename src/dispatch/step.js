@@ -11,8 +11,9 @@ import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
 import { isSandboxed } from "../sandbox/names.js";
+import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
-import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
+import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
@@ -231,8 +232,9 @@ export function createStep(ctx) {
     const promptFile = agent.describe().promptFile ? promptFilePathFor(step.id, job.ref) : undefined;
     const provider = step.provider ?? cfg.agentProvider;
     const agentEnv = agent.env?.({ cfg, step });
+    const spawnEnv = agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: step.env });
     // A failed preflight resolves the run as `fail` with no agent spawned.
-    let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: step.env }) });
+    let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: spawnEnv });
     // Per-run credentials (#474): the forge's, else the tracker's. One that should have scoped
     // and couldn't refuses the run exactly like a preflight — never the operator's token instead.
     /** @type {import('../types.js').RunCredentials|null} */
@@ -257,7 +259,12 @@ export function createStep(ctx) {
         // (runGitEnv, under GH_CONFIG_DIR), skip gitSandboxEnv's own copy of those pairs —
         // mergeGitConfigEnv re-indexes what's left (safe.directory, author identity) after it.
         const gitEnv = mergeGitConfigEnv(creds?.env, gitSandboxEnv({ originUrl: facts.originUrl, forgeType: cfg.forge?.type, forgeBaseUrl: cfg.forge?.baseUrl, author: facts.author, skipHostAuth: !!creds }));
-        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv } };
+        // The network policy: the hosts come from the adapters dispatch holds, never from src/sandbox/.
+        const policy = egressPolicy(cfg, step);
+        const rules = policy.mode === "allowlist"
+          ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
+          : [];
+        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules } };
       } catch (e) {
         refused = `sandbox setup failed: ${e.message}`;
         try {

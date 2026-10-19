@@ -60,6 +60,7 @@
  * @property {boolean} [sandbox]              false = run this step on the host even when the profile has a `sandbox` (the operator's explicit escape hatch)
  * @property {StepPolicy} [allow]           the only commands this step's agent may run and the only cwd-relative paths it may write (reads inside cwd stay allowed); enforced through the agent CLI (claude only — other agents' runs are refused)
  * @property {StepPolicy} [deny]            commands this step's agent may never run and cwd-relative paths it may never read or write; enforced even under fullAuto (claude only)
+ * @property {EgressConfig} [egress]          this step's network policy: `mode` overrides the profile's `sandbox.egress.mode`; `allow`/`deny` are added to the profile's. Needs a profile `sandbox`
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
  * @property {number} [maxMinutes]             wall-clock cap on one run of this step; past it the agent is killed and the run fails with `timeout` (default 120, 0 = no cap)
@@ -270,6 +271,7 @@
  * @property {StageKeys} [stageKeys]  the Step binding-key family this tracker uses (source/success/failure/hold/queue)
  * @property {boolean} [webhooks]    does this tracker register webhooks? Default true. false (e.g. local) means there's nothing to unregister
  * @property {string[]} [agentEnv]   receiver env vars the commentHowTo / readCommentsHowTo tell the agent to use (e.g. GITHUB_TOKEN); passed to agents through the env allowlist (src/agent-env.js)
+ * @property {string[]} [egressHosts] egress rules (host, host:port) for the API the commentHowTo / readCommentsHowTo call; a sandboxed run's allowlist includes them. Omitted when the tracker has no comment channel
  * @property {string} [ownerHint]  who "the owner" is in the held-comments line (e.g. "@octocat"), for a tracker whose agents may post as another account (a GitHub App run token posts as `<app>[bot]`); omitted = "the account you are running as"
  */
 
@@ -430,6 +432,21 @@
  * @property {string} [image]   agent image (default `agenthook-agent:<package version>`)
  * @property {string} [memory]  container memory cap, e.g. "4g" (unset = runtime default)
  * @property {number} [cpus]    container CPU cap, e.g. 2 (unset = runtime default)
+ * @property {EgressConfig} [egress]  the runs' network policy (default mode allowlist)
+ */
+
+/**
+ * A sandboxed run's network policy (`sandbox.egress`, a step's `egress`; src/sandbox/egress.js).
+ * @typedef {object} EgressConfig
+ * @property {'allowlist'|'open'|'none'} [mode]  allowlist (default) = only the model API, forge, tracker, origin and `allow`; none = no network; open = unrestricted
+ * @property {string[]} [allow]  extra rules (`host`, `*.domain`, `host:port`, `…!private`) or registry presets (`@npm`, `@pypi`, …)
+ * @property {string[]} [deny]   rules or presets removed from the defaults (e.g. the tracker API)
+ */
+
+/** The egress a run's sandbox enforces: `rules` only matter for `allowlist`.
+ * @typedef {object} SandboxEgress
+ * @property {'allowlist'|'open'|'none'} mode
+ * @property {string[]} rules
  */
 
 /** One bind mount into a sandboxed run.
@@ -460,7 +477,7 @@
  * @typedef {object} Sandbox
  * @property {() => {name: string, home: string}} describe  `home` = the container's HOME
  * @property {() => Promise<{ok: true} | {ok: false, reason: string}>} check  runtime reachable + image present
- * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step}) => Promise<SandboxRun>} wrap
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress}) => Promise<SandboxRun>} wrap  `egress` absent = open (the runtime's default network)
  * @property {() => Promise<string[]>} reap  force-remove every container labelled with this profile; returns their names
  */
 
@@ -510,6 +527,7 @@
  * @property {(sessionId: string) => string[]} [resumeCommand]  resume argv (after the binary) for an agent with `sessions: null` whose session ids come from usage.jsonl (opencode)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string, sandboxed?: boolean, env?: Record<string, string>}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for; claude: refuse a sandboxed run with no credential var in `env`, the spawn env)
+ * @property {(env: Record<string, string>) => string[]} [egressHosts]  egress rules for the model API a run with this spawn env talks to (claude: api.anthropic.com, ANTHROPIC_BASE_URL's host, Bedrock/Vertex); a sandboxed run's allowlist includes them
  * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string}) => {mounts: SandboxMount[], env?: Record<string, string>}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. An agent without it is refused when sandboxed
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
@@ -549,7 +567,7 @@
  * run on one into a `ci` job. The CI methods are optional (a forge without them
  * never emits `ci` jobs); each throws on a non-2xx unless noted.
  * @typedef {object} Forge
- * @property {() => {name: string, agentEnv?: string[]}} describe  `agentEnv` = receiver env vars agents get with this forge (github: GH_TOKEN/GITHUB_TOKEN for `gh`)
+ * @property {() => {name: string, agentEnv?: string[], egressHosts?: string[]}} describe  `agentEnv` = receiver env vars agents get with this forge (github: GH_TOKEN/GITHUB_TOKEN for `gh`); `egressHosts` = egress rules a sandboxed run needs to push and use the forge's CLI/API
  * @property {(ctx: EventCtx) => AuthResult} authenticate  sync, no network (same ACK window as the tracker)
  * @property {(ctx: EventCtx) => Promise<Job[]>} processEvents
  * @property {(publicUrl: string) => Promise<void>} registerWebhook  best-effort; a missing hook scope prints manual setup

@@ -162,6 +162,8 @@ export function extractRouteKeys(labels, prefix, pipelineLabels = []) {
 
 /** Receiver env vars an agent of this tracker gets (#470): the env var its commentHowTo / readCommentsHowTo tell the agent to use. */
 export const GITHUB_AGENT_ENV = /** @type {string[]} */ (["GITHUB_TOKEN"]);
+/** The API host commentHowTo / readCommentsHowTo call: a sandboxed run's egress allows it. */
+export const githubEgressHosts = () => ["api.github.com"];
 
 /** @type {import('../types.js').AdapterFactory} */
 export function createGithubAdapter(cfg, store) {
@@ -481,6 +483,7 @@ export function createGithubAdapter(cfg, store) {
       commentHowTo: `post a comment with: gh issue comment <number> --repo ${owner}/${repo} --body "<text>" (gh is already authenticated)`,
       readCommentsHowTo: `gh issue view <number> --repo ${owner}/${repo} --comments`,
       agentEnv: GITHUB_AGENT_ENV,
+      egressHosts: githubEgressHosts(),
       ...(pc.assigneeLogin ? { ownerHint: `@${pc.assigneeLogin}` } : {}),
       stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failureLabel", hold: "holdLabel", queue: "queueLabel" },
     }),

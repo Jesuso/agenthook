@@ -436,3 +436,23 @@ test("sandbox: a valid block passes; type required and known; image/memory/cpus 
   assert.deepEqual(errs(raw({}, [{ id: "code", sandbox: "no" }])), [`config: pipeline step "code" sandbox must be true or false.`]);
   assert.equal(loadError(raw({ sandbox: { type: "lxc" } })), `config: "sandbox.type" "lxc" is not a known sandbox (docker, podman).`);
 });
+
+test("sandbox.egress / step egress: valid rules and presets pass; bad rule, unknown preset, bad mode and misplaced step egress are errors", () => {
+  /** @param {any} c */
+  const errs = (c) => {
+    const v = validateRawConfig(c);
+    return v.ok ? [] : v.errors;
+  };
+  const sb = { type: "podman", egress: { mode: "allowlist", allow: ["@npm", "registry.internal:8443", "*.corp.example", "10.0.0.5:3128!private"], deny: ["api.github.com"] } };
+  assert.deepEqual(errs(raw({ sandbox: sb }, [{ id: "code", egress: { mode: "none", allow: ["@pypi"] } }, { id: "done", manual: true }])), []);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker", egress: { mode: "wide" } } })), [`config: "sandbox.egress" mode "wide" must be one of allowlist, open, none.`]);
+  const bad = errs(raw({ sandbox: { type: "docker", egress: { allow: ["http://x.com/path"] } } }));
+  assert.equal(bad.length, 1);
+  assert.match(bad[0], /^config: "sandbox\.egress" allow entry "http:\/\/x\.com\/path": invalid egress rule/);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker", egress: { deny: ["@cpan"] } } })), [`config: "sandbox.egress" deny entry "@cpan": unknown preset "@cpan" (known: @npm @yarn @pypi @crates @go @rubygems @maven).`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker", egress: { allow: "@npm" } } })), [`config: "sandbox.egress" allow must be a list of host rules or @presets.`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", egress: { allow: ["@npm"] } }])), [`config: pipeline step "code" egress needs a profile "sandbox" (egress is enforced by the sandbox's network).`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker" } }, [{ id: "code" }, { id: "done", manual: true, egress: { mode: "none" } }])), [`config: pipeline step "done" egress has no effect on a manual step (no agent runs).`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker" } }, [{ id: "code", sandbox: false, egress: { mode: "none" } }])), [`config: pipeline step "code" egress has no effect: the step runs on the host ("sandbox": false).`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "docker" } }, [{ id: "code", egress: { allow: ["bad host"] } }])).length, 1);
+});

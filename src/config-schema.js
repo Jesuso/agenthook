@@ -6,7 +6,7 @@
 // imports, src/agents/names.js and src/sandbox/names.js, are themselves import-free (the
 // registries are Node-side).
 import { AGENT_NAMES, DEFAULT_AGENT } from "./agents/names.js";
-import { SANDBOX_NAMES } from "./sandbox/names.js";
+import { SANDBOX_NAMES, EGRESS_MODES } from "./sandbox/names.js";
 
 /** Step prompt shapes (`Step.kind`). */
 export const STEP_KINDS = /** @type {const} */ (["implement", "change", "review", "triage"]);
@@ -73,6 +73,10 @@ export const CONFIG_SCHEMA = [
   entry("sandbox.image", "string", "Sandbox image", "basics", "Agent image; must provide sh, git, gh and the agent CLI. Default agenthook-agent:<version>.", { sensitive: true, advanced: true, editor: "pending" }),
   entry("sandbox.memory", "string", "Sandbox memory", "basics", "Per-run container memory cap, e.g. 4g.", { advanced: true, editor: "pending" }),
   entry("sandbox.cpus", "number", "Sandbox CPUs", "basics", "Per-run container CPU cap.", { min: 0.1, advanced: true, editor: "pending" }),
+  entry("sandbox.egress", "object", "Sandbox egress", "basics", "Network policy for sandboxed runs.", { advanced: true, editor: "pending" }),
+  entry("sandbox.egress.mode", "enum", "Egress mode", "basics", "allowlist: only the model API, forge, tracker and allowed hosts; none: no network; open: unrestricted.", { options: EGRESS_MODES, default: "allowlist", sensitive: true, advanced: true, editor: "pending" }),
+  entry("sandbox.egress.allow", "string-list", "Egress allow", "basics", "Extra hosts (host, *.domain, host:port) or presets (@npm @pypi @crates @go @rubygems @maven @yarn).", { advanced: true, editor: "pending" }),
+  entry("sandbox.egress.deny", "string-list", "Egress deny", "basics", "Hosts to remove from the defaults (e.g. the tracker API).", { advanced: true, editor: "pending" }),
 
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),
@@ -136,6 +140,10 @@ export const CONFIG_SCHEMA = [
   step("deny.commands", "string-list", "Denied commands", "Command prefixes the agent may never run (e.g. curl).", { advanced: true }),
   step("deny.paths", "string-list", "Denied paths", "cwd-relative globs the agent may never read or edit (e.g. .github/workflows/**).", { advanced: true }),
   step("sandbox", "boolean", "Sandboxed", "false runs this step on the host even when the profile has a sandbox.", { sensitive: true, advanced: true }),
+  step("egress", "object", "Egress", "This step's network policy for sandboxed runs; mode overrides the profile's, allow/deny add to it.", { advanced: true, editor: "pending" }),
+  step("egress.mode", "enum", "Egress mode", "allowlist: only the model API, forge, tracker and allowed hosts; none: no network; open: unrestricted.", { options: EGRESS_MODES, sensitive: true, advanced: true, editor: "pending" }),
+  step("egress.allow", "string-list", "Egress allow", "Extra hosts (host, *.domain, host:port) or presets (@npm @pypi @crates @go @rubygems @maven @yarn).", { advanced: true, editor: "pending" }),
+  step("egress.deny", "string-list", "Egress deny", "Hosts to remove from the defaults (e.g. the tracker API).", { advanced: true, editor: "pending" }),
   step("env", "record", "Agent env", "Extra environment for this step's agent only; put secret values in ${VAR} refs.", { advanced: true, sensitive: true }),
   step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
   step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),
