@@ -55,6 +55,15 @@ test("isPrivateAddress: loopback, link-local, RFC1918, ULA (and v4-mapped); a pu
   }
 });
 
+test("isPrivateAddress: NAT64 (64:ff9b::/96) and 6to4 (2002::/16) unwrap to their embedded IPv4", () => {
+  for (const ip of ["64:ff9b::a9fe:a9fe", "64:ff9b::0a00:0005", "64:ff9b::169.254.169.254", "2002:a9fe:a9fe::1", "2002:0a00:0005::1"]) {
+    assert.equal(isPrivateAddress(ip), true, ip);
+  }
+  for (const ip of ["64:ff9b::0808:0808", "2002:0808:0808::1"]) {
+    assert.equal(isPrivateAddress(ip), false, ip);
+  }
+});
+
 // --- the real proxy, spawned with node on the host ---
 
 /** @returns {Promise<number>} a free TCP port */
@@ -97,15 +106,16 @@ function connectVia(proxyPort, target, payload) {
   });
 }
 
-/** Start the proxy over `rules`; resolves once `ready` exists. @param {string[]} rules */
-async function startProxy(rules) {
+/** Start the proxy over `rules`; resolves once `ready` exists. @param {string[]} rules @param {Record<string,string>} [env] */
+async function startProxy(rules, env = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-egress-"));
   fs.writeFileSync(path.join(dir, "allow.json"), JSON.stringify({ rules }));
   const port = await freePort();
-  const child = spawn(process.execPath, [PROXY, dir], { env: { ...process.env, EGRESS_PORT: String(port) }, stdio: ["ignore", "ignore", "inherit"] });
+  const child = spawn(process.execPath, [PROXY, dir], { env: { ...process.env, EGRESS_PORT: String(port), ...env }, stdio: ["ignore", "ignore", "inherit"] });
   for (let i = 0; i < 200 && !fs.existsSync(path.join(dir, "ready")); i++) await new Promise((r) => setTimeout(r, 25));
   const denied = () => (fs.existsSync(path.join(dir, "denied.jsonl")) ? fs.readFileSync(path.join(dir, "denied.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []);
-  return { dir, port, denied, stop: () => child.kill("SIGTERM") };
+  const exited = new Promise((resolve) => child.on("exit", resolve));
+  return { dir, port, denied, stop: () => child.kill("SIGTERM"), exited };
 }
 
 test("proxy: ready appears; an allowed CONNECT is piped; a denied one gets the 403 and a denied.jsonl line", { timeout: 20000 }, async () => {
@@ -191,5 +201,23 @@ test("proxy: an allowed plain-HTTP request is forwarded with its path and method
   } finally {
     p.stop();
     origin.close();
+  }
+});
+
+test("proxy: denied.jsonl stops at a line cap; SIGTERM appends a {truncated} summary", { timeout: 20000 }, async () => {
+  const limit = 5;
+  const p = await startProxy([], { EGRESS_DENIED_LOG_MAX_LINES: String(limit) });
+  try {
+    const sent = limit + 3;
+    for (let i = 0; i < sent; i++) await connectVia(p.port, `denied-${i}.invalid:443`);
+    const beforeStop = p.denied();
+    assert.equal(beforeStop.length, limit, "writes stop at the line cap");
+    p.stop();
+    await p.exited;
+    const after = p.denied();
+    assert.equal(after.length, limit + 1, "one summary line is appended past the cap");
+    assert.deepEqual(after[limit], { truncated: sent - limit });
+  } finally {
+    p.stop();
   }
 });
