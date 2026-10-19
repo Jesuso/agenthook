@@ -90,6 +90,8 @@ export function createHeartbeat(cfg) {
     tracker: cfg.provider,
     ingress: cfg.ingress?.type || "manual",
     fullAuto: !!cfg.fullAuto,
+    // The per-run sandbox backend (null = agents run on this host); `status` prints it.
+    sandbox: cfg.sandbox?.type ?? null,
     // The configured identity (src/identity.js); the UI derives the rest from the state key.
     forge: cfg.forge?.type ?? null,
     ui: cfg.ui ? { color: cfg.ui.color ?? null, emoji: cfg.ui.emoji ?? null } : null,

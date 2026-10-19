@@ -629,7 +629,7 @@
  * @property {string} trigger
  * @property {number} maxConcurrent
  * @property {boolean} [overlapGuard]  opt-in (default false); hold a createsWorktree step while its predicted paths overlap another in-flight ref's lock
- * @property {boolean} [fullAuto]   opt-in; adds --dangerously-skip-permissions (unsandboxed code exec from a webhook). Default false = privileged tool calls are denied (headless agents cannot prompt) unless allowed by a step `allow` policy or your agent's own settings.
+ * @property {boolean} [fullAuto]   opt-in; adds the agent CLI's skip-permissions flag (code exec from a webhook, on the host unless `sandbox` is set). Default false = headless agents can't prompt: privileged tool calls are denied unless an allow rule (repo `.claude/settings.json` or a step `allow` policy) permits them (claude runs are pinned to dontAsk).
  * @property {string} repoPath     the default repo's path (else the first declared) — ops readers use it; dispatch goes through `repos`
  * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath
  * @property {boolean} multiRepo     true iff the profile declared a `repos` block (worktrees nest under `<base>/<repo.id>/`)

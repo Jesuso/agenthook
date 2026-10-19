@@ -30,7 +30,7 @@ closes control; on exit `ingress.down()`.
   `src/engine/`, the receiver: `index.js` = `createEngine`, the composition root (`claimStateDir`
   first, wiring, the `intake()` closure, fatal `process.on` handlers at construction); `http.js` the
   request handler (fast-ACK-then-async is deliberate — providers retry a slow 2xx); `boot.js`
-  `serve()`; `teardown.js` `shutdown`/`forceExit`/`teardown`/`onFatal` + `finishTeardown` (the
+  `serve()`; `banner.js` the pure boot `fullAutoBanner` (sandbox-aware, warn-only); `teardown.js` `shutdown`/`forceExit`/`teardown`/`onFatal` + `finishTeardown` (the
   once-only respawn/archive tail; `forceExit`/`onFatal` SIGTERM the children, then `sandbox.reap()`
   bounded at 3s); `controllers.js` the restart/decommission requesters + quota
   pacer; `recovery.js` local crash recovery (`running.json`, no board poll) + overlap releaser;

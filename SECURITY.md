@@ -18,11 +18,14 @@ backport guarantee for older versions. Pin a version and watch releases.
 agenthook is a webhook receiver that **executes a coding agent on your host in response to tracker
 events**. The trust boundary is small and worth understanding:
 
-- **A verified webhook runs code.** With `fullAuto: true` the agent runs
-  `claude -p --dangerously-skip-permissions` — *unsandboxed* command execution on the host. The
-  only thing standing between an attacker and that execution is the HMAC signature check and a
-  non-guessable public URL. `fullAuto` is **off by default**; the safe default prompts for
-  permission on each privileged action.
+- **A verified webhook runs code.** With `fullAuto: true` the agent runs with its CLI's
+  skip-permissions flag (`claude -p --dangerously-skip-permissions`) — command execution on the
+  host, unless the profile configures the [per-run sandbox](docs/sandbox.md), which confines each
+  run to its own container. The only thing standing between an attacker and that execution is the
+  HMAC signature check and a non-guessable public URL. `fullAuto` is **off by default**: headless
+  agents can't prompt: privileged tool calls are denied unless an allow rule (repo
+  `.claude/settings.json` or a step `allow` policy) permits them. agenthook pins that mode on
+  every claude run, so a `defaultMode` in `~/.claude/settings.json` can't turn it into full-auto.
 - **The URL is a secret.** An ingress URL that leaks (logs, screenshots, a proxy) plus a leaked
   signing secret is full code execution. Treat the public URL and every webhook signing secret as
   credentials.
@@ -47,8 +50,9 @@ events**. The trust boundary is small and worth understanding:
 ### Hardening checklist
 
 - Keep `fullAuto: false` unless you specifically need it, and never on a shared host.
-- When you do enable `fullAuto`, run it in the [sandboxed container](docs/sandbox.md) with **only
-  the repo mounted** — the blessed path that confines code execution off the host.
+- When you do enable `fullAuto`, configure the [per-run sandbox](docs/sandbox.md#quick-start)
+  (`"sandbox": {"type": "podman"}`): each run then sees only its worktree, with egress
+  allowlisted. `agenthook doctor` shows the isolation report — what each step's runs can reach.
 - Scope the tracker API token to a single project; rotate it if it may have leaked.
 - Pair a stable ingress with a reserved domain over an ephemeral public tunnel; stop the tunnel
   when idle.

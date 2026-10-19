@@ -83,8 +83,11 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   `openai-codex` default) silently fails or no-ops — see the
   [local Qwen recipe](#a-local-qwen-recipe-hermes--ollama) below.
 - **`fullAuto`**: adds each CLI's skip-permissions flag. That is `--dangerously-skip-permissions`
-  (claude), `--force` (cursor), `--yolo` (hermes) or `--auto` (opencode). It is still unsandboxed code execution from
-  a webhook; see the security posture in the [README](../README.md).
+  (claude), `--force` (cursor), `--yolo` (hermes) or `--auto` (opencode). It is code execution from
+  a webhook, unsandboxed unless the profile sets `sandbox` ([sandbox.md](sandbox.md); only claude
+  runs sandboxed). Without `fullAuto`, claude runs pinned to `dontAsk`
+  ([permissions](sandbox.md#permissions-inside-and-outside-the-sandbox)); the other CLIs keep their
+  own default. See the security posture in the [README](../README.md).
 - **`bin`**: a step `bin` overrides the agent's default binary, e.g. a wrapper script.
 - **`maxMinutes`**: besides the receiver's own SIGTERM timer, hermes gets it as `--run-budget`
   (whole seconds, floored to at least 1) so it can wrap up on its own before the kill; the
