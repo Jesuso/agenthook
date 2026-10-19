@@ -109,11 +109,15 @@ function inV4(ip, base, bits) {
   return Math.floor(n(ip) / size) === Math.floor(n(base) / size);
 }
 
+/** A 16-bit word pair as a dotted IPv4 string. @param {number} hi @param {number} lo */
+const v4FromWords = (hi, lo) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+
 /**
  * Whether a connection to `ip` would reach the host or its LAN rather than the internet:
  * loopback (127/8, ::1), "this network" (0/8, ::), link-local (169.254/16 — cloud metadata —
  * and fe80::/10), RFC1918, shared CGNAT space (100.64/10, e.g. a tailnet) and ULA (fc00::/7).
- * An IPv4-mapped IPv6 address is judged by its IPv4 part.
+ * An IPv4-mapped (`::ffff:0:0/96`), NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`) IPv6 address is
+ * judged by its embedded IPv4 part.
  * @param {string} ip @returns {boolean}
  */
 export function isPrivateAddress(ip) {
@@ -123,10 +127,17 @@ export function isPrivateAddress(ip) {
   }
   if (!net.isIPv6(a)) return false;
   const w = expand6(a);
-  if (w.slice(0, 5).every((x) => x === 0) && w[5] === 0xffff) return isPrivateAddress(`${w[6] >> 8}.${w[6] & 255}.${w[7] >> 8}.${w[7] & 255}`);
+  if (w.slice(0, 5).every((x) => x === 0) && w[5] === 0xffff) return isPrivateAddress(v4FromWords(w[6], w[7]));
   if (w.slice(0, 7).every((x) => x === 0) && (w[7] === 0 || w[7] === 1)) return true; // :: and ::1
+  if (w[0] === 0x64 && w[1] === 0xff9b && w.slice(2, 6).every((x) => x === 0)) return isPrivateAddress(v4FromWords(w[6], w[7])); // NAT64 64:ff9b::/96
+  if (w[0] === 0x2002) return isPrivateAddress(v4FromWords(w[1], w[2])); // 6to4 2002::/16
   return (w[0] & 0xffc0) === 0xfe80 || (w[0] & 0xfe00) === 0xfc00;
 }
+
+/** Hard cap on `denied.jsonl`: beyond this, denials are just counted, not logged. */
+export const DENIED_LOG_MAX_LINES = 1000;
+/** Hard cap on `denied.jsonl` in bytes (see `DENIED_LOG_MAX_LINES`). */
+export const DENIED_LOG_MAX_BYTES = 256 * 1024;
 
 const DENY_HEADER = "X-Agenthook-Egress";
 
@@ -165,10 +176,23 @@ function startProxy(dir) {
   if (!Array.isArray(rules)) throw new Error("allow.json: rules must be an array");
   rules.forEach(parseRule); // fail at start, not on the first request
   const deniedFile = path.join(dir, "denied.jsonl");
+  // Overridable for tests only; production always uses the exported defaults.
+  const maxLines = Number(process.env.EGRESS_DENIED_LOG_MAX_LINES) || DENIED_LOG_MAX_LINES;
+  const maxBytes = Number(process.env.EGRESS_DENIED_LOG_MAX_BYTES) || DENIED_LOG_MAX_BYTES;
+  let deniedLines = 0;
+  let deniedBytes = 0;
+  let truncated = 0;
   /** @param {string} host @param {number} port */
   const logDenied = (host, port) => {
+    const line = JSON.stringify({ at: new Date().toISOString(), host: normHost(host), port }) + "\n";
+    if (deniedLines >= maxLines || deniedBytes + Buffer.byteLength(line) > maxBytes) {
+      truncated++;
+      return;
+    }
     try {
-      fs.appendFileSync(deniedFile, JSON.stringify({ at: new Date().toISOString(), host: normHost(host), port }) + "\n");
+      fs.appendFileSync(deniedFile, line);
+      deniedLines++;
+      deniedBytes += Buffer.byteLength(line);
     } catch (e) {
       console.error(`[egress] could not record a denial: ${e.message}`);
     }
@@ -259,7 +283,18 @@ function startProxy(dir) {
     fs.writeFileSync(path.join(dir, "ready"), `${port}\n`);
     console.log(`[egress] listening on :${port} with ${rules.length} rule(s)`);
   });
-  for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => process.exit(0));
+  for (const sig of ["SIGTERM", "SIGINT"]) {
+    process.on(sig, () => {
+      if (truncated > 0) {
+        try {
+          fs.appendFileSync(deniedFile, JSON.stringify({ truncated }) + "\n");
+        } catch (e) {
+          console.error(`[egress] could not record the truncation summary: ${e.message}`);
+        }
+      }
+      process.exit(0);
+    });
+  }
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {

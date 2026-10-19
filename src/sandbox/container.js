@@ -139,16 +139,23 @@ export function proxyArgs(o) {
 /**
  * What a run's denied.jsonl says, as its sandbox report: one log note per denied host:port by
  * count (descending, at most 20, then "… and N more"), and `egressDenied` for `run_end`
- * (omitted when nothing was denied). Pure; unparseable lines are skipped.
+ * (omitted when nothing was denied). A `{"truncated": N}` summary line (written by the proxy
+ * when its own log cap was hit) adds `egressDeniedTruncated` and a note, without affecting
+ * `egressDenied`. Pure; unparseable lines are skipped.
  * @param {string} jsonl @returns {import('../types.js').SandboxReport}
  */
 export function egressReport(jsonl) {
   /** @type {Map<string, number>} */
   const counts = new Map();
+  let truncated = 0;
   for (const line of jsonl.split("\n")) {
     if (!line.trim()) continue;
     try {
       const d = JSON.parse(line);
+      if (Number.isInteger(d?.truncated)) {
+        truncated += d.truncated;
+        continue;
+      }
       if (typeof d?.host !== "string" || !Number.isInteger(d?.port)) continue;
       const key = `${d.host}:${d.port}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -156,12 +163,17 @@ export function egressReport(jsonl) {
       /* a torn last line */
     }
   }
-  if (!counts.size) return {};
+  if (!counts.size && !truncated) return {};
   const sorted = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
   const shown = sorted.slice(0, DENIED_CAP);
   const notes = shown.map(([hp, n]) => `egress denied: ${hp} (${n}×) — add it to sandbox.egress.allow (or the step's egress.allow) if this step needs it`);
   if (sorted.length > DENIED_CAP) notes.push(`… and ${sorted.length - DENIED_CAP} more`);
-  return { notes, extra: { egressDenied: shown.map(([hp]) => hp) } };
+  if (truncated > 0) notes.push(`egress denied: … and ${truncated} more denied request(s) not logged (denied.jsonl cap)`);
+  /** @type {Record<string, any>} */
+  const extra = {};
+  if (shown.length) extra.egressDenied = shown.map(([hp]) => hp);
+  if (truncated > 0) extra.egressDeniedTruncated = truncated;
+  return { notes, extra };
 }
 
 /** Read up to `max` bytes of a regular file ("" when missing or not a regular file).
@@ -203,6 +215,8 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
    * @param {{proxy: string, network: string, dir: string, started: {proxy: boolean, network: boolean}}} e */
   const teardownEgress = async (e) => {
     if (e.started.proxy) {
+      const stopR = await run(bin, ["stop", "-t", "5", e.proxy], { timeoutMs: 30_000 }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
+      if (stopR.code !== 0 && !/no such container|is not running|no container with name/i.test(stopR.stderr || stopR.stdout)) console.error(`[sandbox] ${bin} stop ${e.proxy} failed: ${firstLine(stopR)}`);
       const r = await run(bin, ["rm", "-f", e.proxy], { timeoutMs: 30_000 }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
       if (r.code !== 0 && !/no such container|no container with name/i.test(r.stderr || r.stdout)) console.error(`[sandbox] ${bin} rm -f ${e.proxy} failed: ${firstLine(r)}`);
     }

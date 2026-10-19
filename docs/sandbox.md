@@ -173,6 +173,12 @@ and `run_end` carries `egressDenied: ["example.com:443", …]` (at most 20). A d
 changes the run's outcome. To allow the host, add it to `sandbox.egress.allow` (or the step's
 `egress.allow`); the next run picks it up.
 
+The proxy logs at most 1000 denials or 256 KiB per run, whichever comes first, so an injected
+agent looping denied requests can't grow `denied.jsonl` without bound; past that it just counts
+the rest and appends one summary line on exit. `run_end` then also carries
+`egressDeniedTruncated: <n>` (the count of denials dropped from the log), omitted when nothing
+was truncated.
+
 **Not filtered.** The allowed hosts are exfiltration channels **by design**: the model API sees
 the prompt and whatever the agent sends it, the forge accepts a pushed branch (or a gist, with a
 broad token), and the tracker accepts a comment. Scoped short-lived tokens (#474) narrow the forge
