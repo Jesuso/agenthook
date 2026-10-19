@@ -25,6 +25,7 @@ import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
 import { claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
+import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
 import { FORGE_AGENT_ENV, FORGE_EGRESS_HOSTS } from "../forges/index.js";
@@ -469,9 +470,9 @@ function isLoopbackUrl(url) {
  * (when a sandboxed allowlist step lacks it), and ℹ each sandboxed step's effective policy.
  * Pure given `files` (the repo root listing) and `env` (the receiver env agents draw from).
  * @param {import('../types.js').Config} cfg
- * @param {{files?: string[], env?: Record<string, string|undefined>}} [io]
+ * @param {{files?: string[], env?: Record<string, string|undefined>, origins?: string[]}} [io]  `origins`: the repos' origin URLs (a profile with no forge block infers its forge hosts from them, as dispatch does)
  * @returns {{ level: 'info'|'warn', label: string, note?: string }[]} */
-export function egressLints(cfg, { files = [], env = process.env } = {}) {
+export function egressLints(cfg, { files = [], env = process.env, origins = [] } = {}) {
   if (!cfg.sandbox) return [];
   /** @type {{ level: 'info'|'warn', label: string, note?: string }[]} */
   const out = [];
@@ -499,7 +500,7 @@ export function egressLints(cfg, { files = [], env = process.env } = {}) {
       const rules = egressRules({
         agentHosts: agent.egressHosts?.(spawnEnv) ?? [],
         trackerHosts: TRACKER_EGRESS_HOSTS[cfg.provider]?.(cfg.providerConfig) ?? [],
-        forgeHosts: cfg.forge ? (FORGE_EGRESS_HOSTS[cfg.forge.type]?.(cfg.forge) ?? []) : [],
+        forgeHosts: cfg.forge ? (FORGE_EGRESS_HOSTS[cfg.forge.type]?.(cfg.forge) ?? []) : origins.flatMap(inferredForgeEgressHosts),
         allow: policy.allow,
         deny: policy.deny,
       });
@@ -893,7 +894,8 @@ export async function runChecks(cfg, io = {}) {
     }
   };
   const files = [...new Set(reposOf(cfg).flatMap((r) => rootFiles(r.path)))];
-  for (const l of egressLints(cfg, { files, env })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
+  const origins = cfg.sandbox && !cfg.forge ? reposOf(cfg).flatMap((r) => hostGitFacts(r.path).originUrl ?? []) : [];
+  for (const l of egressLints(cfg, { files, env, origins })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });

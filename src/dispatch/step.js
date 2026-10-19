@@ -13,7 +13,7 @@ import { agentFor } from "../agents/index.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
-import { trustedGitDirs, gitSandboxEnv, hostGitFacts, sandboxMounts } from "./sandbox.js";
+import { trustedGitDirs, gitSandboxEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
@@ -246,7 +246,7 @@ export function createStep(ctx) {
         // The network policy: the hosts come from the adapters dispatch holds, never from src/sandbox/.
         const policy = egressPolicy(cfg, step);
         const rules = policy.mode === "allowlist"
-          ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge?.describe?.().egressHosts ?? [], originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
+          ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
           : [];
         sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules } };
       } catch (e) {

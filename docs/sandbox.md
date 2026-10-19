@@ -107,7 +107,7 @@ name can't be pointed at your LAN.
 |--------|-------|
 | model API (the agent) | `api.anthropic.com`; the host of `ANTHROPIC_BASE_URL` when set; `bedrock-runtime.<AWS_REGION>.amazonaws.com` with `CLAUDE_CODE_USE_BEDROCK`; `<CLOUD_ML_REGION>-aiplatform.googleapis.com` + `oauth2.googleapis.com` with `CLAUDE_CODE_USE_VERTEX` |
 | tracker (the prompt tells the agent to read and post comments) | asana `app.asana.com`, jira the `baseUrl` host, linear `api.linear.app`, github / github-projects `api.github.com`; local: none |
-| forge | github `github.com`, `api.github.com`, `uploads.github.com`, `*.githubusercontent.com`; gitlab the `baseUrl` host |
+| forge | github `github.com`, `api.github.com`, `uploads.github.com`, `*.githubusercontent.com`; gitlab the `baseUrl` host. With no `forge` block, inferred from the origin the same way (a `github.com` origin gets the github hosts, so `gh pr …` still works) |
 | origin | the host of the repo's `origin` remote (an SSH origin is pushed over HTTPS, so port 443) |
 
 **Package registries are opt-in.** `agenthook doctor` suggests a preset when it sees a lockfile:

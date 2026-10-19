@@ -796,6 +796,13 @@ test("egressLints: ⚠ open (profile or step), ⚠ loopback ANTHROPIC_BASE_URL, 
   assert.equal(rules?.level, "info");
   assert.match(rules?.note ?? "", /^api\.anthropic\.com, api\.github\.com, github\.com, uploads\.github\.com, \*\.githubusercontent\.com \+ the repo's origin host$/);
   assert.deepEqual(egressLints(sbCfg({ sandbox: undefined }), { env: {} }), []);
+
+  // No forge block: the forge hosts come from the origin, as dispatch infers them.
+  const noForge = { provider: "asana", providerConfig: {} };
+  const inferred = egressLints(sbCfg(noForge), { env: {}, origins: ["git@github.com:o/r.git"] }).find((l) => l.label === `step "code" egress allowlist`);
+  assert.match(inferred?.note ?? "", /^api\.anthropic\.com, app\.asana\.com, github\.com, api\.github\.com, uploads\.github\.com, \*\.githubusercontent\.com \+ the repo's origin host$/);
+  const unknown = egressLints(sbCfg(noForge), { env: {}, origins: ["https://git.acme.io/o/r"] }).find((l) => l.label === `step "code" egress allowlist`);
+  assert.match(unknown?.note ?? "", /^api\.anthropic\.com, app\.asana\.com \+ the repo's origin host$/);
 });
 
 test("agentBinChecks: a sandboxed step's binary resolves in the image, not on the host PATH", () => {

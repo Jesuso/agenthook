@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { HOST_GIT_SAFE } from "../worktree.js";
+import { FORGE_EGRESS_HOSTS } from "../forges/index.js";
 
 /** Read a small agent-writable metadata file without trusting its type: a FIFO would block the
  * event loop on open, a symlink would point the host elsewhere, a huge file would be slurped.
@@ -145,6 +146,26 @@ export function hostOf(url) {
   }
 }
 
+/** The git host and forge kind a run talks to: the configured forge's, else inferred from the
+ * origin (`github.com` → github, a `gitlab` host → gitlab). Pure.
+ * @param {{originUrl?: string, forgeType?: string, forgeBaseUrl?: string}} o
+ * @returns {{host?: string, kind?: string}} */
+export function forgeOf({ originUrl, forgeType, forgeBaseUrl }) {
+  const host = forgeType === "github" ? "github.com" : hostOf(forgeBaseUrl) ?? hostOf(originUrl);
+  const kind = forgeType ?? (host === "github.com" ? "github" : host && /gitlab/.test(host) ? "gitlab" : undefined);
+  return { host, kind };
+}
+
+/** The forge egress hosts for a profile with no `forge` block, inferred from the origin like
+ * gitSandboxEnv's credential helper: the prompts still run `gh pr …` against a github origin,
+ * so `api.github.com` must be reachable. [] for an origin with no known forge. Pure.
+ * @param {string|undefined} originUrl @returns {string[]} */
+export function inferredForgeEgressHosts(originUrl) {
+  const { host, kind } = forgeOf({ originUrl });
+  if (!host || !kind) return [];
+  return FORGE_EGRESS_HOSTS[kind]?.({ type: kind, ...(kind === "github" ? {} : { baseUrl: `https://${host}` }) }) ?? [];
+}
+
 /**
  * Git config for a container with no ~/.gitconfig, as GIT_CONFIG_COUNT/KEY_n/VALUE_n env (names
  * only reach argv): an SSH `origin` rewritten to HTTPS, a credential helper from the forge's
@@ -154,8 +175,7 @@ export function hostOf(url) {
  * @returns {Record<string, string>}
  */
 export function gitSandboxEnv({ originUrl, forgeType, forgeBaseUrl, author }) {
-  const host = forgeType === "github" ? "github.com" : hostOf(forgeBaseUrl) ?? hostOf(originUrl);
-  const kind = forgeType ?? (host === "github.com" ? "github" : host && /gitlab/.test(host) ? "gitlab" : undefined);
+  const { host, kind } = forgeOf({ originUrl, forgeType, forgeBaseUrl });
   /** @type {[string, string][]} */
   const pairs = [];
   if (host) {

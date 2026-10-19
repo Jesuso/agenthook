@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf, hostGitFacts } from "../src/dispatch/sandbox.js";
+import { trustedGitDirs, sandboxMounts, containerEnv, runtimeEnv, gitSandboxEnv, hostOf, hostGitFacts, inferredForgeEgressHosts } from "../src/dispatch/sandbox.js";
 import { HOST_GIT_TIMEOUT_MS, listWorktrees } from "../src/worktree.js";
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
@@ -484,6 +484,36 @@ test("sandbox e2e: wrap() receives egress.rules with the model API, tracker, for
   }
   assert.equal(wraps.length, 1);
   assert.deepEqual(wraps[0].egress, { mode: "allowlist", rules: ["api.anthropic.com", "api.tracker.test", "github.com", "git.origin.test:4443", "registry.npmjs.org"] }, "profile deny drops api.github.com; the step's allow adds @npm");
+});
+
+test("inferredForgeEgressHosts: a profile with no forge block gets the forge hosts its origin implies", () => {
+  assert.deepEqual(inferredForgeEgressHosts("git@github.com:o/r.git"), ["github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"]);
+  assert.deepEqual(inferredForgeEgressHosts("https://github.com/o/r"), inferredForgeEgressHosts("git@github.com:o/r.git"));
+  assert.deepEqual(inferredForgeEgressHosts("git@gitlab.acme.io:g/p.git"), ["gitlab.acme.io"]);
+  assert.deepEqual(inferredForgeEgressHosts("https://git.acme.io/o/r.git"), [], "an unknown forge contributes nothing (the origin rule still covers the push)");
+  assert.deepEqual(inferredForgeEgressHosts(undefined), []);
+});
+
+test("sandbox e2e: no forge block + a github origin → wrap() still allows api.github.com, so gh pr … works", async () => {
+  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  g(h.repo, ["remote", "add", "origin", "git@github.com:o/r.git"]);
+  /** @type {any[]} */
+  const wraps = [];
+  const sb = /** @type {any} */ (createSandbox(h.cfg));
+  const wrap = sb.wrap.bind(sb);
+  sb.wrap = (/** @type {any} */ o) => (wraps.push(o), wrap(o));
+  const asana = /** @type {any} */ ({ describe: () => ({ platform: "Asana", taskNoun: "task", trigger: "@agent", commentHowTo: "c", egressHosts: ["app.asana.com"] }), fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", assignedToUs: true }), advance: async () => {} });
+  const run = createDispatcher(h.cfg, asana, undefined, h.store, () => {}, null, undefined, { killGraceMs: 200, sandbox: sb });
+  const l = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = l;
+    h.restore();
+  }
+  assert.equal(wraps.length, 1);
+  assert.deepEqual(wraps[0].egress.rules, ["api.anthropic.com", "app.asana.com", "github.com", "api.github.com", "uploads.github.com", "*.githubusercontent.com"]);
 });
 
 test("sandbox e2e: a denial reported by done() lands in the run log and on run_end; the outcome is unchanged", async () => {
