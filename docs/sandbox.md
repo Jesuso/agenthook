@@ -145,12 +145,20 @@ A step `egress` needs a profile `sandbox`, and is an error on a manual step or a
 custom, so doctor (and boot) then also require `agenthook-agent:<version>`; `doctor --fix` builds
 it. `doctor` lists each sandboxed step's effective allowlist.
 
-**A denied request** gets `403 Forbidden` with `X-Agenthook-Egress: denied` and the body
-`agenthook egress: <host>:<port> is not in this sandbox's allowlist (add it to sandbox.egress.allow)`,
-which the agent can quote in a `hold` reason. When the run ends, the run log gets one line per
-denied host —
-`[agenthook] egress denied: example.com:443 (3×) — add it to sandbox.egress.allow (or the step's egress.allow) if this step needs it`
-— and `run_end` carries `egressDenied: ["example.com:443", …]` (at most 20). A denial never
+**A denied request** gets `403 Forbidden` with `X-Agenthook-Egress: denied` and this body, which
+the agent can quote in a `hold` reason:
+
+```
+agenthook egress: <host>:<port> is not in this sandbox's allowlist (add it to sandbox.egress.allow)
+```
+
+When the run ends, the run log gets one line per denied host:
+
+```
+[agenthook] egress denied: example.com:443 (3×) — add it to sandbox.egress.allow (or the step's egress.allow) if this step needs it
+```
+
+and `run_end` carries `egressDenied: ["example.com:443", …]` (at most 20). A denial never
 changes the run's outcome. To allow the host, add it to `sandbox.egress.allow` (or the step's
 `egress.allow`); the next run picks it up.
 
