@@ -891,8 +891,18 @@ export function isolationReport(cfg, { userClaudeSettings = null, gitInsteadOf =
   }
 
   const runTokens = usesRunTokens(cfg);
+  const envPassthrough = cfg.agentEnvPassthrough ?? [];
+  const ghTokenPassthrough = envNameMatches("GH_TOKEN", envPassthrough) || envNameMatches("GITHUB_TOKEN", envPassthrough);
+  const ghTokenStepEnv = steps.some((s) => s.env && ("GH_TOKEN" in s.env || "GITHUB_TOKEN" in s.env));
+  const noCredentials =
+    !runTokens &&
+    !(TRACKER_AGENT_ENV[cfg.provider] ?? []).length &&
+    !cfg.forge &&
+    !ghTokenPassthrough &&
+    !ghTokenStepEnv;
   if (runTokens && !onHost.length) row("info", "credentials", "per-run GitHub App token (1h, repo-scoped)");
   else if (runTokens) row("warn", "credentials", `step(s) ${onHost.join(", ")}: scoped run token given, but the host gh login and ~/.ssh stay readable`);
+  else if (noCredentials) row("info", "credentials", `none (${cfg.provider} tracker, no forge)`);
   else row(cfg.fullAuto ? "warn" : "info", "credentials", "your own token (tracker/forge token or gh login) — usable until you revoke it");
   const forceSsh = runTokens && onHost.length ? parseForceSshRewrites(gitInsteadOf) : [];
   if (forceSsh.length) row("warn", "credentials", `host git config rewrites https://github.com/ to SSH (${forceSsh.join(", ")}) — run pushes use your SSH key; remove the rule or enable the sandbox`);
