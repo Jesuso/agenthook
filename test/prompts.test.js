@@ -218,3 +218,30 @@ test("verdict schema mentions `paths` only when overlapGuard is on", () => {
     assert.match(p, /TOUCHED/);
   }
 });
+
+// --- #503: review must block on revert-proof tests and unmet acceptance criteria ---
+for (const usesPR of [true, false]) {
+  test(`review prompt (usesPR: ${usesPR}) names the revert-proof-test rule as a blocking finding`, () => {
+    const p = stepPrompt(task, { ...meta, usesPR }, step("review"), ctx);
+    assert.match(p, /name the production change that would make it fail/);
+    assert.match(p, /can't fail when the change it claims to cover is reverted is a BLOCKING finding/);
+  });
+
+  test(`review prompt (usesPR: ${usesPR}) tells the reviewer to check acceptance criteria and when to hold`, () => {
+    const p = stepPrompt(task, { ...meta, usesPR }, step("review"), ctx);
+    assert.match(p, /acceptance criteria.*at the URL above.*check each one/s);
+    assert.match(p, /If only a human can \(prod access, credentials, a\s*\n?\s*measurement you can't run\), use "hold"/);
+  });
+
+  test(`review prompt (usesPR: ${usesPR}) lists "hold" as a valid outcome`, () => {
+    const p = stepPrompt(task, { ...meta, usesPR }, step("review"), ctx);
+    assert.match(p, /- "hold": an acceptance criterion only a human can satisfy/);
+  });
+}
+
+test("triage and implement prompts do not carry the review revert-proof-test rule", () => {
+  for (const kind of ["triage", "implement"]) {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.doesNotMatch(p, /name the production change that would make it fail/);
+  }
+});

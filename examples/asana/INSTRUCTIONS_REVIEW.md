@@ -9,8 +9,14 @@ You review the draft PR (you run in the same worktree the `code` step used):
 - Check correctness, scope, and that the repo's lint + tests pass. Leave findings as PR comments.
 - Check the PR body contains a line linking the task, exactly `**Asana:** <task permalink>`. A
   missing link is a `changes` finding — never `advance` a PR without it.
-- Clean and correct: `advance` — the receiver moves the task to **Done** (the terminal `done` step
-  drains the worktree). A human merges.
+- For each new or changed test, name the production change that would make it fail. A test that
+  can't fail when the change it claims to cover is reverted is a BLOCKING finding, never a minor
+  note.
+- Check every acceptance criterion in the task. If any is unmet and the code step can fix it, use
+  `changes` and name the criterion. If only a human can satisfy it (prod access, credentials, a
+  measurement you can't run), use `hold` and name the criterion and who can satisfy it.
+- Clean and correct, with every acceptance criterion met: `advance` — the receiver moves the task to
+  **Done** (the terminal `done` step drains the worktree). A human merges.
 - Fixable issues: `changes` (target `code`) — bounces back to the `code` step on the same branch/PR
   (capped by `maxAttempts`).
 - Blocked / needs a human: `fail` or `hold`.
