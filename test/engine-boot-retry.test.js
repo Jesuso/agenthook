@@ -77,6 +77,27 @@ test("retryTrackerCall: aborting the signal mid-wait rejects promptly with no fu
   assert.ok(Date.now() - started < 5000, "did not wait out the 60 s delay");
 });
 
+test("retryTrackerCall: an abort while fn is in flight rejects even if fn then resolves", async () => {
+  const ac = new AbortController();
+  const p = retryTrackerCall(
+    async () => {
+      setTimeout(() => ac.abort(new Error("SIGTERM")), 10);
+      await new Promise((r) => setTimeout(r, 50));
+      return "registered";
+    },
+    { log: () => {}, signal: ac.signal },
+  );
+  await assert.rejects(p, /SIGTERM/);
+});
+
+test("retryTrackerCall: an abort while fn never settles rejects promptly", async () => {
+  const ac = new AbortController();
+  const started = Date.now();
+  setTimeout(() => ac.abort(new Error("stop")), 10);
+  await assert.rejects(retryTrackerCall(() => new Promise(() => {}), { log: () => {}, signal: ac.signal }), /stop/);
+  assert.ok(Date.now() - started < 5000, "did not wait on the hung call");
+});
+
 test("abortableSleep rejects at once on an already-aborted signal, resolves otherwise", async () => {
   await abortableSleep(1);
   await assert.rejects(abortableSleep(60_000, AbortSignal.abort(new Error("gone"))), /gone/);

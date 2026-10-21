@@ -48,11 +48,26 @@ export function abortableSleep(ms, signal) {
   });
 }
 
+/** `p`, but rejected with the signal's reason as soon as it aborts — so a stop arriving while a
+ * tracker request is in flight (and possibly hung: adapter fetches carry no timeout) isn't lost.
+ * @template T @param {Promise<T>} p @param {AbortSignal} [signal] @returns {Promise<T>} */
+export function raceAbort(p, signal) {
+  if (!signal) return p;
+  p.catch(() => {}); // the abort may win the race; don't leave p's later rejection unhandled
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 /**
  * Call `fn` until it resolves: transient → capped exponential backoff, indefinitely; not_found →
  * up to `delays.notFound.length` retries (counted across the whole call), then rethrow; fatal →
  * rethrow at once. Logs `[boot] tracker unavailable, retrying in <N>s (<message>)` and calls
- * `onWaiting` before every wait. An aborted `signal` rejects the wait promptly, with no further call.
+ * `onWaiting` before every wait. An aborted `signal` rejects promptly — mid-call or mid-wait — with
+ * no further call.
  * @template T
  * @param {() => Promise<T>} fn
  * @param {{
@@ -72,8 +87,9 @@ export async function retryTrackerCall(fn, { log = (l) => console.error(l), onWa
   for (;;) {
     if (signal?.aborted) throw signal.reason;
     try {
-      return await fn();
+      return await raceAbort(fn(), signal);
     } catch (e) {
+      if (signal?.aborted) throw signal.reason;
       const kind = classifyTrackerError(e);
       /** @type {number} */
       let ms;
