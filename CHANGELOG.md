@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format is based on
   line, and a final `watch_end` line reports the cursor on SIGTERM/SIGINT (exit 0), `--timeout`
   (exit 2) or every watched profile disappearing (exit 1) (#505).
 
+### Changed
+
+- `requireVerdict` now defaults to `true`: a step whose agent exits 0 without writing a valid
+  verdict file now **holds** (resumable with `@agent`) instead of silently advancing. Add
+  `"requireVerdict": false` to a step to keep the old advance-on-clean-exit behaviour. A
+  `verdict_missing {reason}` event fires just before the hold (#500).
+
 ### Fixed
 
 - Claude runs now set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, so a background subagent is no

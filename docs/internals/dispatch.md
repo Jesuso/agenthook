@@ -14,7 +14,8 @@
   energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`). **Verdict**:
-  non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `advance`.
+  non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `hold` by
+  default (`requireVerdict` defaults to `true`; set `false` on the step to advance instead).
   `changes` is capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A
   `merge` job spawns no agent: fail-closed assignee check → `adapter.enterStage` into the
   `completeOnMerge` (manual) step (its own webhook then drains + emits `pipeline_done`) → optional

@@ -12,7 +12,8 @@ import { fenceUntrusted, newNonce, untrustedInline, untrustedPreamble } from "./
  * The verdict contract footer, appended to every agent prompt. The agent reports how
  * the step resolved by writing JSON to a file the receiver reads after exit; that
  * decides the section move (advance / hold / changes / fail). A crash (non-zero exit)
- * is always a failure regardless of the file; a clean exit with no file means advance.
+ * is always a failure regardless of the file; a clean exit with no valid file holds
+ * (requireVerdict:false on the step restores the old "advance" default).
  * @param {string|undefined} verdictFile
  * @param {string[]} outcomeLines  per-kind "<outcome>: when to use it" bullets
  * @param {string[]} [pathsLines]  overlapGuard only: how to fill the optional `paths` field
@@ -29,8 +30,9 @@ function verdictFooter(verdictFile, outcomeLines, pathsLines = []) {
     ...pathsLines,
     `Valid outcomes for THIS stage:`,
     ...outcomeLines,
-    `If you exit cleanly without writing the file, the receiver assumes "advance". A`,
-    `crash (non-zero exit) is always treated as a failure regardless of the file.`,
+    `If you exit cleanly without writing a valid file, the receiver holds the task (unless`,
+    `this step sets requireVerdict:false, in which case it assumes "advance"). A crash`,
+    `(non-zero exit) is always treated as a failure regardless of the file.`,
   ].join("\n");
 }
 

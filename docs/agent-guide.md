@@ -19,8 +19,8 @@ When the agent exits, its **verdict** decides the next move:
 
 | verdict | meaning | ticket goes to |
 |---|---|---|
-| `advance` (also: clean exit, no verdict file — unless the step sets `requireVerdict`, then it holds) | step done | next step's source stage, which fires that step |
-| `hold` | agent needs a human answer | the step's hold lane; shows in `status.held` with `why` |
+| `advance` (also: clean exit, no verdict file, but only when the step sets `requireVerdict: false`) | step done | next step's source stage, which fires that step |
+| `hold` (also: clean exit, no valid verdict file — the default) | agent needs a human answer | the step's hold lane; shows in `status.held` with `why` |
 | `changes` | rework needed | an earlier step's source stage (the rework loop, capped by `maxAttempts`) |
 | `fail` | step failed (or crashed, or was cancelled) | the failure lane |
 
@@ -145,9 +145,9 @@ loop:
 needs a human (product decision, credentials), surface it to the user and do **not** guess.
 `release` appends your comment to the resumed agent's prompt exactly like an owner's `@agent`
 reply, so write it as an instruction: concrete, self-contained, no secrets. A `why` of
-`"no valid verdict (requireVerdict)"` means the agent exited cleanly without a usable verdict file
-(a weak/local `bin` likely didn't finish the work) — read the run's tail first; `release` re-runs
-the step, or `run {ref, force:true}` to re-enter it from scratch.
+`"no valid verdict"` means the agent exited cleanly without a usable verdict file (likely cut
+mid-edit, or a weak/local `bin` that didn't finish the work) — read the run's tail first;
+`release` re-runs the step, or `run {ref, force:true}` to re-enter it from scratch.
 
 **A task failed** (`failed` event). `reason` is clipped; `runs {ref, tail}` has the real error.
 Decide: transient (re-enter with `run {ref, force:true}`), needs a fix elsewhere, or needs a human.
@@ -211,7 +211,9 @@ cap until the next restart (not persisted).
 
 Names you will act on: `enqueued` (job accepted into the queue; fires once per accepted job —
 a duplicate webhook for the same ref+step coalesces away silently), `run_start`, `run_end
-{outcome, costUsd}`, `blocked {reason}` (task now held), `failed {reason}`, `merged`,
+{outcome, costUsd}`, `verdict_missing {reason}` (a clean exit with no usable verdict file, right
+before the hold it forces; a `blocked` event follows), `blocked {reason}` (task now held),
+`failed {reason}`, `merged`,
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
 `pipeline_done` (ticket finished, PR ready), `ci_red {action}`, `ci_green {pr, sha, mergeable,
