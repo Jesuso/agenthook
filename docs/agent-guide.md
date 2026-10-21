@@ -55,6 +55,9 @@ full shell-level recipe (tick → background watch → act → re-arm), see
 Supervising several profiles? Don't run one wait per profile: `events {profiles: ["*"], cursor, waitS}`
 (shell: `agenthook watch --all --json`) wakes on the first event from any of them. Events carry
 `profile` and `cursor` is an object `{"<stateKey>": offset}` — pass it back whole.
+From a shell with a monitor/tail tool, `agenthook watch --follow [--all] [--heartbeat <s>]` streams
+instead of exiting after each batch: one JSON line per event carrying its own resume `cursor`,
+optional `{"e":"heartbeat"}` lines, and a final `{"e":"watch_end","cursor":…}` line.
 `tick {profiles: ["*"]}` (`agenthook tick --all --json`) returns one tick per profile.
 `ageS`/`outTok` never affect the etag, so `{"unchanged":true}` can fire while an agent is running;
 omit `ifNoneMatch` when you want fresh ages and token counts rather than the cheap unchanged check.

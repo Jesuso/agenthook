@@ -28,7 +28,7 @@
 //   agenthook tick [name] [--json] one-call status+board+PRs+events digest for agents
 //   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
 //   agenthook digest [name] [--json] write + print a profile's Digest (no receiver needed)
-//   agenthook watch [name] [--event a,b] [--ref r] [--timeout s]  block until the next event
+//   agenthook watch [name] [--event a,b] [--ref r] [--timeout s] [--follow]  block until the next event (--follow: stream JSON lines)
 //
 // Global flag: --config <path> selects a config explicitly (default: discover
 // agenthook.config.json from the current dir upward).
@@ -64,7 +64,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "body", "file", "step", "name"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "body", "file", "step", "name"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -134,7 +134,7 @@ usage: agenthook <command> [args] [--config <path>]
                             (--all / ≥2 names: one per profile; --cursor '{"<key>":<n>}')
   epics [name] [--ref <epic>] [--fresh] [--json]  every epic's progress, or one epic's tickets
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
-  watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json]  block until the next event (exit 2 on timeout)
+  watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json] [--follow|--stream [--heartbeat <s>]]  block until the next event (exit 2 on timeout); --follow stays attached, one JSON line per event with its resume cursor, then a final watch_end line
                             (--all / ≥2 names: first event from any profile, tagged; --cursor '{"<key>":<n>}')
   --version, -v             print the installed version
 `;

@@ -233,10 +233,12 @@ export function compactEvent(e) {
 /**
  * Events appended after byte `cursor`, filtered. Whole lines only: the returned cursor is the
  * end of the last complete line read, so a half-written line is picked up whole next time. A
- * cursor past EOF (log replaced/truncated) restarts at 0.
+ * cursor past EOF (log replaced/truncated) restarts at 0. `ends[i]` is the byte offset just past
+ * `events[i]`'s line — an exact per-event cursor (the batch `cursor` may sit past trailing
+ * non-matching lines).
  * @param {string} dir @param {number} cursor
  * @param {{types?: Set<string>|null, ref?: string, limit?: number}} [filter]
- * @returns {{events: Record<string, any>[], cursor: number, truncated: boolean}}
+ * @returns {{events: Record<string, any>[], ends: number[], cursor: number, truncated: boolean}}
  */
 export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } = {}) {
   const file = path.join(dir, "events.jsonl");
@@ -244,7 +246,7 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
   try {
     fd = fs.openSync(file, "r");
   } catch {
-    return { events: [], cursor: 0, truncated: false };
+    return { events: [], ends: [], cursor: 0, truncated: false };
   }
   try {
     const size = fs.fstatSync(fd).size;
@@ -254,9 +256,11 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
     const n = fs.readSync(fd, buf, 0, buf.length, from);
     const text = buf.subarray(0, n);
     const lastNl = text.lastIndexOf(0x0a);
-    if (lastNl === -1) return { events: [], cursor: from, truncated: false };
+    if (lastNl === -1) return { events: [], ends: [], cursor: from, truncated: false };
     /** @type {Record<string, any>[]} */
     const events = [];
+    /** @type {number[]} */
+    const ends = [];
     let consumed = 0;
     let truncated = false;
     for (const line of text.subarray(0, lastNl + 1).toString("utf8").split("\n")) {
@@ -276,11 +280,12 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
             break;
           }
           events.push(e);
+          ends.push(from + consumed + lineBytes);
         }
       }
       consumed += lineBytes;
     }
-    return { events, cursor: truncated ? from + consumed : from + lastNl + 1, truncated };
+    return { events, ends, cursor: truncated ? from + consumed : from + lastNl + 1, truncated };
   } finally {
     fs.closeSync(fd);
   }
@@ -295,7 +300,7 @@ export function readEventsSince(dir, cursor, { types = null, ref, limit = 100 } 
  */
 export async function waitForEvents(dir, cursor, { timeoutMs, signal, endIfGone = false, ...filter }) {
   let cur = cursor;
-  if (signal?.aborted) return { events: [], cursor: cur, truncated: false, timedOut: true }; // cancelled before the wait began
+  if (signal?.aborted) return { events: [], ends: [], cursor: cur, truncated: false, timedOut: true }; // cancelled before the wait began
   const first = readEventsSince(dir, cur, filter);
   if (first.events.length) return { ...first, timedOut: false };
   cur = first.cursor;
@@ -337,13 +342,21 @@ export async function waitForEvents(dir, cursor, { timeoutMs, signal, endIfGone 
   });
 }
 
+/**
+ * `mergeTagged`'s ordering, keeping each event's optional third-tuple-element offset
+ * (`readEventsSince`'s `ends`) alongside it as `end`.
+ * @param {([string, Record<string, any>[]] | [string, Record<string, any>[], number[]])[]} lists
+ */
+function mergeOrder(lists) {
+  return lists
+    .flatMap(([profile, events, ends]) => events.map((e, j) => ({ e: /** @type {Record<string, any>} */ ({ ...e, profile }), end: ends?.[j] })))
+    .map((x, i) => ({ ...x, i }))
+    .sort((a, b) => String(a.e.ts ?? "").localeCompare(String(b.e.ts ?? "")) || a.i - b.i);
+}
+
 /** Merge per-profile event lists, each event tagged `profile`, ordered by `ts` (stable; best-effort across profiles). @param {[string, Record<string, any>[]][]} lists */
 export function mergeTagged(lists) {
-  return lists
-    .flatMap(([profile, events]) => events.map((e) => /** @type {Record<string, any>} */ ({ ...e, profile })))
-    .map((e, i) => ({ e, i }))
-    .sort((a, b) => String(a.e.ts ?? "").localeCompare(String(b.e.ts ?? "")) || a.i - b.i)
-    .map((x) => x.e);
+  return mergeOrder(lists).map((x) => x.e);
 }
 
 /**
@@ -354,9 +367,10 @@ export function mergeTagged(lists) {
  * no entry in `cursors` starts from "now". A profile whose dir disappears is dropped
  * (`onDrop(stateKey)`, key removed from the cursor) and the wait goes on over the rest with the
  * remaining budget; all dropped → `allDropped`. Still fs.watch-driven; the only timer is the timeout.
+ * `ends[i]` is the byte offset just past `events[i]` in its own profile's log (see `readEventsSince`).
  * @param {ReturnType<typeof listProfiles>} entries @param {Record<string, number>|undefined} cursors
  * @param {{types?: Set<string>|null, ref?: string, limit?: number, timeoutMs: number, signal?: AbortSignal, onDrop?: (stateKey: string) => void}} o
- * @returns {Promise<{events: Record<string, any>[], cursor: Record<string, number>, timedOut: boolean, truncated: boolean, allDropped?: boolean}>}
+ * @returns {Promise<{events: Record<string, any>[], ends: number[], cursor: Record<string, number>, timedOut: boolean, truncated: boolean, allDropped?: boolean}>}
  */
 export async function waitForEventsMulti(entries, cursors, { timeoutMs, signal, onDrop, ...filter }) {
   const deadline = Date.now() + timeoutMs;
@@ -386,7 +400,7 @@ export async function waitForEventsMulti(entries, cursors, { timeoutMs, signal, 
       ),
     );
     signal?.removeEventListener("abort", chain);
-    /** @type {[string, Record<string, any>[]][]} */
+    /** @type {[string, Record<string, any>[], number[]][]} */
     const lists = [];
     let truncated = false;
     let dropped = false;
@@ -398,13 +412,16 @@ export async function waitForEventsMulti(entries, cursors, { timeoutMs, signal, 
       }
       cursor[e.stateKey] = r.cursor;
       truncated ||= r.truncated;
-      if (r.events.length) lists.push([e.stateKey, r.events]);
+      if (r.events.length) lists.push([e.stateKey, r.events, r.ends]);
     }
-    if (lists.length) return { events: mergeTagged(lists), cursor, timedOut: false, truncated };
+    if (lists.length) {
+      const merged = mergeOrder(lists);
+      return { events: merged.map((x) => x.e), ends: merged.map((x) => /** @type {number} */ (x.end)), cursor, timedOut: false, truncated };
+    }
     // Only a disappearing profile ends a round early and re-waits; anything else is the timeout/abort.
     if (!dropped || signal?.aborted || Date.now() >= deadline) break;
   }
-  return { events: [], cursor, timedOut: true, truncated: false, ...(watching.length ? {} : { allDropped: true }) };
+  return { events: [], ends: [], cursor, timedOut: true, truncated: false, ...(watching.length ? {} : { allDropped: true }) };
 }
 
 // ------------------------------------------------------------------ runs & logs
