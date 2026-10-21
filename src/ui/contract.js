@@ -258,3 +258,16 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {number} basedOnEvents
  * @property {number} needsYou
  */
+
+/**
+ * `GET /api/sandbox-readiness` body (src/ui/sandbox.js): the three things a sandboxed claude step
+ * needs outside the config — the container runtime, the agent image, a claude credential in the
+ * profile's `.env`. `enabled:false` (and no rows) when neither the saved config nor the `type`
+ * param sets a sandbox. `remedy` is the CLI command that fixes a ✗ row; no row ever carries a
+ * credential value.
+ * @typedef {object} SandboxReadiness
+ * @property {boolean} enabled
+ * @property {string} [type]              docker | podman
+ * @property {string} [image]             sandbox.image, else the built-in agenthook-agent:<version>
+ * @property {{ id: 'runtime'|'image'|'credential', ok: boolean, label: string, note?: string, remedy?: string }[]} rows
+ */

@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `ah ui`: the Basics form's Sandbox group shows a read-only **Sandbox readiness** card once a
+  backend is set (saved or just toggled on). It has three ✓/✗ rows: the container runtime is
+  installed and reachable, the agent image is built, and a claude credential is in the profile's
+  `.env`. Each ✗ row shows the CLI command that fixes it (`agenthook doctor --fix`,
+  `claude setup-token`, …). It is backed by `GET /api/sandbox-readiness`, which reuses doctor's
+  checks (now shared as `sandboxRuntimeChecks`). It never builds an image, never writes `.env`,
+  and never returns a credential value (#495).
 - Merge catch-up: `agenthook reconcile` (and reconcile-on-boot) now also replays agent PRs the
   forge merged while the receiver was down, so `completeOnMerge`, the worktree drain and the
   release of dependent tasks still happen. Backed by a new optional `Forge.listMergedAgentPrs`

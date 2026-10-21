@@ -1,7 +1,21 @@
-import { describe, it, expect, vi } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BasicsForm, ModelField, modelSelectState, openAfterMove, openAfterRemove, summarizeStep } from "./ConfigForms";
+import type { SandboxReadiness } from "./contract";
+import { click, mount, until } from "./domHarness";
+import type { Mounted } from "./domHarness";
+
+// The Sandbox group's readiness card fetches on mount; no test here reaches a real server.
+let readiness: { status: number; body: SandboxReadiness | null } = { status: 200, body: { enabled: false, rows: [] } };
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(readiness.body), { status: readiness.status })),
+  );
+});
+afterEach(() => vi.unstubAllGlobals());
 
 /** Depth-first search of a React element tree for a node whose `props[key] === value`. */
 function findByProp(node: any, key: string, value: string): any {
@@ -119,6 +133,65 @@ describe("BasicsForm Sandbox group (#494)", () => {
 
     const fullAutoOff = render({ name: "p", fullAuto: false });
     expect(fullAutoOff).not.toContain("fullAuto without a sandbox");
+  });
+
+  it("renders the readiness card only when a sandbox block is set (saved or just toggled on)", () => {
+    expect(render({ name: "p" })).not.toContain("Sandbox readiness");
+    expect(render({ name: "p", sandbox: { type: "docker" } })).toContain("Sandbox readiness");
+  });
+
+  describe("readiness card", () => {
+    let m: Mounted | null = null;
+    afterEach(async () => {
+      await m?.unmount();
+      m = null;
+    });
+    const mountBasics = (raw: object) => mount(createElement(BasicsForm, { text: JSON.stringify(raw), onEdit: () => {}, raw, stateKey: "p q" }));
+    const rows = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>("[data-readiness-row]")];
+
+    it("fetches for the form's backend and shows ✓/✗, the note and the remedy per row — never a value", async () => {
+      readiness = {
+        status: 200,
+        body: {
+          enabled: true,
+          type: "podman",
+          image: "agenthook-agent:1",
+          rows: [
+            { id: "runtime", ok: true, label: "sandbox: `podman info` succeeds" },
+            { id: "image", ok: false, label: "sandbox image present: agenthook-agent:1", note: "missing", remedy: "agenthook doctor --fix" },
+            { id: "credential", ok: false, label: "claude credential in the profile's .env", remedy: "claude setup-token, then add CLAUDE_CODE_OAUTH_TOKEN=… to ~/p/.env (or ANTHROPIC_API_KEY)" },
+          ],
+        },
+      };
+      m = await mountBasics({ name: "p", sandbox: { type: "podman" } });
+      await until(() => rows(m!.root).length === 3);
+      expect((fetch as any).mock.calls[0][0]).toBe("/api/sandbox-readiness?profile=p+q&type=podman");
+      const [runtime, image, cred] = rows(m.root);
+      expect(runtime.dataset.ok).toBe("true");
+      expect(runtime.textContent).toContain("✓");
+      expect(image.textContent).toContain("✗");
+      expect(image.textContent).toContain("missing");
+      expect(image.querySelector(".font-mono")?.textContent).toBe("agenthook doctor --fix");
+      expect(cred.querySelector(".font-mono")?.textContent).toMatch(/^claude setup-token/);
+      expect(m.root.textContent).not.toContain("secret");
+    });
+
+    it("Refresh re-fetches; a failed request shows why", async () => {
+      readiness = { status: 404, body: null };
+      m = await mountBasics({ name: "p", sandbox: { type: "docker" } });
+      await until(() => m!.root.textContent?.includes("couldn't check"));
+      expect(m.root.textContent).toContain("no config published for this profile");
+      const refresh = [...m.root.querySelectorAll("button")].find((b) => b.textContent === "Refresh")!;
+      await click(refresh);
+      expect((fetch as any).mock.calls.length).toBe(2);
+    });
+
+    it("a saved sandbox block without a backend shows a hint, not an empty card", async () => {
+      readiness = { status: 200, body: { enabled: false, rows: [] } };
+      m = await mountBasics({ name: "p", sandbox: { image: "x" } });
+      await until(() => m!.root.textContent?.includes("pick a sandbox backend"));
+      expect(rows(m.root)).toHaveLength(0);
+    });
   });
 
   it("renders the doctor --fix help text", () => {

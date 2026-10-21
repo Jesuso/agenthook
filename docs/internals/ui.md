@@ -26,7 +26,9 @@
   profile's `control.sock`, skipping the `hello` line, resolving `{ok,result|error}` or rejecting
   `down`/`timeout`; `resolveProfileSock` gates by `listProfiles` like `logs.js`'s `profileDir`)
   backs more endpoints that are **not** file writes: `GET /api/discover` (cookie only; 5 s
-  timeout), `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
+  timeout), `GET /api/sandbox-readiness` (cookie only; `sandbox.js` runs doctor's read-only
+  `sandboxRuntimeChecks` probes and checks the profile's `.env` for a credential, no value returned;
+  `sandboxIo` stubs the probes in tests), `POST /api/restart` (the v2/v3 write-guard chain; sends `{when:'idle'}`, 2 s
   timeout) and `POST /api/pause` / `/api/resume` (same guards; `args:{}`) — all map the receiver's
   reply to 503 (down) / 504 (timeout) / 502 (`ok:false`) / 200, and the three POSTs audit their
   outcome via `save.js`'s `appendAudit` (also used by `atomicSave`).

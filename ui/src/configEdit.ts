@@ -408,6 +408,11 @@ export function discoverUrl(profile: string): string {
   return `/api/discover?${new URLSearchParams({ profile })}`;
 }
 
+/** `GET /api/sandbox-readiness` for the form's current backend (checked even before it's saved). */
+export function sandboxReadinessUrl(profile: string, type: string): string {
+  return `/api/sandbox-readiness?${new URLSearchParams(type ? { profile, type } : { profile })}`;
+}
+
 /** `raw[key]` when it is an object (the `tracker` / `forge` / `ingress` block), else undefined. */
 export function readBlock(raw: unknown, key: "tracker" | "forge" | "ingress"): Record<string, unknown> | undefined {
   return isObj(raw) && isObj(raw[key]) ? raw[key] : undefined;

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -17,6 +17,7 @@ import { loadConfig } from "../src/config.js";
 import { instructionTargets } from "../src/heartbeat.js";
 import { uiBundleState } from "../src/ui-bundle.js";
 import { SANDBOX_CREDENTIAL_VARS } from "../src/agents/claude.js";
+import { DEFAULT_IMAGE } from "../src/sandbox/image.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-doctor-"));
 
@@ -801,6 +802,25 @@ test("sandboxChecks: runtime missing or down stops there", async () => {
   assert.equal(off[0].ok, false);
   const down = await sandboxChecks(sbCfg(), { run: sbRun({ info: 1 }), has: () => true });
   assert.deepEqual(down.map((c) => c.ok), [true, false]);
+});
+
+test("sandboxRuntimeChecks: binary, info, then each image — a custom image's fix is manual, a missing default's builds", async () => {
+  /** @type {string[][]} */
+  const calls = [];
+  const run = /** @type {import('../src/types.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: args[2] === "mine:1" ? 1 : 0, stdout: "", stderr: "" }));
+  const checks = await sandboxRuntimeChecks({ type: "podman", image: "mine:1" }, { run, has: () => true, images: ["mine:1", DEFAULT_IMAGE] });
+  assert.deepEqual(checks.map((c) => [c.ok, c.label]), [
+    [true, "sandbox: podman binary on PATH"],
+    [true, "sandbox: `podman info` succeeds"],
+    [false, "sandbox image present: mine:1"],
+    [true, `sandbox image present: ${DEFAULT_IMAGE} (egress proxy)`],
+  ]);
+  assert.match(/** @type {any} */ (checks[2].fix).manual, /^build mine:1 \(FROM /);
+  assert.ok(checks[3].fix && "apply" in checks[3].fix);
+  assert.deepEqual(calls, [["info"], ["image", "inspect", "mine:1"], ["image", "inspect", DEFAULT_IMAGE]]);
+  // images defaults to [image]; a down runtime stops before any inspect.
+  assert.equal((await sandboxRuntimeChecks({ type: "docker", image: DEFAULT_IMAGE }, { run: sbRun(), has: () => true })).length, 3);
+  assert.deepEqual((await sandboxRuntimeChecks({ type: "docker", image: DEFAULT_IMAGE }, { run: sbRun({ info: 1 }), has: () => true })).map((c) => c.ok), [true, false]);
 });
 
 test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step ✗, an absolute claudeBin ⚠, sandbox:false skipped", async () => {

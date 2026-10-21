@@ -39,7 +39,7 @@ const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
 
 /** One CLI call for the sandbox checks: a non-zero exit resolves, a spawn failure rejects.
  * @type {import('../types.js').IngressRun} */
-const execRun = (bin, args, { timeoutMs }) =>
+export const execRun = (bin, args, { timeoutMs }) =>
   new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: timeoutMs, encoding: "utf8" }, (err, stdout, stderr) => {
       if (err && typeof err.code !== "number") return reject(err);
@@ -48,7 +48,7 @@ const execRun = (bin, args, { timeoutMs }) =>
   });
 
 /** @param {string} bin */
-function onPath(bin) {
+export function onPath(bin) {
   const r = spawnSync(process.platform === "win32" ? "where" : "which", [bin], { encoding: "utf8" });
   return r.status === 0;
 }
@@ -398,20 +398,17 @@ export function ingressLivenessLints(profile) {
 const buildImage = (bin, args, dockerfile) => spawnSync(bin, args, { input: dockerfile, stdio: ["pipe", "inherit", "inherit"] });
 
 /**
- * The per-run sandbox preflight (only with a `sandbox` block): the runtime CLI on PATH and
- * reachable, the image present (fix: build the default recipe), and per sandboxed step an
- * agent that supports the sandbox, claude's credential var, and a binary that resolves
- * inside the image.
- * @param {import('../types.js').Config} cfg
- * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }}} io
+ * The sandbox runtime + image preflight: the runtime CLI on PATH (`$<TYPE>` overrides it) and
+ * reachable — stopping at the first failure — then each of `images` present (fix: build the
+ * default recipe). `image` is the profile's agent image; any other entry is labelled the egress
+ * proxy's. Shared with `ah ui`'s read-only readiness card (src/ui/sandbox.js).
+ * @param {{ type: string, image: string }} sandbox
+ * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }, images?: string[]}} io
  * @returns {Promise<Check[]>}
  */
-export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage }) {
-  if (!cfg.sandbox) return [];
-  const runtime = cfg.sandbox.type;
+export async function sandboxRuntimeChecks({ type: runtime, image }, { run, has = onPath, build = buildImage, images = [image] }) {
   const env = runtime.toUpperCase();
   const bin = process.env[env] || runtime;
-  const image = cfg.sandbox.image || DEFAULT_IMAGE;
   /** @type {Check[]} */
   const out = [];
   if (!has(bin)) {
@@ -426,8 +423,7 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
     return out;
   }
   out.push({ ok: true, label: `sandbox: \`${bin} info\` succeeds`, note: rootNote });
-  // The egress proxy runs the built-in image, so an allowlist profile with a custom image needs both.
-  for (const img of new Set([image, ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])])) {
+  for (const img of new Set(images)) {
     const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
     out.push({
       ok: r.code === 0,
@@ -444,6 +440,26 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
         : { manual: `build ${img} (FROM ${DEFAULT_IMAGE}, with sh, git, gh and the agent CLI on PATH) — see docs/sandbox.md` },
     });
   }
+  return out;
+}
+
+/**
+ * The per-run sandbox preflight (only with a `sandbox` block): the runtime CLI on PATH and
+ * reachable, the image present (fix: build the default recipe), and per sandboxed step an
+ * agent that supports the sandbox, claude's credential var, and a binary that resolves
+ * inside the image.
+ * @param {import('../types.js').Config} cfg
+ * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }}} io
+ * @returns {Promise<Check[]>}
+ */
+export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage }) {
+  if (!cfg.sandbox) return [];
+  const image = cfg.sandbox.image || DEFAULT_IMAGE;
+  // The egress proxy runs the built-in image, so an allowlist profile with a custom image needs both.
+  const images = [image, ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])];
+  const out = await sandboxRuntimeChecks({ type: cfg.sandbox.type, image }, { run, has, build, images });
+  // The first two checks are the runtime's (binary, `info`); a ✗ there stops the preflight.
+  if (out.slice(0, 2).some((c) => !c.ok)) return out;
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || !isSandboxed(cfg, s)) continue;
     const agent = agentFor(cfg, s);
