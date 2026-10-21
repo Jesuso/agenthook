@@ -619,6 +619,8 @@ export function createAsanaAdapter(cfg, store) {
       const target = `${publicUrl.replace(/\/$/, "")}/mytasks/`;
       // Remove stale hooks first (tunnel URL rotates each boot).
       const list = await api(`/webhooks?workspace=${pc.workspaceGid}&opt_fields=target`);
+      // The HTTP status rides on the error: boot retries a 5xx/429 and briefly a 404 (src/engine/boot-retry.js).
+      if (!list.ok) throw Object.assign(new Error(`Asana: list webhooks ${list.status}`), { status: list.status });
       for (const w of (await json(list)).data || []) {
         await api(`/webhooks/${w.gid}`, { method: "DELETE" });
         console.log(`  deleted webhook ${w.gid}`);
@@ -645,8 +647,8 @@ export function createAsanaAdapter(cfg, store) {
           },
         }),
       });
-      const body = await json(res);
-      if (body.errors) throw new Error(`Asana: ${JSON.stringify(body.errors)}`);
+      const body = await json(res).catch(() => ({ errors: [{ message: `HTTP ${res.status}` }] }));
+      if (!res.ok || body.errors) throw Object.assign(new Error(`Asana: ${JSON.stringify(body.errors ?? body)}`), { status: res.status });
       console.log(`Webhook created: gid=${body.data.gid} active=${body.data.active} -> ${target}`);
     },
 

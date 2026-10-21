@@ -995,3 +995,23 @@ test("listEpicTickets returns [] on a subtasks API error (fail-open)", async () 
   }
   assert.deepEqual(tickets, []);
 });
+
+test("registerWebhook: a non-2xx (list or create, JSON or HTML body) throws an Error carrying the HTTP status", async () => {
+  const html = (/** @type {number} */ status) => /** @type {any} */ ({ ok: false, status, json: async () => JSON.parse("<html>bad gateway</html>") });
+  const reg = () => routed({ projectGid: "P1", workspaceGid: "WS" }).registerWebhook("https://x.example");
+  /** @param {(u: string, init: any) => any} stub */
+  const thrown = (stub) => withFetch(stub, reg).then(() => null, (e) => e);
+
+  const listDown = await thrown(() => html(502));
+  assert.equal(listDown.status, 502);
+  assert.equal(listDown.message, "Asana: list webhooks 502");
+
+  const createDown = await thrown((u, init) => (init.method === "POST" ? html(503) : ok({ data: [] })));
+  assert.equal(createDown.status, 503);
+
+  const notFound = await thrown((u, init) =>
+    init.method === "POST" ? { ok: false, status: 404, json: async () => ({ errors: [{ message: "Not a recognized ID: P1" }] }) } : ok({ data: [] }),
+  );
+  assert.equal(notFound.status, 404);
+  assert.equal(notFound.message, 'Asana: [{"message":"Not a recognized ID: P1"}]');
+});
