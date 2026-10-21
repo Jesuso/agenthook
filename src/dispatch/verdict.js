@@ -37,35 +37,37 @@ export function parseSummary(raw) {
 
 const MAX_FINDINGS = 20000;
 
+/** The hold reason for a clean exit with a missing/unparseable/unrecognized verdict file. */
+export const NO_VALID_VERDICT = "no valid verdict";
+
 /**
  * Resolve the run's verdict from (exit code, raw verdict-file text or null when
  * unreadable). A non-zero exit is a crashed/errored agent → fail, and its text is NOT
- * trusted. A clean exit honors a valid verdict; a missing/garbage one defaults to
- * `advance` (the "clean exit advances" spine from P1) unless the step opts into
- * `requireVerdict`, which holds it instead so a weak/local `bin` that exits 0 without
- * doing the work doesn't get silently pushed to the next step.
+ * trusted. A clean exit honors a valid verdict; a missing/garbage one holds (a run that
+ * can't write its verdict has not finished) unless the step opts out with
+ * `requireVerdict: false`, which restores the old "clean exit advances" default.
  * @param {number} code @param {string|null} text @param {{requireVerdict?: boolean}} [opts]
  * @returns {import('../types.js').Verdict}
  */
-export function parseVerdict(code, text, { requireVerdict = false } = {}) {
+export function parseVerdict(code, text, { requireVerdict = true } = {}) {
   if (code !== 0) return { outcome: "fail", reason: `non-zero exit (${code})` };
   let raw;
   if (text === null) {
     return requireVerdict
-      ? { outcome: "hold", reason: "no valid verdict (requireVerdict)" }
+      ? { outcome: "hold", reason: NO_VALID_VERDICT }
       : { outcome: "advance", reason: "no verdict file — defaulting to advance" };
   }
   try {
     raw = JSON.parse(text);
   } catch {
     return requireVerdict
-      ? { outcome: "hold", reason: "no valid verdict (requireVerdict)" }
+      ? { outcome: "hold", reason: NO_VALID_VERDICT }
       : { outcome: "advance", reason: "no verdict file — defaulting to advance" };
   }
   const allowed = ["advance", "fail", "hold", "changes"];
   if (!allowed.includes(raw?.outcome)) {
     return requireVerdict
-      ? { outcome: "hold", reason: "no valid verdict (requireVerdict)" }
+      ? { outcome: "hold", reason: NO_VALID_VERDICT }
       : { outcome: "advance", reason: `unrecognized verdict ${JSON.stringify(raw?.outcome)} — defaulting to advance` };
   }
   return {
@@ -99,7 +101,7 @@ export function createVerdictOps(ctx) {
     } catch {
       /* missing/unreadable — parseVerdict treats text=null like garbage JSON */
     }
-    return parseVerdict(code, text, { requireVerdict: !!(step?.requireVerdict ?? agent.defaults.requireVerdict ?? false) });
+    return parseVerdict(code, text, { requireVerdict: !!(step?.requireVerdict ?? agent.defaults.requireVerdict ?? true) });
   }
 
   /**

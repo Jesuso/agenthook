@@ -53,7 +53,7 @@ Steps that write code (`code`, a `createsWorktree` step) gain the most from a st
 | `bin` | The agent CLI for this step (default the top-level `claudeBin`). |
 | `env` | Extra environment for this step's agent only, e.g. `ANTHROPIC_BASE_URL`. |
 | `model` | The model name your endpoint serves. |
-| `requireVerdict` | Hold the task when the agent exits cleanly without a valid verdict file, instead of advancing it. Weaker models skip the verdict more often. |
+| `requireVerdict` | On by default: hold the task when the agent exits cleanly without a valid verdict file, instead of advancing it. Weaker models skip the verdict more often — set `false` to opt back out to the old advance-on-clean-exit behavior. |
 | `maxConcurrent` | `1` when one GPU serves the model, so runs of this step queue instead of competing. The cap counts inside the global `maxConcurrent`. |
 | `maxMinutes` / `idleMinutes` | Local models are slower. Raise the wall-clock cap, and the idle cap if you set one. |
 | `maxAttempts` | Caps how many times a `changes` verdict can bounce back into a step. |

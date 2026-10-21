@@ -150,6 +150,21 @@ test("pipelineBindings returns null when no stage was picked (init keeps the pla
   assert.equal(adapter().pipelineBindings?.({}), null);
 });
 
+test("pipelineBindings adds holdLabel only when _holdStage was picked", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "agent:code", _successStage: "agent:review", _failureStage: "agent:blocked", _holdStage: "agent:hold" }), {
+    sourceLabel: "agent:code",
+    successLabel: "agent:review",
+    failureLabel: "agent:blocked",
+    holdLabel: "agent:hold",
+  });
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "agent:code", _successStage: "agent:review", _failureStage: "agent:blocked", _holdStage: "" }), {
+    sourceLabel: "agent:code",
+    successLabel: "agent:review",
+    failureLabel: "agent:blocked",
+  });
+});
+
 test("init label discovery offers the agenthook defaults first, then the repo's own labels", async () => {
   const orig = global.fetch;
   // @ts-ignore - test stub

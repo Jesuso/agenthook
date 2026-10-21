@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict } from "../src/dispatch.js";
+import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict, NO_VALID_VERDICT } from "../src/dispatch.js";
 
 // --- parseVerdict: requireVerdict x {valid, missing, garbage, unknown outcome, non-zero exit} ---
 
@@ -26,30 +26,30 @@ test("parseVerdict: a valid verdict passes through unchanged, flag on or off", (
   assert.equal(v2.reason, "q");
 });
 
-test("parseVerdict: missing verdict text (null) defaults to advance when flag is off", () => {
-  assert.deepEqual(parseVerdict(0, null), { outcome: "advance", reason: "no verdict file — defaulting to advance" });
+test("parseVerdict: missing verdict text (null) holds by default", () => {
+  assert.deepEqual(parseVerdict(0, null), { outcome: "hold", reason: NO_VALID_VERDICT });
 });
 
-test("parseVerdict: missing verdict text (null) holds when requireVerdict is on", () => {
-  assert.deepEqual(parseVerdict(0, null, { requireVerdict: true }), { outcome: "hold", reason: "no valid verdict (requireVerdict)" });
+test("parseVerdict: missing verdict text (null) advances when requireVerdict is off", () => {
+  assert.deepEqual(parseVerdict(0, null, { requireVerdict: false }), { outcome: "advance", reason: "no verdict file — defaulting to advance" });
 });
 
-test("parseVerdict: garbage JSON defaults to advance when flag is off", () => {
-  assert.deepEqual(parseVerdict(0, "not json"), { outcome: "advance", reason: "no verdict file — defaulting to advance" });
+test("parseVerdict: garbage JSON holds by default", () => {
+  assert.deepEqual(parseVerdict(0, "not json"), { outcome: "hold", reason: NO_VALID_VERDICT });
 });
 
-test("parseVerdict: garbage JSON holds when requireVerdict is on", () => {
-  assert.deepEqual(parseVerdict(0, "not json", { requireVerdict: true }), { outcome: "hold", reason: "no valid verdict (requireVerdict)" });
+test("parseVerdict: garbage JSON advances when requireVerdict is off", () => {
+  assert.deepEqual(parseVerdict(0, "not json", { requireVerdict: false }), { outcome: "advance", reason: "no verdict file — defaulting to advance" });
 });
 
-test("parseVerdict: unrecognized outcome defaults to advance when flag is off", () => {
-  const v = parseVerdict(0, '{"outcome":"bogus"}');
+test("parseVerdict: unrecognized outcome holds by default", () => {
+  assert.deepEqual(parseVerdict(0, '{"outcome":"bogus"}'), { outcome: "hold", reason: NO_VALID_VERDICT });
+});
+
+test("parseVerdict: unrecognized outcome advances when requireVerdict is off", () => {
+  const v = parseVerdict(0, '{"outcome":"bogus"}', { requireVerdict: false });
   assert.equal(v.outcome, "advance");
   assert.match(v.reason, /unrecognized verdict/);
-});
-
-test("parseVerdict: unrecognized outcome holds when requireVerdict is on", () => {
-  assert.deepEqual(parseVerdict(0, '{"outcome":"bogus"}', { requireVerdict: true }), { outcome: "hold", reason: "no valid verdict (requireVerdict)" });
 });
 
 // --- readVerdict difficulty parsing ---
@@ -373,30 +373,34 @@ test("dispatch: a held ref that later fails ends with no held record", async () 
   assert.equal(store.getHeld("42"), undefined);
 });
 
-// --- requireVerdict (#358): a clean exit with no valid verdict holds instead of advancing ---
+// --- requireVerdict (#358, #500): a clean exit with no valid verdict holds by default ---
 
-test("dispatch: requireVerdict holds on a clean exit with no readable verdict (empty file)", async () => {
-  const h = heldHarness({ steps: [{ id: "code", requireVerdict: true }, { id: "done", manual: true }] });
+test("dispatch: a clean exit with no readable verdict (empty file) holds by default", async () => {
+  const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }] });
   await h.runStep("code", "");
   assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
   assert.equal(h.store.getHeld("42")?.stepId, "code");
-  assert.equal(h.store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+  assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT);
+  const missing = h.events.find((e) => e.event === "verdict_missing");
+  assert.equal(missing?.reason, NO_VALID_VERDICT);
   const blocked = h.events.find((e) => e.event === "blocked");
-  assert.equal(blocked?.reason, "no valid verdict (requireVerdict)");
+  assert.equal(blocked?.reason, NO_VALID_VERDICT);
+  assert.ok(h.events.indexOf(missing) < h.events.indexOf(blocked), "verdict_missing fires before blocked");
 });
 
-test("dispatch: requireVerdict holds on garbage verdict JSON too", async () => {
-  const h = heldHarness({ steps: [{ id: "code", requireVerdict: true }, { id: "done", manual: true }] });
+test("dispatch: a clean exit with garbage verdict JSON holds by default too", async () => {
+  const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }] });
   await h.runStep("code", "not json");
   assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
-  assert.equal(h.store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+  assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT);
 });
 
-test("dispatch: without requireVerdict, the same no-verdict run still advances", async () => {
-  const h = heldHarness({ steps: [{ id: "code" }, { id: "done", manual: true }] });
+test("dispatch: requireVerdict:false restores the old advance-on-clean-exit default", async () => {
+  const h = heldHarness({ steps: [{ id: "code", requireVerdict: false }, { id: "done", manual: true }] });
   await h.runStep("code", "");
   assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
   assert.equal(h.store.getHeld("42"), undefined);
+  assert.equal(h.events.find((e) => e.event === "verdict_missing"), undefined);
 });
 
 test("dispatch: the manual drain step clears the held record", async () => {
@@ -888,11 +892,34 @@ test("merge: no completeOnMerge step → complete + direct cleanup (attempts/fin
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "", name: "Task G1", url: "u/G1" }]);
 });
 
-test("merge: tracker without complete() is a logged no-op; still moves + emits", async () => {
+test("merge: tracker without complete() but the completeOnMerge move worked → no 'leaving it open' log", async () => {
   const h = mergeHarness({ complete: false });
-  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  /** @type {string[]} */
+  const lines = [];
+  const log = console.log;
+  console.log = (/** @type {string} */ l) => lines.push(l);
+  try {
+    await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  } finally {
+    console.log = log;
+  }
   assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
+  assert.ok(!lines.some((l) => l.includes("leaving it open")), "no stale 'has no complete()' log after a successful move");
+});
+
+test("merge: no complete() and nothing moved the task → logs the completeOnMerge remedy", async () => {
+  const h = mergeHarness({ complete: false, pipeline: [{ id: "code" }] });
+  /** @type {string[]} */
+  const lines = [];
+  const log = console.log;
+  console.log = (/** @type {string} */ l) => lines.push(l);
+  try {
+    await h.run({ kind: "merge", ref: "G1", stepId: "", dedupKey: "merged:5" });
+  } finally {
+    console.log = log;
+  }
+  assert.ok(lines.some((l) => l.includes("has no complete()") && l.includes("completeOnMerge")), "logs the remedy when nothing moved the task");
 });
 
 // --- ci jobs (forge red CI): re-run once, then comment + bounce to code; fail-closed ---

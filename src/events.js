@@ -29,6 +29,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in
  *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
  *             tool/the UI feed — see HIDDEN_BY_DEFAULT)
+ *           | verdict_missing (a clean exit with a missing/unparseable/unrecognized verdict file, right before
+ *             the hold it forces; `reason` = "no valid verdict"; a `blocked` event follows)
  *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
  *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)

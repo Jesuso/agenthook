@@ -960,15 +960,32 @@ export function createGithubAdapter(cfg, store) {
           },
         },
         { key: "_sourceStage", message: "Label that FIRES the code step (an issue carrying it triggers the agent)", type: "select", default: DEFAULTS[0], choices: labels },
-        { key: "_successStage", message: "Label to swap to on SUCCESS (hand off to review)", type: "select", default: DEFAULTS[1], choices: labels },
+        { key: "_successStage", message: "Label to swap to on SUCCESS (hand off to the next stage, e.g. review or done)", type: "select", default: DEFAULTS[1], choices: labels },
         { key: "_failureStage", message: "Label to swap to on FAILURE (blocked — a human picks it up)", type: "select", default: DEFAULTS[2], choices: labels },
+        {
+          key: "_holdStage",
+          message: "Label to swap to when the agent needs an answer (hold)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — leave it in place)", value: "" }, ...(await labels(a))],
+        },
+        {
+          key: "_doneStage",
+          message: "Label for DONE — a merged PR swaps the issue to this label (skip = no done step)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — no done step)", value: "" }, ...(await labels(a))],
+        },
       ];
     },
 
     // Map the wizard's live stage picks to this tracker's step bindings. Null when the
-    // user never reached the label picks, so init falls back to the TODO_* skeleton.
+    // user never reached the label picks, so init falls back to the TODO_* skeleton. The
+    // hold key is added only when a hold label was picked — never written as "".
     /** @param {Record<string,any>} a */
     pipelineBindings: (a) =>
-      a._sourceStage ? { sourceLabel: a._sourceStage, successLabel: a._successStage, failureLabel: a._failureStage } : null,
+      a._sourceStage
+        ? { sourceLabel: a._sourceStage, successLabel: a._successStage, failureLabel: a._failureStage, ...(a._holdStage ? { holdLabel: a._holdStage } : {}) }
+        : null,
   };
 }

@@ -6,12 +6,35 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `agenthook init` now offers two more stages for every wizard-driven tracker (Linear, Asana,
+  Jira, GitHub, GitHub Projects): a skippable **hold** stage (a `hold` verdict moves the task there
+  so the board shows the agent is waiting on a human) and a skippable **done** stage. Picking a done
+  stage appends a manual `done` step with `drainWorktree`, which also makes the forge's
+  `completeOnMerge` prompt apply, so trackers without a complete API (Linear and others) see the
+  task land in Done when its PR merges (#482).
+- `agenthook watch --follow` (alias `--stream`) stays attached and prints one JSON line per event
+  instead of exiting after the first batch. Each line carries the exact cursor just past that
+  event (resume from any line with no gaps or duplicates), `--heartbeat <s>` emits a keepalive
+  line, and a final `watch_end` line reports the cursor on SIGTERM/SIGINT (exit 0), `--timeout`
+  (exit 2) or every watched profile disappearing (exit 1) (#505).
+
+### Changed
+
+- `requireVerdict` now defaults to `true`: a step whose agent exits 0 without writing a valid
+  verdict file now **holds** (resumable with `@agent`) instead of silently advancing. Add
+  `"requireVerdict": false` to a step to keep the old advance-on-clean-exit behaviour. A
+  `verdict_missing {reason}` event fires just before the hold (#500).
+
 ### Fixed
 
 - A managed tunnel (ngrok, cloudflared) that dies after boot is now visible: the ingress adapter's
   new optional `onExit` hook records `ingressDown {at, reason}` in the heartbeat, `agenthook status`
   prints `ingress : <type> DOWN (...)` instead of UP, and `agenthook doctor` warns that webhooks
   can't reach the receiver until `agenthook restart` (#483).
+- The merge job's "has no complete() — leaving <ref> open" log line now appears only when nothing
+  moved the task, and names the remedy (a manual step with `completeOnMerge: true`) (#482).
 - Claude runs now set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, so a background subagent is no
   longer killed 10 minutes after its last turn (a step's own `env` can still override it). The
   stream-json parser also sums `usage`/`duration_ms` across multiple `result` events (one per

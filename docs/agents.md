@@ -32,7 +32,7 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 | Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` | priced only when OpenCode reports a non-zero cost, else `unpriced` |
 | `follow` | yes | yes | no (no transcripts) | no (sessions live in OpenCode's database) |
 | `resume` | yes | yes (`agent --resume <id>`) | no | yes (`opencode -s <id>`, ids from `usage.jsonl`) |
-| `requireVerdict` default | `false` | `false` | `true` | `false` |
+| `requireVerdict` default | `true` | `true` | `true` | `true` |
 
 An **unpriced** run has no `costUsd`: agenthook has no price table for that agent (or the run
 used a local model, see [Mixed pipelines / local models](local-models.md)). The UI shows
@@ -102,10 +102,10 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   `~/.agenthook/<stateKey>/prompts/<ref>-<step>.md` (mode 0600), passes it via `--query-file`, and
   removes it after the run. So the prompt is not visible in `ps`. `ah agents` finds a Hermes run
   by its pid in the profile's `running.json` instead.
-- **Verdict**: every agent gets `AGENTHOOK_VERDICT_FILE` and should write its verdict there. Hermes
-  defaults to `requireVerdict: true`: its plain-text output gives no other signal, so a clean exit
-  with no verdict file holds the task instead of advancing it. `ah doctor` warns when a Hermes
-  step sets `requireVerdict: false`.
+- **Verdict**: every agent gets `AGENTHOOK_VERDICT_FILE` and should write its verdict there. Every
+  agent defaults to `requireVerdict: true`; Hermes keeps that default explicitly since its
+  plain-text output gives no other signal. `ah doctor` warns when a Hermes step sets
+  `requireVerdict: false`.
 
 ### Agent environment
 
@@ -286,8 +286,8 @@ OpenCode reaches Ollama through its own provider config, so the model alone pick
 }
 ```
 
-`requireVerdict: true` is recommended for weak local models: a clean exit with no verdict file
-then holds the task instead of advancing it. Free and local models report a cost of zero, so these
+`requireVerdict` defaults to `true`, which is especially important for weak local models: a clean
+exit with no verdict file holds the task instead of advancing it. Free and local models report a cost of zero, so these
 runs show as "unpriced". `ah follow` does not cover OpenCode runs (its sessions live in OpenCode's
 own database, which agenthook does not read); read the run log in the UI or `logs/` instead.
 `ah resume <ref>` still lists them, from the session ids in `usage.jsonl`, and prints

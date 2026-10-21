@@ -133,6 +133,10 @@ test("readEventsSince: incremental cursor, whole lines only, filters, limit, tru
   const r1 = readEventsSince(dir, 0);
   assert.deepEqual(r1.events.map((e) => e.event), ["enqueued", "run_end"]);
   assert.ok(r1.cursor < fs.statSync(f).size, "cursor stops before the torn line");
+  const first = Buffer.byteLength(ev("enqueued", "1"));
+  assert.deepEqual(r1.ends, [first, r1.cursor], "ends: the offset just past each returned event's line");
+  assert.deepEqual(readEventsSince(dir, 0, { types: new Set(["run_end"]) }).ends, [r1.cursor]);
+  assert.equal(readEventsSince(dir, first).events[0].event, "run_end", "an end resumes right after its event");
   fs.appendFileSync(f, 'art","ref":"2"}\n');
   const r2 = readEventsSince(dir, r1.cursor);
   assert.deepEqual(r2.events.map((e) => e.event), ["run_start"]);

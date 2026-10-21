@@ -525,6 +525,21 @@ test("pipelineBindings returns null when no Status was picked (init keeps the TO
   assert.equal(adapter().pipelineBindings?.({}), null);
 });
 
+test("pipelineBindings adds holdStatus only when _holdStage was picked", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "In Progress", _successStage: "In Review", _failureStage: "Blocked", _holdStage: "Waiting" }), {
+    sourceStatus: "In Progress",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+    holdStatus: "Waiting",
+  });
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "In Progress", _successStage: "In Review", _failureStage: "Blocked", _holdStage: "" }), {
+    sourceStatus: "In Progress",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+  });
+});
+
 // --- webhook lifecycle (org auto-register / scrub, user + missing-scope fallbacks) ---
 
 /** A fetch stub for the REST webhook path. Answers the GraphQL project probe (org vs
