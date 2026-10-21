@@ -731,15 +731,32 @@ export function createJiraAdapter(cfg, store) {
         { key: "email", message: "Bot account email (the Basic-auth username; not a secret)" },
         { key: "projectKey", message: "Project key whose statuses drive the pipeline (e.g. CAHUI)" },
         { key: "_sourceStage", message: "Status that FIRES the code step (an issue entering it triggers the agent)", type: "select", choices: statuses },
-        { key: "_successStage", message: "Status to move to on SUCCESS (hand off to review)", type: "select", choices: statuses },
+        { key: "_successStage", message: "Status to move to on SUCCESS (hand off to the next stage, e.g. review or done)", type: "select", choices: statuses },
         { key: "_failureStage", message: "Status to move to on FAILURE (blocked — a human picks it up)", type: "select", choices: statuses },
+        {
+          key: "_holdStage",
+          message: "Status to move to when the agent needs an answer (hold)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — leave it in place)", value: "" }, ...(await statuses(a))],
+        },
+        {
+          key: "_doneStage",
+          message: "Status for DONE — a merged PR moves the task here (skip = no done step)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — no done step)", value: "" }, ...(await statuses(a))],
+        },
       ];
     },
 
     // Map the wizard's live stage picks to this tracker's step bindings. Null when the
-    // user never reached the status picks, so init falls back to the TODO_* skeleton.
+    // user never reached the status picks, so init falls back to the TODO_* skeleton. The
+    // hold key is added only when a hold status was picked — never written as "".
     /** @param {Record<string,any>} a */
     pipelineBindings: (a) =>
-      a._sourceStage ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage } : null,
+      a._sourceStage
+        ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage, ...(a._holdStage ? { holdStatus: a._holdStage } : {}) }
+        : null,
   };
 }

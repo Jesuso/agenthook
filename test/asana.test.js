@@ -194,6 +194,21 @@ test("pipelineBindings returns null when no stage was picked (init keeps the pla
   assert.equal(adapter().pipelineBindings?.({}), null);
 });
 
+test("pipelineBindings adds holdSectionGid only when _holdStage was picked", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "111", _successStage: "222", _failureStage: "333", _holdStage: "444" }), {
+    sourceSectionGid: "111",
+    successSectionGid: "222",
+    failureSectionGid: "333",
+    holdSectionGid: "444",
+  });
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "111", _successStage: "222", _failureStage: "333", _holdStage: "" }), {
+    sourceSectionGid: "111",
+    successSectionGid: "222",
+    failureSectionGid: "333",
+  });
+});
+
 test("init section discovery lists the chosen project's sections (name + gid)", async () => {
   const orig = global.fetch;
   /** @type {string[]} */

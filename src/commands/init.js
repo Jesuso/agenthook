@@ -361,11 +361,18 @@ export async function init(args) {
   // step bindings; only when it can't do we fall back to the editable TODO_* skeleton.
   const bindings = adapter.pipelineBindings?.(trackerAns);
   const pipeline = bindings ? [{ ...base, ...bindings }] : PLACEHOLDER_PIPELINES[trackerAns.type] || PLACEHOLDER_PIPELINES.asana;
+  // An optional manual "done" step: a merged PR moves the task here (completeOnMerge below),
+  // which also completes it on trackers with no complete() (Linear and others). Bound through
+  // stageKeys.source so init stays tracker-blind. drainWorktree mirrors localScaffold's done step.
+  const sourceKey = adapter.describe().stageKeys?.source;
+  if (bindings && trackerAns._doneStage && sourceKey) {
+    pipeline.push({ id: "done", manual: true, drainWorktree: true, [sourceKey]: trackerAns._doneStage });
+  }
 
   // --- forge (optional third axis: what happened to the code — e.g. a PR merged) ---
   // The origin remote picks the forge: a GitLab remote → gitlab, anything else → github.
-  // A forge with no manual step to complete-on-merge still drains + cleans up (see the
-  // issue's Evidence) — mergeStepCandidates is empty for init's single-`code` pipeline.
+  // mergeStepCandidates only ever returns manual steps — the `done` step above, when
+  // generated — so the completeOnMerge prompt below only appears for a pipeline that has one.
   let remoteUrl = "";
   try {
     remoteUrl = execFileSync("git", ["-C", core.repoPath, "remote", "get-url", "origin"], { encoding: "utf8" }).trim();
@@ -429,7 +436,7 @@ export async function init(args) {
   const envs = [...(tokenEnv ? [tokenEnv] : []), ...(appKeyVar ? [appKeyVar] : []), ...(forgeTokenEnv && forgeTokenEnv !== tokenEnv ? [forgeTokenEnv] : [])];
   if (envs.length) console.log(`  - ensure ${envs.join(", ")}${config.ingress.type === "ngrok" ? " (+ ngrok authtoken)" : ""} is set in your env/.env`);
   if (tracker.auth) console.log(`  - GitHub App: see docs/github-app.md (agents still push and comment with their own $GITHUB_TOKEN / gh auth, passed through the agent env allowlist — see agentEnvPassthrough)`);
-  if (bindings) console.log(`  - tracker.pipeline is bound to the stages you picked — add more steps for a longer pipeline`);
+  if (bindings) console.log(`  - tracker.pipeline is bound to the stages you picked (${pipeline.map((s) => s.id).join(" → ")}) — add more steps for a longer pipeline`);
   else console.log(`  - EDIT tracker.pipeline: replace the TODO_* section gids and add steps`);
   console.log(`  - drop the per-step instruction files beside the config (e.g. INSTRUCTIONS_CODE.md)`);
   if (config.forge) {

@@ -1070,15 +1070,32 @@ export function createGithubProjectsAdapter(cfg, store) {
           validate: (v) => (/^[^/\s]+\/\d+$/.test(String(v).trim()) ? true : "use org/number"),
         },
         { key: "_sourceStage", message: "Status that FIRES the code step (an item entering it triggers the agent)", type: "select", default: DEFAULTS[0], choices: statusOptions },
-        { key: "_successStage", message: "Status to set on SUCCESS (hand off to review)", type: "select", default: DEFAULTS[1], choices: statusOptions },
+        { key: "_successStage", message: "Status to set on SUCCESS (hand off to the next stage, e.g. review or done)", type: "select", default: DEFAULTS[1], choices: statusOptions },
         { key: "_failureStage", message: "Status to set on FAILURE (blocked — a human picks it up)", type: "select", default: DEFAULTS[2], choices: statusOptions },
+        {
+          key: "_holdStage",
+          message: "Status to set when the agent needs an answer (hold)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — leave it in place)", value: "" }, ...(await statusOptions(a))],
+        },
+        {
+          key: "_doneStage",
+          message: "Status for DONE — a merged PR moves the item here (skip = no done step)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — no done step)", value: "" }, ...(await statusOptions(a))],
+        },
       ];
     },
 
     // Map the wizard's live Status picks to this tracker's step bindings. Null when the
-    // user never reached the Status picks, so init falls back to the TODO_* skeleton.
+    // user never reached the Status picks, so init falls back to the TODO_* skeleton. The
+    // hold key is added only when a hold status was picked — never written as "".
     /** @param {Record<string,any>} a */
     pipelineBindings: (a) =>
-      a._sourceStage ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage } : null,
+      a._sourceStage
+        ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage, ...(a._holdStage ? { holdStatus: a._holdStage } : {}) }
+        : null,
   };
 }

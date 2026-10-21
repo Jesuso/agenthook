@@ -892,11 +892,34 @@ test("merge: no completeOnMerge step → complete + direct cleanup (attempts/fin
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "", name: "Task G1", url: "u/G1" }]);
 });
 
-test("merge: tracker without complete() is a logged no-op; still moves + emits", async () => {
+test("merge: tracker without complete() but the completeOnMerge move worked → no 'leaving it open' log", async () => {
   const h = mergeHarness({ complete: false });
-  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  /** @type {string[]} */
+  const lines = [];
+  const log = console.log;
+  console.log = (/** @type {string} */ l) => lines.push(l);
+  try {
+    await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  } finally {
+    console.log = log;
+  }
   assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
+  assert.ok(!lines.some((l) => l.includes("leaving it open")), "no stale 'has no complete()' log after a successful move");
+});
+
+test("merge: no complete() and nothing moved the task → logs the completeOnMerge remedy", async () => {
+  const h = mergeHarness({ complete: false, pipeline: [{ id: "code" }] });
+  /** @type {string[]} */
+  const lines = [];
+  const log = console.log;
+  console.log = (/** @type {string} */ l) => lines.push(l);
+  try {
+    await h.run({ kind: "merge", ref: "G1", stepId: "", dedupKey: "merged:5" });
+  } finally {
+    console.log = log;
+  }
+  assert.ok(lines.some((l) => l.includes("has no complete()") && l.includes("completeOnMerge")), "logs the remedy when nothing moved the task");
 });
 
 // --- ci jobs (forge red CI): re-run once, then comment + bounce to code; fail-closed ---

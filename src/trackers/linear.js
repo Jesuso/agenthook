@@ -559,14 +559,31 @@ export function createLinearAdapter(cfg, store) {
         },
       },
       { key: "_sourceStage", message: "State that FIRES the code step (an issue entering it triggers the agent)", type: "select", choices: stateChoices },
-      { key: "_successStage", message: "State to set on SUCCESS (hand off to review)", type: "select", choices: stateChoices },
+      { key: "_successStage", message: "State to set on SUCCESS (hand off to the next stage, e.g. review or done)", type: "select", choices: stateChoices },
       { key: "_failureStage", message: "State to set on FAILURE (blocked — a human picks it up)", type: "select", choices: stateChoices },
+      {
+        key: "_holdStage",
+        message: "State to set when the agent needs an answer (hold)",
+        type: "select",
+        default: "",
+        choices: async (a) => [{ title: "(skip — leave it in place)", value: "" }, ...(await stateChoices(a))],
+      },
+      {
+        key: "_doneStage",
+        message: "State for DONE — a merged PR moves the task here (skip = no done step)",
+        type: "select",
+        default: "",
+        choices: async (a) => [{ title: "(skip — no done step)", value: "" }, ...(await stateChoices(a))],
+      },
     ],
 
     // Map the wizard's live state picks to this tracker's step bindings. Null when the user
-    // never reached the state picks, so init falls back to the TODO_* skeleton.
+    // never reached the state picks, so init falls back to the TODO_* skeleton. The hold key
+    // is added only when a hold state was picked — never written as "".
     /** @param {Record<string,any>} a */
     pipelineBindings: (a) =>
-      a._sourceStage ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage } : null,
+      a._sourceStage
+        ? { sourceStatus: a._sourceStage, successStatus: a._successStage, failureStatus: a._failureStage, ...(a._holdStage ? { holdStatus: a._holdStage } : {}) }
+        : null,
   };
 }

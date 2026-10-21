@@ -312,3 +312,33 @@ test("the API key is sent as `Authorization: <key>` with no Bearer prefix", asyn
     s.restore();
   }
 });
+
+// --- agenthook init: pipelineBindings ---
+
+test("pipelineBindings maps the wizard state picks to status bindings", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "Todo", _successStage: "In Review", _failureStage: "Blocked" }), {
+    sourceStatus: "Todo",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+  });
+});
+
+test("pipelineBindings returns null when no stage was picked (init keeps the TODO_* skeleton)", () => {
+  assert.equal(adapter().pipelineBindings?.({}), null);
+});
+
+test("pipelineBindings adds holdStatus only when _holdStage was picked", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "Todo", _successStage: "In Review", _failureStage: "Blocked", _holdStage: "Blocked" }), {
+    sourceStatus: "Todo",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+    holdStatus: "Blocked",
+  });
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "Todo", _successStage: "In Review", _failureStage: "Blocked", _holdStage: "" }), {
+    sourceStatus: "Todo",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+  });
+});

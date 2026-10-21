@@ -44,8 +44,11 @@ export function createMerge(ctx) {
       } catch (e) {
         console.error(`[merge] complete ${job.ref} failed (task stays uncompleted):`, e.message);
       }
-    } else {
-      console.log(`[merge] ${meta.platform} has no complete() — leaving ${job.ref} open`);
+    } else if (!moved) {
+      console.log(
+        `[merge] ${meta.platform} has no complete() and no completeOnMerge step moved ${job.ref} — leaving it open ` +
+          `(add a manual step with "completeOnMerge": true)`,
+      );
     }
 
     // No completeOnMerge step entered to do the cleanup (none configured, no enterStage,
