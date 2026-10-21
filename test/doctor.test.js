@@ -16,6 +16,7 @@ import { worktreeDir } from "../src/paths.js";
 import { loadConfig } from "../src/config.js";
 import { instructionTargets } from "../src/heartbeat.js";
 import { uiBundleState } from "../src/ui-bundle.js";
+import { SANDBOX_CREDENTIAL_VARS } from "../src/agents/claude.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-doctor-"));
 
@@ -344,8 +345,10 @@ function recorder(run = false) {
   return { calls, spawn };
 }
 
-/** Probes stubbed so only the filesystem/git state under test decides the outcome. @param {any} [over] */
-const io = (over = {}) => ({ userClaudeSettings: null, onPath: () => true, portInUse: async () => false, uiBundle: () => ({ state: "fresh" }), spawn: recorder().spawn, ...over });
+/** Probes stubbed so only the filesystem/git state under test decides the outcome. A fixed
+ * `env` keeps the agent-env lints from seeing the host's or sandbox's own vars (e.g. the
+ * sandbox's injected GIT_CONFIG_*), which would otherwise plant an unplanned problem. @param {any} [over] */
+const io = (over = {}) => ({ userClaudeSettings: null, onPath: () => true, portInUse: async () => false, uiBundle: () => ({ state: "fresh" }), spawn: recorder().spawn, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" }, ...over });
 
 /** @param {import('../src/commands/doctor.js').Check} c */
 const problem = (c) => !c.info && (!c.ok || !!c.warn);
@@ -788,8 +791,11 @@ test("sandboxChecks: runtime missing or down stops there", async () => {
 });
 
 test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step ✗, an absolute claudeBin ⚠, sandbox:false skipped", async () => {
-  const saved = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  // agentSpawnEnv reads the real process.env (#507) — clear every credential var sandboxCredentialProblem
+  // checks, not just CLAUDE_CODE_OAUTH_TOKEN, so a host/sandbox shell with e.g. CLAUDE_CODE_USE_BEDROCK=1 set
+  // doesn't make this "credential-less" step look credentialed.
+  const saved = Object.fromEntries(SANDBOX_CREDENTIAL_VARS.map((k) => [k, process.env[k]]));
+  SANDBOX_CREDENTIAL_VARS.forEach((k) => delete process.env[k]);
   try {
     const checks = await sandboxChecks(
       sbCfg({
@@ -808,7 +814,10 @@ test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step 
     assert.equal(abs.warn, true);
     assert.equal(by('step "host"').length, 0, "an opted-out step is not sandbox-checked");
   } finally {
-    if (saved !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = saved;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v !== undefined) process.env[k] = v;
+      else delete process.env[k];
+    }
   }
 });
 
