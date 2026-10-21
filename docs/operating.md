@@ -115,6 +115,15 @@ not half; the real risk is two supervisors **both acting** on the same event (a 
 double `run`). Watching many profiles? Use a single `--all` (or multi-name) watch; its cursor is a
 JSON object `{stateKey: offset}` — pass it back whole.
 
+**Streaming instead of re-arming.** `agenthook watch --follow [--all|name…] [--event <list>]
+[--heartbeat 300]` (alias `--stream`) stays attached and prints one JSON object per line, so a
+harness monitor/tail tool can consume it with no re-arm gap: each event line is
+`{...event, cursor}` (plus `profile` and an object cursor in multi-profile mode), where `cursor`
+resumes exactly after that event; `--heartbeat <s>` adds `{"e":"heartbeat","cursor":…}` lines
+while quiet. The stream ends with `{"e":"watch_end","cursor":…}` — exit 0 on SIGTERM/SIGINT, 2
+(with `"timedOut":true`) when the total `--timeout` runs out, 1 if every watched profile
+disappears. To restart, pass the last line's `cursor` back as `--cursor`.
+
 ### Event → action
 
 See [events.md](events.md) for every field; this just says what to do.
