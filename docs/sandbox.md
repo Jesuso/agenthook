@@ -110,9 +110,11 @@ A sandboxed run has **no route out** except an allowlisting HTTPS proxy. Each ru
 running `src/sandbox/egress-proxy.mjs`) attached to that network and to the runtime's default
 one (`bridge` / `podman`). The agent's container is on the internal network only, with
 `HTTPS_PROXY` / `HTTP_PROXY` (and the lower-case forms) pointing at the proxy and `NO_PROXY` set
-to loopback. Claude Code, git over HTTPS, `gh`, curl, npm and pip honour them; a tool that
-ignores them has no route at all, so it fails closed. Both containers and the network are removed
-when the run ends (and reaped on boot).
+to loopback, plus `NODE_USE_ENV_PROXY=1` (Node's built-in `fetch`, used by corepack, otherwise
+ignores `HTTPS_PROXY`) and `YARN_HTTPS_PROXY` / `YARN_HTTP_PROXY` (Yarn Berry's own fetcher
+ignores `HTTPS_PROXY` too). Claude Code, git over HTTPS, `gh`, curl, npm, pip, corepack and Yarn
+honour them; a tool that ignores them has no route at all, so it fails closed. Both containers
+and the network are removed when the run ends (and reaped on boot).
 
 The proxy only sees `host:port` (a `CONNECT`, or an absolute `http://` URL). It matches the
 **requested hostname** against the run's rules; an IP literal is denied unless a rule names it.
@@ -223,6 +225,7 @@ build commands against this list before turning it on:
 | a browser (Cypress, Playwright) | the default image has none | a custom image that installs one, plus a service the browser can reach |
 | a toolchain other than node 22, git, gh, curl and claude (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
 | packages from a registry | blocked unless allowed | `"egress": {"allow": ["@npm"]}` (see [Network](#network)) |
+| a package whose install script downloads a binary from its own host (e.g. a headless-browser package fetching its browser from a CDN) | that host isn't allowlisted, and the package's own fetcher may not honour the proxy | set the package's skip-download env var in the step's `env`, or add the host to `egress.allow` |
 | cloud or database credentials in your shell or home (`~/.aws`, `~/.pgpass`, `AWS_PROFILE`, an SSM tunnel on localhost) | none of them reach the container | by design: they are what a hijacked run would use |
 
 There is no sidecar-service feature today: a run cannot be given its own Postgres or Redis. The
