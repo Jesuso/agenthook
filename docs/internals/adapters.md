@@ -68,7 +68,8 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `merged:<n>` job — unforced, so a merge handled live stays deduped by `seen`. It runs **only**
   from `reconcile` (CLI → `reconcile_merges` op on a webhook tracker; the `reconcile` op/MCP tool)
   and `--reconcile-on-boot` — never a plain boot or a timer — skips a task already `completed`, and
-  keeps a `merge-watermark.json` (newest `mergedAt` listed; first run looks back 7 days). Dependents
+  keeps a `merge-watermark.json` (newest `mergedAt` listed, held below the oldest PR whose task
+  fetch failed; first run looks back 7 days). Dependents
   release through the tracker's own close webhook once the merge job's `complete` closes the blocker.
   A forge without the method (gitlab today) logs and skips.
   `gitlab` (`src/forges/gitlab.js`, config `project` + optional `baseUrl`, API `<baseUrl>/api/v4`

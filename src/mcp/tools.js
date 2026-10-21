@@ -197,7 +197,7 @@ const TOOLS = {
   },
   reconcile: {
     write: true,
-    def: schema("Replay tasks resting in pipeline source stages (explicit one-shot board read). For items missed during downtime.", { profile: PROFILE }),
+    def: schema("Replay tasks resting in pipeline source stages (explicit one-shot board read), and agent PRs merged while the receiver was down. For items missed during downtime.", { profile: PROFILE }),
   },
   pull: {
     write: true,

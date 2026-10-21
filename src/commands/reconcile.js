@@ -60,7 +60,7 @@ async function reconcileMergesOverControl(cfg) {
 async function reconcileOverControl(cfg) {
   let reply;
   try {
-    reply = await controlRequest(cfg.controlSock, "reconcile", {}, { timeoutMs: 20000 });
+    reply = await controlRequest(cfg.controlSock, "reconcile", {}, { timeoutMs: 60000 }); // board + forge scan
   } catch (e) {
     throw new Error(`could not reach "${cfg.name}" (${e.code === "timeout" ? "timed out" : "receiver is down"}). Is it running? \`agenthook start --detach\` first.`);
   }
@@ -169,6 +169,8 @@ export async function runMergeCatchup(cfg, { store, adapter, forge, intake, log 
   const stepId = cfg.pipeline?.find((s) => s.completeOnMerge)?.id || "";
   let merged = 0;
   let skipped = 0;
+  /** @type {number|null} mergedAt of the oldest PR whose fetch failed — the watermark stays below it */
+  let failedAt = null;
   for (const p of prs) {
     let task;
     try {
@@ -176,6 +178,7 @@ export async function runMergeCatchup(cfg, { store, adapter, forge, intake, log 
     } catch (e) {
       log(`[skip] PR #${p.pr} (${p.ref}) — fetch failed (${e.message})`);
       skipped++;
+      failedAt ??= Date.parse(p.mergedAt);
       continue;
     }
     if (task.completed) {
@@ -191,8 +194,9 @@ export async function runMergeCatchup(cfg, { store, adapter, forge, intake, log 
       skipped++;
     }
   }
-  // Every listed PR merged after `since`, so the newest one is past the old watermark.
-  const newest = prs.at(-1)?.mergedAt;
+  // Every listed PR merged after `since`, so the newest one is past the old watermark. A failed
+  // fetch holds it just below that PR so the next scan lists it again (`seen` dedups the rest).
+  const newest = prs.filter((p) => failedAt === null || Date.parse(p.mergedAt) < failedAt).at(-1)?.mergedAt;
   if (newest) store.setMergeWatermark(newest);
   log(`merge catch-up done — ${merged} merged PR(s) replayed, ${skipped} skipped.`);
   return { merged, skipped };

@@ -126,6 +126,20 @@ test("merge catch-up: an already-seen merge is not re-enqueued; a completed task
   assert.ok(h.lines.some((l) => l.includes("PR #1") && l.includes("already handled")));
   assert.ok(h.lines.some((l) => l.includes("PR #2") && l.includes("already completed")));
   assert.ok(h.lines.some((l) => l.includes("PR #3") && l.includes("fetch failed")));
+  // The failed fetch holds the watermark just below PR #3, so the next scan lists it again.
+  assert.equal(h.store.getMergeWatermark(), "2026-10-20T02:00:00Z");
+});
+
+test("merge catch-up: a failed fetch on the oldest PR leaves the watermark unchanged", async () => {
+  const h = harness({ fetchThrows: ["gone"] });
+  h.store.setMergeWatermark("2026-10-01T00:00:00Z");
+  const forge = fakeForge([
+    { pr: 4, ref: "new", mergedAt: "2026-10-20T04:00:00Z" },
+    { pr: 3, ref: "gone", mergedAt: "2026-10-20T03:00:00Z" },
+  ]);
+  const r = await runMergeCatchup(h.cfg, { store: h.store, adapter: h.adapter, forge: /** @type {any} */ (forge), intake: h.intake, log: h.log });
+  assert.deepEqual(r, { merged: 1, skipped: 1 });
+  assert.equal(h.store.getMergeWatermark(), "2026-10-01T00:00:00Z");
 });
 
 test("merge catch-up: a forge error logs, leaves the watermark unchanged and never throws", async () => {
