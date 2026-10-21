@@ -42,10 +42,12 @@ function readDotEnv(file) {
  * sandbox toggled on in the form but not yet saved is checked too; the image is always the
  * config's (else DEFAULT_IMAGE), never the request's.
  * @param {string} registry @param {string} profile
- * @param {{ type?: string, run?: import('../types.js').IngressRun, has?: (bin: string) => boolean }} [opts]
+ * `build` is handed to doctor only so tests can prove it is never called (no fix is applied).
+ * @param {{ type?: string, run?: import('../types.js').IngressRun, has?: (bin: string) => boolean,
+ *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null } }} [opts]
  * @returns {Promise<SandboxReadiness|null>}
  */
-export async function sandboxReadiness(registry, profile, { type, run = execRun, has = onPath } = {}) {
+export async function sandboxReadiness(registry, profile, { type, run = execRun, has = onPath, build } = {}) {
   const file = resolveConfigFile(registry, profile);
   if (!file) return null;
   /** @type {any} */
@@ -63,8 +65,8 @@ export async function sandboxReadiness(registry, profile, { type, run = execRun,
 
   /** @type {ReadinessRow[]} */
   const rows = [];
-  // No `build` passed and no fix applied: the image check only inspects.
-  const checks = await sandboxRuntimeChecks({ type: runtime, image }, { run, has, images: [image] });
+  // No fix is ever applied: the image check only inspects, and `build` is never called.
+  const checks = await sandboxRuntimeChecks({ type: runtime, image }, { run, has, ...(build ? { build } : {}), images: [image] });
   const down = checks.slice(0, 2).find((c) => !c.ok);
   if (down) {
     const remedy = remedyOf(down.fix);

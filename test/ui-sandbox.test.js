@@ -49,12 +49,22 @@ function stubRun(codes = {}) {
   return { run, calls };
 }
 
+/** `build` stub: records every call — there must be none, the UI never builds an image. */
+function stubBuild() {
+  /** @type {string[][]} */
+  const calls = [];
+  /** @param {string} bin @param {string[]} args */
+  const build = (bin, args) => (calls.push([bin, ...args]), { status: 0 });
+  return { build, calls };
+}
+
 /** @param {any} r @param {string} id */
 const row = (r, id) => r.rows.find((/** @type {any} */ x) => x.id === id);
 
 test("sandboxReadiness: all ✓ — runtime, image and credential, and the token value appears nowhere", async () => {
   const { run, calls } = stubRun();
-  const r = await sandboxReadiness(registry, "ready", { run, has: () => true });
+  const { build, calls: builds } = stubBuild();
+  const r = await sandboxReadiness(registry, "ready", { run, has: () => true, build });
   assert.equal(r?.enabled, true);
   assert.equal(r?.type, "docker");
   assert.equal(r?.image, DEFAULT_IMAGE);
@@ -62,7 +72,8 @@ test("sandboxReadiness: all ✓ — runtime, image and credential, and the token
   assert.ok(r?.rows.every((x) => !x.remedy));
   assert.ok(!JSON.stringify(r).includes("secret"));
   // Read-only probes only: `info` and `image inspect`, never a build.
-  assert.deepEqual(calls.map((c) => c.args[0]), ["info", "image"]);
+  assert.deepEqual(calls.map((c) => c.args), [["info"], ["image", "inspect", DEFAULT_IMAGE]]);
+  assert.equal(builds.length, 0);
 });
 
 test("sandboxReadiness: runtime binary missing → runtime ✗ with the install remedy, image not checked", async () => {
@@ -86,10 +97,12 @@ test("sandboxReadiness: `info` failing → runtime ✗ (daemon remedy), image ro
 });
 
 test("sandboxReadiness: default image missing → ✗ with `agenthook doctor --fix`, and nothing is built", async () => {
-  const { run, calls } = stubRun({ "image inspect": 1 });
-  const r = await sandboxReadiness(registry, "ready", { run, has: () => true });
+  const { run } = stubRun({ "image inspect": 1 });
+  const { build, calls: builds } = stubBuild();
+  const r = await sandboxReadiness(registry, "ready", { run, has: () => true, build });
   assert.deepEqual(row(r, "image"), { id: "image", ok: false, label: `sandbox image present: ${DEFAULT_IMAGE}`, note: "missing", remedy: "agenthook doctor --fix" });
-  assert.ok(calls.every((c) => c.args[0] !== "build"));
+  // doctor's fix for the default image calls `build` (a real `docker build`); the UI never applies it.
+  assert.equal(builds.length, 0);
 });
 
 test("sandboxReadiness: a custom image missing → ✗ with doctor's manual build remedy", async () => {
@@ -121,8 +134,11 @@ test("sandboxReadiness: unknown profile / no configPath → null; no sandbox and
 
 // --- GET /api/sandbox-readiness ---
 
-const probes = stubRun();
-const server = createUiServer({ port: 0, token: TOKEN, distDir: path.join(root, "dist"), registry, sandboxIo: { run: probes.run, has: () => true } });
+/** @type {Record<string, number>} */
+const probeCodes = {};
+const probes = stubRun(probeCodes);
+const builder = stubBuild();
+const server = createUiServer({ port: 0, token: TOKEN, distDir: path.join(root, "dist"), registry, sandboxIo: { run: probes.run, has: () => true, build: builder.build } });
 /** @type {number} */
 let port;
 test.before(async () => {
@@ -164,4 +180,15 @@ test("GET /api/sandbox-readiness: the three rows, no secret; disabled without a 
   const pod = JSON.parse((await get("/api/sandbox-readiness?profile=ready&type=podman")).body);
   assert.equal(pod.type, "podman");
   assert.equal(probes.calls.at(-1)?.bin, process.env.PODMAN || "podman");
+});
+
+test("GET /api/sandbox-readiness: image missing → `doctor --fix` remedy, and the injected build is never called", async () => {
+  probeCodes["image inspect"] = 1;
+  try {
+    const r = JSON.parse((await get("/api/sandbox-readiness?profile=ready")).body);
+    assert.deepEqual(row(r, "image"), { id: "image", ok: false, label: `sandbox image present: ${DEFAULT_IMAGE}`, note: "missing", remedy: "agenthook doctor --fix" });
+    assert.equal(builder.calls.length, 0);
+  } finally {
+    delete probeCodes["image inspect"];
+  }
 });

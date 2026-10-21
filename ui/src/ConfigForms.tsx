@@ -697,6 +697,7 @@ export function SandboxReadinessCard(props: { profile: string; type: string }) {
         {state.kind === "loading" && <span className={NOTE}>checking…</span>}
         {state.kind === "error" && <span className="text-xs text-status-failed">couldn't check ({state.why})</span>}
       </div>
+      {state.kind === "ok" && !state.body.enabled && <p className={NOTE}>pick a sandbox backend to check it</p>}
       {rows.length > 0 && (
         <ul className="flex flex-col gap-1">
           {rows.map((r) => (

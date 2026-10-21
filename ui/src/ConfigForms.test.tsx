@@ -185,6 +185,13 @@ describe("BasicsForm Sandbox group (#494)", () => {
       await click(refresh);
       expect((fetch as any).mock.calls.length).toBe(2);
     });
+
+    it("a saved sandbox block without a backend shows a hint, not an empty card", async () => {
+      readiness = { status: 200, body: { enabled: false, rows: [] } };
+      m = await mountBasics({ name: "p", sandbox: { image: "x" } });
+      await until(() => m!.root.textContent?.includes("pick a sandbox backend"));
+      expect(rows(m.root)).toHaveLength(0);
+    });
   });
 
   it("renders the doctor --fix help text", () => {

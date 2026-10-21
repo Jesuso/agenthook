@@ -107,7 +107,8 @@ export function cookieToken(header) {
 /**
  * @param {{ port: number, token: string, distDir: string, registry?: string,
  *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, epicsTimeoutMs?: number,
- *   sandboxIo?: { run?: import('../types.js').IngressRun, has?: (bin: string) => boolean } }} opts  `sandboxIo`: the readiness probes (tests stub them)
+ *   sandboxIo?: { run?: import('../types.js').IngressRun, has?: (bin: string) => boolean,
+ *     build?: (bin: string, args: string[], dockerfile: string) => { status: number|null } } }} opts  `sandboxIo`: the readiness probes (tests stub them)
  * @returns {http.Server}
  */
 export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, epicsTimeoutMs = 20000, sandboxIo = {} }) {
