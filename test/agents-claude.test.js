@@ -148,6 +148,12 @@ test("claude adapter declares it enforces both policies", () => {
   assert.deepEqual(claude.describe().policy, { allow: true, deny: true });
 });
 
+test("claude adapter env: disables the background-wait kill ceiling; a step env still wins (layered after)", () => {
+  assert.deepEqual(claude.env({ cfg: {}, step: undefined }), { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" });
+  const merged = { ...claude.env({ cfg: {}, step: {} }), ...{ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "60000" } };
+  assert.equal(merged.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS, "60000");
+});
+
 // --- stream-json parser: log rendering + token tally + result capture ---
 
 const fixtureLines = [
@@ -247,6 +253,25 @@ test("createStreamParser: cache tokens from assistant event tracked live before 
   p.push(cacheAssistant + "\n");
   assert.equal(p.tally.cacheRead, 500000);
   assert.equal(p.tally.cacheCreate, 20000);
+});
+
+test("createStreamParser: a second result event sums usage/duration, keeps the latest session_id and cumulative cost", () => {
+  const p = createStreamParser();
+  p.push(JSON.stringify({ type: "result", session_id: "sess-1", duration_ms: 600000, total_cost_usd: 10, usage: { input_tokens: 500, output_tokens: 1000, cache_read_input_tokens: 100, cache_creation_input_tokens: 10 } }) + "\n");
+  p.push(JSON.stringify({ type: "result", session_id: "sess-2", duration_ms: 3476, total_cost_usd: 22.29, usage: { input_tokens: 50, output_tokens: 115, cache_read_input_tokens: 5, cache_creation_input_tokens: 2 } }) + "\n");
+  assert.equal(p.result.session_id, "sess-2");
+  assert.equal(p.result.total_cost_usd, 22.29);
+  assert.equal(p.result.duration_ms, 603476);
+  assert.equal(p.result.usage.output_tokens, 1115);
+  assert.equal(p.result.usage.input_tokens, 550);
+  assert.equal(p.result.usage.cache_read_input_tokens, 105);
+  assert.equal(p.result.usage.cache_creation_input_tokens, 12);
+  assert.deepEqual(p.tally, { input: 550, output: 1115, cacheRead: 105, cacheCreate: 12 });
+  const rec = buildUsageRecord({ ref: "1", stepId: "code", startedAt: "a", endedAt: "b", result: p.result });
+  assert.equal(rec.output, 1115);
+  assert.equal(rec.durationMs, 603476);
+  assert.equal(rec.costUsd, 22.29);
+  assert.equal(rec.sessionId, "sess-2");
 });
 
 test("buildUsageRecord: extracts totals/cost/session from the result event", () => {

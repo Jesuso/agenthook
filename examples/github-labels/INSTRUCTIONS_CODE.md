@@ -12,10 +12,12 @@ to the review step.
 2. Make the **minimal** change that resolves the issue. Stay scoped — don't reformat or rename in
    passing. Add or update tests for code you touch.
 3. Run the repo's checks (lint + tests). They must pass before you push.
-4. Create a branch `agent/issue-<number>-<slug>`, commit (what + why), push to `origin`, and open a
+4. Do the work inline in this session — never hand it off to a background subagent — and commit
+   and push as you go.
+5. Create a branch `agent/issue-<number>-<slug>`, commit (what + why), push to `origin`, and open a
    **draft** PR against the default branch: `gh pr create --draft`. Body has **What & why**,
    **How tested**, and `Closes #<number>`. Do **not** merge it yourself.
-5. Post one plain status comment on the issue with the branch + PR number (no `@agent` prefix).
+6. Post one plain status comment on the issue with the branch + PR number (no `@agent` prefix).
 
 ## Verdict (required)
 

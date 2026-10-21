@@ -20,7 +20,9 @@ hands your draft PR to the **review** stage.
    never touch the shared checkout.
 3. Make the **minimal** change that resolves the issue. Add tests for new code.
 4. Run the repo's lint + relevant tests — they must pass before you push.
-5. Commit, push, open a **draft** PR (`gh pr create --draft --base <default-branch>`). Body: **What &
+5. Do the work inline in this session — never hand it off to a background subagent — and commit
+   and push as you go.
+6. Commit, push, open a **draft** PR (`gh pr create --draft --base <default-branch>`). Body: **What &
    why**, **How tested**, `Closes <ISSUE-KEY>`. Keep it a draft — review reviews it; a human merges.
 
 ## Verdict (required)

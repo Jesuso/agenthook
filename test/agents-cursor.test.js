@@ -207,7 +207,7 @@ test("listSessions + resume + follow: a cursor step in a claude profile", () => 
   assert.equal(s[0].at, Date.parse("2020-01-01T00:00:00.000Z"), "claude entries keep their line timestamp");
   // the tagged agent wins over the time-correlated step label
   assert.equal(resumeCommand(cfg, { ...s[1], step: "triage" }, wt).line, `cd ${wt} && agent --resume cur-2   # triage`);
-  assert.equal(resumeCommand(cfg, s[0], wt).line, `cd ${wt} && claude -r cl-1   # ${s[0].step}`);
+  assert.equal(resumeCommand(cfg, s[0], wt).line, `cd ${wt} && CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -r cl-1   # ${s[0].step}`);
   assert.equal(refRepo(cfg, "12").id, "default");
 
   const got = transcriptDirs(cfg, cfg.repos);

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude runs now set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, so a background subagent is no
+  longer killed 10 minutes after its last turn (a step's own `env` can still override it). The
+  stream-json parser also sums `usage`/`duration_ms` across multiple `result` events (one per
+  background turn) instead of keeping only the last turn's, which previously under-reported
+  tokens/duration next to the session's cumulative `total_cost_usd` (#501).
+
 ## [0.10.0] — 2026-10-18
 
 **Trust release:** agents get less of your machine by default, and can optionally run in a per-run
