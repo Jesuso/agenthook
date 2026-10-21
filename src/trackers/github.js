@@ -17,7 +17,10 @@
 //     disables verification). Verified via `x-hub-signature-256: sha256=<hex>`.
 //   - One repo webhook on the `issues` event delivers opened / reopened / labeled /
 //     assigned; all route to the step whose sourceLabel the issue now carries. The
-//     same hook's `issue_comment` event carries the `@agent` resume: an OWNER-authored
+//     payload's labels/assignees are a SNAPSHOT a delayed delivery can carry stale (the
+//     issue may have already moved to/left a step by the time it arrives), so routing
+//     re-reads the live issue rather than trusting the payload — see liveIssue below.
+//     The same hook's `issue_comment` event carries the `@agent` resume: an OWNER-authored
 //     comment starting with cfg.trigger on a held issue re-runs the step that held.
 //   - The assignee "us" is the token owner's login, read once from /user and cached
 //     (so no login is pasted). Scoping is FAIL CLOSED — see scopeToUser below.
@@ -346,19 +349,27 @@ export function createGithubAdapter(cfg, store) {
   }
 
   /**
-   * Live check (single-issue read, not the lagging list index): still open and still carrying `label`.
-   * @param {string} ref @param {string} label
+   * Single-issue read (strongly consistent, unlike the lagging list/label index AND unlike a
+   * webhook payload, which is a snapshot a delayed delivery can carry stale). `null` on any
+   * fetch failure — callers fail closed.
+   * @param {string} ref @returns {Promise<any|null>}
    */
-  async function stillRestingIn(ref, label) {
+  async function liveIssue(ref) {
     try {
       const res = await api(`${repoPath()}/issues/${ref}`);
-      if (!res.ok) return false;
-      const live = await json(res);
-      const want = String(label).toLowerCase();
-      return live.state === "open" && (live.labels || []).some((/** @type {any} */ l) => String(typeof l === "string" ? l : l?.name).toLowerCase() === want);
+      if (!res.ok) return null;
+      return await json(res);
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  /** Live check: still open and still carrying `label`. @param {string} ref @param {string} label */
+  async function stillRestingIn(ref, label) {
+    const live = await liveIssue(ref);
+    if (!live) return false;
+    const want = String(label).toLowerCase();
+    return live.state === "open" && (live.labels || []).some((/** @type {any} */ l) => String(typeof l === "string" ? l : l?.name).toLowerCase() === want);
   }
 
   // --- native GitHub issue dependencies (the block gate) ---
@@ -509,9 +520,13 @@ export function createGithubAdapter(cfg, store) {
     // One GitHub delivery = one event object. The `X-GitHub-Event` header names the
     // type (we care about `issues` + `issue_comment`; `ping` on hook-create is ACKed and
     // ignored). We route:
-    //   opened/reopened/assigned → the step whose sourceLabel the issue carries
-    //                              (state-based key `step:<id>:<ref>` — idempotent).
-    //   labeled                  → the step whose sourceLabel was just added
+    //   opened/reopened/assigned → the step whose sourceLabel the LIVE issue carries
+    //                              (state-based key `step:<id>:<ref>` — idempotent). A
+    //                              delayed delivery whose payload labels are stale (the
+    //                              issue already moved on) yields no job.
+    //   labeled                  → the step whose sourceLabel was just added, reconfirmed
+    //                              against the live issue so a delayed delivery that
+    //                              arrives after the issue left that label is a no-op
     //                              (event-based key `secmove:<delivery>` — a later
     //                              re-add of the same label fires again; retries dedup).
     //   issue_comment created    → the `@agent` resume of the issue's held step
@@ -564,14 +579,20 @@ export function createGithubAdapter(cfg, store) {
         return jobs;
       }
 
-      if (!(await issueIsOurs(issue))) {
-        console.log(`[assignee] skip #${ref} — not assigned to us`);
-        return [];
-      }
-
       if (ev.action === "labeled") {
         const step = stepBySourceLabel(ev.label?.name);
         if (!step) return [];
+        if (!(await issueIsOurs(issue))) {
+          console.log(`[assignee] skip #${ref} — not assigned to us`);
+          return [];
+        }
+        // The payload's `issue.labels` is a SNAPSHOT — a delayed delivery can carry a label
+        // the issue has since left (the step already finished and moved on). Re-read the
+        // live issue (strongly consistent) before firing; a fetch failure fails closed.
+        if (!(await stillRestingIn(ref, ev.label?.name))) {
+          console.log(`[stale] #${ref} no longer in ${ev.label?.name} — skipping delayed labeled delivery`);
+          return [];
+        }
         if (await restIfBlocked(ref)) return []; // open blocker → stay in the source label, no agent
         const delivery = Array.isArray(headers["x-github-delivery"]) ? headers["x-github-delivery"][0] : headers["x-github-delivery"];
         const dedupKey = `secmove:${delivery || `${ref}:${norm(ev.label?.name)}`}`;
@@ -579,8 +600,20 @@ export function createGithubAdapter(cfg, store) {
       }
 
       if (ev.action === "opened" || ev.action === "reopened" || ev.action === "assigned") {
-        const step = stepForLabels(issue.labels);
-        if (!step) return [];
+        // Same staleness risk as `labeled`: the payload's `issue.labels`/assignees are a
+        // snapshot a delayed delivery can carry stale (e.g. after the issue has advanced
+        // to, or left, a step). Route off a fresh single-issue read instead — fail closed
+        // (no job) on a closed issue, one no longer ours, or a fetch failure.
+        const live = await liveIssue(ref);
+        if (!live || live.state !== "open" || !(await issueIsOurs(live))) {
+          console.log(`[stale] #${ref} no longer open and assigned to us — skipping delayed ${ev.action} delivery`);
+          return [];
+        }
+        const step = stepForLabels(live.labels);
+        if (!step) {
+          console.log(`[stale] #${ref} no longer in a pipeline step — skipping delayed ${ev.action} delivery`);
+          return [];
+        }
         if (await restIfBlocked(ref)) return []; // open blocker → rest until it clears
         return [{ kind: "pipeline", ref, stepId: step.id, dedupKey: `step:${step.id}:${ref}` }];
       }
