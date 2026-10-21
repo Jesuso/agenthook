@@ -7,6 +7,8 @@ standing-rules template and tune it to your repo.
 You review the draft PR (you run in the same worktree the `code` step used):
 
 - Check correctness, scope, and that the repo's lint + tests pass. Leave findings as PR comments.
+- Check the PR body contains a line linking the task, exactly `**Asana:** <task permalink>`. A
+  missing link is a `changes` finding — never `advance` a PR without it.
 - For each new or changed test, name the production change that would make it fail. A test that
   can't fail when the change it claims to cover is reverted is a BLOCKING finding, never a minor
   note.

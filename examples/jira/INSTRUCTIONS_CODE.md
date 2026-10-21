@@ -26,7 +26,9 @@ hands your draft PR to the **review** stage.
 5. Do the work inline in this session — never hand it off to a background subagent — and commit
    and push as you go.
 6. Commit, push, open a **draft** PR (`gh pr create --draft --base <default-branch>`). Body: **What &
-   why**, **How tested**, `Closes <ISSUE-KEY>`. Keep it a draft — review reviews it; a human merges.
+   why**, **How tested**, `Closes <ISSUE-KEY>`, and a line linking the issue, exactly `**Jira:**
+   <issue URL>` (on a rework pass, add it with `gh pr edit <branch> --body …` if it's missing). Keep
+   it a draft — review reviews it; a human merges.
 
 ## Verdict (required)
 

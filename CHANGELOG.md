@@ -34,6 +34,10 @@ All notable changes to this project are documented here. The format is based on
   test that can't fail when the change it covers is reverted, and on an unmet acceptance criterion
   (bounced with `changes` if the agent can fix it, held for a human otherwise); the review prompt
   can now `hold` (#503).
+- The implement/change prompt for a PR-based tracker now requires the PR body to link the task on
+  its own line, exactly `**<Platform>:** <task URL>`; the review prompt checks for that line and
+  returns `changes` (never `advance`) when it's missing. Same rule added to the shipped
+  `examples/*/INSTRUCTIONS_CODE.md` / `INSTRUCTIONS_REVIEW.md` templates (#504).
 
 ### Fixed
 

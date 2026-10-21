@@ -148,7 +148,7 @@ for (const kind of ["implement", "change"]) {
     assert.match(p, /gh pr view b --json mergeable,mergeStateStatus/);
     assert.match(p, /CONFLICTING/);
     assert.match(p, /GitHub runs no checks on a PR\s*\n?\s*it can't compute a merge for/);
-    assert.match(p, /mergeable with base \(not "CONFLICTING"\), and green/);
+    assert.match(p, /mergeable with base \(not "CONFLICTING"\), green/);
     assert.match(p, /conflicted files in\s*\n?\s*`reason`/);
   });
 
@@ -165,6 +165,41 @@ test("review and triage prompts have no mergeability text", () => {
     assert.doesNotMatch(p, /mergeable/);
     assert.doesNotMatch(p, /CONFLICTING/);
   }
+});
+
+for (const kind of ["implement", "change"]) {
+  test(`${kind} prompt (usesPR) requires the PR body to link the task as **<Platform>:** <task.url> (#504)`, () => {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.match(p, /\*\*GitHub:\*\* http:\/\/x\/1/);
+    assert.match(p, /PR body MUST link/);
+    assert.match(p, /gh pr edit b --body/);
+    assert.match(p, /body carries the `\*\*GitHub:\*\*` task link/);
+  });
+
+  test(`${kind} prompt (usesPR: false) has no task-link requirement (#504)`, () => {
+    const p = stepPrompt(task, { ...meta, usesPR: false }, step(kind), ctx);
+    assert.doesNotMatch(p, /PR body MUST link/);
+    assert.doesNotMatch(p, /\*\*GitHub:\*\*/);
+  });
+}
+
+test("review prompt (usesPR) checks the PR body for the task link and treats a missing one as a changes finding (#504)", () => {
+  const p = stepPrompt(task, meta, step("review"), ctx);
+  assert.match(p, /gh pr view b --json body/);
+  assert.match(p, /\*\*GitHub:\*\* http:\/\/x\/1/);
+  assert.match(p, /use "changes" and say so/);
+  assert.match(p, /Never "advance" a PR without it/);
+});
+
+test("review prompt (usesPR: false) has no task-link check (#504)", () => {
+  const p = stepPrompt(task, { ...meta, usesPR: false }, step("review"), ctx);
+  assert.doesNotMatch(p, /\*\*GitHub:\*\*/);
+  assert.doesNotMatch(p, /json body/);
+});
+
+test("triage prompt has no task-link rule (#504)", () => {
+  const p = stepPrompt(task, meta, step("triage"), ctx);
+  assert.doesNotMatch(p, /\*\*GitHub:\*\*/);
 });
 
 test("verdict schema mentions `paths` only when overlapGuard is on", () => {
