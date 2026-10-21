@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- The code-step instruction templates (`INSTRUCTIONS.example.md`, `examples/*/INSTRUCTIONS_CODE.md`,
+  the `init --local` scaffold) now forbid writing under `.git/` or faking a hook's result; the only
+  sanctioned bypass of an unrelated hook failure is `--no-verify` with the failed command and the
+  reason recorded in the PR body, or a `hold` when the repo forbids bypassing hooks (#502).
 - `requireVerdict` now defaults to `true`: a step whose agent exits 0 without writing a valid
   verdict file now **holds** (resumable with `@agent`) instead of silently advancing. Add
   `"requireVerdict": false` to a step to keep the old advance-on-clean-exit behaviour. A

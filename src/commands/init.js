@@ -111,6 +111,9 @@ branch (started from \`${base}\`). The task is appended below the \`=== TICKET =
 - Make the smallest change that does what the task asks. Match the surrounding code's style.
 - Stay in scope: don't reformat, rename or "tidy" unrelated code.
 - If the repo has tests, run them and make them pass.
+- Never create or edit files under \`.git/\`, and never fake a hook's result. If a commit hook
+  fails on something unrelated to your change, \`hold\` with the failing command instead of
+  working around it.
 - Commit your work on this branch with a clear message. Don't push and don't open a PR — the
   branch is the deliverable.
 - If the task is unclear or unsafe to do unattended, write a \`hold\` verdict with your question

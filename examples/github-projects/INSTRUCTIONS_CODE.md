@@ -8,7 +8,10 @@ are in a fresh git worktree on your own branch; do all work there.
 1. Read the repo's `CLAUDE.md` and the files the issue names. Understand the existing pattern first.
 2. Make the **minimal** change that resolves the issue. Match the surrounding style. Stay scoped —
    don't reformat or rename unrelated code. Add or update tests for what you touch.
-3. Run the repo's lint and tests. They must pass before you push.
+3. Run the repo's lint and tests. They must pass before you push. Never create, edit or delete
+   anything under `.git/`, and never fake a hook's result — if a hook fails on something
+   unrelated to your change, the only sanctioned bypass is `--no-verify`, with the failed
+   command and reason recorded in the PR body.
 4. Do the work inline in this session — never hand it off to a background subagent — and commit
    and push as you go.
 5. Commit, push your branch, and open a **draft** PR with `gh pr create --draft`:

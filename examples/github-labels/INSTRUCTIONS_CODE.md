@@ -11,7 +11,10 @@ to the review step.
 1. Read the repo's `CLAUDE.md` and the files the issue names. Match the existing patterns.
 2. Make the **minimal** change that resolves the issue. Stay scoped — don't reformat or rename in
    passing. Add or update tests for code you touch.
-3. Run the repo's checks (lint + tests). They must pass before you push.
+3. Run the repo's checks (lint + tests). They must pass before you push. Never create, edit or
+   delete anything under `.git/`, and never fake a hook's result — if a hook fails on something
+   unrelated to your change, the only sanctioned bypass is `--no-verify`, with the failed
+   command and reason recorded in the PR body.
 4. Do the work inline in this session — never hand it off to a background subagent — and commit
    and push as you go.
 5. Create a branch `agent/issue-<number>-<slug>`, commit (what + why), push to `origin`, and open a
