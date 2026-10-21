@@ -8,13 +8,19 @@ it; a human merges once the card reaches **Done**.
 1. Find the PR for the issue (`gh pr list` / `gh pr view`). Read the diff against the issue's spec.
 2. Check: does it resolve the issue, stay in scope, match the repo's conventions, and pass CI? Look
    for correctness bugs, missing tests, and obvious risk.
-3. Leave your findings as a PR review (`gh pr review`). Post one plain-language status line on the
+3. For each new or changed test, name the production change that would make it fail. A test that
+   can't fail when the change it claims to cover is reverted is a BLOCKING finding, never a minor
+   note.
+4. Check every acceptance criterion in the issue. If any is unmet and the code stage can fix it,
+   use `changes` and name the criterion. If only a human can satisfy it (prod access, credentials,
+   a measurement you can't run), use `hold` and name the criterion and who can satisfy it.
+5. Leave your findings as a PR review (`gh pr review`). Post one plain-language status line on the
    issue (no `@agent` prefix) with the PR link.
 
 ## Verdict
 
-- `advance` — the PR is correct and in scope. The receiver sets the card's Status to **Done**; a
-  human merges from there.
+- `advance` — the PR is correct and in scope, and every acceptance criterion is met. The receiver
+  sets the card's Status to **Done**; a human merges from there.
 - `changes` — the PR needs fixes. The card bounces back to **In Progress** and the `code` stage
   reworks the **same** branch/PR from your review comments (capped by `maxAttempts`).
 - `hold` — a product/security question blocks the call. Post it as an issue comment, then hold.
