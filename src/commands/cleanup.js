@@ -10,7 +10,7 @@ import path from "node:path";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
-import { worktreeDir } from "../paths.js";
+import { worktreeDir, legacyWorktreeDir } from "../paths.js";
 import { listWorktrees, gitArgv } from "../worktree.js";
 import { reposOf } from "../repos.js";
 
@@ -73,6 +73,7 @@ export async function cleanup(args) {
   let removed = 0;
   for (const repo of reposOf(cfg)) {
     const wtdir = worktreeDir(cfg, repo);
+    const legacyWtdir = legacyWorktreeDir(cfg, repo);
     // Multi-repo lines carry the repo id; single-repo output stays as it was.
     const tag = cfg.multiRepo ? `[${repo.id}] ` : "";
 
@@ -85,7 +86,9 @@ export async function cleanup(args) {
     }
 
     for (const rec of records) {
-      if (!(rec.path === wtdir || rec.path.startsWith(wtdir + path.sep))) continue; // agent worktrees only
+      /** @param {string|null} dir */
+      const underBase = (dir) => dir != null && (rec.path === dir || rec.path.startsWith(dir + path.sep));
+      if (!(underBase(wtdir) || underBase(legacyWtdir))) continue; // agent worktrees only (new or legacy base)
 
       const prstate = rec.branch
         ? run("gh", ["pr", "list", "--head", rec.branch, "--state", "all", "--json", "state", "-q", ".[0].state"], rec.path)

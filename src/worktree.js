@@ -8,6 +8,11 @@
 // so sibling checkouts that resolve the default prefix to the same dir never collide.
 // `repo` defaults to the profile's default repo — single-repo callers pass nothing.
 //
+// The base itself (`worktreeDir`) defaults to a sibling dir named after the repo's own
+// directory (`../<repo-dir>-worktrees`), so two profiles sharing a parent dir don't collide
+// either. An in-flight ref already checked out under the old shared `../agenthook-worktrees`
+// base keeps resolving there (`legacyWorktreeDir`); only new refs move to the new base.
+//
 // INVARIANT: one ref = one in-flight flow. Because this path AND store.running are
 // keyed by ref, two concurrent jobs on the same ref would share this worktree and
 // clobber each other's commits + crash-recovery entry. `agenthook run`'s entry guard
@@ -16,7 +21,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
-import { worktreeDir } from "./paths.js";
+import { worktreeDir, legacyWorktreeDir } from "./paths.js";
 import { primaryRepo } from "./repos.js";
 
 /** Prepended to every host git call against a repo a sandboxed agent can write: the agent
@@ -44,11 +49,20 @@ const execFileP = promisify(execFile);
 /** @param {string} ref */
 const safeRef = (ref) => String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
 
-/** Deterministic worktree path for a task ref (shared across all its steps).
+/** Deterministic worktree path for a task ref (shared across all its steps). An in-flight ref
+ * already checked out under the legacy `../agenthook-worktrees` base keeps resolving there
+ * (new refs always go to the new base) — see `legacyWorktreeDir`.
  * @param {import('./types.js').Config} cfg @param {string} ref @param {import('./types.js').RepoConfig} [repo] */
 export function worktreePath(cfg, ref, repo = primaryRepo(cfg)) {
   const base = worktreeDir(cfg, repo);
-  return cfg.multiRepo ? path.join(base, repo.id, safeRef(ref)) : path.join(base, safeRef(ref));
+  /** @param {string} b */
+  const sub = (b) => (cfg.multiRepo ? path.join(b, repo.id, safeRef(ref)) : path.join(b, safeRef(ref)));
+  const legacy = legacyWorktreeDir(cfg, repo);
+  if (legacy) {
+    const legacyPath = sub(legacy);
+    if (fs.existsSync(legacyPath)) return legacyPath;
+  }
+  return sub(base);
 }
 
 /** Every worktree git knows for a repo (`git worktree list --porcelain`), main checkout
