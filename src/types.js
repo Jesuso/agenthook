@@ -416,6 +416,9 @@
  * @property {(port: number) => Promise<{ url: string }>} up
  * @property {() => Promise<void>} down
  * @property {() => import('./wizard.js').WizardStep[]} [wizardSteps]
+ * @property {(listener: (reason: string) => void) => void} [onExit] registers a listener an
+ *   adapter calls at most once, only when its managed tunnel dies unexpectedly after `up()`
+ *   resolved (never during `down()` or a startup failure)
  */
 
 /** A factory `(cfg) => Ingress`. `timeoutMs` bounds a managed tunnel's startup (cloudflared) or each

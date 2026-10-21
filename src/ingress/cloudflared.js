@@ -87,9 +87,15 @@ export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
   /** @type {import('node:child_process').ChildProcess | null} */
   let child = null;
   let stopping = false; // down() or the startup timeout is killing the child: its exit is expected
+  /** @type {((reason: string) => void) | null} */
+  let exitListener = null;
 
   return {
     describe: () => ({ name: "cloudflared", ephemeral: !named }),
+
+    onExit(listener) {
+      exitListener = listener;
+    },
 
     async up(port) {
       if (!!tunnel !== !!hostname) {
@@ -151,7 +157,11 @@ export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
           log.end();
           if (child === proc) child = null;
           if (settled) {
-            if (!stopping) console.error(`[cloudflared] exited (${code ?? signal}); the tunnel is down — webhooks can't reach this receiver until \`agenthook restart\`. See ${logPath}.`);
+            if (!stopping) {
+              const reason = `exited (${code ?? signal})`;
+              console.error(`[cloudflared] ${reason}; the tunnel is down — webhooks can't reach this receiver until \`agenthook restart\`. See ${logPath}.`);
+              exitListener?.(reason);
+            }
             return;
           }
           settle(new Error(`cloudflared (${mode}, port ${port}) exited (${code ?? signal}) before connecting. Last log lines:\n${tail(buf)}`));

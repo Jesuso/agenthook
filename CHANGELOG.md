@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- A managed tunnel (ngrok, cloudflared) that dies after boot is now visible: the ingress adapter's
+  new optional `onExit` hook records `ingressDown {at, reason}` in the heartbeat, `agenthook status`
+  prints `ingress : <type> DOWN (...)` instead of UP, and `agenthook doctor` warns that webhooks
+  can't reach the receiver until `agenthook restart` (#483).
 - The merge job's "has no complete() — leaving <ref> open" log line now appears only when nothing
   moved the task, and names the remedy (a manual step with `completeOnMerge: true`) (#482).
 - Claude runs now set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, so a background subagent is no
