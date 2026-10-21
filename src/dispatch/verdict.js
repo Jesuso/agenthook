@@ -37,7 +37,7 @@ export function parseSummary(raw) {
 
 const MAX_FINDINGS = 20000;
 
-/** The hold reason for a clean exit with no missing/unparseable/unrecognized verdict file. */
+/** The hold reason for a clean exit with a missing/unparseable/unrecognized verdict file. */
 export const NO_VALID_VERDICT = "no valid verdict";
 
 /**

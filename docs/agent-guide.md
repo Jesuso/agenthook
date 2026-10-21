@@ -19,8 +19,8 @@ When the agent exits, its **verdict** decides the next move:
 
 | verdict | meaning | ticket goes to |
 |---|---|---|
-| `advance` (also: clean exit, no verdict file — unless the step sets `requireVerdict: false`, then it advances; default holds) | step done | next step's source stage, which fires that step |
-| `hold` | agent needs a human answer | the step's hold lane; shows in `status.held` with `why` |
+| `advance` (also: clean exit, no verdict file, but only when the step sets `requireVerdict: false`) | step done | next step's source stage, which fires that step |
+| `hold` (also: clean exit, no valid verdict file — the default) | agent needs a human answer | the step's hold lane; shows in `status.held` with `why` |
 | `changes` | rework needed | an earlier step's source stage (the rework loop, capped by `maxAttempts`) |
 | `fail` | step failed (or crashed, or was cancelled) | the failure lane |
 

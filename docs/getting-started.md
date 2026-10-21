@@ -193,7 +193,8 @@ restart.
 the agent to write `{ "outcome": "...", "target": "...", "reason": "..." }` to
 `$AGENTHOOK_VERDICT_FILE` before exiting. Outcomes: `advance` (next stage), `hold` (parked for a
 human answer), `changes` (bounce to an earlier step — the rework loop), `fail` (needs a human). A
-non-zero exit is always treated as `fail`; a clean exit with no file defaults to `advance`.
+non-zero exit is always treated as `fail`; a clean exit with a missing or invalid file defaults to
+`hold` (set `requireVerdict: false` on the step to restore the old advance-on-clean-exit behavior).
 
 ## 6. Preflight
 
