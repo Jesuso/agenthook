@@ -6,8 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `agenthook init` now offers two more stages for every wizard-driven tracker (Linear, Asana,
+  Jira, GitHub, GitHub Projects): a skippable **hold** stage (a `hold` verdict moves the task there
+  so the board shows the agent is waiting on a human) and a skippable **done** stage. Picking a done
+  stage appends a manual `done` step with `drainWorktree`, which also makes the forge's
+  `completeOnMerge` prompt apply, so trackers without a complete API (Linear and others) see the
+  task land in Done when its PR merges (#482).
+
 ### Fixed
 
+- The merge job's "has no complete() — leaving <ref> open" log line now appears only when nothing
+  moved the task, and names the remedy (a manual step with `completeOnMerge: true`) (#482).
 - Claude runs now set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, so a background subagent is no
   longer killed 10 minutes after its last turn (a step's own `env` can still override it). The
   stream-json parser also sums `usage`/`duration_ms` across multiple `result` events (one per
