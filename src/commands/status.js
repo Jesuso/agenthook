@@ -113,7 +113,11 @@ export async function status(args) {
   for (const line of provenanceLines(p)) console.log(line);
   if (p.ghost) return;
   console.log(`tracker : ${hb.tracker || "?"}`);
-  console.log(`ingress : ${hb.ingress || "?"}${hb.url ? `  ${hb.url}` : ""}`);
+  if (p.up && hb.ingressDown) {
+    console.log(`ingress : ${hb.ingress || "?"} DOWN (${hb.ingressDown.reason} ${ago(hb.ingressDown.at)}; run \`agenthook restart\`)${hb.url ? `  ${hb.url}` : ""}`);
+  } else {
+    console.log(`ingress : ${hb.ingress || "?"}${hb.url ? `  ${hb.url}` : ""}`);
+  }
   console.log(`port    : ${hb.port || "?"}`);
   if (hb.repos?.length > 1) for (const r of hb.repos) console.log(`repo    : ${r.id}  ${r.path}`);
   else console.log(`repo    : ${hb.repoPath || "?"}`);

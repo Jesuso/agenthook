@@ -94,3 +94,23 @@ test("status: the auto line says headless for fullAuto:false; the sandbox line s
   assert.ok(sbx.includes("auto    : fullAuto (skip-permissions)"), sbx.join("\n"));
   assert.ok(sbx.includes("sandbox : podman"), sbx.join("\n"));
 });
+
+test("status: an ingressDown heartbeat on a live profile shows DOWN and `agenthook restart`; without it the line is unchanged", async () => {
+  /** @param {string} key @param {any} hb */
+  const seed = (key, hb) => {
+    const dir = path.join(registryDir, key);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: key, stateKey: key, configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+    fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+    fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: key, stateKey: key, tracker: "local", ingress: "cloudflared", url: "https://dead.trycloudflare.com", updatedAt: new Date().toISOString(), ...hb }));
+  };
+  seed("status-ingress-down", { ingressDown: { at: new Date(Date.now() - 5 * 60e3).toISOString(), reason: "exited (1)" } });
+  seed("status-ingress-up", {});
+
+  const down = await runStatus("status-ingress-down");
+  const downLine = down.find((l) => l.startsWith("ingress"));
+  assert.match(downLine, /^ingress : cloudflared DOWN \(exited \(1\) \d+m ago; run `agenthook restart`\)  https:\/\/dead\.trycloudflare\.com$/);
+
+  const up = await runStatus("status-ingress-up");
+  assert.equal(up.find((l) => l.startsWith("ingress")), "ingress : cloudflared  https://dead.trycloudflare.com");
+});

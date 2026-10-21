@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -629,6 +629,19 @@ test("ingressChecks: tailscale needs only its binary, not ingress.url", () => {
   assert.deepEqual(checks, [{ ok: true, label: "tailscale binary on PATH", manual: "install tailscale or put it on PATH (or set $TAILSCALE)" }]);
   assert.deepEqual(seen, ["tailscale"]);
   assert.equal(ingressChecks({ type: "tailscale" }, () => false)[0].ok, false);
+});
+
+test("ingressLivenessLints: warns with a manual restart fix when up and ingressDown; [] otherwise", () => {
+  const down = ingressLivenessLints({ up: true, heartbeat: { ingress: "cloudflared", ingressDown: { at: "2026-01-02T00:00:00.000Z", reason: "exited (1)" } } });
+  assert.equal(down.length, 1);
+  assert.equal(down[0].level, "warn");
+  assert.match(down[0].label, /ingress tunnel is down/);
+  assert.match(down[0].note, /cloudflared.*exited \(1\).*2026-01-02T00:00:00\.000Z/);
+  assert.deepEqual(down[0].fix, { manual: "run `agenthook restart`" });
+
+  assert.deepEqual(ingressLivenessLints({ up: false, heartbeat: { ingress: "cloudflared", ingressDown: { at: "x", reason: "y" } } }), []);
+  assert.deepEqual(ingressLivenessLints({ up: true, heartbeat: { ingress: "cloudflared" } }), []);
+  assert.deepEqual(ingressLivenessLints({ up: true, heartbeat: null }), []);
 });
 
 // --- GitHub App auth: key parses, installation token fetchable, assigneeLogin set ---

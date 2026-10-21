@@ -377,6 +377,22 @@ export function ingressChecks(ingress, has = onPath) {
   return [{ ok: !!ingress.url, label: `ingress.url set (${ingress.type})`, note: ingress.url || "missing", manual: "set ingress.url in the config" }];
 }
 
+/** A managed tunnel that died after boot: `status` already shows DOWN, but this is the only place
+ * it shows up unprompted. Pure. @param {ReturnType<import('../heartbeat.js').readProfile>} profile
+ * @returns {Finding[]} */
+export function ingressLivenessLints(profile) {
+  const down = profile.up && profile.heartbeat?.ingressDown;
+  if (!down) return [];
+  return [
+    {
+      level: "warn",
+      label: "ingress tunnel is down",
+      note: `${profile.heartbeat.ingress} ${down.reason} at ${down.at}; webhooks can't reach this receiver`,
+      fix: { manual: "run `agenthook restart`" },
+    },
+  ];
+}
+
 /** The default image builder: `<bin> build -t <image> -` with the Dockerfile on stdin.
  * @param {string} bin @param {string[]} args @param {string} dockerfile */
 const buildImage = (bin, args, dockerfile) => spawnSync(bin, args, { input: dockerfile, stdio: ["pipe", "inherit", "inherit"] });
@@ -1080,6 +1096,7 @@ export async function runChecks(cfg, io = {}) {
   for (const l of hermesLints(cfg, { sourceHome: hermesSourceHome(), readFile })) warn(l.label, l.note);
 
   for (const c of ingressChecks(cfg.ingress, have)) add(c.ok, c.label, c.note, { manual: c.manual });
+  ingressLivenessLints(profile).forEach(finding);
   checks.push(...(await sandboxChecks(cfg, { run, has: have, build })));
   const rootFiles = (/** @type {string} */ dir) => {
     try {

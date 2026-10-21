@@ -25,7 +25,11 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `<logDir>/cloudflared.log` — `tailscale` stable — one-shot `tailscale funnel --bg --set-path
   /<stateKey>` calls, no child; Tailscale strips the mount before proxying, so only `publicUrl`
   carries the path — and `manual`/`hosted` static). Registry `INGRESS` keyed by `cfg.ingress.type`. Interface: `describe() → {name,ephemeral}`,
-  `up(port) → {url}`, `down()`, optional `wizardSteps`.
+  `up(port) → {url}`, `down()`, optional `wizardSteps`, optional `onExit(listener)` — cloudflared
+  and ngrok call `listener(reason)` at most once if their managed tunnel dies unexpectedly after
+  `up()` resolved (never on `down()` or a startup failure); boot wires it to a heartbeat
+  `ingressDown` field that `status`/`doctor` surface (tailscale/manual have no child to watch, so
+  no `onExit`).
 - `src/sandbox/*.js` + `index.js` — optional sandbox adapters (`docker`, `podman`, both
   `container.js`). Registry `SANDBOXES` keyed by `cfg.sandbox.type`; no `sandbox` block →
   `createSandbox` returns null and runs spawn on the host. Interface: `describe() → {name, home}`,
