@@ -730,15 +730,37 @@ export function createAsanaAdapter(cfg, store) {
           },
         },
         { key: "_sourceStage", message: "Section that FIRES the code step (a task added here triggers the agent)", type: "select", choices: sections },
-        { key: "_successStage", message: "Section to move to on SUCCESS (hand off to review)", type: "select", choices: sections },
+        { key: "_successStage", message: "Section to move to on SUCCESS (hand off to the next stage, e.g. review or done)", type: "select", choices: sections },
         { key: "_failureStage", message: "Section to move to on FAILURE (blocked — a human picks it up)", type: "select", choices: sections },
+        {
+          key: "_holdStage",
+          message: "Section to move to when the agent needs an answer (hold)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — leave it in place)", value: "" }, ...(await sections(a))],
+        },
+        {
+          key: "_doneStage",
+          message: "Section for DONE — a merged PR moves the task here (skip = no done step)",
+          type: "select",
+          default: "",
+          choices: async (a) => [{ title: "(skip — no done step)", value: "" }, ...(await sections(a))],
+        },
       ];
     },
 
     // Map the wizard's live stage picks to this tracker's step bindings. Null when the
-    // user never reached the section picks, so init falls back to the TODO_* skeleton.
+    // user never reached the section picks, so init falls back to the TODO_* skeleton. The
+    // hold key is added only when a hold section was picked — never written as "".
     /** @param {Record<string,any>} a */
     pipelineBindings: (a) =>
-      a._sourceStage ? { sourceSectionGid: a._sourceStage, successSectionGid: a._successStage, failureSectionGid: a._failureStage } : null,
+      a._sourceStage
+        ? {
+            sourceSectionGid: a._sourceStage,
+            successSectionGid: a._successStage,
+            failureSectionGid: a._failureStage,
+            ...(a._holdStage ? { holdSectionGid: a._holdStage } : {}),
+          }
+        : null,
   };
 }

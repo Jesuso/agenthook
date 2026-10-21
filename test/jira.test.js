@@ -159,6 +159,21 @@ test("pipelineBindings returns null when no stage was picked (init keeps the pla
   assert.equal(adapter().pipelineBindings?.({}), null);
 });
 
+test("pipelineBindings adds holdStatus only when _holdStage was picked", () => {
+  const a = adapter();
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "To Do", _successStage: "In Review", _failureStage: "Blocked", _holdStage: "Waiting" }), {
+    sourceStatus: "To Do",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+    holdStatus: "Waiting",
+  });
+  assert.deepEqual(a.pipelineBindings?.({ _sourceStage: "To Do", _successStage: "In Review", _failureStage: "Blocked", _holdStage: "" }), {
+    sourceStatus: "To Do",
+    successStatus: "In Review",
+    failureStatus: "Blocked",
+  });
+});
+
 test("currentStage returns ANY pipeline status the issue sits in (not just source) — backs run's guard", async () => {
   const orig = global.fetch;
   // The issue is in the SUCCESS status (In Review), not the source — still in-flight.

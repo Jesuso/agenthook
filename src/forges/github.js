@@ -453,7 +453,7 @@ export function createGithubForge(cfg, store) {
     // `agenthook init` discovery: offer the forge, default yes when the tracker is
     // already github or the repo's remote is github.com (both are `answers._forgeOffer`,
     // computed by init before calling this). A `completeOnMerge` pick only appears
-    // when the generated pipeline has a manual step to put it on (none today).
+    // when the generated pipeline has a manual step to put it on (init's optional done step).
     /** @param {Record<string,any>} answers */
     wizardSteps: (answers) => {
       const offer = /** @type {{defaultYes:boolean, repository:string|null}} */ (answers._forgeOffer || { defaultYes: false, repository: null });
