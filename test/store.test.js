@@ -276,3 +276,10 @@ test("summaries set/replace/clear per (ref, step) and persist; the file is cappe
   assert.ok("r0" in after && "new" in after);
   assert.equal("r1" in after, false, "r1 had the oldest newest-at");
 });
+
+test("merge watermark: null until set, then persists across instances", () => {
+  const dir = tmpDir();
+  assert.equal(createStore(dir).getMergeWatermark(), null);
+  createStore(dir).setMergeWatermark("2026-10-20T00:00:00Z");
+  assert.equal(createStore(dir).getMergeWatermark(), "2026-10-20T00:00:00Z");
+});

@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Merge catch-up: `agenthook reconcile` (and reconcile-on-boot) now also replays agent PRs the
+  forge merged while the receiver was down, so `completeOnMerge`, the worktree drain and the
+  release of dependent tasks still happen. Backed by a new optional `Forge.listMergedAgentPrs`
+  (GitHub) and a stored watermark (`merge-watermark.json`, first run looks back 7 days); a merge
+  the live webhook already handled is never re-run, and a plain boot makes no forge call. The
+  `reconcile` MCP tool reports `merged`; a `reconcile_merges` control op runs only this step (#517).
 - `agenthook init` now offers two more stages for every wizard-driven tracker (Linear, Asana,
   Jira, GitHub, GitHub Projects): a skippable **hold** stage (a `hold` verdict moves the task there
   so the board shows the agent is waiting on a human) and a skippable **done** stage. Picking a done

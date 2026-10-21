@@ -386,6 +386,26 @@ export function createGithubForge(cfg, store) {
         }),
       );
     },
+    // Agent-branch PRs merged after `since` (backs the explicit merge catch-up — reconcile /
+    // reconcile-on-boot only). Closed PRs by most recently updated, paged until a page reaches
+    // one updated before `since` (merged_at <= updated_at, so nothing older can qualify); up to
+    // 5 x 100. Same branch rule as the live `merged` webhook.
+    async listMergedAgentPrs(since) {
+      const sinceMs = Date.parse(since);
+      /** @type {{pr: number, ref: string, mergedAt: string}[]} */
+      const out = [];
+      for (let page = 1; page <= 5; page++) {
+        const res = await api(`${repoPath()}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);
+        if (!res.ok) throw new Error(`list closed PRs ${res.status}`);
+        const batch = (await json(res)) || [];
+        for (const p of batch) {
+          const ref = refFromBranch(p.head?.ref);
+          if (ref && p.merged_at && Date.parse(p.merged_at) > sinceMs) out.push({ pr: p.number, ref, mergedAt: String(p.merged_at) });
+        }
+        if (batch.length < 100 || batch.some((/** @type {any} */ p) => Date.parse(p.updated_at) < sinceMs)) break;
+      }
+      return out;
+    },
     // One known PR's state by number, whatever its branch (backs the `prs` op learning that a
     // recorded PR left `open` without the merge hook firing).
     async prState(prNumber) {

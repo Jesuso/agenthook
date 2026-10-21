@@ -14,6 +14,9 @@
 // overlapGuard: a task waiting on a file-overlap lock rests in its source stage, so the
 // replay below already re-offers it to the gate. We only prune overlap.json waits whose
 // blocker no longer holds a lock (a release the receiver missed) first.
+//
+// With a forge, reconcile then also replays agent PRs merged while the receiver was down
+// (`runMergeCatchup`, via the `reconcile_merges` op — only the receiver can intake them).
 import { loadConfig } from "../config.js";
 import { requireStarted } from "../profile.js";
 import { createStore } from "../store.js";
@@ -38,13 +41,26 @@ export async function reconcile(args) {
     console.error(e.message);
     process.exit(1);
   }
+  if (cfg.forge) await reconcileMergesOverControl(cfg);
+}
+
+/** Merges missed while down: only the receiver can intake them, so ask it. Best-effort — a
+ * failure warns and leaves the exit code alone. @param {import('../types.js').Config} cfg */
+async function reconcileMergesOverControl(cfg) {
+  try {
+    const reply = await controlRequest(cfg.controlSock, "reconcile_merges", {}, { timeoutMs: 60000 });
+    if (!reply.ok) throw new Error(reply.error);
+    for (const line of reply.result.log || []) console.log(line);
+  } catch (e) {
+    console.warn(`warning: merge catch-up skipped — ${e.code === "timeout" ? "timed out" : e.code === "down" ? "receiver is down" : e.message}`);
+  }
 }
 
 /** Ask the live receiver to reconcile (in-process trackers). @param {import('../types.js').Config} cfg */
 async function reconcileOverControl(cfg) {
   let reply;
   try {
-    reply = await controlRequest(cfg.controlSock, "reconcile", {}, { timeoutMs: 20000 });
+    reply = await controlRequest(cfg.controlSock, "reconcile", {}, { timeoutMs: 60000 }); // board + forge scan
   } catch (e) {
     throw new Error(`could not reach "${cfg.name}" (${e.code === "timeout" ? "timed out" : "receiver is down"}). Is it running? \`agenthook start --detach\` first.`);
   }
@@ -116,4 +132,72 @@ export async function runReconcile(cfg, { store, adapter, log = console.log, int
   }
   log(`reconcile done — ${dispatched} task(s) replayed, ${resting.length - dispatched} skipped.`);
   return { replayed: dispatched, skipped: resting.length - dispatched };
+}
+
+/** With no watermark yet, the merge catch-up looks back this far. */
+export const MERGE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Merge catch-up: replay the `merge` job for agent PRs the forge merged while the receiver
+ * was down (its `merged` webhook never arrived), so completeOnMerge / `complete` / the drain
+ * still run and the tracker's close-release frees dependents. Explicit only — reconcile,
+ * reconcile-on-boot and the `reconcile_merges` op; never a plain boot or a timer.
+ *
+ * Asks the forge for PRs merged after the stored watermark (default: the last 7 days) and
+ * intakes one `merge` job per PR, oldest first, WITHOUT force: `merged:<pr>` is the same
+ * permanent dedup key the live webhook uses, so a merge already handled is never re-run.
+ * Best-effort: no forge / no list method / a forge error logs and returns; the watermark only
+ * advances after a successful list. Never throws.
+ * @param {import('../types.js').Config} cfg
+ * @param {{store: import('../types.js').Store, adapter: import('../types.js').Adapter, forge: import('../types.js').Forge|null|undefined, intake: (jobs: import('../types.js').Job[], opts?: {force?: boolean}) => number, log?: (msg: string) => void, now?: () => number}} deps
+ * @returns {Promise<{merged: number, skipped: number}>}
+ */
+export async function runMergeCatchup(cfg, { store, adapter, forge, intake, log = console.log, now = Date.now }) {
+  if (!forge || typeof forge.listMergedAgentPrs !== "function") {
+    log(`merge catch-up skipped — ${forge ? `forge "${forge.describe().name}" cannot list merged PRs` : "no forge configured"}.`);
+    return { merged: 0, skipped: 0 };
+  }
+  const since = store.getMergeWatermark() ?? new Date(now() - MERGE_LOOKBACK_MS).toISOString();
+  let prs;
+  try {
+    prs = await forge.listMergedAgentPrs(since);
+  } catch (e) {
+    log(`merge catch-up: listing merged PRs failed (${e.message}) — watermark unchanged.`);
+    return { merged: 0, skipped: 0 };
+  }
+  prs = [...prs].sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt));
+  const stepId = cfg.pipeline?.find((s) => s.completeOnMerge)?.id || "";
+  let merged = 0;
+  let skipped = 0;
+  /** @type {number|null} mergedAt of the oldest PR whose fetch failed — the watermark stays below it */
+  let failedAt = null;
+  for (const p of prs) {
+    let task;
+    try {
+      task = await adapter.fetchTask(p.ref);
+    } catch (e) {
+      log(`[skip] PR #${p.pr} (${p.ref}) — fetch failed (${e.message})`);
+      skipped++;
+      failedAt ??= Date.parse(p.mergedAt);
+      continue;
+    }
+    if (task.completed) {
+      log(`[skip] PR #${p.pr} (${p.ref}) — task already completed`);
+      skipped++;
+      continue;
+    }
+    if (intake([{ kind: "merge", ref: p.ref, stepId, dedupKey: `merged:${p.pr}` }]) > 0) {
+      log(`[merge] queued ${p.ref} — PR #${p.pr} merged ${p.mergedAt}`);
+      merged++;
+    } else {
+      log(`[skip] PR #${p.pr} (${p.ref}) — merge already handled`);
+      skipped++;
+    }
+  }
+  // Every listed PR merged after `since`, so the newest one is past the old watermark. A failed
+  // fetch holds it just below that PR so the next scan lists it again (`seen` dedups the rest).
+  const newest = prs.filter((p) => failedAt === null || Date.parse(p.mergedAt) < failedAt).at(-1)?.mergedAt;
+  if (newest) store.setMergeWatermark(newest);
+  log(`merge catch-up done — ${merged} merged PR(s) replayed, ${skipped} skipped.`);
+  return { merged, skipped };
 }

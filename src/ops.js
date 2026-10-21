@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
 import { entryBlock } from "./commands/run.js";
-import { runReconcile } from "./commands/reconcile.js";
+import { runMergeCatchup, runReconcile } from "./commands/reconcile.js";
 import { isStateDedupKey } from "./store.js";
 import { CANCELLED_REASON } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
@@ -471,6 +471,14 @@ export function createOps(deps) {
     reconcile: write("reconcile", async () => {
       const lines = /** @type {string[]} */ ([]);
       const r = await runReconcile(cfg, { store, adapter, intake, log: (m) => lines.push(m) });
+      const { merged } = await runMergeCatchup(cfg, { store, adapter, forge, intake, log: (m) => lines.push(m) });
+      return { ...r, merged, log: lines.slice(-20) };
+    }),
+    // Just the merge catch-up: the CLI `reconcile` on a webhook tracker replays resting tasks
+    // over HTTP itself, then asks for this (it has no intake of its own).
+    reconcile_merges: write("reconcile_merges", async () => {
+      const lines = /** @type {string[]} */ ([]);
+      const r = await runMergeCatchup(cfg, { store, adapter, forge, intake, log: (m) => lines.push(m) });
       return { ...r, log: lines.slice(-20) };
     }),
     // The Digest (src/digest.js): a tool-less summary outside the slot pool. Waits for the result;
