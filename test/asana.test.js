@@ -642,8 +642,8 @@ test("registerWebhook's filters include story comment_added (and keep section_ch
 });
 
 test("fetchTask maps displayId from the custom field named ID (case-insensitive)", async () => {
-  const { task, urls } = await fetchWith([{ name: "Priority", display_value: "High" }, { name: "id", display_value: "ID-2738" }]);
-  assert.equal(task.displayId, "ID-2738");
+  const { task, urls } = await fetchWith([{ name: "Priority", display_value: "High" }, { name: "id", display_value: "ID-1234" }]);
+  assert.equal(task.displayId, "ID-1234");
   assert.equal(task.name, "Fix it");
   assert.ok(urls[0].includes("custom_fields.name,custom_fields.display_value"), "requests the custom fields");
 });

@@ -16,7 +16,7 @@ const PS = [
 ].join("\n");
 
 const DOGFOOD = { stateKey: "agenthook-dogfood", running: { "6": { stepId: "code", pid: 12345 } } };
-const ALEPH = { stateKey: "alephbeta", running: { "1199887766": { stepId: "code", pid: 67890 } } };
+const ACME = { stateKey: "acme", running: { "1199887766": { stepId: "code", pid: 67890 } } };
 
 // A shell that merely MENTIONS the string (claude isn't its binary) and a user's own
 // manual `claude -p` (real bin, but no agenthook step/ref markers) — neither is a
@@ -87,18 +87,18 @@ test("an opencode agent (`opencode run --format json … <prompt>`) is listed wi
 });
 
 test("default scope: only the active profile's agents (refs in its running.json)", () => {
-  const rows = selectAgents(PS, [DOGFOOD, ALEPH], { active: "agenthook-dogfood" });
+  const rows = selectAgents(PS, [DOGFOOD, ACME], { active: "agenthook-dogfood" });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ref, "6");
   assert.equal(rows[0].profile, "agenthook-dogfood");
 });
 
 test("--all: every agent row, each labelled with its owning profile", () => {
-  const rows = selectAgents(PS, [DOGFOOD, ALEPH], { all: true });
+  const rows = selectAgents(PS, [DOGFOOD, ACME], { all: true });
   assert.equal(rows.length, 3);
   const byRef = Object.fromEntries(rows.map((r) => [r.ref, r.profile]));
   assert.equal(byRef["6"], "agenthook-dogfood");
-  assert.equal(byRef["1199887766"], "alephbeta");
+  assert.equal(byRef["1199887766"], "acme");
   assert.equal(byRef["999"], "?"); // in no running.json
 });
 
@@ -161,12 +161,12 @@ test("fmtCtx: k formatting for sub-million context", () => {
 });
 
 // --- formatAgentRow / agentRecord: human id, title, PR instead of pid/ref ---
-const ROW = { pid: "1293223", etime: "00:51", step: "review", ref: "1218828631775704", profile: "alephbeta" };
-const META = { displayId: "ID-2738", title: "Make the thing work across every profile and board at once", pr: 94 };
+const ROW = { pid: "1293223", etime: "00:51", step: "review", ref: "1200000000000001", profile: "acme" };
+const META = { displayId: "ID-1234", title: "Make the thing work across every profile and board at once", pr: 94 };
 
 test("formatAgentRow default: displayId, step, #pr, etime, truncated title, ctx — no pid/ref", () => {
   const line = formatAgentRow(ROW, META, "ctx=79.5k out=188");
-  assert.match(line, /^ID-2738\s+review\s+#94\s+00:51\s+Make the thing/);
+  assert.match(line, /^ID-1234\s+review\s+#94\s+00:51\s+Make the thing/);
   assert.ok(line.endsWith("ctx=79.5k out=188"));
   assert.ok(line.includes("…"), "long title truncated");
   assert.ok(!line.includes("pid="), "no pid by default");
@@ -176,20 +176,20 @@ test("formatAgentRow default: displayId, step, #pr, etime, truncated title, ctx 
 
 test("formatAgentRow --verbose appends pid + ref; --all keeps the profile label", () => {
   const line = formatAgentRow(ROW, META, "-", { verbose: true, all: true });
-  assert.ok(line.startsWith("profile=alephbeta"));
+  assert.ok(line.startsWith("profile=acme"));
   assert.ok(line.endsWith(`pid=1293223 ref=${ROW.ref}`));
 });
 
 test("formatAgentRow --all shows the owner's label (state key stays on the row)", () => {
-  const line = formatAgentRow(ROW, META, "-", { all: true, label: "Aleph (alephbeta)" });
-  assert.ok(line.startsWith("profile=Aleph (alephbeta)"));
-  assert.equal(ROW.profile, "alephbeta");
+  const line = formatAgentRow(ROW, META, "-", { all: true, label: "Acme (acme)" });
+  assert.ok(line.startsWith("profile=Acme (acme)"));
+  assert.equal(ROW.profile, "acme");
 });
 
 test("agentRecord --json: profile = state key, label alongside", () => {
-  const rec = agentRecord(ROW, META, undefined, undefined, "Aleph (alephbeta)");
-  assert.equal(rec.profile, "alephbeta");
-  assert.equal(rec.label, "Aleph (alephbeta)");
+  const rec = agentRecord(ROW, META, undefined, undefined, "Acme (acme)");
+  assert.equal(rec.profile, "acme");
+  assert.equal(rec.label, "Acme (acme)");
 });
 
 test("formatAgentRow falls back to the ref and a — placeholder when nothing is known", () => {
@@ -201,7 +201,7 @@ test("formatAgentRow falls back to the ref and a — placeholder when nothing is
 test("agentRecord --json shape: live tally + running model/startedAt", () => {
   const run = { stepId: "review", pid: 1293223, startedAt: "2026-09-24T10:00:00Z", model: "claude-opus-5-5", input: 5, cacheRead: 79000, cacheCreate: 495, output: 188 };
   assert.deepEqual(agentRecord(ROW, META, run, undefined), {
-    profile: "alephbeta", label: "alephbeta", pid: 1293223, ref: ROW.ref, displayId: "ID-2738", title: META.title, pr: 94,
+    profile: "acme", label: "acme", pid: 1293223, ref: ROW.ref, displayId: "ID-1234", title: META.title, pr: 94,
     step: "review", model: "claude-opus-5-5", startedAt: "2026-09-24T10:00:00Z", ctx: 79500, out: 188, etime: "00:51",
   });
 });

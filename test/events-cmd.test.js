@@ -59,15 +59,15 @@ test("renderEvent pads event name to align columns", () => {
 
 // --- human ids: displayId rendering + --ref resolution (ref, displayId, PR) ---
 test("renderEvent prefixes ref= with the displayId (event's own, else refmeta)", () => {
-  const ev = { ts: "2026-07-03T10:00:00.000Z", event: "run_start", ref: "1218828631775704", step: "code", displayId: "ID-2738" };
-  assert.ok(renderEvent(ev).includes("ID-2738 ref=1218828631775704"));
+  const ev = { ts: "2026-07-03T10:00:00.000Z", event: "run_start", ref: "1200000000000001", step: "code", displayId: "ID-1234" };
+  assert.ok(renderEvent(ev).includes("ID-1234 ref=1200000000000001"));
   const bare = { ...ev, displayId: undefined };
-  assert.ok(renderEvent(bare, { displayId: "ID-9" }).includes("ID-9 ref=1218828631775704"));
-  assert.ok(renderEvent(bare).includes("  ref=1218828631775704"), "no id → unchanged");
+  assert.ok(renderEvent(bare, { displayId: "ID-9" }).includes("ID-9 ref=1200000000000001"));
+  assert.ok(renderEvent(bare).includes("  ref=1200000000000001"), "no id → unchanged");
 });
 
 const REFMETA = {
-  "1218828631775704": { displayId: "ID-2738", title: "A", pr: 12 },
+  "1200000000000001": { displayId: "ID-1234", title: "A", pr: 12 },
   "94": { displayId: "#94", title: "B", pr: 101 },
   "95": { displayId: "#95", title: "C", pr: 94 },
 };
@@ -78,12 +78,12 @@ test("resolveRefFilter: exact ref wins", () => {
 });
 
 test("resolveRefFilter: case-insensitive displayId", () => {
-  assert.deepEqual([...resolveRefFilter("id-2738", REFMETA)], ["1218828631775704"]);
+  assert.deepEqual([...resolveRefFilter("id-1234", REFMETA)], ["1200000000000001"]);
   assert.deepEqual([...resolveRefFilter("#94", REFMETA)], ["94"], "GitHub #94 is the issue, not PR 94");
 });
 
 test("resolveRefFilter: PR number (#N or N) against refmeta pr", () => {
-  assert.deepEqual([...resolveRefFilter("12", REFMETA)], ["1218828631775704"]);
+  assert.deepEqual([...resolveRefFilter("12", REFMETA)], ["1200000000000001"]);
   assert.deepEqual([...resolveRefFilter("#101", REFMETA)], ["94"]);
 });
 

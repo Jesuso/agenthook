@@ -3,7 +3,7 @@
 //   events                    print recent events, human-readable, oldest→newest
 //   events --follow / -f      tail live: stream new events as they arrive
 //   events --event a,b,...    filter to these event types
-//   events --ref <ref>        filter to one task: exact ref, else human id (ID-2738), else PR (#N / N)
+//   events --ref <ref>        filter to one task: exact ref, else human id (ID-1234), else PR (#N / N)
 //   events --json             emit raw JSONL (one line per event), for piping
 import fs from "node:fs";
 import path from "node:path";

@@ -9,9 +9,9 @@ import { registryDir } from "../src/config.js";
 import { provenanceLines, refForLog, status } from "../src/commands/status.js";
 
 test("refForLog resolves the ref from a run-log filename among known refs", () => {
-  const refs = ["94", "1218828631775704", "ABC-7"];
+  const refs = ["94", "1200000000000001", "ABC-7"];
   assert.equal(refForLog("2026-09-24T10-00-00-000Z-step-code-94.log", refs), "94");
-  assert.equal(refForLog("2026-09-24T10-00-00-000Z-step-self-review-1218828631775704.log", refs), "1218828631775704");
+  assert.equal(refForLog("2026-09-24T10-00-00-000Z-step-self-review-1200000000000001.log", refs), "1200000000000001");
   assert.equal(refForLog("2026-09-24T10-00-00-000Z-step-code-ABC-7.log", refs), "ABC-7");
 });
 

@@ -73,8 +73,8 @@ test("unfilledBindings: tolerates null/empty pipeline", () => {
 
 // --- multi-repo lints (#82) ---
 
-const mono = { id: "mono", path: "/w/alephbeta", match: [], default: true };
-const ios = { id: "ios", path: "/w/alephbeta-ios", match: ["ios"] };
+const mono = { id: "mono", path: "/w/acme", match: [], default: true };
+const ios = { id: "ios", path: "/w/acme-ios", match: ["ios"] };
 const held = [{ id: "code", sourceLabel: "a", holdLabel: "agent:hold" }, { id: "done", manual: true }];
 /** @param {any} over */
 const multi = (over = {}) =>

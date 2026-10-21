@@ -14,7 +14,7 @@ test("every emoji is one code point: no variation selector or ZWJ sequence, so i
 });
 
 test("deriveIdentity is deterministic and always lands on the palette / list", () => {
-  for (const key of ["agenthook", "alephbeta", "cahui", "a", "ünïcode", ""]) {
+  for (const key of ["agenthook", "acme", "cahui", "a", "ünïcode", ""]) {
     const a = deriveIdentity(key);
     assert.deepEqual(a, deriveIdentity(key));
     assert.ok(isProfileColor(a.color) && isProfileEmoji(a.emoji), key);
@@ -22,7 +22,7 @@ test("deriveIdentity is deterministic and always lands on the palette / list", (
 });
 
 test("deriveIdentity spreads keys over several colours (not one bucket)", () => {
-  const colors = new Set(["agenthook", "alephbeta", "cahui", "support", "content", "infra", "docs", "web"].map((k) => deriveIdentity(k).color));
+  const colors = new Set(["agenthook", "acme", "cahui", "support", "content", "infra", "docs", "web"].map((k) => deriveIdentity(k).color));
   assert.ok(colors.size >= 4, [...colors].join());
 });
 

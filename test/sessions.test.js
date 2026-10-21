@@ -15,8 +15,8 @@ const { sessionDir, refRepo, listSessions } = await import("../src/sessions.js")
 const { claudeProjectDir } = await import("../src/paths.js");
 const { worktreePath } = await import("../src/worktree.js");
 
-const mono = { id: "mono", path: "/w/alephbeta", match: [], default: true };
-const ios = { id: "ios", path: "/w/alephbeta-ios", match: ["ios"] };
+const mono = { id: "mono", path: "/w/acme", match: [], default: true };
+const ios = { id: "ios", path: "/w/acme-ios", match: ["ios"] };
 const multi = /** @type {any} */ ({ repoPath: mono.path, multiRepo: true, repos: [mono, ios], logDir: path.join(HOME, "logs") });
 
 /** @param {string} dir @param {string} id */

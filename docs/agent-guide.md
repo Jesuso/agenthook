@@ -67,11 +67,11 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
 `status` (also the `status` part of `tick`):
 
 ```json
-{"profile":"alephbeta","up":true,"tracker":"asana",
+{"profile":"acme","up":true,"tracker":"asana",
  "slots":{"max":3,"active":1,"queued":0,"free":2},
- "running":[{"ref":"123","id":"ID-2979","title":"…","step":"code","ageS":412,"model":"opus","outTok":18200}],
+ "running":[{"ref":"123","id":"ID-1235","title":"…","step":"code","ageS":412,"model":"opus","outTok":18200}],
  "queue":[{"ref":"124","step":"triage"}],
- "held":[{"ref":"125","id":"ID-2759","step":"code","why":"asked PO whether to close or duplicate","since":"2026-09-24T20:45:37Z"}],
+ "held":[{"ref":"125","id":"ID-1236","step":"code","why":"asked PO whether to close or duplicate","since":"2026-09-24T20:45:37Z"}],
  "etag":"c6f57be8087a"}
 ```
 
