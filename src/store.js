@@ -20,6 +20,8 @@
 //              on terminal fail/cancel and merge; capped at MAX_SUMMARY_REFS refs.
 //   - queue:   jobs accepted but still waiting behind maxConcurrent (insertion order,
 //              keyed by `${ref}:${stepId}`), so a crash/force-kill doesn't lose them.
+//   - merge-watermark: `{mergedAt}` of the newest merged agent PR the explicit merge catch-up
+//              (`runMergeCatchup`) listed, so the next one only asks the forge for later merges.
 //
 // seen is reloaded from disk on every read (reloadSeen) because external tools
 // (the `catchup` CLI) edit it out-of-band; the in-memory set would otherwise mask
@@ -74,6 +76,7 @@ export function createStore(dataDir) {
   const overlapFile = path.join(dataDir, "overlap.json");
   const ciRedFile = path.join(dataDir, "cired.json");
   const summariesFile = path.join(dataDir, "summaries.json");
+  const mergeWatermarkFile = path.join(dataDir, "merge-watermark.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -287,6 +290,14 @@ export function createStore(dataDir) {
       fs.writeFileSync(refmetaFile, JSON.stringify(m));
     },
     listRefMeta: () => readJson(refmetaFile, {}),
+    // --- merge catch-up watermark (merge-watermark.json): newest `mergedAt` the explicit scan listed ---
+    getMergeWatermark: () => {
+      const v = readJson(mergeWatermarkFile, {})?.mergedAt;
+      return typeof v === "string" && v ? v : null;
+    },
+    setMergeWatermark: (iso) => {
+      fs.writeFileSync(mergeWatermarkFile, JSON.stringify({ mergedAt: iso }));
+    },
     // --- per-ref review findings (findings.json): set on a `changes` bounce, read by the target step ---
     getFindings: (ref) => readJson(findingsFile, {})[ref],
     setFindings: (ref, f) => {

@@ -578,6 +578,7 @@
  * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
  * @property {(prNumber: number|null, ref: string) => Promise<{number: number, sha: string, open: boolean}|null>} [prHead]  the ref's agent-branch PR (by number, else the open one), or null
  * @property {(prNumber: number) => Promise<'open'|'merged'|'closed'>} [prState]  one PR's state by number (any branch); throws on a non-2xx
+ * @property {(since: string) => Promise<MergedAgentPr[]>} [listMergedAgentPrs]  PRs on `agent/<ref>` branches merged after `since` (ISO), any order; backs the explicit merge catch-up (`runMergeCatchup`), never a timer. Throws on a non-2xx
  * @property {() => Promise<AgentPr[]>} [listAgentPrs]  open PRs on receiver-made `agent/<ref>` branches of this repo, with CI + mergeability (read-only; the MCP `prs` tool)
  * @property {(prNumber: number, sha: string) => Promise<{mergeable: boolean|null, mergeState: string|null, ci: AgentPr['ci']}>} [ciStatus]  CI roll-up for one PR head + its mergeability (backs `ci_green`)
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
@@ -585,6 +586,13 @@
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(o: RunCredentialsInput) => Promise<RunCredentials|null>} [runCredentials]  optional; same contract as Adapter.runCredentials. Dispatch asks the forge first, then the tracker when this returns null
+ */
+
+/** One merged agent PR as `listMergedAgentPrs` reports it.
+ * @typedef {object} MergedAgentPr
+ * @property {number} pr
+ * @property {string} ref        the task ref (branch minus `agent/`)
+ * @property {string} mergedAt   ISO timestamp
  */
 
 /** One open agent PR as `listAgentPrs` reports it.
@@ -719,6 +727,8 @@
  * @property {(ref: string) => RefMeta|undefined} getRefMeta        display metadata for ref (undefined = none recorded)
  * @property {(ref: string, patch: RefMetaPatch) => void} setRefMeta  shallow-merge patch into ref's record (undefined skipped, null deletes)
  * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
+ * @property {() => string|null} getMergeWatermark                  merge catch-up: ISO `mergedAt` of the newest merged agent PR listed (null = never ran)
+ * @property {(iso: string) => void} setMergeWatermark               persist the merge catch-up watermark
  */
 
 export {};

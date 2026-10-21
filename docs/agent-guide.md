@@ -181,7 +181,8 @@ the wrong way). `runs {ref, tail}` to look, then `cancel {ref}`. The run resolve
 
 **Free slots but nothing running and the board has tickets.** Tickets rest in a source stage
 without firing if their webhook was missed (receiver was down). `reconcile` replays them
-(explicit one-shot board read). If a backlog lane is configured, `pull` fills free slots from it.
+(explicit one-shot board read). With a forge it also replays agent PRs **merged** while the receiver
+was down, so their tickets complete and the tickets they blocked are released. If a backlog lane is configured, `pull` fills free slots from it.
 
 **Take a ticket now.** `run {ref, step?}` assigns it to the token's account and moves it into the
 step's source stage; the tracker webhook fires the step (a few seconds). Watch for `enqueued` /
@@ -243,7 +244,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
 | `dismiss {ref}` | acknowledge a **failed/cancelled** task so dashboards stop counting it as needing attention (writes a `dismissed` event; the ticket is untouched) | ref is running, queued or held |
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |
-| `reconcile` | replay tickets resting in source stages | — |
+| `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`) | — |
 | `pull` | fill free slots from the backlog lane; returns the queue state | — (a no-op when no step has a queue stage) |
 | `restart` | restart when idle | — |
 

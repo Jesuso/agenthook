@@ -248,7 +248,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   process.on("unhandledRejection", (err) => onFatal("unhandledRejection", err));
 
   const serve = createServe({
-    cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, queue, puller, quotaPacer, emit, releaseOverlap, startedAt,
+    cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, queue, puller, quotaPacer, emit, intake, releaseOverlap, startedAt,
     restart: restarter.request, decommission: decommissioner.request, ops, shutdown, reconcileOnBoot,
   });
 

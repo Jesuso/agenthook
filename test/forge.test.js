@@ -650,6 +650,41 @@ test("listAgentPrs: a not-yet-computed mergeability is re-read once instead of r
   }
 });
 
+test("listMergedAgentPrs: only merged agent/* PRs merged after since; stops paging at a page reaching updated_at < since", async () => {
+  const since = "2026-10-10T00:00:00Z";
+  const pr = (/** @type {number} */ number, /** @type {string} */ ref, /** @type {string|null} */ merged_at, /** @type {string} */ updated_at) => ({ number, merged_at, updated_at, head: { ref } });
+  const page1 = Array.from({ length: 100 }, (_, i) => pr(1000 + i, `feature/${i}`, "2026-10-12T00:00:00Z", "2026-10-12T00:00:00Z"));
+  page1[0] = pr(1, "agent/10", "2026-10-11T00:00:00Z", "2026-10-11T00:00:00Z"); // ✓
+  page1[1] = pr(2, "agent/11", null, "2026-10-11T00:00:00Z"); // closed, not merged
+  page1[2] = pr(3, "agent/12", "2026-10-09T00:00:00Z", "2026-10-11T00:00:00Z"); // merged before since (updated later)
+  const page2 = [pr(4, "agent/13", "2026-10-10T12:00:00.000Z", "2026-10-10T12:00:00Z"), pr(5, "agent/14", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z")];
+  page2.push(...Array.from({ length: 98 }, (_, i) => pr(2000 + i, `agent/x${i}`, "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")));
+  const s = stubFetch({
+    "GET /repos/o/r/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1": { json: page1 },
+    "GET /repos/o/r/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2": { json: page2 },
+    "GET /repos/o/r/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=3": { json: [pr(9, "agent/99", "2026-10-20T00:00:00Z", "2026-10-20T00:00:00Z")] },
+  });
+  try {
+    const out = await /** @type {any} */ (forge()).listMergedAgentPrs(since);
+    assert.deepEqual(out, [
+      { pr: 1, ref: "10", mergedAt: "2026-10-11T00:00:00Z" },
+      { pr: 4, ref: "13", mergedAt: "2026-10-10T12:00:00.000Z" },
+    ]);
+    assert.equal(s.calls.length, 2, "page 2 reached updated_at < since — page 3 is never fetched");
+  } finally {
+    s.restore();
+  }
+});
+
+test("listMergedAgentPrs: a non-2xx throws", async () => {
+  const s = stubFetch({ "GET /repos/o/r/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1": { status: 502, json: {} } });
+  try {
+    await assert.rejects(() => /** @type {any} */ (forge()).listMergedAgentPrs("2026-10-10T00:00:00Z"), /list closed PRs 502/);
+  } finally {
+    s.restore();
+  }
+});
+
 test("ciStatus: whole check-run roll-up + mergeability for one PR head", async () => {
   const run = (/** @type {any} */ o) => ({ status: "completed", conclusion: "success", ...o });
   const cases = [

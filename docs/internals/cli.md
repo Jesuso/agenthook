@@ -21,7 +21,7 @@ node bin/agenthook.js cleanup [--apply [--force]]  # tear down done agent worktr
 node bin/agenthook.js register <url>     # manual webhook create (hosted/static URL)
 node bin/agenthook.js unregister         # delete this profile's webhooks
 node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through the live server
-node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections (explicit poll)
+node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections + PRs merged while down (explicit poll)
 node bin/agenthook.js ticket add "<title>" [--body <t>|--file <p>] [--step <id>]  # local profiles: add a ticket (receiver up → `ticket_add` op over control.sock)
 node bin/agenthook.js ticket ls [--json] # local profiles: the board (ref, stage, title)
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …

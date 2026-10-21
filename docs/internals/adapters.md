@@ -62,6 +62,15 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `workflow_run` on a same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attempt>'}`
   job (`forge.redCi:false` disables) — see [dispatch.md](dispatch.md) for how dispatch handles the
   CI and merge jobs this produces.
+  **Missed merges:** a PR merged while the receiver was down never sends its webhook, so the
+  optional `listMergedAgentPrs(since)` (github only: closed PRs by `updated` desc, paged until one
+  predates `since`, ≤ 5 × 100) lets `runMergeCatchup` (`src/commands/reconcile.js`) replay the same
+  `merged:<n>` job — unforced, so a merge handled live stays deduped by `seen`. It runs **only**
+  from `reconcile` (CLI → `reconcile_merges` op on a webhook tracker; the `reconcile` op/MCP tool)
+  and `--reconcile-on-boot` — never a plain boot or a timer — skips a task already `completed`, and
+  keeps a `merge-watermark.json` (newest `mergedAt` listed; first run looks back 7 days). Dependents
+  release through the tracker's own close webhook once the merge job's `complete` closes the blocker.
+  A forge without the method (gitlab today) logs and skips.
   `gitlab` (`src/forges/gitlab.js`, config `project` + optional `baseUrl`, API `<baseUrl>/api/v4`
   with `PRIVATE-TOKEN`) produces the same jobs from the same `/forge` path, so engine and dispatch
   don't change. A `Merge Request Hook` with `action:"merge"` from a same-project `agent/<ref>`
@@ -84,7 +93,7 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   **receiver-owned** worktree (create on `createsWorktree`, `drainWorktree` to remove), keyed by task
   ref so all steps share one — no globbing. **No implicit polling**: forward motion is event-driven,
   crash recovery reads local `running.json` only, and the only board poll is the explicit
-  `agenthook reconcile` command — with **one narrow exception**: a step that sets a queue-stage key
+  `agenthook reconcile` command (which also asks the forge for PRs merged while down) — with **one narrow exception**: a step that sets a queue-stage key
   (`queueSectionGid` Asana / `queueStatus` Jira·github-projects·local / `queueLabel` GitHub) opts in
   to reading **that one stage**, only on `run_end` (when a slot is free) and once on boot. It is
   never timer-driven, and `listResting` is still never called on boot. `src/pull.js` pulls the top

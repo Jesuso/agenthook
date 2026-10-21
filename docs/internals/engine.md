@@ -20,8 +20,8 @@ pidfile** (listen precedes any register: a new hook POSTs a handshake at once �
 `sandbox?.reap()` (remove containers a dead receiver left running — best-effort, logged) →
 `recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
 → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots; **only** reads a step's
-opt-in queue stage, a no-op without one) → one `runReconcile` (only with `--reconcile-on-boot`, a
-restart's respawn) → SIGINT/SIGTERM handlers. A boot failure after `ingress.up` downs the ingress and
+opt-in queue stage, a no-op without one) → one `runReconcile`, then one `runMergeCatchup` (PRs merged
+in the gap — each in its own try/catch; only with `--reconcile-on-boot`, a restart's respawn) → SIGINT/SIGTERM handlers. A boot failure after `ingress.up` downs the ingress and
 closes control; on exit `ingress.down()`.
 
 `registerWebhook` is the only boot tracker call that isn't best-effort, so it is retried
