@@ -100,6 +100,7 @@ export function createServe(deps) {
       ingressUp = true;
       fs.writeFileSync(cfg.publicUrlFile, url);
       heartbeat.update({ url });
+      ingress.onExit?.((reason) => heartbeat.update({ ingressDown: { at: new Date().toISOString(), reason } }));
 
       // Listen BEFORE registering: registering a webhook makes the tracker immediately
       // POST a handshake/ping to the public URL, which must reach a live server (Asana

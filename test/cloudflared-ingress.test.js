@@ -32,17 +32,13 @@ const NAMED_LOG = `2024-06-01T10:00:00Z INF Starting tunnel tunnelID=6ff42ae2-76
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-cloudflared-"));
 
-/** A fake `cloudflared`: records its pid + argv, prints `stderr`, then either exits or sleeps.
- * @param {string} dir @param {string} stderr @param {{ exit?: number }} [o] */
-function fake(dir, stderr, { exit } = {}) {
+/** A fake `cloudflared`: records its pid + argv, prints `stderr`, then either exits, sleeps, or
+ * (with `exitAfterMs`) sleeps briefly and then exits — simulating a post-connect crash.
+ * @param {string} dir @param {string} stderr @param {{ exit?: number, exitAfterMs?: number }} [o] */
+function fake(dir, stderr, { exit, exitAfterMs } = {}) {
   const bin = path.join(dir, "cloudflared");
-  const body = [
-    "#!/bin/sh",
-    `echo $$ > "${dir}/pid"`,
-    `echo "$@" > "${dir}/args"`,
-    `cat >&2 <<'EOF'\n${stderr}EOF`,
-    exit == null ? "exec sleep 60" : `exit ${exit}`,
-  ].join("\n");
+  const tail = exitAfterMs != null ? `sleep ${exitAfterMs / 1000}\nexit 1` : exit == null ? "exec sleep 60" : `exit ${exit}`;
+  const body = ["#!/bin/sh", `echo $$ > "${dir}/pid"`, `echo "$@" > "${dir}/args"`, `cat >&2 <<'EOF'\n${stderr}EOF`, tail].join("\n");
   fs.writeFileSync(bin, body + "\n", { mode: 0o755 });
   return bin;
 }
@@ -204,4 +200,40 @@ test("doctor ingressChecks: cloudflared checks its binary and never demands ingr
   assert.ok(ingressChecks({ type: "cloudflared", tunnel: "agenthook", hostname: "hook.example.com" }, has).every((c) => c.ok));
   assert.equal(ingressChecks({ type: "manual" }, has)[0].ok, false);
   assert.equal(ingressChecks({ type: "ngrok" }, has)[0].label, "ngrok binary on PATH");
+});
+
+test("onExit: a post-connect crash fires the listener once with a reason; down() does not", async () => {
+  const dir = tmp();
+  await withBin(fake(dir, QUICK_LOG + QUICK_REGISTERED, { exitAfterMs: 300 }), async () => {
+    const ing = createCloudflaredIngress(cfgFor(dir), { timeoutMs: 5000 });
+    /** @type {string[]} */
+    const reasons = [];
+    ing.onExit((reason) => reasons.push(reason));
+    await ing.up(4124);
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal(reasons.length, 1);
+    assert.match(reasons[0], /exited/);
+  });
+});
+
+test("onExit: does not fire on down(), and not on a pre-connect exit (that only rejects up())", async () => {
+  const dir = tmp();
+  await withBin(fake(dir, QUICK_LOG + QUICK_REGISTERED), async () => {
+    const ing = createCloudflaredIngress(cfgFor(dir), { timeoutMs: 5000 });
+    const reasons = [];
+    ing.onExit((reason) => reasons.push(reason));
+    await ing.up(4124);
+    await ing.down();
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(reasons.length, 0);
+  });
+
+  const dir2 = tmp();
+  await withBin(fake(dir2, "2024-06-01T10:00:00Z ERR boom\n", { exit: 1 }), async () => {
+    const ing = createCloudflaredIngress(cfgFor(dir2), { timeoutMs: 5000 });
+    const reasons = [];
+    ing.onExit((reason) => reasons.push(reason));
+    await assert.rejects(ing.up(4124));
+    assert.equal(reasons.length, 0);
+  });
 });

@@ -45,6 +45,10 @@ export function createNgrokIngress(cfg) {
   const bin = process.env.NGROK || "ngrok";
   /** @type {import('node:child_process').ChildProcess | null} */
   let child = null;
+  let stopping = false; // down() is killing the child: its exit is expected
+  let connected = false; // up() has resolved a URL: a later exit is unexpected
+  /** @type {((reason: string) => void) | null} */
+  let exitListener = null;
 
   let out = ""; // our child's early output: names the web address it really bound
 
@@ -71,6 +75,10 @@ export function createNgrokIngress(cfg) {
   return {
     describe: () => ({ name: "ngrok", ephemeral: !opts.domain }),
 
+    onExit(listener) {
+      exitListener = listener;
+    },
+
     async up(port) {
       // ngrok v3 has no --web-addr CLI flag (it's config-file only); the inspect/API
       // address defaults to 127.0.0.1:4040, which we read tunnels from below. For
@@ -82,22 +90,34 @@ export function createNgrokIngress(cfg) {
       if (opts.authtoken) args.push("--authtoken", opts.authtoken);
       else console.log("[ngrok] no ingress.authtoken set — using ngrok's own config for auth");
 
+      stopping = false;
+      connected = false;
       const logPath = path.join(cfg.logDir, "ngrok.log");
       const log = fs.createWriteStream(logPath, { flags: "a" });
-      child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
-      child.stdout?.on("data", (c) => {
+      const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+      child = proc;
+      proc.stdout?.on("data", (c) => {
         if (out.length < 8192) out += c;
       });
-      child.stdout?.pipe(log);
-      child.stderr?.pipe(log);
-      child.on("error", (e) => console.error(`[ngrok] spawn failed: ${e.message} (is "${bin}" installed?)`));
+      proc.stdout?.pipe(log);
+      proc.stderr?.pipe(log);
+      proc.on("error", (e) => console.error(`[ngrok] spawn failed: ${e.message} (is "${bin}" installed?)`));
+      proc.on("exit", (code, signal) => {
+        if (child === proc) child = null;
+        if (!connected || stopping) return;
+        const reason = `exited (${code ?? signal})`;
+        console.error(`[ngrok] ${reason}; the tunnel is down — webhooks can't reach this receiver until \`agenthook restart\`. See ${logPath}.`);
+        exitListener?.(reason);
+      });
 
       const url = await waitForUrl(port);
+      connected = true;
       console.log(`[ngrok] tunnel up: ${url} -> 127.0.0.1:${port}`);
       return { url };
     },
 
     async down() {
+      stopping = true;
       if (child && !child.killed) {
         child.kill();
         child = null;
