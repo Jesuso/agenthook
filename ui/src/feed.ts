@@ -72,6 +72,11 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       tone = "idle";
       break;
     }
+    case "verdict_missing": {
+      text = `${event.step ?? "?"} exited with no valid verdict`;
+      tone = "held";
+      break;
+    }
     case "blocked": {
       text = `held: ${event.reason ?? "?"}`;
       tone = "held";

@@ -15,7 +15,7 @@ import { createCi } from "./ci.js";
 import { createFinish } from "./finish.js";
 import { createStep } from "./step.js";
 
-export { timeoutReason, MAX_SUMMARY_CHARS, parseSummary, parseVerdict } from "./verdict.js";
+export { timeoutReason, MAX_SUMMARY_CHARS, parseSummary, parseVerdict, NO_VALID_VERDICT } from "./verdict.js";
 export { lookupPr } from "./pr.js";
 export { descriptionHasHeadings, resolveModelEffort, promptPathFor } from "./prompt.js";
 
