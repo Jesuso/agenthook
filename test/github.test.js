@@ -63,9 +63,15 @@ test("authenticate accepts unsigned when webhookSecret:false", () => {
 });
 
 test("labeled event routes to the step whose sourceLabel was added", async () => {
-  const jobs = await adapter().processEvents(
-    /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 42, labels: [{ name: "agent:code" }], assignees: [] } }, { "x-github-delivery": "guid-1" })),
-  );
+  const restore = withDeps((u) => (u.endsWith("/issues/42") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) }) : null));
+  let jobs;
+  try {
+    jobs = await adapter().processEvents(
+      /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 42, labels: [{ name: "agent:code" }], assignees: [] } }, { "x-github-delivery": "guid-1" })),
+    );
+  } finally {
+    restore();
+  }
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].ref, "42");
   assert.equal(jobs[0].stepId, "code");
@@ -77,8 +83,27 @@ test("labeled event with an unknown label yields no job", async () => {
   assert.equal(jobs.length, 0);
 });
 
+test("labeled event: a delayed delivery whose live issue no longer carries the label yields no job (stale payload snapshot)", async () => {
+  const restore = withDeps((u) => (u.endsWith("/issues/42") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:review" }] }) }) : null));
+  let jobs;
+  try {
+    jobs = await adapter().processEvents(
+      /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 42, labels: [{ name: "agent:code" }], assignees: [] } }, { "x-github-delivery": "guid-2" })),
+    );
+  } finally {
+    restore();
+  }
+  assert.equal(jobs.length, 0);
+});
+
 test("opened event routes by the issue's current labels (state-based dedup key)", async () => {
-  const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 7, labels: [{ name: "agent:code" }], assignees: [] } })));
+  const restore = withDeps((u) => (u.endsWith("/issues/7") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) }) : null));
+  let jobs;
+  try {
+    jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 7, labels: [{ name: "agent:code" }], assignees: [] } })));
+  } finally {
+    restore();
+  }
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].dedupKey, "step:code:7");
 });
@@ -277,6 +302,108 @@ test("forgeCatchup leaves stepId undefined when the issue is in no source label 
   }
 });
 
+// --- #506: delayed delivery with a stale payload label/assignee snapshot ---
+
+const triagePipeline = [
+  { id: "triage", sourceLabel: "agent:triage", successLabel: "agent:code" },
+  { id: "code", sourceLabel: "agent:code", successLabel: "agent:review", failureLabel: "agent:blocked" },
+  { id: "review", sourceLabel: "agent:review", successLabel: "agent:done" },
+];
+/** Adapter with a 3-step pipeline (triage -> code -> review), assigneeFilter off. */
+function triageAdapter() {
+  return createGithubAdapter(
+    /** @type {any} */ ({ trigger: "@agent", pipeline: triagePipeline, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }),
+    /** @type {any} */ (makeStore()),
+  );
+}
+
+test("assigned event ignores a stale payload label snapshot and routes by the live issue", async () => {
+  const restore = withDeps((u) =>
+    u.endsWith("/issues/501") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) }) : null,
+  );
+  try {
+    const jobs = await triageAdapter().processEvents(
+      /** @type {any} */ (evt({ action: "assigned", issue: { number: 501, labels: [{ name: "agent:triage" }], assignees: [] } })),
+    );
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].stepId, "code");
+    assert.equal(jobs[0].dedupKey, "step:code:501");
+  } finally {
+    restore();
+  }
+});
+
+test("opened event: a closed live issue yields no job", async () => {
+  const restore = withDeps((u) =>
+    u.endsWith("/issues/55") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "closed", labels: [{ name: "agent:code" }] }) }) : null,
+  );
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 55, labels: [{ name: "agent:code" }], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("assigned event: a live issue no longer assigned to us (assigneeFilter on) yields no job", async () => {
+  const a = adapter({ assigneeFilter: true, assigneeLogin: "bot" });
+  const restore = withDeps((u) =>
+    u.endsWith("/issues/56")
+      ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }], assignees: [{ login: "someone-else" }] }) })
+      : null,
+  );
+  try {
+    const jobs = await a.processEvents(/** @type {any} */ (evt({ action: "assigned", issue: { number: 56, labels: [{ name: "agent:code" }], assignees: [{ login: "bot" }] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("opened event: a failed live fetch (500) yields no job (fail closed)", async () => {
+  const restore = withDeps((u) => (u.endsWith("/issues/57") ? /** @type {any} */ ({ ok: false, status: 500, json: async () => ({}) }) : null));
+  try {
+    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 57, labels: [{ name: "agent:code" }], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("replay-then-webhook ordering: a forged catchup and a late assigned webhook share the dedupKey while the step is live; once the issue has moved on, the late webhook is a no-op", async () => {
+  const a = adapter();
+  const restoreUser = withDeps(() => null); // lets ourLogin()'s /user call in forgeCatchup resolve harmlessly
+  /** @type {any} */
+  let forged;
+  try {
+    forged = await a.forgeCatchup("99", "code");
+  } finally {
+    restoreUser();
+  }
+  assert.equal(forged.dedupKey, "step:code:99");
+
+  const restoreLive = withDeps((u) =>
+    u.endsWith("/issues/99") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }], assignees: [] }) }) : null,
+  );
+  try {
+    const jobs = await a.processEvents(/** @type {any} */ (evt({ action: "assigned", issue: { number: 99, labels: [{ name: "agent:code" }], assignees: [] } })));
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].dedupKey, forged.dedupKey);
+  } finally {
+    restoreLive();
+  }
+
+  const restoreMoved = withDeps((u) =>
+    u.endsWith("/issues/99") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:review" }], assignees: [] }) }) : null,
+  );
+  try {
+    const jobs = await a.processEvents(/** @type {any} */ (evt({ action: "assigned", issue: { number: 99, labels: [{ name: "agent:code" }], assignees: [] } })));
+    assert.equal(jobs.length, 0);
+  } finally {
+    restoreMoved();
+  }
+});
+
 test("advance adds the target label before removing the source (crash-safe)", async () => {
   /** @type {string[]} */
   const calls = [];
@@ -354,9 +481,11 @@ function withDeps(/** @type {(url:string)=>any} */ route) {
 }
 
 test("block gate: an OPEN blocker rests the issue (opened path emits no job)", async () => {
-  const restore = withDeps((u) =>
-    u.includes("/issues/37/dependencies/blocked_by") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "open" }] }) : null,
-  );
+  const restore = withDeps((u) => {
+    if (u.endsWith("/issues/37")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) });
+    if (u.includes("/issues/37/dependencies/blocked_by")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "open" }] });
+    return null;
+  });
   try {
     const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 37, labels: [{ name: "agent:code" }], assignees: [] } })));
     assert.equal(jobs.length, 0);
@@ -366,9 +495,11 @@ test("block gate: an OPEN blocker rests the issue (opened path emits no job)", a
 });
 
 test("block gate: a CLOSED blocker does not block (blockedBy filters by state â€” the step fires)", async () => {
-  const restore = withDeps((u) =>
-    u.includes("/issues/37/dependencies/blocked_by") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "closed" }] }) : null,
-  );
+  const restore = withDeps((u) => {
+    if (u.endsWith("/issues/37")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) });
+    if (u.includes("/issues/37/dependencies/blocked_by")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "closed" }] });
+    return null;
+  });
   try {
     const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "opened", issue: { number: 37, labels: [{ name: "agent:code" }], assignees: [] } })));
     assert.equal(jobs.length, 1);
@@ -380,9 +511,11 @@ test("block gate: a CLOSED blocker does not block (blockedBy filters by state â€
 });
 
 test("block gate also applies to the labeled path", async () => {
-  const restore = withDeps((u) =>
-    u.includes("/issues/38/dependencies/blocked_by") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "open" }] }) : null,
-  );
+  const restore = withDeps((u) => {
+    if (u.endsWith("/issues/38")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) });
+    if (u.includes("/issues/38/dependencies/blocked_by")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => [{ number: 36, state: "open" }] });
+    return null;
+  });
   try {
     const jobs = await adapter().processEvents(
       /** @type {any} */ (evt({ action: "labeled", label: { name: "agent:code" }, issue: { number: 38, labels: [{ name: "agent:code" }], assignees: [] } }, { "x-github-delivery": "g" })),
@@ -1173,7 +1306,9 @@ test("App auth: every API call carries Bearer <installation token>; enterStage a
 });
 
 test("App auth scoping: an issue assigned to the human is acted on; a foreign assignee is not", async () => {
-  const { calls, restore } = stubAppFetch();
+  const { calls, restore } = stubAppFetch((url) =>
+    url.endsWith("/issues/42") ? { ok: true, status: 200, json: async () => ({ state: "open", labels: [{ name: "agent:code" }] }) } : undefined,
+  );
   try {
     const a = appAdapter();
     /** @param {string} login */

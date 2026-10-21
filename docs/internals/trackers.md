@@ -18,7 +18,11 @@
   between the two leaves the issue re-firing, not stuck). One repo webhook on the `issues` event,
   **auto-created via REST** (unlike Jira) and signed with an agenthook-generated secret →
   `x-hub-signature-256`. Routes `opened`/`reopened`/`assigned` by the issue's current labels
-  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). The hook also takes
+  (`step:<id>:<n>`) and `labeled` by the added label (`secmove:<delivery>`). A webhook payload's
+  labels/assignees are a SNAPSHOT — a delayed delivery (e.g. during a GitHub incident) can carry
+  one that's since gone stale, so both routes re-read the issue live (`liveIssue`, strongly
+  consistent, same as `stillRestingIn`/`listResting`) rather than trusting the payload, and yield
+  no job when the live issue has moved to a different step, closed, or is no longer ours. The hook also takes
   `issue_comment` (`created` only, PRs skipped) for the `@agent` resume (dedup `trigger:<comment.id>`),
   and `sub_issues` + `issues` `typed`/`untyped` → a read-only `{kind:'epic_changed', ref:<epic>}` signal
   (dedup `epic:<delivery>`) that `src/epic-changed.js` emits outside the queue, dropping ops' epics cache;
