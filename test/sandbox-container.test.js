@@ -249,11 +249,14 @@ for (const runtime of /** @type {const} */ (["docker", "podman"])) {
 
     assert.equal(r.args[r.args.indexOf("--network") + 1], `${r.id}-net`);
     const names = r.args.flatMap((x, i) => (x === "-e" ? [r.args[i + 1]] : []));
-    for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"]) assert.ok(names.includes(k), k);
+    for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY", "YARN_HTTPS_PROXY", "YARN_HTTP_PROXY"]) assert.ok(names.includes(k), k);
     assert.ok(!r.args.some((a) => a.includes("-proxy:3128")), "no proxy URL (no env value) in argv");
     assert.equal(r.env.HTTPS_PROXY, `http://${r.id}-proxy:3128`);
     assert.equal(r.env.http_proxy, `http://${r.id}-proxy:3128`);
     assert.equal(r.env.NO_PROXY, "localhost,127.0.0.1,::1");
+    assert.equal(r.env.NODE_USE_ENV_PROXY, "1");
+    assert.equal(r.env.YARN_HTTPS_PROXY, `http://${r.id}-proxy:3128`);
+    assert.equal(r.env.YARN_HTTP_PROXY, `http://${r.id}-proxy:3128`);
     assert.equal(r.env.GH_TOKEN, "ghp_x");
   });
 }
@@ -323,6 +326,9 @@ test("wrap() mode none: --network none, no proxy, no proxy env", async () => {
   assert.equal(r.args[r.args.indexOf("--network") + 1], "none");
   assert.deepEqual(s.calls, [], "no network, no proxy");
   assert.equal(r.env.HTTPS_PROXY, undefined);
+  assert.equal(r.env.NODE_USE_ENV_PROXY, undefined);
+  assert.equal(r.env.YARN_HTTPS_PROXY, undefined);
+  assert.equal(r.env.YARN_HTTP_PROXY, undefined);
   assert.deepEqual(await r.done(), {});
 });
 
