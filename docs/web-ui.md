@@ -355,6 +355,24 @@ NDJSON request over the profile's `control.sock`, skipping the `hello` line. Unk
 `404` (socket never contacted); receiver down → `503`; no reply within 5 s → `504`; receiver
 `ok:false` → `502` with its error; else `200` + the `discover` result as is.
 
+**Sandbox readiness — doctor's checks, read-only.** Once the Basics form's Sandbox backend is set
+(saved, or just toggled on), a **Sandbox readiness** card shows the three things a sandboxed claude
+step needs outside the config, each ✓/✗ with the CLI command that fixes it: the container runtime
+(on PATH, `<runtime> info` succeeds), the agent image (`sandbox.image`, else the built-in
+`agenthook-agent:<version>`; fix `agenthook doctor --fix`), and a claude credential
+(`CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` / … non-empty in the profile's `.env`, the one
+beside the config; fix `claude setup-token`). It is backed by `GET
+/api/sandbox-readiness?profile=<p>[&type=docker|podman]` (`src/ui/sandbox.js`), cookie-auth like
+`/api/discover`: `type` (the form's current backend) overrides the saved `sandbox.type`; a
+`type` outside docker/podman → `400`; unknown profile or no published config → `404`; no
+sandbox and no `type` → `{enabled:false, rows:[]}`; else `200` + `{enabled, type, image, rows:
+[{id: runtime|image|credential, ok, label, note?, remedy?}]}`. It reuses doctor's
+`sandboxRuntimeChecks` and `sandboxCredentialProblem` without loading the config: it reads the raw
+file and parses `.env` in place, never into `process.env`. It applies no fix and never builds an
+image; the only commands it runs are `which`, `<runtime> info` and `<runtime> image inspect`. No
+credential value is returned or logged, and the UI never writes `.env`. The card fetches on open,
+on a backend change and on **Refresh**, never on a timer.
+
 **Applying changes — restart when idle.** The receiver reads config at boot. A `restart` command
 on `control.sock`: the receiver stops starting new runs (incoming jobs still queue to
 `queue.json`), waits for 0 active agents, shuts down gracefully, re-spawns itself detached on the

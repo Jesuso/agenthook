@@ -13,6 +13,7 @@ let m: Mounted | null = null;
 afterEach(async () => {
   await m?.unmount();
   m = null;
+  vi.unstubAllGlobals();
 });
 
 /** The help bubble a control's aria-describedby names (must resolve), else null. */
@@ -85,6 +86,7 @@ describe("BasicsForm help", () => {
   it("the Sandbox backend select writes via sandboxTypeEdit (Off removes the whole block)", async () => {
     const withSandbox = { ...raw, sandbox: { type: "docker", memory: "4g" } };
     const onEdit = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ enabled: false, rows: [] }), { status: 200 }))); // the readiness card
     m = await mount(createElement(BasicsForm, { text: JSON.stringify(withSandbox, null, 2), onEdit, raw: withSandbox, stateKey: "p" }));
     const select = m.root.querySelector<HTMLSelectElement>('select[name="sandbox.type"]')!;
     await act(async () => {

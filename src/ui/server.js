@@ -23,8 +23,11 @@
 // receiver itself writes). `POST /api/release` (same guards) answers a held ticket: the receiver
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
 // reused as the MCP `release` tool). `GET /api/epics[/<ref>]` asks the receiver's `epics` op (the
-// tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic. Nothing
-// else in any state dir is ever written.
+// tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic.
+// `GET /api/sandbox-readiness` (src/ui/sandbox.js) is the Basics form's read-only sandbox card:
+// doctor's runtime/image probes (`which`, `<runtime> info`, `image inspect` — never a build) and
+// the profile's `.env` checked for a claude credential, no value returned. Nothing else in any
+// state dir is ever written.
 import { readDigest } from "../digest.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
@@ -43,7 +46,9 @@ import { controlRequest, resolveProfileSock } from "./control-client.js";
 import { listInstructions, promptPreview, readInstructionFile, writeInstructionFile } from "./instructions.js";
 import { createLogTail, listRuns, profileDir, resolveRunLog } from "./logs.js";
 import { buildSnapshot, readEventsTail } from "./rows.js";
+import { sandboxReadiness } from "./sandbox.js";
 import { appendAudit, UI_MAX_BYTES } from "./save.js";
+import { SANDBOX_NAMES } from "../sandbox/names.js";
 import { createWatcher } from "./watch.js";
 
 export const COOKIE = "ah_ui";
@@ -101,10 +106,11 @@ export function cookieToken(header) {
 
 /**
  * @param {{ port: number, token: string, distDir: string, registry?: string,
- *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, epicsTimeoutMs?: number }} opts
+ *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, epicsTimeoutMs?: number,
+ *   sandboxIo?: { run?: import('../types.js').IngressRun, has?: (bin: string) => boolean } }} opts  `sandboxIo`: the readiness probes (tests stub them)
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, epicsTimeoutMs = 20000 }) {
+export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, epicsTimeoutMs = 20000, sandboxIo = {} }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -540,6 +546,15 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
         const sock = resolveProfileSock(registry, params.get("profile") || "");
         if (!sock) return send(res, 404);
         callControl(sock.sockPath, "discover", {}, discoverTimeoutMs).then(({ status, body }) => sendStatusJson(res, status, body));
+        return;
+      }
+      if (p === "/api/sandbox-readiness") {
+        const type = params.get("type");
+        if (type !== null && !(/** @type {readonly string[]} */ (SANDBOX_NAMES)).includes(type)) return send(res, 400);
+        sandboxReadiness(registry, params.get("profile") || "", { ...sandboxIo, ...(type ? { type } : {}) }).then(
+          (v) => sendJson(res, () => v),
+          () => send(res, 500),
+        );
         return;
       }
       if (p === EPICS || p.startsWith(EPICS + "/")) {

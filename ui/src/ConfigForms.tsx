@@ -67,7 +67,9 @@ import {
   stringListInvalid,
   stringListRemove,
   textEdit,
+  sandboxReadinessUrl,
 } from "./configEdit";
+import type { SandboxReadiness } from "./contract";
 import type { CardList, Discover, PricingRow, StageKeys, StageOption, StageSource } from "./configEdit";
 import { PROFILE_COLORS, PROFILE_EMOJIS, accentStyle } from "./identity";
 import { resolveIdentity } from "../../src/identity.js";
@@ -612,10 +614,10 @@ const SANDBOX_TYPE_OPTIONS = [
 
 /**
  * The Basics form's Sandbox group: a backend select (Off removes the whole `sandbox` block) and,
- * once a backend is set, the image/memory/cpus/egress fields. Egress `open` gets an inline warning;
- * static help points at `agenthook doctor --fix` and docs/sandbox.md.
+ * once a backend is set, the image/memory/cpus/egress fields and the readiness card. Egress `open`
+ * gets an inline warning; static help points at `agenthook doctor --fix` and docs/sandbox.md.
  */
-function SandboxGroup(props: EditProps & { sandbox: Record<string, unknown> | undefined }) {
+function SandboxGroup(props: EditProps & { sandbox: Record<string, unknown> | undefined; profile: string }) {
   const edit = { text: props.text, onEdit: props.onEdit };
   const typeMeta = fieldMeta(["sandbox", "type"]);
   const cur = fieldText(props.sandbox?.type);
@@ -648,12 +650,71 @@ function SandboxGroup(props: EditProps & { sandbox: Record<string, unknown> | un
       {props.sandbox !== undefined && egress?.mode === "open" && (
         <p className="text-xs text-status-held">unrestricted network: a hijacked agent can send data anywhere</p>
       )}
+      {props.sandbox !== undefined && <SandboxReadinessCard profile={props.profile} type={cur} />}
       <p className={NOTE}>
         A sandboxed claude step needs <span className="font-mono">CLAUDE_CODE_OAUTH_TOKEN</span> (from{" "}
         <span className="font-mono">claude setup-token</span>) or <span className="font-mono">ANTHROPIC_API_KEY</span> in this profile's{" "}
         <span className="font-mono">.env</span>, and the agent image: run <span className="font-mono">agenthook doctor --fix</span>. See{" "}
         <span className="font-mono">docs/sandbox.md</span>.
       </p>
+    </div>
+  );
+}
+
+type ReadinessState = { kind: "loading" } | { kind: "ok"; body: SandboxReadiness } | { kind: "error"; why: string };
+
+/**
+ * "Sandbox readiness": GET /api/sandbox-readiness for the form's backend — the runtime, the agent
+ * image and a claude credential in the profile's .env, each ✓/✗ with the CLI command that fixes it.
+ * Read-only; fetched on mount, on a backend change and on Refresh (no polling).
+ */
+export function SandboxReadinessCard(props: { profile: string; type: string }) {
+  const [state, setState] = useState<ReadinessState>({ kind: "loading" });
+  const seq = useRef(0);
+  const load = () => {
+    const n = ++seq.current;
+    setState({ kind: "loading" });
+    const land = (s: ReadinessState) => {
+      if (n === seq.current) setState(s);
+    };
+    fetch(sandboxReadinessUrl(props.profile, props.type))
+      .then((res) =>
+        res.ok
+          ? res.json().then((body: SandboxReadiness) => land({ kind: "ok", body }))
+          : land({ kind: "error", why: res.status === 404 ? "no config published for this profile" : `status ${res.status}` }),
+      )
+      .catch(() => land({ kind: "error", why: "request failed" }));
+  };
+  useEffect(load, [props.profile, props.type]);
+  const rows = state.kind === "ok" ? state.body.rows : [];
+  return (
+    <div className="flex flex-col gap-1.5 rounded border border-[var(--color-border)] p-2" data-sandbox-readiness>
+      <div className="flex items-center gap-2">
+        <h5 className="text-xs font-medium">Sandbox readiness</h5>
+        <button type="button" className={BUTTON} disabled={state.kind === "loading"} onClick={load}>
+          Refresh
+        </button>
+        {state.kind === "loading" && <span className={NOTE}>checking…</span>}
+        {state.kind === "error" && <span className="text-xs text-status-failed">couldn't check ({state.why})</span>}
+      </div>
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {rows.map((r) => (
+            <li key={r.id} className="flex items-start gap-1.5 text-xs" data-readiness-row={r.id} data-ok={r.ok}>
+              <span className={r.ok ? "text-status-done" : "text-status-failed"} aria-label={r.ok ? "ok" : "missing"}>
+                {r.ok ? "✓" : "✗"}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span>
+                  {r.label}
+                  {r.note && <span className="text-[var(--color-muted)]"> — {r.note}</span>}
+                </span>
+                {r.remedy && <span className="break-all font-mono text-[var(--color-muted)]">{r.remedy}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -695,7 +756,7 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
             </p>
           )}
         </div>
-        <SandboxGroup {...edit} sandbox={b.sandbox} />
+        <SandboxGroup {...edit} sandbox={b.sandbox} profile={props.stateKey} />
         <details className="col-span-full" data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
             Advanced · {(["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length} set
