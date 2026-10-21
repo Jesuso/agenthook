@@ -33,6 +33,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Boot no longer dies when the tracker is flaky: `registerWebhook` is retried on 5xx/429/network
+  errors/timeouts with a capped backoff (5 s doubling to 5 min, indefinitely) and on a 404 three
+  times over about a minute, logging `[boot] tracker unavailable, retrying in Ns`; meanwhile
+  `agenthook status` shows `starting (tracker unavailable)` instead of UP, and SIGINT/SIGTERM abort
+  the wait. Asana and GitHub errors now carry the HTTP status for this (#510).
 - Sandbox: in `egress.mode: "allowlist"` the run now also gets `NODE_USE_ENV_PROXY=1` and
   `YARN_HTTPS_PROXY`/`YARN_HTTP_PROXY`, so corepack (Node's built-in fetch) and Yarn Berry's own
   fetcher reach the egress proxy and a `packageManager`-pinned Yarn 4/pnpm project can install (#509).
