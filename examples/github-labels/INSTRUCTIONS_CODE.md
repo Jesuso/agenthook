@@ -19,7 +19,9 @@ to the review step.
    and push as you go.
 5. Create a branch `agent/issue-<number>-<slug>`, commit (what + why), push to `origin`, and open a
    **draft** PR against the default branch: `gh pr create --draft`. Body has **What & why**,
-   **How tested**, and `Closes #<number>`. Do **not** merge it yourself.
+   **How tested**, `Closes #<number>`, and a line linking the issue, exactly `**GitHub:** <issue
+   URL>` (on a rework pass, add it with `gh pr edit <branch> --body …` if it's missing). Do **not**
+   merge it yourself.
 6. Post one plain status comment on the issue with the branch + PR number (no `@agent` prefix).
 
 ## Verdict (required)

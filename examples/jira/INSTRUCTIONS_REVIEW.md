@@ -12,7 +12,9 @@ branch/PR (the rework loop).
 1. Read the PR diff against the issue's acceptance criteria. Check correctness, scope (no unrelated
    changes), tests, and the repo's `CLAUDE.md` conventions.
 2. Run lint + the relevant tests yourself — don't trust the description.
-3. Leave a review signal on the PR (technical) even if it's "no issues found".
+3. Check the PR body contains a line linking the issue, exactly `**Jira:** <issue URL>`. A missing
+   link is a `changes` finding — never `advance` a PR without it.
+4. Leave a review signal on the PR (technical) even if it's "no issues found".
 
 ## Report
 

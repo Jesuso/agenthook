@@ -13,7 +13,9 @@ You implement in the **receiver-owned worktree** this step runs in (`createsWork
   the failed command and reason recorded in the PR body.
 - Do the work inline in this session — never hand it off to a background subagent — and commit
   and push as you go.
-- Branch, commit (what + why), push, open a **draft** PR. Post a plain product-language status on
+- Branch, commit (what + why), push, open a **draft** PR. The PR body must link the task on its own
+  line, exactly: `**Asana:** <task permalink>` (put it first in the body; on a rework pass, add it
+  with `gh pr edit <branch> --body …` if it's missing). Post a plain product-language status on
   the tracker with the PR URL. Don't merge.
 
 Write your verdict JSON to `$AGENTHOOK_VERDICT_FILE`: `{"outcome":"advance|hold|fail","reason":"..."}`.

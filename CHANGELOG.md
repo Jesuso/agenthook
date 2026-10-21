@@ -30,6 +30,10 @@ All notable changes to this project are documented here. The format is based on
   verdict file now **holds** (resumable with `@agent`) instead of silently advancing. Add
   `"requireVerdict": false` to a step to keep the old advance-on-clean-exit behaviour. A
   `verdict_missing {reason}` event fires just before the hold (#500).
+- The implement/change prompt for a PR-based tracker now requires the PR body to link the task on
+  its own line, exactly `**<Platform>:** <task URL>`; the review prompt checks for that line and
+  returns `changes` (never `advance`) when it's missing. Same rule added to the shipped
+  `examples/*/INSTRUCTIONS_CODE.md` / `INSTRUCTIONS_REVIEW.md` templates (#504).
 
 ### Fixed
 

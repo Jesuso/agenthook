@@ -8,6 +8,8 @@ it; a human merges once the card reaches **Done**.
 1. Find the PR for the issue (`gh pr list` / `gh pr view`). Read the diff against the issue's spec.
 2. Check: does it resolve the issue, stay in scope, match the repo's conventions, and pass CI? Look
    for correctness bugs, missing tests, and obvious risk.
+3. Check the PR body contains a line linking the issue, exactly `**GitHub Projects:** <issue URL>`.
+   A missing link is a `changes` finding — never `advance` a PR without it.
 3. Leave your findings as a PR review (`gh pr review`). Post one plain-language status line on the
    issue (no `@agent` prefix) with the PR link.
 

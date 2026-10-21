@@ -12,7 +12,9 @@ branch/PR.
    diff against the issue's acceptance criteria and the repo's `CLAUDE.md` conventions.
 2. Check the change is correct, scoped, and tested. Pull the branch and run the checks yourself if
    you need to confirm.
-3. Leave your findings as a PR review (`gh pr review`). Keep the issue comment one plain sentence
+3. Check the PR body contains a line linking the issue, exactly `**GitHub:** <issue URL>`. A missing
+   link is a `changes` finding — never `advance` a PR without it.
+4. Leave your findings as a PR review (`gh pr review`). Keep the issue comment one plain sentence
    (no `@agent` prefix).
 
 ## Verdict (required)

@@ -7,6 +7,8 @@ standing-rules template and tune it to your repo.
 You review the draft PR (you run in the same worktree the `code` step used):
 
 - Check correctness, scope, and that the repo's lint + tests pass. Leave findings as PR comments.
+- Check the PR body contains a line linking the task, exactly `**Asana:** <task permalink>`. A
+  missing link is a `changes` finding — never `advance` a PR without it.
 - Clean and correct: `advance` — the receiver moves the task to **Done** (the terminal `done` step
   drains the worktree). A human merges.
 - Fixable issues: `changes` (target `code`) — bounces back to the `code` step on the same branch/PR
