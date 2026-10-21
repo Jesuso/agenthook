@@ -93,6 +93,11 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   (whole seconds, floored to at least 1) so it can wrap up on its own before the kill; the
   receiver's timer stays authoritative regardless. Claude, Cursor and OpenCode ignore it.
   `idleMinutes` and the receiver's `maxMinutes` timer apply to every agent.
+- **Background subagents (claude)**: claude's headless print mode otherwise kills a background
+  subagent 10 minutes after its last turn, even mid-edit. Every claude run gets
+  `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` by default (the adapter's `env` hook), so background
+  subagents are no longer bounded by that ceiling — only by `maxMinutes`/`idleMinutes`. A step's
+  own `env` can still override it.
 - **Prompt**: Hermes has no inline-prompt flag. Dispatch writes the prompt to
   `~/.agenthook/<stateKey>/prompts/<ref>-<step>.md` (mode 0600), passes it via `--query-file`, and
   removes it after the run. So the prompt is not visible in `ps`. `ah agents` finds a Hermes run

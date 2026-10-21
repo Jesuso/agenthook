@@ -10,16 +10,21 @@ const cfg = /** @type {any} */ ({
   pipeline: [{ id: "triage" }, { id: "code", bin: "/opt/claude-local", env: { API_KEY: "sk-SECRET", CLAUDE_CONFIG_DIR: "/x" } }],
 });
 
-test("resumeCommand: a step without bin uses cfg.claudeBin and no env", () => {
+test("resumeCommand: a step without bin uses cfg.claudeBin and the claude adapter's own env (bg-wait ceiling)", () => {
   const c = resumeCommand(cfg, { id: "s1", step: "triage" }, "/wt/12");
-  assert.deepEqual(c, { bin: "claude", env: undefined, line: "cd /wt/12 && claude -r s1   # triage", envNote: null });
+  assert.deepEqual(c, {
+    bin: "claude",
+    env: { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" },
+    line: "cd /wt/12 && CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -r s1   # triage",
+    envNote: null,
+  });
 });
 
 test("resumeCommand: the session's step bin is printed; its env is passed for --exec but only its keys are shown", () => {
   const c = resumeCommand(cfg, { id: "s2", step: "code" }, "/wt/12");
   assert.equal(c.bin, "/opt/claude-local");
-  assert.equal(c.line, "cd /wt/12 && /opt/claude-local -r s2   # code");
-  assert.deepEqual(c.env, { API_KEY: "sk-SECRET", CLAUDE_CONFIG_DIR: "/x" });
+  assert.equal(c.line, "cd /wt/12 && CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 /opt/claude-local -r s2   # code");
+  assert.deepEqual(c.env, { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0", API_KEY: "sk-SECRET", CLAUDE_CONFIG_DIR: "/x" });
   assert.match(String(c.envNote), /API_KEY, CLAUDE_CONFIG_DIR/);
   assert.doesNotMatch(c.line + c.envNote, /sk-SECRET|\/x\b/);
 });
@@ -52,5 +57,5 @@ test("resumeCommand: an agent without transcripts refuses with a plain message",
   const c = { ...cfg, pipeline: [{ id: "code", agent: "blind" }] };
   assert.throws(() => resumeCommand(c, { id: "s4", step: "code" }, "/wt"), /^Error: blind runs have no transcripts to follow\/resume$/);
   // the session's step picks the agent: a claude step of the same profile still resumes
-  assert.equal(resumeCommand({ ...c, pipeline: [...c.pipeline, { id: "review" }] }, { id: "s5", step: "review" }, "/wt").line, "cd /wt && claude -r s5   # review");
+  assert.equal(resumeCommand({ ...c, pipeline: [...c.pipeline, { id: "review" }] }, { id: "s5", step: "review" }, "/wt").line, "cd /wt && CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -r s5   # review");
 });

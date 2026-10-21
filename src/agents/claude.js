@@ -141,14 +141,22 @@ export function createStreamParser() {
       return text ? text + "\n" : "";
     }
     if (ev.type === "result") {
+      // A background-capable run emits one `result` per turn; keep the latest event's
+      // fields (session_id, total_cost_usd — already cumulative, modelUsage, is_error, …)
+      // but sum usage/duration across turns so a multi-turn run's totals aren't just its
+      // last turn. A single-result stream is unchanged (prior === null short-circuits the sum).
+      const prior = result;
       result = ev;
       const u = ev.usage;
       if (u && typeof u === "object") {
-        if (typeof u.input_tokens === "number") tally.input = u.input_tokens;
-        if (typeof u.output_tokens === "number") tally.output = u.output_tokens;
-        if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
-        if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
+        const pu = (prior && prior.usage) || {};
+        if (typeof u.input_tokens === "number") tally.input = u.input_tokens + (pu.input_tokens || 0);
+        if (typeof u.output_tokens === "number") tally.output = u.output_tokens + (pu.output_tokens || 0);
+        if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens + (pu.cache_read_input_tokens || 0);
+        if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens + (pu.cache_creation_input_tokens || 0);
+        result.usage = { ...u, input_tokens: tally.input, output_tokens: tally.output, cache_read_input_tokens: tally.cacheRead, cache_creation_input_tokens: tally.cacheCreate };
       }
+      if (typeof ev.duration_ms === "number") result.duration_ms = ev.duration_ms + (prior && typeof prior.duration_ms === "number" ? prior.duration_ms : 0);
       return "";
     }
     if (ev.type === "rate_limit_event") {
@@ -319,6 +327,10 @@ export function claudeEgressHosts(env) {
 export const claude = {
   describe: () => ({ name: "claude", stdout: "stream-json", policy: { allow: true, deny: true } }),
   envPassthrough: ["ANTHROPIC_*", "CLAUDE_*"],
+  // No step benefits from a background subagent getting killed at the headless print-mode
+  // ceiling (10 min of no output) — maxMinutes/idleMinutes already bound the run. A step's
+  // own `env` still wins (buildAgentEnv layers it last).
+  env: () => ({ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" }),
   buildArgs: buildClaudeArgs,
   createParser() {
     const p = createStreamParser();
