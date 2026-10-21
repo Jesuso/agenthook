@@ -51,6 +51,12 @@ Other agents may run at the same time in the same repo. Do NOT work in the share
 ## 3. Pre-push checks
 
 - Run the repo's lint + the relevant tests; they must pass before you push.
+- Never create, edit or delete anything under `.git/` (hooks, hook stamps or markers, config).
+  Never fake a hook's result.
+- If a pre-commit/pre-push hook fails on a test you did not touch, and that test passes when run
+  alone, the only sanctioned bypass is `git push --no-verify` (or `git commit --no-verify`).
+  Record in the PR body the failed command, the failing test and why it's unrelated to your
+  change. If the repo's `CLAUDE.md` forbids bypassing hooks, `hold` instead.
 - For UI/bug work: capture the **before** state on the default branch early, save under
   `<worktree>/proof/`.
 

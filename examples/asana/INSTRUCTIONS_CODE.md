@@ -8,6 +8,9 @@ You implement in the **receiver-owned worktree** this step runs in (`createsWork
 
 - Read the repo's `CLAUDE.md` and follow it exactly. Make the minimal change that resolves the
   ticket; add tests for new code. Run the repo's lint + tests — they must pass before you push.
+  Never create, edit or delete anything under `.git/`, and never fake a hook's result — if a hook
+  fails on something unrelated to your change, the only sanctioned bypass is `--no-verify`, with
+  the failed command and reason recorded in the PR body.
 - Do the work inline in this session — never hand it off to a background subagent — and commit
   and push as you go.
 - Branch, commit (what + why), push, open a **draft** PR. Post a plain product-language status on
