@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format is based on
   stream-json parser also sums `usage`/`duration_ms` across multiple `result` events (one per
   background turn) instead of keeping only the last turn's, which previously under-reported
   tokens/duration next to the session's cumulative `total_cost_usd` (#501).
+- GitHub tracker: a webhook delivered late (e.g. during a GitHub incident) no longer re-runs a step
+  the issue has already left. `opened`/`reopened`/`assigned` now route off a fresh read of the live
+  issue instead of the payload's label snapshot, and `labeled` reconfirms the issue still carries the
+  label; a closed issue, one no longer assigned to us, or a failed read yields no job (#506).
 
 ## [0.10.0] — 2026-10-18
 
