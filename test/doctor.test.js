@@ -308,7 +308,7 @@ let seq = 0;
 
 /** A clean, loaded local profile: tmp root holding a git repo (`root/repo`, one commit), the
  * config + instruction files beside it (one under `prompts/`), a 0700 state dir and the default
- * worktree base (`root/agenthook-worktrees`). Each test then breaks exactly what it fixes.
+ * worktree base (`root/repo-worktrees`). Each test then breaks exactly what it fixes.
  * @param {Record<string, any>} [over] extra top-level config keys */
 function cleanProfile(over = {}) {
   const root = tmp();

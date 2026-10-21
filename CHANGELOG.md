@@ -44,6 +44,12 @@ All notable changes to this project are documented here. The format is based on
   its own line, exactly `**<Platform>:** <task URL>`; the review prompt checks for that line and
   returns `changes` (never `advance`) when it's missing. Same rule added to the shipped
   `examples/*/INSTRUCTIONS_CODE.md` / `INSTRUCTIONS_REVIEW.md` templates (#504).
+- The default worktree base is now `../<repo-dir-name>-worktrees` instead of the shared
+  `../agenthook-worktrees`, so two profiles (or two single-repo setups) whose checkouts sit under
+  the same parent directory no longer collide when their trackers produce the same ref. Migration:
+  a worktree already present at `../agenthook-worktrees/<ref>` keeps being used for that ref until
+  it's drained; the old directory can be removed once no task is in flight. An explicit
+  `worktreePrefix` (global or per-repo) is unaffected (#480).
 
 ### Fixed
 

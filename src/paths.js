@@ -25,10 +25,23 @@ export const claudeProjectDir = (repoPath) => path.join(os.homedir(), ".claude",
 export const sandboxClaudeProjectDir = (stateDir, cwd) => path.join(stateDir, "sandbox-transcripts", mangle(cwd));
 
 /** The agent worktree base, resolved against the repo (default: the profile's default repo).
- * A per-repo worktreePrefix overrides the global one.
+ * A per-repo worktreePrefix overrides the global one. With neither set, the default is a
+ * sibling dir named after the repo's own directory (`../<repo-dir>-worktrees`), so two
+ * profiles (or two single-repo setups) sharing a parent directory never collide on ref.
  * @param {import('./types.js').Config} cfg @param {import('./types.js').RepoConfig} [repo] */
 export const worktreeDir = (cfg, repo = primaryRepo(cfg)) =>
-  path.resolve(repo.path, repo.worktreePrefix || cfg.worktreePrefix || "../agenthook-worktrees");
+  path.resolve(repo.path, repo.worktreePrefix || cfg.worktreePrefix || `../${path.basename(path.resolve(repo.path))}-worktrees`);
+
+/** The pre-fix worktree base (`../agenthook-worktrees`), for honoring a worktree already
+ * created there for an in-flight ref. `null` when an explicit prefix is set (nothing legacy
+ * to fall back to) or when it's identical to the new default (repo dir literally named
+ * "agenthook").
+ * @param {import('./types.js').Config} cfg @param {import('./types.js').RepoConfig} [repo] */
+export const legacyWorktreeDir = (cfg, repo = primaryRepo(cfg)) => {
+  if (repo.worktreePrefix || cfg.worktreePrefix) return null;
+  const legacy = path.resolve(repo.path, "../agenthook-worktrees");
+  return legacy === worktreeDir(cfg, repo) ? null : legacy;
+};
 
 /** The receiver's liveness control socket (named pipe on win32). @param {string} stateDir @param {string} name @param {string} [platform] */
 export const controlSockPath = (stateDir, name, platform = process.platform) =>
