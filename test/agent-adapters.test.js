@@ -12,7 +12,7 @@ import { AGENTS, getAgent, agentFor } from "../src/agents/index.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT } from "../src/agents/names.js";
 import { claude, buildClaudeArgs } from "../src/agents/claude.js";
 import { claudeProjectDir } from "../src/paths.js";
-import { createDispatcher } from "../src/dispatch.js";
+import { createDispatcher, NO_VALID_VERDICT } from "../src/dispatch.js";
 import { createStore } from "../src/store.js";
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-agents-"));
@@ -204,7 +204,7 @@ test("dispatch: a fake agent adapter drives a real spawn — args, log text, unp
   assert.equal("costUsd" in end, false, "an unpriced run's cost never reaches run_end");
   assert.equal(end?.outcome, "hold");
   assert.deepEqual(advanced, [["42", "code", "hold"]]);
-  assert.equal(store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+  assert.equal(store.getHeld("42")?.reason, NO_VALID_VERDICT);
 });
 
 test("dispatch: a step's requireVerdict:false beats the adapter's default", async (t) => {
@@ -420,7 +420,7 @@ test("dispatch: a promptFile agent with no verdict file holds via requireVerdict
     console.log = log;
   }
   assert.deepEqual(advanced, [["42", "code", "hold"]]);
-  assert.equal(store.getHeld("42")?.reason, "no valid verdict (requireVerdict)");
+  assert.equal(store.getHeld("42")?.reason, NO_VALID_VERDICT);
   assert.equal(fs.existsSync(path.join(dir, "prompts", "42-code.md")), false, "prompt file cleaned up even on a hold");
 });
 

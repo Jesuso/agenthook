@@ -35,7 +35,8 @@ After the process exits, `dispatch.js` resolves a `Verdict` and hands it to `adv
 
 - **non-zero exit** → `fail` (a crashed agent's file is not trusted).
 - **clean exit + valid file** → that outcome.
-- **clean exit + missing/garbage file** → `advance` (the "clean exit advances" default).
+- **clean exit + missing/garbage file** → `hold` by default (`requireVerdict` defaults to `true`);
+  set `requireVerdict: false` on the step to restore the old "clean exit advances" behavior.
 
 `changes` bounces work back to `verdict.target` (a `stepId`), defaulting to the **previous** step;
 the worktree + PR are kept so the re-fired step reworks the same branch. A per-`(ref,step)` attempt
