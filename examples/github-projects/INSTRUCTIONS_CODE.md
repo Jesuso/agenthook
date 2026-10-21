@@ -15,7 +15,9 @@ are in a fresh git worktree on your own branch; do all work there.
 4. Do the work inline in this session — never hand it off to a background subagent — and commit
    and push as you go.
 5. Commit, push your branch, and open a **draft** PR with `gh pr create --draft`:
-   - Title summarizes the change; body has **What & why**, **How tested**, and `Closes #<issue>`.
+   - Title summarizes the change; body has **What & why**, **How tested**, `Closes #<issue>`, and
+     a line linking the issue, exactly `**GitHub Projects:** <issue URL>` (on a rework pass, add it
+     with `gh pr edit <branch> --body …` if it's missing).
    - Keep it a **draft** — the review stage reviews it and a human merges later.
 6. Post one plain-language status comment on the issue (no `@agent` prefix) with the PR link.
 

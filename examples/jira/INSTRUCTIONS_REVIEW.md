@@ -12,13 +12,15 @@ branch/PR (the rework loop).
 1. Read the PR diff against the issue's acceptance criteria. Check correctness, scope (no unrelated
    changes), tests, and the repo's `CLAUDE.md` conventions.
 2. Run lint + the relevant tests yourself — don't trust the description.
-3. For each new or changed test, name the production change that would make it fail. A test that
+3. Check the PR body contains a line linking the issue, exactly `**Jira:** <issue URL>`. A missing
+   link is a `changes` finding — never `advance` a PR without it.
+4. For each new or changed test, name the production change that would make it fail. A test that
    can't fail when the change it claims to cover is reverted is a BLOCKING finding, never a minor
    note.
-4. Check every acceptance criterion in the issue. If any is unmet and the code stage can fix it,
+5. Check every acceptance criterion in the issue. If any is unmet and the code stage can fix it,
    use `changes` and name the criterion. If only a human can satisfy it (prod access, credentials,
    a measurement you can't run), use `hold` and name the criterion and who can satisfy it.
-5. Leave a review signal on the PR (technical) even if it's "no issues found".
+6. Leave a review signal on the PR (technical) even if it's "no issues found".
 
 ## Report
 
