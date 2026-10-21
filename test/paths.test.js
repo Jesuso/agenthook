@@ -42,8 +42,8 @@ test("worktreePath: single-repo (no repos block) keeps the legacy <base>/<ref> l
 });
 
 test("worktreePath: multi-repo nests <base>/<repo.id>/<ref>; sibling repos never collide", () => {
-  const mono = { id: "mono", path: "/w/alephbeta", match: [], default: true };
-  const ios = { id: "ios", path: "/w/alephbeta-ios", match: ["ios"] };
+  const mono = { id: "mono", path: "/w/acme", match: [], default: true };
+  const ios = { id: "ios", path: "/w/acme-ios", match: ["ios"] };
   const cfg = /** @type {any} */ ({ repoPath: mono.path, multiRepo: true, repos: [mono, ios] });
   // both repos resolve the default prefix to the SAME base dir…
   assert.equal(worktreeDir(cfg, mono), worktreeDir(cfg, ios));

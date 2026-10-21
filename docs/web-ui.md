@@ -509,7 +509,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 ### Daily stats (built)
 Day-by-day history under the Progress tiles: tickets finished and cost per day, 7 / 14 / 30 day range,
 plus total, per-day average, rework rate (from 10 runs) and best day.
-- **No rollup file, no engine write path.** `events.jsonl` is a complete append-only history (alephbeta's
+- **No rollup file, no engine write path.** `events.jsonl` is a complete append-only history (a busy profile's
   reaches back to July: 12k lines, 1.5 MB, first read ≈ 30 ms), so `src/ui/stats.js` derives the day
   buckets from it on demand. Only the fields stats need are kept in memory per file and appended by
   byte offset; a shrunk file restarts the read; a history over 64 MB is read from its last 64 MB. A

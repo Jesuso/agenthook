@@ -203,7 +203,7 @@
  * @property {string} url
  * @property {boolean} completed
  * @property {boolean} assignedToUs
- * @property {string} [displayId]  the human-facing id operators use (Asana "ID-2738", GitHub "#94", Jira "CAHUI-7"); undefined when the tracker has none
+ * @property {string} [displayId]  the human-facing id operators use (Asana "ID-1234", GitHub "#94", Jira "CAHUI-7"); undefined when the tracker has none
  * @property {string[]} [routeKeys]  raw, opaque route keys the engine maps to a repo via cfg.repos[].match (src/repos.js); absent/[] = unrouted (→ the default repo)
  * @property {EpicRef} [epic]  the epic this ticket belongs to (its parent, when the parent is typed as an epic); undefined when it has none
  * @property {boolean} [isEpic]  true when this item IS an epic (its own custom type matches), not a ticket
