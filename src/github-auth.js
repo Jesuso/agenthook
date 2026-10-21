@@ -57,7 +57,7 @@ export async function mintInstallationToken(auth, body, { fetch: f = (...a) => g
   });
   /** @type {any} */
   const out = await res.json().catch(() => ({}));
-  if (!res.ok || !out?.token) throw new Error(`GitHub App installation token ${res.status}: ${out?.message || "no token in the response"}`);
+  if (!res.ok || !out?.token) throw Object.assign(new Error(`GitHub App installation token ${res.status}: ${out?.message || "no token in the response"}`), { status: res.status });
   return { token: out.token, expiresAt: Date.parse(out.expires_at) || now() + 60 * 60 * 1000 };
 }
 

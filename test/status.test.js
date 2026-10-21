@@ -114,3 +114,18 @@ test("status: an ingressDown heartbeat on a live profile shows DOWN and `agentho
   const up = await runStatus("status-ingress-up");
   assert.equal(up.find((l) => l.startsWith("ingress")), "ingress : cloudflared  https://dead.trycloudflare.com");
 });
+
+test("status: a live profile whose heartbeat says `starting` prints it verbatim instead of UP; without it, UP", async () => {
+  /** @param {string} key @param {any} hb */
+  const seed = (key, hb) => {
+    const dir = path.join(registryDir, key);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: key, stateKey: key, configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+    fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+    fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: key, stateKey: key, tracker: "asana", updatedAt: new Date().toISOString(), ...hb }));
+  };
+  seed("status-starting", { starting: "tracker unavailable" });
+  seed("status-started", { starting: null });
+  assert.equal((await runStatus("status-starting"))[1], `status  : starting (tracker unavailable) (pid ${process.pid})`);
+  assert.equal((await runStatus("status-started"))[1], `status  : UP (pid ${process.pid})`);
+});

@@ -24,6 +24,15 @@ opt-in queue stage, a no-op without one) → one `runReconcile` (only with `--re
 restart's respawn) → SIGINT/SIGTERM handlers. A boot failure after `ingress.up` downs the ingress and
 closes control; on exit `ingress.down()`.
 
+`registerWebhook` is the only boot tracker call that isn't best-effort, so it is retried
+(`src/engine/boot-retry.js`, keyed on the error's numeric `status` — see `Adapter.registerWebhook`):
+a 5xx/429 or network/timeout error retries **indefinitely** on a 5 s → 10 → 20 → … → 5 min capped
+backoff; a 404 retries three times over ~1 min (10/20/30 s), then boot fails; anything else fails at
+once. Each wait logs `[boot] tracker unavailable, retrying in <N>s (…)`, and the heartbeat carries
+`starting: "tracker unavailable"` until it succeeds, so `status` prints `starting (tracker
+unavailable) (pid N)` instead of `UP`. A SIGINT/SIGTERM during the wait (`agenthook stop`) aborts it
+and takes the boot-failure path above, so the ingress is downed rather than orphaned.
+
 ## Key files
 
 - `src/engine.js` — a one-line re-export shim (the public path every importer uses) over

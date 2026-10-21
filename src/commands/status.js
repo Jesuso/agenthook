@@ -96,7 +96,8 @@ export async function status(args) {
   logDir = logDir || path.join(p.dir, "logs");
 
   console.log(`profile : ${p.name}${p.name !== p.stateKey ? ` (state ${p.stateKey})` : ""}`);
-  console.log(`status  : ${p.up ? `UP (pid ${p.pid})` : "down"}`);
+  // `starting`: the receiver is up but boot is still waiting on the tracker (src/engine/boot.js).
+  console.log(`status  : ${p.up ? (hb.starting ? `starting (${hb.starting}) (pid ${p.pid})` : `UP (pid ${p.pid})`) : "down"}`);
   if (p.up && process.platform === "linux") {
     try {
       const { scope, terminal } = classifyCgroup(fs.readFileSync(`/proc/${p.pid}/cgroup`, "utf8"));

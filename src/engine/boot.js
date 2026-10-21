@@ -2,7 +2,8 @@
 // come BEFORE any webhook scrub/register (a registered hook POSTs a handshake at once):
 //   quota reading → sandbox?.check() → ingress.up(port) → write publicUrl → server.listen →
 //   startControl → write pidfile → (ephemeral) tracker.unregisterWebhooks → tracker.ensureLabels? →
-//   tracker.registerWebhook → forge? (ephemeral scrub, register; best-effort) → sandbox?.reap() →
+//   tracker.registerWebhook (retried: transient errors forever on a 5 s→5 min backoff, a 404 three
+//   times; SIGINT/SIGTERM abort the wait) → forge? (ephemeral scrub, register; best-effort) → sandbox?.reap() →
 //   recoverInterrupted → restoreQueued → puller.pull → reconcile (reconcileOnBoot only) →
 //   SIGINT/SIGTERM handlers. A failure after ingress.up downs the ingress and closes control.
 import fs from "node:fs";
@@ -13,6 +14,7 @@ import { readQuota } from "../quota-file.js";
 import { runReconcile } from "../commands/reconcile.js";
 import { recoverInterrupted } from "./recovery.js";
 import { fullAutoBanner } from "./banner.js";
+import { retryTrackerCall } from "./boot-retry.js";
 
 /**
  * Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
@@ -54,11 +56,12 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
  *   ops: Record<string, (args: any) => Promise<any>>,
  *   shutdown: (signal: string) => unknown,
  *   reconcileOnBoot: boolean,
+ *   retry?: {sleep?: (ms: number, signal?: AbortSignal) => Promise<void>, delays?: {transient?: (attempt: number) => number, notFound?: number[]}},
  * }} deps
  * @returns {() => Promise<void>}
  */
 export function createServe(deps) {
-  const { cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, puller, quotaPacer, emit, releaseOverlap, startedAt, restart, decommission, ops, shutdown, reconcileOnBoot } = deps;
+  const { cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, puller, quotaPacer, emit, releaseOverlap, startedAt, restart, decommission, ops, shutdown, reconcileOnBoot, retry = {} } = deps;
   return async function serve() {
     const meta = ingress.describe();
     console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}${sandbox ? `, sandbox ${sandbox.describe().name}` : ""}`);
@@ -126,7 +129,30 @@ export function createServe(deps) {
       } catch (e) {
         console.error("[boot] ensureLabels failed (continuing):", e.message);
       }
-      await adapter.registerWebhook(url);
+      // The one tracker call boot can't skip. A tracker outage must not kill the receiver: retry
+      // it (src/engine/boot-retry.js) and say so in the heartbeat, so `status` shows
+      // `starting (…)` instead of UP. The real signal handlers come last; until then a
+      // SIGINT/SIGTERM (`agenthook stop`) aborts the wait and the catch below downs the ingress.
+      const aborter = new AbortController();
+      /** @param {NodeJS.Signals} sig */
+      const onSignal = (sig) => aborter.abort(new Error(`boot aborted by ${sig} while waiting for the tracker`));
+      process.once("SIGINT", onSignal);
+      process.once("SIGTERM", onSignal);
+      let waited = false;
+      try {
+        await retryTrackerCall(() => adapter.registerWebhook(url), {
+          ...retry,
+          signal: aborter.signal,
+          onWaiting: () => {
+            if (!waited) heartbeat.update({ starting: "tracker unavailable" });
+            waited = true;
+          },
+        });
+      } finally {
+        process.removeListener("SIGINT", onSignal);
+        process.removeListener("SIGTERM", onSignal);
+      }
+      if (waited) heartbeat.update({ starting: null });
 
       // Forge hook (PR merges). Best-effort: a forge failure never aborts boot — the
       // tracker pipeline still works without it.

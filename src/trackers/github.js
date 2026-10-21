@@ -441,7 +441,7 @@ export function createGithubAdapter(cfg, store) {
    * Scoped to our own path so we never disturb unrelated hooks on the repo. */
   async function deleteOurHooks() {
     const res = await api(`${repoPath()}/hooks?per_page=100`);
-    if (!res.ok) throw new Error(`list hooks ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(`list hooks ${res.status}`), { status: res.status });
     for (const h of (await json(res)) || []) {
       const url = h?.config?.url || "";
       if (url.replace(/\/$/, "").endsWith("/github")) {
@@ -871,7 +871,7 @@ export function createGithubAdapter(cfg, store) {
           config: { url: target, content_type: "json", insecure_ssl: "0", ...(secret ? { secret } : {}) },
         }),
       });
-      const body = await json(res);
+      const body = await json(res).catch(() => ({})); // a 502 can be an HTML page — keep the status
       if (!res.ok) {
         const hint =
           res.status === 404 || res.status === 403
@@ -879,7 +879,7 @@ export function createGithubAdapter(cfg, store) {
               ? ` — the GitHub App needs the Webhooks: Read & write repository permission, installed on ${owner}/${repo}`
               : ` — the token needs admin:repo_hook (classic) or Webhooks: Read & write (fine-grained) on ${owner}/${repo}`
             : "";
-        throw new Error(`GitHub create hook ${res.status}: ${JSON.stringify(body)}${hint}`);
+        throw Object.assign(new Error(`GitHub create hook ${res.status}: ${JSON.stringify(body)}${hint}`), { status: res.status });
       }
       console.log(`Webhook created: id=${body.id} active=${body.active} -> ${target}`);
     },
