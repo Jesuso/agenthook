@@ -149,7 +149,7 @@ export const CONFIG_SCHEMA = [
   step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),
   step("maxMinutes", "number", "Wall-clock limit (min)", "Kill a run after this many minutes and fail it as a timeout; 0 = no cap.", { default: 120, min: 0, advanced: true }),
   step("idleMinutes", "number", "Idle timeout (min)", "Kill a run after this many minutes with no agent output (must be > 0); off when unset.", { placeholder: "off", advanced: true }),
-  step("requireVerdict", "boolean", "Require verdict", "A clean exit without a valid verdict file holds the task instead of advancing it.", { advanced: true }),
+  step("requireVerdict", "boolean", "Require verdict", "A clean exit without a valid verdict file holds the task instead of advancing it (default true).", { advanced: true }),
   step("createsWorktree", "boolean", "Creates worktree", "Create the task's shared git worktree before the agent runs."),
   step("drainWorktree", "boolean", "Removes worktree", "Remove the task's worktree after this step."),
   step("sourceSectionGid", "string", "Source section", "Asana section whose tasks fire this step.", { scope: ["asana"] }),

@@ -98,8 +98,10 @@ are actually connected by transitions.
 
 - **Non-zero exit** is always treated as `fail` → the task goes to the failure section/status. Read
   the run log in `~/.agenthook/<profile>/logs/` for the agent's error.
-- **Clean exit, no verdict file** defaults to `advance`. If it advanced when you expected a hold,
-  the step's instructions need to tell the agent to write a `hold`/`changes` verdict.
+- **Clean exit, no verdict file** holds the task by default (`requireVerdict` defaults to `true`;
+  `verdict_missing` then `blocked` fire). If it advanced instead, the step has
+  `requireVerdict: false`. If it held when you expected an `advance`, the step's instructions need
+  to tell the agent to write one.
 - **`[advance] … no target section — leaving in place`**: the step's `successSectionGid` (or
   `failureStatus`, etc.) is empty for that outcome. Add the target, or accept that the task parks.
 

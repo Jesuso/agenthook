@@ -15,7 +15,7 @@ function harness({ script = "#!/bin/sh\nexec sleep 30\n", gate = null } = {}) {
   // exec so the sleep IS the child (no grandchild holding the pipes)
   fs.writeFileSync(bin, script, { mode: 0o755 });
   const cfg = /** @type {any} */ ({
-    pipeline: [{ id: "code" }, { id: "done", manual: true }],
+    pipeline: [{ id: "code", requireVerdict: false }, { id: "done", manual: true }],
     claudeBin: bin, repoPath: dir, worktreePrefix: path.join(dir, "wt"), dataDir: dir, logDir: dir,
     instructionsFile: path.join(dir, "none.md"),
   });

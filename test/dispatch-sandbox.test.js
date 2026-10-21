@@ -483,7 +483,7 @@ test("sandbox e2e: a worktree whose .git was rewritten by an earlier run is refu
 });
 
 test("sandbox e2e: a FIFO verdict file is dropped (no verdict), never opened — the receiver doesn't hang", { timeout: 20000 }, async () => {
-  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { inner: '#!/bin/sh\nmkfifo "$AGENTHOOK_VERDICT_FILE"\n' });
+  const h = sandboxHarness([{ id: "code", requireVerdict: false, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { inner: '#!/bin/sh\nmkfifo "$AGENTHOOK_VERDICT_FILE"\n' });
   try {
     await h.go("code");
     assert.equal(h.advanced[0].outcome, "advance", "a clean exit with no (readable) verdict");
@@ -495,7 +495,7 @@ test("sandbox e2e: a FIFO verdict file is dropped (no verdict), never opened —
 
 test("sandbox e2e: an oversize verdict file is dropped unread", async () => {
   const big = `{"outcome":"hold","reason":"big"}` + " ".repeat(1024 * 1024 + 1);
-  const h = sandboxHarness([{ id: "code", env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { inner: `#!/bin/sh\nhead -c ${big.length} /dev/zero | tr '\\0' ' ' > "$AGENTHOOK_VERDICT_FILE"\nprintf '%s' '{"outcome":"hold","reason":"big"}' | dd of="$AGENTHOOK_VERDICT_FILE" conv=notrunc status=none\n` });
+  const h = sandboxHarness([{ id: "code", requireVerdict: false, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { inner: `#!/bin/sh\nhead -c ${big.length} /dev/zero | tr '\\0' ' ' > "$AGENTHOOK_VERDICT_FILE"\nprintf '%s' '{"outcome":"hold","reason":"big"}' | dd of="$AGENTHOOK_VERDICT_FILE" conv=notrunc status=none\n` });
   try {
     await h.go("code");
     assert.equal(h.advanced[0].outcome, "advance", "the hold verdict was never read");

@@ -151,10 +151,10 @@ Extra step fields you'll want to know:
   allowlist strips. Put secret values in `${VAR}` refs, not literals. `AGENTHOOK_VERDICT_FILE` is reserved.
   `agenthook doctor` checks each step `bin` is on PATH; `agenthook resume` reuses the step's
   `bin`/`env`.
-- `requireVerdict` (default off) — a clean exit with a missing/unparseable/unrecognized verdict
-  file holds the task (instead of today's default `advance`), so a weaker/local `bin` that exits 0
-  without doing the work doesn't get silently pushed to the next step. Suggested on a step whose
-  `bin` is a weak/local model. Not valid on a `manual` step.
+- `requireVerdict` (default on) — a clean exit with a missing/unparseable/unrecognized verdict
+  file holds the task, so a weaker/local `bin` that exits 0 without doing the work (or a run cut
+  mid-edit) doesn't get silently pushed to the next step. Set `false` to opt out and advance on a
+  clean exit as before. Not valid on a `manual` step.
 - `sandbox` — `false` runs this step on the host even when the profile has a top-level `sandbox`
   block (needed for a `cursor`/`hermes`/`opencode` step, which the sandbox refuses). Not valid on a
   `manual` step. See [Sandboxed runs](sandbox.md#quick-start).
