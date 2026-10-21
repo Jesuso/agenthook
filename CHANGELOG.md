@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Sandbox: in `egress.mode: "allowlist"` the run now also gets `NODE_USE_ENV_PROXY=1` and
+  `YARN_HTTPS_PROXY`/`YARN_HTTP_PROXY`, so corepack (Node's built-in fetch) and Yarn Berry's own
+  fetcher reach the egress proxy and a `packageManager`-pinned Yarn 4/pnpm project can install (#509).
 - A managed tunnel (ngrok, cloudflared) that dies after boot is now visible: the ingress adapter's
   new optional `onExit` hook records `ingressDown {at, reason}` in the heartbeat, `agenthook status`
   prints `ingress : <type> DOWN (...)` instead of UP, and `agenthook doctor` warns that webhooks

@@ -14,7 +14,9 @@
 // Egress (docs/sandbox.md#egress): in `allowlist` mode the run gets its own `--internal`
 // network (no route out) plus a proxy container on that network AND the runtime's default one,
 // running egress-proxy.mjs over the run's rules; the agent reaches the outside only through
-// HTTPS_PROXY. `none` = `--network none`; `open` (or no egress) = the runtime's default network.
+// HTTPS_PROXY (plus NODE_USE_ENV_PROXY for Node's built-in fetch and YARN_HTTPS_PROXY/
+// YARN_HTTP_PROXY for Yarn Berry's own fetcher, neither of which honors HTTPS_PROXY on its own).
+// `none` = `--network none`; `open` (or no egress) = the runtime's default network.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -275,7 +277,12 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       const proxyEnv = {};
       if (egressState) {
         const url = `http://${egressState.proxy}:${EGRESS_PROXY_PORT}`;
-        Object.assign(proxyEnv, { HTTPS_PROXY: url, https_proxy: url, HTTP_PROXY: url, http_proxy: url, NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1" });
+        Object.assign(proxyEnv, {
+          HTTPS_PROXY: url, https_proxy: url, HTTP_PROXY: url, http_proxy: url,
+          NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1",
+          // Node's built-in fetch (corepack) and Yarn Berry's own fetcher ignore HTTPS_PROXY.
+          NODE_USE_ENV_PROXY: "1", YARN_HTTPS_PROXY: url, YARN_HTTP_PROXY: url,
+        });
       }
       const runEnv = { ...env, ...proxyEnv };
       const argv = containerArgs({
