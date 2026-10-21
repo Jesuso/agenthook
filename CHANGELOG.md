@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `agenthook watch --follow` (alias `--stream`) stays attached and prints one JSON line per event
+  instead of exiting after the first batch. Each line carries the exact cursor just past that
+  event (resume from any line with no gaps or duplicates), `--heartbeat <s>` emits a keepalive
+  line, and a final `watch_end` line reports the cursor on SIGTERM/SIGINT (exit 0), `--timeout`
+  (exit 2) or every watched profile disappearing (exit 1) (#505).
+
 ### Fixed
 
 - Claude runs now set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, so a background subagent is no
