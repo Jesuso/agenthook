@@ -12,7 +12,13 @@ branch/PR.
    diff against the issue's acceptance criteria and the repo's `CLAUDE.md` conventions.
 2. Check the change is correct, scoped, and tested. Pull the branch and run the checks yourself if
    you need to confirm.
-3. Leave your findings as a PR review (`gh pr review`). Keep the issue comment one plain sentence
+3. For each new or changed test, name the production change that would make it fail. A test that
+   can't fail when the change it claims to cover is reverted is a BLOCKING finding, never a minor
+   note.
+4. Check every acceptance criterion in the issue. If any is unmet and the code stage can fix it,
+   use `changes` and name the criterion. If only a human can satisfy it (prod access, credentials,
+   a measurement you can't run), use `hold` and name the criterion and who can satisfy it.
+5. Leave your findings as a PR review (`gh pr review`). Keep the issue comment one plain sentence
    (no `@agent` prefix).
 
 ## Verdict (required)
@@ -23,6 +29,9 @@ Write JSON to the file named by `$AGENTHOOK_VERDICT_FILE` before you exit:
   `{"outcome":"advance","reason":"<one line: looks good>"}`
 - Needs rework — bounce back to **code** with specifics in the PR review:
   `{"outcome":"changes","target":"code","reason":"<what to fix>","findings":"<full Markdown findings>"}` — put the full findings in `findings`; the receiver passes them verbatim to the code stage
+- Needs a human call — an unmet acceptance criterion only a human can satisfy, or any other
+  decision you can't make:
+  `{"outcome":"hold","reason":"<the criterion and who can satisfy it>"}`
 - Fundamentally wrong / can't review:
   `{"outcome":"fail","reason":"<why>"}`
 

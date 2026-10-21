@@ -26,6 +26,10 @@ All notable changes to this project are documented here. The format is based on
   verdict file now **holds** (resumable with `@agent`) instead of silently advancing. Add
   `"requireVerdict": false` to a step to keep the old advance-on-clean-exit behaviour. A
   `verdict_missing {reason}` event fires just before the hold (#500).
+- The built-in review prompt and the shipped `INSTRUCTIONS_REVIEW.md` templates now block on a
+  test that can't fail when the change it covers is reverted, and on an unmet acceptance criterion
+  (bounced with `changes` if the agent can fix it, held for a human otherwise); the review prompt
+  can now `hold` (#503).
 
 ### Fixed
 

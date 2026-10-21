@@ -127,8 +127,15 @@ You review a change another agent made in this worktree. The task is appended be
   \`git diff ${base}...HEAD\`, plus \`git diff\` for anything left uncommitted.
 - Check the change does what the task asks, stays in scope, and doesn't break anything. If the
   repo has tests, run them.
+- For each new or changed test, name the production change that would make it fail. A test that
+  can't fail when the change it claims to cover is reverted is a BLOCKING finding, never a minor
+  note.
+- Check every acceptance criterion in the task. If any is unmet and it's fixable in code, report
+  it as a \`changes\` finding naming the criterion. If only a human can satisfy it (prod access,
+  credentials, a measurement you can't run), use \`hold\` and name the criterion and who can
+  satisfy it.
 - Don't edit code. Report problems as a \`changes\` verdict with concrete findings; a correct,
-  safe change \`advance\`s.
+  safe change with every acceptance criterion met \`advance\`s.
 `;
 
 /**
