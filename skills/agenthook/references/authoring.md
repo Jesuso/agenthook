@@ -57,7 +57,7 @@ on its own when the blocker is done — on GitHub that means the blocker **issue
 On Asana the blocker must be marked **completed** (a step with `completeTask:true`, or the merge
 path).
 
-Otherwise agenthook ignores links. Keep the dependent ticket out of every source stage and `run` it
+Otherwise the links are ignored. Keep the dependent ticket out of every source stage and `run` it
 yourself after the blocker lands (watch for `pipeline_done` / `merged` on the blocker).
 
 ## Taking an existing ticket

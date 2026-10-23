@@ -51,7 +51,7 @@ test("renderAuthoring: github — identity, first step, epic rule, native blocke
 test("renderAuthoring: linear has no epics or blockers; asana warns on an unset userGid", () => {
   const lin = renderAuthoring(cfg({ provider: "linear", tracker: { team: "ENG" }, pipeline: [{ id: "code", sourceStatus: "Todo" }] }));
   assert.match(lin, /no epic support/);
-  assert.match(lin, /ignores dependency links/);
+  assert.match(lin, /Dependency links are ignored/);
   assert.match(lin, /team ENG/);
   const as = renderAuthoring(cfg({ provider: "asana", tracker: { projectGid: "1" }, pipeline: [{ id: "code", sourceSectionGid: "9" }] }));
   assert.match(as, /UNSET/);

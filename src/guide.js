@@ -170,7 +170,7 @@ export function renderAuthoring(cfg) {
   if (p.blockers) {
     lines.push(`Declare with ${p.blockers.declare}. A blocked ticket resting in a source ${p.stage} does not fire until every blocker is done; it is released ${p.blockers.release}.`, `Chains: create all tickets, declare blockers, then \`run\` only the unblocked ones.`);
   } else {
-    lines.push(`agenthook ignores dependency links on this tracker. Sequence work by hand: keep a dependent ticket OUT of any source ${p.stage} until its blocker is done, then \`run\` it.`);
+    lines.push(`Dependency links are ignored by agenthook on this tracker. Sequence work by hand: keep a dependent ticket OUT of any source ${p.stage} until its blocker is done, then \`run\` it.`);
   }
   return lines.join("\n");
 }
