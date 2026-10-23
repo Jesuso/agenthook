@@ -31,6 +31,9 @@ node bin/agenthook.js ui [--port 4180] [--no-open]  # local read-only web dashbo
 node bin/agenthook.js mcp [--read-only]  # MCP server (stdio, all profiles) for external agents — docs/mcp.md
 node bin/agenthook.js tick [name…|--all] [--json]  # one-call status+board+PRs+events digest (same payload as the MCP `tick`; ≥2 names/--all = per-profile array)
 node bin/agenthook.js digest [name] [--json]  # write + print a profile's Digest in-process (no receiver needed)
+node bin/agenthook.js guide [topic]       # the agent guide from a shell (docs/agent-guide.md by `##` topic); `authoring` is rendered from this profile's config (src/guide.js)
+node bin/agenthook.js skill install [--agent a,b|all] [--repo [path]] [--dry-run]  # install skills/agenthook into the detected agents' skill dirs (global) or a repo (--repo; default this profile's repoPath); stamps the version
+node bin/agenthook.js skill ls            # installed copies + versions (doctor warns when one is older than the package)
 node bin/agenthook.js watch [name…|--all] [--event a,b] [--cursor <n|json>] [--timeout s]  # block until the next event (exit 2 on timeout; ≥2 names/--all = first event from any, object cursor)
 node bin/agenthook.js watch [name…|--all] --follow [--heartbeat s] [--timeout s]  # stream: one JSON line per event + its exact resume cursor, optional heartbeat lines, final {"e":"watch_end"} (exit 0 on SIGTERM/SIGINT, 2 on total --timeout)
 

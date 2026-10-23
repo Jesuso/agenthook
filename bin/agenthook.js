@@ -59,12 +59,14 @@ import { epics } from "../src/commands/epics.js";
 import { digest } from "../src/commands/digest.js";
 import { watch } from "../src/commands/watch.js";
 import { ticket } from "../src/commands/ticket.js";
+import { guide } from "../src/commands/guide.js";
+import { skill } from "../src/commands/skill.js";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "body", "file", "step", "name"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "body", "file", "step", "name", "agent"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -94,7 +96,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill };
 
 export const HELP = `agenthook — event-driven agentic development receiver
 
@@ -136,6 +138,12 @@ usage: agenthook <command> [args] [--config <path>]
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
   watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json] [--follow|--stream [--heartbeat <s>]]  block until the next event (exit 2 on timeout); --follow stays attached, one JSON line per event with its resume cursor, then a final watch_end line
                             (--all / ≥2 names: first event from any profile, tagged; --cursor '{"<key>":<n>}')
+  guide [topic]             the agent guide from a shell (same text as the MCP guide tool); \`authoring\` = how to create
+                            tickets/epics/dependencies that THIS profile's receiver will pick up (rendered from the config)
+  skill install [--agent a,b|all] [--repo [path]] [--dry-run]
+                            install the portable agent skill (skills/agenthook) for the coding agents on this machine,
+                            or into a project with --repo so the agents the receiver spawns there load it
+  skill ls                  where the skill is installed and at which version
   --version, -v             print the installed version
 `;
 

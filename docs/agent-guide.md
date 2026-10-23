@@ -3,7 +3,12 @@
 For an LLM agent (an engineering-manager loop, a Claude Code session) that has the `agenthook`
 MCP tools or the `agenthook tick`/`watch` commands and needs to know *how to use them well*
 without reading the source. The same text is served by the MCP `guide` tool, one `##` section
-per topic. Reference tables live in [mcp.md](mcp.md); the event catalog in [events.md](events.md).
+per topic, and by `agenthook guide <topic>` from a shell. One more topic, **`authoring`**, is not in
+this file: it is rendered from the profile's config (tracker, the identity a ticket must be assigned
+to, each step's stages, the epic rule, blocker support) and tells an agent how to create tickets,
+epics and dependencies the receiver will pick up. The portable skill in `skills/agenthook/`
+(`agenthook skill install`) points agents at both. Reference tables live in [mcp.md](mcp.md); the
+event catalog in [events.md](events.md).
 
 ## model
 
