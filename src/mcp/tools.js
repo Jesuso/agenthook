@@ -28,22 +28,12 @@ import { validateArgs } from "./schema.js";
 import { listProfiles } from "../heartbeat.js";
 import path from "node:path";
 import fs from "node:fs";
+import { loadConfig } from "../config.js";
+import { AUTHORING, guideTopics, loadGuide, renderAuthoring } from "../guide.js";
+export { loadGuide };
 
 const MAX_WAIT_S = 120;
 
-/** The agent guide (docs/agent-guide.md) split by `## topic`, so an agent can pull one section. */
-const GUIDE_FILE = new URL("../../docs/agent-guide.md", import.meta.url);
-/** @returns {{intro: string, topics: Map<string, string>}} */
-export function loadGuide(file = GUIDE_FILE) {
-  const text = fs.readFileSync(file, "utf8");
-  const parts = text.split(/^## /m);
-  const topics = new Map();
-  for (const part of parts.slice(1)) {
-    const nl = part.indexOf("\n");
-    topics.set(part.slice(0, nl).trim(), `## ${part}`.trimEnd());
-  }
-  return { intro: parts[0].trimEnd(), topics };
-}
 
 const PROFILE = { type: "string", description: "Profile state key or label. Omit to use the project's own profile (or the only running one)." };
 const PROFILES = {
@@ -66,8 +56,8 @@ const TOOLS = {
   },
   guide: {
     def: schema(
-      "How to use these tools well: pipeline model, response shapes, supervisor recipes (held / failed / stuck / red PR), event names, write-tool refusals, error meanings, gotchas. No topic = the topic list; topic \"all\" = everything. Read it once per session before acting.",
-      { topic: { type: "string", description: "model | quickstart | shapes | recipes | events | writes | errors | gotchas | all" } },
+      "How to use these tools well: pipeline model, response shapes, supervisor recipes (held / failed / stuck / red PR), event names, write-tool refusals, error meanings, gotchas. Topic \"authoring\" = how to CREATE tickets, epics and dependencies that this profile's receiver will pick up (its tracker, identity, step stages, epic rule — rendered from the live config; read it before touching the tracker). No topic = the topic list; topic \"all\" = everything. Read it once per session before acting.",
+      { topic: { type: "string", description: "model | quickstart | shapes | recipes | events | writes | errors | gotchas | authoring | all" }, profile: PROFILE },
     ),
   },
   status: {
@@ -251,10 +241,16 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
     },
     async guide(args) {
       const { topics } = loadGuide();
-      if (!args.topic) return { topics: [...topics.keys()], hint: "call guide {topic} for one section, or {topic:\"all\"}" };
-      if (args.topic === "all") return [...topics.values()].join("\n\n");
-      const t = topics.get(String(args.topic).toLowerCase());
-      if (!t) throw new Error(`guide: unknown topic "${args.topic}". Topics: ${[...topics.keys()].join(", ")}`);
+      if (!args.topic) return { topics: guideTopics(), hint: "call guide {topic} for one section, or {topic:\"all\"}; \"authoring\" takes an optional profile" };
+      const topic = String(args.topic).toLowerCase();
+      if (topic === AUTHORING) {
+        const entry = target(args);
+        if (!entry.configPath) throw new Error(`guide authoring: profile "${entry.stateKey}" has no config path on record`);
+        return renderAuthoring(loadConfig({ configPath: entry.configPath }));
+      }
+      if (topic === "all") return [...topics.values()].join("\n\n");
+      const t = topics.get(topic);
+      if (!t) throw new Error(`guide: unknown topic "${args.topic}". Topics: ${guideTopics().join(", ")}`);
       return t;
     },
     async status(args) {

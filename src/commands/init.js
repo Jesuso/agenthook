@@ -3,6 +3,8 @@
 // wizardSteps() hook, which may hit the tracker API to let you PICK a workspace /
 // project / repo instead of pasting gids. Secrets are written as ${ENV} refs so the
 // file stays shareable; the live token (read from that env var now) powers discovery.
+import { detectAgents } from "../skill-install.js";
+import { installSkill } from "./skill.js";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -440,6 +442,14 @@ export async function init(args) {
   // Opt-in `ah` shortcut. Offer only — never force it (see commands/alias.js).
   const { ah } = await runWizard([{ key: "ah", message: "Add an `ah` shortcut for `agenthook`?", type: "confirm", default: true }]);
   if (ah) console.log(installAh().message);
+
+  // Opt-in agent skill: into the code repo, so your sessions there AND the agents this receiver
+  // spawns there load it (portable SKILL.md; see commands/skill.js). Offer only.
+  const { skill: wantSkill } = await runWizard([{ key: "skill", message: `Install the agenthook agent skill into ${config.repoPath} (.agents/skills + detected agents)?`, type: "confirm", default: true }]);
+  if (wantSkill) {
+    const agents = [...new Set(["agents", ...detectAgents()])];
+    for (const r of installSkill(agents, { repoPath: path.resolve(path.dirname(out), config.repoPath) })) console.log(`  ${r.result.padEnd(9)} ${r.dir}`);
+  }
 
   console.log(`\nNext:`);
   const appKeyVar = /^\$\{(\w+)\}$/.exec(String(tracker.auth?.privateKey ?? ""))?.[1];

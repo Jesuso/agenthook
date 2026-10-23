@@ -275,8 +275,12 @@ something happens, no polling), `runs`, `board`, `prs`, `guide`, and — unless 
 and `agenthook watch` give shell agents the same data (`--all` or several names: every profile in
 one call, one wake-up). Write tools hand operator authority to the
 agent that holds them — read [docs/mcp.md](docs/mcp.md#safety) first. Agents learn the tools from
-the `guide` tool ([docs/agent-guide.md](docs/agent-guide.md)); a ready-made Claude Code skill is in
-[`examples/skills/agenthook-supervisor`](examples/skills/agenthook-supervisor/SKILL.md).
+the `guide` tool ([docs/agent-guide.md](docs/agent-guide.md), also `agenthook guide <topic>` from a
+shell). Its `authoring` topic is rendered from the live config and says how to create tickets, epics
+and dependencies that *this* receiver will pick up. A portable agent skill (open `SKILL.md` format —
+Claude Code, Cursor, Codex, OpenCode, Gemini CLI, Hermes…) ships in [`skills/agenthook`](skills/agenthook/SKILL.md):
+`agenthook skill install` puts it where the agents on your machine load skills from (`--repo` installs
+it into the code repo so the agents the receiver spawns there load it too), or `npx skills add Jesuso/agenthook`.
 
 ## Safety
 

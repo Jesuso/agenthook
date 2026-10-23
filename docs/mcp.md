@@ -58,7 +58,7 @@ Reads (state dir; work with the receiver down):
 
 | Tool | Returns |
 |---|---|
-| `guide` | the agent guide, by topic (`model`, `shapes`, `recipes`, `events`, `writes`, `errors`, `gotchas`, `all`); no topic = the list |
+| `guide` | the agent guide, by topic (`model`, `shapes`, `recipes`, `events`, `writes`, `errors`, `gotchas`, `all`); no topic = the list. `authoring` (+ optional `profile`) is rendered from that profile's config: tracker, the identity a ticket must be assigned to, every step's stages, the epic rule, whether dependencies are honoured — read it before creating work on the tracker. Same text from a shell: `agenthook guide <topic>` |
 | `profiles` | every profile: up/down, active/queued/max |
 | `status` | `slots {max,active,queued,free}`, `running[]` (ref, step, `ageS`, model, output tokens), `queue[]`, `held[]` (+`why`), `paused`/`restartPending`/`draining`, `backlog` depth. `profile:"*"` = all up profiles |
 | `events` | events after `cursor` (`types`, `ref`, `limit`, `waitS`); no cursor → the current cursor (or `last` N events). `profiles: [..]` (`["*"]` = all) reads/waits on several profiles at once — see *Several profiles* |

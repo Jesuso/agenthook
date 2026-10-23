@@ -10,6 +10,7 @@
     "bin",
     "src",
     "ui/dist",
+    "skills",
     "docs/agent-guide.md",
     "docs/mcp.md",
     "docs/events.md",

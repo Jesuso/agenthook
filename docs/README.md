@@ -28,7 +28,7 @@ Every page under `docs/`, grouped. New here? Start with the [Quickstart](quickst
 - [Web UI](web-ui.md) — the local dashboard
 - [Usage](usage.md) — token and cost tracking
 - [Events](events.md) — the append-only `events.jsonl` bus
-- [Agent interface (MCP)](mcp.md) · [Agent guide](agent-guide.md) — let an agent read and drive the pipeline
+- [Agent interface (MCP)](mcp.md) · [Agent guide](agent-guide.md) · [Agent skill](../skills/agenthook/SKILL.md) — let an agent read, drive and author work for the pipeline
 - [Architecture](architecture.md) — how the engine works, the trade-offs, the security posture
 - [Providers](providers.md) — writing a tracker or ingress adapter
 

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- A portable **agent skill** in `skills/agenthook/` (open `SKILL.md` format, loaded by Claude Code,
+  Cursor, Codex, OpenCode, Gemini CLI, Hermes…): how to create tickets, epics and dependency chains
+  the receiver will actually pick up, and how to supervise (needs-you, release, re-fire), with one
+  reference per tracker. `agenthook skill install [--agent …] [--repo [path]]` copies it into the
+  detected agents' skill dirs or into the code repo (so the agents the receiver spawns there load it
+  too); `skill ls` lists copies; `doctor` warns when an installed copy is older than the package and
+  `--fix` reinstalls it; `init` offers the install. Also installable with `npx skills add`.
+  Replaces `examples/skills/agenthook-supervisor`.
+- `agenthook guide [topic]`: the agent guide from a shell for agents without MCP, and a new dynamic
+  topic **`authoring`** (CLI and MCP `guide {topic:"authoring", profile?}`) rendered from the
+  profile's config — tracker, the identity a ticket must be assigned to, every step's stages, the
+  epic rule, whether dependencies are honoured — so an agent never hardcodes labels or logins.
+
 ## [0.11.0] — 2026-10-21
 
 ### Added

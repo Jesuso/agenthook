@@ -6,6 +6,7 @@
 // `--fix` applies the safe, local, idempotent fixes a ✗/⚠ check carries, then re-checks.
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { installedSkills, installSkillInto, packageVersion } from "../skill-install.js";
 import net from "node:net";
 import os from "node:os";
 import { portInUse } from "../port.js";
@@ -725,6 +726,26 @@ export function uiBundleLints(bundle, { installDir, spawn = spawnSync }) {
   return [];
 }
 
+/**
+ * Installed copies of the portable agent skill (skills/agenthook) older than this package: a stale
+ * skill teaches agents yesterday's commands. Warn + fix (reinstall in place). Pure over `rows`.
+ * @param {{agent: string, scope: string, dir: string, version: string}[]} rows @param {string} version
+ * @param {{reinstall?: (dir: string) => void}} [io]
+ * @returns {Finding[]}
+ */
+export function skillLints(rows, version, { reinstall = (dir) => installSkillInto(dir, version) } = {}) {
+  return rows
+    .filter((r) => r.version !== version)
+    .map((r) =>
+      /** @type {Finding} */ ({
+        level: "warn",
+        label: `agent skill up to date (${r.agent}, ${r.scope})`,
+        note: `${r.dir} is ${r.version}; this agenthook is ${version} — run \`agenthook skill install\``,
+        fix: { describe: `reinstall the agent skill into ${r.dir}`, apply: () => reinstall(r.dir) },
+      }),
+    );
+}
+
 /** Per git repo: a missing worktree base (fix: create it), and worktrees git reports as
  * prunable under that base (fix: `git worktree prune`, which only drops git's admin entries
  * for already-deleted dirs — branches and commits stay). Repos without `.git` are skipped
@@ -1141,6 +1162,7 @@ export async function runChecks(cfg, io = {}) {
   isolationReport(cfg, { userClaudeSettings, gitInsteadOf }).forEach(finding);
 
   uiBundleLints(uiBundle(), { installDir: cfg.installDir, spawn }).forEach(finding);
+  skillLints(installedSkills({ repoPath: cfg.repoPath }), packageVersion()).forEach(finding);
   worktreeLints(cfg, { listWorktrees: list, spawn }).forEach(finding);
 
   if (platform === "linux") {
