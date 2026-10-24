@@ -796,6 +796,22 @@ test("sandboxChecks: a missing default image is ✗ with an apply fix that build
   assert.ok(lines.some((l) => l.startsWith("fixed: sandbox image present")));
 });
 
+test("sandboxChecks: each service image is checked (fix: pull it, never applied) and each sandboxed step's services listed as info", async () => {
+  const cfg = sbCfg({
+    sandbox: { type: "podman", egress: { mode: "open" }, services: { db: { image: "postgres:16.4" }, cache: { image: "redis:7.2" } } },
+    pipeline: [{ id: "code", services: ["db", "cache"], env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "review", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "done", manual: true }],
+  });
+  /** @type {string[][]} */
+  const calls = [];
+  const run = /** @type {import('../src/types.js').IngressRun} */ (async (_bin, args) => (calls.push(args), { code: args[2] === "redis:7.2" ? 1 : 0, stdout: "", stderr: "" }));
+  const checks = await sandboxChecks(cfg, { run, has: () => true });
+  const svc = checks.filter((c) => c.label.startsWith("sandbox service image present"));
+  assert.deepEqual(svc.map((c) => [c.ok, c.label]), [[true, "sandbox service image present: postgres:16.4"], [false, "sandbox service image present: redis:7.2"]]);
+  assert.deepEqual(svc[1].fix, { manual: "podman pull redis:7.2" });
+  assert.deepEqual(checks.filter((c) => c.info).map((c) => c.label), ['step "code" services: db, cache']);
+  assert.equal(fixableCount(checks), fixableCount(checks.filter((c) => !c.label.startsWith("sandbox service image"))), "a pull is never auto-applied");
+});
+
 test("sandboxChecks: runtime missing or down stops there", async () => {
   const off = await sandboxChecks(sbCfg(), { run: sbRun(), has: () => false });
   assert.equal(off.length, 1);

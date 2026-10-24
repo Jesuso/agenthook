@@ -169,6 +169,17 @@ test("sensitiveChanges: concrete changed paths, [*] over the union of both array
   assert.deepEqual(sensitiveChanges({ sinks: "x" }, { sinks: {} }), []);
 });
 
+test("sensitiveChanges: a `*` segment walks the union of both objects' keys (sandbox.services, #529)", () => {
+  const svc = (/** @type {any} */ services) => ({ sandbox: { type: "podman", services } });
+  const a = svc({ db: { image: "postgres:16.4", env: { P: "x" }, memory: "1g" } });
+  assert.deepEqual(sensitiveChanges(a, svc({ db: { image: "postgres:16.4", env: { P: "x" }, memory: "2g" } })), [], "memory is not sensitive");
+  assert.deepEqual(sensitiveChanges(a, svc({ db: { image: "postgres:16.5", env: { P: "y" } } })), ["sandbox.services.db.image", "sandbox.services.db.env"]);
+  assert.deepEqual(sensitiveChanges(a, svc({ db: a.sandbox.services.db, cache: { image: "redis:7" } })), ["sandbox.services.cache.image"]);
+  assert.deepEqual(sensitiveChanges(a, svc({})), ["sandbox.services.db.image", "sandbox.services.db.env"]);
+  assert.deepEqual(sensitiveChanges(svc(["x"]), svc("x")), [], "a non-object never throws");
+  assert.deepEqual(sensitiveChanges({ tracker: { pipeline: [{ id: "c" }] } }, { tracker: { pipeline: [{ id: "c", services: ["db"] }] } }), ["tracker.pipeline[0].services"]);
+});
+
 test("GET /api/config: {path, text, hash, errors, literalSecrets}", async () => {
   const res = await get("p");
   assert.equal(res.status, 200);

@@ -456,3 +456,54 @@ test("sandbox.egress / step egress: valid rules and presets pass; bad rule, unkn
   assert.deepEqual(errs(raw({ sandbox: { type: "docker" } }, [{ id: "code", sandbox: false, egress: { mode: "none" } }])), [`config: pipeline step "code" egress has no effect: the step runs on the host ("sandbox": false).`]);
   assert.deepEqual(errs(raw({ sandbox: { type: "docker" } }, [{ id: "code", egress: { allow: ["bad host"] } }])).length, 1);
 });
+
+test("sandbox.services / step services (#529): a valid catalog passes; each structural error is reported", () => {
+  /** @param {any} c */
+  const errs = (c) => {
+    const v = validateRawConfig(c);
+    return v.ok ? [] : v.errors;
+  };
+  /** @param {any} services @param {any[]} [pipeline] */
+  const withSvc = (services, pipeline = [{ id: "code", services: ["db"] }]) => raw({ sandbox: { type: "podman", services } }, pipeline);
+  const db = { image: "postgres:16.4", env: { POSTGRES_PASSWORD: "test" }, wait: { cmd: ["pg_isready", "-U", "postgres"], timeoutS: 60 }, agentEnv: { DATABASE_URL: "postgres://postgres:test@db:5432/postgres" }, memory: "1g", cpus: 1 };
+  const cache = { image: "registry.local:5000/redis@sha256:0123abcd" };
+  assert.deepEqual(errs(withSvc({ db, cache }, [{ id: "code", services: ["db", "cache"] }, { id: "review", services: [] }, { id: "done", manual: true }])), []);
+  assert.deepEqual(errs(withSvc({ db: { image: "localhost:5000/postgres:16" } })), [], "a registry port plus a tag is pinned");
+
+  // The catalog
+  assert.deepEqual(errs(withSvc([], [{ id: "code" }])), [`config: "sandbox.services" must be an object of name: { "image", … }.`]);
+  assert.deepEqual(errs(withSvc({ DB: db }, [{ id: "code" }])), [`config: sandbox service name "DB" must be a DNS label (a-z, 0-9, -; starts with a letter; at most 31 chars).`]);
+  assert.deepEqual(errs(withSvc({ ["a".repeat(32)]: db }, [{ id: "code" }])).length, 1);
+  assert.deepEqual(errs(withSvc({ proxy: db }, [{ id: "code" }])), [`config: sandbox service name "proxy" is reserved (the egress proxy).`]);
+  assert.deepEqual(errs(withSvc({ db: "postgres:16" })), [`config: "sandbox.services.db" must be an object ({ "image", … }).`]);
+  assert.deepEqual(errs(withSvc({ db: {} })), [`config: "sandbox.services.db" image is required (a non-empty string with an explicit tag or digest).`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres" } })), [`config: "sandbox.services.db" image "postgres" has no tag — pin a tag or digest (e.g. "postgres:16.4"); service images are never pulled.`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:latest" } })), [`config: "sandbox.services.db" image "postgres:latest" is :latest — pin a tag or digest (e.g. "postgres:16.4"); service images are never pulled.`]);
+  assert.match(errs(withSvc({ db: { image: "host:5000/postgres" } }))[0] ?? "", /image "host:5000\/postgres" has no tag/, "a registry port is not a tag");
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: { POSTGRES_PASSWORD: 1 } } })), [`config: "sandbox.services.db" env.POSTGRES_PASSWORD must be a literal string.`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: ["A=1"] } })), [`config: "sandbox.services.db" env must be an object of NAME: "value" strings.`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { "BAD-NAME": "x" } } })), [`config: "sandbox.services.db" agentEnv key "BAD-NAME" is not a valid variable name.`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { AGENTHOOK_VERDICT_FILE: "/x" } } })), [`config: "sandbox.services.db" agentEnv key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`]);
+  for (const k of ["DOCKER_HOST", "PATH", "HOME", "XDG_RUNTIME_DIR", "CONTAINER_HOST", "LD_PRELOAD"]) {
+    assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: { [k]: "x" } } })), [`config: "sandbox.services.db" env key ${k} is reserved: service env reaches the docker/podman client that starts the service, and ${k} would reconfigure it.`], k);
+  }
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { HOME_DIR: "x" }, env: { PGDATA: "/x" } } })), [], "only exact names / the listed prefixes are reserved");
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", wait: { cmd: [] } } })), [`config: "sandbox.services.db" wait.cmd must be a non-empty array of strings (an argv).`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", wait: { cmd: "pg_isready" } } })), [`config: "sandbox.services.db" wait.cmd must be a non-empty array of strings (an argv).`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", wait: { cmd: ["true"], timeoutS: 0 } } })), [`config: "sandbox.services.db" wait.timeoutS must be a number > 0.`]);
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", memory: "lots", cpus: -1 } })), [
+    `config: "sandbox.services.db" memory must be a size like "1g", "512m" or bytes.`,
+    `config: "sandbox.services.db" cpus must be a number > 0.`,
+  ]);
+
+  // A step's services
+  assert.deepEqual(errs(withSvc({ db }, [{ id: "code", services: "db" }])), [`config: pipeline step "code" services must be a list of sandbox.services names.`]);
+  assert.deepEqual(errs(withSvc({ db }, [{ id: "code", services: ["redis"] }])), [`config: pipeline step "code" services "redis" is not in sandbox.services.`]);
+  assert.deepEqual(errs(raw({ sandbox: { type: "podman" } }, [{ id: "code", services: ["db"] }])), [`config: pipeline step "code" services "db" is not in sandbox.services.`]);
+  assert.deepEqual(errs(withSvc({ db }, [{ id: "code", services: ["db", "db"] }])), [`config: pipeline step "code" services lists "db" twice.`]);
+  const nine = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`s${i}`, { image: "redis:7" }]));
+  assert.deepEqual(errs(withSvc(nine, [{ id: "code", services: Object.keys(nine) }])), [`config: pipeline step "code" services lists 9 services (at most 8).`]);
+  assert.deepEqual(errs(withSvc({ db }, [{ id: "code", sandbox: false, services: ["db"] }])), [`config: pipeline step "code" services needs the sandbox: the step runs on the host ("sandbox": false).`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", services: ["db"] }])), [`config: pipeline step "code" services needs a profile "sandbox" (services run beside the sandboxed agent).`]);
+  assert.deepEqual(errs(withSvc({ db }, [{ id: "code" }, { id: "done", manual: true, services: ["db"] }])), [`config: pipeline step "done" services has no effect on a manual step (no agent runs).`]);
+});

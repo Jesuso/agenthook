@@ -17,6 +17,12 @@
 // HTTPS_PROXY (plus NODE_USE_ENV_PROXY for Node's built-in fetch and YARN_HTTPS_PROXY/
 // YARN_HTTP_PROXY for Yarn Berry's own fetcher, neither of which honors HTTPS_PROXY on its own).
 // `none` = `--network none`; `open` (or no egress) = the runtime's default network.
+//
+// Services (a step's `services`, from `sandbox.services`; docs/adr/0007): a step with any always
+// gets the run's `--internal` network, whatever the mode, and each service runs fresh on it only
+// (zero egress) under its name as a network alias, after which `wrap()` polls its `wait` probe.
+// The agent joins that network too: allowlist adds the names to NO_PROXY, none drops
+// `--network none` for it, open adds it beside the default network.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,6 +30,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_IMAGE } from "./image.js";
 import { needsEgressProxy } from "./egress.js";
+import { isSandboxed } from "./names.js";
 
 /** The container's HOME (a per-run host dir is mounted here). */
 export const SANDBOX_HOME = "/home/agent";
@@ -46,11 +53,19 @@ const DENIED_CAP = 20;
 
 /** @typedef {import('../types.js').IngressRun} Run */
 
-/** The default `run`: execFile, killed after `timeoutMs`. A non-zero exit resolves; a spawn
- * failure (ENOENT) or a kill rejects. @type {Run} */
-const execRun = (bin, args, { timeoutMs }) =>
+/** A run's own `--internal` network and what sits on it: the egress proxy (allowlist only, with
+ * its `dir`) and the services. `started` records each piece before it's created, so a failure
+ * tears down exactly what may exist.
+ * @typedef {{network: string, proxy?: string, dir?: string, started: {network: boolean, proxy: boolean, services: string[]}}} RunNet */
+
+/** How long `wrap()` waits for a service's `wait` probe by default. */
+export const SERVICE_WAIT_TIMEOUT_S = 60;
+
+/** The default `run`: execFile, killed after `timeoutMs`, with `env` over the receiver's own. A
+ * non-zero exit resolves; a spawn failure (ENOENT) or a kill rejects. @type {Run} */
+export const execRun = (bin, args, { timeoutMs, env }) =>
   new Promise((resolve, reject) => {
-    execFile(bin, args, { timeout: timeoutMs, encoding: "utf8" }, (err, stdout, stderr) => {
+    execFile(bin, args, { timeout: timeoutMs, encoding: "utf8", ...(env ? { env: { ...process.env, ...env } } : {}) }, (err, stdout, stderr) => {
       if (err && typeof err.code !== "number") return reject(err);
       resolve({ code: err ? Number(err.code) : 0, stdout, stderr });
     });
@@ -91,10 +106,11 @@ const userArgs = (runtime, uid, gid) => (runtime === "podman" ? ["--userns=keep-
  * The `<runtime> run` argv for one sandboxed run (after the runtime binary). Pure.
  * docker maps the host uid with `--user uid:gid`; podman with `--userns=keep-id` (rootless, so
  * the same uid inside and out). Either way files the agent writes belong to the operator.
- * `network` (unset = the runtime's default) is `none` or the run's internal egress network.
+ * `network` (unset = the runtime's default) is `none`, the run's internal network, or a list
+ * (one `--network` each: the run's network plus the default one, for `open` with services).
  * @param {{runtime: string, id: string, stateKey: string, ref: string, stepId: string, memory?: string, cpus?: number,
  *   uid: number, gid: number, home: string, mounts: import('../types.js').SandboxMount[], cwd: string,
- *   env: Record<string, string>, image: string, bin: string, args: string[], network?: string}} o
+ *   env: Record<string, string>, image: string, bin: string, args: string[], network?: string|string[]}} o
  * @returns {string[]}
  */
 export function containerArgs(o) {
@@ -110,7 +126,7 @@ export function containerArgs(o) {
     ...(o.memory ? ["--memory", o.memory] : []),
     ...(o.cpus ? ["--cpus", String(o.cpus)] : []),
     ...userArgs(o.runtime, o.uid, o.gid),
-    ...(o.network ? ["--network", o.network] : []),
+    ...[o.network ?? []].flat().flatMap((n) => ["--network", n]),
     ...mount(o.home, SANDBOX_HOME),
     "-e", `HOME=${SANDBOX_HOME}`,
     ...o.mounts.flatMap(maskOrMount),
@@ -143,6 +159,52 @@ export function proxyArgs(o) {
     DEFAULT_IMAGE,
     "node", PROXY_DST, "/egress",
   ];
+}
+
+/** The capabilities every service keeps (ADR 0007): what an official database image's entrypoint
+ * needs to chown its data dir and drop to its own user. Fixed, not configurable. */
+const SERVICE_CAPS = ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"];
+
+/**
+ * The `<runtime> run` argv of one run's service (after the runtime binary). Pure. The service is
+ * reachable only on the run's internal network, under its name. Env passes by NAME only (the
+ * values go through the runner's `env`).
+ * Deliberately NOT agent-identical (docs/adr/0007-services-run-with-a-fixed-entrypoint-cap-set.md):
+ * no `--user`/`--userns` (the image's own user — database entrypoints start as root to chown
+ * their data dir, then drop privileges) and the fixed SERVICE_CAPS on top of `--cap-drop ALL`.
+ * Still no mounts, no published ports, no host env, and no-new-privileges.
+ * @param {{id: string, stateKey: string, name: string, network: string, image: string, env?: Record<string, string>, memory?: string, cpus?: number}} o
+ * @returns {string[]}
+ */
+export function serviceArgs(o) {
+  return [
+    "run", "-d", "--rm", "--init", "--pull", "never",
+    "--name", `${o.id}-svc-${o.name}`,
+    "--label", `agenthook.profile=${o.stateKey}`,
+    "--network", o.network,
+    "--network-alias", o.name,
+    "--cap-drop", "ALL",
+    ...SERVICE_CAPS.flatMap((c) => ["--cap-add", c]),
+    "--security-opt", "no-new-privileges",
+    "--pids-limit", "512",
+    "--memory", o.memory ?? "1g",
+    "--cpus", String(o.cpus ?? 1),
+    ...Object.keys(o.env ?? {}).flatMap((k) => ["-e", k]),
+    o.image,
+  ];
+}
+
+/** Every image a sandboxed step's services reference, in pipeline order. Pure.
+ * @param {Pick<import('../types.js').Config, 'sandbox'|'pipeline'>} cfg @returns {string[]} */
+export function serviceImages(cfg) {
+  const catalog = cfg.sandbox?.services ?? {};
+  /** @type {Set<string>} */
+  const out = new Set();
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || !isSandboxed(cfg, s)) continue;
+    for (const n of s.services ?? []) if (Object.hasOwn(catalog, n)) out.add(catalog[n].image);
+  }
+  return [...out];
 }
 
 /**
@@ -205,10 +267,10 @@ function readCapped(file, max) {
 
 /**
  * @param {import('../types.js').Config} cfg
- * @param {{runtime: "docker"|"podman", run?: Run, uid?: number, gid?: number, readyTimeoutMs?: number}} opts  `run`/`uid`/`gid`/`readyTimeoutMs` for tests
+ * @param {{runtime: "docker"|"podman", run?: Run, uid?: number, gid?: number, readyTimeoutMs?: number, waitPollMs?: number}} opts  `run`/`uid`/`gid`/`readyTimeoutMs`/`waitPollMs` for tests
  * @returns {import('../types.js').Sandbox}
  */
-export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, readyTimeoutMs = EGRESS_READY_TIMEOUT_MS }) {
+export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, readyTimeoutMs = EGRESS_READY_TIMEOUT_MS, waitPollMs = 500 }) {
   const bin = runtime === "docker" ? process.env.DOCKER || "docker" : process.env.PODMAN || "podman";
   const image = cfg.sandbox?.image || DEFAULT_IMAGE;
   const homes = path.join(cfg.stateDir, "sandbox-home");
@@ -220,15 +282,27 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
     const r = await run(bin, args, { timeoutMs: 60_000 });
     if (r.code !== 0) throw new Error(`${what} failed: ${firstLine(r)}`);
   };
-  /** Best-effort removal of a run's proxy, network and egress dir (logged, never thrown).
-   * @param {{proxy: string, network: string, dir: string, started: {proxy: boolean, network: boolean}}} e */
-  const teardownEgress = async (e) => {
-    if (e.started.proxy) {
+  /** Best-effort `rm -f` of one container (logged, never thrown). @param {string} name */
+  const rmContainer = async (name) => {
+    const r = await run(bin, ["rm", "-f", name], { timeoutMs: 30_000 }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
+    if (r.code !== 0 && !/no such container|no container with name/i.test(r.stderr || r.stdout)) console.error(`[sandbox] ${bin} rm -f ${name} failed: ${firstLine(r)}`);
+  };
+  /** The last lines of a container's log, joined for a reason ("" when there are none).
+   * @param {string} name */
+  const logTail = async (name) => {
+    const r = await run(bin, ["logs", "--tail", "5", name], { timeoutMs: 10_000 }).catch(() => null);
+    return r ? `${r.stdout}\n${r.stderr}`.split("\n").map((l) => l.trim()).filter(Boolean).slice(-5).join(" | ") : "";
+  };
+  /** Best-effort removal of a run's proxy, services and network, in that order (logged, never
+   * thrown). Only what was started is removed, and each at most once (the network is shared by
+   * the proxy and the services). @param {RunNet} e */
+  const teardownNet = async (e) => {
+    if (e.proxy && e.started.proxy) {
       const stopR = await run(bin, ["stop", "-t", "5", e.proxy], { timeoutMs: 30_000 }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
       if (stopR.code !== 0 && !/no such container|is not running|no container with name/i.test(stopR.stderr || stopR.stdout)) console.error(`[sandbox] ${bin} stop ${e.proxy} failed: ${firstLine(stopR)}`);
-      const r = await run(bin, ["rm", "-f", e.proxy], { timeoutMs: 30_000 }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
-      if (r.code !== 0 && !/no such container|no container with name/i.test(r.stderr || r.stdout)) console.error(`[sandbox] ${bin} rm -f ${e.proxy} failed: ${firstLine(r)}`);
+      await rmContainer(e.proxy);
     }
+    for (const svc of e.started.services) await rmContainer(svc);
     if (e.started.network) {
       const r = await run(bin, ["network", "rm", e.network], { timeoutMs: 30_000 }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
       if (r.code !== 0 && !/no such network|not found/i.test(r.stderr || r.stdout)) console.error(`[sandbox] ${bin} network rm ${e.network} failed: ${firstLine(r)}`);
@@ -255,15 +329,26 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       }
       if (info.code !== 0) return { ok: false, reason: `\`${bin} info\` failed: ${firstLine(info)} — is the ${runtime} daemon/socket up?` };
       // The egress proxy always runs the built-in image, so a custom image needs it too.
-      for (const img of new Set([image, ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])])) {
+      const agentImages = new Set([image, ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
+      for (const img of agentImages) {
         const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
         if (r.code !== 0) return { ok: false, reason: `sandbox image ${img} not found — run \`agenthook doctor --fix\` or build it (docs/sandbox.md)` };
+      }
+      // Service images are never pulled or built for the operator (`--pull never`).
+      for (const img of serviceImages(cfg)) {
+        if (agentImages.has(img)) continue;
+        const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+        if (r.code !== 0) return { ok: false, reason: `service image ${img} not found — run \`${bin} pull ${img}\`` };
       }
       return { ok: true };
     },
 
-    async wrap({ ref, stepId, bin: agentBin, args, env, cwd, mounts, egress }) {
+    async wrap({ ref, stepId, bin: agentBin, args, env, cwd, mounts, step, egress }) {
       const id = containerName({ stateKey: cfg.stateKey, ref, stepId });
+      const catalog = cfg.sandbox?.services ?? {};
+      const services = step?.services ?? [];
+      const unknown = services.find((n) => !Object.hasOwn(catalog, n));
+      if (unknown) throw new Error(`service ${JSON.stringify(unknown)} is not in sandbox.services`);
       const home = path.join(homes, id);
       fs.mkdirSync(home, { recursive: true, mode: 0o700 });
       // A mount landing under HOME needs its mountpoint to exist on the host first, made by us.
@@ -272,33 +357,50 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
         if (dst.startsWith(SANDBOX_HOME + "/")) fs.mkdirSync(path.join(home, dst.slice(SANDBOX_HOME.length + 1)), { recursive: true, mode: 0o700 });
       }
       const mode = egress?.mode ?? "open";
-      const egressState = mode === "allowlist" ? { proxy: `${id}-proxy`, network: `${id}-net`, dir: path.join(egressDirs, id), started: { proxy: false, network: false } } : null;
+      /** @type {RunNet|null} */
+      const net = mode === "allowlist" || services.length
+        ? { network: `${id}-net`, ...(mode === "allowlist" ? { proxy: `${id}-proxy`, dir: path.join(egressDirs, id) } : {}), started: { network: false, proxy: false, services: [] } }
+        : null;
       /** @type {Record<string, string>} */
       const proxyEnv = {};
-      if (egressState) {
-        const url = `http://${egressState.proxy}:${EGRESS_PROXY_PORT}`;
+      if (net?.proxy) {
+        const url = `http://${net.proxy}:${EGRESS_PROXY_PORT}`;
+        // A service is on the run's own network: reached directly, never through the proxy.
+        const noProxy = ["localhost", "127.0.0.1", "::1", ...services].join(",");
         Object.assign(proxyEnv, {
           HTTPS_PROXY: url, https_proxy: url, HTTP_PROXY: url, http_proxy: url,
-          NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1",
+          NO_PROXY: noProxy, no_proxy: noProxy,
           // Node's built-in fetch (corepack) and Yarn Berry's own fetcher ignore HTTPS_PROXY.
           NODE_USE_ENV_PROXY: "1", YARN_HTTPS_PROXY: url, YARN_HTTP_PROXY: url,
         });
       }
-      const runEnv = { ...env, ...proxyEnv };
+      /** @type {Record<string, string>} */
+      const serviceEnv = {};
+      for (const n of services) Object.assign(serviceEnv, catalog[n].agentEnv);
+      delete serviceEnv.AGENTHOOK_VERDICT_FILE;
+      // A service's agentEnv sits over the run's env, never over the proxy vars or the verdict path.
+      const runEnv = { ...env, ...serviceEnv, ...proxyEnv };
       const argv = containerArgs({
         runtime, id, stateKey: cfg.stateKey, ref, stepId,
         memory: cfg.sandbox?.memory, cpus: cfg.sandbox?.cpus,
         uid: hostUid(), gid: hostGid(),
         home, mounts, cwd, env: runEnv, image, bin: agentBin, args,
-        network: mode === "none" ? "none" : egressState?.network,
+        network: !net ? (mode === "none" ? "none" : undefined) : mode === "open" ? [net.network, DEFAULT_NETWORK[runtime]] : net.network,
       });
-      if (egressState) {
+      if (net) {
         // dispatch never calls done() on a wrap() rejection: undo whatever was made first.
         try {
-          await startEgress(egressState, egress?.rules ?? []);
+          if (net.dir) {
+            fs.mkdirSync(net.dir, { recursive: true, mode: 0o700 });
+            fs.writeFileSync(path.join(net.dir, "allow.json"), JSON.stringify({ rules: egress?.rules ?? [] }), { mode: 0o600 });
+          }
+          net.started.network = true;
+          await must(["network", "create", "--internal", "--label", `agenthook.profile=${cfg.stateKey}`, net.network], `\`${bin} network create\``);
+          for (const n of services) await startService(net, id, n, catalog[n]);
+          if (net.proxy) await startEgress(net);
         } catch (e) {
-          await teardownEgress(egressState);
-          rmDir(egressState.dir);
+          await teardownNet(net);
+          if (net.dir) rmDir(net.dir);
           rmDir(home);
           throw e;
         }
@@ -321,11 +423,14 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
           if (!finished) {
             finished = true;
             rmDir(home);
-            if (egressState) {
-              await teardownEgress(egressState);
-              report = egressReport(readCapped(path.join(egressState.dir, "denied.jsonl"), 4 * 1024 * 1024));
-              rmDir(egressState.dir);
+            if (net) {
+              await teardownNet(net);
+              if (net.dir) {
+                report = egressReport(readCapped(path.join(net.dir, "denied.jsonl"), 4 * 1024 * 1024));
+                rmDir(net.dir);
+              }
             }
+            if (services.length) report = { ...report, extra: { ...report.extra, services: [...services] } };
           }
           return report;
         },
@@ -356,16 +461,13 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
   };
 
   /**
-   * Bring up one run's egress: the internal network, the proxy on it (rules written first),
-   * the proxy's leg to the outside, then wait for its `ready` file. Throws on any step; the
-   * caller tears down what was started.
-   * @param {{proxy: string, network: string, dir: string, started: {proxy: boolean, network: boolean}}} e @param {string[]} rules
+   * Bring up one run's egress proxy on its (already created) internal network, with the rules
+   * already in its dir, then its leg to the outside, then wait for its `ready` file. Throws on
+   * any step; the caller tears down what was started.
+   * @param {RunNet} e
    */
-  async function startEgress(e, rules) {
-    fs.mkdirSync(e.dir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(e.dir, "allow.json"), JSON.stringify({ rules }), { mode: 0o600 });
-    e.started.network = true;
-    await must(["network", "create", "--internal", "--label", `agenthook.profile=${cfg.stateKey}`, e.network], `\`${bin} network create\``);
+  async function startEgress(e) {
+    if (!e.proxy || !e.dir) return;
     e.started.proxy = true;
     const id = e.proxy.slice(0, -"-proxy".length);
     await must(proxyArgs({ runtime, id, stateKey: cfg.stateKey, uid: hostUid(), gid: hostGid(), egressDir: e.dir, network: e.network }), "egress proxy start");
@@ -379,6 +481,36 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
         throw new Error(`egress proxy did not start within ${Math.round(readyTimeoutMs / 100) / 10}s${why ? `: ${why}` : ""}`);
       }
       await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  /**
+   * Start one service on the run's network (its env passed by name through the runner), then
+   * poll its `wait` probe via `exec` until it exits 0. Throws naming the service and its last
+   * log lines; the caller tears down what was started.
+   * @param {RunNet} e @param {string} id @param {string} name @param {import('../types.js').ServiceConfig} svc
+   */
+  async function startService(e, id, name, svc) {
+    const container = `${id}-svc-${name}`;
+    /** @param {string} msg */
+    const failed = async (msg) => {
+      const tail = await logTail(container);
+      return new Error(`service "${name}" ${msg}${tail ? ` — last log lines: ${tail}` : ""}`);
+    };
+    e.started.services.push(container);
+    const r = await run(bin, serviceArgs({ id, stateKey: cfg.stateKey, name, network: e.network, image: svc.image, env: svc.env, memory: svc.memory, cpus: svc.cpus }), { timeoutMs: 60_000, env: svc.env ?? {} })
+      .catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
+    if (r.code !== 0) throw await failed(`failed to start: ${firstLine(r)}`);
+    if (!svc.wait) return;
+    const timeoutS = svc.wait.timeoutS ?? SERVICE_WAIT_TIMEOUT_S;
+    const deadline = Date.now() + timeoutS * 1000;
+    for (;;) {
+      const p = await run(bin, ["exec", container, ...svc.wait.cmd], { timeoutMs: Math.max(1000, deadline - Date.now()) }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
+      if (p.code === 0) return;
+      // `--rm`: a service that exited is gone, so its probe can never pass.
+      if (/no such container|is not running|no container with name/i.test(p.stderr || p.stdout)) throw await failed(`exited before its wait probe passed`);
+      if (Date.now() >= deadline) throw await failed(`not ready within ${timeoutS}s (wait: ${svc.wait.cmd.join(" ")})`);
+      await new Promise((res) => setTimeout(res, waitPollMs));
     }
   }
 }

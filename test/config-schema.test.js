@@ -70,6 +70,8 @@ const GROUPS = [
   ["ForgeConfig", ["forge"], [...typedefProps("ForgeConfig").keys()]],
   ["SandboxConfig", ["sandbox"], [...typedefProps("SandboxConfig").keys()]],
   ["SandboxConfig.egress", ["sandbox", "egress"], [...typedefProps("EgressConfig").keys()]],
+  ["ServiceConfig", ["sandbox", "services", "*"], [...typedefProps("ServiceConfig").keys()]],
+  ["ServiceConfig.wait", ["sandbox", "services", "*", "wait"], literalKeys(typedefProps("ServiceConfig").get("wait") ?? "")],
   ["Step.egress", [...STEP, "egress"], [...typedefProps("EgressConfig").keys()]],
   ["GithubAuthConfig (tracker)", ["tracker", "auth"], [...typedefProps("GithubAuthConfig").keys()]],
   ["GithubAuthConfig (forge)", ["forge", "auth"], [...typedefProps("GithubAuthConfig").keys()]],
@@ -94,6 +96,8 @@ test("the typedef parser is non-trivial (a regex change can't make the drift tes
   assert.deepEqual(find("Config.energy.source"), ["type", "name", "cmd", "watts"]);
   assert.deepEqual(find("Step.lite"), ["descriptionHeadings", "model", "effort"]);
   assert.deepEqual(find("Step.escalate"), ["model", "effort"]);
+  assert.deepEqual(find("ServiceConfig"), ["image", "env", "wait", "agentEnv", "memory", "cpus"]);
+  assert.deepEqual(find("ServiceConfig.wait"), ["cmd", "timeoutS"]);
 });
 
 test("every typedef config key has a schema entry or a NO_FORM reason", () => {
@@ -141,8 +145,11 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
 
 // Raw-only on purpose, each with its ticket: the per-step egress policy (#473) gets its form
 // with the isolation report (#476). The profile sandbox* keys got a Basics form in #494.
+// Services (#529) are Raw-only for v1.
 const RAW_ONLY = new Set([
   "tracker.pipeline.*.egress", "tracker.pipeline.*.egress.mode", "tracker.pipeline.*.egress.allow", "tracker.pipeline.*.egress.deny",
+  "tracker.pipeline.*.services",
+  ...["", ".*", ".*.image", ".*.env", ".*.wait", ".*.wait.cmd", ".*.wait.timeoutS", ".*.agentEnv", ".*.memory", ".*.cpus"].map((k) => `sandbox.services${k}`),
 ]);
 
 test("no schema entry is left pending (#343): every documented key has a form", () => {

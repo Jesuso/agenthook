@@ -115,8 +115,8 @@ export function bannerStatus(parseError: string | null, checks: string[], server
 // SENSITIVE_FIELDS that aren't secrets: their values are shown as is (a step's `bin` too).
 const CLEAR_FIELDS = new Set(["name", "fullAuto", "claudeBin", "tracker.userGid", "tracker.assigneeFilter", "tracker.email"]);
 const isClear = (path: string) => CLEAR_FIELDS.has(path) || /^tracker\.pipeline\[\d+\]\.bin$/.test(path);
-// A step's `env` may hold literal secrets: the confirm names its variables, never their values.
-const isStepEnv = (path: string) => /^tracker\.pipeline\[\d+\]\.env$/.test(path);
+// A step's or a service's `env` may hold literal secrets: the confirm names its variables, never their values.
+const isStepEnv = (path: string) => /^(tracker\.pipeline\[\d+\]|sandbox\.services\.[^.]+)\.env$/.test(path);
 const envShown = (v: unknown) =>
   v === undefined ? "(unset)" : v && typeof v === "object" && !Array.isArray(v) ? `{${Object.keys(v).join(", ")}}` : "(set)";
 // Same rule as src/config.js literalSecrets: a non-empty string that is not exactly one `${VAR}` ref.

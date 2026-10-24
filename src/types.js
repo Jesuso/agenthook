@@ -61,6 +61,7 @@
  * @property {StepPolicy} [allow]           the only commands this step's agent may run and the only cwd-relative paths it may write (reads inside cwd stay allowed); enforced through the agent CLI (claude only — other agents' runs are refused)
  * @property {StepPolicy} [deny]            commands this step's agent may never run and cwd-relative paths it may never read or write; enforced even under fullAuto (claude only)
  * @property {EgressConfig} [egress]          this step's network policy: `mode` overrides the profile's `sandbox.egress.mode`; `allow`/`deny` are added to the profile's. Needs a profile `sandbox`
+ * @property {string[]} [services]           names from the profile's `sandbox.services` this step's sandboxed runs get, fresh per run (at most 8). Needs a sandboxed step
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
  * @property {number} [maxMinutes]             wall-clock cap on one run of this step; past it the agent is killed and the run fails with `timeout` (default 120, 0 = no cap)
@@ -424,8 +425,9 @@
 /** A factory `(cfg) => Ingress`. `timeoutMs` bounds a managed tunnel's startup (cloudflared) or each
  * CLI call (tailscale); `run` replaces tailscale's execFile. Both for tests.
  * @typedef {(cfg: Config, opts?: { timeoutMs?: number, run?: IngressRun }) => Ingress} IngressFactory */
-/** Runs one CLI call; a non-zero exit resolves with its `code`, a spawn failure rejects.
- * @typedef {(bin: string, args: string[], opts: { timeoutMs: number }) => Promise<{ code: number|null, stdout: string, stderr: string }>} IngressRun */
+/** Runs one CLI call; a non-zero exit resolves with its `code`, a spawn failure rejects. `env`
+ * is set over the runner's own env (a `-e NAME` then reads its value from there, never argv).
+ * @typedef {(bin: string, args: string[], opts: { timeoutMs: number, env?: Record<string, string> }) => Promise<{ code: number|null, stdout: string, stderr: string }>} IngressRun */
 
 /**
  * The optional sandbox config block (`sandbox` in agenthook.config.json): run each agent in its
@@ -436,6 +438,19 @@
  * @property {string} [memory]  container memory cap, e.g. "4g" (unset = runtime default)
  * @property {number} [cpus]    container CPU cap, e.g. 2 (unset = runtime default)
  * @property {EgressConfig} [egress]  the runs' network policy (default mode allowlist)
+ * @property {Record<string, ServiceConfig>} [services]  the Service catalog steps opt into by name (the name is the agent's hostname for it)
+ */
+
+/**
+ * One Service (`sandbox.services.<name>`): a database or cache container started fresh for each
+ * run of a step that lists it, on the run's internal network only (docs/adr/0007).
+ * @typedef {object} ServiceConfig
+ * @property {string} image                          image with an explicit tag or digest; never pulled
+ * @property {Record<string, string>} [env]          literal env for the service container
+ * @property {{cmd: string[], timeoutS?: number}} [wait]  readiness probe: `cmd` is exec'd in the service until it exits 0, within `timeoutS` (default 60)
+ * @property {Record<string, string>} [agentEnv]     literal env added to the agent's container (e.g. DATABASE_URL)
+ * @property {string} [memory]                       service memory cap (default "1g")
+ * @property {number} [cpus]                         service CPU cap (default 1)
  */
 
 /**

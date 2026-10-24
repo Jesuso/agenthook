@@ -509,6 +509,21 @@ export function validateRawConfig(raw) {
       else if (cfg.sandbox == null) errors.push(`config: pipeline step "${sid}" egress needs a profile "sandbox" (egress is enforced by the sandbox's network).`);
       errors.push(...egressErrors(step.egress, `pipeline step "${sid}" egress`));
     }
+    if (step.services != null) {
+      const list = step.services;
+      if (!Array.isArray(list) || list.some((/** @type {unknown} */ n) => typeof n !== "string")) errors.push(`config: pipeline step "${sid}" services must be a list of sandbox.services names.`);
+      else if (step.manual) errors.push(`config: pipeline step "${sid}" services has no effect on a manual step (no agent runs).`);
+      else if (step.sandbox === false) errors.push(`config: pipeline step "${sid}" services needs the sandbox: the step runs on the host ("sandbox": false).`);
+      else if (cfg.sandbox == null) errors.push(`config: pipeline step "${sid}" services needs a profile "sandbox" (services run beside the sandboxed agent).`);
+      else {
+        if (list.length > MAX_STEP_SERVICES) errors.push(`config: pipeline step "${sid}" services lists ${list.length} services (at most ${MAX_STEP_SERVICES}).`);
+        const catalog = cfg.sandbox.services;
+        for (const [i, n] of list.entries()) {
+          if (list.indexOf(n) !== i) errors.push(`config: pipeline step "${sid}" services lists ${JSON.stringify(n)} twice.`);
+          else if (!catalog || typeof catalog !== "object" || !Object.hasOwn(catalog, n)) errors.push(`config: pipeline step "${sid}" services ${JSON.stringify(n)} is not in sandbox.services.`);
+        }
+      }
+    }
     if (step.env != null) {
       if (typeof step.env !== "object" || Array.isArray(step.env)) {
         errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
@@ -606,6 +621,76 @@ function sandboxErrors(sb) {
   if (sb.memory != null && (typeof sb.memory !== "string" || !/^\d+[kmg]?$/i.test(sb.memory))) errors.push(`config: "sandbox.memory" must be a size like "4g", "512m" or bytes.`);
   if (sb.cpus != null && (typeof sb.cpus !== "number" || !Number.isFinite(sb.cpus) || sb.cpus <= 0)) errors.push(`config: "sandbox.cpus" must be a number > 0.`);
   if (sb.egress != null) errors.push(...egressErrors(sb.egress, `"sandbox.egress"`));
+  if (sb.services != null) {
+    if (typeof sb.services !== "object" || Array.isArray(sb.services)) errors.push(`config: "sandbox.services" must be an object of name: { "image", … }.`);
+    else for (const [name, svc] of Object.entries(sb.services)) errors.push(...serviceErrors(name, svc));
+  }
+  return errors;
+}
+
+/** A Service name: a DNS label, the hostname the agent reaches it at. */
+const SERVICE_NAME_RE = /^[a-z][a-z0-9-]{0,30}$/;
+
+/** Service env names the runtime CLI itself reads: service env values pass by name through the
+ * client's own env, so these would redirect or reconfigure the docker/podman call. */
+const RUNTIME_CLIENT_ENV_RE = /^(PATH|HOME|TMPDIR|SHELL|(DOCKER|CONTAINER|CONTAINERS|PODMAN|XDG|LD|DYLD)_.*)$/;
+
+/** The most services one step may use. */
+const MAX_STEP_SERVICES = 8;
+
+/**
+ * Why an image reference doesn't pin a version (a bare name or `:latest`), or undefined. A
+ * registry port (`host:5000/img`) is not a tag. Pure. @param {string} ref @returns {string|undefined}
+ */
+function unpinnedImage(ref) {
+  if (/@[a-z0-9]+:[A-Fa-f0-9]+$/.test(ref)) return undefined;
+  const last = ref.slice(ref.lastIndexOf("/") + 1);
+  const i = last.lastIndexOf(":");
+  if (i < 0 || i === last.length - 1) return "has no tag";
+  if (last.slice(i + 1) === "latest") return "is :latest";
+  return undefined;
+}
+
+/**
+ * Structural errors in one `sandbox.services.<name>` entry (src/sandbox/container.js). Pure.
+ * @param {string} name @param {any} svc @returns {string[]}
+ */
+function serviceErrors(name, svc) {
+  const at = `"sandbox.services.${name}"`;
+  /** @type {string[]} */
+  const errors = [];
+  if (!SERVICE_NAME_RE.test(name)) errors.push(`config: sandbox service name ${JSON.stringify(name)} must be a DNS label (a-z, 0-9, -; starts with a letter; at most 31 chars).`);
+  else if (name === "proxy") errors.push(`config: sandbox service name "proxy" is reserved (the egress proxy).`);
+  if (typeof svc !== "object" || svc === null || Array.isArray(svc)) return [...errors, `config: ${at} must be an object ({ "image", … }).`];
+  if (typeof svc.image !== "string" || !svc.image.trim()) errors.push(`config: ${at} image is required (a non-empty string with an explicit tag or digest).`);
+  else {
+    const why = unpinnedImage(svc.image);
+    if (why) errors.push(`config: ${at} image ${JSON.stringify(svc.image)} ${why} — pin a tag or digest (e.g. "postgres:16.4"); service images are never pulled.`);
+  }
+  for (const key of ["env", "agentEnv"]) {
+    const env = svc[key];
+    if (env == null) continue;
+    if (typeof env !== "object" || Array.isArray(env)) {
+      errors.push(`config: ${at} ${key} must be an object of NAME: "value" strings.`);
+      continue;
+    }
+    for (const [k, v] of Object.entries(env)) {
+      if (!ENV_KEY_RE.test(k)) errors.push(`config: ${at} ${key} key ${JSON.stringify(k)} is not a valid variable name.`);
+      else if (key === "agentEnv" && k === "AGENTHOOK_VERDICT_FILE") errors.push(`config: ${at} agentEnv key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
+      else if (key === "env" && RUNTIME_CLIENT_ENV_RE.test(k)) errors.push(`config: ${at} env key ${k} is reserved: service env reaches the docker/podman client that starts the service, and ${k} would reconfigure it.`);
+      if (typeof v !== "string") errors.push(`config: ${at} ${key}.${k} must be a literal string.`);
+    }
+  }
+  if (svc.wait != null) {
+    const w = svc.wait;
+    if (typeof w !== "object" || Array.isArray(w)) errors.push(`config: ${at} wait must be an object ({ "cmd": [...], "timeoutS" }).`);
+    else {
+      if (!Array.isArray(w.cmd) || !w.cmd.length || w.cmd.some((/** @type {unknown} */ c) => typeof c !== "string")) errors.push(`config: ${at} wait.cmd must be a non-empty array of strings (an argv).`);
+      if (w.timeoutS != null && (typeof w.timeoutS !== "number" || !Number.isFinite(w.timeoutS) || w.timeoutS <= 0)) errors.push(`config: ${at} wait.timeoutS must be a number > 0.`);
+    }
+  }
+  if (svc.memory != null && (typeof svc.memory !== "string" || !/^\d+[kmg]?$/i.test(svc.memory))) errors.push(`config: ${at} memory must be a size like "1g", "512m" or bytes.`);
+  if (svc.cpus != null && (typeof svc.cpus !== "number" || !Number.isFinite(svc.cpus) || svc.cpus <= 0)) errors.push(`config: ${at} cpus must be a number > 0.`);
   return errors;
 }
 

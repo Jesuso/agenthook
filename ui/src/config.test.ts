@@ -252,6 +252,18 @@ describe("sensitiveDiff", () => {
     expect(JSON.stringify([added, valueOnly, sensitiveDiff(a, b)])).not.toMatch(/sk-|\/x/);
   });
 
+  it("a service's env names variables, never values; its image is a secret-style change", () => {
+    const sandbox = (db: Record<string, unknown>) => ({ type: "podman", services: { db: { image: "postgres:16.4", ...db } } });
+    const a = cfg({ sandbox: sandbox({ env: { POSTGRES_PASSWORD: "hunter2" } }) });
+    const b = cfg({ sandbox: sandbox({ image: "postgres:16.5", env: { POSTGRES_PASSWORD: "other" } }) });
+    const diff = sensitiveDiff(a, b);
+    expect(diff).toEqual([
+      { path: "sandbox.services.db.image", from: "(set)", to: "(changed)" },
+      { path: "sandbox.services.db.env", from: "{POSTGRES_PASSWORD}", to: "(changed)" },
+    ]);
+    expect(JSON.stringify(diff)).not.toMatch(/hunter2|other/);
+  });
+
   it("an unparseable old text reports every sensitive path present in the new one", () => {
     expect(sensitiveDiff("{", cfg()).map((c) => c.path)).toEqual(["name", "fullAuto", "tracker.userGid", "tracker.token", "sinks[0].url", "sinks[1].botToken"]);
   });
