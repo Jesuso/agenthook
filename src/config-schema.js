@@ -82,7 +82,7 @@ export const CONFIG_SCHEMA = [
   entry("sandbox.services.*.image", "string", "Service image", "basics", "Image with an explicit tag or digest (never :latest); never pulled — pull it yourself.", { sensitive: true, advanced: true, editor: "pending" }),
   entry("sandbox.services.*.env", "record", "Service env", "basics", "Literal env for the service container (e.g. POSTGRES_PASSWORD).", { sensitive: true, advanced: true, editor: "pending" }),
   entry("sandbox.services.*.wait", "object", "Readiness probe", "basics", "Run cmd in the service until it exits 0 before the agent starts; unset = start and go.", { advanced: true, editor: "pending" }),
-  entry("sandbox.services.*.wait.cmd", "string-list", "Probe command", "basics", "argv exec'd in the service container, e.g. pg_isready -U postgres.", { advanced: true, editor: "pending" }),
+  entry("sandbox.services.*.wait.cmd", "string-list", "Probe command", "basics", "argv exec'd in the service container, e.g. pg_isready -h 127.0.0.1 -U postgres.", { advanced: true, editor: "pending" }),
   entry("sandbox.services.*.wait.timeoutS", "number", "Probe timeout (s)", "basics", "Seconds the probe may take to pass before the run fails.", { default: 60, advanced: true, editor: "pending" }),
   entry("sandbox.services.*.agentEnv", "record", "Agent env", "basics", "Literal env added to the agent's container for steps using it (e.g. DATABASE_URL).", { advanced: true, editor: "pending" }),
   entry("sandbox.services.*.memory", "string", "Service memory", "basics", "Service container memory cap, e.g. 1g.", { default: "1g", advanced: true, editor: "pending" }),
