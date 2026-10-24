@@ -174,6 +174,10 @@ denials were counted but not logged individually — `egressDenied` still lists 
 A sandboxed run whose step uses services carries `services: [names]` on its `run_end`. A service
 that fails to start or never passes its `wait` probe fails the run before any agent spawns, with
 a reason naming the service and its last log lines — a config or image problem, not a retry.
+Inside the container, the agent that runs the step reaches each service at its name as a hostname
+(`services: ["db"]` → `db`) and gets any `agentEnv` the service declares (e.g. `DATABASE_URL`)
+already set — seeding and migrating the service is the agent's own job, not something the
+receiver does for it.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 

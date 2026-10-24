@@ -196,6 +196,219 @@ broad token), and the tracker accepts a comment. Scoped short-lived tokens (#474
 leg. The proxy does no TLS inspection, per-path rules or size limits (it only sees `host:port`),
 and non-HTTP protocols have no route at all. Unsandboxed (host) runs get no egress control.
 
+## Services
+
+<a id="services"></a>
+
+A Service is a throwaway database or cache a sandboxed step's run gets beside the agent — a
+Postgres the tests seed and query, a Redis the app under test reads. Declare the catalog on the
+profile, then opt a step into the names it needs:
+
+```jsonc
+"sandbox": { "type": "podman",
+  "services": {
+    "db": {
+      "image": "postgres:16.4",
+      "env": { "POSTGRES_PASSWORD": "test" },
+      "wait": { "cmd": ["pg_isready", "-U", "postgres"] },
+      "agentEnv": { "DATABASE_URL": "postgres://postgres:test@db/postgres" }
+    }
+  } },
+"tracker": { "pipeline": [
+  { "id": "code", "services": ["db"] }
+] }
+```
+
+| Key | Meaning |
+|-----|---------|
+| `image` | Required, pinned to a tag or digest (`postgres:16.4`, never `postgres` or `postgres:latest`) — service images are **never pulled**, so pull it yourself and `agenthook doctor` / `check()` name the exact `<runtime> pull <image>` command when it's missing. |
+| `env` | Literal env for the service container (e.g. `POSTGRES_PASSWORD`). Values are never read from your host env. |
+| `wait.cmd` | Optional readiness probe: an argv `exec`'d in the service container (e.g. `pg_isready`) until it exits 0, polled every 500ms. Unset = the service is considered ready as soon as it starts. |
+| `wait.timeoutS` | How long `wait.cmd` may take to pass. Default **60**. |
+| `agentEnv` | Literal env added to the agent's container for steps that use this service (e.g. `DATABASE_URL` pointed at the service's hostname). |
+| `memory` | Service container memory cap. Default **`1g`**. |
+| `cpus` | Service container CPU cap. Default **`1`**. |
+
+A service's `pids-limit` is fixed at **512** and is not configurable. Service sizing is **not**
+inherited from the profile's `sandbox.memory` / `sandbox.cpus` — those cap the agent's container
+only; size each service with its own `memory` / `cpus`.
+
+A step opts in with `"services": ["db", …]`:
+
+```jsonc
+{ "id": "code", "services": ["db"] }
+```
+
+**Rules and validation:**
+
+- A service's name is a DNS label (`^[a-z][a-z0-9-]{0,30}$`) — it is the hostname the agent
+  reaches it at. `proxy` is reserved (the egress proxy already uses it).
+- The image must pin a tag or digest; a registry port (`host:5000/img`) doesn't count as one. An
+  unpinned image errors: `… pin a tag or digest (e.g. "postgres:16.4"); service images are never
+  pulled.`
+- `env` and `agentEnv` values must be literal strings — never read from the host's environment.
+  `env` rejects a reserved key with `env key X is reserved: service env reaches the docker/podman
+  client that starts the service, and X would reconfigure it.` — the key names are
+  `PATH`, `HOME`, `TMPDIR`, `SHELL` and anything matching `(DOCKER|CONTAINER|CONTAINERS|
+  PODMAN|XDG|LD|DYLD)_*`, because a service's `env` is passed by **name** through the very
+  `docker`/`podman` client process that starts the container (`-e NAME`, value read from that
+  process's own env) — a client-read variable in that list would redirect or reconfigure the
+  client call itself, not just the service.
+- `agentEnv.AGENTHOOK_VERDICT_FILE` is reserved (the receiver sets it). A service's `agentEnv`
+  sits over the run's env but **never** over the proxy vars (`HTTPS_PROXY`, …) or the verdict
+  path — it can't be used to redirect either.
+- A step's `services` list is at most **8** (`MAX_STEP_SERVICES`); more errors. A duplicate name
+  in the list, or a name not present in `sandbox.services`, also errors.
+- `services` needs a profile `sandbox` and errors on a manual step or a `"sandbox": false` step
+  (there's no sandboxed container to put the service beside).
+
+**Lifecycle.** Each run gets fresh service containers, named `<run id>-svc-<name>` and labelled
+like the rest of the run (`agenthook.profile=<stateKey>`), started **before** the agent (and
+before the egress proxy). They're removed with the run — on a clean finish, a `wrap()` failure, or
+cancel/timeout/shutdown — and reaped on boot via the label, same as the agent container and
+network. There is no seeding or migration step: the agent runs those itself (e.g. in the step's
+prompt or a setup command) against the empty service it's handed.
+
+**Network, per `sandbox.egress.mode`:**
+
+- A step with any `services` always gets the run's own `--internal` network, whatever the egress
+  mode, and each service is reachable there only, under its name as a network alias — it has no
+  route out of its own and no proxy configured for it. Under **`allowlist`** the egress proxy
+  container sits on that *same* run network (as well as the runtime's default one), so a service
+  that was explicitly configured (via its own `env`) to use that proxy would get the agent's same
+  allowlisted egress; nothing wires that up for you.
+- Under **`allowlist`**, the agent's `NO_PROXY` / `no_proxy` also gets the service names added, so
+  the agent reaches them directly rather than through the proxy.
+- Under **`none`**, the agent still joins the run's internal network (so it can reach the
+  services) instead of getting no network at all.
+- Under **`open`**, the agent joins the run's internal network *plus* the runtime's default
+  network.
+
+**Hardening** (docs/adr/0007-services-run-with-a-fixed-entrypoint-cap-set.md). A service container
+is deliberately *not* as locked down as the agent's, because official database images (postgres,
+mysql) start as root to chown their data dir before dropping to their own user:
+
+- Runs as the **image's own user** (no `--user` / `--userns=keep-id`), unlike the agent container.
+- `--cap-drop ALL` plus a **fixed** set added back — `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE`,
+  `FOWNER` — just enough for an entrypoint to chown its data dir and drop privileges. Not
+  configurable; a service needing more isn't supported.
+- `--security-opt no-new-privileges`, `--pids-limit 512`, `--memory` (default `1g`), `--cpus`
+  (default `1`).
+- No host mounts, no published ports, no host env — env reaches it by name only, and nothing of
+  the host is reachable through the uid it runs as.
+- `--pull never`: never pulled for you.
+
+**Failure.** A service that fails to start, or never passes its `wait` probe, fails the run
+**before any agent spawns** — a config or image problem, not something to retry:
+
+```
+service "<name>" failed to start: <first line of stderr>
+service "<name>" exited before its wait probe passed
+service "<name>" not ready within <timeoutS>s (wait: <cmd>)
+```
+
+each with `— last log lines: <last 5 lines>` when the container logged anything. `dispatch`
+prefixes the run failure with `sandbox (<runtime>) could not start the run: …`.
+
+**Observability.** `agenthook doctor` lists each sandboxed step's services
+(`step "<id>" services: db, cache`) and fails the sandbox check when a service's image isn't
+present locally, naming the exact pull command: `` service image <image> not found — run
+`<runtime> pull <image>` ``. A run whose step used services carries `services: [names]` on its
+`run_end`.
+
+**Limits / out of scope.** No Docker socket (still never mounted — see the Testcontainers recipe
+below), no `--privileged`, no host networking, no importing a `docker-compose.yml`, no browser
+feature, no `build`/volumes/ports support.
+
+## Recipes
+
+### `docker compose` → `sandbox.services`
+
+A `docker compose` stack and `sandbox.services` cover the same shape (image + env + a readiness
+check), but a Service is intentionally narrower. What carries over, side by side:
+
+```yaml
+# docker-compose.yml
+services:
+  db:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: test
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1"
+```
+
+```jsonc
+// sandbox.services
+"db": {
+  "image": "postgres:16.4",
+  "env": { "POSTGRES_PASSWORD": "test" },
+  "wait": { "cmd": ["pg_isready", "-U", "postgres"] },
+  "memory": "1g",
+  "cpus": 1
+}
+```
+
+| Compose | Service | Carries over? |
+|---------|---------|----------------|
+| `image` | `image` | Yes — must be pinned to a tag or digest (compose allows `:latest`; a Service doesn't). |
+| `environment` (literal values) | `env` | Yes, if literal. |
+| `healthcheck.test` | `wait.cmd` | Yes (drop the leading `CMD`/`CMD-SHELL`). |
+| the service name | the hostname | Yes — compose's service-name DNS resolution and a Service's network alias work the same way. |
+| `mem_limit` / `deploy.resources.limits.memory` | `memory` | Yes. |
+| `cpus` / `deploy.resources.limits.cpus` | `cpus` | Yes. |
+| `build` | — | **Not supported.** Build and tag the image yourself; set the tagged name as `image`. |
+| `volumes` / bind mounts | — | **Not supported.** A Service gets no mounts; seed or migrate from the agent instead. |
+| `ports` | — | **Not needed.** The agent reaches the service directly at `name:port` on the run network; nothing needs publishing. |
+| `env_file`, `${VAR}` interpolation | — | **Not supported.** `env` values must be literal strings, never read from the host or another file. |
+| `depends_on` | — | **Not supported.** Services start in the order they're listed; there's no inter-service wait beyond each one's own `wait.cmd`. |
+| `network_mode: host`, `privileged` | — | **Not supported**, and there's no flag to add either. |
+
+`sandbox.services` validation does not scan for unknown keys, so a `build`/`volumes`/`ports`/
+`depends_on` key copied straight from a compose file is **silently ignored**, not rejected — only
+an unpinned `image` or a reserved `env` key raises a config error. Double-check a copied service
+against the table above rather than relying on validation to catch the difference.
+
+### Testcontainers (or any "start it myself" test library)
+
+The Docker socket stays unmounted (see [What won't run inside the sandbox](#what-wont-run-inside-the-sandbox)),
+so a test suite that unconditionally calls `docker run` under the hood (Testcontainers, `docker
+compose up` from a test helper) can't do that inside the sandbox. Point the suite at a Service
+instead by having it skip its own container when the service's `agentEnv` variable is already set:
+
+```js
+// test setup
+const databaseUrl = process.env.DATABASE_URL ?? (await startTestcontainersPostgres()).getConnectionUri();
+```
+
+Outside the sandbox (or in CI without `sandbox.services`), `DATABASE_URL` is unset and the suite
+falls back to starting its own container exactly as it does today. Inside the sandbox, the step's
+`services: ["db"]` plus `agentEnv: { "DATABASE_URL": "…" }` sets the variable, the suite connects
+to the Service instead, and it never touches the (unmounted) socket.
+
+### Browser e2e (Playwright / Cypress)
+
+There's no browser feature — a browser needs its own image, built **at image-build time** so no
+runtime egress is needed to fetch it:
+
+```dockerfile
+FROM agenthook-agent:0.11.0
+RUN npx playwright install --with-deps chromium
+```
+
+Set it as `sandbox.image`; the egress proxy still runs the **built-in** image regardless (see
+[Custom images](#custom-images)), so `agenthook-agent:<version>` is still required alongside it.
+If the browser's own installer would otherwise fetch from a CDN at runtime, this build-time
+install is exactly the "skip-download" pattern [below](#what-wont-run-inside-the-sandbox) — just
+done once, in the image, rather than per run. The app under test and its database run as
+`sandbox.services`, reachable by the agent at their service names; this needs no new config key
+beyond a custom `image` and the services already documented above.
+
 ## Custom images
 
 The default image is `node:22-bookworm-slim` + `git`, `gh` and the `claude` CLI; its recipe is
@@ -220,18 +433,18 @@ build commands against this list before turning it on:
 
 | Needs | Why it fails | What to do |
 |-------|--------------|------------|
-| a database or cache on your machine (`localhost:5432`, Redis, MinIO, LocalStack, a `docker compose` stack) | the container's network is `--internal`; it has no route to your host's loopback or private networks, and the proxy refuses loopback and RFC1918 targets even when a rule names them | an in-memory or embedded fake (`sqlite`, `ioredis-mock`), a custom image that bundles and starts the service, or run that step with `"sandbox": false` |
-| the Docker socket (Testcontainers, `docker build`, `docker compose` from the agent) | not mounted, on purpose: it would give the run root-equivalent control of the host | the same options; there is no flag to mount it |
-| a browser (Cypress, Playwright) | the default image has none | a custom image that installs one, plus a service the browser can reach |
+| a database or cache on your machine (`localhost:5432`, Redis, MinIO, LocalStack, a `docker compose` stack) | the container's network is `--internal`; it has no route to your host's loopback or private networks, and the proxy refuses loopback and RFC1918 targets even when a rule names them | a [Service](#services) (`sandbox.services` + the step's `services`) gives the run its own throwaway database/cache instead — see the [compose recipe](#docker-compose--sandboxservices) to carry over an existing stack, or fall back to an in-memory fake (`sqlite`, `ioredis-mock`) or `"sandbox": false` |
+| the Docker socket (Testcontainers, `docker build`, `docker compose` from the agent) | not mounted, on purpose: it would give the run root-equivalent control of the host | there is no flag to mount it; the [Testcontainers recipe](#testcontainers-or-any-start-it-myself-test-library) points the test at a [Service](#services) instead, or run that step with `"sandbox": false` |
+| a browser (Cypress, Playwright) | the default image has none | the [browser recipe](#browser-e2e-playwright--cypress): a custom image that installs the browser at build time, plus the app under test as a [Service](#services) |
 | a toolchain other than node 22, git, gh, curl and claude (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
 | packages from a registry | blocked unless allowed | `"egress": {"allow": ["@npm"]}` (see [Network](#network)) |
 | a package whose install script downloads a binary from its own host (e.g. a headless-browser package fetching its browser from a CDN) | that host isn't allowlisted, and the package's own fetcher may not honour the proxy | set the package's skip-download env var in the step's `env`, or add the host to `egress.allow` |
 | cloud or database credentials in your shell or home (`~/.aws`, `~/.pgpass`, `AWS_PROFILE`, an SSM tunnel on localhost) | none of them reach the container | by design: they are what a hijacked run would use |
 
-There is no sidecar-service feature today: a run cannot be given its own Postgres or Redis. The
-escape hatch is per step: `"sandbox": false` runs that step on the host, as before, and the boot
-banner and `agenthook doctor` name it. Use it only on a profile where nobody untrusted can file
-or comment on tickets, and keep the steps that don't need services (triage, review) sandboxed.
+The escape hatch is per step: `"sandbox": false` runs that step on the host, as before, and the
+boot banner and `agenthook doctor` name it. Use it only on a profile where nobody untrusted can
+file or comment on tickets, and keep the steps that don't need services (triage, review)
+sandboxed.
 
 ## Permissions inside and outside the sandbox
 
