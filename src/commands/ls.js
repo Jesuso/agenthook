@@ -4,6 +4,7 @@ import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { createStore } from "../store.js";
 import { formatSpend, pricingOf, sumCosts } from "../pricing.js";
+import { claimedPorts } from "../port.js";
 
 /** Humanize an ISO timestamp as a relative age. @param {string|null} iso */
 export function ago(iso) {
@@ -72,17 +73,21 @@ function usageOf(dir, heartbeat) {
 /**
  * The `ls` table + duplicate-label warnings as lines. NAME is the label, `Label (stateKey)`
  * when they differ; the column widens to fit (min 16). CONFIG (last) is configCell. Pure; exported for tests.
- * @param {{ stateKey: string, name: string, up: boolean, heartbeat: any, configPath?: string|null, createdAt?: string|null, ghost?: boolean, configMissing?: boolean }[]} profiles listProfiles() entries
+ * @param {{ stateKey: string, name: string, up: boolean, heartbeat: any, configPath?: string|null, createdAt?: string|null, ghost?: boolean, configMissing?: boolean, configuredPort?: number|null }[]} profiles listProfiles() entries
  * @param {(p: any) => { tokens: string, cost: string }} [usage]
  * @returns {string[]}
  */
 export function formatLs(profiles, usage = () => ({ tokens: "", cost: "" })) {
   const rows = profiles.map((p) => {
     const hb = p.heartbeat || {};
+    // A running profile's heartbeat has the live port; a stopped one only has its configured
+    // port (claimedPorts, read from its config) — marked with `*` so it reads as configured,
+    // not observed.
+    const port = hb.port || (p.configuredPort != null ? `${p.configuredPort}*` : "?");
     return {
       name: p.name === p.stateKey ? p.name : `${p.name} (${p.stateKey})`,
       up: p.up ? "*" : " ",
-      port: hb.port || "?",
+      port,
       tracker: hb.tracker || "?",
       ingress: hb.ingress || "?",
       repos: hb.repos?.length ?? 1,
@@ -120,5 +125,7 @@ export async function ls() {
     console.log("no profiles yet. Run `agenthook init` in a project dir to create one.");
     return;
   }
-  for (const line of formatLs(profiles, (p) => usageOf(p.dir, p.heartbeat))) console.log(line);
+  const configuredPort = new Map(claimedPorts().map((c) => [c.stateKey, c.port]));
+  const rows = profiles.map((p) => ({ ...p, configuredPort: configuredPort.get(p.stateKey) ?? null }));
+  for (const line of formatLs(rows, (p) => usageOf(p.dir, p.heartbeat))) console.log(line);
 }

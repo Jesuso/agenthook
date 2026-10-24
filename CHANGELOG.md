@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `claimedPorts` (`src/port.js`): the registered-profile → port map (heartbeat port, else the
+  config's, else the 4123 default), used by `init --local`, `ls`, `doctor` and `start` so a port
+  **configured** by a stopped profile — invisible to a listening-only probe — is seen too (#537).
+  `init --local` now skips those ports as well as listening ones, prints why when it skips any
+  (`port 4127  (4123 claimed by profile "x", 4124–4126 in use)`), and takes `--port <n>` to pick one
+  explicitly (erroring if it's listening or claimed, naming the claimant). `ls` shows a stopped
+  profile's configured port marked `*` instead of `?`. `doctor` warns (⚠) when the profile's port
+  collides with another registered profile's. `start` fails before boot, naming the profile, when
+  the busy port is one another registered profile is configured for.
 - A portable **agent skill** in `skills/agenthook/` (open `SKILL.md` format, loaded by Claude Code,
   Cursor, Codex, OpenCode, Gemini CLI, Hermes…): how to create tickets, epics and dependency chains
   the receiver will actually pick up, and how to supervise (needs-you, release, re-fire), with one

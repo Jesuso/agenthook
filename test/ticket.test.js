@@ -108,6 +108,132 @@ test("init --local --yes summary prints the state dir under AGENTHOOK_HOME, not 
   assert.ok(!lines.some((l) => l.includes("~/.agenthook/")), "summary should not hard-code ~/.agenthook");
 });
 
+let otherSeq = 0;
+/** Register (marker + config) a stopped "other" profile claiming `port`, under its own stateKey.
+ * Registers under the shared registryDir (this test file's AGENTHOOK_HOME), so callers must
+ * `cleanup()` once done — other tests in this file share the same registry.
+ * @param {number} port @returns {{ name: string, cleanup: () => void }} */
+function registerOther(port) {
+  const label = `ah-other-${process.pid}-${++otherSeq}`;
+  const root = tmp(`ah-other-${label}-`);
+  const file = path.join(root, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({ port }));
+  const dir = path.join(registryDir, label);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ configPath: file, stateKey: label, name: label }));
+  return { name: label, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
+/** Run `init({ ...opts, local: true })` in `repo`, capturing console.log lines. An injected
+ * `inUse` (default: nothing is listening) keeps the port auto-pick independent of the host's
+ * actual open ports. @param {string} repo @param {Record<string, any>} opts
+ * @param {(port: number) => Promise<boolean>} [inUse] */
+async function initLocalCapturing(repo, opts, inUse = async () => false) {
+  /** @type {string[]} */
+  const lines = [];
+  const prev = process.cwd();
+  const { log, warn } = console;
+  process.chdir(repo);
+  console.log = (/** @type {any[]} */ ...a) => lines.push(a.join(" "));
+  console.warn = () => {};
+  try {
+    await init({ _: [], local: true, ...opts }, { inUse });
+  } finally {
+    process.chdir(prev);
+    Object.assign(console, { log, warn });
+  }
+  return lines;
+}
+
+/** @param {string} prefix */
+function freshRepo(prefix) {
+  const repo = tmp(prefix);
+  git(repo, ["init", "-q"]);
+  git(repo, ["commit", "-q", "--allow-empty", "-m", "first"]);
+  return repo;
+}
+
+test("init --local: a port claimed by a stopped registered profile is skipped, with a reason naming it", async () => {
+  const { name, cleanup } = registerOther(4123);
+  try {
+    const repo = freshRepo("ah-init-claim-");
+    const out = path.join(repo, "agenthook.config.json");
+    const lines = await initLocalCapturing(repo, { yes: true, name: "ah-init-claim", config: out });
+    const config = JSON.parse(fs.readFileSync(out, "utf8"));
+    assert.equal(config.port, 4124);
+    assert.ok(lines.some((l) => l.includes(`4123 claimed by profile "${name}"`)), lines.join("\n"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("init --local: nothing skipped prints a plain port line", async () => {
+  const repo = freshRepo("ah-init-plain-");
+  const out = path.join(repo, "agenthook.config.json");
+  const lines = await initLocalCapturing(repo, { yes: true, name: "ah-init-plain", config: out });
+  const config = JSON.parse(fs.readFileSync(out, "utf8"));
+  assert.equal(config.port, 4123);
+  const portLine = lines.find((l) => /^ {2}port /.test(l));
+  assert.equal(portLine, `  port    4123`);
+});
+
+test("init --local --port <n>: writes the exact port when it's free and unclaimed", async () => {
+  const repo = freshRepo("ah-init-port-");
+  const out = path.join(repo, "agenthook.config.json");
+  await initLocalCapturing(repo, { yes: true, name: "ah-init-port", port: "5000", config: out });
+  assert.equal(JSON.parse(fs.readFileSync(out, "utf8")).port, 5000);
+});
+
+test("init --local --port <n>: errors (and writes nothing) when the port is listening", async () => {
+  const repo = freshRepo("ah-init-port-busy-");
+  const out = path.join(repo, "agenthook.config.json");
+  const inUse = async (/** @type {number} */ p) => p === 5001;
+  await assert.rejects(
+    () => initLocalCapturing(repo, { yes: true, name: "ah-init-port-busy", port: "5001", config: out }, inUse),
+    /is already in use/,
+  );
+  assert.ok(!fs.existsSync(out));
+});
+
+test("init --local --port <n>: errors (and writes nothing) when another registered profile claims it", async () => {
+  const { name, cleanup } = registerOther(4123);
+  try {
+    const repo = freshRepo("ah-init-port-claimed-");
+    const out = path.join(repo, "agenthook.config.json");
+    await assert.rejects(
+      () => initLocalCapturing(repo, { yes: true, name: "ah-init-port-claimed", port: "4123", config: out }),
+      new RegExp(`claimed by profile "${name}" — pick another with --port <n>`),
+    );
+    assert.ok(!fs.existsSync(out));
+  } finally {
+    cleanup();
+  }
+});
+
+test("init --local --port <n>: errors (and writes nothing) on a non-integer or out-of-range value", async () => {
+  const repo = freshRepo("ah-init-port-invalid-");
+  const out = path.join(repo, "agenthook.config.json");
+  await assert.rejects(() => initLocalCapturing(repo, { yes: true, name: "x", port: "abc", config: out }), /invalid --port/);
+  await assert.rejects(() => initLocalCapturing(repo, { yes: true, name: "x", port: "0", config: out }), /invalid --port/);
+  await assert.rejects(() => initLocalCapturing(repo, { yes: true, name: "x", port: "70000", config: out }), /invalid --port/);
+  assert.ok(!fs.existsSync(out));
+});
+
+test("init --local --force over an existing profile keeps its own claimed port (doesn't self-conflict)", async () => {
+  const repo = freshRepo("ah-init-reforce-");
+  const out = path.join(repo, "agenthook.config.json");
+  await initLocalCapturing(repo, { yes: true, name: "ah-init-reforce", config: out });
+  const first = JSON.parse(fs.readFileSync(out, "utf8")).port;
+  assert.equal(first, 4123);
+  const dir = path.join(registryDir, "ah-init-reforce");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ configPath: out, stateKey: "ah-init-reforce", name: "ah-init-reforce" }));
+  const lines = await initLocalCapturing(repo, { yes: true, name: "ah-init-reforce", force: true, config: out });
+  const second = JSON.parse(fs.readFileSync(out, "utf8")).port;
+  assert.equal(second, first);
+  assert.equal(lines.find((l) => /^ {2}port /.test(l)), `  port    ${first}`);
+});
+
 test("init --local outside a git repo, or in one with no commits, refuses and writes nothing", async () => {
   const plain = tmp("ah-init-nogit-");
   await assert.rejects(() => inDir(plain, () => init({ _: [], local: true, yes: true })), /must run inside a git repository \(git init && git commit first\)/);

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, claimedPortLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -247,6 +247,56 @@ test("portCheck: free + up → ok", () => {
 test("portCheck: busy + up but heartbeat on a different port → fail", () => {
   const r = portCheck({ port: 4180, busy: true, profile: { up: true, pid: 123, heartbeatPort: 9999 } });
   assert.equal(r.level, "fail");
+});
+
+test("claimedPortLint: another registered profile's port → warn naming it", () => {
+  const findings = claimedPortLint(4180, [{ port: 4180, stateKey: "other", name: "other" }]);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].level, "warn");
+  assert.match(findings[0].label, /other/);
+});
+
+test("claimedPortLint: no collision → no findings", () => {
+  assert.deepEqual(claimedPortLint(4180, [{ port: 9999, stateKey: "other", name: "other" }]), []);
+  assert.deepEqual(claimedPortLint(4180, []), []);
+});
+
+test("runChecks: warns when cfg.port is also claimed by another registered profile, excluding the current one", () => {
+  const { cfg } = cleanProfile();
+  const claimedPorts = ({ exclude } = {}) => [
+    { port: cfg.port, stateKey: "other", name: "other-profile" },
+    { port: cfg.port, stateKey: cfg.stateKey, name: cfg.name }, // the current profile — excluded by caller
+  ].filter((c) => c.stateKey !== exclude?.stateKey);
+  const checks = runChecks(cfg, io({ claimedPorts }));
+  return checks.then((checks) => {
+    const found = checks.find((c) => c.warn && /other-profile/.test(c.label));
+    assert.ok(found, "expected a warning naming other-profile");
+  });
+});
+
+test("runChecks: no claimed-port warning when nothing collides", async () => {
+  const { cfg } = cleanProfile();
+  const checks = await runChecks(cfg, io({ claimedPorts: () => [] }));
+  assert.ok(!checks.some((c) => c.warn && /is also configured by profile/.test(c.label)));
+});
+
+test("runChecks: does not warn about the current profile's own port", async () => {
+  const { cfg } = cleanProfile();
+  const claimedPorts = ({ exclude } = {}) =>
+    [{ port: cfg.port, stateKey: cfg.stateKey, name: cfg.name }].filter((c) => c.stateKey !== exclude?.stateKey);
+  const checks = await runChecks(cfg, io({ claimedPorts }));
+  assert.ok(!checks.some((c) => c.warn && /is also configured by profile/.test(c.label)));
+});
+
+test("runChecks: passes exclude.stateKey matching cfg.stateKey to claimedPorts", async () => {
+  const { cfg } = cleanProfile();
+  let received;
+  const claimedPorts = (opts) => {
+    received = opts;
+    return [];
+  };
+  await runChecks(cfg, io({ claimedPorts }));
+  assert.equal(received?.exclude?.stateKey, cfg.stateKey);
 });
 
 test("uiBundleState: no ui/src → no-src, quiet even with no dist", () => {

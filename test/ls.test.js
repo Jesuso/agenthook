@@ -37,6 +37,18 @@ test("truncLeft: short strings pass through; long ones keep the tail behind …"
   assert.equal(truncLeft("abcdefgh", 5).length, 5);
 });
 
+test("formatLs: a stopped profile shows its configured port marked with *; a running one shows the live heartbeat port, unmarked", () => {
+  const stopped = { ...prof("alpha", "alpha"), up: false, heartbeat: null, configuredPort: 4123 };
+  const running = { ...prof("beta", "beta"), up: true, heartbeat: { port: 4200 }, configuredPort: 9999 };
+  const unknown = { ...prof("gamma", "gamma"), up: false, heartbeat: null, configuredPort: null };
+  const lines = formatLs([stopped, running, unknown]);
+  const col = lines[0].indexOf("PORT");
+  const cell = (/** @type {string} */ l) => l.slice(col, col + 7).trim();
+  assert.equal(cell(lines[1]), "4123*");
+  assert.equal(cell(lines[2]), "4200");
+  assert.equal(cell(lines[3]), "?");
+});
+
 test("formatLs: CONFIG is the last column — tildified, left-truncated, (missing), ghost text, ? when unknown", () => {
   const home = os.homedir();
   const short = path.join(home, "p", "agenthook.config.json");

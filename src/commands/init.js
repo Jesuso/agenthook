@@ -15,7 +15,7 @@ import { FORGES } from "../forges/index.js";
 import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
 import { parseGitlabRemote, forgeOffer as gitlabForgeOffer, forgeBlock as gitlabForgeBlock } from "../forges/gitlab.js";
 import { installAh } from "./alias.js";
-import { firstFreePort } from "../port.js";
+import { claimedPorts, formatSkipped, pickPort, portInUse } from "../port.js";
 import { registryDir, loadEnv } from "../config.js";
 import { tildify } from "../profile.js";
 
@@ -201,20 +201,39 @@ function gitOut(cwd, gitArgs) {
  * `agenthook init --local`: a zero-setup profile on the local tracker — no tracker token, ingress
  * or forge wizard. One summary confirmation (--yes skips it) and a separate fullAuto opt-in that
  * defaults to No: only an interactive "y" or --full-auto enables it, never --yes.
- * @param {any} args @param {string} out
+ * @param {any} args @param {string} out @param {{inUse?: (port: number) => Promise<boolean>}} [opts] test seam for the port probe
  */
-async function initLocal(args, out) {
+async function initLocal(args, out, { inUse = portInUse } = {}) {
   const hint = "init --local must run inside a git repository (git init && git commit first)";
   const repoRoot = gitOut(process.cwd(), ["rev-parse", "--show-toplevel"]);
   if (!repoRoot || gitOut(repoRoot, ["rev-parse", "--verify", "HEAD"]) == null) throw new Error(hint); // worktrees need a HEAD; the CLI exits 1
   const base = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "origin/HEAD"])?.replace(/^origin\//, "") || gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
   const name = sanitizeName(typeof args.name === "string" ? args.name : path.basename(repoRoot));
-  const port = await firstFreePort(4123);
+  // A --force rewrite of this same profile (or re-running --local over it) must not see its
+  // own port as claimed — exclude by state key (= name here, no stateId in localScaffold) and
+  // by config path.
+  const claimed = claimedPorts({ exclude: { stateKey: name, configPath: out } });
+
+  /** @type {number} */
+  let port;
+  /** @type {{ from: number, to: number, reason: string }[]} */
+  let skipped = [];
+  if ("port" in args) {
+    const raw = String(args.port ?? "");
+    const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`invalid --port "${args.port ?? ""}" — expected an integer 1-65535`);
+    if (await inUse(n)) throw new Error(`port ${n} is already in use`);
+    const claimant = claimed.find((c) => c.port === n);
+    if (claimant) throw new Error(`port ${n} is claimed by profile "${claimant.name}" — pick another with --port <n>`);
+    port = n;
+  } else {
+    ({ port, skipped } = await pickPort(4123, { claimed, inUse }));
+  }
 
   console.log(`\nagenthook init --local`);
   console.log(`  repo    ${repoRoot}`);
   console.log(`  name    ${name}  (state dir ${tildify(path.join(registryDir, name))})`);
-  console.log(`  port    ${port}`);
+  console.log(`  port    ${port}${skipped.length ? `  (${formatSkipped(skipped)})` : ""}`);
   console.log(`  steps   code → review → done  (local board, no token, no tunnel)`);
   console.log(`  config  ${out}`);
   if (!args.yes) {
@@ -252,13 +271,13 @@ async function initLocal(args, out) {
   console.log(`  git log -p HEAD..agent/<ref>       # the result, once it reaches done`);
 }
 
-/** @param {any} args */
-export async function init(args) {
+/** @param {any} args @param {{inUse?: (port: number) => Promise<boolean>}} [opts] test seam for `init --local`'s port probe */
+export async function init(args, opts) {
   const out = args.config ? path.resolve(args.config) : path.join(process.cwd(), "agenthook.config.json");
   if (fs.existsSync(out) && !args.force) {
     throw new Error(`${out} already exists. Re-run with --force to overwrite.`);
   }
-  if (args.local) return initLocal(args, out);
+  if (args.local) return initLocal(args, out, opts);
 
   // The wizard needs the live token to look up the workspace, and the prompts tell the user a .env
   // is enough — so read it (shell-exported vars still win), as loadConfig does for every other command.

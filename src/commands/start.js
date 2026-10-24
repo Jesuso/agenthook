@@ -15,6 +15,7 @@ import fs from "node:fs";
 import { startArgv, spawnDetached } from "../respawn.js";
 import { isAlive } from "../heartbeat.js";
 import { checkSockPath } from "../control.js";
+import { claimedPorts, portInUse } from "../port.js";
 
 /** @param {any} args */
 export async function start(args) {
@@ -28,6 +29,16 @@ export async function start(args) {
 
   // Refuse here too, so the reason lands in this terminal rather than only in receiver.log.
   checkSockPath(cfg.controlSock);
+
+  // A busy port that's just another registered profile's — named, so the EADDRINUSE below
+  // doesn't surface as an unexplained bind failure deep in boot (src/engine/boot.js).
+  if (await portInUse(cfg.port)) {
+    const claimant = claimedPorts({ exclude: { stateKey: cfg.stateKey } }).find((c) => c.port === cfg.port);
+    if (claimant) {
+      const running = readProfile(claimant.stateKey).up;
+      throw new Error(`port ${cfg.port} is in use — profile "${claimant.name}" is configured for it (running: ${running ? "yes" : "no"}); stop it or set a different "port"`);
+    }
+  }
 
   if (args.detach) {
     // Check here, not only in the child: spawnDetached writes receiver.log into the state dir

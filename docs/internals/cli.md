@@ -6,7 +6,7 @@ from cwd); `--config <path>` selects one explicitly.
 
 ```bash
 node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd)
-node bin/agenthook.js init --local [--yes] [--full-auto] [--name <n>]  # zero-setup local-board profile in this git repo (no token/tunnel)
+node bin/agenthook.js init --local [--yes] [--full-auto] [--name <n>] [--port <n>]  # zero-setup local-board profile in this git repo (no token/tunnel); port auto-picks from 4123, skipping ports listening or claimed by another registered profile
 node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress)
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
 node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --move also moves the state dir (at idle if running)

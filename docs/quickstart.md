@@ -21,6 +21,7 @@ agents work in git worktrees branched from it.
 ```bash
 cd ~/my-project
 agenthook init --local          # --yes skips the confirmation; --name <n> picks the profile name
+                                 # --port <n> picks the port explicitly (default: auto-pick from 4123)
 ```
 
 This writes `agenthook.config.json` plus two starter instruction files, `INSTRUCTIONS_CODE.md` and

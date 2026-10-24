@@ -38,6 +38,10 @@ export const registryDir = process.env.AGENTHOOK_HOME
   ? path.resolve(process.env.AGENTHOOK_HOME)
   : path.join(os.homedir(), ".agenthook");
 
+// A config with no `port` binds here. `claimedPorts` (port.js) assumes the same default
+// for a registered profile whose config omits the key.
+export const DEFAULT_PORT = 4123;
+
 const CONFIG_NAME = "agenthook.config.json";
 
 /** Expand ~ and resolve a path against a base dir (absolute paths pass through).
@@ -276,7 +280,7 @@ export function loadConfig(opts = {}) {
   // --- defaults ---
   cfg.trigger = cfg.trigger || "@agent";
   cfg.maxConcurrent = cfg.maxConcurrent || 1;
-  cfg.port = cfg.port || 4123;
+  cfg.port = cfg.port || DEFAULT_PORT;
   cfg.claudeBin = cfg.claudeBin || "claude";
   cfg.overlapGuard = cfg.overlapGuard === true;
   cfg.ingress = cfg.ingress || { type: "manual" };
