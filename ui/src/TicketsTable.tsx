@@ -66,7 +66,8 @@ export function TicketsTable(props: TicketsTableProps) {
 
   return (
     <>
-      <h2 className="text-base font-semibold mb-2">tickets</h2>
+      {/* The All tickets summary above is the visible heading; this keeps the outline for screen readers. */}
+      <h2 className="sr-only">All tickets</h2>
       <div className="flex flex-wrap items-center gap-3 mb-2 text-sm" data-tickets-toolbar>
         {!props.lockProfile && (
         <select

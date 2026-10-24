@@ -24,8 +24,8 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
   return (
     <div data-activity-rail={variant} className={variant === "rail" ? "flex h-full flex-col" : "rounded-lg border border-border bg-surface"}>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <h2 className="text-base font-semibold">
-          Activity <span className="font-mono text-label text-muted">{feed.length}</span>
+        <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
+          Activity <span className="font-mono normal-case">{feed.length}</span>
           {unread > 0 && (
             <span data-unread={unread} className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-meta font-medium text-accent-fg">
               {unread} new

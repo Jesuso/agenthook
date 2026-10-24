@@ -41,9 +41,10 @@ export type OverviewProps = {
 };
 
 /**
- * One profile's dashboard, three zones (docs/web-ui.md § v4): Needs you (hidden when empty, so
- * empty means calm), Now (running agents, slots, queue) and Progress (today vs yesterday over the
- * events tail). The full ticket table and the live activity feed are collapsed drill-downs.
+ * One profile's dashboard (docs/web-ui.md § v4), in the order a glance needs it: Needs you leads
+ * (its count is the page's headline; empty says "All clear"), then Now (running agents, slots,
+ * queue), the digest, and Progress (today vs yesterday over the events tail). The full ticket table
+ * and the live activity feed are collapsed drill-downs.
  */
 export function Overview(props: OverviewProps) {
   const { profile, snapshot, now, feed, onOpen } = props;
@@ -54,68 +55,72 @@ export function Overview(props: OverviewProps) {
   const prog = progress(profile, scoped.tickets, now);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <ProfileMark p={profile} />
-        <h1 className="text-title font-semibold">
-          <ProfileNameCell p={profile} />
-        </h1>
-        <div className="ml-auto flex items-center gap-2">
-          {props.note && <span className="text-label text-status-held">{props.note}</span>}
-          <Menu label="profile actions" items={props.menuItems} />
+    <div className="mx-auto flex max-w-6xl flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <ProfileMark p={profile} />
+          <h1 className="text-title font-semibold">
+            <ProfileNameCell p={profile} />
+          </h1>
+          <div className="ml-auto flex items-center gap-2">
+            {props.note && <span className="text-label text-status-held">{props.note}</span>}
+            <Menu label="profile actions" items={props.menuItems} />
+          </div>
+        </div>
+
+        {/* The machine's state, one quiet line: what the human came for is Needs you, below. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label text-muted" data-summary>
+          <span className="inline-flex items-center gap-2">
+            <SlotPips active={profile.up ? profile.active ?? 0 : 0} max={profile.maxConcurrent ?? 0} up={profile.up} />
+            agents
+          </span>
+          <span>
+            <span className="font-mono text-fg">{profile.up ? profile.queued ?? 0 : "—"}</span> queued
+          </span>
+          {profile.quota && (
+            <span title="Claude subscription quota, as of the last Claude run" data-quota>
+              Claude quota {formatQuota(profile.quota, now)}
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2" data-summary>
-        <Tile label="agents">
-          <SlotPips active={profile.up ? profile.active ?? 0 : 0} max={profile.maxConcurrent ?? 0} up={profile.up} />
-        </Tile>
-        <Tile label="queued">
-          <span className="font-mono">{profile.up ? profile.queued ?? 0 : "—"}</span>
-        </Tile>
-        {profile.quota && (
-          <Tile label="claude quota" title="Claude subscription quota, as of the last Claude run">
-            <span className="text-body" data-quota>
-              {formatQuota(profile.quota, now)}
-            </span>
-          </Tile>
-        )}
-      </div>
-
-      <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
-
-      {needs.length > 0 && <NeedsYouZone items={needs} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />}
+      <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
+      <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
+
       <ProgressZone prog={prog} profile={profile.name} feed={feed} />
 
-      <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== "" || props.epicFilter !== ""}>
-        <summary className="cursor-pointer select-none px-3 py-2 text-label font-semibold uppercase tracking-wide text-muted">
-          All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
-        </summary>
-        <div className="p-3">
-          <TicketsTable
-            tickets={scoped.tickets}
-            profiles={scoped.profiles}
-            now={now}
-            profileFilter={profile.name}
-            onProfileFilter={() => {}}
-            lockProfile
-            statusFilter={props.statusFilter}
-            onStatusFilter={props.setStatusFilter}
-            epicFilter={props.epicFilter}
-            onEpicFilter={props.setEpicFilter}
-            showAll={props.showAll}
-            onShowAll={props.setShowAll}
-            open={props.open}
-            onOpen={onOpen}
-            onDismiss={props.onDismiss}
-          />
-        </div>
-      </details>
+      <div className="flex flex-col gap-3">
+        <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== "" || props.epicFilter !== ""}>
+          <summary className="cursor-pointer select-none px-3 py-2 text-label font-semibold uppercase tracking-wide text-muted">
+            All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
+          </summary>
+          <div className="p-3">
+            <TicketsTable
+              tickets={scoped.tickets}
+              profiles={scoped.profiles}
+              now={now}
+              profileFilter={profile.name}
+              onProfileFilter={() => {}}
+              lockProfile
+              statusFilter={props.statusFilter}
+              onStatusFilter={props.setStatusFilter}
+              epicFilter={props.epicFilter}
+              onEpicFilter={props.setEpicFilter}
+              showAll={props.showAll}
+              onShowAll={props.setShowAll}
+              open={props.open}
+              onOpen={onOpen}
+              onDismiss={props.onDismiss}
+            />
+          </div>
+        </details>
 
-      <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
+        <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
+      </div>
     </div>
   );
 }
@@ -220,10 +225,26 @@ function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease
   );
 }
 
-function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: NeedsItem[]; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"] }) {
+/** The headline count takes the tone of the worst thing waiting: failed, then held. */
+const headlineTone = (items: NeedsItem[]) =>
+  items.some((i) => i.kind === "failed") ? "text-status-failed" : items.some((i) => i.kind === "held") ? "text-status-held" : "text-fg";
+
+function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"] }) {
   const [releasing, setReleasing] = useState<string | null>(null);
+  if (items.length === 0) {
+    return (
+      <section data-all-clear>
+        <h2 className="text-title font-semibold">{up ? "All clear" : "Nothing needs you"}</h2>
+        <p className="text-label text-muted">Held questions, failed runs and PRs ready to merge show up here.</p>
+      </section>
+    );
+  }
   return (
-    <Zone title="Needs you" count={items.length}>
+    <section>
+      <h2 className="mb-3 flex items-baseline gap-2">
+        <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>
+        <span className="text-title font-semibold">{items.length === 1 ? "needs you" : "need you"}</span>
+      </h2>
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
           const { ticket: t, kind, reason, since } = item;
@@ -267,7 +288,7 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
           );
         })}
       </ul>
-    </Zone>
+    </section>
   );
 }
 

@@ -28,8 +28,18 @@ const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProp
   );
 
 describe("Overview", () => {
-  it("hides the Needs-you zone when nothing needs the human", () => {
-    expect(render(profile(), [ticket("1", { status: "running" })])).not.toContain("data-needs-you-zone");
+  it("says All clear instead of the Needs-you list when nothing needs the human", () => {
+    const html = render(profile(), [ticket("1", { status: "running" })]);
+    expect(html).not.toContain("data-needs-you-zone");
+    expect(html).toMatch(/data-all-clear[\s\S]*All clear/);
+    expect(render(profile({ up: false, pid: null, active: null }), [])).toContain("Nothing needs you");
+  });
+
+  it("leads with Needs you: its count is the headline, before Now and the digest", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toMatch(/text-stat[^>]*text-status-failed[^>]*>2<\/span><span[^>]*>need you/);
+    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-now-row") === -1 ? html.indexOf("data-free-slot") : html.indexOf("data-now-row"));
+    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-digest"));
   });
 
   it("lists failed before held, with the reason and a Dismiss action only on failed", () => {
