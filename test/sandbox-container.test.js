@@ -159,6 +159,19 @@ test("reap(): an inspect failure (older runtime, or no ref/step label) still rea
   assert.deepEqual(reaped, { containers: ["ah-p-1-code-aaaa"], networks: [], runs: [] });
 });
 
+test("reap(): runs is deduped — an agent, its service and its proxy from the same run share one entry", async () => {
+  const cfg = tmpCfg();
+  const s = stubRun({
+    ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-1-code-aaaa-svc-db\nah-p-1-code-aaaa-proxy\n" },
+    "inspect --format": {
+      code: 0,
+      stdout: "/ah-p-1-code-aaaa\t1\tcode\n/ah-p-1-code-aaaa-svc-db\t1\tcode\n/ah-p-1-code-aaaa-proxy\t1\tcode\n",
+    },
+  });
+  const reaped = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).reap();
+  assert.deepEqual(reaped.runs, ["1/code"]);
+});
+
 test("wrap(): a per-run 0700 HOME with mountpoints for dst-under-home mounts; kill ignores No such container; done removes HOME", async () => {
   const cfg = tmpCfg();
   const s = stubRun({ kill: { code: 1, stderr: "Error response from daemon: No such container: x" } });
@@ -401,7 +414,8 @@ test("check(): allowlist with a custom sandbox.image also requires the built-in 
 test("proxyArgs: hardened, labelled, script read-only, egress dir rw", () => {
   const a = proxyArgs({ runtime: "docker", id: "ah-p-1-c-abcd", stateKey: "p", ref: "1", stepId: "c", uid: 1, gid: 2, egressDir: "/s/egress/ah-p-1-c-abcd", network: "ah-p-1-c-abcd-net" });
   assert.deepEqual(a.slice(0, 6), ["run", "-d", "--rm", "--init", "--pull", "never"]);
-  assert.ok(a.includes("agenthook.profile=p") && a.includes("agenthook.ref=1") && a.includes("agenthook.step=c"));
+  const i = a.indexOf("agenthook.profile=p");
+  assert.deepEqual(a.slice(i - 1, i + 5), ["--label", "agenthook.profile=p", "--label", "agenthook.ref=1", "--label", "agenthook.step=c"]);
   assert.ok(a.includes("no-new-privileges"));
   assert.ok(a.includes("type=bind,src=/s/egress/ah-p-1-c-abcd,dst=/egress"));
 });

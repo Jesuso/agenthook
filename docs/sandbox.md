@@ -268,7 +268,7 @@ A step opts in with `"services": ["db", …]`:
   (there's no sandboxed container to put the service beside).
 
 **Lifecycle.** Each run gets fresh service containers, named `<run id>-svc-<name>` and labelled
-like the rest of the run (`agenthook.profile=<stateKey>`), started **before** the agent (and
+like the rest of the run (`agenthook.profile=<stateKey>`, `agenthook.ref`, `agenthook.step`), started **before** the agent (and
 before the egress proxy). They're removed with the run — on a clean finish, a `wrap()` failure, or
 cancel/timeout/shutdown — and reaped on boot via the label, same as the agent container and
 network ([docs/events.md](events.md) `sandbox_reaped`). There is no seeding or migration step: the agent runs those itself (e.g. in the step's
