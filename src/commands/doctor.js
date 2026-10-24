@@ -9,7 +9,7 @@ import fs from "node:fs";
 import { installedSkills, installSkillInto, packageVersion } from "../skill-install.js";
 import net from "node:net";
 import os from "node:os";
-import { portInUse } from "../port.js";
+import { claimedPorts, portInUse } from "../port.js";
 import path from "node:path";
 import { execFile, spawnSync } from "node:child_process";
 import { loadConfig, ensurePrivateDir } from "../config.js";
@@ -583,6 +583,15 @@ export function portCheck({ port, busy, profile }) {
   return { level: "fail", label: `port ${port} is free`, note: "something is already listening" };
 }
 
+/** A ⚠ when `cfg.port` is also configured by another registered profile (name it), even if
+ * nothing listens on it right now — a stopped profile's config still owns the port. Pure.
+ * @param {number} port @param {{ port: number, stateKey: string, name: string }[]} claimed
+ * @returns {Finding[]} */
+export function claimedPortLint(port, claimed) {
+  const hit = claimed.find((c) => c.port === port);
+  return hit ? [{ level: "warn", label: `port ${port} is also configured by profile "${hit.name}"`, fix: { manual: `set a different "port" in the config` } }] : [];
+}
+
 /** A check's remedy: a safe local fix (`describe` is its `--dry-run` text) or the manual
  * action for a problem that is never auto-fixed. Only ✗/⚠ checks carry one.
  * @typedef {{ describe: string, apply: () => void|Promise<void> } | { manual: string }} Fix */
@@ -1028,6 +1037,7 @@ export function tokenVar(configPath) {
  *   build?: (bin: string, args: string[], dockerfile: string) => { status: number|null },
  *   env?: Record<string, string|undefined>,
  *   userClaudeSettings?: any,
+ *   claimedPorts?: (opts?: { exclude?: { stateKey?: string, configPath?: string } }) => { port: number, stateKey: string, name: string }[],
  * }} DoctorIo */
 
 /** Parsed ~/.claude/settings.json, or null (missing/unreadable). Read only, never written. */
@@ -1066,6 +1076,7 @@ export async function runChecks(cfg, io = {}) {
     build,
     env = process.env,
     userClaudeSettings = readUserClaudeSettings(),
+    claimedPorts: claimedPortsFn = claimedPorts,
   } = io;
   /** @type {Check[]} */
   const checks = [];
@@ -1158,6 +1169,7 @@ export async function runChecks(cfg, io = {}) {
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });
   if (pc.level === "info") info(pc.label, pc.note);
   else add(pc.level === "ok", pc.label, pc.note, { manual: `stop whatever listens on port ${cfg.port}, or set a different "port" in the config` });
+  claimedPortLint(cfg.port, claimedPortsFn({ exclude: { stateKey: cfg.stateKey } })).forEach(finding);
 
   const unfilled = unfilledBindings(cfg.pipeline);
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "", { manual: `fill ${unfilled.join(", ")} in the config with real tracker stages` });

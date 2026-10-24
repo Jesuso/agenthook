@@ -15,7 +15,7 @@ import { FORGES } from "../forges/index.js";
 import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
 import { parseGitlabRemote, forgeOffer as gitlabForgeOffer, forgeBlock as gitlabForgeBlock } from "../forges/gitlab.js";
 import { installAh } from "./alias.js";
-import { firstFreePort } from "../port.js";
+import { claimedPorts, formatSkipped, pickPort, portInUse } from "../port.js";
 import { registryDir, loadEnv } from "../config.js";
 import { tildify } from "../profile.js";
 
@@ -209,12 +209,31 @@ async function initLocal(args, out) {
   if (!repoRoot || gitOut(repoRoot, ["rev-parse", "--verify", "HEAD"]) == null) throw new Error(hint); // worktrees need a HEAD; the CLI exits 1
   const base = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "origin/HEAD"])?.replace(/^origin\//, "") || gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
   const name = sanitizeName(typeof args.name === "string" ? args.name : path.basename(repoRoot));
-  const port = await firstFreePort(4123);
+  // A --force rewrite of this same profile (or re-running --local over it) must not see its
+  // own port as claimed — exclude by state key (= name here, no stateId in localScaffold) and
+  // by config path.
+  const claimed = claimedPorts({ exclude: { stateKey: name, configPath: out } });
+
+  /** @type {number} */
+  let port;
+  /** @type {{ from: number, to: number, reason: string }[]} */
+  let skipped = [];
+  if ("port" in args) {
+    const raw = String(args.port ?? "");
+    const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`invalid --port "${args.port ?? ""}" — expected an integer 1-65535`);
+    if (await portInUse(n)) throw new Error(`port ${n} is already in use`);
+    const claimant = claimed.find((c) => c.port === n);
+    if (claimant) throw new Error(`port ${n} is claimed by profile "${claimant.name}" — pick another with --port <n>`);
+    port = n;
+  } else {
+    ({ port, skipped } = await pickPort(4123, { claimed }));
+  }
 
   console.log(`\nagenthook init --local`);
   console.log(`  repo    ${repoRoot}`);
   console.log(`  name    ${name}  (state dir ${tildify(path.join(registryDir, name))})`);
-  console.log(`  port    ${port}`);
+  console.log(`  port    ${port}${skipped.length ? `  (${formatSkipped(skipped)})` : ""}`);
   console.log(`  steps   code → review → done  (local board, no token, no tunnel)`);
   console.log(`  config  ${out}`);
   if (!args.yes) {

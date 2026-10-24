@@ -2,7 +2,7 @@
 // agenthook CLI — one entry point for every subcommand. See docs/agenthook-v2.md.
 //
 //   agenthook init                 scaffold agenthook.config.json in the current dir
-//   agenthook init --local [--yes] [--full-auto] [--name <n>]  zero-setup local-board profile (no token, no tunnel)
+//   agenthook init --local [--yes] [--full-auto] [--name <n>] [--port <n>]  zero-setup local-board profile (no token, no tunnel)
 //   agenthook start [--detach]     boot this profile (ingress up → register → serve)
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
 //   agenthook rename <newName> [--move]  relabel this profile (--move: state dir follows)
@@ -103,9 +103,11 @@ export const HELP = `agenthook — event-driven agentic development receiver
 usage: agenthook <command> [args] [--config <path>]
 
   init                      scaffold agenthook.config.json (interactive)
-  init --local [--yes] [--full-auto] [--name <n>] [--force]
+  init --local [--yes] [--full-auto] [--name <n>] [--port <n>] [--force]
                             zero-setup profile on a local board in this git repo: no token, no tunnel
                             (fullAuto stays off unless --full-auto or an explicit yes)
+                            port auto-picks from 4123, skipping ports listening or claimed by
+                            another registered profile; --port <n> picks one explicitly
   start [--detach]          boot this profile
   stop [--keep-hooks]       stop the receiver
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
