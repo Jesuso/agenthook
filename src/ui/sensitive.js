@@ -24,7 +24,7 @@ export const isEnvRef = (v) => typeof v === "string" && /^\$\{[A-Z0-9_]+\}$/.tes
 /**
  * The concrete SENSITIVE_FIELDS paths (e.g. "fullAuto", "sinks[1].botToken") whose value differs
  * between two raw configs, compared by JSON.stringify. `[*]` expands across the union of both
- * arrays' indices. Pass `undefined` for an old config that didn't parse: every sensitive path
+ * arrays' indices, a `*` segment across the union of both objects' keys. Pass `undefined` for an old config that didn't parse: every sensitive path
  * present in the new one is then reported.
  * @param {any} oldRaw @param {any} newRaw @returns {string[]}
  */
@@ -48,6 +48,12 @@ export function sensitiveChanges(oldRaw, newRaw) {
       for (let i = 0; i < n; i++) {
         walk(Array.isArray(x) ? x[i] : undefined, Array.isArray(y) ? y[i] : undefined, rest, `${at ? `${at}.` : ""}${key}[${i}]`);
       }
+      return;
+    }
+    if (seg === "*") {
+      /** @param {any} o */
+      const keys = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o) : []);
+      for (const k of new Set([...keys(a), ...keys(b)])) walk(child(a, k), child(b, k), rest, at ? `${at}.${k}` : k);
       return;
     }
     walk(child(a, seg), child(b, seg), rest, at ? `${at}.${seg}` : seg);

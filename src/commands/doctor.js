@@ -27,6 +27,7 @@ import { runTokenPermissions, revokeRunToken, originUrl } from "../github-run-to
 import { parseGithubRemote } from "../forges/github.js";
 import { isSandboxed } from "../sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../sandbox/image.js";
+import { serviceImages } from "../sandbox/container.js";
 import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
@@ -446,9 +447,9 @@ export async function sandboxRuntimeChecks({ type: runtime, image }, { run, has 
 
 /**
  * The per-run sandbox preflight (only with a `sandbox` block): the runtime CLI on PATH and
- * reachable, the image present (fix: build the default recipe), and per sandboxed step an
- * agent that supports the sandbox, claude's credential var, and a binary that resolves
- * inside the image.
+ * reachable, the image present (fix: build the default recipe), every service image present
+ * (fix: pull it — never done for you), and per sandboxed step an agent that supports the
+ * sandbox, claude's credential var, a binary that resolves inside the image, and its services.
  * @param {import('../types.js').Config} cfg
  * @param {{run: import('../types.js').IngressRun, has?: (bin: string) => boolean, build?: (bin: string, args: string[], dockerfile: string) => { status: number|null }}} io
  * @returns {Promise<Check[]>}
@@ -461,8 +462,15 @@ export async function sandboxChecks(cfg, { run, has = onPath, build = buildImage
   const out = await sandboxRuntimeChecks({ type: cfg.sandbox.type, image }, { run, has, build, images });
   // The first two checks are the runtime's (binary, `info`); a ✗ there stops the preflight.
   if (out.slice(0, 2).some((c) => !c.ok)) return out;
+  const bin = process.env[cfg.sandbox.type.toUpperCase()] || cfg.sandbox.type;
+  for (const img of serviceImages(cfg)) {
+    if (images.includes(img)) continue;
+    const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+    out.push({ ok: r.code === 0, label: `sandbox service image present: ${img}`, note: r.code === 0 ? "" : "missing", fix: { manual: `${cfg.sandbox.type} pull ${img}` } });
+  }
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || !isSandboxed(cfg, s)) continue;
+    if (s.services?.length) out.push({ ok: true, info: true, label: `step "${s.id}" services: ${s.services.join(", ")}` });
     const agent = agentFor(cfg, s);
     const name = agent.describe().name;
     if (!agent.sandbox) {

@@ -171,6 +171,9 @@ the user (add the host or a preset like `@npm` to `sandbox.egress.allow` or the 
 `egress.allow`), not a retry — surface it rather than re-running. `run_end` may also carry
 `egressDeniedTruncated?` (number): the proxy's own denied-log cap was hit, so that many extra
 denials were counted but not logged individually — `egressDenied` still lists the top hosts.
+A sandboxed run whose step uses services carries `services: [names]` on its `run_end`. A service
+that fails to start or never passes its `wait` probe fails the run before any agent spawns, with
+a reason naming the service and its last log lines — a config or image problem, not a retry.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 
