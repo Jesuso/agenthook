@@ -5,8 +5,8 @@ export type OverviewAction = "next" | "prev" | "release" | "dismiss" | "help";
 
 /** What the shortcuts sheet lists, in order. */
 export const OVERVIEW_SHORTCUTS: { keys: string; what: string }[] = [
-  { keys: "j / k", what: "Move to the next / previous ticket that needs you" },
-  { keys: "Enter", what: "Open the focused ticket" },
+  { keys: "j / k", what: "Move to the next / previous ticket: Needs you first, then Now" },
+  { keys: "Enter", what: "Open the focused ticket (a running one shows its live log)" },
   { keys: "r", what: "Release the focused held ticket (opens the answer box)" },
   { keys: "d", what: "Dismiss the focused failed ticket" },
   { keys: "?", what: "Show this list (Esc closes it)" },

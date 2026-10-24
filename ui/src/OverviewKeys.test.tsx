@@ -25,28 +25,36 @@ const press = (k: string, target: EventTarget = document.activeElement ?? docume
   act(async () => {
     target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
   });
-const focusedRow = () => (document.activeElement as HTMLElement | null)?.closest("[data-needs-row]")?.getAttribute("data-needs-row");
+const focusedRow = () => {
+  const row = (document.activeElement as HTMLElement | null)?.closest("[data-needs-row], [data-now-row]");
+  return row?.getAttribute("data-needs-row") ?? row?.getAttribute("data-now-row") ?? undefined;
+};
 
 async function render(onDismiss: (r: { ref: string }) => void = () => {}) {
   m = await mount(
     createElement(Overview, {
-      profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed"), t("2", "failed"), t("3", "held")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
+      profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed"), t("2", "failed"), t("3", "held"), t("4", "running")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
       open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
     }),
   );
 }
 
 describe("Overview keyboard shortcuts", () => {
-  it("j/k walk the Needs-you rows and stop at the ends", async () => {
+  it("j/k walk the Needs-you rows, then on into Now, and stop at the ends", async () => {
     await render();
     await press("j");
     expect(focusedRow()).toBe("1");
     await press("j");
     await press("j");
-    await press("j");
     expect(focusedRow()).toBe("3");
+    await press("j");
+    expect(focusedRow()).toBe("4");
+    await press("j");
+    expect(focusedRow()).toBe("4");
+    await press("d"); // a running row has nothing to dismiss
+    expect(focusedRow()).toBe("4");
     await press("k");
-    expect(focusedRow()).toBe("2");
+    expect(focusedRow()).toBe("3");
   });
 
   it("d dismisses the focused failed row and keeps focus in the list; r opens the held row's answer box", async () => {

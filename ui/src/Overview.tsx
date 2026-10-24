@@ -278,7 +278,8 @@ function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease
 }
 
 /**
- * j/k walk the Needs-you rows (focusing each title, so Enter opens it), r opens the focused held
+ * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
+ * its live log), r opens the focused held
  * row's answer box, d dismisses the focused failed row, ? shows the shortcut sheet. Acts through the
  * rows' own buttons, so a shortcut can never do what a click could not.
  */
@@ -291,8 +292,8 @@ function useNeedsYouKeys(setHelp: (open: boolean) => void) {
         e.preventDefault();
         return setHelp(true);
       }
-      const titles = [...document.querySelectorAll<HTMLElement>("[data-needs-open]")];
-      const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-needs-row]");
+      const titles = [...document.querySelectorAll<HTMLElement>("[data-needs-open], [data-now-open]")];
+      const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-needs-row], [data-now-row]");
       if (action === "next" || action === "prev") {
         if (!titles.length) return;
         e.preventDefault();
@@ -396,7 +397,7 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
       <TicketId id={t.displayId} url={t.trackerUrl} />
-      <button type="button" className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
         <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
         {t.summary && <span className="block truncate text-label text-muted" data-now-sub>{t.summary}</span>}
       </button>
