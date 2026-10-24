@@ -10,7 +10,7 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { Menu, Pill, ProfileMark, ReceiverStatus, TicketId } from "./components";
+import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -155,9 +155,10 @@ function StoppedBanner({ profile }: { profile: ProfileView }) {
         Tickets moved on the board wait in their stage.{!profile.configMissing && " Start it, then pick up what moved meanwhile:"}
       </p>
       {!profile.configMissing && (
-        <pre className="mt-1 font-mono text-label whitespace-pre-wrap break-all text-fg">
-          {`agenthook start${cfg}\nagenthook reconcile${cfg}`}
-        </pre>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <CopyCommand command={`agenthook start${cfg}`} />
+          <CopyCommand command={`agenthook reconcile${cfg}`} />
+        </div>
       )}
     </div>
   );

@@ -15,3 +15,4 @@ export { FullAutoShield } from "./FullAutoShield";
 export { ProfileMark } from "./ProfileMark";
 export { TicketId } from "./TicketId";
 export { ReceiverStatus } from "./ReceiverStatus";
+export { CopyCommand } from "./CopyCommand";

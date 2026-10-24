@@ -139,6 +139,8 @@ describe("Overview", () => {
     expect(down).toContain("The receiver is stopped, so no agents will run.");
     expect(down).toContain("agenthook start --config ~/p/agenthook.config.json");
     expect(down).toContain("agenthook reconcile --config ~/p/agenthook.config.json");
+    expect(down.match(/data-copy-command/g)).toHaveLength(2);
+    expect(down).toContain('aria-label="Copy command: agenthook start --config ~/p/agenthook.config.json"');
     expect(down.indexOf("data-stopped-banner")).toBeLessThan(down.indexOf("data-all-clear"));
     expect(render(profile({ up: false, pid: null, configMissing: true }), [])).not.toContain("agenthook start");
     expect(render(profile(), [])).not.toContain("data-stopped-banner");
