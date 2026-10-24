@@ -361,18 +361,18 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       const net = mode === "allowlist" || services.length
         ? { network: `${id}-net`, ...(mode === "allowlist" ? { proxy: `${id}-proxy`, dir: path.join(egressDirs, id) } : {}), started: { network: false, proxy: false, services: [] } }
         : null;
-      /** @type {Record<typeof EGRESS_PROXY_ENV_KEYS[number], string>|{}} */
+      /** @type {Record<string, string>} */
       let proxyEnv = {};
       if (net?.proxy) {
         const url = `http://${net.proxy}:${EGRESS_PROXY_PORT}`;
         // A service is on the run's own network: reached directly, never through the proxy.
         const noProxy = ["localhost", "127.0.0.1", "::1", ...services].join(",");
-        proxyEnv = {
+        proxyEnv = /** @satisfies {Record<typeof EGRESS_PROXY_ENV_KEYS[number], string>} */ ({
           HTTPS_PROXY: url, https_proxy: url, HTTP_PROXY: url, http_proxy: url,
           NO_PROXY: noProxy, no_proxy: noProxy,
           // Node's built-in fetch (corepack) and Yarn Berry's own fetcher ignore HTTPS_PROXY.
           NODE_USE_ENV_PROXY: "1", YARN_HTTPS_PROXY: url, YARN_HTTP_PROXY: url,
-        };
+        });
       }
       /** @type {Record<string, string>} */
       const serviceEnv = {};
