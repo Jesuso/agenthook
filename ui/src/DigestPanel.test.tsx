@@ -12,8 +12,10 @@ describe("DigestPanel", () => {
     expect(html).toContain("Catch me up");
     expect(html).not.toContain('disabled=""');
   });
-  it("disables the button while the receiver is down (the agent is spawned by the receiver)", () => {
-    expect(render(false)).toContain('disabled=""');
+  it("says in words why there is no digest button while the receiver is down (it spawns the agent)", () => {
+    const html = render(false);
+    expect(html).toMatch(/data-digest-down[^>]*>Start the receiver to write a digest</);
+    expect(html).not.toMatch(/<button[^>]*>(Write a digest|Refresh digest)/);
   });
   it("treats a digest older than a day as stale (collapsed by default)", () => {
     const at = Date.parse("2026-10-20T12:00:00Z");

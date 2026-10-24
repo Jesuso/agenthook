@@ -10,7 +10,7 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, TicketId } from "./components";
+import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShowHide, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -59,6 +59,9 @@ export function Overview(props: OverviewProps) {
   const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);
+  const [ticketsOpen, setTicketsOpen] = useState(false);
+  const filtered = props.statusFilter !== "" || props.epicFilter !== "";
+  const ticketsShown = ticketsOpen || filtered;
   useNeedsYouKeys(setHelp);
   // A background tab or a side screen still shows whether anything needs you.
   useEffect(() => {
@@ -73,9 +76,18 @@ export function Overview(props: OverviewProps) {
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
           <ProfileMark p={profile} />
-          <h1 className="text-title font-semibold">
-            <ProfileNameCell p={profile} />
-          </h1>
+          {/* The config path sits beside the heading, not in it: a screen reader names the page by
+              the profile alone, not "cahui-svc-test/tmp/ah-svc-test/…". */}
+          <div className="min-w-0">
+            <h1 className="text-title font-semibold">
+              <ProfileNameCell p={profile} path={false} />
+            </h1>
+            {profile.configPath && (
+              <p className="max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title={profile.configPath}>
+                {profile.configPath}
+              </p>
+            )}
+          </div>
           <div className="ml-auto flex items-center gap-2">
             {props.note && <span className="text-label text-status-held">{props.note}</span>}
             <Menu label="profile actions" items={props.menuItems} />
@@ -117,11 +129,16 @@ export function Overview(props: OverviewProps) {
       <ProgressZone prog={prog} profile={profile.name} feed={feed} />
 
       <div className="flex flex-col gap-3">
-        <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== "" || props.epicFilter !== ""}>
-          <summary className="cursor-pointer select-none px-3 py-2 text-label font-semibold uppercase tracking-wide text-muted">
-            All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
-          </summary>
-          <div className="p-3">
+        {/* A filter (set from Stats, Epics or a chip) opens it: the filtered table is what was asked for. */}
+        <section data-all-tickets data-open={ticketsShown} className="rounded-lg border border-border bg-surface">
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
+              All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
+            </h2>
+            {!filtered && <ShowHide open={ticketsOpen} onToggle={() => setTicketsOpen(!ticketsOpen)} controls="all-tickets" label="all tickets" data-tickets-toggle />}
+          </div>
+          {ticketsShown && (
+          <div id="all-tickets" className="px-3 pb-3">
             <TicketsTable
               tickets={scoped.tickets}
               profiles={scoped.profiles}
@@ -140,7 +157,8 @@ export function Overview(props: OverviewProps) {
               onDismiss={props.onDismiss}
             />
           </div>
-        </details>
+          )}
+        </section>
 
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
@@ -368,7 +386,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
             <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
               {/* Below sm (a half-width window, a phone) the row stacks: kind, id, age and the action on
                   one line, the title and its reason full width underneath, instead of squeezing to "…". */}
-              <div className="group flex items-center gap-3 px-3 py-2 max-sm:flex-wrap max-sm:gap-y-1">
+              <div className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1">
                 <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
                 <button type="button" data-needs-open className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
@@ -413,7 +431,7 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
   const model = formatModel(t.model);
   const elapsed = t.startedAt ? formatDuration(now - Date.parse(t.startedAt)) : "—";
   return (
-    <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2">
+    <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
       <TicketId id={t.displayId} url={t.trackerUrl} />
       <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
@@ -454,7 +472,9 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
         {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">Nothing is running.</p>}
         {queued.length > 0 && (
           <div className="border-t border-border-subtle">
-            <div className="px-3 pt-2 text-label uppercase tracking-wide text-muted">queued {queued.length}</div>
+            <div className="px-3 pt-2 text-label text-muted">
+              Queued · <span className="font-mono">{queued.length}</span>
+            </div>
             <ul className="divide-y divide-border-subtle">{queued.map((t, i) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} queuedAt={i + 1} />)}</ul>
           </div>
         )}

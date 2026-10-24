@@ -3,6 +3,7 @@ import type { DigestView } from "./contract";
 import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatRelative } from "./format";
+import { ShowHide } from "./components";
 
 // react-markdown ships in the same lazy chunk as the Instructions preview, not the main bundle.
 const DigestMarkdown = lazy(() => import("./DigestMarkdown"));
@@ -66,26 +67,24 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
         )}
         <div className="ml-auto flex items-center gap-2">
           {stale && (
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={bodyId}
-              data-digest-toggle
-              onClick={() => setExpanded(!expanded)}
-              className="rounded-md px-2 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              {expanded ? "Hide" : "Show"}
-            </button>
+            <ShowHide open={expanded} onToggle={() => setExpanded(!expanded)} controls={bodyId} label="digest" data-digest-toggle />
           )}
+          {/* Down: say why in words, not in a tooltip on a dead button keyboard and touch can't reach. */}
+          {!up ? (
+            <span className="text-label text-muted" data-digest-down>
+              Start the receiver to write a digest
+            </span>
+          ) : (
           <button
             type="button"
-            disabled={busy || !up}
-            title={up ? "Runs a short, tool-less agent over this profile's activity (costs a few cents)" : "Needs the receiver running: it spawns the digest agent"}
+            disabled={busy}
+            title="Runs a short, tool-less agent over this profile's activity (costs a few cents)"
             onClick={() => void generate()}
             className="rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:hover:bg-transparent"
           >
             {busy ? "Writing…" : button}
           </button>
+          )}
         </div>
       </div>
       {error && (

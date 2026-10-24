@@ -1,6 +1,7 @@
 import type { FeedEntry } from "./feed";
 import { formatFeedEvent, groupByMinute, ticketLabel } from "./feed";
 import { STATUS_CLASS } from "./components/StatusBadge";
+import { ShowHide } from "./components/ShowHide";
 
 export type ActivityRailProps = {
   feed: FeedEntry[];
@@ -32,15 +33,7 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
             </span>
           )}
         </h2>
-        <button
-          type="button"
-          data-activity-toggle
-          aria-expanded={open}
-          className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
-          onClick={onToggle}
-        >
-          {open ? "Hide" : "Show"}
-        </button>
+        <ShowHide open={open} onToggle={onToggle} label="activity" data-activity-toggle />
       </div>
       {open &&
         (feed.length === 0 ? (

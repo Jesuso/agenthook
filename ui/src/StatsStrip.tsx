@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import type { StatsView } from "./contract";
-import { Segmented } from "./components";
+import { Segmented, ShowHide } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatSpend } from "./format";
 import { formatEnergy } from "../../src/energy.js";
@@ -43,16 +43,7 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
         <span className="text-label font-semibold uppercase tracking-wide text-muted">History</span>
         <span className="ml-auto flex items-center gap-2">
           <Segmented value={String(range) as `${Range}`} options={RANGES.map((r) => ({ value: String(r) as `${Range}`, label: `${r}d` }))} onChange={(v) => setRange(Number(v) as Range)} />
-          <button
-            type="button"
-            data-stats-toggle
-            aria-expanded={open}
-            aria-controls="stats-chart"
-            onClick={() => setOpen(!open)}
-            className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            {open ? "Hide" : "Show"}
-          </button>
+          <ShowHide open={open} onToggle={() => setOpen(!open)} controls="stats-chart" label="history chart" data-stats-toggle />
         </span>
       </div>
       {failed && !stats ? (

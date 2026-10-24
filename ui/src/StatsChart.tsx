@@ -37,13 +37,13 @@ export default function StatsChart({ days }: { days: DayStats[] }) {
         {m.leftTicks.map((t) => (
           <g key={`l${t.pos}`}>
             <line x1={m.plot.left} x2={m.plot.right} y1={t.pos} y2={t.pos} stroke="var(--color-border-subtle)" strokeDasharray={t.label === "0" ? undefined : "2 3"} />
-            <text x={m.plot.left - 6} y={t.pos} dy="0.32em" textAnchor="end" className="fill-[var(--color-muted)] font-mono text-[10px]">
+            <text x={m.plot.left - 6} y={t.pos} dy="0.32em" textAnchor="end" className="fill-[var(--color-muted)] font-mono text-meta">
               {t.label}
             </text>
           </g>
         ))}
         {m.rightTicks.map((t) => (
-          <text key={`r${t.pos}`} x={m.plot.right + 6} y={t.pos} dy="0.32em" className="fill-[var(--color-muted)] font-mono text-[10px]">
+          <text key={`r${t.pos}`} x={m.plot.right + 6} y={t.pos} dy="0.32em" className="fill-[var(--color-muted)] font-mono text-meta">
             {t.label}
           </text>
         ))}
@@ -55,7 +55,7 @@ export default function StatsChart({ days }: { days: DayStats[] }) {
           <circle key={p.date} cx={p.x} cy={p.y} r={2.5} fill="var(--color-surface)" stroke="var(--color-fg)" strokeWidth={1.5} />
         ))}
         {m.xTicks.map((t) => (
-          <text key={t.pos} x={t.pos} y={HEIGHT - 6} textAnchor="middle" className="fill-[var(--color-faint)] text-[10px]">
+          <text key={t.pos} x={t.pos} y={HEIGHT - 6} textAnchor="middle" className="fill-[var(--color-muted)] text-meta">
             {t.label}
           </text>
         ))}

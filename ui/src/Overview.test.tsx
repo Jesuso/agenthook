@@ -174,9 +174,10 @@ describe("Overview", () => {
   });
 
   it("opens the All tickets drill-down only while a status filter is active", () => {
-    expect(render(profile(), [])).not.toMatch(/<details[^>]*data-all-tickets[^>]*open/);
-    expect(render(profile(), [], { statusFilter: "failed" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
-    expect(render(profile(), [], { epicFilter: "E1" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
+    expect(render(profile(), [])).toContain('data-all-tickets="true" data-open="false"');
+    expect(render(profile(), [], { statusFilter: "failed" })).toContain('data-open="true"');
+    expect(render(profile(), [], { epicFilter: "E1" })).toContain('data-open="true"');
+    expect(render(profile(), [])).toMatch(/data-tickets-toggle[^>]*aria-expanded="false"/);
   });
 
   it("leaves the quota readout to the app bar but keeps the quota-paused badge", () => {

@@ -55,7 +55,7 @@ export function HelpTip({ label, help, id }: { label: string; help: string; id?:
         aria-label={`Help: ${label}`}
         aria-expanded={open}
         aria-describedby={tipId}
-        className="inline-flex size-4 items-center justify-center rounded-full border border-[var(--color-border)] text-[10px] leading-none text-[var(--color-muted)] hover:text-[var(--color-fg)] focus-visible:outline-2 focus-visible:outline-accent"
+        className="inline-flex size-4 items-center justify-center rounded-full border border-[var(--color-border)] text-meta leading-none text-[var(--color-muted)] hover:text-[var(--color-fg)] focus-visible:outline-2 focus-visible:outline-accent"
         onFocus={() => setOpen(true)}
         onBlur={close}
         onClick={() => {
