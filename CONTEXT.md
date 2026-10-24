@@ -37,6 +37,10 @@ _Avoid_: Done, completed
 An on-demand, agent-written summary of one profile's recent activity, boiled down to what needs a human. Only the latest is kept.
 _Avoid_: Report, briefing, summary (ambiguous with a run's verdict summary)
 
+**Service**:
+A throwaway helper (a database, a cache) that a sandboxed run's tests talk to. Defined once on the profile; a step names the services its runs need. Each run gets its own fresh copy, gone when the run ends.
+_Avoid_: Sidecar (implementation word), dependency, stack
+
 **SOUL**:
 A profile's standing description of what matters to its owner and how its digest should sound. A markdown file the owner edits.
 _Avoid_: Persona, prompt
