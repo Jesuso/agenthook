@@ -60,6 +60,13 @@ export function Overview(props: OverviewProps) {
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);
   useNeedsYouKeys(setHelp);
+  // A background tab or a side screen still shows whether anything needs you.
+  useEffect(() => {
+    document.title = `${needs.length ? `(${needs.length}) ` : ""}${profile.label} · agenthook`;
+    return () => {
+      document.title = "agenthook";
+    };
+  }, [needs.length, profile.label]);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -328,9 +335,20 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
   const [releasing, setReleasing] = useState<string | null>(null);
   if (items.length === 0) {
     return (
+      // The calm verdict takes the same headline slot as "N need you": the second-screen glance has
+      // to read "look away" as loudly as "look here". Down, it stays neutral: someone must restart it.
       <section data-all-clear>
-        <h2 className="text-title font-semibold">{up ? "All clear" : "Nothing needs you"}</h2>
-        <p className="text-label text-muted">Held questions, failed runs and PRs ready to merge show up here.</p>
+        <h2 className="flex items-baseline gap-2">
+          {up && (
+            <span aria-hidden="true" className="text-stat font-semibold text-success">
+              ✓
+            </span>
+          )}{" "}
+          <span className="text-stat font-semibold">{up ? "All clear" : "Nothing needs you"}</span>
+        </h2>
+        <p className="text-label text-muted">
+          {up ? "Held questions, failed runs and PRs ready to merge show up here." : "Until the receiver is started again, nothing new can arrive here."}
+        </p>
       </section>
     );
   }
@@ -338,7 +356,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
     <section>
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="flex items-baseline gap-2">
-          <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>
+          <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>{" "}
           <span className="text-title font-semibold">{items.length === 1 ? "needs you" : "need you"}</span>
         </h2>
         <p className="ml-auto text-label text-muted max-sm:hidden" data-keys-hint>
@@ -429,15 +447,13 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
     <Zone title="Now" count={running.length}>
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
         {running.length > 0 && <ul className="divide-y divide-border-subtle">{running.map((t) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} />)}</ul>}
+        {/* Idle capacity is one quiet line, not a row per slot: rows are for work. */}
         {free > 0 && (
-          <ul aria-label="free slots" className={running.length ? "border-t border-border-subtle" : ""}>
-            {Array.from({ length: free }, (_, i) => (
-              <li key={i} data-free-slot className="flex items-center gap-3 px-3 py-2 text-label text-muted">
-                <span aria-hidden="true" className="size-2 rounded-full border border-dashed border-border-strong" />
-                free slot
-              </li>
-            ))}
-          </ul>
+          <p data-free-slots={free} className={`flex items-center gap-3 px-3 py-2 text-label text-muted ${running.length ? "border-t border-border-subtle" : ""}`}>
+            <span aria-hidden="true" className="size-2 rounded-full border border-dashed border-border-strong" />
+            {running.length === 0 ? "Nothing running · " : ""}
+            {free} free slot{free === 1 ? "" : "s"}
+          </p>
         )}
         {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">Nothing is running.</p>}
         {queued.length > 0 && (

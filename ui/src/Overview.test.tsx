@@ -31,14 +31,14 @@ describe("Overview", () => {
   it("says All clear instead of the Needs-you list when nothing needs the human", () => {
     const html = render(profile(), [ticket("1", { status: "running" })]);
     expect(html).not.toContain("data-needs-you-zone");
-    expect(html).toMatch(/data-all-clear[\s\S]*All clear/);
+    expect(html).toMatch(/data-all-clear[\s\S]*text-success[\s\S]*text-stat font-semibold">All clear/);
     expect(render(profile({ up: false, pid: null, active: null }), [])).toContain("Nothing needs you");
   });
 
   it("leads with Needs you: its count is the headline, before Now and the digest", () => {
     const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" })]);
-    expect(html).toMatch(/text-stat[^>]*text-status-failed[^>]*>2<\/span><span[^>]*>need you/);
-    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-now-row") === -1 ? html.indexOf("data-free-slot") : html.indexOf("data-now-row"));
+    expect(html).toMatch(/text-stat[^>]*text-status-failed[^>]*>2<\/span> <span[^>]*>need you/);
+    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-now-row") === -1 ? html.indexOf("data-free-slots") : html.indexOf("data-now-row"));
     expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-digest"));
   });
 
@@ -143,7 +143,7 @@ describe("Overview", () => {
       ticket("q1", { status: "queued", queuePos: 0 }),
     ]);
     expect(html).toContain('data-now-row="r"');
-    expect(html.match(/data-free-slot/g)).toHaveLength(2);
+    expect(html).toMatch(/data-free-slots="2"[^>]*>[\s\S]*?2 free slots/);
     expect(html.indexOf('data-now-row="q1"')).toBeLessThan(html.indexOf('data-now-row="q2"'));
     expect(html.match(/data-slot="busy"/g)).toHaveLength(1);
   });
@@ -152,7 +152,7 @@ describe("Overview", () => {
     const html = render(profile({ up: false, pid: null, active: null }), []);
     expect(html).toContain('data-receiver="down"');
     expect(html).toContain("receiver down");
-    expect(html).not.toContain("data-free-slot");
+    expect(html).not.toContain("data-free-slots");
   });
 
   it("explains a stopped receiver once at the top, with the commands that recover it", () => {

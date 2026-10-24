@@ -11,5 +11,8 @@ describe("StatsStrip", () => {
     for (const r of ["7d", "14d", "30d"]) expect(html).toContain(r);
     expect(html).toContain('aria-checked="true"'); // one range selected
     expect(html).toContain("data-stats-total");
+    // the chart is a drill-down, collapsed until asked for
+    expect(html).toMatch(/data-stats-toggle[^>]*aria-expanded="false"/);
+    expect(html).not.toContain('id="stats-chart"');
   });
 });
