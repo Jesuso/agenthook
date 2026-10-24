@@ -150,7 +150,7 @@ describe("Overview", () => {
 
   it("says a down receiver runs nothing and shows no free slots", () => {
     const html = render(profile({ up: false, pid: null, active: null }), []);
-    expect(html).toContain('data-receiver="down"');
+    expect(html).toMatch(/data-receiver="down"[^>]*text-status-held/);
     expect(html).toContain("receiver down");
     expect(html).not.toContain("data-free-slots");
   });

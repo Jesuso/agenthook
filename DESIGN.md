@@ -210,6 +210,10 @@ which is the source of truth and is enforced by `ui/src/tokens.test.ts`.
 - **Idle / Cancelled** (status-idle): neutral.
 Each has an opaque `-bg` partner for badges.
 
+Receiver liveness borrows two of them by meaning, never for decoration: **up** is `success` green,
+**down** is held amber ("waiting on a restart"), in the status line and the stopped banner alike.
+Standing profile properties (the fullAuto shield) use full-strength neutral, not a status hue.
+
 ### Profile identity
 Sky, Indigo, Violet, Pink, Teal, Cyan, Slate, Stone (profile-*). Used for a profile's tinted emoji
 tile, top bar or chip. No red, amber or green, so identity never reads as state.
