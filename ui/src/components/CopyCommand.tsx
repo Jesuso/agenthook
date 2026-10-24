@@ -15,7 +15,8 @@ export function CopyCommand({ command }: { command: string }) {
   const copy = () => navigator.clipboard.writeText(command).then(() => setState("ok"), () => setState("fail"));
   return (
     <div data-copy-command className="flex items-center gap-3 rounded-md border border-border bg-bg py-1 pr-1 pl-3">
-      <code className="min-w-0 flex-1 font-mono text-label break-all text-fg">
+      {/* One line that scrolls sideways when narrow, docs-style: wrapping mid-path ("/tm|p/") reads as two commands. */}
+      <code className="min-w-0 flex-1 overflow-x-auto py-1 font-mono text-label whitespace-nowrap text-fg">
         <span aria-hidden="true" className="mr-2 select-none text-muted">$</span>
         {command}
       </code>

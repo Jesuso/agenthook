@@ -50,6 +50,13 @@ describe("Overview", () => {
     expect(render(profile(), [])).toMatch(/data-needs-live[^>]*>All clear, nothing needs you</);
   });
 
+  it("narrow: Needs-you rows stack the title under the action line; Now rows drop model, cost and Follow log", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("r", { status: "running" })]);
+    expect(html).toMatch(/data-needs-open="true" class="[^"]*max-sm:order-last max-sm:basis-full/);
+    expect(html).toMatch(/max-sm:hidden" title="claude-opus-5-5"/);
+    expect(html).toMatch(/max-sm:hidden" title="cost so far/);
+  });
+
   it("lists failed before held, with the reason and a Dismiss action only on failed", () => {
     const html = render(profile(), [
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8) }),

@@ -224,7 +224,7 @@ const KIND: Record<NeedsItem["kind"], { text: string; tone: "failed" | "held" | 
 /** Hover (or keyboard focus) reveals a row's actions; touch screens always show them. */
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
 /** A primary, always-visible row action (Release…, PR ↗). */
-const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent";
+const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
 /** The inline answer form under a held row: an optional comment for the agent, then Release. */
@@ -349,20 +349,22 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
           const pr = prNumber(t.prUrl);
           return (
             <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
-              <div className="group flex items-center gap-3 px-3 py-2">
-                <span className="w-[4.5rem] shrink-0"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
+              {/* Below sm (a half-width window, a phone) the row stacks: kind, id, age and the action on
+                  one line, the title and its reason full width underneath, instead of squeezing to "…". */}
+              <div className="group flex items-center gap-3 px-3 py-2 max-sm:flex-wrap max-sm:gap-y-1">
+                <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
-                <button type="button" data-needs-open className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                <button type="button" data-needs-open className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
                   <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
                   {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
                 </button>
-                <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted">
+                <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
                   {t.step ? `${t.step} · ` : ""}
                   {formatRelative(since, now)}
                 </span>
                 {/* One primary action per row: always visible, fixed width, so the columns line up. A PR
                     link on a held/failed row lives in the drawer header; the title opens the drawer. */}
-                <span className="w-28 shrink-0 text-right" data-needs-primary>
+                <span className="w-28 shrink-0 text-right max-sm:w-auto" data-needs-primary>
                   {kind === "held" ? (
                     releasing !== t.ref && (
                       <button type="button" data-release-open aria-label={`Release ${t.displayId}…`} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
@@ -404,10 +406,11 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
       {t.step && <Pill>{t.step}</Pill>}
       {queuedAt === undefined && (
         <>
-          <span className="font-mono text-label text-muted" title={model.title}>{model.text}</span>
+          {/* Narrow: model and cost go (the drawer has both); elapsed stays, it is the progress signal. */}
+          <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
           <span className="font-mono text-label" title="elapsed">{elapsed}</span>
-          <span className="font-mono text-label text-muted" title="cost so far (approx.)">{formatTicketSpend(t)}</span>
-          <button type="button" className={`${LINK} ${REVEAL}`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+          <span className="font-mono text-label text-muted max-sm:hidden" title="cost so far (approx.)">{formatTicketSpend(t)}</span>
+          <button type="button" className={`${LINK} ${REVEAL} max-sm:hidden`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
             Follow log
           </button>
         </>
