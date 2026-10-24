@@ -210,7 +210,7 @@ profile, then opt a step into the names it needs:
     "db": {
       "image": "postgres:16.4",
       "env": { "POSTGRES_PASSWORD": "test" },
-      "wait": { "cmd": ["pg_isready", "-U", "postgres"] },
+      "wait": { "cmd": ["pg_isready", "-h", "127.0.0.1", "-U", "postgres"] },
       "agentEnv": { "DATABASE_URL": "postgres://postgres:test@db/postgres" }
     }
   } },
@@ -223,7 +223,7 @@ profile, then opt a step into the names it needs:
 |-----|---------|
 | `image` | Required, pinned to a tag or digest (`postgres:16.4`, never `postgres` or `postgres:latest`) — service images are **never pulled**, so pull it yourself and `agenthook doctor` / `check()` name the exact `<runtime> pull <image>` command when it's missing. |
 | `env` | Literal env for the service container (e.g. `POSTGRES_PASSWORD`). Values are never read from your host env. |
-| `wait.cmd` | Optional readiness probe: an argv `exec`'d in the service container (e.g. `pg_isready`) until it exits 0, polled every 500ms. Unset = the service is considered ready as soon as it starts. |
+| `wait.cmd` | Optional readiness probe: an argv `exec`'d in the service container (e.g. `pg_isready`) until it exits 0, polled every 500ms. Unset = the service is considered ready as soon as it starts. Probe over TCP (`-h 127.0.0.1`), not the default Unix socket — many database images' entrypoints run their init scripts against a temporary, socket-only server, so a socket probe (`pg_isready -U postgres`) can report ready before the real server is up; use `mysqladmin ping -h 127.0.0.1 --protocol=tcp` for MySQL/MariaDB. |
 | `wait.timeoutS` | How long `wait.cmd` may take to pass. Default **60**. |
 | `agentEnv` | Literal env added to the agent's container for steps that use this service (e.g. `DATABASE_URL` pointed at the service's hostname). |
 | `memory` | Service container memory cap. Default **`1g`**. |
@@ -335,7 +335,7 @@ services:
     environment:
       POSTGRES_PASSWORD: test
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
     deploy:
       resources:
         limits:
@@ -348,7 +348,7 @@ services:
 "db": {
   "image": "postgres:16.4",
   "env": { "POSTGRES_PASSWORD": "test" },
-  "wait": { "cmd": ["pg_isready", "-U", "postgres"] },
+  "wait": { "cmd": ["pg_isready", "-h", "127.0.0.1", "-U", "postgres"] },
   "memory": "1g",
   "cpus": 1
 }
@@ -358,7 +358,7 @@ services:
 |---------|---------|----------------|
 | `image` | `image` | Yes — must be pinned to a tag or digest (compose allows `:latest`; a Service doesn't). |
 | `environment` (literal values) | `env` | Yes, if literal. |
-| `healthcheck.test` | `wait.cmd` | Yes for `CMD` (drop the leading `"CMD"`). A `CMD-SHELL` entry is one shell string, not an argv, so `["CMD-SHELL", "pg_isready -U postgres"]` becomes `["sh", "-c", "pg_isready -U postgres"]`, not just the string with `CMD-SHELL` dropped. |
+| `healthcheck.test` | `wait.cmd` | Yes for `CMD` (drop the leading `"CMD"`). A `CMD-SHELL` entry is one shell string, not an argv, so `["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]` becomes `["sh", "-c", "pg_isready -h 127.0.0.1 -U postgres"]`, not just the string with `CMD-SHELL` dropped. |
 | the service name | the hostname | Yes — compose's service-name DNS resolution and a Service's network alias work the same way. |
 | `mem_limit` / `deploy.resources.limits.memory` | `memory` | Yes. |
 | `cpus` / `deploy.resources.limits.cpus` | `cpus` | Yes. |
