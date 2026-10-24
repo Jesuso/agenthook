@@ -15,6 +15,7 @@ import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
 import { Modal } from "./Modal";
+import { dismissKey } from "./deferredDismiss";
 import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
@@ -38,6 +39,8 @@ export type OverviewProps = {
   menuItems: MenuItem[];
   note: string;
   onDismiss: (t: Ref) => void;
+  /** Dismissed but still undoable (`dismissKey`): hidden from Needs you until sent or undone. */
+  dismissing?: ReadonlySet<string>;
   /** Answer a held ticket (optional comment for the agent); resolves with what happened. */
   onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>;
 };
@@ -52,7 +55,7 @@ export function Overview(props: OverviewProps) {
   const { profile, snapshot, now, feed, onOpen } = props;
   const scoped = scopeToProfile(snapshot, profile.name);
   const forge = !!profile.forge;
-  const needs = needsYouItems(scoped.tickets, forge);
+  const needs = needsYouItems(scoped.tickets, forge).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
   const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);

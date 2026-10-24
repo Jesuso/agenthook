@@ -57,7 +57,7 @@ describe("TicketsTable", () => {
   it("opens a row from the keyboard via its title button, and names dismiss after the ticket", () => {
     const html = render([ticket({ ref: "7", displayId: "#7", status: "failed" })]);
     expect(html).toMatch(/<button[^>]*data-ticket-open/);
-    expect(html).toContain('aria-label="dismiss #7"');
+    expect(html).toContain('aria-label="Dismiss #7"');
   });
 
   it("renders the first 50 rows and a show-more button with the remainder", () => {
@@ -128,7 +128,7 @@ describe("TicketsTable", () => {
 
   it("shows a dismiss button only on failed and cancelled rows", () => {
     const html = render([ticket({ ref: "1", status: "failed" }), ticket({ ref: "2", status: "cancelled" }), ticket({ ref: "3", status: "done" }), ticket({ ref: "4", status: "held" })], { showAll: true });
-    expect((html.match(/>dismiss</g) ?? []).length).toBe(2);
+    expect((html.match(/>Dismiss</g) ?? []).length).toBe(2);
   });
 
   it("epics: a chip on rows with an epic, a select only when some row has one, the filter narrows rows", () => {

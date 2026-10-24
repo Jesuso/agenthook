@@ -39,7 +39,7 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
           className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
           onClick={onToggle}
         >
-          {open ? "collapse" : "expand"}
+          {open ? "Hide" : "Show"}
         </button>
       </div>
       {open &&

@@ -239,12 +239,12 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
         {(t.status === "failed" || t.status === "cancelled") && (
           <button
             type="button"
-            aria-label={`dismiss ${t.displayId}`}
+            aria-label={`Dismiss ${t.displayId}`}
             title="Acknowledge: stop counting this ticket as needing you (the ticket itself is untouched)"
             className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
             onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}
           >
-            dismiss
+            Dismiss
           </button>
         )}
       </td>

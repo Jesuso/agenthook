@@ -8,6 +8,7 @@ import type { FeedEntry } from "./feed";
 import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuffering } from "./snapshotFetch";
 import type { FetchState } from "./snapshotFetch";
 import { TicketDrawer } from "./TicketDrawer";
+import { useDeferredDismiss } from "./deferredDismiss";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
@@ -71,7 +72,17 @@ export default function App() {
   const [pendingRemoval, setPendingRemoval] = useState<Record<string, string>>({});
   const pendingRemovalRef = useRef(pendingRemoval);
   pendingRemovalRef.current = pendingRemoval;
-  const [toast, setToast] = useState<{ text: string; hint: string | null } | null>(null);
+  const [toast, setToast] = useState<{ text: string; hint: string | null; undo?: () => void } | null>(null);
+  const dismissal = useDeferredDismiss((t) => {
+    const { url, init } = dismissRequest(t.profile, t.ref);
+    fetch(url, { ...init, keepalive: true })
+      .then(async (res) => {
+        if (res.ok) return; // the row flips to idle off the stream
+        const why = await res.json().then((b: { error?: string }) => b.error, () => undefined);
+        setToast({ text: `Dismiss failed: ${why ?? `status ${res.status}`}`, hint: null });
+      })
+      .catch(() => setToast({ text: "Dismiss failed: dashboard unreachable", hint: null }));
+  });
   // Restart when idle from a row's ⋯ menu: per-state-key restartReducer state, fed by the POST
   // reply, the profile's restart feed events and snapshot/profile updates (no polling).
   const [restarts, dispatchRestarts] = useReducer(restartsReducer, {});
@@ -351,15 +362,11 @@ export default function App() {
               .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
               .catch(() => settle(0, null));
           }}
+          dismissing={dismissal.pending}
           onDismiss={(t) => {
-            const { url, init } = dismissRequest(t.profile, t.ref);
-            fetch(url, init)
-              .then(async (res) => {
-                if (res.ok) return; // the row flips to idle off the stream
-                const why = await res.json().then((b: { error?: string }) => b.error, () => undefined);
-                setToast({ text: `Dismiss failed: ${why ?? `status ${res.status}`}`, hint: null });
-              })
-              .catch(() => setToast({ text: "Dismiss failed: dashboard unreachable", hint: null }));
+            dismissal.dismiss(t);
+            const id = snapshot.tickets.find((x) => x.profile === t.profile && x.ref === t.ref)?.displayId ?? t.ref;
+            setToast({ text: `Dismissed ${id}`, hint: null, undo: () => dismissal.undo(t) });
           }}
         />
       );
@@ -395,7 +402,7 @@ export default function App() {
         />
       )}
       {toast && (
-        <div role="status" className="fixed bottom-4 right-4 z-50 flex items-start gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm shadow">
+        <div role="status" data-toast className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-lg border border-border bg-surface-raised px-3 py-2 text-body shadow-lg">
           <div>
             <div>{toast.text}</div>
             {toast.hint && (
@@ -404,7 +411,20 @@ export default function App() {
               </div>
             )}
           </div>
-          <button aria-label="dismiss" onClick={() => setToast(null)}>
+          {toast.undo && (
+            <button
+              type="button"
+              data-toast-undo
+              className="rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised"
+              onClick={() => {
+                toast.undo!();
+                setToast(null);
+              }}
+            >
+              Undo
+            </button>
+          )}
+          <button type="button" aria-label="Close notification" onClick={() => setToast(null)}>
             ×
           </button>
         </div>

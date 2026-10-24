@@ -57,6 +57,12 @@ describe("Overview", () => {
     expect(html).toMatch(/max-sm:hidden" title="cost so far/);
   });
 
+  it("hides a dismissed-but-undoable ticket from Needs you", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("g", { status: "failed", failReason: "y" })], { dismissing: new Set(["dev\u0000f"]) });
+    expect(html).not.toContain('data-needs-row="f"');
+    expect(html).toContain('data-needs-row="g"');
+  });
+
   it("lists failed before held, with the reason and a Dismiss action only on failed", () => {
     const html = render(profile(), [
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8) }),
@@ -65,7 +71,7 @@ describe("Overview", () => {
     expect(html.indexOf('data-needs-row="f"')).toBeLessThan(html.indexOf('data-needs-row="h"'));
     expect(html).toContain("tests red");
     expect(html).toContain("which db?");
-    expect(html.match(/>Dismiss</g)).toHaveLength(1);
+    expect(html.match(/data-needs-dismiss/g)).toHaveLength(1);
   });
 
   it("links every ticket id to its tracker page, in Needs you and in Now", () => {
