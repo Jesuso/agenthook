@@ -59,7 +59,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
         <h2 className="text-label font-semibold uppercase tracking-wide text-muted">Catch me up</h2>
         {digest && (
           <p className="text-label text-muted" data-digest-meta>
-            written {formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)))}
+            snapshot from {formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)))}
             {digest.costUsd !== undefined && ` · cost ${formatCost(digest.costUsd)}`}
             {since > 0 && <span className="text-fg"> · {since} new {since === 1 ? "event" : "events"} since</span>}
           </p>

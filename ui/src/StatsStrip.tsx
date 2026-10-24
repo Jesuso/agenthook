@@ -71,7 +71,7 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
                 <StatsChart days={days} />
               </Suspense>
               <p className="mt-2 text-meta text-muted" data-stats-foot>
-                {sum.reworkRate !== null ? `Rework ${Math.round(sum.reworkRate * 100)}% of ${sum.runs} runs` : `${sum.runs} runs`}
+                {sum.reworkRate !== null ? `Rework · ${range} d: ${Math.round(sum.reworkRate * 100)}% of ${sum.runs} runs` : `${sum.runs} runs in ${range} d`}
                 {sum.bestDay ? ` · best day ${shortDate(sum.bestDay.date)} (${sum.bestDay.finished})` : ""}
                 {stats?.since ? ` · history since ${shortDate(stats.since.slice(0, 10))}` : ""}
               </p>

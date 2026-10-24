@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProfileView, Snapshot, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatDuration, formatModel, formatQuota, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
+import { formatCost, formatDuration, formatModel, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
@@ -97,11 +97,7 @@ export function Overview(props: OverviewProps) {
               </span>
             </>
           )}
-          {profile.quota && (
-            <span title="Claude subscription quota, as of the last Claude run" data-quota>
-              Claude quota {formatQuota(profile.quota, now)}
-            </span>
-          )}
+          {/* The Claude quota lives in the app bar, once; repeating it here was the critique's noise. */}
         </div>
       </div>
 
@@ -481,7 +477,7 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
           <span className="font-mono">{formatSpend({ reported: prog.costToday, est: prog.estToday }) || formatCost(0)}</span>{" "}
           <span className="text-label font-normal text-muted">{prog.costYesterday || prog.estYesterday ? `yesterday ${formatSpend({ reported: prog.costYesterday, est: prog.estYesterday })}` : ""}</span>
         </Tile>
-        <Tile label="rework rate" title="share of agent runs that ended in a rework loop (changes), over the last ~48 h of events">
+        <Tile label="rework · 48 h" title="share of agent runs that ended in a rework loop (changes), over the last ~48 h of events">
           {rate === null ? (
             <span className="text-label font-normal text-muted">needs {MIN_RUNS_FOR_RATES}+ runs ({prog.runs} so far)</span>
           ) : (
@@ -489,7 +485,7 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
           )}
         </Tile>
       </dl>
-      <p className="mt-1 text-meta text-muted">Today, yesterday and the rework rate come from the last ~48 h of events.</p>
+      <p className="mt-1 text-meta leading-4 text-muted">Today, yesterday and rework come from the last ~48 h of events; History below covers the chosen range.</p>
       <StatsStrip profile={profile} feed={feed} />
     </Zone>
   );

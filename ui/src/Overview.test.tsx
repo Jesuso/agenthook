@@ -179,11 +179,10 @@ describe("Overview", () => {
     expect(render(profile(), [], { epicFilter: "E1" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
   });
 
-  it("shows the Claude quota tile (with a passed reset as reset) and a distinct quota-paused badge", () => {
+  it("leaves the quota readout to the app bar but keeps the quota-paused badge", () => {
     const quota = { sevenDay: { utilization: 0.66, resetsAt: new Date(NOW + 2 * 86400e3 + 4 * 3600e3).toISOString() }, fiveHour: { utilization: 0.08, resetsAt: new Date(NOW - 1).toISOString() } };
     const html = render(profile({ quota, quotaPaused: { window: "sevenDay", utilization: 0.92, threshold: 0.9, resetsAt: quota.sevenDay.resetsAt } }), []);
-    expect(html).toContain("weekly 66% · resets in 2d 4h · 5h reset");
+    expect(html).not.toContain("weekly 66%");
     expect(html).toContain("quota paused");
-    expect(render(profile(), [])).not.toContain("data-quota");
   });
 });
