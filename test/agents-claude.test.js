@@ -365,13 +365,14 @@ test("claude sandbox hook: only this cwd's transcript dir (receiver-owned for a 
     const got = sbx({ cfg: /** @type {any} */ ({ stateDir }), step: { id: "code" }, cwd: "/w/agenthook-worktrees/42", ownsCwd: true, home: "/home/agent" });
     assert.deepEqual(got.mounts, [{ path: pathm.join(home, ".claude", "projects", "-w-agenthook-worktrees-42"), dst: "/home/agent/.claude/projects/-w-agenthook-worktrees-42" }]);
     assert.ok(fsm.statSync(got.mounts[0].path).isDirectory(), "created on the host first");
-    assert.deepEqual(got.env, { DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" });
+    assert.deepEqual(got.env, { DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_TMPDIR: "/home/agent/.tmp" });
     // A cwd the run doesn't own (no worktree: the main checkout) never mounts the host's dir for
     // it (the operator's sessions + auto-memory) — a receiver-owned one under the state dir instead.
     const shared = sbx({ cfg: /** @type {any} */ ({ stateDir }), step: { id: "triage" }, cwd: "/w/repo", ownsCwd: false, home: "/home/agent" });
     assert.deepEqual(shared.mounts, [{ path: pathm.join(stateDir, "sandbox-transcripts", "-w-repo"), dst: "/home/agent/.claude/projects/-w-repo" }]);
     assert.ok(!shared.mounts.some((m) => m.path.startsWith(pathm.join(home, ".claude"))));
     assert.ok(fsm.statSync(shared.mounts[0].path).isDirectory());
+    assert.deepEqual(shared.env, { DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_TMPDIR: "/home/agent/.tmp" });
     assert.equal(adapter.sessions?.sandboxTranscriptDir?.(stateDir, "/w/repo"), shared.mounts[0].path, "follow reads where it was written");
   } finally {
     process.env.HOME = saved;
