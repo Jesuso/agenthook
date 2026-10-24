@@ -46,6 +46,23 @@ describe("useDeferredDismiss", () => {
     expect(api.pending.size).toBe(0);
   });
 
+  it("undoLast takes back the most recent pending dismiss first", async () => {
+    await act(async () => api.dismiss(T));
+    await act(async () => api.dismiss({ profile: "dev", ref: "8" }));
+    let got: unknown;
+    await act(async () => {
+      got = api.undoLast();
+    });
+    expect(got).toEqual({ profile: "dev", ref: "8" });
+    expect(api.pending.has(dismissKey(T))).toBe(true);
+    await act(async () => vi.advanceTimersByTime(UNDO_MS));
+    expect(sent).toEqual(["7"]);
+    await act(async () => {
+      got = api.undoLast();
+    });
+    expect(got).toBeNull();
+  });
+
   it("leaving the page sends what is still pending", async () => {
     await act(async () => api.dismiss(T));
     await act(async () => {

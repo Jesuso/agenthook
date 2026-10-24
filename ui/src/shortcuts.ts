@@ -9,6 +9,7 @@ export const OVERVIEW_SHORTCUTS: { keys: string; what: string }[] = [
   { keys: "Enter", what: "Open the focused ticket (a running one shows its live log)" },
   { keys: "r", what: "Release the focused held ticket (opens the answer box)" },
   { keys: "d", what: "Dismiss the focused failed ticket" },
+  { keys: "Ctrl / ⌘ + Z", what: "Undo the last dismiss (within 5 s)" },
   { keys: "?", what: "Show this list (Esc closes it)" },
 ];
 
@@ -19,7 +20,16 @@ type KeyLike = { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolea
 /** The action for a keydown, or null when it must pass through (typing, a modifier, a dialog is open). */
 export function overviewAction(e: KeyLike, dialogOpen: boolean): OverviewAction | null {
   if (dialogOpen || e.metaKey || e.ctrlKey || e.altKey) return null;
-  const t = e.target as { tagName?: string; isContentEditable?: boolean } | null;
-  if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName ?? ""))) return null;
+  if (editable(e.target)) return null;
   return KEYS[e.key] ?? null;
+}
+
+const editable = (target: EventTarget | null) => {
+  const t = target as { tagName?: string; isContentEditable?: boolean } | null;
+  return !!t && (!!t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName ?? ""));
+};
+
+/** Ctrl/⌘+Z outside a text field (where it must keep undoing typing), no Shift (that is redo). */
+export function isUndoKey(e: KeyLike & { shiftKey: boolean }): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && !editable(e.target);
 }

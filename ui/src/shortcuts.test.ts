@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { overviewAction } from "./shortcuts";
+import { isUndoKey, overviewAction } from "./shortcuts";
 
 const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; target: unknown }> = {}) =>
   ({ key: k, metaKey: false, ctrlKey: false, altKey: false, target: { tagName: "BUTTON" }, ...over }) as Parameters<typeof overviewAction>[0];
@@ -16,5 +16,16 @@ describe("overviewAction", () => {
     expect(overviewAction(key("r", { ctrlKey: true }), false)).toBeNull();
     expect(overviewAction(key("r", { metaKey: true }), false)).toBeNull();
     expect(overviewAction(key("j"), true)).toBeNull();
+  });
+});
+
+describe("isUndoKey", () => {
+  const z = (over: Record<string, unknown>) => ({ key: "z", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: { tagName: "BUTTON" }, ...over }) as unknown as Parameters<typeof isUndoKey>[0];
+  it("is Ctrl+Z or ⌘+Z, not Shift (redo), not plain z, not inside a text field", () => {
+    expect(isUndoKey(z({ ctrlKey: true }))).toBe(true);
+    expect(isUndoKey(z({ metaKey: true, key: "Z" }))).toBe(true);
+    expect(isUndoKey(z({ ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(isUndoKey(z({}))).toBe(false);
+    expect(isUndoKey(z({ ctrlKey: true, target: { tagName: "TEXTAREA" } }))).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import { initFetchState, startFetch, bufferEvent, resolveFetch, failFetch, isBuf
 import type { FetchState } from "./snapshotFetch";
 import { TicketDrawer } from "./TicketDrawer";
 import { useDeferredDismiss } from "./deferredDismiss";
+import { isUndoKey } from "./shortcuts";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
@@ -118,6 +119,23 @@ export default function App() {
       setRoute(next);
     },
   });
+
+  // Ctrl/⌘+Z brings back the last dismissed row (while it is still undoable) and puts focus on it,
+  // so a keyboard d is as reversible as a click. Text fields keep their own undo.
+  const undoLastRef = useRef(dismissal.undoLast);
+  undoLastRef.current = dismissal.undoLast;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isUndoKey(e)) return;
+      const t = undoLastRef.current();
+      if (!t) return;
+      e.preventDefault();
+      setToast({ text: "Dismiss undone", hint: null });
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-needs-row="${CSS.escape(t.ref)}"] [data-needs-open]`)?.focus());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     // A webhook hint is a command to copy: it stays until dismissed.
@@ -421,7 +439,7 @@ export default function App() {
                 setToast(null);
               }}
             >
-              Undo
+              Undo <kbd className="font-mono text-meta text-muted">{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘Z" : "Ctrl+Z"}</kbd>
             </button>
           )}
           <button type="button" aria-label="Close notification" onClick={() => setToast(null)}>

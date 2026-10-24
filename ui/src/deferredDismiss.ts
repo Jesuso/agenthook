@@ -38,6 +38,14 @@ export function useDeferredDismiss(send: (t: Ref) => void) {
     sync();
   };
 
+  /** Undo the most recent pending dismiss; returns it, or null when none is pending. */
+  const undoLast = (): Ref | null => {
+    const last = [...timers.current.values()].at(-1);
+    if (!last) return null;
+    undo(last.t);
+    return last.t;
+  };
+
   useEffect(() => {
     const flush = () => {
       for (const { t, timer } of timers.current.values()) {
@@ -53,5 +61,5 @@ export function useDeferredDismiss(send: (t: Ref) => void) {
     };
   }, []);
 
-  return { pending, dismiss, undo };
+  return { pending, dismiss, undo, undoLast };
 }
