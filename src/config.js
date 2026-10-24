@@ -631,6 +631,10 @@ function sandboxErrors(sb) {
 /** A Service name: a DNS label, the hostname the agent reaches it at. */
 const SERVICE_NAME_RE = /^[a-z][a-z0-9-]{0,30}$/;
 
+/** Service env names the runtime CLI itself reads: service env values pass by name through the
+ * client's own env, so these would redirect or reconfigure the docker/podman call. */
+const RUNTIME_CLIENT_ENV_RE = /^(PATH|HOME|TMPDIR|SHELL|(DOCKER|CONTAINER|CONTAINERS|PODMAN|XDG|LD|DYLD)_.*)$/;
+
 /** The most services one step may use. */
 const MAX_STEP_SERVICES = 8;
 
@@ -673,6 +677,7 @@ function serviceErrors(name, svc) {
     for (const [k, v] of Object.entries(env)) {
       if (!ENV_KEY_RE.test(k)) errors.push(`config: ${at} ${key} key ${JSON.stringify(k)} is not a valid variable name.`);
       else if (key === "agentEnv" && k === "AGENTHOOK_VERDICT_FILE") errors.push(`config: ${at} agentEnv key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
+      else if (key === "env" && RUNTIME_CLIENT_ENV_RE.test(k)) errors.push(`config: ${at} env key ${k} is reserved: service env reaches the docker/podman client that starts the service, and ${k} would reconfigure it.`);
       if (typeof v !== "string") errors.push(`config: ${at} ${key}.${k} must be a literal string.`);
     }
   }

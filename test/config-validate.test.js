@@ -484,6 +484,10 @@ test("sandbox.services / step services (#529): a valid catalog passes; each stru
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: ["A=1"] } })), [`config: "sandbox.services.db" env must be an object of NAME: "value" strings.`]);
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { "BAD-NAME": "x" } } })), [`config: "sandbox.services.db" agentEnv key "BAD-NAME" is not a valid variable name.`]);
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { AGENTHOOK_VERDICT_FILE: "/x" } } })), [`config: "sandbox.services.db" agentEnv key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`]);
+  for (const k of ["DOCKER_HOST", "PATH", "HOME", "XDG_RUNTIME_DIR", "CONTAINER_HOST", "LD_PRELOAD"]) {
+    assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: { [k]: "x" } } })), [`config: "sandbox.services.db" env key ${k} is reserved: service env reaches the docker/podman client that starts the service, and ${k} would reconfigure it.`], k);
+  }
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { HOME_DIR: "x" }, env: { PGDATA: "/x" } } })), [], "only exact names / the listed prefixes are reserved");
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", wait: { cmd: [] } } })), [`config: "sandbox.services.db" wait.cmd must be a non-empty array of strings (an argv).`]);
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", wait: { cmd: "pg_isready" } } })), [`config: "sandbox.services.db" wait.cmd must be a non-empty array of strings (an argv).`]);
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", wait: { cmd: ["true"], timeoutS: 0 } } })), [`config: "sandbox.services.db" wait.timeoutS must be a number > 0.`]);

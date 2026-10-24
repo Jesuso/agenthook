@@ -20,6 +20,14 @@ All notable changes to this project are documented here. The format is based on
   topic **`authoring`** (CLI and MCP `guide {topic:"authoring", profile?}`) rendered from the
   profile's config — tracker, the identity a ticket must be assigned to, every step's stages, the
   epic rule, whether dependencies are honoured — so an agent never hardcodes labels or logins.
+- **Services for sandboxed runs** (#498): `sandbox.services` declares throwaway databases/caches
+  (`image` pinned to a tag or digest, literal `env`, optional `wait.cmd` readiness probe, `agentEnv`
+  for the agent, per-service `memory`/`cpus`), and a step opts in with `services: ["db"]`. Each run
+  gets fresh service containers on its own internal network, reachable by name, with no host
+  mounts, ports or env; they are removed with the run and reaped on boot. A service that won't start
+  or become ready fails the run before the agent spawns. `doctor` lists each step's services and a
+  missing service image fails the sandbox check (images are never pulled); `run_end` carries
+  `services`. Services keep their image's user and a fixed capability set (ADR 0007).
 
 ## [0.11.0] — 2026-10-21
 
