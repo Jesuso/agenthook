@@ -380,7 +380,14 @@ export const claude = {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     return {
       mounts: [{ path: dir, dst: path.posix.join(home, ".claude", "projects", mangle(cwd)) }],
-      env: { DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
+      env: {
+        DISABLE_AUTOUPDATER: "1",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        // A worktree bind-mounted at its host path under /tmp/claude-<uid>/... makes the
+        // runtime create that parent as root inside the container; claude then refuses its
+        // default temp dir (uid-owned-by-root check). Point it under the uid-owned HOME instead.
+        CLAUDE_CODE_TMPDIR: path.posix.join(home, ".tmp"),
+      },
     };
   },
   defaults: {},
