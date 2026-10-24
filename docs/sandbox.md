@@ -284,7 +284,7 @@ prompt or a setup command) against the empty service it's handed.
 - Under **`open`**, the agent joins the run's internal network *plus* the runtime's default
   network.
 
-**Hardening** (docs/adr/0007-services-run-with-a-fixed-entrypoint-cap-set.md). A service container
+**Hardening** ([ADR 0007](adr/0007-services-run-with-a-fixed-entrypoint-cap-set.md)). A service container
 is deliberately *not* as locked down as the agent's, because official database images (postgres,
 mysql) start as root to chown their data dir before dropping to their own user:
 
@@ -358,7 +358,7 @@ services:
 |---------|---------|----------------|
 | `image` | `image` | Yes — must be pinned to a tag or digest (compose allows `:latest`; a Service doesn't). |
 | `environment` (literal values) | `env` | Yes, if literal. |
-| `healthcheck.test` | `wait.cmd` | Yes (drop the leading `CMD`/`CMD-SHELL`). |
+| `healthcheck.test` | `wait.cmd` | Yes for `CMD` (drop the leading `"CMD"`). A `CMD-SHELL` entry is one shell string, not an argv, so `["CMD-SHELL", "pg_isready -U postgres"]` becomes `["sh", "-c", "pg_isready -U postgres"]`, not just the string with `CMD-SHELL` dropped. |
 | the service name | the hostname | Yes — compose's service-name DNS resolution and a Service's network alias work the same way. |
 | `mem_limit` / `deploy.resources.limits.memory` | `memory` | Yes. |
 | `cpus` / `deploy.resources.limits.cpus` | `cpus` | Yes. |
@@ -394,20 +394,30 @@ to the Service instead, and it never touches the (unmounted) socket.
 ### Browser e2e (Playwright / Cypress)
 
 There's no browser feature — a browser needs its own image, built **at image-build time** so no
-runtime egress is needed to fetch it:
+runtime egress is needed to fetch it. The agent image has no `USER` and runs the container as the
+host uid (`--user`/`--userns=keep-id`) with `HOME=/home/agent`, a fresh mount per run, so a browser
+installed into the default root-owned cache (`~/.cache/ms-playwright`, `~/.cache/Cypress`) at
+build time is invisible to the agent at run time. Pin the browser-cache path with an `ENV` (it
+carries into the run) and pin the installer version, since a downloaded browser build only matches
+the version that installed it:
 
 ```dockerfile
 FROM agenthook-agent:0.11.0
-RUN npx playwright install --with-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx playwright@1.48.0 install --with-deps chromium
 ```
 
-Set it as `sandbox.image`; the egress proxy still runs the **built-in** image regardless (see
-[Custom images](#custom-images)), so `agenthook-agent:<version>` is still required alongside it.
-If the browser's own installer would otherwise fetch from a CDN at runtime, this build-time
-install is exactly the "skip-download" pattern [below](#what-wont-run-inside-the-sandbox) — just
-done once, in the image, rather than per run. The app under test and its database run as
-`sandbox.services`, reachable by the agent at their service names; this needs no new config key
-beyond a custom `image` and the services already documented above.
+Cypress has the same cache-location problem; pin `CYPRESS_CACHE_FOLDER` the same way (e.g.
+`ENV CYPRESS_CACHE_FOLDER=/cypress-cache`) before `npm i cypress && npx cypress install`.
+
+Set the image as `sandbox.image`; the egress proxy still runs the **built-in** image regardless
+(see [Custom images](#custom-images)), so `agenthook-agent:<version>` is still required alongside
+it. The repo's own `npm install` at run time would otherwise try to re-download the browser binary
+from the CDN — set the package's skip-download env var in the step's `env` (e.g.
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, `CYPRESS_INSTALL_BINARY=0`) so it uses the one already baked
+into the image instead. The app under test and its database run as `sandbox.services`, reachable
+by the agent at their service names; this needs no new config key beyond a custom `image` and the
+services already documented above.
 
 ## Custom images
 
