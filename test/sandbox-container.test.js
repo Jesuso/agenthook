@@ -401,7 +401,7 @@ test("containerArgs: a file mask binds /dev/null read-only, a dir mask an empty 
 test("serviceArgs: the fixed ADR 0007 hardening, the network alias, --pull never, the profile label, env by name only", () => {
   const a = serviceArgs({ id: "ah-p-42-code-abcd", stateKey: "p", name: "db", network: "ah-p-42-code-abcd-net", image: "postgres:16.4", env: { POSTGRES_PASSWORD: "s3cret", POSTGRES_DB: "app" } });
   assert.deepEqual(a, [
-    "run", "-d", "--rm", "--init", "--pull", "never",
+    "run", "-d", "--init", "--pull", "never",
     "--name", "ah-p-42-code-abcd-svc-db",
     "--label", "agenthook.profile=p",
     "--network", "ah-p-42-code-abcd-net",
@@ -553,6 +553,29 @@ test("wrap(): a service that fails to start rejects naming it, and removes what 
 test("wrap(): a service that exits before its probe passes fails fast", async () => {
   const s = svcRun({ execCodes: [1], execStderr: "Error: No such container: x" });
   await assert.rejects(createContainerSandbox(svcCfg(), { runtime: "docker", run: s.run, waitPollMs: 1 }).wrap(svcWrap({ mode: "none", rules: [] })), /service "db" exited before its wait probe passed/);
+  assert.equal(s.calls.filter((c) => c[1] === "exec").length, 1);
+});
+
+test("wrap(): an early-exited service (no --rm) still has readable logs — not docker's daemon-removal error", async () => {
+  const s = svcRun({
+    execCodes: [1],
+    execStderr: "Error response from daemon: container ah-svc-db is not running",
+    answers: { logs: { code: 0, stdout: "Error: Database is uninitialized and superuser password is not specified.\n", stderr: "" } },
+  });
+  await assert.rejects(
+    createContainerSandbox(svcCfg(), { runtime: "docker", run: s.run, waitPollMs: 1 }).wrap(svcWrap({ mode: "none", rules: [] })),
+    /^Error: service "db" exited before its wait probe passed — last log lines: Error: Database is uninitialized and superuser password is not specified\.$/,
+  );
+  assert.equal(s.calls.filter((c) => c[1] === "exec").length, 1);
+  const tail = s.calls.slice(-3).map((c) => c.slice(1));
+  assert.equal(tail[0][0], "logs");
+  assert.deepEqual(tail.slice(1).map((c) => c.slice(0, 2)), [["rm", "-f"], ["network", "rm"]]);
+  assert.match(tail[1][2], /-svc-db$/);
+});
+
+test("wrap(): an early-exited service fails fast on podman's stopped-container exec error too", async () => {
+  const s = svcRun({ execCodes: [1], execStderr: "Error: can only create exec sessions on running containers: container state improper" });
+  await assert.rejects(createContainerSandbox(svcCfg(), { runtime: "podman", run: s.run, waitPollMs: 1 }).wrap(svcWrap({ mode: "none", rules: [] })), /service "db" exited before its wait probe passed/);
   assert.equal(s.calls.filter((c) => c[1] === "exec").length, 1);
 });
 

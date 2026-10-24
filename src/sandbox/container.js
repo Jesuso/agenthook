@@ -178,7 +178,7 @@ const SERVICE_CAPS = ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"];
  */
 export function serviceArgs(o) {
   return [
-    "run", "-d", "--rm", "--init", "--pull", "never",
+    "run", "-d", "--init", "--pull", "never",
     "--name", `${o.id}-svc-${o.name}`,
     "--label", `agenthook.profile=${o.stateKey}`,
     "--network", o.network,
@@ -507,8 +507,10 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
     for (;;) {
       const p = await run(bin, ["exec", container, ...svc.wait.cmd], { timeoutMs: Math.max(1000, deadline - Date.now()) }).catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
       if (p.code === 0) return;
-      // `--rm`: a service that exited is gone, so its probe can never pass.
-      if (/no such container|is not running|no container with name/i.test(p.stderr || p.stdout)) throw await failed(`exited before its wait probe passed`);
+      // No `--rm`: a service that exited stays in place until teardown, so its logs are still
+      // readable here. docker's exec on a stopped container says "is not running"; podman's says
+      // "can only create exec sessions on running containers: container state improper".
+      if (/no such container|is not running|no container with name|can only create exec sessions on running containers|container state improper/i.test(p.stderr || p.stdout)) throw await failed(`exited before its wait probe passed`);
       if (Date.now() >= deadline) throw await failed(`not ready within ${timeoutS}s (wait: ${svc.wait.cmd.join(" ")})`);
       await new Promise((res) => setTimeout(res, waitPollMs));
     }
