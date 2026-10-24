@@ -6,17 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-10-24
+
 ### Added
 
-- `claimedPorts` (`src/port.js`): the registered-profile → port map (heartbeat port, else the
-  config's, else the 4123 default), used by `init --local`, `ls`, `doctor` and `start` so a port
-  **configured** by a stopped profile — invisible to a listening-only probe — is seen too (#537).
-  `init --local` now skips those ports as well as listening ones, prints why when it skips any
-  (`port 4127  (4123 claimed by profile "x", 4124–4126 in use)`), and takes `--port <n>` to pick one
-  explicitly (erroring if it's listening or claimed, naming the claimant). `ls` shows a stopped
-  profile's configured port marked `*` instead of `?`. `doctor` warns (⚠) when the profile's port
-  collides with another registered profile's. `start` fails before boot, naming the profile, when
-  the busy port is one another registered profile is configured for.
+- Port collisions between profiles are caught: `init --local` now skips ports configured by other
+  registered profiles (even stopped ones), not just listening ports, says why it skipped any
+  (`port 4127  (4123 claimed by profile "x", 4124–4126 in use)`), and takes `--port <n>`. `ls` shows
+  a stopped profile's configured port (marked `*`) instead of `?`, `doctor` warns when two profiles
+  share a port, and `start` fails before boot naming the profile that claims a busy port (#537).
 - A portable **agent skill** in `skills/agenthook/` (open `SKILL.md` format, loaded by Claude Code,
   Cursor, Codex, OpenCode, Gemini CLI, Hermes…): how to create tickets, epics and dependency chains
   the receiver will actually pick up, and how to supervise (needs-you, release, re-fire), with one
@@ -36,16 +34,21 @@ All notable changes to this project are documented here. The format is based on
   mounts, ports or env; they are removed with the run and reaped on boot. A service that won't start
   or become ready fails the run before the agent spawns. `doctor` lists each step's services and a
   missing service image fails the sandbox check (images are never pulled); `run_end` carries
-  `services`. Services keep their image's user and a fixed capability set (ADR 0007).
+  `services`. Services keep their image's user and a fixed capability set (ADR 0007). A service
+  that exits early is kept until teardown so the failure carries its own log lines. A service's
+  `env` may not set names the docker/podman client reads (`PATH`, `HOME`, `DOCKER_*`, `XDG_*`, …),
+  and its `agentEnv` may not set the egress proxy's vars (`HTTPS_PROXY`, `NO_PROXY`, …) in any
+  egress mode. Readiness examples probe over TCP (`pg_isready -h 127.0.0.1`), since a socket probe
+  can pass against an image's init-time temporary server.
 
-### Changed
+### Fixed
 
-- **Breaking (config validation):** a sandbox service's `agentEnv` now rejects the egress proxy's
-  own vars (`HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `NO_PROXY`, `no_proxy`,
-  `NODE_USE_ENV_PROXY`, `YARN_HTTPS_PROXY`, `YARN_HTTP_PROXY`) in every `egress.mode`, the same way
-  `AGENTHOOK_VERDICT_FILE` is reserved. Previously these were silently overridden by the run's
-  proxy in `allowlist` mode and silently took effect in `open`/`none` mode, with no signal from
-  `doctor`. A step that needs a proxy under `open` sets it in the step's own `env` (#536).
+- Sandboxed claude runs set `CLAUDE_CODE_TMPDIR` under the run's own HOME, so a repo checked out
+  under `/tmp/claude-<uid>/…` no longer fails with claude refusing a root-owned temp dir (#538).
+- Boot's sandbox reap line now uses the docs' verb and counts networks too, naming the run(s) the
+  leftovers came from (`[recover] reaped 3 container(s), 1 network(s) left by run 12/code`); the
+  egress proxy and service containers carry the run's ref/step labels, and a new `sandbox_reaped`
+  event (`containers`, `networks`, `runs`) reaches supervisors on the bus (#539).
 
 ## [0.11.0] — 2026-10-21
 
@@ -751,7 +754,8 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Jesuso/agenthook/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Jesuso/agenthook/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Jesuso/agenthook/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Jesuso/agenthook/compare/v0.8.0...v0.9.0

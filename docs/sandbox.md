@@ -407,7 +407,7 @@ carries into the run) and pin the installer version, since a downloaded browser 
 the version that installed it:
 
 ```dockerfile
-FROM agenthook-agent:0.11.0
+FROM agenthook-agent:0.12.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npx playwright@1.48.0 install --with-deps chromium
 ```
