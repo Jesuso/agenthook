@@ -24,7 +24,7 @@ import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
-import { SANDBOX_NAMES, EGRESS_MODES } from "./sandbox/names.js";
+import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS } from "./sandbox/names.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
@@ -677,6 +677,7 @@ function serviceErrors(name, svc) {
     for (const [k, v] of Object.entries(env)) {
       if (!ENV_KEY_RE.test(k)) errors.push(`config: ${at} ${key} key ${JSON.stringify(k)} is not a valid variable name.`);
       else if (key === "agentEnv" && k === "AGENTHOOK_VERDICT_FILE") errors.push(`config: ${at} agentEnv key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
+      else if (key === "agentEnv" && /** @type {readonly string[]} */ (EGRESS_PROXY_ENV_KEYS).includes(k)) errors.push(`config: ${at} agentEnv key ${k} is reserved (the sandbox's egress proxy sets it).`);
       else if (key === "env" && RUNTIME_CLIENT_ENV_RE.test(k)) errors.push(`config: ${at} env key ${k} is reserved: service env reaches the docker/podman client that starts the service, and ${k} would reconfigure it.`);
       if (typeof v !== "string") errors.push(`config: ${at} ${key}.${k} must be a literal string.`);
     }

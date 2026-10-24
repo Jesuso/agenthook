@@ -29,6 +29,15 @@ All notable changes to this project are documented here. The format is based on
   missing service image fails the sandbox check (images are never pulled); `run_end` carries
   `services`. Services keep their image's user and a fixed capability set (ADR 0007).
 
+### Changed
+
+- **Breaking (config validation):** a sandbox service's `agentEnv` now rejects the egress proxy's
+  own vars (`HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `NO_PROXY`, `no_proxy`,
+  `NODE_USE_ENV_PROXY`, `YARN_HTTPS_PROXY`, `YARN_HTTP_PROXY`) in every `egress.mode`, the same way
+  `AGENTHOOK_VERDICT_FILE` is reserved. Previously these were silently overridden by the run's
+  proxy in `allowlist` mode and silently took effect in `open`/`none` mode, with no signal from
+  `doctor`. A step that needs a proxy under `open` sets it in the step's own `env` (#536).
+
 ## [0.11.0] — 2026-10-21
 
 ### Added

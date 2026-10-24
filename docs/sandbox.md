@@ -254,9 +254,13 @@ A step opts in with `"services": ["db", …]`:
   `docker`/`podman` client process that starts the container (`-e NAME`, value read from that
   process's own env) — a client-read variable in that list would redirect or reconfigure the
   client call itself, not just the service.
-- `agentEnv.AGENTHOOK_VERDICT_FILE` is reserved (the receiver sets it). A service's `agentEnv`
-  sits over the run's env but **never** over the proxy vars (`HTTPS_PROXY`, …) or the verdict
-  path — it can't be used to redirect either.
+- `agentEnv.AGENTHOOK_VERDICT_FILE` is reserved (the receiver sets it), and so are the vars the
+  egress proxy itself sets — `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `NO_PROXY`,
+  `no_proxy`, `NODE_USE_ENV_PROXY`, `YARN_HTTPS_PROXY`, `YARN_HTTP_PROXY` — rejected at validation
+  in **every** `egress.mode`, not just `allowlist`: under `open`/`none` there's no proxy to
+  override, so the value would silently reach the agent instead of being silently ignored. A step
+  that genuinely needs a proxy under `open` sets it in the step's own `env`, not a service's
+  `agentEnv`.
 - A step's `services` list is at most **8** (`MAX_STEP_SERVICES`); more errors. A duplicate name
   in the list, or a name not present in `sandbox.services`, also errors.
 - `services` needs a profile `sandbox` and errors on a manual step or a `"sandbox": false` step
