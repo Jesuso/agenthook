@@ -10,7 +10,7 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { Menu, Pill, ProfileMark, TicketId } from "./components";
+import { Menu, Pill, ProfileMark, ReceiverStatus, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -70,13 +70,19 @@ export function Overview(props: OverviewProps) {
 
         {/* The machine's state, one quiet line: what the human came for is Needs you, below. */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label text-muted" data-summary>
-          <span className="inline-flex items-center gap-2">
-            <SlotPips active={profile.up ? profile.active ?? 0 : 0} max={profile.maxConcurrent ?? 0} up={profile.up} />
-            agents
-          </span>
-          <span>
-            <span className="font-mono text-fg">{profile.up ? profile.queued ?? 0 : "—"}</span> queued
-          </span>
+          <ReceiverStatus p={profile} long />
+          {/* Down: the banner below says it; dashes for slots and queue would only repeat it. */}
+          {profile.up && (
+            <>
+              <span className="inline-flex items-center gap-2">
+                <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
+                agents
+              </span>
+              <span>
+                <span className="font-mono text-fg">{profile.queued ?? 0}</span> queued
+              </span>
+            </>
+          )}
           {profile.quota && (
             <span title="Claude subscription quota, as of the last Claude run" data-quota>
               Claude quota {formatQuota(profile.quota, now)}
@@ -84,6 +90,8 @@ export function Overview(props: OverviewProps) {
           )}
         </div>
       </div>
+
+      {!profile.up && <StoppedBanner profile={profile} />}
 
       <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />
 
@@ -130,6 +138,27 @@ function Tile({ label, title, children }: { label: string; title?: string; child
     <div title={title} className="min-w-32 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="text-label uppercase tracking-wide text-muted">{label}</div>
       <div className="text-title font-semibold">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A stopped receiver, said once at the top: nothing runs, what happens to tickets meanwhile, and the
+ * two commands that recover (start, then reconcile to fire tickets that moved while it was down).
+ */
+function StoppedBanner({ profile }: { profile: ProfileView }) {
+  const cfg = profile.configPath ? ` --config ${profile.configPath}` : "";
+  return (
+    <div data-stopped-banner className="rounded-lg border border-status-held/40 bg-status-held-bg px-3 py-2 text-body">
+      <p className="font-semibold text-status-held">The receiver is stopped, so no agents will run.</p>
+      <p className="text-fg">
+        Tickets moved on the board wait in their stage.{!profile.configMissing && " Start it, then pick up what moved meanwhile:"}
+      </p>
+      {!profile.configMissing && (
+        <pre className="mt-1 font-mono text-label whitespace-pre-wrap break-all text-fg">
+          {`agenthook start${cfg}\nagenthook reconcile${cfg}`}
+        </pre>
+      )}
     </div>
   );
 }
@@ -336,7 +365,7 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
             ))}
           </ul>
         )}
-        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">receiver is down — nothing is running</p>}
+        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">Nothing is running.</p>}
         {queued.length > 0 && (
           <div className="border-t border-border-subtle">
             <div className="px-3 pt-2 text-label uppercase tracking-wide text-muted">queued {queued.length}</div>

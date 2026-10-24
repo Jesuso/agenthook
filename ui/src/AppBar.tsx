@@ -7,12 +7,13 @@ import type { ProfileView } from "./contract";
 import { formatQuota, profileLabel } from "./format";
 
 const DOT_CLASS: Record<ConnectionState, string> = {
-  connected: "bg-success",
+  connected: "bg-muted",
   reconnecting: "bg-status-held",
   closed: "bg-status-failed",
 };
 
-/** The live-stream health: green live, amber reconnecting (also before the first open), red closed. */
+/** The UI's own live-stream health — not a receiver's: a quiet grey dot while updates flow, amber reconnecting
+ * (also before the first open), red closed. Green is kept for "receiver up" so the two never read alike. */
 export function ConnectionDot({ state }: { state: ConnectionState }) {
   const label = CONNECTION_LABEL[state];
   return (

@@ -59,7 +59,7 @@ describe("AppBar", () => {
 
   it("colours and labels the connection dot by state", () => {
     const cases = [
-      ["connected", "bg-success", "Live"],
+      ["connected", "bg-muted", "Live updates"],
       ["reconnecting", "bg-status-held", "Reconnecting…"],
       ["closed", "bg-status-failed", "Disconnected — reload"],
     ] as const;

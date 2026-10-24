@@ -129,8 +129,19 @@ describe("Overview", () => {
 
   it("says a down receiver runs nothing and shows no free slots", () => {
     const html = render(profile({ up: false, pid: null, active: null }), []);
-    expect(html).toContain("receiver is down");
+    expect(html).toContain('data-receiver="down"');
+    expect(html).toContain("receiver down");
     expect(html).not.toContain("data-free-slot");
+  });
+
+  it("explains a stopped receiver once at the top, with the commands that recover it", () => {
+    const down = render(profile({ up: false, pid: null, active: null, configPath: "~/p/agenthook.config.json" }), []);
+    expect(down).toContain("The receiver is stopped, so no agents will run.");
+    expect(down).toContain("agenthook start --config ~/p/agenthook.config.json");
+    expect(down).toContain("agenthook reconcile --config ~/p/agenthook.config.json");
+    expect(down.indexOf("data-stopped-banner")).toBeLessThan(down.indexOf("data-all-clear"));
+    expect(render(profile({ up: false, pid: null, configMissing: true }), [])).not.toContain("agenthook start");
+    expect(render(profile(), [])).not.toContain("data-stopped-banner");
   });
 
   it("hides the rework rate until there are enough runs, then shows it", () => {

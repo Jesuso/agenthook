@@ -1,9 +1,9 @@
 import type { ProfileView, Snapshot } from "./contract";
-import { formatAgents, formatLastEvent, formatSpend, formatRelative, formatUp, profileBadge, profileLabel, quotaPausedTitle } from "./format";
+import { formatAgents, formatLastEvent, formatSpend, formatRelative, profileBadge, profileLabel, quotaPausedTitle } from "./format";
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
-import { FullAutoShield, Menu, Pill, ProfileMark } from "./components";
+import { FullAutoShield, Menu, Pill, ProfileMark, ReceiverStatus } from "./components";
 import { accentStyle } from "./identity";
 import type { MenuItem } from "./components";
 
@@ -52,15 +52,6 @@ export function HomePage({ snapshot, now, menuItems, note }: HomePageProps) {
   );
 }
 
-function StatusDot({ p }: { p: ProfileView }) {
-  const up = formatUp(p);
-  return (
-    <span title={up.title} className={`inline-flex items-center gap-1.5 text-label ${p.up ? "text-success" : "text-status-failed"}`}>
-      <span aria-hidden="true" className="size-2 rounded-full bg-current" />
-      {up.text}
-    </span>
-  );
-}
 
 /** The card's headline: how many tickets need a human; red when any failed, amber when only held. */
 function NeedsYou({ n, hasFailed }: { n: number; hasFailed: boolean }) {
@@ -99,7 +90,7 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
             {p.fullAuto && <FullAutoShield />}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <StatusDot p={p} />
+            <ReceiverStatus p={p} />
             {p.paused === true && (
               <Pill tone="held" title="operator pause: no new runs start; running agents finish (a restart clears it)">
                 paused
@@ -160,7 +151,7 @@ function InactiveRow({ p, now, items, note }: { p: ProfileView; now: number; ite
       <a href={hashFor({ kind: "profile", profile: p.name, view: "overview" })} className="font-mono text-fg after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-accent">
         {profileLabel(p)}
       </a>
-      <StatusDot p={p} />
+      <ReceiverStatus p={p} />
       {badge && (
         <Pill tone={badge.kind === "missing" ? "held" : "neutral"} title={badge.title}>
           {badge.text}

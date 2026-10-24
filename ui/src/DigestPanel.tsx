@@ -48,7 +48,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
   };
 
   const since = digest ? eventsSince(feed, digest.generatedAt) : 0;
-  const button = digest ? "Refresh" : "Catch me up";
+  const button = digest ? "Refresh digest" : "Write a digest";
   const stale = digestStale(digest, now);
   const showBody = loaded && (!stale || expanded);
   const bodyId = `digest-body-${profile}`;
@@ -60,7 +60,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
         {digest && (
           <p className="text-label text-muted" data-digest-meta>
             written {formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)))}
-            {digest.costUsd !== undefined && ` · ${formatCost(digest.costUsd)}`}
+            {digest.costUsd !== undefined && ` · cost ${formatCost(digest.costUsd)}`}
             {since > 0 && <span className="text-fg"> · {since} new {since === 1 ? "event" : "events"} since</span>}
           </p>
         )}
@@ -80,9 +80,9 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
           <button
             type="button"
             disabled={busy || !up}
-            title={up ? "Runs a short, tool-less agent over this profile's activity (costs a few cents)" : "The receiver is not running"}
+            title={up ? "Runs a short, tool-less agent over this profile's activity (costs a few cents)" : "Needs the receiver running: it spawns the digest agent"}
             onClick={() => void generate()}
-            className="rounded-md bg-accent px-3 py-1 text-label font-medium text-accent-fg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+            className="rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:hover:bg-transparent"
           >
             {busy ? "Writing…" : button}
           </button>
