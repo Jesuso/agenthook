@@ -1,8 +1,10 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup } from "../src/respawn.js";
+import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup, spawnDetached } from "../src/respawn.js";
 import { parse } from "../bin/agenthook.js";
 
 const cfg = { installDir: "/opt/agenthook", configPath: "/p/agenthook.config.json" };
@@ -97,4 +99,26 @@ test("classifyCgroup: non-terminal scopes", () => {
 test("classifyCgroup: garbage/empty input", () => {
   assert.deepEqual(classifyCgroup(""), { scope: null, terminal: false });
   assert.deepEqual(classifyCgroup("garbage no cgroup line here"), { scope: null, terminal: false });
+});
+
+test("spawnDetached: a child's stdout reaches <stateDir>/receiver.log (pins delivery of e.g. a boot [recover] line)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-respawn-"));
+  const cfg = { stateDir: dir, stateKey: "p" };
+  const prev = process.env.AGENTHOOK_NO_SYSTEMD_SCOPE;
+  process.env.AGENTHOOK_NO_SYSTEMD_SCOPE = "1"; // deterministic across dev boxes/CI regardless of systemd-run availability
+  try {
+    spawnDetached(cfg, { command: process.execPath, args: ["-e", "console.log('[recover] reaped 1 container(s), 0 network(s) left by a previous run')"] });
+    const logPath = path.join(dir, "receiver.log");
+    const deadline = Date.now() + 5000;
+    let content = "";
+    while (Date.now() < deadline) {
+      content = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+      if (content.includes("[recover] reaped")) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.match(content, /\[recover\] reaped 1 container\(s\), 0 network\(s\) left by a previous run/);
+  } finally {
+    if (prev === undefined) delete process.env.AGENTHOOK_NO_SYSTEMD_SCOPE;
+    else process.env.AGENTHOOK_NO_SYSTEMD_SCOPE = prev;
+  }
 });

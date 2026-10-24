@@ -50,7 +50,7 @@ async function boot(extra) {
     name: "p", stateKey: "p", provider: "local", stateDir: dir, dataDir: dir, logDir: path.join(dir, "logs"), port: 0,
     pipeline: PIPE, publicUrlFile: path.join(dir, "public_url.txt"), pidFile: path.join(dir, "server.pid"), controlSock: path.join(dir, "c.sock"), ...extra,
   });
-  const sandbox = cfg.sandbox ? { describe: () => ({ name: cfg.sandbox.type, home: "/home/agent" }), check: async () => ({ ok: true }), reap: async () => [] } : null;
+  const sandbox = cfg.sandbox ? { describe: () => ({ name: cfg.sandbox.type, home: "/home/agent" }), check: async () => ({ ok: true }), reap: async () => ({ containers: [], networks: [], runs: [] }) } : null;
   const state = /** @type {any} */ ({ server: http.createServer(), control: null });
   const serve = createServe(/** @type {any} */ ({
     cfg, state, store: createStore(dir), sandbox, emit: () => {}, startedAt: new Date().toISOString(), reconcileOnBoot: false,

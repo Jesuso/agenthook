@@ -114,7 +114,8 @@ to loopback, plus `NODE_USE_ENV_PROXY=1` (Node's built-in `fetch`, used by corep
 ignores `HTTPS_PROXY`) and `YARN_HTTPS_PROXY` / `YARN_HTTP_PROXY` (Yarn Berry's own fetcher
 ignores `HTTPS_PROXY` too). Claude Code, git over HTTPS, `gh`, curl, npm, pip, corepack and Yarn
 honour them; a tool that ignores them has no route at all, so it fails closed. Both containers
-and the network are removed when the run ends (and reaped on boot).
+and the network are removed when the run ends (and reaped on boot — a killed receiver's leftovers
+are logged as `[recover] reaped …` and emit a `sandbox_reaped` event, [docs/events.md](events.md)).
 
 The proxy only sees `host:port` (a `CONNECT`, or an absolute `http://` URL). It matches the
 **requested hostname** against the run's rules; an IP literal is denied unless a rule names it.
@@ -270,7 +271,7 @@ A step opts in with `"services": ["db", …]`:
 like the rest of the run (`agenthook.profile=<stateKey>`), started **before** the agent (and
 before the egress proxy). They're removed with the run — on a clean finish, a `wrap()` failure, or
 cancel/timeout/shutdown — and reaped on boot via the label, same as the agent container and
-network. There is no seeding or migration step: the agent runs those itself (e.g. in the step's
+network ([docs/events.md](events.md) `sandbox_reaped`). There is no seeding or migration step: the agent runs those itself (e.g. in the step's
 prompt or a setup command) against the empty service it's handed.
 
 **Network, per `sandbox.egress.mode`:**

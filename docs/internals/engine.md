@@ -17,7 +17,8 @@ pidfile** (listen precedes any register: a new hook POSTs a handshake at once �
 `ingress.describe().ephemeral` then `adapter.unregisterWebhooks()` (scrub dead-URL hooks) →
 `adapter.ensureLabels?()` → `adapter.registerWebhook(url)` → `forge?` (ephemeral →
 `forge.unregisterWebhooks()`; then `forge.registerWebhook(url)` — best-effort, never aborts boot) →
-`sandbox?.reap()` (remove containers a dead receiver left running — best-effort, logged) →
+`sandbox?.reap()` (remove containers/networks a dead receiver left running — best-effort, logged as
+`[recover] reaped …` and a `sandbox_reaped` event when non-empty) →
 `recoverInterrupted()` (resolve `running.json` survivors as failures — **local only, no board poll**)
 → `restoreQueued()` → `puller.pull()` (queue-stage pull into free slots; **only** reads a step's
 opt-in queue stage, a no-op without one) → one `runReconcile`, then one `runMergeCatchup` (PRs merged

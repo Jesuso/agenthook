@@ -178,6 +178,9 @@ Inside the container, the agent that runs the step reaches each service at its n
 (`services: ["db"]` → `db`) and gets any `agentEnv` the service declares (e.g. `DATABASE_URL`)
 already set — seeding and migrating the service is the agent's own job, not something the
 receiver does for it.
+A `sandbox_reaped` event means boot force-removed containers/networks a killed receiver left
+running (`containers`, `networks` counts, `runs`: the `"<ref>/<step>"` values the leftovers
+belonged to, best-effort — may be empty); it's a recovery signal, not an error to act on.
 `run` without `force` refuses a ref already in the pipeline — that guard prevents two agents on one
 worktree.
 

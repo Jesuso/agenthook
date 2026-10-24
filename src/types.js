@@ -497,7 +497,9 @@
  * @property {() => {name: string, home: string}} describe  `home` = the container's HOME
  * @property {() => Promise<{ok: true} | {ok: false, reason: string}>} check  runtime reachable + image present
  * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress}) => Promise<SandboxRun>} wrap  `egress` absent = open (the runtime's default network)
- * @property {() => Promise<string[]>} reap  force-remove every container labelled with this profile; returns their names
+ * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} reap  force-remove every container
+ *   and network labelled with this profile; `runs` is the distinct `"<ref>/<step>"` values read from the removed
+ *   containers' `agenthook.ref`/`agenthook.step` labels (best-effort — a container with neither label is omitted)
  */
 
 /** A factory `(cfg) => Sandbox`; `run` replaces the CLI runner in tests.
