@@ -10,7 +10,7 @@ import http from "node:http";
 import { createServe } from "../src/engine/boot.js";
 import { createStore } from "../src/store.js";
 
-/** @param {{check?: () => Promise<any>, reap?: () => Promise<string[]>}} sb */
+/** @param {{check?: () => Promise<any>, reap?: () => Promise<{containers: string[], networks: string[], runs: string[]}>}} sb */
 function harness(sb) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-boot-sbx-"));
   const cfg = /** @type {any} */ ({
@@ -22,17 +22,19 @@ function harness(sb) {
   const order = [];
   /** @type {any[]} */
   const advanced = [];
+  /** @type {any[]} */
+  const emitted = [];
   const sandbox = /** @type {any} */ ({
     describe: () => ({ name: "docker", home: "/home/agent" }),
     check: sb.check ?? (async () => ({ ok: true })),
     reap: async () => {
       order.push("reap");
-      return sb.reap ? sb.reap() : [];
+      return sb.reap ? sb.reap() : { containers: [], networks: [], runs: [] };
     },
   });
   const state = /** @type {any} */ ({ server: http.createServer(), control: null });
   const serve = createServe(/** @type {any} */ ({
-    cfg, state, store, sandbox, emit: () => {}, startedAt: new Date().toISOString(), reconcileOnBoot: false,
+    cfg, state, store, sandbox, emit: (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ extra) => emitted.push({ event, ref, step, ...extra }), startedAt: new Date().toISOString(), reconcileOnBoot: false,
     adapter: {
       registerWebhook: async () => void order.push("register"),
       unregisterWebhooks: async () => {},
@@ -52,7 +54,7 @@ function harness(sb) {
     state.control?.close();
     state.server.close();
   };
-  return { serve, store, order, advanced, cleanup };
+  return { serve, store, order, advanced, emitted, cleanup };
 }
 
 /** Run `fn` with console.log/error captured. @param {() => Promise<any>} fn */
@@ -81,16 +83,47 @@ test("boot: a sandbox whose check() fails rejects serve() before ingress.up", as
   }
 });
 
-test("boot: reaped container names are logged, then recoverInterrupted still fails the interrupted run", async () => {
-  const h = harness({ reap: async () => ["ah-p-7-code-aaaa"] });
+test("boot: reaped containers/networks are logged with the run(s) they came from, then recoverInterrupted still fails the interrupted run", async () => {
+  const h = harness({ reap: async () => ({ containers: ["a", "b", "c"], networks: ["n1"], runs: ["12/code"] }) });
   h.store.setRunning("7", { stepId: "code", startedAt: new Date().toISOString(), worktree: "/w", model: null });
   try {
     const { result, lines } = await captured(() => h.serve());
     assert.equal(result, undefined, String(result?.stack));
     assert.deepEqual(h.order, ["ingress.up", "register", "reap", "recover"]);
-    assert.ok(lines.some((l) => l.includes("[recover] removed 1 orphaned sandbox container(s): ah-p-7-code-aaaa")), lines.join("\n"));
+    assert.ok(lines.includes("[recover] reaped 3 container(s), 1 network(s) left by run 12/code"), lines.join("\n"));
+    assert.deepEqual(h.emitted.find((e) => e.event === "sandbox_reaped"), { event: "sandbox_reaped", ref: "", step: "", containers: 3, networks: 1, runs: ["12/code"] });
     assert.equal(h.advanced[0].outcome, "fail");
     assert.equal(h.advanced[0].reason, "interrupted by restart");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("boot: no runs labels → 'left by a previous run'; nothing reaped → no line, no event", async () => {
+  const h = harness({ reap: async () => ({ containers: ["a"], networks: [], runs: [] }) });
+  try {
+    const { lines } = await captured(() => h.serve());
+    assert.ok(lines.includes("[recover] reaped 1 container(s), 0 network(s) left by a previous run"), lines.join("\n"));
+  } finally {
+    h.cleanup();
+  }
+
+  const h2 = harness({ reap: async () => ({ containers: [], networks: [], runs: [] }) });
+  try {
+    const { lines } = await captured(() => h2.serve());
+    assert.ok(!lines.some((l) => l.includes("[recover] reaped")), lines.join("\n"));
+    assert.ok(!h2.emitted.some((e) => e.event === "sandbox_reaped"));
+  } finally {
+    h2.cleanup();
+  }
+});
+
+test("boot: networks-only leftovers (0 containers) still log the line and emit the event", async () => {
+  const h = harness({ reap: async () => ({ containers: [], networks: ["n1"], runs: [] }) });
+  try {
+    const { lines } = await captured(() => h.serve());
+    assert.ok(lines.includes("[recover] reaped 0 container(s), 1 network(s) left by a previous run"), lines.join("\n"));
+    assert.deepEqual(h.emitted.find((e) => e.event === "sandbox_reaped"), { event: "sandbox_reaped", ref: "", step: "", containers: 0, networks: 1, runs: [] });
   } finally {
     h.cleanup();
   }

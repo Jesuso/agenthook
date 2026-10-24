@@ -178,7 +178,11 @@ export function createServe(deps) {
       if (sandbox) {
         try {
           const reaped = await sandbox.reap();
-          if (reaped.length) console.log(`[recover] removed ${reaped.length} orphaned sandbox container(s): ${reaped.join(", ")}`);
+          if (reaped.containers.length || reaped.networks.length) {
+            const left = reaped.runs.length ? `run ${reaped.runs.join(", ")}` : "a previous run";
+            console.log(`[recover] reaped ${reaped.containers.length} container(s), ${reaped.networks.length} network(s) left by ${left}`);
+            emit("sandbox_reaped", "", "", { containers: reaped.containers.length, networks: reaped.networks.length, runs: reaped.runs });
+          }
         } catch (e) {
           console.error("[recover] sandbox reap failed (continuing):", e.message);
         }

@@ -118,29 +118,58 @@ test("check(): a runtime binary that can't spawn is a reason, not a throw", asyn
 test("reap(): rm -f exactly the containers ps returned (by profile label), and drops leftover homes", async () => {
   const cfg = tmpCfg();
   fs.mkdirSync(path.join(cfg.stateDir, "sandbox-home", "ah-p-1-code-aaaa"), { recursive: true });
-  const s = stubRun({ ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-2-review-bbbb\n" } });
-  const names = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).reap();
-  assert.deepEqual(names, ["ah-p-1-code-aaaa", "ah-p-2-review-bbbb"]);
+  const s = stubRun({
+    ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-2-review-bbbb\n" },
+    "inspect --format": { code: 0, stdout: "/ah-p-1-code-aaaa\t1\tcode\n/ah-p-2-review-bbbb\t2\treview\n" },
+  });
+  const reaped = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).reap();
+  assert.deepEqual(reaped, { containers: ["ah-p-1-code-aaaa", "ah-p-2-review-bbbb"], networks: [], runs: ["1/code", "2/review"] });
   assert.ok(s.calls[0].includes("label=agenthook.profile=p"));
-  assert.deepEqual(s.calls[1].slice(1), ["rm", "-f", "ah-p-1-code-aaaa", "ah-p-2-review-bbbb"]);
+  assert.deepEqual(s.calls[2].slice(1), ["rm", "-f", "ah-p-1-code-aaaa", "ah-p-2-review-bbbb"]);
   assert.equal(fs.existsSync(path.join(cfg.stateDir, "sandbox-home")), false);
   const none = stubRun({ ps: { code: 0, stdout: "" } });
-  assert.deepEqual(await createContainerSandbox(cfg, { runtime: "docker", run: none.run }).reap(), []);
+  assert.deepEqual(await createContainerSandbox(cfg, { runtime: "docker", run: none.run }).reap(), { containers: [], networks: [], runs: [] });
   assert.deepEqual(none.calls.map((c) => c.slice(1, 3)), [["ps", "-a"], ["network", "ls"]], "no rm with nothing to remove");
 });
 
 test("reap(): also removes the profile's labelled networks (after the containers) and leftover egress dirs", async () => {
   const cfg = tmpCfg();
   fs.mkdirSync(path.join(cfg.stateDir, "egress", "ah-p-1-code-aaaa"), { recursive: true });
-  const s = stubRun({ ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-1-code-aaaa-proxy\n" }, "network ls": { code: 0, stdout: "n1\nn2\n" } });
-  await createContainerSandbox(cfg, { runtime: "podman", run: s.run }).reap();
+  const s = stubRun({
+    ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-1-code-aaaa-proxy\n" },
+    "inspect --format": { code: 0, stdout: "/ah-p-1-code-aaaa\t1\tcode\n/ah-p-1-code-aaaa-proxy\t\t\n" },
+    "network ls": { code: 0, stdout: "n1\nn2\n" },
+  });
+  const reaped = await createContainerSandbox(cfg, { runtime: "podman", run: s.run }).reap();
   assert.deepEqual(s.calls.map((c) => c.slice(1)), [
     ["ps", "-a", "--filter", "label=agenthook.profile=p", "--format", "{{.Names}}"],
+    ["inspect", "--format", '{{.Name}}\t{{index .Config.Labels "agenthook.ref"}}\t{{index .Config.Labels "agenthook.step"}}', "ah-p-1-code-aaaa", "ah-p-1-code-aaaa-proxy"],
     ["rm", "-f", "ah-p-1-code-aaaa", "ah-p-1-code-aaaa-proxy"],
     ["network", "ls", "-q", "--filter", "label=agenthook.profile=p"],
     ["network", "rm", "n1", "n2"],
   ]);
+  assert.deepEqual(reaped, { containers: ["ah-p-1-code-aaaa", "ah-p-1-code-aaaa-proxy"], networks: ["n1", "n2"], runs: ["1/code"] });
   assert.equal(fs.existsSync(path.join(cfg.stateDir, "egress")), false);
+});
+
+test("reap(): an inspect failure (older runtime, or no ref/step label) still reaps, with runs: []", async () => {
+  const cfg = tmpCfg();
+  const s = stubRun({ ps: { code: 0, stdout: "ah-p-1-code-aaaa\n" }, "inspect --format": { code: 1, stderr: "no such command" } });
+  const reaped = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).reap();
+  assert.deepEqual(reaped, { containers: ["ah-p-1-code-aaaa"], networks: [], runs: [] });
+});
+
+test("reap(): runs is deduped — an agent, its service and its proxy from the same run share one entry", async () => {
+  const cfg = tmpCfg();
+  const s = stubRun({
+    ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-1-code-aaaa-svc-db\nah-p-1-code-aaaa-proxy\n" },
+    "inspect --format": {
+      code: 0,
+      stdout: "/ah-p-1-code-aaaa\t1\tcode\n/ah-p-1-code-aaaa-svc-db\t1\tcode\n/ah-p-1-code-aaaa-proxy\t1\tcode\n",
+    },
+  });
+  const reaped = await createContainerSandbox(cfg, { runtime: "docker", run: s.run }).reap();
+  assert.deepEqual(reaped.runs, ["1/code"]);
 });
 
 test("wrap(): a per-run 0700 HOME with mountpoints for dst-under-home mounts; kill ignores No such container; done removes HOME", async () => {
@@ -383,8 +412,10 @@ test("check(): allowlist with a custom sandbox.image also requires the built-in 
 });
 
 test("proxyArgs: hardened, labelled, script read-only, egress dir rw", () => {
-  const a = proxyArgs({ runtime: "docker", id: "ah-p-1-c-abcd", stateKey: "p", uid: 1, gid: 2, egressDir: "/s/egress/ah-p-1-c-abcd", network: "ah-p-1-c-abcd-net" });
+  const a = proxyArgs({ runtime: "docker", id: "ah-p-1-c-abcd", stateKey: "p", ref: "1", stepId: "c", uid: 1, gid: 2, egressDir: "/s/egress/ah-p-1-c-abcd", network: "ah-p-1-c-abcd-net" });
   assert.deepEqual(a.slice(0, 6), ["run", "-d", "--rm", "--init", "--pull", "never"]);
+  const i = a.indexOf("agenthook.profile=p");
+  assert.deepEqual(a.slice(i - 1, i + 5), ["--label", "agenthook.profile=p", "--label", "agenthook.ref=1", "--label", "agenthook.step=c"]);
   assert.ok(a.includes("no-new-privileges"));
   assert.ok(a.includes("type=bind,src=/s/egress/ah-p-1-c-abcd,dst=/egress"));
 });
@@ -398,12 +429,14 @@ test("containerArgs: a file mask binds /dev/null read-only, a dir mask an empty 
 
 // --- services (#529) ---
 
-test("serviceArgs: the fixed ADR 0007 hardening, the network alias, --pull never, the profile label, env by name only", () => {
-  const a = serviceArgs({ id: "ah-p-42-code-abcd", stateKey: "p", name: "db", network: "ah-p-42-code-abcd-net", image: "postgres:16.4", env: { POSTGRES_PASSWORD: "s3cret", POSTGRES_DB: "app" } });
+test("serviceArgs: the fixed ADR 0007 hardening, the network alias, --pull never, the profile/ref/step labels, env by name only", () => {
+  const a = serviceArgs({ id: "ah-p-42-code-abcd", stateKey: "p", ref: "42", stepId: "code", name: "db", network: "ah-p-42-code-abcd-net", image: "postgres:16.4", env: { POSTGRES_PASSWORD: "s3cret", POSTGRES_DB: "app" } });
   assert.deepEqual(a, [
     "run", "-d", "--init", "--pull", "never",
     "--name", "ah-p-42-code-abcd-svc-db",
     "--label", "agenthook.profile=p",
+    "--label", "agenthook.ref=42",
+    "--label", "agenthook.step=code",
     "--network", "ah-p-42-code-abcd-net",
     "--network-alias", "db",
     "--cap-drop", "ALL",
@@ -417,7 +450,7 @@ test("serviceArgs: the fixed ADR 0007 hardening, the network alias, --pull never
   ]);
   for (const flag of ["--user", "--userns=keep-id", "--mount", "-v", "-p", "--publish", "--privileged"]) assert.ok(!a.includes(flag), flag);
   assert.ok(!a.some((x) => x.includes("s3cret") || x === "app"), "no env value reaches argv");
-  const b = serviceArgs({ id: "x", stateKey: "p", name: "cache", network: "x-net", image: "redis:7", memory: "256m", cpus: 0.5 });
+  const b = serviceArgs({ id: "x", stateKey: "p", ref: "1", stepId: "c", name: "cache", network: "x-net", image: "redis:7", memory: "256m", cpus: 0.5 });
   assert.equal(b[b.indexOf("--memory") + 1], "256m");
   assert.equal(b[b.indexOf("--cpus") + 1], "0.5");
   assert.ok(!b.includes("-e"));
@@ -466,7 +499,7 @@ test("wrap() allowlist + services: network, then each service (env via the runne
   ]);
   assert.deepEqual(s.calls[2].slice(1), ["exec", `${r.id}-svc-db`, "pg_isready", "-U", "postgres"]);
   const db = s.calls[1].slice(1);
-  assert.deepEqual(db, serviceArgs({ id: r.id, stateKey: "p", name: "db", network: `${r.id}-net`, image: "postgres:16.4", env: SERVICES.db.env }));
+  assert.deepEqual(db, serviceArgs({ id: r.id, stateKey: "p", ref: "42", stepId: "code", name: "db", network: `${r.id}-net`, image: "postgres:16.4", env: SERVICES.db.env }));
   assert.deepEqual(s.opts[1].env, { POSTGRES_PASSWORD: "s3cret" }, "the service env reaches the runner, not argv");
   assert.deepEqual(s.opts[5].env, {}, "a service with no env");
   assert.equal(s.calls[5][s.calls[5].indexOf("--name") + 1], `${r.id}-svc-cache`);
@@ -628,8 +661,8 @@ test("reap(): service containers go with the rest of the profile's (by label)", 
   const s = stubRun({ ps: { code: 0, stdout: "ah-p-1-code-aaaa\nah-p-1-code-aaaa-svc-db\nah-p-1-code-aaaa-proxy\n" }, "network ls": { code: 0, stdout: "n1\n" } });
   await createContainerSandbox(svcCfg(), { runtime: "docker", run: s.run }).reap();
   assert.ok(s.calls[0].includes("label=agenthook.profile=p"));
-  assert.deepEqual(s.calls[1].slice(1), ["rm", "-f", "ah-p-1-code-aaaa", "ah-p-1-code-aaaa-svc-db", "ah-p-1-code-aaaa-proxy"]);
-  assert.deepEqual(s.calls[3].slice(1), ["network", "rm", "n1"]);
+  assert.deepEqual(s.calls[2].slice(1), ["rm", "-f", "ah-p-1-code-aaaa", "ah-p-1-code-aaaa-svc-db", "ah-p-1-code-aaaa-proxy"]);
+  assert.deepEqual(s.calls[4].slice(1), ["network", "rm", "n1"]);
 });
 
 test("check(): every sandboxed step's service images are inspected; a missing one names the pull to run", async () => {

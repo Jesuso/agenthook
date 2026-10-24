@@ -35,8 +35,10 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `createSandbox` returns null and runs spawn on the host. Interface: `describe() → {name, home}`,
   `check() → {ok, reason?}` (runtime + image present; boot refuses on `!ok`), `wrap({runId, ref,
   stepId, bin, args, env, cwd, mounts, step}) → {bin, args, env, id, kill, done}` (the argv that
-  runs the agent in a fresh container; env passed by name only), `reap() → names[]` (remove every
-  container labelled with this profile's `stateKey`). `names.js` `isSandboxed(cfg, step)` — a step's
+  runs the agent in a fresh container; env passed by name only), `reap() → {containers, networks, runs}`
+  (force-remove every container and network labelled with this profile's `stateKey`; `runs` is the
+  distinct `"<ref>/<step>"` values read, best-effort, from the removed containers' `agenthook.ref`/
+  `agenthook.step` labels). `names.js` `isSandboxed(cfg, step)` — a step's
   `sandbox: false` opts out. `src/dispatch/sandbox.js` holds the engine-blind run plumbing: the
   mount list (worktree, common git dir with `config`/`hooks` read-only, per-run verdict dir, the
   agent's own mounts from `AgentAdapter.sandbox()`), the container/runtime env split, and the git

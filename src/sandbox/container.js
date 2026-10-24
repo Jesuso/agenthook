@@ -141,7 +141,7 @@ export function containerArgs(o) {
 /**
  * The `<runtime> run` argv of a run's egress proxy (after the runtime binary). Pure. Same
  * hardening and uid mapping as the agent's container; always the built-in image (it has node).
- * @param {{runtime: string, id: string, stateKey: string, uid: number, gid: number, egressDir: string, network: string}} o
+ * @param {{runtime: string, id: string, stateKey: string, ref: string, stepId: string, uid: number, gid: number, egressDir: string, network: string}} o
  * @returns {string[]}
  */
 export function proxyArgs(o) {
@@ -149,6 +149,8 @@ export function proxyArgs(o) {
     "run", "-d", "--rm", "--init", "--pull", "never",
     "--name", `${o.id}-proxy`,
     "--label", `agenthook.profile=${o.stateKey}`,
+    "--label", `agenthook.ref=${o.ref}`,
+    "--label", `agenthook.step=${o.stepId}`,
     "--network", o.network,
     "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges",
@@ -173,7 +175,7 @@ const SERVICE_CAPS = ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"];
  * no `--user`/`--userns` (the image's own user — database entrypoints start as root to chown
  * their data dir, then drop privileges) and the fixed SERVICE_CAPS on top of `--cap-drop ALL`.
  * Still no mounts, no published ports, no host env, and no-new-privileges.
- * @param {{id: string, stateKey: string, name: string, network: string, image: string, env?: Record<string, string>, memory?: string, cpus?: number}} o
+ * @param {{id: string, stateKey: string, ref: string, stepId: string, name: string, network: string, image: string, env?: Record<string, string>, memory?: string, cpus?: number}} o
  * @returns {string[]}
  */
 export function serviceArgs(o) {
@@ -181,6 +183,8 @@ export function serviceArgs(o) {
     "run", "-d", "--init", "--pull", "never",
     "--name", `${o.id}-svc-${o.name}`,
     "--label", `agenthook.profile=${o.stateKey}`,
+    "--label", `agenthook.ref=${o.ref}`,
+    "--label", `agenthook.step=${o.stepId}`,
     "--network", o.network,
     "--network-alias", o.name,
     "--cap-drop", "ALL",
@@ -396,8 +400,8 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
           }
           net.started.network = true;
           await must(["network", "create", "--internal", "--label", `agenthook.profile=${cfg.stateKey}`, net.network], `\`${bin} network create\``);
-          for (const n of services) await startService(net, id, n, catalog[n]);
-          if (net.proxy) await startEgress(net);
+          for (const n of services) await startService(net, id, n, catalog[n], ref, stepId);
+          if (net.proxy) await startEgress(net, ref, stepId);
         } catch (e) {
           await teardownNet(net);
           if (net.dir) rmDir(net.dir);
@@ -441,6 +445,24 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       const ps = await run(bin, ["ps", "-a", "--filter", `label=agenthook.profile=${cfg.stateKey}`, "--format", "{{.Names}}"], { timeoutMs: 30_000 });
       if (ps.code !== 0) throw new Error(`\`${bin} ps\` failed: ${firstLine(ps)}`);
       const names = ps.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+      // Best-effort: read each container's ref/step labels before removing it, so boot can name
+      // the run(s) the leftovers came from. A container predating this change (or an inspect
+      // failure) has no label and is simply skipped — it still gets reaped below.
+      /** @type {Set<string>} */
+      const runs = new Set();
+      if (names.length) {
+        const inspect = await run(
+          bin,
+          ["inspect", "--format", '{{.Name}}\t{{index .Config.Labels "agenthook.ref"}}\t{{index .Config.Labels "agenthook.step"}}', ...names],
+          { timeoutMs: 30_000 },
+        ).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+        if (inspect.code === 0) {
+          for (const line of inspect.stdout.split("\n")) {
+            const [, ref, step] = line.split("\t");
+            if (ref && step) runs.add(`${ref}/${step}`);
+          }
+        }
+      }
       if (names.length) {
         const rm = await run(bin, ["rm", "-f", ...names], { timeoutMs: 60_000 });
         if (rm.code !== 0) throw new Error(`\`${bin} rm -f\` failed: ${firstLine(rm)}`);
@@ -456,7 +478,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       // Every run's container is gone now, so every per-run HOME / egress dir left behind is an orphan.
       fs.rmSync(homes, { recursive: true, force: true });
       fs.rmSync(egressDirs, { recursive: true, force: true });
-      return names;
+      return { containers: names, networks: netIds, runs: [...runs] };
     },
   };
 
@@ -464,13 +486,13 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
    * Bring up one run's egress proxy on its (already created) internal network, with the rules
    * already in its dir, then its leg to the outside, then wait for its `ready` file. Throws on
    * any step; the caller tears down what was started.
-   * @param {RunNet} e
+   * @param {RunNet} e @param {string} ref @param {string} stepId
    */
-  async function startEgress(e) {
+  async function startEgress(e, ref, stepId) {
     if (!e.proxy || !e.dir) return;
     e.started.proxy = true;
     const id = e.proxy.slice(0, -"-proxy".length);
-    await must(proxyArgs({ runtime, id, stateKey: cfg.stateKey, uid: hostUid(), gid: hostGid(), egressDir: e.dir, network: e.network }), "egress proxy start");
+    await must(proxyArgs({ runtime, id, stateKey: cfg.stateKey, ref, stepId, uid: hostUid(), gid: hostGid(), egressDir: e.dir, network: e.network }), "egress proxy start");
     await must(["network", "connect", DEFAULT_NETWORK[runtime], e.proxy], `\`${bin} network connect ${DEFAULT_NETWORK[runtime]}\``);
     const ready = path.join(e.dir, "ready");
     const deadline = Date.now() + readyTimeoutMs;
@@ -488,9 +510,9 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
    * Start one service on the run's network (its env passed by name through the runner), then
    * poll its `wait` probe via `exec` until it exits 0. Throws naming the service and its last
    * log lines; the caller tears down what was started.
-   * @param {RunNet} e @param {string} id @param {string} name @param {import('../types.js').ServiceConfig} svc
+   * @param {RunNet} e @param {string} id @param {string} name @param {import('../types.js').ServiceConfig} svc @param {string} ref @param {string} stepId
    */
-  async function startService(e, id, name, svc) {
+  async function startService(e, id, name, svc, ref, stepId) {
     const container = `${id}-svc-${name}`;
     /** @param {string} msg */
     const failed = async (msg) => {
@@ -498,7 +520,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       return new Error(`service "${name}" ${msg}${tail ? ` — last log lines: ${tail}` : ""}`);
     };
     e.started.services.push(container);
-    const r = await run(bin, serviceArgs({ id, stateKey: cfg.stateKey, name, network: e.network, image: svc.image, env: svc.env, memory: svc.memory, cpus: svc.cpus }), { timeoutMs: 60_000, env: svc.env ?? {} })
+    const r = await run(bin, serviceArgs({ id, stateKey: cfg.stateKey, ref, stepId, name, network: e.network, image: svc.image, env: svc.env, memory: svc.memory, cpus: svc.cpus }), { timeoutMs: 60_000, env: svc.env ?? {} })
       .catch((err) => ({ code: 1, stdout: "", stderr: err.message }));
     if (r.code !== 0) throw await failed(`failed to start: ${firstLine(r)}`);
     if (!svc.wait) return;
