@@ -137,6 +137,13 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             ×
           </IconButton>
         </header>
+        {/* Why it needs you, in full: the Needs-you row only has room for one truncated line. */}
+        {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
+          <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
+            <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? "Why it failed" : "What the agent is asking"}</p>
+            <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
+          </div>
+        )}
         {ticket?.summary && (
           <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
             {ticket.summary}
