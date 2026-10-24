@@ -418,8 +418,22 @@ export default function App() {
 function Shell({ children, ...bar }: { children: React.ReactNode; connection: ConnectionState; nav?: ProfileNav }) {
   return (
     <div className="min-h-screen bg-bg text-fg font-sans">
+      {/* The router owns the hash, so the skip link focuses <main> itself instead of navigating. */}
+      <a
+        href="#main"
+        data-skip-link
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-1 focus:text-label focus:text-fg"
+      >
+        Skip to content
+      </a>
       <AppBar {...bar} />
-      <main className="p-4">{children}</main>
+      <main id="main" tabIndex={-1} className="p-4 focus:outline-none">
+        {children}
+      </main>
     </div>
   );
 }

@@ -54,6 +54,12 @@ const rowCount = (html: string) => (html.match(/data-ticket-row=/g) ?? []).lengt
 const many = (n: number) => Array.from({ length: n }, (_, i) => ticket({ ref: String(1000 + i) }));
 
 describe("TicketsTable", () => {
+  it("opens a row from the keyboard via its title button, and names dismiss after the ticket", () => {
+    const html = render([ticket({ ref: "7", displayId: "#7", status: "failed" })]);
+    expect(html).toMatch(/<button[^>]*data-ticket-open/);
+    expect(html).toContain('aria-label="dismiss #7"');
+  });
+
   it("renders the first 50 rows and a show-more button with the remainder", () => {
     const html = render(many(60));
     expect(rowCount(html)).toBe(50);
@@ -101,7 +107,7 @@ describe("TicketsTable", () => {
     const reason = "y".repeat(150);
     const html = render([ticket({ ref: "2", status: "held", heldReason: reason, title: "A long title" })]);
     expect(html).toContain(`<span title="${reason}"><span class="block max-w-64 truncate">${reason}</span></span>`);
-    expect(html).toMatch(/<div title="A long title" class="min-w-40 max-w-md truncate max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 ">A long title<\/div>/);
+    expect(html).toMatch(/<button type="button" data-ticket-open="true" title="A long title" class="block min-w-40 max-w-md truncate [^"]*">A long title<\/button>/);
   });
 
   it("shows the model alias with the full id as its tooltip", () => {

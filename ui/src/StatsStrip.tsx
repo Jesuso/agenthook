@@ -51,12 +51,12 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
             {sum.finished} finished <span className="text-muted">({sum.avgFinished.toFixed(1)}/day)</span> · {formatSpend({ reported: sum.costUsd, est: sum.estUsd }) || "$0"}
             {sum.finished > 0 && sum.costUsd + sum.estUsd > 0 && <span className="text-muted"> ({formatSpend({ reported: sum.costUsd / sum.finished, est: sum.estUsd / sum.finished })}/ticket)</span>}
             {sum.energyKwh > 0 && <span className="text-muted" data-stats-energy> · {formatEnergy(sum)}</span>}
-            {sum.unestimatedRuns > 0 && <span className="text-faint" data-stats-unestimated> · {sum.unestimatedRuns} run{sum.unestimatedRuns === 1 ? "" : "s"} no estimate</span>}
+            {sum.unestimatedRuns > 0 && <span className="text-muted" data-stats-unestimated> · {sum.unestimatedRuns} run{sum.unestimatedRuns === 1 ? "" : "s"} no estimate</span>}
           </p>
           <Suspense fallback={<div className="h-[210px]" aria-hidden="true" />}>
             <StatsChart days={days} />
           </Suspense>
-          <p className="mt-2 text-meta text-faint" data-stats-foot>
+          <p className="mt-2 text-meta text-muted" data-stats-foot>
             {sum.reworkRate !== null ? `Rework ${Math.round(sum.reworkRate * 100)}% of ${sum.runs} runs` : `${sum.runs} runs`}
             {sum.bestDay ? ` · best day ${shortDate(sum.bestDay.date)} (${sum.bestDay.finished})` : ""}
             {stats?.since ? ` · history since ${shortDate(stats.since.slice(0, 10))}` : ""}

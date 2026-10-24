@@ -42,6 +42,14 @@ describe("Overview", () => {
     expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-digest"));
   });
 
+  it("names every row action after its ticket and announces the headline politely", () => {
+    const html = render(profile({ forge: "github" }), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toContain('aria-label="Dismiss #f"');
+    expect(html).toContain('aria-label="Release #h…"');
+    expect(html).toMatch(/aria-live="polite" data-needs-live[^>]*>2 tickets need you</);
+    expect(render(profile(), [])).toMatch(/data-needs-live[^>]*>All clear, nothing needs you</);
+  });
+
   it("lists failed before held, with the reason and a Dismiss action only on failed", () => {
     const html = render(profile(), [
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8) }),

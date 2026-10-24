@@ -201,6 +201,13 @@ body {
 }
 
 @layer base {
+  /* One focus ring for every control, including ones that carry no focus-visible utility of their
+   * own (native select, segmented buttons, tabs). Utilities still win where a control styles it. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
   select option,
   select optgroup {
     background-color: var(--color-surface);

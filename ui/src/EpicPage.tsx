@@ -85,7 +85,7 @@ function TicketList({ tickets, local, onOpen }: { tickets: EpicDetailTicket[]; l
             <span className="min-w-0 flex-1 truncate" title={t.name}>
               {t.name}
             </span>
-            {t.stage && <span className="shrink-0 text-meta text-faint">{t.stage}</span>}
+            {t.stage && <span className="shrink-0 text-meta text-muted">{t.stage}</span>}
             {t.status && <StatusBadge status={t.status} />}
           </>
         );

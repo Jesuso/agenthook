@@ -72,9 +72,14 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose.current();
     };
+    // Focus moves into the drawer and back to whatever opened it (the row's title) on close.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     window.addEventListener("keydown", onKey);
     dialog.current?.focus();
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
 
   const list = runs.kind === "ok" ? runs.runs : [];

@@ -70,7 +70,7 @@ export default function StatsChart({ days }: { days: DayStats[] }) {
           <div className="font-mono text-muted">{d.costUsd ? `${formatCost(d.costUsd)}${cpt ? ` · ${axisDollars(cpt)}/ticket` : ""}` : "no spend"}</div>
         </div>
       )}
-      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-meta text-faint" aria-hidden="true">
+      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-meta text-muted" aria-hidden="true">
         <span className="flex items-center gap-1">
           <span className="inline-block size-2 rounded-sm bg-[var(--profile-accent,var(--color-accent))]" /> tickets finished
         </span>

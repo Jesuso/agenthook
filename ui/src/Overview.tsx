@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ProfileView, Snapshot, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatDuration, formatModel, formatQuota, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
@@ -14,6 +14,8 @@ import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, TicketId } from "
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
+import { Modal } from "./Modal";
+import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
 
@@ -53,6 +55,8 @@ export function Overview(props: OverviewProps) {
   const needs = needsYouItems(scoped.tickets, forge);
   const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
+  const [help, setHelp] = useState(false);
+  useNeedsYouKeys(setHelp);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -93,6 +97,11 @@ export function Overview(props: OverviewProps) {
 
       {!profile.up && <StoppedBanner profile={profile} />}
 
+      {/* Screen readers hear the headline change (a ticket arrives or is handled), not every re-render. */}
+      <p className="sr-only" aria-live="polite" data-needs-live>
+        {needs.length === 0 ? "All clear, nothing needs you" : `${needs.length} ${needs.length === 1 ? "ticket needs" : "tickets need"} you`}
+      </p>
+
       <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
@@ -129,6 +138,19 @@ export function Overview(props: OverviewProps) {
 
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
+
+      {help && (
+        <Modal title="Keyboard shortcuts" onClose={() => setHelp(false)}>
+          <dl data-shortcuts className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body">
+            {OVERVIEW_SHORTCUTS.map((s) => (
+              <div key={s.keys} className="contents">
+                <dt><kbd className="rounded-sm border border-border bg-surface-raised px-1.5 font-mono text-label">{s.keys}</kbd></dt>
+                <dd className="text-muted">{s.what}</dd>
+              </div>
+            ))}
+          </dl>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -249,10 +271,49 @@ function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease
         <button type="button" disabled={busy} onClick={onClose} className={LINK}>
           Cancel
         </button>
-        <span className="ml-auto text-meta text-faint">⌘/Ctrl + Enter to release</span>
+        <span className="ml-auto text-meta text-muted">⌘/Ctrl + Enter to release</span>
       </div>
     </div>
   );
+}
+
+/**
+ * j/k walk the Needs-you rows (focusing each title, so Enter opens it), r opens the focused held
+ * row's answer box, d dismisses the focused failed row, ? shows the shortcut sheet. Acts through the
+ * rows' own buttons, so a shortcut can never do what a click could not.
+ */
+function useNeedsYouKeys(setHelp: (open: boolean) => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = overviewAction(e, !!document.querySelector('[role="dialog"]'));
+      if (!action) return;
+      if (action === "help") {
+        e.preventDefault();
+        return setHelp(true);
+      }
+      const titles = [...document.querySelectorAll<HTMLElement>("[data-needs-open]")];
+      const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-needs-row]");
+      if (action === "next" || action === "prev") {
+        if (!titles.length) return;
+        e.preventDefault();
+        const at = row ? titles.findIndex((t) => row.contains(t)) : -1;
+        const to = at === -1 ? (action === "next" ? 0 : titles.length - 1) : Math.min(titles.length - 1, Math.max(0, at + (action === "next" ? 1 : -1)));
+        titles[to].focus();
+        return;
+      }
+      const button = row?.querySelector<HTMLElement>(action === "release" ? "[data-release-open]" : "[data-needs-dismiss]");
+      if (!button) return;
+      e.preventDefault();
+      if (action === "dismiss") {
+        // Keep the keyboard in the list: focus the next row (or the previous at the end) first.
+        const at = titles.findIndex((t) => row!.contains(t));
+        (titles[at + 1] ?? titles[at - 1])?.focus();
+      }
+      button.click();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setHelp]);
 }
 
 /** The headline count takes the tone of the worst thing waiting: failed, then held. */
@@ -271,10 +332,15 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
   }
   return (
     <section>
-      <h2 className="mb-3 flex items-baseline gap-2">
-        <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>
-        <span className="text-title font-semibold">{items.length === 1 ? "needs you" : "need you"}</span>
-      </h2>
+      <div className="mb-3 flex items-baseline gap-2">
+        <h2 className="flex items-baseline gap-2">
+          <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>
+          <span className="text-title font-semibold">{items.length === 1 ? "needs you" : "need you"}</span>
+        </h2>
+        <p className="ml-auto text-label text-muted max-sm:hidden" data-keys-hint>
+          <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">?</kbd> shortcuts
+        </p>
+      </div>
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
           const { ticket: t, kind, reason, since } = item;
@@ -285,7 +351,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
               <div className="group flex items-center gap-3 px-3 py-2">
                 <span className="w-[4.5rem] shrink-0"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
-                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                <button type="button" data-needs-open className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
                   <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
                   {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
                 </button>
@@ -298,16 +364,16 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
                 <span className="w-28 shrink-0 text-right" data-needs-primary>
                   {kind === "held" ? (
                     releasing !== t.ref && (
-                      <button type="button" data-release-open className={ACTION} onClick={() => setReleasing(t.ref)}>
+                      <button type="button" data-release-open aria-label={`Release ${t.displayId}…`} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
                         Release…
                       </button>
                     )
                   ) : kind === "failed" ? (
-                    <button type="button" className={ACTION} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
+                    <button type="button" data-needs-dismiss aria-label={`Dismiss ${t.displayId}`} aria-keyshortcuts="d" className={ACTION} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
                       Dismiss
                     </button>
                   ) : t.prUrl ? (
-                    <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer">
+                    <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer" aria-label={`Open PR ${pr ? `#${pr}` : ""} for ${t.displayId} (new tab)`}>
                       PR {pr ? `#${pr}` : ""} ↗
                     </a>
                   ) : null}
@@ -400,7 +466,7 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
           )}
         </Tile>
       </dl>
-      <p className="mt-1 text-meta text-faint">Today, yesterday and the rework rate come from the last ~48 h of events.</p>
+      <p className="mt-1 text-meta text-muted">Today, yesterday and the rework rate come from the last ~48 h of events.</p>
       <StatsStrip profile={profile} feed={feed} />
     </Zone>
   );
