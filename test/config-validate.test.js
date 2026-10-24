@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig, validateRawConfig, literalSecrets, SECRET_FIELDS, registryDir } from "../src/config.js";
 import { isEnvRef } from "../src/ui/sensitive.js";
+import { EGRESS_PROXY_ENV_KEYS } from "../src/sandbox/names.js";
 
 for (const v of ["ASANA_TOKEN", "GITHUB_TOKEN", "NGROK_AUTHTOKEN", "AH_UNSET_VAR"]) delete process.env[v];
 // A case loadConfig wrongly accepts would create this state dir; never leave it behind.
@@ -484,6 +485,15 @@ test("sandbox.services / step services (#529): a valid catalog passes; each stru
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: ["A=1"] } })), [`config: "sandbox.services.db" env must be an object of NAME: "value" strings.`]);
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { "BAD-NAME": "x" } } })), [`config: "sandbox.services.db" agentEnv key "BAD-NAME" is not a valid variable name.`]);
   assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { AGENTHOOK_VERDICT_FILE: "/x" } } })), [`config: "sandbox.services.db" agentEnv key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`]);
+  for (const mode of [undefined, "allowlist", "open", "none"]) {
+    const sandbox = mode == null ? { type: "podman", services: { db: { image: "postgres:16", agentEnv: { HTTPS_PROXY: "http://evil" } } } } : { type: "podman", egress: { mode }, services: { db: { image: "postgres:16", agentEnv: { HTTPS_PROXY: "http://evil" } } } };
+    assert.deepEqual(errs(raw({ sandbox }, [{ id: "code", services: ["db"] }])), [`config: "sandbox.services.db" agentEnv key HTTPS_PROXY is reserved (the sandbox's egress proxy sets it).`], `mode ${mode}`);
+  }
+  for (const k of EGRESS_PROXY_ENV_KEYS) {
+    assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { [k]: "x" } } })), [`config: "sandbox.services.db" agentEnv key ${k} is reserved (the sandbox's egress proxy sets it).`], k);
+    assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: { [k]: "x" } } })), [], `${k} in env (not agentEnv) is still accepted`);
+  }
+  assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", agentEnv: { HTTPS_PROXY_X: "x", MY_NO_PROXY: "x" } } })), [], "look-alike names are still accepted");
   for (const k of ["DOCKER_HOST", "PATH", "HOME", "XDG_RUNTIME_DIR", "CONTAINER_HOST", "LD_PRELOAD"]) {
     assert.deepEqual(errs(withSvc({ db: { image: "postgres:16", env: { [k]: "x" } } })), [`config: "sandbox.services.db" env key ${k} is reserved: service env reaches the docker/podman client that starts the service, and ${k} would reconfigure it.`], k);
   }

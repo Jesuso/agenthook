@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { containerArgs, containerName, createContainerSandbox, egressReport, execRun, proxyArgs, serviceArgs, serviceImages, DEFAULT_NETWORK, SANDBOX_HOME } from "../src/sandbox/container.js";
 import { SANDBOXES, createSandbox } from "../src/sandbox/index.js";
-import { SANDBOX_NAMES, isSandboxed } from "../src/sandbox/names.js";
+import { SANDBOX_NAMES, isSandboxed, EGRESS_PROXY_ENV_KEYS } from "../src/sandbox/names.js";
 import { DEFAULT_IMAGE, AGENT_DOCKERFILE, buildImageArgs } from "../src/sandbox/image.js";
 
 /** @param {Partial<Parameters<typeof containerArgs>[0]>} [o] */
@@ -249,7 +249,7 @@ for (const runtime of /** @type {const} */ (["docker", "podman"])) {
 
     assert.equal(r.args[r.args.indexOf("--network") + 1], `${r.id}-net`);
     const names = r.args.flatMap((x, i) => (x === "-e" ? [r.args[i + 1]] : []));
-    for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY", "YARN_HTTPS_PROXY", "YARN_HTTP_PROXY"]) assert.ok(names.includes(k), k);
+    for (const k of EGRESS_PROXY_ENV_KEYS) assert.ok(names.includes(k), k);
     assert.ok(!r.args.some((a) => a.includes("-proxy:3128")), "no proxy URL (no env value) in argv");
     assert.equal(r.env.HTTPS_PROXY, `http://${r.id}-proxy:3128`);
     assert.equal(r.env.http_proxy, `http://${r.id}-proxy:3128`);
