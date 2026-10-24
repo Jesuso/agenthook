@@ -280,6 +280,25 @@ test("runChecks: no claimed-port warning when nothing collides", async () => {
   assert.ok(!checks.some((c) => c.warn && /is also configured by profile/.test(c.label)));
 });
 
+test("runChecks: does not warn about the current profile's own port", async () => {
+  const { cfg } = cleanProfile();
+  const claimedPorts = ({ exclude } = {}) =>
+    [{ port: cfg.port, stateKey: cfg.stateKey, name: cfg.name }].filter((c) => c.stateKey !== exclude?.stateKey);
+  const checks = await runChecks(cfg, io({ claimedPorts }));
+  assert.ok(!checks.some((c) => c.warn && /is also configured by profile/.test(c.label)));
+});
+
+test("runChecks: passes exclude.stateKey matching cfg.stateKey to claimedPorts", async () => {
+  const { cfg } = cleanProfile();
+  let received;
+  const claimedPorts = (opts) => {
+    received = opts;
+    return [];
+  };
+  await runChecks(cfg, io({ claimedPorts }));
+  assert.equal(received?.exclude?.stateKey, cfg.stateKey);
+});
+
 test("uiBundleState: no ui/src → no-src, quiet even with no dist", () => {
   const srcDir = path.join(tmp(), "absent-src");
   const distDir = tmp();

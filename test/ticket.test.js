@@ -13,7 +13,6 @@ import { ticket, ticketBody, ticketRows } from "../src/commands/ticket.js";
 import { TICKET_BODY_MAX } from "../src/ops.js";
 import { firstFreePort } from "../src/port.js";
 import { loadConfig, registryDir } from "../src/config.js";
-import net from "node:net";
 import { tildify } from "../src/profile.js";
 import { parse, HELP } from "../bin/agenthook.js";
 
@@ -125,8 +124,11 @@ function registerOther(port) {
   return { name: label, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
-/** Run `init({ ...opts, local: true })` in `repo`, capturing console.log lines. @param {string} repo @param {Record<string, any>} opts */
-async function initLocalCapturing(repo, opts) {
+/** Run `init({ ...opts, local: true })` in `repo`, capturing console.log lines. An injected
+ * `inUse` (default: nothing is listening) keeps the port auto-pick independent of the host's
+ * actual open ports. @param {string} repo @param {Record<string, any>} opts
+ * @param {(port: number) => Promise<boolean>} [inUse] */
+async function initLocalCapturing(repo, opts, inUse = async () => false) {
   /** @type {string[]} */
   const lines = [];
   const prev = process.cwd();
@@ -135,7 +137,7 @@ async function initLocalCapturing(repo, opts) {
   console.log = (/** @type {any[]} */ ...a) => lines.push(a.join(" "));
   console.warn = () => {};
   try {
-    await init({ _: [], local: true, ...opts });
+    await init({ _: [], local: true, ...opts }, { inUse });
   } finally {
     process.chdir(prev);
     Object.assign(console, { log, warn });
@@ -170,8 +172,9 @@ test("init --local: nothing skipped prints a plain port line", async () => {
   const out = path.join(repo, "agenthook.config.json");
   const lines = await initLocalCapturing(repo, { yes: true, name: "ah-init-plain", config: out });
   const config = JSON.parse(fs.readFileSync(out, "utf8"));
+  assert.equal(config.port, 4123);
   const portLine = lines.find((l) => /^ {2}port /.test(l));
-  assert.equal(portLine, `  port    ${config.port}`);
+  assert.equal(portLine, `  port    4123`);
 });
 
 test("init --local --port <n>: writes the exact port when it's free and unclaimed", async () => {
@@ -182,16 +185,13 @@ test("init --local --port <n>: writes the exact port when it's free and unclaime
 });
 
 test("init --local --port <n>: errors (and writes nothing) when the port is listening", async () => {
-  const server = net.createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = /** @type {net.AddressInfo} */ (server.address());
   const repo = freshRepo("ah-init-port-busy-");
   const out = path.join(repo, "agenthook.config.json");
-  try {
-    await assert.rejects(() => initLocalCapturing(repo, { yes: true, name: "ah-init-port-busy", port: String(port), config: out }), /is already in use/);
-  } finally {
-    server.close();
-  }
+  const inUse = async (/** @type {number} */ p) => p === 5001;
+  await assert.rejects(
+    () => initLocalCapturing(repo, { yes: true, name: "ah-init-port-busy", port: "5001", config: out }, inUse),
+    /is already in use/,
+  );
   assert.ok(!fs.existsSync(out));
 });
 
@@ -224,6 +224,7 @@ test("init --local --force over an existing profile keeps its own claimed port (
   const out = path.join(repo, "agenthook.config.json");
   await initLocalCapturing(repo, { yes: true, name: "ah-init-reforce", config: out });
   const first = JSON.parse(fs.readFileSync(out, "utf8")).port;
+  assert.equal(first, 4123);
   const dir = path.join(registryDir, "ah-init-reforce");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ configPath: out, stateKey: "ah-init-reforce", name: "ah-init-reforce" }));
