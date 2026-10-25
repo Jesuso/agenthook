@@ -17,3 +17,4 @@ export { TicketId } from "./TicketId";
 export { ReceiverStatus } from "./ReceiverStatus";
 export { CopyCommand } from "./CopyCommand";
 export { ShowHide } from "./ShowHide";
+export { ShortcutSheet, ShortcutsButton } from "./ShortcutSheet";

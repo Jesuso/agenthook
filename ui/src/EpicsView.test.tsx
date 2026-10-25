@@ -13,7 +13,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const list = (over: Partial<EpicsResponse>) => html(createElement(EpicsList, { body: { at: "t", live: true, supported: true, epics: [], ...over }, profile: "dev" }));
 const ok = async () => ({ ok: true as const, text: "" });
 const page = (over: Partial<EpicResponse>, rows: TicketRow[] = [], actions: Partial<EpicActions> = {}) =>
-  html(createElement(EpicPage, { body: { at: "t", live: true, supported: true, epic: null, ...over }, profile: "dev", rows, onOpen: () => {}, actions: { up: true, forge: false, onRelease: ok, onRetry: ok, ...actions } }));
+  html(createElement(EpicPage, { body: { at: "t", live: true, supported: true, epic: null, ...over }, profile: "dev", rows, onOpen: () => {}, actions: { up: true, onRelease: ok, onRetry: ok, onDismiss: () => {}, ...actions } }));
 const row = (ref: string) => ({ profile: "dev", ref }) as TicketRow;
 
 describe("EpicsView", () => {
@@ -174,7 +174,7 @@ describe("EpicPage", () => {
 });
 
 describe("EpicStageBar", () => {
-  const bar = (byStage: Record<string, number>, total: number, forge = false) => html(createElement(EpicStageBar, { epic: { byStage, total } as never, forge }));
+  const bar = (byStage: Record<string, number>, total: number, awaiting = 0) => html(createElement(EpicStageBar, { epic: { byStage, total } as never, awaiting }));
   const seg = (out: string, b: string) => out.match(new RegExp(`<span[^>]*data-seg="${b}"[^>]*>`))?.[0] ?? "";
   it("marks only the running segment so it slides (epic-seg-running)", () => {
     const out = bar({ merged: 1, finished: 0, running: 2, needsYou: 0, backlog: 1, untracked: 0 }, 4);
@@ -185,12 +185,12 @@ describe("EpicStageBar", () => {
   it("has no animated segment when nothing is running", () => {
     expect(bar({ merged: 2, finished: 0, running: 0, needsYou: 0, backlog: 2, untracked: 0 }, 4)).not.toContain("epic-seg-running");
   });
-  it("with a forge, merged is solid and finished (not merged) hollow, both in the done hue and named so", () => {
-    const out = bar({ merged: 2, finished: 2, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 4, true);
+  it("hollow awaiting merge only for the counted tickets with a known PR; the rest of finished stays solid", () => {
+    const out = bar({ merged: 2, finished: 3, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 5, 1);
     expect(seg(out, "merged")).toContain("bg-status-done");
-    expect(seg(out, "finished")).toContain("ring-status-done");
-    expect(seg(out, "finished")).not.toContain("bg-status-done ");
-    expect(out).toContain("2 awaiting merge");
+    expect(seg(out, "finished")).not.toContain("ring-status-done");
+    expect(seg(out, "awaiting")).toContain("ring-status-done");
+    expect(out).toContain("2 finished, 1 awaiting merge");
     expect(bar({ merged: 0, finished: 2, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 2)).not.toContain("ring-status-done");
   });
 });
@@ -222,7 +222,11 @@ describe("EpicPage actions and pace", () => {
   const needs = (out: string) => out.slice(out.indexOf('data-group="needsYou"'), out.indexOf('data-group="backlog"'));
   const failed = { profile: "dev", ref: "n1", status: "failed", failReason: "Tests failed", startedAt: null, step: "build" } as unknown as TicketRow;
   it("a failed ticket offers Re-run while the receiver is up, Open log while it is down", () => {
-    expect(needs(page({ epic: detail }, [failed]))).toContain(">Re-run</button>");
+    const up = needs(page({ epic: detail }, [failed]));
+    expect(up).toContain(">Re-run…</button>");
+    expect(up).toContain('aria-label="Re-run n1 (build)…"');
+    expect(up).toContain("data-epic-dismiss");
+    expect(up).toContain("bg-accent/10");
     const down = needs(page({ epic: detail }, [failed], { up: false }));
     expect(down).toContain(">Open log</button>");
     expect(down).not.toContain("Re-run");
@@ -250,28 +254,33 @@ describe("EpicPage actions and pace", () => {
 });
 
 describe("Epics round 3", () => {
-  it("with a forge, finished tickets sit open under Awaiting merge with their PR, and the fold is just Merged", () => {
-    const tickets = [epicTicket("f1", "finished"), epicTicket("f2", "finished"), epicTicket("m1", "merged"), epicTicket("b1", "backlog")];
+  it("Awaiting merge only on evidence: a recorded, unmerged PR; finished without one is just finished (CONTEXT.md)", () => {
+    const tickets = [epicTicket("f1", "finished"), epicTicket("f2", "finished"), epicTicket("f3", "finished"), epicTicket("m1", "merged"), epicTicket("b1", "backlog")];
     const detail = epicDetail({ ref: "E1" }, tickets);
-    const withPr = { ...row("f1"), prUrl: "https://github.com/o/r/pull/42" } as TicketRow;
-    const out = page({ epic: detail }, [withPr], { forge: true });
+    const withPr = { ...row("f1"), prUrl: "https://github.com/o/r/pull/42", prState: "ready" } as TicketRow;
+    const mergedPr = { ...row("f3"), prUrl: "https://github.com/o/r/pull/43", prState: "merged" } as TicketRow;
+    const out = page({ epic: detail }, [withPr, mergedPr]);
     const at = (g: string) => out.indexOf(`data-group="${g}"`);
-    expect(at("finished")).toBeGreaterThan(-1);
-    expect(at("finished")).toBeLessThan(at("backlog"));
-    const awaiting = out.slice(at("finished"), at("backlog"));
+    expect(at("awaiting")).toBeGreaterThan(-1);
+    expect(at("awaiting")).toBeLessThan(at("backlog"));
+    const awaiting = out.slice(at("awaiting"), at("backlog"));
     expect(awaiting).toContain("Awaiting merge");
     expect(awaiting).toContain('href="https://github.com/o/r/pull/42"');
     expect(awaiting).toContain("PR #42");
-    expect(awaiting).toContain("no PR recorded");
+    expect(awaiting).not.toContain('data-epic-ticket="f2"');
+    expect(awaiting).not.toContain('data-epic-ticket="f3"');
+    expect(out).not.toContain("no PR recorded");
     const history = out.slice(at("history"));
-    expect(history).toContain(">Merged<");
-    expect(history).toContain('data-epic-ticket="m1"');
-    expect(history).not.toContain('data-epic-ticket="f1"');
+    expect(history).toContain(">Finished and merged<");
+    for (const r of ["f2", "f3", "m1"]) expect(history).toContain(`data-epic-ticket="${r}"`);
+    expect(out).toContain('aria-label="4 of 5 finished: 1 merged, 2 finished, 1 awaiting merge, 1 backlog"');
   });
-  it("without a forge, finished stays in a Finished fold", () => {
-    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished")]) });
-    expect(out).not.toContain('data-group="finished"');
-    expect(out.slice(out.indexOf('data-group="history"'))).toContain('data-epic-ticket="f1"');
+  it("no recorded PRs: no Awaiting merge section, nothing hollow, history titled by what it holds", () => {
+    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished"), epicTicket("m1", "merged")]) });
+    expect(out).not.toContain('data-group="awaiting"');
+    expect(out).not.toContain("ring-status-done");
+    expect(page({ epic: epicDetail({ ref: "E1" }, [epicTicket("m1", "merged")]) })).toContain(">Merged<");
+    expect(page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished")]) })).toContain(">Finished<");
   });
   it("heading counts are read aloud with their noun", () => {
     const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("b1", "backlog"), epicTicket("b2", "backlog")]) });

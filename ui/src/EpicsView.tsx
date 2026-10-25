@@ -6,11 +6,10 @@ import type { Loaded } from "./epics";
 import { EpicStageBar } from "./EpicStageBar";
 import { Count, EpicPage, LiveNote, paceOf } from "./EpicPage";
 import { useDisclosure } from "./disclosure";
-import { CopyCommand, EmptyState, Pill, ProfileMark } from "./components";
-import { Modal } from "./Modal";
+import { CopyCommand, EmptyState, Pill, ProfileMark, ShortcutSheet, ShortcutsButton } from "./components";
 import { profileLabel } from "./format";
 import { hashFor } from "./route";
-import { EPICS_SHORTCUTS, epicsAction } from "./shortcuts";
+import { EPICS_SHORTCUTS, epicsAction, shortcutsEnabled } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
 
@@ -22,7 +21,7 @@ const QUIET = "rounded-md px-2 py-1 text-label text-muted hover:bg-surface-raise
  * silently after a REFETCH_DEBOUNCE_MS quiet period, and a failed refetch keeps the last good data
  * under the error. No timer polling. One profile at a time (ADR 0001).
  */
-export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, onRelease, onRetry }: { profile: ProfileView; epic?: string; rows: TicketRow[]; ticketsNonce: number; onOpen: (t: Ref) => void; onRelease?: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry?: (t: Ref) => Promise<ReleaseOutcome> }) {
+export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, onRelease, onRetry, onDismiss }: { profile: ProfileView; epic?: string; rows: TicketRow[]; ticketsNonce: number; onOpen: (t: Ref) => void; onRelease?: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry?: (t: Ref) => Promise<ReleaseOutcome>; onDismiss?: (t: Ref) => void }) {
   // Tagged with the route it answers, so a previous route's response (the list, another epic) never renders under this one.
   const [data, setData] = useState<{ route: string; result: Loaded<EpicsResponse | EpicResponse> } | null>(null);
   const [good, setGood] = useState<{ route: string; body: EpicsResponse | EpicResponse } | null>(null);
@@ -98,9 +97,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
           <span className="font-normal text-muted">· {profileLabel(profile)}</span>
         </h1>
         <span className="ml-auto flex items-center gap-1">
-          <button type="button" className={QUIET} aria-label="Keyboard shortcuts" aria-keyshortcuts="?" title="Keyboard shortcuts (?)" data-epics-help onClick={() => setHelp(true)}>
-            ?
-          </button>
+          <ShortcutsButton onClick={() => setHelp(true)} />
           <button
             type="button"
             data-refresh
@@ -144,24 +141,11 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
       )}
       {body &&
         ("epic" in body ? (
-          <EpicPage body={body} profile={profile.name} rows={rows} onOpen={onOpen} actions={{ up: profile.up, forge: !!profile.forge, onRelease, onRetry }} />
+          <EpicPage body={body} profile={profile.name} rows={rows} onOpen={onOpen} actions={{ up: profile.up, onRelease, onRetry, onDismiss }} />
         ) : (
-          <EpicsList body={body} profile={profile.name} forge={!!profile.forge} focusRef={cameFrom} />
+          <EpicsList body={body} profile={profile.name} focusRef={cameFrom} />
         ))}
-      {help && (
-        <Modal title="Keyboard shortcuts" onClose={() => setHelp(false)}>
-          <dl data-shortcuts className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body">
-            {EPICS_SHORTCUTS.map((s) => (
-              <div key={s.keys} className="contents">
-                <dt>
-                  <kbd className="rounded-sm border border-border bg-surface-raised px-1.5 font-mono text-label">{s.keys}</kbd>
-                </dt>
-                <dd className="text-muted">{s.what}</dd>
-              </div>
-            ))}
-          </dl>
-        </Modal>
-      )}
+      {help && <ShortcutSheet rows={EPICS_SHORTCUTS} onClose={() => setHelp(false)} />}
     </div>
   );
 }
@@ -174,7 +158,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
 function useEpicsKeys(setHelp: (open: boolean) => void, upHref: string | null) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const action = epicsAction(e, !!document.querySelector('[role="dialog"]'));
+      const action = shortcutsEnabled() ? epicsAction(e, !!document.querySelector('[role="dialog"]')) : null;
       if (!action) return;
       if (action === "help") {
         e.preventDefault();
@@ -205,7 +189,7 @@ function useEpicsKeys(setHelp: (open: boolean) => void, upHref: string | null) {
  * nothing is open (the fold's state is remembered per tab). `focusRef` (the epic just left) gets
  * focus back on return, opening Closed first when its row is in there.
  */
-export function EpicsList({ body, profile, forge = false, focusRef }: { body: EpicsResponse; profile: string; forge?: boolean; focusRef?: string }) {
+export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; profile: string; focusRef?: string }) {
   const { open, completed } = body.supported ? splitCompleted(body.epics) : { open: [], completed: [] };
   const [closedOpen, setClosedOpen] = useDisclosure(`${profile}:closed`, open.length === 0);
   const back = focusRef ? completed.some((e) => e.ref === focusRef) : false;
@@ -225,7 +209,7 @@ export function EpicsList({ body, profile, forge = false, focusRef }: { body: Ep
       {open.length > 0 && (
         <ul className="rounded-lg border border-border bg-surface" data-epics-open>
           {open.map((e) => (
-            <EpicRow key={e.ref} e={e} profile={profile} needCol={needCol} noteCol={noteCol} forge={forge} />
+            <EpicRow key={e.ref} e={e} profile={profile} needCol={needCol} noteCol={noteCol} />
           ))}
         </ul>
       )}
@@ -260,7 +244,7 @@ export function EpicsList({ body, profile, forge = false, focusRef }: { body: Ep
  * link. A closed row drops the bar and the status (the "Closed" header already says it) for a
  * muted ticket count, so closed epics never outweigh open ones.
  */
-function EpicRow({ e, profile, closed, needCol, noteCol, forge = false }: { e: EpicStats; profile: string; closed?: boolean; needCol?: boolean; noteCol?: boolean; forge?: boolean }) {
+function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profile: string; closed?: boolean; needCol?: boolean; noteCol?: boolean }) {
   const href = hashFor({ kind: "profile", profile, view: "epics", epic: e.ref });
   const need = e.needsYou.length;
   // The link is what j/k focus and a screen reader names: it carries the row's state by reference.
@@ -293,7 +277,7 @@ function EpicRow({ e, profile, closed, needCol, noteCol, forge = false }: { e: E
       ) : (
         <>
           <span className="shrink-0 sm:w-28 sm:text-right">{e.status && <span id={`${id}-status`}><span className="sr-only">tracker status </span><Pill>{e.status}</Pill></span>}</span>
-          <EpicStageBar epic={e} forge={forge} id={`${id}-bar`} />
+          <EpicStageBar epic={e} id={`${id}-bar`} />
           {noteCol && (
             <span id={`${id}-note`} className="w-28 shrink-0 text-label text-muted" data-eta>
               <RowNote e={e} />

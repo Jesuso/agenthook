@@ -669,10 +669,16 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   a failed refetch keeps the last good data under the error, 503 offers `agenthook start`, and a 404
   links back to the list.
 - **Keys** (`shortcuts.ts` `epicsAction`, read-only): j / k walk epics on the list and tickets on a
-  page, Enter opens, u goes back to the list, ? (or the "?" button) shows the sheet.
+  page, Enter opens, u goes back to the list, ? (or the "?" button) shows the sheet. The sheet
+  (`ShortcutSheet`, shared with the Overview, which gets the same "?" button) has a switch that turns
+  every single-key shortcut off, per browser (WCAG 2.1.4). The shared `Modal` is named by its title,
+  takes focus, keeps Tab inside, has a Close button and hands focus back on close.
 - **One stage bar** (`EpicStageBar.tsx`) on both pages, named "N of M finished: …" for screen
-  readers. With a forge, merged is solid and finished is hollow and named "awaiting merge". Every
-  label comes from one map (`bucketLabel`: untracked reads "not on the board"). The key with counts
+  readers. Merged is the strongest fill, finished the same green lighter, and **awaiting merge** is a
+  hollow segment drawn only on evidence: a finished ticket whose PR is recorded and not merged (the
+  page knows it from local rows; the list never draws it). A finished ticket with no recorded PR is
+  just finished (CONTEXT.md). Every label comes from one map (`segLabel`: untracked reads "not on the
+  board"). The key with counts
   (`StageKey`) sits under the bar on a page; the list has none (`N/M · k left` says it).
 - **List** (`EpicsView.tsx`): one row per epic, the whole row a link — needs-you count first (when any
   open epic has one), then id and name, tracker `status`, the bar with `N/M · k left`, and one note
@@ -690,11 +696,12 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   pass with work left; the ETA with its basis, "3 left at 0.3/day: ~10 d · Nov 4", or the real reason
   there is none: nothing finished yet, or fewer than 3 days with finished work). Then **Needs you**:
   each ticket's held question, fail reason or "PR ready to merge", its step and age, and its action
-  named as on the Overview: **Release…** (the answer box opens inline), **Re-run** (Open log while
-  the receiver is down), **Review PR**, or the tracker when it never ran here; the name opens the
-  drawer. Then Running; with a forge, **Awaiting merge** (finished, PR not merged: each with its PR
-  link or "no PR recorded"); Backlog; "Not on the board"; and history folded (Merged with a forge,
-  else Finished). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when its URL
+  named as on the Overview: **Release…** (the answer box opens inline), **Re-run…** (asks once
+  inline, naming the step; Open log while the receiver is down) with a quieter **Dismiss** (Undo in
+  the toast), **Review PR**, or the tracker when it never ran here; the name opens the drawer. Writes
+  are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only tickets with a recorded, unmerged PR, each with its
+  PR link); Backlog; "Not on the board"; and the rest folded, titled by what it holds ("Finished and
+  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when its URL
   derives from the epic's (`ticketUrl`), marked "tracker ↗" and announced as a new tab, else a row
   that says "never ran here, no link".
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { epicsAction, isUndoKey, overviewAction } from "./shortcuts";
+import { epicsAction, isUndoKey, overviewAction, setShortcutsEnabled, shortcutsEnabled } from "./shortcuts";
 
 const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; target: unknown }> = {}) =>
   ({ key: k, metaKey: false, ctrlKey: false, altKey: false, target: { tagName: "BUTTON" }, ...over }) as Parameters<typeof overviewAction>[0];
@@ -44,5 +44,12 @@ describe("epicsAction", () => {
     expect(epicsAction(key("j", { target: { tagName: "INPUT" } as unknown as EventTarget }), false)).toBeNull();
     expect(epicsAction(key("j", { ctrlKey: true }), false)).toBeNull();
     expect(epicsAction(key("j"), true)).toBeNull();
+  });
+});
+
+describe("shortcutsEnabled", () => {
+  it("stays on, and never throws, where there is no storage", () => {
+    expect(() => setShortcutsEnabled(false)).not.toThrow();
+    expect(shortcutsEnabled()).toBe(true);
   });
 });

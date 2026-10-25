@@ -10,15 +10,14 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShowHide, TicketId } from "./components";
+import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
-import { Modal } from "./Modal";
 import { ReleasePanel } from "./ReleasePanel";
 import { dismissKey } from "./deferredDismiss";
 import { failureSummary } from "./failure";
-import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
+import { OVERVIEW_SHORTCUTS, overviewAction, shortcutsEnabled } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
 
@@ -94,6 +93,7 @@ export function Overview(props: OverviewProps) {
           </div>
           <div className="ml-auto flex items-center gap-2">
             {props.note && <span className="text-label text-status-held">{props.note}</span>}
+            <ShortcutsButton onClick={() => setHelp(true)} />
             <Menu label="profile actions" items={props.menuItems} />
           </div>
         </div>
@@ -167,18 +167,7 @@ export function Overview(props: OverviewProps) {
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
 
-      {help && (
-        <Modal title="Keyboard shortcuts" onClose={() => setHelp(false)}>
-          <dl data-shortcuts className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body">
-            {OVERVIEW_SHORTCUTS.map((s) => (
-              <div key={s.keys} className="contents">
-                <dt><kbd className="rounded-sm border border-border bg-surface-raised px-1.5 font-mono text-label">{s.keys}</kbd></dt>
-                <dd className="text-muted">{s.what}</dd>
-              </div>
-            ))}
-          </dl>
-        </Modal>
-      )}
+      {help && <ShortcutSheet rows={OVERVIEW_SHORTCUTS} onClose={() => setHelp(false)} />}
     </div>
   );
 }
@@ -266,7 +255,7 @@ const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raise
 function useNeedsYouKeys(setHelp: (open: boolean) => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const action = overviewAction(e, !!document.querySelector('[role="dialog"]'));
+      const action = shortcutsEnabled() ? overviewAction(e, !!document.querySelector('[role="dialog"]')) : null;
       if (!action) return;
       if (action === "help") {
         e.preventDefault();

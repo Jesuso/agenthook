@@ -279,6 +279,12 @@ export default function App() {
       .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
       .catch(() => settle(0, null));
   };
+  /** Dismiss a failed ticket, toasting it with Undo (Overview and the epic page share it). */
+  const dismiss = (t: { profile: string; ref: string }) => {
+    dismissal.dismiss(t);
+    const id = displayIdFor(t.profile, t.ref) ?? t.ref;
+    setToast({ text: `Dismissed ${id}`, hint: null, undo: () => dismissal.undo(t) });
+  };
   /** POST /api/retry for a failed ticket, toasting the outcome. */
   const retry = (t: { profile: string; ref: string }): Promise<ReleaseOutcome> => {
     const { url, init } = retryRequest(t.profile, t.ref);
@@ -369,6 +375,7 @@ export default function App() {
             onOpen={setOpen}
             onRelease={release}
             onRetry={retry}
+            onDismiss={dismiss}
           />
         </Suspense>
       );
@@ -399,11 +406,7 @@ export default function App() {
           onRelease={release}
           onRetry={retry}
           dismissing={dismissal.pending}
-          onDismiss={(t) => {
-            dismissal.dismiss(t);
-            const id = snapshot.tickets.find((x) => x.profile === t.profile && x.ref === t.ref)?.displayId ?? t.ref;
-            setToast({ text: `Dismissed ${id}`, hint: null, undo: () => dismissal.undo(t) });
-          }}
+          onDismiss={dismiss}
         />
       );
     }

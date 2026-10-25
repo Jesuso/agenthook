@@ -52,3 +52,26 @@ export function epicsAction(e: KeyLike, dialogOpen: boolean): EpicsAction | null
   if (editable(e.target)) return null;
   return EPIC_KEYS[e.key] ?? null;
 }
+
+const OFF_KEY = "ah-shortcuts-off";
+
+/**
+ * Single-character shortcuts can be switched off (WCAG 2.1.4: speech input fires them by accident).
+ * Per browser, in localStorage; storage that is absent or throws leaves them on.
+ */
+export function shortcutsEnabled(): boolean {
+  try {
+    return localStorage.getItem(OFF_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
+
+export function setShortcutsEnabled(on: boolean): void {
+  try {
+    if (on) localStorage.removeItem(OFF_KEY);
+    else localStorage.setItem(OFF_KEY, "1");
+  } catch {
+    // a per-browser convenience only
+  }
+}
