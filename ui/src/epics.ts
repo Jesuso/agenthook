@@ -60,7 +60,7 @@ export const BUCKET_LABEL: Record<EpicBucket, string> = {
   running: "running",
   needsYou: "needs you",
   backlog: "backlog",
-  untracked: "untracked",
+  untracked: "not on the board",
 };
 
 /** N/M: N = finished + merged, M = every ticket. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isUndoKey, overviewAction } from "./shortcuts";
+import { epicsAction, isUndoKey, overviewAction } from "./shortcuts";
 
 const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; target: unknown }> = {}) =>
   ({ key: k, metaKey: false, ctrlKey: false, altKey: false, target: { tagName: "BUTTON" }, ...over }) as Parameters<typeof overviewAction>[0];
@@ -27,5 +27,22 @@ describe("isUndoKey", () => {
     expect(isUndoKey(z({ ctrlKey: true, shiftKey: true }))).toBe(false);
     expect(isUndoKey(z({}))).toBe(false);
     expect(isUndoKey(z({ ctrlKey: true, target: { tagName: "TEXTAREA" } }))).toBe(false);
+  });
+});
+
+describe("epicsAction", () => {
+  const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; target: EventTarget | null }> = {}) => ({ key: k, metaKey: false, ctrlKey: false, altKey: false, target: null, ...over });
+  it("maps j/k/u/? and nothing that writes", () => {
+    expect(epicsAction(key("j"), false)).toBe("next");
+    expect(epicsAction(key("k"), false)).toBe("prev");
+    expect(epicsAction(key("u"), false)).toBe("up");
+    expect(epicsAction(key("?"), false)).toBe("help");
+    expect(epicsAction(key("r"), false)).toBeNull();
+    expect(epicsAction(key("d"), false)).toBeNull();
+  });
+  it("passes through while typing, with a modifier, or under a dialog", () => {
+    expect(epicsAction(key("j", { target: { tagName: "INPUT" } as unknown as EventTarget }), false)).toBeNull();
+    expect(epicsAction(key("j", { ctrlKey: true }), false)).toBeNull();
+    expect(epicsAction(key("j"), true)).toBeNull();
   });
 });

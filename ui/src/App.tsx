@@ -266,6 +266,32 @@ export default function App() {
       .catch(() => report(0, null));
   };
   const displayIdFor = (profile: string, ref: string) => snapshot.tickets.find((t) => t.profile === profile && t.ref === ref)?.displayId ?? null;
+  /** POST /api/release for a held ticket, toasting the outcome (Overview and the epic page share it). */
+  const release = (t: { profile: string; ref: string }, comment: string): Promise<ReleaseOutcome> => {
+    const { url, init } = releaseRequest(t.profile, t.ref, comment);
+    const label = displayIdFor(t.profile, t.ref) ?? t.ref;
+    const settle = (status: number, body: any) => {
+      const out = releaseOutcome(label, status, body);
+      if (out.ok) setToast({ text: out.text, hint: null });
+      return out;
+    };
+    return fetch(url, init)
+      .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
+      .catch(() => settle(0, null));
+  };
+  /** POST /api/retry for a failed ticket, toasting the outcome. */
+  const retry = (t: { profile: string; ref: string }): Promise<ReleaseOutcome> => {
+    const { url, init } = retryRequest(t.profile, t.ref);
+    const label = displayIdFor(t.profile, t.ref) ?? t.ref;
+    const settle = (status: number, body: any) => {
+      const out = retryOutcome(label, status, body);
+      if (out.ok) setToast({ text: out.text, hint: null });
+      return out;
+    };
+    return fetch(url, init)
+      .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
+      .catch(() => settle(0, null));
+  };
   // The ⋯ menu: Home cards and the profile header share it. Pending states come from App's reducers.
   const menuItems = (p: ProfileView): MenuItem[] => {
     const pending = pendingRemoval[p.name] !== undefined;
@@ -341,6 +367,8 @@ export default function App() {
             rows={snapshot.tickets.filter((t) => t.profile === profile.name)}
             ticketsNonce={ticketsNonce}
             onOpen={setOpen}
+            onRelease={release}
+            onRetry={retry}
           />
         </Suspense>
       );
@@ -368,30 +396,8 @@ export default function App() {
           displayIdFor={displayIdFor}
           menuItems={menuItems(profile)}
           note={noteFor(profile)}
-          onRelease={(t, comment): Promise<ReleaseOutcome> => {
-            const { url, init } = releaseRequest(t.profile, t.ref, comment);
-            const label = displayIdFor(t.profile, t.ref) ?? t.ref;
-            const settle = (status: number, body: any) => {
-              const out = releaseOutcome(label, status, body);
-              if (out.ok) setToast({ text: out.text, hint: null });
-              return out;
-            };
-            return fetch(url, init)
-              .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
-              .catch(() => settle(0, null));
-          }}
-          onRetry={(t): Promise<ReleaseOutcome> => {
-            const { url, init } = retryRequest(t.profile, t.ref);
-            const label = displayIdFor(t.profile, t.ref) ?? t.ref;
-            const settle = (status: number, body: any) => {
-              const out = retryOutcome(label, status, body);
-              if (out.ok) setToast({ text: out.text, hint: null });
-              return out;
-            };
-            return fetch(url, init)
-              .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
-              .catch(() => settle(0, null));
-          }}
+          onRelease={release}
+          onRetry={retry}
           dismissing={dismissal.pending}
           onDismiss={(t) => {
             dismissal.dismiss(t);

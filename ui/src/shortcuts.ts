@@ -33,3 +33,22 @@ const editable = (target: EventTarget | null) => {
 export function isUndoKey(e: KeyLike & { shiftKey: boolean }): boolean {
   return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && !editable(e.target);
 }
+
+export type EpicsAction = "next" | "prev" | "up" | "help";
+
+/** The Epics view's sheet: read-only keys (nothing here writes; Release and Re-run stay buttons). */
+export const EPICS_SHORTCUTS: { keys: string; what: string }[] = [
+  { keys: "j / k", what: "Move to the next / previous epic (on an epic's page: ticket)" },
+  { keys: "Enter", what: "Open the focused epic or ticket" },
+  { keys: "u", what: "Back to the epics list" },
+  { keys: "?", what: "Show this list (Esc closes it)" },
+];
+
+const EPIC_KEYS: Record<string, EpicsAction> = { j: "next", k: "prev", u: "up", "?": "help" };
+
+/** The Epics view's action for a keydown, under the same rules as the Overview's. */
+export function epicsAction(e: KeyLike, dialogOpen: boolean): EpicsAction | null {
+  if (dialogOpen || e.metaKey || e.ctrlKey || e.altKey) return null;
+  if (editable(e.target)) return null;
+  return EPIC_KEYS[e.key] ?? null;
+}

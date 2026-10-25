@@ -15,6 +15,7 @@ import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
 import { Modal } from "./Modal";
+import { ReleasePanel } from "./ReleasePanel";
 import { dismissKey } from "./deferredDismiss";
 import { failureSummary } from "./failure";
 import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
@@ -256,56 +257,6 @@ const QUIET = "inline-block rounded-md px-2 py-0.5 text-label text-muted hover:b
 const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
-/** The inline answer form under a held row: an optional comment for the agent, then Release. */
-function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease: OverviewProps["onRelease"]; onClose: () => void }) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const t = item.ticket;
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    const out = await onRelease({ profile: t.profile, ref: t.ref }, text);
-    if (out.ok) return onClose();
-    setBusy(false);
-    setError(out.error);
-  };
-  return (
-    <div data-release-panel={t.ref} className="flex flex-col gap-2 border-t border-border-subtle bg-surface-raised px-3 py-3">
-      <label className="flex flex-col gap-1 text-label text-muted">
-        Answer for the agent (optional) — added to its prompt when it re-runs {t.step ?? "the step"}
-        <textarea
-          autoFocus
-          rows={3}
-          maxLength={8000}
-          value={text}
-          disabled={busy}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") onClose();
-            else if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy) void submit();
-          }}
-          className="rounded border border-border bg-surface px-2 py-1 text-body text-fg focus-visible:outline-2 focus-visible:outline-accent"
-        />
-      </label>
-      {error && (
-        <p role="alert" className="text-label text-status-failed">
-          {error}
-        </p>
-      )}
-      <div className="flex items-center gap-2">
-        <button type="button" disabled={busy} onClick={() => void submit()} className="rounded-md bg-accent px-3 py-1 text-label font-medium text-accent-fg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
-          {busy ? "Releasing…" : "Release"}
-        </button>
-        <button type="button" disabled={busy} onClick={onClose} className={LINK}>
-          Cancel
-        </button>
-        <span className="ml-auto text-meta text-muted">⌘/Ctrl + Enter to release</span>
-      </div>
-    </div>
-  );
-}
-
 /**
  * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
  * its live log), r opens the focused held row's answer box or re-runs the focused failed one, d
@@ -469,7 +420,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                   Couldn't re-run {t.displayId}: {rerun.error}
                 </p>
               )}
-              {kind === "held" && releasing === t.ref && <ReleasePanel item={item} onRelease={onRelease} onClose={() => setReleasing(null)} />}
+              {kind === "held" && releasing === t.ref && <ReleasePanel ticket={item.ticket} onRelease={onRelease} onClose={() => setReleasing(null)} />}
             </li>
           );
         })}
