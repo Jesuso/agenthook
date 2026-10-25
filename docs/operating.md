@@ -135,7 +135,7 @@ See [events.md](events.md) for every field; this just says what to do.
 | `ci_red` | look at `action`: `rerun`/`bounced`/`deferred` handle themselves; `skipped` may need you |
 | `merged` | release the ref's dependents (see epics, below) |
 | `blocked` | answer with `@agent` on the ticket, or `release` |
-| `failed` | inspect the run log, then `run` again or `dismiss` |
+| `failed` | inspect the run log, then `retry` (the dashboard's **Re-run**) or `dismiss` |
 | `move_refused` | ticket is stuck in its stage — fix ownership/assignment, or move it by hand |
 | `overlap_held` | wait for `overlap_released`, or reprioritise the blocker |
 | `epic_changed` | re-read `epics` — the cached read was dropped |

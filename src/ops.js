@@ -453,6 +453,45 @@ export function createOps(deps) {
         reason: accepted ? "queued" : "a run for this step is queued or running, or the receiver is shutting down",
       };
     }),
+    // Re-run a FAILED ticket's failed step (the dashboard's recovery action). Unlike `run`, the
+    // ticket must rest failed (not running/queued/held, not dismissed or re-run since), the step
+    // comes from that failure, and the ticket must already be ours: retry never assigns (a ticket
+    // someone took over stays theirs — fail-closed scoping). The tracker move re-enters the step's
+    // source stage, so its webhook fires the step exactly like `run`. A ticket still resting IN the
+    // source stage (no failure stage configured) gets no webhook from a no-op move: queue it here.
+    retry: write("retry", async (args) => {
+      const ref = needString(args.ref, "ref");
+      if (!isPipeline(cfg)) throw new Error("retry is for pipeline configs");
+      if (typeof adapter.enterStage !== "function") throw new Error(`tracker "${cfg.provider}" has no run support`);
+      if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to retry`);
+      if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to retry`);
+      if (store.getHeld(ref)) throw new Error(`${ref} is held — answer it with release instead`);
+      const row = buildRows(cfg.name, readProfileState(cfg.stateDir)).find((r) => r.ref === ref);
+      if (row?.status !== "failed") throw new Error(`${ref} is not failed — nothing to retry (start it with run)`);
+      const step = row.step ? findStep(cfg, row.step) : undefined;
+      if (!step || step.manual) throw new Error(`${ref}: its failed step "${row.step ?? "?"}" is not a runnable step`);
+      /** @type {import('./types.js').Task} */
+      let task;
+      try {
+        task = await adapter.fetchTask(ref);
+      } catch (e) {
+        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
+      }
+      if (!task.assignedToUs && cfg.tracker?.assigneeFilter !== false) throw new Error(`${ref} is not assigned to us — refusing to retry it (assign it back first)`);
+      if (task.completed) throw new Error(`${ref} ("${task.name}") is already completed — nothing to retry`);
+      const sourceKey = adapter.describe?.().stageKeys?.source;
+      const source = sourceKey ? /** @type {Record<string, unknown>} */ (step)[sourceKey] : undefined;
+      const stage = typeof adapter.currentStage === "function" ? await adapter.currentStage(ref) : null;
+      if (source && stage === source) {
+        if (intake([{ kind: "pipeline", ref, stepId: step.id, dedupKey: `retry:${ref}:${step.id}:${now()}` }], { force: true }) < 1) {
+          throw new Error(`${ref}: the retry was not accepted (a run for this step is queued or running, or the receiver is shutting down) — check status, then retry`);
+        }
+        return { ref, step: step.id, queued: true };
+      }
+      await adapter.ensureLabels?.();
+      const entered = await adapter.enterStage(ref, step.id, { assign: false });
+      return { ref, step: step.id, stage: entered.stage, note: "the tracker webhook fires the step; `reconcile` if it does not" };
+    }),
     release: write("release", async (args) => {
       const ref = needString(args.ref, "ref");
       const comment = typeof args.comment === "string" ? args.comment.slice(0, COMMENT_MAX) : "";

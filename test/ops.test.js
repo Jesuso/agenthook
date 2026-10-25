@@ -154,6 +154,50 @@ test("run: guards against a ref already in the pipeline, enters the first step, 
   assert.equal(entered.length, 4);
 });
 
+test("retry: re-enters a failed ticket's failed step without assigning; refuses anything not failed or not ours", async () => {
+  /** @type {any[]} */ const entered = [];
+  let stage = "label:failed";
+  const s = setup({
+    adapter: {
+      describe: () => ({ stageKeys: { source: "sourceLabel" } }),
+      fetchTask: async (ref) => ({ ref, name: "T", assignedToUs: ref !== "theirs", completed: false }),
+      currentStage: async () => stage,
+      enterStage: async (ref, step, o) => { entered.push([ref, step, o]); return { stage: `src-${step}` }; },
+    },
+    pipeline: [{ id: "triage", sourceLabel: "label:triage" }, { id: "code", sourceLabel: "label:code" }, { id: "done", manual: true }],
+  });
+  const ev = (/** @type {any[]} */ ...lines) => fs.writeFileSync(path.join(s.dir, "events.jsonl"), lines.map((l) => JSON.stringify({ ts: "2026-10-25T00:00:00Z", ...l })).join("\n") + "\n");
+  ev(
+    { event: "run_start", ref: "7", step: "code" },
+    { event: "failed", ref: "7", step: "code", reason: "non-zero exit (1)" },
+    { event: "run_start", ref: "theirs", step: "code" },
+    { event: "failed", ref: "theirs", step: "code", reason: "x" },
+    { event: "run_start", ref: "ok", step: "code" },
+    { event: "pipeline_done", ref: "ok", step: "code" },
+  );
+  const r = await s.ops.retry({ ref: "7" });
+  assert.deepEqual(r, { ref: "7", step: "code", stage: "src-code", note: r.note });
+  assert.deepEqual(entered[0], ["7", "code", { assign: false }], "retry never assigns");
+  await assert.rejects(() => s.ops.retry({ ref: "theirs" }), /not assigned to us/);
+  await assert.rejects(() => s.ops.retry({ ref: "ok" }), /not failed/);
+  await assert.rejects(() => s.ops.retry({ ref: "nope" }), /not failed/);
+  await assert.rejects(() => s.ops.retry({}), /ref is required/);
+  assert.equal(entered.length, 1, "no refusal reached the tracker");
+  // Still resting in the source stage (no failure lane): a no-op move fires no webhook — queue it.
+  stage = "label:code";
+  const q = await s.ops.retry({ ref: "7" });
+  assert.deepEqual(q, { ref: "7", step: "code", queued: true });
+  assert.equal(entered.length, 1);
+  assert.equal(s.intaken.at(-1)[0][0].stepId, "code");
+  assert.deepEqual(s.intaken.at(-1)[1], { force: true });
+  // Dismissed since, held, running: nothing to retry.
+  ev({ event: "failed", ref: "7", step: "code", reason: "x" }, { event: "dismissed", ref: "7", step: "" });
+  await assert.rejects(() => s.ops.retry({ ref: "7" }), /not failed/);
+  s.store.setHeld("h", { stepId: "code", heldAt: "t" });
+  await assert.rejects(() => s.ops.retry({ ref: "h" }), /is held/);
+  assert.equal(s.audit().filter((l) => l.cmd === "retry").length, 8);
+});
+
 test("catchup: dispatches an unseen ref resting in a source stage; dedup-skips without force; force clears and re-fires", async () => {
   const s = setup({
     adapter: {

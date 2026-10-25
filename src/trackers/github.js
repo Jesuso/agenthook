@@ -724,6 +724,11 @@ export function createGithubAdapter(cfg, store) {
       // queueLabel too (a queue pull, or `run` on a queued issue). Add-then-remove, same
       // crash-safe order as advance; removeLabel tolerates a 404 (label not on the issue).
       if (step.queueLabel && norm(step.queueLabel) !== norm(step.sourceLabel)) await removeLabel(ref, step.queueLabel);
+      // Re-entering a step that failed (the dashboard's retry, or `run --force`) leaves its failure
+      // lane too: advance never drops a failureLabel, so a later success would keep the stale one.
+      // Skipped when that label is some step's source (dropping it would un-fire that step).
+      const fail = step.failureLabel;
+      if (fail && !(pipeline || []).some((s) => s.sourceLabel && norm(s.sourceLabel) === norm(fail))) await removeLabel(ref, fail);
       return { stage: step.sourceLabel };
     },
 

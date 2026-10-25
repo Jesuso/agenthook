@@ -37,6 +37,7 @@ const OK = profile("ok");
 const RESTARTED = profile("restarted");
 const DISMISSED = profile("dismissed");
 const RELEASED = profile("released");
+const RETRIED = profile("retried");
 const RELEASE_REFUSED = profile("release-refused");
 const RELEASE_SLOW = profile("release-slow");
 const TOGGLED = profile("toggled");
@@ -65,8 +66,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[]}} */
-const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [] };
+/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[], retry: any[]}} */
+const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [], retry: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -84,6 +85,10 @@ test.before(async () => {
     await fakeControl(DISMISSED.sockPath, (s, req) => {
       calls.dismiss.push(req);
       s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, dismissed: true } }) + "\n");
+    }),
+    await fakeControl(RETRIED.sockPath, (s, req) => {
+      calls.retry.push(req);
+      s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, step: "code", stage: "agent:code" } }) + "\n");
     }),
     await fakeControl(RELEASED.sockPath, (s, req) => {
       calls.release.push(req);
@@ -328,6 +333,34 @@ test("POST /api/dismiss: sends {cmd:'dismiss', args:{ref, actor:'ui'}} and retur
   assert.deepEqual(calls.dismiss[0].args, { ref: "42", actor: "ui" });
   assert.equal((await postDismiss({ profile: "down", ref: "42" })).status, 503);
   assert.equal((await request("GET", "/api/dismiss", undefined, {})).status, 405);
+});
+
+const postRetry = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/retry", JSON.stringify(body), h);
+
+test("POST /api/retry: guards and validation never reach the socket", async () => {
+  const ok = { profile: "retried", ref: "1" };
+  assert.equal((await postRetry(ok, { cookie: null })).status, 401);
+  assert.equal((await postRetry(ok, { origin: "http://evil.example" })).status, 403);
+  assert.equal((await postRetry(ok, { "x-ah-ui": null })).status, 403);
+  assert.equal((await postRetry({ profile: "retried" })).status, 400);
+  assert.equal((await postRetry({ profile: "retried", ref: "" })).status, 400);
+  assert.equal((await postRetry({ profile: "retried", ref: 5 })).status, 400);
+  assert.equal((await postRetry({ profile: "nope", ref: "1" })).status, 404);
+  assert.equal(calls.retry.length, 0);
+});
+
+test("POST /api/retry: sends {cmd:'retry', args:{ref, actor:'ui'}}, audits it; refusal → 502; slow tracker waits; down → 503", async () => {
+  const res = await postRetry({ profile: "retried", ref: "42" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(res.body), { ref: "42", step: "code", stage: "agent:code" });
+  assert.equal(calls.retry[0].cmd, "retry");
+  assert.deepEqual(calls.retry[0].args, { ref: "42", actor: "ui" });
+  const line = uiAuditLines(RETRIED.dir).at(-1);
+  assert.deepEqual({ action: line.action, profile: line.profile, ref: line.ref, status: line.status }, { action: "retry", profile: "retried", ref: "42", status: 200 });
+  assert.equal((await postRetry({ profile: "release-refused", ref: "9" })).status, 502);
+  assert.equal((await postRetry({ profile: "release-slow", ref: "9" })).status, 200, "retry uses the long timeout");
+  assert.equal((await postRetry({ profile: "down", ref: "42" })).status, 503);
+  assert.equal((await request("GET", "/api/retry", undefined, {})).status, 405);
 });
 
 const postRelease = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/release", JSON.stringify(body), h);

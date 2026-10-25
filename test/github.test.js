@@ -277,6 +277,34 @@ test("enterStage with assign:false skips the assignee call but still enters the 
   assert.ok(calls.some((c) => c.startsWith("POST") && c.includes("/issues/42/labels")), `expected the stage's label POST; got:\n${calls.join("\n")}`);
 });
 
+test("enterStage drops the step's failure label after adding the source one (retry leaves the failure lane)", async () => {
+  /** @param {any[]} pl */
+  const run = async (pl) => {
+    /** @type {string[]} */
+    const calls = [];
+    const orig = global.fetch;
+    // @ts-ignore - test stub
+    global.fetch = async (url, init = {}) => {
+      calls.push(`${init.method || "GET"} ${decodeURIComponent(String(url))}`);
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+    };
+    try {
+      const a = createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }), /** @type {any} */ (makeStore()));
+      await /** @type {any} */ (a).enterStage("42", "code", { assign: false });
+    } finally {
+      global.fetch = orig;
+    }
+    return calls;
+  };
+  const calls = await run(pipeline);
+  const add = calls.findIndex((c) => c.startsWith("POST") && c.includes("/issues/42/labels"));
+  const drop = calls.findIndex((c) => c.startsWith("DELETE") && c.endsWith("/issues/42/labels/agent:blocked"));
+  assert.ok(add >= 0 && drop > add, `expected add source, then drop agent:blocked; got:\n${calls.join("\n")}`);
+  // A failure label that is another step's source fires that step: never dropped.
+  const routed = await run([{ id: "code", sourceLabel: "agent:code", failureLabel: "agent:fix" }, { id: "fix", sourceLabel: "agent:fix" }]);
+  assert.ok(!routed.some((c) => c.startsWith("DELETE")), `expected no label drop; got:\n${routed.join("\n")}`);
+});
+
 test("enterStage throws on an unknown step", async () => {
   await assert.rejects(() => /** @type {any} */ (adapter()).enterStage("42", "nope", { assign: false }), /unknown step/);
 });

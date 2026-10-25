@@ -140,6 +140,12 @@ A `failed` event whose reason is `cancelled by operator` reads `cancelled` (not 
 a `dismissed` event, after which the row reads `idle`. The receiver — not the UI server — writes
 it, and refuses a running, queued or held ref. A later run or failure of the ref counts again.
 
+A `failed` row's primary action is **Re-run** while the receiver is up: `POST /api/retry`
+(`{profile, ref}`, same guard chain) sends the receiver's `retry` op, which re-enters the failed
+step's source stage. It never reassigns, and refuses a ticket that is not failed or not ours. With
+the receiver down the row offers **Open log** instead (the drawer, with the full failure reason).
+Dismiss stays as the quieter secondary action.
+
 ## Stack
 
 | Layer | Choice | Why |
