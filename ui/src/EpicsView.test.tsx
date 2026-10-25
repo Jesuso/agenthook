@@ -44,20 +44,29 @@ describe("EpicsList", () => {
     expect(search).not.toContain("data-needs-you");
   });
 
-  it("completed epics sit last, dimmed, collapsed under Completed (k)", () => {
+  it("closed epics sit last, collapsed under Closed (k), muted but not dimmed", () => {
     const out = list({ epics });
     const details = out.indexOf("data-epics-completed");
     expect(details).toBeGreaterThan(out.indexOf('data-epic-row="E2"'));
     expect(out.indexOf('data-epic-row="E0"')).toBeGreaterThan(details);
-    expect(out).toMatch(/<details class="[^"]*" data-epics-completed="true"><summary[^>]*>Completed \((<!-- -->)?1(<!-- -->)?\)<\/summary><ul class="opacity-60">/);
+    const closed = out.slice(details);
+    expect(closed).toMatch(/Closed<span[^>]*>1<\/span><\/summary>/);
+    expect(out).not.toContain("opacity-");
+    expect(out).not.toContain("Completed");
     expect(out).not.toMatch(/<details[^>]*data-epics-completed[^>]*\sopen/);
   });
 
-  it("readyToClose epic shows a chip and sorts first among open epics", () => {
+  it("open epics sort needs you, then running, then ready to close; the chip takes the ETA slot", () => {
     const ready = epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { finished: 2 } });
     const out = list({ epics: [...epics, ready] });
     expect(out).toContain("ready to close");
-    expect(out.indexOf('data-epic-row="E9"')).toBeLessThan(out.indexOf('data-epic-row="E1"'));
+    const at = (r: string) => out.indexOf(`data-epic-row="${r}"`);
+    expect(at("E1")).toBeLessThan(at("E9"));
+    expect(at("E9")).toBeLessThan(at("E2"));
+    const running = epicStats({ ref: "E5", name: "Moving", byStage: { running: 1, backlog: 1 } });
+    const out2 = list({ epics: [ready, running, ...epics] });
+    expect(out2.indexOf('data-epic-row="E5"')).toBeLessThan(out2.indexOf('data-epic-row="E9"'));
+    expect(out.slice(at("E9"), at("E2"))).toMatch(/data-eta="true"><span[^>]*>ready to close/);
   });
 
   it("supported:false → no-epics empty state; live:false → receiver-down note", () => {
@@ -80,36 +89,55 @@ describe("EpicPage", () => {
   ];
   const detail = epicDetail({ ref: "E1", name: "Checkout revamp", status: "At risk", url: "javascript:alert(1)", velocity: { days: velocityDays([0, 1, 0, 2]), finished14: 3, activeDays: 2, perDay: 0.25 } }, tickets);
 
-  it("Needs you comes first, then the buckets in order, then the untracked note", () => {
+  it("attention order: Needs you, running, backlog, not on the board, then finished and merged folded", () => {
     const out = page({ epic: detail });
     const at = (g: string) => out.indexOf(`data-group="${g}"`);
     expect(at("needsYou")).toBeGreaterThan(-1);
-    expect(at("needsYou")).toBeLessThan(out.indexOf("data-velocity"));
     expect(at("needsYou")).toBeLessThan(at("running"));
     expect(at("running")).toBeLessThan(at("backlog"));
-    expect(at("backlog")).toBeLessThan(at("finished"));
-    expect(at("finished")).toBeLessThan(at("merged"));
-    expect(at("merged")).toBeLessThan(at("untracked"));
-    expect(out).toContain("Untracked / not on board");
-    expect(out.slice(at("untracked"))).toContain("Orphan");
+    expect(at("backlog")).toBeLessThan(at("untracked"));
+    expect(at("untracked")).toBeLessThan(at("history"));
+    expect(out).toContain("Not on the board");
+    expect(out.slice(at("untracked"), at("history"))).toContain("Orphan");
+    const history = out.slice(at("history"));
+    expect(history).toContain('data-epic-ticket="f1"');
+    expect(history).toContain('data-epic-ticket="m1"');
+    expect(out).not.toMatch(/<details[^>]*data-group="history"[^>]*\sopen/);
   });
 
-  it("header: name, status, no link for a non-http url; sparkline + per-day numbers", () => {
+  it("header and summary: name, status, safe link only, stage bar named in finished, plain-language pace", () => {
     const out = page({ epic: detail });
-    expect(out).toContain("Checkout revamp");
-    expect(out).toContain("At risk");
+    expect(out).toMatch(/<h2[^>]*>Checkout revamp<\/h2>/);
+    expect(out).toContain("Tracker status: At risk");
     expect(out).not.toContain("javascript:");
-    expect(out).toContain('data-chart="epic-velocity"');
-    expect(out.match(/data-point=/g)).toHaveLength(2);
-    expect(out).toContain("0.3/day");
+    expect(out).toContain('aria-label="2 of 6 finished: 1 merged, 1 finished, 1 running, 1 needs you, 1 backlog, 1 untracked"');
+    expect(out).not.toContain('data-chart="epic-velocity"');
+    expect(out).toContain("Nothing finished for 10 days.");
+    expect(out).toContain("3 left, no estimate until something finishes.");
     const linked = page({ epic: { ...detail, url: "https://app.asana.com/0/1/E1" } });
     expect(linked).toContain('href="https://app.asana.com/0/1/E1"');
   });
 
-  it("a ticket with a local row is a button (opens the drawer); one without is plain", () => {
-    const out = page({ epic: detail }, [row("n1")]);
-    expect(out).toMatch(/data-epic-ticket="n1"><button/);
+  it("every ticket goes somewhere: drawer when it ran here, the tracker when its URL derives from the epic's", () => {
+    const out = page({ epic: detail }, [row("r1")]);
+    expect(out).toMatch(/data-epic-ticket="r1"><button/);
     expect(out).toMatch(/data-epic-ticket="b1"><div/);
+    const linked = page({ epic: { ...detail, url: "https://acme.atlassian.net/browse/E1" } }, [row("r1")]);
+    expect(linked).toMatch(/data-epic-ticket="b1"><a[^>]*href="https:\/\/acme.atlassian.net\/browse\/b1"/);
+  });
+
+  it("a Needs-you ticket shows why and its one action", () => {
+    const held = { ...row("n1"), status: "held", heldReason: "Which database should it use?", heldAt: null, startedAt: null, step: "plan" } as TicketRow;
+    const out = page({ epic: detail }, [held]);
+    const needs = out.slice(out.indexOf('data-group="needsYou"'), out.indexOf('data-group="running"'));
+    expect(needs).toContain("Which database should it use?");
+    expect(needs).toContain(">Details</button>");
+  });
+
+  it("closed epics read as closed: pace says so, an empty one says Closed with no tickets", () => {
+    const closed = epicDetail({ ref: "E7", completed: true }, [epicTicket("m1", "merged")]);
+    expect(page({ epic: closed })).toContain("Closed with 1 of 1 finished.");
+    expect(page({ epic: epicDetail({ ref: "E8", completed: true }, []) })).toContain("Closed with no tickets.");
   });
 
   it("readyToClose shows a banner saying finished, linking the tracker when safe", () => {

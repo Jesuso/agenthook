@@ -1,6 +1,5 @@
 import type { EpicBucket, EpicStats } from "./contract";
-import { BUCKET_LABEL, BUCKET_ORDER, progressOf, stageSegments } from "./epics";
-import { epicSparkline } from "./epicSparkline";
+import { BUCKET_LABEL, progressOf, stageSegments } from "./epics";
 
 // Full class strings so Tailwind's scanner sees them: status tokens only, no new colours.
 // merged and finished share one fill (both are "done") so N/M and the bar agree; a divider
@@ -22,7 +21,7 @@ export function EpicStageBar({ epic, wide }: { epic: Pick<EpicStats, "byStage" |
   const title = segs.map((s) => `${BUCKET_LABEL[s.bucket]} ${s.count}`).join(" · ") || "no tickets";
   return (
     <div className="flex min-w-0 items-center gap-2" data-stage-bar>
-      <div role="img" aria-label={`${done} of ${total} done — ${title}`} title={title} className={`flex h-2 overflow-hidden rounded-full bg-surface-raised ${wide ? "w-full" : "w-40 shrink-0"}`}>
+      <div role="img" aria-label={`${done} of ${total} finished — ${title}`} title={title} className={`flex h-2 overflow-hidden rounded-full bg-surface-raised ${wide ? "w-full" : "w-40 shrink-0"}`}>
         {segs.map((s, i) => {
           const divider = s.bucket === "finished" && segs[i - 1]?.bucket === "merged" ? " border-l border-surface" : "";
           const cls = s.bucket === "running" ? `${BUCKET_CLASS.running} epic-seg-running` : BUCKET_CLASS[s.bucket];
@@ -33,40 +32,5 @@ export function EpicStageBar({ epic, wide }: { epic: Pick<EpicStats, "byStage" |
         {done}/{total}
       </span>
     </div>
-  );
-}
-
-/** The bar's legend: every bucket the epic has, with its count. */
-export function StageLegend({ epic }: { epic: Pick<EpicStats, "byStage"> }) {
-  return (
-    <ul className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-muted">
-      {BUCKET_ORDER.filter((b) => epic.byStage[b] > 0).map((b) => (
-        <li key={b} className="flex items-center gap-1">
-          <span aria-hidden="true" className={`size-2 rounded-sm ${BUCKET_CLASS[b]}`} />
-          {BUCKET_LABEL[b]} <span className="font-mono">{epic.byStage[b]}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-const SPARK_W = 168;
-const SPARK_H = 32;
-
-/** Tickets finished per day over the velocity window (epicSparkline does the geometry). */
-export function EpicSparkline({ days }: { days: EpicStats["velocity"]["days"] }) {
-  const m = epicSparkline(days, SPARK_W, SPARK_H);
-  return (
-    <svg data-chart="epic-velocity" width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} role="img" aria-label={`finished per day over ${days.length} days`}>
-      {m.area && <path d={m.area} fill="var(--color-status-done)" fillOpacity={0.15} />}
-      {m.line && <path d={m.line} fill="none" stroke="var(--color-status-done)" strokeWidth={1.5} />}
-      {m.points.map((p) =>
-        p.finished > 0 ? (
-          <circle key={p.date} data-point={p.date} cx={p.x} cy={p.y} r={2} fill="var(--color-status-done)">
-            <title>{`${p.date}: ${p.finished} finished`}</title>
-          </circle>
-        ) : null,
-      )}
-    </svg>
   );
 }

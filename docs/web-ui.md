@@ -664,17 +664,23 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
 - **Routes:** `#/p/<key>/epics` (the **Epics** tab) lists the profile's epics; `#/p/<key>/epics/<ref>`
   is one epic's page. Fetched on open and on **Refresh**; a `ticket` SSE event for the profile refetches
   after a 2 s quiet period (trailing debounce). No timer polling. 404 / 502 / 503 / 504 show inline.
-- **List** (`EpicsView.tsx`): one row per epic — name (→ its page), tracker `status`, a stacked bar of
-  `byStage` with `N/M` (N = finished + merged, M = total), a needs-you badge and the ETA when known.
-  Completed epics sit last, dimmed, under a collapsed "Completed (k)". Among open epics, `readyToClose`
-  ones sort first and show a "ready to close" chip. `supported:false` → "This tracker
+- **List** (`EpicsView.tsx`): one row per epic — needs-you count first (when any open epic has one), then id and name (→ its
+  page), tracker `status`, a stacked bar of `byStage` with `N/M` (N = finished + merged, M = total),
+  and one fixed slot holding the ETA or a "ready to close" chip, so rows align. Open epics sort by
+  what needs the human: most needs-you tickets, then any running, then ready to close (which is not
+  Needs you), then the server's order. Closed epics sit last under a collapsed "Closed (k)", names
+  muted rather than dimmed; with no open epics a line says so. `supported:false` → "This tracker
   has no epics"; `live:false` → a "known tickets only — receiver down" note.
-- **Epic page** (`EpicPage.tsx`): header (name, status, tracker link only if http(s)), a "ready to
-  close" banner when `readyToClose` ("All tickets finished — close this epic on the tracker?"), the
-  same stage bar with a legend, **Needs you** first, a 14-day velocity sparkline (`ui/src/epicSparkline.ts`,
-  a pure d3 model) with `finished14`, per-day rate and ETA, then the other tickets by bucket (running, backlog,
-  finished, merged) and an "Untracked / not on board" note. A ticket that has a local row opens the
-  ticket drawer.
+- **Epic page** (`EpicPage.tsx`), in attention order: the epic name (larger than the page heading),
+  id, tracker status and link (http(s) only); the "ready to close" banner; the stage bar (named
+  "N of M finished" for screen readers, merged hatched apart from finished) with a count per stage;
+  one pace line in words (`paceOf`: "2 finished this week, the latest 3 d ago", or "Nothing finished
+  for 6 days" in the held colour once 5+ days pass with work left; the ETA only with its basis,
+  "3 left at 0.3/day: ~10 d · Nov 4"). Then **Needs you** (each ticket's held question, fail reason
+  or "PR ready to merge", its step and age, and one action: Review PR or Details), Running, Backlog,
+  "Not on the board", and finished + merged history folded under one disclosure. Every ticket goes
+  somewhere: the drawer when it ran here, else the tracker when its URL derives from the epic's
+  (`ticketUrl`: the epic URL with its ref swapped), else a row that says why it can't.
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or
   malformed, `url` only http(s)) puts an epic chip on the row; clicking it filters the table to that
   epic. The toolbar's epic select (shown once a row has an epic) does the same; status counts follow it.

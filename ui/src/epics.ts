@@ -74,13 +74,17 @@ export function stageSegments(e: Pick<EpicStats, "byStage" | "total">): { bucket
   return BUCKET_ORDER.filter((b) => e.byStage[b] > 0).map((b) => ({ bucket: b, count: e.byStage[b], pct: (e.byStage[b] / e.total) * 100 }));
 }
 
-/** Open epics — ready-to-close ones first, otherwise the server's order — then completed ones
- * (shown collapsed). */
-export function splitCompleted<T extends Pick<EpicStats, "completed" | "readyToClose">>(epics: T[]): { open: T[]; completed: T[] } {
-  const open = epics.filter((e) => !e.completed);
-  const ready = open.filter((e) => e.readyToClose);
-  const rest = open.filter((e) => !e.readyToClose);
-  return { open: [...ready, ...rest], completed: epics.filter((e) => e.completed) };
+/** Open epics in attention order — most tickets needing you, then any running, then ready to
+ * close, then the server's order — then completed ones (shown collapsed). Ready to close is not
+ * Needs you (CONTEXT.md), so it never outranks an epic with tickets waiting on the human. */
+export function splitCompleted<T extends Pick<EpicStats, "completed" | "readyToClose" | "needsYou" | "byStage">>(epics: T[]): { open: T[]; completed: T[] } {
+  const rank = (e: T) => (e.needsYou.length > 0 ? 0 : e.byStage.running > 0 ? 1 : e.readyToClose ? 2 : 3);
+  const open = epics
+    .filter((e) => !e.completed)
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => rank(a.e) - rank(b.e) || b.e.needsYou.length - a.e.needsYou.length || a.i - b.i)
+    .map(({ e }) => e);
+  return { open, completed: epics.filter((e) => e.completed) };
 }
 
 /** "~3 d · Oct 19"; null without an ETA. */
@@ -95,9 +99,6 @@ export function perDayLabel(perDay: number | null): string {
 
 /** An epic's tracker URL when it is http(s), else null (never render another scheme as a link). */
 export const safeUrl = (url: string | null | undefined): string | null => (url && /^https?:\/\//i.test(url) ? url : null);
-
-/** The epic page's sections below Needs you, in order. */
-export const GROUP_ORDER: EpicBucket[] = ["running", "backlog", "finished", "merged"];
 
 /** The epic's tickets per bucket, each keeping the server's order. */
 export function groupTickets(tickets: EpicDetailTicket[]): Record<EpicBucket, EpicDetailTicket[]> {
