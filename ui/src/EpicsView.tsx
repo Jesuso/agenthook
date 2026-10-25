@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { EpicResponse, EpicStats, EpicsResponse, ProfileView, TicketRow } from "./contract";
 import type { ReleaseOutcome } from "./config";
-import { REFETCH_DEBOUNCE_MS, etaLabel, fetchEpic, fetchEpics, splitCompleted } from "./epics";
+import { REFETCH_DEBOUNCE_MS, progressOf, etaLabel, fetchEpic, fetchEpics, splitCompleted } from "./epics";
 import type { Loaded } from "./epics";
-import { EpicStageBar } from "./EpicStageBar";
+import { EpicStageBar, StageKey, segCounts } from "./EpicStageBar";
+import type { Seg } from "./EpicStageBar";
 import { Count, EpicPage, LiveNote, paceOf } from "./EpicPage";
 import { useDisclosure } from "./disclosure";
 import { CopyCommand, EmptyState, Pill, ProfileMark, ShortcutSheet, ShortcutsButton } from "./components";
@@ -207,11 +208,17 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
       {!body.live && <LiveNote />}
       {body.epics.length === 0 && <EmptyState title="No epics yet" hint={body.live ? undefined : "Only epics a ticket here has run under appear while the receiver is down."} />}
       {open.length > 0 && (
-        <ul className="rounded-lg border border-border bg-surface" data-epics-open>
-          {open.map((e) => (
-            <EpicRow key={e.ref} e={e} profile={profile} needCol={needCol} noteCol={noteCol} />
-          ))}
-        </ul>
+        <div className="flex flex-col gap-2">
+          <ul className="rounded-lg border border-border bg-surface" data-epics-open>
+            {open.map((e) => (
+              <EpicRow key={e.ref} e={e} profile={profile} needCol={needCol} noteCol={noteCol} />
+            ))}
+          </ul>
+          {/* A swatch-only key for the bars above (no counts: each row's N/M says those). */}
+          <div className="flex justify-end px-3">
+            <StageKey counts={sumStages(open)} quiet />
+          </div>
+        </div>
       )}
       {open.length === 0 && completed.length > 0 && (
         <p className="px-3 text-muted" data-no-open-epics>
@@ -249,7 +256,8 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
   const need = e.needsYou.length;
   // The link is what j/k focus and a screen reader names: it carries the row's state by reference.
   const id = useId();
-  const described = closed ? `${id}-count` : [need > 0 && `${id}-need`, e.status && `${id}-status`, `${id}-bar`, noteCol && `${id}-note`].filter(Boolean).join(" ");
+  const described = closed ? `${id}-count` : [need > 0 && `${id}-need`, `${id}-bar`, noteCol && `${id}-note`].filter(Boolean).join(" ");
+  const { done, total } = progressOf(e);
   return (
     <li
       className="relative flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border-subtle px-3 py-2 -outline-offset-2 last:border-b-0 hover:bg-surface-raised has-[[data-epic-nav]:focus-visible]:outline-2 has-[[data-epic-nav]:focus-visible]:outline-accent"
@@ -269,14 +277,27 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
       >
         {e.displayId && <span className="shrink-0 font-mono text-label font-normal text-muted">{e.displayId}</span>}
         <span className="truncate">{e.name}</span>
+        {/* The tracker's own status sits with the name, muted: it is the tracker's word, not progress. */}
+        {!closed && e.status && (
+          <span className="shrink-0 text-label font-normal text-muted" data-tracker-status>
+            <span aria-hidden="true">· </span>
+            <span className="sr-only">tracker status </span>
+            {e.status}
+          </span>
+        )}
       </a>
       {closed ? (
         <span id={`${id}-count`} className="shrink-0 text-label text-muted" data-closed-count>
-          {e.total} {e.total === 1 ? "ticket" : "tickets"}
+          {total === 0 ? (
+            "no tickets"
+          ) : (
+            <>
+              <span className="font-mono">{`${done}/${total}`}</span> finished
+            </>
+          )}
         </span>
       ) : (
         <>
-          <span className="shrink-0 sm:w-28 sm:text-right">{e.status && <span id={`${id}-status`}><span className="sr-only">tracker status </span><Pill>{e.status}</Pill></span>}</span>
           <EpicStageBar epic={e} id={`${id}-bar`} />
           {noteCol && (
             <span id={`${id}-note`} className="w-28 shrink-0 text-label text-muted" data-eta>
@@ -302,4 +323,11 @@ function RowNote({ e }: { e: EpicStats }) {
       </span>
     );
   return null;
+}
+
+/** Every open epic's tickets per segment, for the list's key. */
+function sumStages(epics: EpicStats[]): Record<Seg, number> {
+  const sum = segCounts({ byStage: { merged: 0, finished: 0, running: 0, needsYou: 0, backlog: 0, untracked: 0 } });
+  for (const e of epics) for (const [k, v] of Object.entries(segCounts(e)) as [Seg, number][]) sum[k] += v;
+  return sum;
 }

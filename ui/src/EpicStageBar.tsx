@@ -63,14 +63,14 @@ export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<Epic
   );
 }
 
-/** The key to the bar: one swatch per segment with a count, in bar order. */
-export function StageKey({ counts }: { counts: Record<Seg, number> }) {
+/** The key to the bar: one swatch per present segment in bar order, with its count unless `quiet`. */
+export function StageKey({ counts, quiet }: { counts: Record<Seg, number>; quiet?: boolean }) {
   return (
-    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-label" data-stage-key>
+    <ul className={`flex flex-wrap gap-x-4 gap-y-1 ${quiet ? "text-meta" : "text-label"}`} data-stage-key aria-label="Bar key">
       {ORDER.filter((s) => counts[s] > 0).map((s) => (
         <li key={s} className="flex items-center gap-1.5">
           <span aria-hidden="true" className={`size-2.5 rounded-sm ${segClass(s)}`} />
-          <span className="font-mono">{counts[s]}</span>
+          {!quiet && <span className="font-mono">{counts[s]}</span>}
           <span className="text-muted">{segLabel(s)}</span>
         </li>
       ))}

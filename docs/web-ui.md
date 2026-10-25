@@ -679,13 +679,14 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   page knows it from local rows; the list never draws it). A finished ticket with no recorded PR is
   just finished (CONTEXT.md). Every label comes from one map (`segLabel`: untracked reads "not on the
   board"). The key with counts
-  (`StageKey`) sits under the bar on a page; the list has none (`N/M · k left` says it).
+  (`StageKey`) sits under the bar on a page; the list has a swatch-only key under its open rows.
 - **List** (`EpicsView.tsx`): one row per epic, the whole row a link — needs-you count first (when any
-  open epic has one), then id and name, tracker `status`, the bar with `N/M · k left`, and one note
+  open epic has one), then id and name with the tracker's `status` muted beside it ("· Idea": the
+  tracker's word, not progress), the bar with `N/M · k left`, and one note
   slot (only when some row fills it): a neutral "ready to close" chip, else the ETA, else "stalled N d".
   Open epics sort by what needs the human: most needs-you tickets, then any running, then ready to
   close (which is not Needs you), then the server's order. Closed epics sit last under a collapsed
-  "Closed (k)" as muted rows with a ticket count, no bar and no status pill; with no open epics a
+  "Closed (k)" as muted rows with their outcome ("6/6 finished", or "no tickets"), no bar and no status; with no open epics a
   line says so and Closed starts open. A row's link carries its state for screen readers
   (`aria-describedby`: needs-you, status, bar, note); heading counts read as "(3 tickets)". `supported:false` → "This tracker has no epics"; `live:false` → a "known tickets
   only — receiver down" note.

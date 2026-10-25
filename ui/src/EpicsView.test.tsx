@@ -200,13 +200,16 @@ describe("EpicsList, second pass", () => {
     const out = list({ epics: [epicStats({ ref: "E1", status: "Done", completed: true, byStage: { merged: 7 } }), epicStats({ ref: "E2", byStage: { backlog: 1 } })] });
     expect(out).toContain("after:absolute");
     const closed = out.slice(out.indexOf('data-epic-row="E1"'));
-    expect(closed).toContain(">7 tickets<");
+    expect(closed).toMatch(/<span class="font-mono">7\/7<\/span> finished/);
     expect(closed).not.toContain("data-stage-bar");
     expect(closed).not.toContain(">Done<");
   });
-  it("no key on the list (N/M · k left says it); ready to close is neutral, a stall shows in the note slot", () => {
+  it("a swatch-only key under the open list; ready to close is neutral, a stall shows in the note slot", () => {
     const out = list({ epics: [epicStats({ ref: "E1", readyToClose: true, byStage: { finished: 2 } }), epicStats({ ref: "E2", byStage: { backlog: 2 } })] });
-    expect(out).not.toContain("data-stage-key");
+    const key = out.slice(out.indexOf("data-stage-key"));
+    expect(key).toContain("finished");
+    expect(key).toContain("backlog");
+    expect(key).not.toContain('class="font-mono"');
     expect(out).not.toContain("bg-status-done-bg");
     expect(out.slice(out.indexOf('data-epic-row="E2"'))).toContain("no finishes yet");
   });
@@ -286,16 +289,32 @@ describe("Epics round 3", () => {
     const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("b1", "backlog"), epicTicket("b2", "backlog")]) });
     expect(out).toMatch(/Backlog<span[^>]*><span class="sr-only"> \(<\/span>2<span class="sr-only"> tickets\)<\/span>/);
   });
-  it("a list row's link points at its state (need, status, bar, note) for screen readers", () => {
+  it("a list row's link names the tracker status and points at its state (need, bar, note) for screen readers", () => {
     const out = list({ epics: [epicStats({ ref: "E1", status: "On track", needsYou: ["a"], byStage: { needsYou: 1, backlog: 1 } })] });
     const link = out.match(/<a data-epic-nav[^>]*>/)?.[0] ?? "";
     const ids = (link.match(/aria-describedby="([^"]+)"/)?.[1] ?? "").split(" ");
-    expect(ids.length).toBe(4);
+    expect(ids.length).toBe(3);
+    expect(link).toBeTruthy();
+    const linkHtml = out.slice(out.indexOf("<a data-epic-nav"), out.indexOf("</a>"));
+    expect(linkHtml).toContain("tracker status </span>On track");
     for (const id of ids) expect(out).toContain(`id="${id}"`);
   });
   it("no open epics: a plain line and Closed open by default", () => {
     const out = list({ epics: [epicStats({ ref: "E0", completed: true, byStage: { merged: 1 } })] });
     expect(out).toContain(">No open epics.<");
     expect(out).toMatch(/<details[^>]*data-epics-completed[^>]*\sopen/);
+  });
+});
+
+describe("Epics round 4 list polish", () => {
+  it("closed rows show their outcome; an empty one says no tickets", () => {
+    const out = list({ epics: [epicStats({ ref: "E1", completed: true, byStage: { merged: 4, backlog: 2 } }), epicStats({ ref: "E2", completed: true })] });
+    expect(out).toMatch(/<span class="font-mono">4\/6<\/span> finished/);
+    expect(out.slice(out.indexOf('data-epic-row="E2"'))).toContain(">no tickets<");
+  });
+  it("the tracker status sits muted with the name, not as a pill beside the bar", () => {
+    const out = list({ epics: [epicStats({ ref: "E1", status: "Idea", byStage: { backlog: 1 } })] });
+    expect(out).toContain("data-tracker-status");
+    expect(out).not.toMatch(/rounded-full[^>]*>Idea</);
   });
 });
