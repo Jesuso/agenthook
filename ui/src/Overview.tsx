@@ -16,6 +16,7 @@ import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
 import { Modal } from "./Modal";
 import { dismissKey } from "./deferredDismiss";
+import { failureSummary } from "./failure";
 import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
@@ -43,6 +44,8 @@ export type OverviewProps = {
   dismissing?: ReadonlySet<string>;
   /** Answer a held ticket (optional comment for the agent); resolves with what happened. */
   onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>;
+  /** Re-run a failed ticket's failed step (receiver up only); resolves with what happened. */
+  onRetry: (t: Ref) => Promise<ReleaseOutcome>;
 };
 
 /**
@@ -120,7 +123,7 @@ export function Overview(props: OverviewProps) {
         {needs.length === 0 ? "All clear, nothing needs you" : `${needs.length} ${needs.length === 1 ? "ticket needs" : "tickets need"} you`}
       </p>
 
-      <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />
+      <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} />
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
@@ -248,6 +251,8 @@ const KIND: Record<NeedsItem["kind"], { text: string; tone: "failed" | "held" | 
 /** Hover (or keyboard focus) reveals a row's actions; touch screens always show them. */
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
 /** A primary, always-visible row action (Release…, PR ↗). */
+/** A row's secondary action: no border, muted until hovered, so the primary one reads first. */
+const QUIET = "inline-block rounded-md px-2 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
@@ -303,8 +308,8 @@ function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease
 
 /**
  * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
- * its live log), r opens the focused held
- * row's answer box, d dismisses the focused failed row, ? shows the shortcut sheet. Acts through the
+ * its live log), r opens the focused held row's answer box or re-runs the focused failed one, d
+ * dismisses the focused failed row, ? shows the shortcut sheet. Acts through the
  * rows' own buttons, so a shortcut can never do what a click could not.
  */
 function useNeedsYouKeys(setHelp: (open: boolean) => void) {
@@ -326,7 +331,7 @@ function useNeedsYouKeys(setHelp: (open: boolean) => void) {
         titles[to].focus();
         return;
       }
-      const button = row?.querySelector<HTMLElement>(action === "release" ? "[data-release-open]" : "[data-needs-dismiss]");
+      const button = row?.querySelector<HTMLElement>(action === "release" ? "[data-release-open], [data-needs-retry]" : "[data-needs-dismiss]");
       if (!button) return;
       e.preventDefault();
       if (action === "dismiss") {
@@ -345,8 +350,18 @@ function useNeedsYouKeys(setHelp: (open: boolean) => void) {
 const headlineTone = (items: NeedsItem[]) =>
   items.some((i) => i.kind === "failed") ? "text-status-failed" : items.some((i) => i.kind === "held") ? "text-status-held" : "text-fg";
 
-function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"] }) {
+type Retry = { state: "busy" | "started" } | { state: "error"; error: string };
+
+function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"] }) {
   const [releasing, setReleasing] = useState<string | null>(null);
+  // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
+  const [retries, setRetries] = useState<Record<string, Retry>>({});
+  const retry = (t: TicketRow) => {
+    setRetries((r) => ({ ...r, [t.ref]: { state: "busy" } }));
+    void onRetry({ profile: t.profile, ref: t.ref }).then((out) =>
+      setRetries((r) => ({ ...r, [t.ref]: out.ok ? { state: "started" } : { state: "error", error: out.error } })),
+    );
+  };
   if (items.length === 0) {
     return (
       // The calm verdict takes the same headline slot as "N need you": the second-screen glance has
@@ -379,8 +394,11 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
       </div>
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
-          const { ticket: t, kind, reason, since } = item;
+          const { ticket: t, kind, since } = item;
+          const reason = kind === "failed" ? failureSummary(item.reason) : item.reason;
           const title = ticketTitle(t);
+          const titleText = title.unknown ? "(untitled)" : title.text;
+          const rerun = retries[t.ref];
           const pr = prNumber(t.prUrl);
           return (
             <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
@@ -389,34 +407,68 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items:
               <div className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1">
                 <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
-                <button type="button" data-needs-open className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-                  <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
+                <button
+                  type="button"
+                  data-needs-open
+                  aria-label={`${t.displayId} ${titleText}, ${KIND[kind].text}${reason ? `: ${reason}` : ""}`}
+                  className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full"
+                  title={t.summary ? `${t.summary} — open details` : "open details"}
+                  onClick={() => onOpen({ profile: t.profile, ref: t.ref })}
+                >
+                  <span className={title.unknown ? "text-muted" : ""}>{titleText}</span>
                   {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
                 </button>
                 <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
                   {t.step ? `${t.step} · ` : ""}
                   {formatRelative(since, now)}
                 </span>
-                {/* One primary action per row: always visible, fixed width, so the columns line up. A PR
-                    link on a held/failed row lives in the drawer header; the title opens the drawer. */}
-                <span className="w-28 shrink-0 text-right max-sm:w-auto" data-needs-primary>
-                  {kind === "held" ? (
-                    releasing !== t.ref && (
-                      <button type="button" data-release-open aria-label={`Release ${t.displayId}…`} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
-                        Release…
-                      </button>
-                    )
-                  ) : kind === "failed" ? (
-                    <button type="button" data-needs-dismiss aria-label={`Dismiss ${t.displayId}`} aria-keyshortcuts="d" className={ACTION} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
+                {/* One primary action per row, always visible, in a fixed-width slot so the columns line
+                    up; a failed row adds the quieter Dismiss before it. A PR link on a held/failed row
+                    lives in the drawer header; the title opens the drawer. */}
+                <span className="flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto">
+                  {kind === "failed" && (
+                    <button type="button" data-needs-dismiss aria-label={`Dismiss ${t.displayId}`} aria-keyshortcuts="d" className={QUIET} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
                       Dismiss
                     </button>
-                  ) : t.prUrl ? (
-                    <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer" aria-label={`Open PR ${pr ? `#${pr}` : ""} for ${t.displayId} (new tab)`}>
-                      PR {pr ? `#${pr}` : ""} ↗
-                    </a>
-                  ) : null}
+                  )}
+                  <span data-needs-primary>
+                    {kind === "held" ? (
+                      releasing !== t.ref && (
+                        <button type="button" data-release-open aria-label={`Release ${t.displayId}…`} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
+                          Release…
+                        </button>
+                      )
+                    ) : kind === "failed" && up ? (
+                      <button
+                        type="button"
+                        data-needs-retry
+                        aria-label={`Re-run ${t.displayId}${t.step ? ` (${t.step})` : ""}`}
+                        aria-keyshortcuts="r"
+                        disabled={rerun?.state === "busy" || rerun?.state === "started"}
+                        className={`${ACTION} disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent`}
+                        title={t.step ? `run the ${t.step} step again` : "run the failed step again"}
+                        onClick={() => retry(t)}
+                      >
+                        {rerun?.state === "busy" ? "Re-running…" : rerun?.state === "started" ? "Started" : "Re-run"}
+                      </button>
+                    ) : kind === "failed" ? (
+                      // Down, nothing can re-run it: the drawer has the full reason and the run log.
+                      <button type="button" data-needs-log aria-label={`Open log for ${t.displayId}`} className={ACTION} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                        Open log
+                      </button>
+                    ) : t.prUrl ? (
+                      <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer" aria-label={`Open PR ${pr ? `#${pr}` : ""} for ${t.displayId} (new tab)`}>
+                        PR {pr ? `#${pr}` : ""} ↗
+                      </a>
+                    ) : null}
+                  </span>
                 </span>
               </div>
+              {rerun?.state === "error" && (
+                <p role="alert" data-retry-error className="px-3 pb-2 text-label text-status-failed">
+                  Couldn't re-run {t.displayId}: {rerun.error}
+                </p>
+              )}
               {kind === "held" && releasing === t.ref && <ReleasePanel item={item} onRelease={onRelease} onClose={() => setReleasing(null)} />}
             </li>
           );

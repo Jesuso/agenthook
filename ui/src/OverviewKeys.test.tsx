@@ -30,11 +30,11 @@ const focusedRow = () => {
   return row?.getAttribute("data-needs-row") ?? row?.getAttribute("data-now-row") ?? undefined;
 };
 
-async function render(onDismiss: (r: { ref: string }) => void = () => {}) {
+async function render(onDismiss: (r: { ref: string }) => void = () => {}, onRetry: (r: { ref: string }) => Promise<ReleaseOutcome> = async () => ({ ok: true, text: "" })) {
   m = await mount(
     createElement(Overview, {
       profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed"), t("2", "failed"), t("3", "held"), t("4", "running")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
-      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
+      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry,
     }),
   );
 }
@@ -69,6 +69,24 @@ describe("Overview keyboard shortcuts", () => {
     expect(dismissed).toEqual(["1"]);
     await press("r");
     expect(document.querySelector("[data-needs-row='3'] textarea")).not.toBeNull();
+  });
+
+  it("r re-runs the focused failed row: busy, then Started; a refusal shows why and re-enables it", async () => {
+    const asked: string[] = [];
+    let answer: ReleaseOutcome = { ok: false, error: "1 is not assigned to us" };
+    await render(undefined, async (r) => (asked.push(r.ref), answer));
+    await press("j");
+    await press("r");
+    expect(asked).toEqual(["1"]);
+    expect(document.querySelector("[data-retry-error]")?.textContent).toBe("Couldn't re-run #1: 1 is not assigned to us");
+    const button = () => document.querySelector<HTMLButtonElement>("[data-needs-row='1'] [data-needs-retry]")!;
+    expect(button().disabled).toBe(false);
+    answer = { ok: true, text: "Re-running #1 · code" };
+    await act(async () => button().click());
+    expect(asked).toEqual(["1", "1"]);
+    expect(button().textContent).toBe("Started");
+    expect(button().disabled).toBe(true);
+    expect(document.querySelector("[data-retry-error]")).toBeNull();
   });
 
   it("? opens the shortcut sheet, and keys go nowhere while it is open", async () => {

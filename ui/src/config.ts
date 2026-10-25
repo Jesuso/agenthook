@@ -48,11 +48,27 @@ export type ReleaseOutcome = { ok: true; text: string } | { ok: false; error: st
 /** Map `POST /api/release`'s status + body (0 = network error) to its outcome. */
 export function releaseOutcome(label: string, status: number, body: any): ReleaseOutcome {
   if (status === 200) return { ok: true, text: `Released ${label}${typeof body?.step === "string" ? ` → re-running ${body.step}` : ""}` };
-  if (status === 502) return { ok: false, error: typeof body?.error === "string" ? body.error : "the receiver refused" };
-  if (status === 503) return { ok: false, error: "the receiver is not running" };
-  if (status === 504) return { ok: false, error: "the receiver didn't answer in time — check the activity feed before retrying" };
-  if (status === 0) return { ok: false, error: "network error" };
-  return { ok: false, error: `release failed (status ${status})` };
+  return { ok: false, error: refusal("release", status, body) };
+}
+
+/** Re-run a failed ticket's failed step: the receiver moves it back into that step's source stage. */
+export function retryRequest(profile: string, ref: string): { url: string; init: RequestInit } {
+  return { url: "/api/retry", init: guarded("POST", { profile, ref }) };
+}
+
+/** Map `POST /api/retry`'s status + body (0 = network error) to its outcome. */
+export function retryOutcome(label: string, status: number, body: any): ReleaseOutcome {
+  if (status === 200) return { ok: true, text: `Re-running ${label}${typeof body?.step === "string" ? ` · ${body.step}` : ""}` };
+  return { ok: false, error: refusal("re-run", status, body) };
+}
+
+/** Why a release / re-run did not happen, from a non-200 status (0 = network error). */
+function refusal(what: string, status: number, body: any): string {
+  if (status === 502) return typeof body?.error === "string" ? body.error : "the receiver refused";
+  if (status === 503) return "the receiver is not running";
+  if (status === 504) return "the receiver didn't answer in time — check the activity feed before retrying";
+  if (status === 0) return "network error";
+  return `${what} failed (status ${status})`;
 }
 
 /**
