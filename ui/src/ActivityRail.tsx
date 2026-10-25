@@ -1,6 +1,7 @@
 import type { FeedEntry } from "./feed";
 import { formatFeedEvent, groupByMinute, ticketLabel } from "./feed";
 import { STATUS_CLASS } from "./components/StatusBadge";
+import { ShowHide } from "./components/ShowHide";
 
 export type ActivityRailProps = {
   feed: FeedEntry[];
@@ -24,23 +25,15 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
   return (
     <div data-activity-rail={variant} className={variant === "rail" ? "flex h-full flex-col" : "rounded-lg border border-border bg-surface"}>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <h2 className="text-base font-semibold">
-          Activity <span className="font-mono text-label text-muted">{feed.length}</span>
+        <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
+          Activity <span className="font-mono normal-case">{feed.length}</span>
           {unread > 0 && (
             <span data-unread={unread} className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-meta font-medium text-accent-fg">
               {unread} new
             </span>
           )}
         </h2>
-        <button
-          type="button"
-          data-activity-toggle
-          aria-expanded={open}
-          className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
-          onClick={onToggle}
-        >
-          {open ? "collapse" : "expand"}
-        </button>
+        <ShowHide open={open} onToggle={onToggle} label="activity" data-activity-toggle />
       </div>
       {open &&
         (feed.length === 0 ? (

@@ -9,6 +9,6 @@ describe("connectionState", () => {
     expect(connectionState(true, true)).toBe("closed");
   });
   it("labels every state", () => {
-    expect(CONNECTION_LABEL).toEqual({ connected: "Live", reconnecting: "Reconnecting…", closed: "Disconnected — reload" });
+    expect(CONNECTION_LABEL).toEqual({ connected: "Live updates", reconnecting: "Reconnecting…", closed: "Disconnected — reload" });
   });
 });

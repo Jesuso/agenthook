@@ -1,0 +1,738 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T16:42:33.316Z",
+  "title": "Design System: agenthook",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Runway Blue",
+        "canonical": "#5b9bff",
+        "lightScheme": "#0969da",
+        "tonalRamp": [
+          "#00003c",
+          "#001d5c",
+          "#123d7e",
+          "#315ca0",
+          "#5380c7",
+          "#73a2ec",
+          "#98c9ff",
+          "#bef1ff"
+        ]
+      },
+      "accent-fg": {
+        "role": "primary",
+        "displayName": "Runway Ink",
+        "canonical": "#0b0d10",
+        "lightScheme": "#ffffff",
+        "tonalRamp": [
+          "#090b0e",
+          "#222428",
+          "#3d4044",
+          "#5b5e62",
+          "#7e8085",
+          "#9fa2a6",
+          "#c4c7cc",
+          "#ebeff3"
+        ]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Clearance Green",
+        "canonical": "#3fb950",
+        "lightScheme": "#1a7f37",
+        "tonalRamp": [
+          "#001500",
+          "#003100",
+          "#004f0f",
+          "#276f30",
+          "#4c9352",
+          "#6eb573",
+          "#94dc97",
+          "#baffbd"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Night Apron",
+        "canonical": "#0b0d10",
+        "lightScheme": "#f6f8fa",
+        "tonalRamp": [
+          "#090b0e",
+          "#222428",
+          "#3d4044",
+          "#5b5e62",
+          "#7e8085",
+          "#9fa2a6",
+          "#c4c7cc",
+          "#ebeff3"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Hangar Slate",
+        "canonical": "#12161b",
+        "lightScheme": "#ffffff",
+        "tonalRamp": [
+          "#080b10",
+          "#20242a",
+          "#3c4046",
+          "#595e64",
+          "#7b8187",
+          "#9da2a9",
+          "#c2c8cf",
+          "#e9eff6"
+        ]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Raised Slate",
+        "canonical": "#1a2027",
+        "lightScheme": "#eef1f4",
+        "tonalRamp": [
+          "#070c12",
+          "#1f252c",
+          "#3a4048",
+          "#575e67",
+          "#7a818a",
+          "#9ba2ac",
+          "#c0c8d2",
+          "#e7eff9"
+        ]
+      },
+      "overlay": {
+        "role": "neutral",
+        "displayName": "Overlay Slate",
+        "canonical": "#212831",
+        "lightScheme": "#ffffff",
+        "tonalRamp": [
+          "#060c13",
+          "#1e252d",
+          "#39404a",
+          "#565e69",
+          "#79818c",
+          "#9aa2ae",
+          "#bfc8d4",
+          "#e6effc"
+        ]
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#1c2128",
+        "lightScheme": "#e6e9ed",
+        "tonalRamp": [
+          "#070b12",
+          "#1f242b",
+          "#3b4048",
+          "#585e66",
+          "#7a818a",
+          "#9ca2ab",
+          "#c1c8d1",
+          "#e8eff9"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "#2a313a",
+        "lightScheme": "#d0d7de",
+        "tonalRamp": [
+          "#060c13",
+          "#1e252d",
+          "#39404a",
+          "#575e68",
+          "#79818c",
+          "#9aa2ad",
+          "#bfc8d4",
+          "#e6effb"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Strong Rule",
+        "canonical": "#3d4651",
+        "lightScheme": "#afb8c1",
+        "tonalRamp": [
+          "#050c14",
+          "#1d252f",
+          "#38414b",
+          "#555f6a",
+          "#77818e",
+          "#98a3af",
+          "#bec8d6",
+          "#e5f0fe"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Board White",
+        "canonical": "#e6e9ef",
+        "lightScheme": "#1b1f24",
+        "tonalRamp": [
+          "#090b0f",
+          "#222428",
+          "#3d4044",
+          "#5b5e63",
+          "#7e8086",
+          "#9fa1a7",
+          "#c4c7cd",
+          "#ebeef5"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Dim Lamp",
+        "canonical": "#9ba4b4",
+        "lightScheme": "#57606a",
+        "tonalRamp": [
+          "#060b16",
+          "#1d2431",
+          "#38404e",
+          "#565e6c",
+          "#788190",
+          "#99a2b2",
+          "#bec8d8",
+          "#e5efff"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Unlit",
+        "canonical": "#6b7483",
+        "lightScheme": "#7d8590",
+        "tonalRamp": [
+          "#060b16",
+          "#1d2431",
+          "#38404e",
+          "#555e6d",
+          "#788190",
+          "#98a2b2",
+          "#bec8d9",
+          "#e5efff"
+        ]
+      },
+      "status-running": {
+        "role": "status",
+        "displayName": "Status Running",
+        "canonical": "#6cb0ff",
+        "lightScheme": "#0862cc",
+        "tonalRamp": [
+          "#00003b",
+          "#00205b",
+          "#003f7c",
+          "#245f9f",
+          "#4883c6",
+          "#69a5eb",
+          "#8eccff",
+          "#b5f3ff"
+        ]
+      },
+      "status-running-bg": {
+        "role": "status",
+        "displayName": "Status Running Bg",
+        "canonical": "#10243d",
+        "lightScheme": "#ddf0ff",
+        "tonalRamp": [
+          "#000a21",
+          "#11253e",
+          "#2c415c",
+          "#495f7c",
+          "#6b82a1",
+          "#8ba4c3",
+          "#b0caeb",
+          "#d7f1ff"
+        ]
+      },
+      "status-queued": {
+        "role": "status",
+        "displayName": "Status Queued",
+        "canonical": "#a3b1c6",
+        "lightScheme": "#4e5a6b",
+        "tonalRamp": [
+          "#040b19",
+          "#1a2435",
+          "#354052",
+          "#525e71",
+          "#748195",
+          "#95a3b7",
+          "#bac8de",
+          "#e1f0ff"
+        ]
+      },
+      "status-queued-bg": {
+        "role": "status",
+        "displayName": "Status Queued Bg",
+        "canonical": "#1b2330",
+        "lightScheme": "#e9edf2",
+        "tonalRamp": [
+          "#050b17",
+          "#1c2431",
+          "#37404e",
+          "#555e6d",
+          "#778191",
+          "#98a2b3",
+          "#bdc8da",
+          "#e4efff"
+        ]
+      },
+      "status-held": {
+        "role": "status",
+        "displayName": "Status Held",
+        "canonical": "#e3b341",
+        "lightScheme": "#8a5a00",
+        "tonalRamp": [
+          "#200000",
+          "#3d1a00",
+          "#5c3700",
+          "#7c5600",
+          "#a1790c",
+          "#c39b3d",
+          "#ebc166",
+          "#ffe98d"
+        ]
+      },
+      "status-held-bg": {
+        "role": "status",
+        "displayName": "Status Held Bg",
+        "canonical": "#2e2410",
+        "lightScheme": "#fff3cf",
+        "tonalRamp": [
+          "#120900",
+          "#2c220e",
+          "#493e2a",
+          "#675c47",
+          "#8b7f68",
+          "#aca089",
+          "#d3c6ad",
+          "#faedd4"
+        ]
+      },
+      "status-failed": {
+        "role": "status",
+        "displayName": "Status Failed",
+        "canonical": "#ff7b72",
+        "lightScheme": "#c4202b",
+        "tonalRamp": [
+          "#2d0000",
+          "#4f0000",
+          "#721c1b",
+          "#963d38",
+          "#bd615a",
+          "#e3827a",
+          "#ffa89f",
+          "#ffcfc5"
+        ]
+      },
+      "status-failed-bg": {
+        "role": "status",
+        "displayName": "Status Failed Bg",
+        "canonical": "#351616",
+        "lightScheme": "#ffe9e7",
+        "tonalRamp": [
+          "#1c0203",
+          "#391919",
+          "#573534",
+          "#775251",
+          "#9c7573",
+          "#bf9694",
+          "#e6bbb9",
+          "#ffe2e0"
+        ]
+      },
+      "status-done": {
+        "role": "status",
+        "displayName": "Status Done",
+        "canonical": "#7fc79a",
+        "lightScheme": "#187a33",
+        "tonalRamp": [
+          "#001500",
+          "#00300d",
+          "#004e28",
+          "#246e46",
+          "#4a9267",
+          "#6cb488",
+          "#92dbad",
+          "#b9ffd3"
+        ]
+      },
+      "status-done-bg": {
+        "role": "status",
+        "displayName": "Status Done Bg",
+        "canonical": "#142a1d",
+        "lightScheme": "#e3f5e8",
+        "tonalRamp": [
+          "#001005",
+          "#13291d",
+          "#2f4638",
+          "#4c6455",
+          "#6e8777",
+          "#8fa998",
+          "#b4cfbe",
+          "#dbf7e4"
+        ]
+      },
+      "status-idle": {
+        "role": "status",
+        "displayName": "Status Idle",
+        "canonical": "#9ba4b4",
+        "lightScheme": "#57606a",
+        "tonalRamp": [
+          "#060b16",
+          "#1d2431",
+          "#38404e",
+          "#565e6c",
+          "#788190",
+          "#99a2b2",
+          "#bec8d8",
+          "#e5efff"
+        ]
+      },
+      "status-idle-bg": {
+        "role": "status",
+        "displayName": "Status Idle Bg",
+        "canonical": "#1a1f26",
+        "lightScheme": "#eef1f4",
+        "tonalRamp": [
+          "#070b12",
+          "#1f242c",
+          "#3b4048",
+          "#585e66",
+          "#7a818a",
+          "#9ba2ab",
+          "#c1c8d2",
+          "#e8eff9"
+        ]
+      },
+      "profile-sky": {
+        "role": "identity",
+        "displayName": "Profile Sky",
+        "canonical": "#58b4e8",
+        "lightScheme": "#0b6fa8",
+        "tonalRamp": [
+          "#000834",
+          "#002753",
+          "#004674",
+          "#006695",
+          "#278abc",
+          "#50ace0",
+          "#78d3ff",
+          "#9ffbff"
+        ]
+      },
+      "profile-indigo": {
+        "role": "identity",
+        "displayName": "Profile Indigo",
+        "canonical": "#8190f5",
+        "lightScheme": "#4a54c4",
+        "tonalRamp": [
+          "#08003c",
+          "#18165c",
+          "#30367e",
+          "#4c55a0",
+          "#6c79c7",
+          "#8c9bec",
+          "#b1c1ff",
+          "#d7e8ff"
+        ]
+      },
+      "profile-violet": {
+        "role": "identity",
+        "displayName": "Profile Violet",
+        "canonical": "#a98af0",
+        "lightScheme": "#6b45c4",
+        "tonalRamp": [
+          "#140036",
+          "#2c0d55",
+          "#472d76",
+          "#654d99",
+          "#8770bf",
+          "#a991e4",
+          "#cfb7ff",
+          "#f6deff"
+        ]
+      },
+      "profile-pink": {
+        "role": "identity",
+        "displayName": "Profile Pink",
+        "canonical": "#ee7fb6",
+        "lightScheme": "#bf3a82",
+        "tonalRamp": [
+          "#280011",
+          "#49002c",
+          "#6b1c48",
+          "#8e3d67",
+          "#b5608a",
+          "#d981ac",
+          "#ffa6d2",
+          "#ffcdf9"
+        ]
+      },
+      "profile-teal": {
+        "role": "identity",
+        "displayName": "Profile Teal",
+        "canonical": "#35c0a8",
+        "lightScheme": "#0c7f6e",
+        "tonalRamp": [
+          "#00170b",
+          "#003424",
+          "#005240",
+          "#00725e",
+          "#009781",
+          "#2ebaa2",
+          "#60e1c8",
+          "#8bffef"
+        ]
+      },
+      "profile-cyan": {
+        "role": "identity",
+        "displayName": "Profile Cyan",
+        "canonical": "#3cc3d8",
+        "lightScheme": "#0a7d90",
+        "tonalRamp": [
+          "#001225",
+          "#002f42",
+          "#004e61",
+          "#006e81",
+          "#0092a6",
+          "#25b5c9",
+          "#5bdcf1",
+          "#86ffff"
+        ]
+      },
+      "profile-slate": {
+        "role": "identity",
+        "displayName": "Profile Slate",
+        "canonical": "#8d9db3",
+        "lightScheme": "#4c5f78",
+        "tonalRamp": [
+          "#030b1a",
+          "#182536",
+          "#334153",
+          "#505f73",
+          "#728297",
+          "#93a3b9",
+          "#b8c9e0",
+          "#dff0ff"
+        ]
+      },
+      "profile-stone": {
+        "role": "identity",
+        "displayName": "Profile Stone",
+        "canonical": "#b8a48a",
+        "lightScheme": "#6f6455",
+        "tonalRamp": [
+          "#150800",
+          "#30210a",
+          "#4d3c25",
+          "#6c5a42",
+          "#907d64",
+          "#b29e84",
+          "#d8c4a9",
+          "#ffebcf"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "stat": {
+        "displayName": "Stat",
+        "purpose": "Headline numbers in tiles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Page and profile headings, app name."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Ticket titles, digest prose, reasons."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, pills, badges, tabs, controls."
+      },
+      "section-label": {
+        "displayName": "Section label",
+        "purpose": "Uppercase muted zone headings."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Timestamps and counts beside content; never faint."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Ids, paths, durations, money, model names."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "purpose": "Menus, tooltips, popovers (Tailwind shadow-lg)."
+      },
+      {
+        "name": "drawer",
+        "value": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
+        "purpose": "Ticket drawer and modals (Tailwind shadow-xl)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "status-pulse",
+        "value": "1.6s ease-in-out infinite",
+        "purpose": "Running dot; none under reduced motion."
+      },
+      {
+        "name": "epic-seg-run",
+        "value": "0.8s linear infinite",
+        "purpose": "Barber-pole stripes on a running epic segment; static under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action on a surface, reserved for the consequential action.",
+      "html": "<button class=\"ds-btn-primary\">Send answer</button>",
+      "css": ".ds-btn-primary{background:var(--color-accent,#5b9bff);color:var(--color-accent-fg,#0b0d10);border:0;border-radius:5px;padding:4px 12px;font:500 12px/16px ui-sans-serif,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--color-accent,#5b9bff);outline-offset:2px}.ds-btn-primary:disabled{opacity:.5}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Hairline outline; the default for row actions like Release…, Dismiss, PR #n.",
+      "html": "<button class=\"ds-btn-secondary\">Release…</button>",
+      "css": ".ds-btn-secondary{background:transparent;color:var(--color-fg,#e6e9ef);border:1px solid var(--color-border,#2a313a);border-radius:5px;padding:2px 8px;font:500 12px/16px ui-sans-serif,system-ui,sans-serif;cursor:pointer}.ds-btn-secondary:hover{background:var(--color-surface-raised,#1a2027)}.ds-btn-secondary:focus-visible{outline:2px solid var(--color-accent,#5b9bff)}"
+    },
+    {
+      "name": "Nav Tabs",
+      "kind": "nav",
+      "refersTo": "nav-tab",
+      "description": "App-bar view tabs; active tab on Raised Slate.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-tab ds-tab-active\" href=\"#\">Overview</a><a class=\"ds-tab\" href=\"#\">Stats</a><a class=\"ds-tab\" href=\"#\">Epics</a><a class=\"ds-tab\" href=\"#\">Config</a></nav>",
+      "css": ".ds-nav{display:flex;gap:4px;background:var(--color-surface,#12161b);padding:6px;border-bottom:1px solid var(--color-border,#2a313a)}.ds-tab{color:var(--color-muted,#9ba4b4);text-decoration:none;border-radius:5px;padding:4px 12px;font:500 12px/16px ui-sans-serif,system-ui,sans-serif}.ds-tab:hover{background:var(--color-surface-raised,#1a2027);color:var(--color-fg,#e6e9ef)}.ds-tab-active{background:var(--color-surface-raised,#1a2027);color:var(--color-fg,#e6e9ef)}.ds-tab:focus-visible{outline:2px solid var(--color-accent,#5b9bff)}"
+    },
+    {
+      "name": "Status Badges",
+      "kind": "chip",
+      "refersTo": "status-badge-held",
+      "description": "Dot plus state word in its status hue; colour means state only.",
+      "html": "<span class=\"ds-badge ds-held\"><i></i>held</span> <span class=\"ds-badge ds-failed\"><i></i>failed</span> <span class=\"ds-badge ds-running\"><i></i>running</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:6px;border-radius:3px;padding:0 6px;font:500 12px/16px ui-sans-serif,system-ui,sans-serif}.ds-badge i{width:6px;height:6px;border-radius:50%;background:currentColor}.ds-held{color:var(--color-status-held,#e3b341);background:var(--color-status-held-bg,#2e2410)}.ds-failed{color:var(--color-status-failed,#ff7b72);background:var(--color-status-failed-bg,#351616)}.ds-running{color:var(--color-status-running,#6cb0ff);background:var(--color-status-running-bg,#10243d)}"
+    },
+    {
+      "name": "Neutral Pill",
+      "kind": "chip",
+      "refersTo": "pill-neutral",
+      "description": "Counts, versions, step names.",
+      "html": "<span class=\"ds-pill\">code</span> <span class=\"ds-pill\">v0.12.0</span>",
+      "css": ".ds-pill{display:inline-flex;border-radius:9999px;padding:0 8px;font:500 12px/16px ui-sans-serif,system-ui,sans-serif;color:var(--color-muted,#9ba4b4);background:var(--color-surface-raised,#1a2027);border:1px solid var(--color-border,#2a313a)}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat bordered panel with an uppercase section label.",
+      "html": "<section class=\"ds-card\"><header>Now</header><div>2 agents running</div></section>",
+      "css": ".ds-card{background:var(--color-surface,#12161b);border:1px solid var(--color-border,#2a313a);border-radius:8px;color:var(--color-fg,#e6e9ef);font:400 13px/20px ui-sans-serif,system-ui,sans-serif}.ds-card header{padding:8px 12px;border-bottom:1px solid var(--color-border-subtle,#1c2128);font-weight:600;font-size:12px;letter-spacing:.025em;text-transform:uppercase;color:var(--color-muted,#9ba4b4)}.ds-card>div{padding:12px}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Flat field with a hairline and the accent focus outline.",
+      "html": "<input class=\"ds-input\" placeholder=\"Answer for the agent (optional)\">",
+      "css": ".ds-input{background:var(--color-surface,#12161b);color:var(--color-fg,#e6e9ef);border:1px solid var(--color-border,#2a313a);border-radius:3px;padding:4px 8px;font:400 13px/20px ui-sans-serif,system-ui,sans-serif;width:280px}.ds-input::placeholder{color:var(--color-faint,#6b7483)}.ds-input:focus-visible{outline:2px solid var(--color-accent,#5b9bff)}"
+    },
+    {
+      "name": "Board Row",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Signature unit: state, mono id, title + reason, step · age, one action, aligned columns.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-badge ds-held\"><i></i>held</span><a class=\"ds-id\" href=\"#\">WEB-2006</a><div class=\"ds-title\">Gift-card balance shown for expired cards<small>Two readings of “expired”: which should block checkout?</small></div><span class=\"ds-meta\">triage · 3h</span><button class=\"ds-btn-secondary\">Release…</button></div>",
+      "css": ".ds-row{display:grid;grid-template-columns:4.5rem 6rem 1fr 7rem 6rem;align-items:center;gap:12px;padding:8px 12px;background:var(--color-surface,#12161b);border:1px solid var(--color-border,#2a313a);border-radius:8px;font:400 13px/20px ui-sans-serif,system-ui,sans-serif;color:var(--color-fg,#e6e9ef)}.ds-row .ds-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--color-accent,#5b9bff);text-decoration:none}.ds-row .ds-title small{display:block;color:var(--color-muted,#9ba4b4);font-size:12px}.ds-row .ds-meta{color:var(--color-muted,#9ba4b4);font-size:12px;text-align:right}.ds-row .ds-badge{display:inline-flex;align-items:center;gap:6px;border-radius:3px;padding:0 6px;font-size:12px;font-weight:500;color:var(--color-status-held,#e3b341);background:var(--color-status-held-bg,#2e2410)}.ds-row .ds-badge i{width:6px;height:6px;border-radius:50%;background:currentColor}.ds-row .ds-btn-secondary{background:transparent;color:inherit;border:1px solid var(--color-border,#2a313a);border-radius:5px;padding:2px 8px;font:500 12px/16px ui-sans-serif,system-ui,sans-serif}.ds-row .ds-btn-secondary:hover{background:var(--color-surface-raised,#1a2027)}.ds-row .ds-btn-secondary:focus-visible{outline:2px solid var(--color-accent,#5b9bff)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Air Traffic Board",
+    "overview": "The dashboard is a departures board for agent work. Every ticket is a flight: one row, the same\ncolumns in the same place every time (state, id, title, step and age, the one action), so the eye\nlearns the board once and then only reads what changed. Colour means state and nothing else. A calm\nboard is a dark, even field of quiet rows; when something needs a human, that row is the only thing\non the screen that lights up. It is built to sit on a second monitor and be read in a glance from\nacross the desk.\n\nDensity is high and type is small (13px body), because the operator is technical and the board must\nhold a whole profile without scrolling. Restraint is the default: flat tonal surfaces, hairline\nborders, outline buttons, uppercase section labels in a muted tone. Emphasis is rationed so it keeps\nits meaning.\n\nThe board is meant to feel humane, not clinical. Warmth comes first through words and moments:\nplain-language reasons on every held or failed row, an explicit \"all clear\" when nothing needs you,\na quiet confirmation after an action instead of a row silently vanishing. The current palette is a\ncool slate; a shift toward warm neutrals is the recorded direction (see Colors), not yet the\nimplementation. Dark is primary and light is first-class: both follow the system scheme, and every\ntext and status tier holds WCAG AA in both.",
+    "keyCharacteristics": [
+      "One ticket, one row, columns that line up across every list.",
+      "Status hues reserved for state; profile hues reserved for identity.",
+      "Flat, tonal, hairline-bordered; shadows only on floating layers.",
+      "Monospace for ids, paths, durations, money; sans for everything a person reads.",
+      "Small and dense, but never below AA; the faintest tier is furniture, not content.",
+      "Warmth through copy and acknowledgement, not decoration."
+    ],
+    "rules": [
+      {
+        "name": "The Colour Is State Rule",
+        "body": "A status hue appears only to say a ticket's state. Never decorate with it, never use it on a button, never use it for a profile.",
+        "section": "colors"
+      },
+      {
+        "name": "The Identity Is Not State Rule",
+        "body": "Profile hues mark which profile you are looking at and nothing else. They are held at 3:1 on every surface and kept off the status hues.",
+        "section": "colors"
+      },
+      {
+        "name": "The Unlit Rule",
+        "body": "Faint (#6b7483) is furniture: placeholders, separators, disabled controls. Any text a person needs to read, including timestamps, costs and captions, uses Dim Lamp (muted) or brighter. Faint at 11-12px on content fails AA.",
+        "section": "colors"
+      },
+      {
+        "name": "The Warm Drift Rule (provisional)",
+        "body": "The recorded direction is to move the neutral surfaces from cool slate toward warm neutrals in a future pass, keeping every AA guarantee and the status and identity palettes intact. Until that pass lands, use the tokens as they are; don't hand-tint individual surfaces.",
+        "section": "colors"
+      },
+      {
+        "name": "The Machine Speaks Mono Rule",
+        "body": "Ids, paths, durations, costs and model names are monospace; anything a person wrote or reads as language is sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Heading Voice Rule",
+        "body": "Zone headings share one style. Don't mix uppercase labels with sentence-case or lowercase headings on the same page.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Board Rule",
+        "body": "Nothing on the board itself casts a shadow. If it sits in the page flow, it is separated by tone and hairline, not elevation.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep every ticket list on the board-row anatomy, with columns aligned down the list.",
+      "Do use status hues only for state, and profile hues only for identity.",
+      "Do put timestamps, costs and captions in muted (#9ba4b4) or brighter; keep faint for furniture.",
+      "Do use monospace for ids, paths, durations, money and model names.",
+      "Do give every interactive element the 2px Runway Blue `:focus-visible` outline.",
+      "Do keep surfaces flat and tonal; shadows only on menus, popovers and drawers.",
+      "Do say something humane when a list is empty or an action completes (\"all clear\", \"released,",
+      "Do check every new colour against `ui/src/tokens.test.ts` in both schemes."
+    ],
+    "donts": [
+      "Don't put faint (#6b7483) on any text a person must read.",
+      "Don't use a filled accent button for more than one action per surface, or for an action that",
+      "Don't colour a profile, a button or a decoration with a status hue.",
+      "Don't mix heading styles (uppercase label, sentence case, lowercase) within one page.",
+      "Don't add shadows to cards or rows on the board.",
+      "Don't hand-tint surfaces toward warm before the Warm Drift pass; change the tokens, not the"
+    ]
+  }
+}

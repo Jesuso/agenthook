@@ -28,8 +28,39 @@ const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProp
   );
 
 describe("Overview", () => {
-  it("hides the Needs-you zone when nothing needs the human", () => {
-    expect(render(profile(), [ticket("1", { status: "running" })])).not.toContain("data-needs-you-zone");
+  it("says All clear instead of the Needs-you list when nothing needs the human", () => {
+    const html = render(profile(), [ticket("1", { status: "running" })]);
+    expect(html).not.toContain("data-needs-you-zone");
+    expect(html).toMatch(/data-all-clear[\s\S]*text-success[\s\S]*text-stat font-semibold">All clear/);
+    expect(render(profile({ up: false, pid: null, active: null }), [])).toContain("Nothing needs you");
+  });
+
+  it("leads with Needs you: its count is the headline, before Now and the digest", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toMatch(/text-stat[^>]*text-status-failed[^>]*>2<\/span> <span[^>]*>need you/);
+    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-now-row") === -1 ? html.indexOf("data-free-slots") : html.indexOf("data-now-row"));
+    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-digest"));
+  });
+
+  it("names every row action after its ticket and announces the headline politely", () => {
+    const html = render(profile({ forge: "github" }), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toContain('aria-label="Dismiss #f"');
+    expect(html).toContain('aria-label="Release #h…"');
+    expect(html).toMatch(/aria-live="polite" data-needs-live[^>]*>2 tickets need you</);
+    expect(render(profile(), [])).toMatch(/data-needs-live[^>]*>All clear, nothing needs you</);
+  });
+
+  it("narrow: Needs-you rows stack the title under the action line; Now rows drop model, cost and Follow log", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("r", { status: "running" })]);
+    expect(html).toMatch(/data-needs-open="true" class="[^"]*max-sm:order-last max-sm:basis-full/);
+    expect(html).toMatch(/max-sm:hidden" title="claude-opus-5-5"/);
+    expect(html).toMatch(/max-sm:hidden" title="cost so far/);
+  });
+
+  it("hides a dismissed-but-undoable ticket from Needs you", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("g", { status: "failed", failReason: "y" })], { dismissing: new Set(["dev\u0000f"]) });
+    expect(html).not.toContain('data-needs-row="f"');
+    expect(html).toContain('data-needs-row="g"');
   });
 
   it("lists failed before held, with the reason and a Dismiss action only on failed", () => {
@@ -40,7 +71,7 @@ describe("Overview", () => {
     expect(html.indexOf('data-needs-row="f"')).toBeLessThan(html.indexOf('data-needs-row="h"'));
     expect(html).toContain("tests red");
     expect(html).toContain("which db?");
-    expect(html.match(/>Dismiss</g)).toHaveLength(1);
+    expect(html.match(/data-needs-dismiss/g)).toHaveLength(1);
   });
 
   it("links every ticket id to its tracker page, in Needs you and in Now", () => {
@@ -112,15 +143,28 @@ describe("Overview", () => {
       ticket("q1", { status: "queued", queuePos: 0 }),
     ]);
     expect(html).toContain('data-now-row="r"');
-    expect(html.match(/data-free-slot/g)).toHaveLength(2);
+    expect(html).toMatch(/data-free-slots="2"[^>]*>[\s\S]*?2 free slots/);
     expect(html.indexOf('data-now-row="q1"')).toBeLessThan(html.indexOf('data-now-row="q2"'));
     expect(html.match(/data-slot="busy"/g)).toHaveLength(1);
   });
 
   it("says a down receiver runs nothing and shows no free slots", () => {
     const html = render(profile({ up: false, pid: null, active: null }), []);
-    expect(html).toContain("receiver is down");
-    expect(html).not.toContain("data-free-slot");
+    expect(html).toMatch(/data-receiver="down"[^>]*text-status-held/);
+    expect(html).toContain("receiver down");
+    expect(html).not.toContain("data-free-slots");
+  });
+
+  it("explains a stopped receiver once at the top, with the commands that recover it", () => {
+    const down = render(profile({ up: false, pid: null, active: null, configPath: "~/p/agenthook.config.json" }), []);
+    expect(down).toContain("The receiver is stopped, so no agents will run.");
+    expect(down).toContain("agenthook start --config ~/p/agenthook.config.json");
+    expect(down).toContain("agenthook reconcile --config ~/p/agenthook.config.json");
+    expect(down.match(/data-copy-command/g)).toHaveLength(2);
+    expect(down).toContain('aria-label="Copy command: agenthook start --config ~/p/agenthook.config.json"');
+    expect(down.indexOf("data-stopped-banner")).toBeLessThan(down.indexOf("data-all-clear"));
+    expect(render(profile({ up: false, pid: null, configMissing: true }), [])).not.toContain("agenthook start");
+    expect(render(profile(), [])).not.toContain("data-stopped-banner");
   });
 
   it("hides the rework rate until there are enough runs, then shows it", () => {
@@ -130,16 +174,16 @@ describe("Overview", () => {
   });
 
   it("opens the All tickets drill-down only while a status filter is active", () => {
-    expect(render(profile(), [])).not.toMatch(/<details[^>]*data-all-tickets[^>]*open/);
-    expect(render(profile(), [], { statusFilter: "failed" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
-    expect(render(profile(), [], { epicFilter: "E1" })).toMatch(/<details[^>]*data-all-tickets[^>]*open/);
+    expect(render(profile(), [])).toContain('data-all-tickets="true" data-open="false"');
+    expect(render(profile(), [], { statusFilter: "failed" })).toContain('data-open="true"');
+    expect(render(profile(), [], { epicFilter: "E1" })).toContain('data-open="true"');
+    expect(render(profile(), [])).toMatch(/data-tickets-toggle[^>]*aria-expanded="false"/);
   });
 
-  it("shows the Claude quota tile (with a passed reset as reset) and a distinct quota-paused badge", () => {
+  it("leaves the quota readout to the app bar but keeps the quota-paused badge", () => {
     const quota = { sevenDay: { utilization: 0.66, resetsAt: new Date(NOW + 2 * 86400e3 + 4 * 3600e3).toISOString() }, fiveHour: { utilization: 0.08, resetsAt: new Date(NOW - 1).toISOString() } };
     const html = render(profile({ quota, quotaPaused: { window: "sevenDay", utilization: 0.92, threshold: 0.9, resetsAt: quota.sevenDay.resetsAt } }), []);
-    expect(html).toContain("weekly 66% · resets in 2d 4h · 5h reset");
+    expect(html).not.toContain("weekly 66%");
     expect(html).toContain("quota paused");
-    expect(render(profile(), [])).not.toContain("data-quota");
   });
 });

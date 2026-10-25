@@ -28,6 +28,12 @@ const render = (ticket: TicketRow | undefined) =>
   renderToStaticMarkup(createElement(TicketDrawer, { profile: "agenthook", ticketRef: "221", ticket, runsNonce: 0, onClose: () => {} }));
 
 describe("TicketDrawer", () => {
+  it("shows the full failure reason (or the held question) under the header", () => {
+    expect(render({ ...row, status: "failed", failReason: 'service "bad" not ready within 5s' })).toMatch(/data-drawer-reason[\s\S]*Why it failed[\s\S]*service &quot;bad&quot; not ready within 5s/);
+    expect(render({ ...row, status: "held", heldReason: "Which DB?" })).toMatch(/data-drawer-reason[\s\S]*What the agent is asking[\s\S]*Which DB\?/);
+    expect(render(row)).not.toContain("data-drawer-reason");
+  });
+
   it("shows the ticket's summary under the header, and nothing when it has none", () => {
     expect(render({ ...row, summary: "Why this ticket exists." })).toMatch(/data-drawer-summary[^>]*>Why this ticket exists\.</);
     expect(render(row)).not.toContain("data-drawer-summary");

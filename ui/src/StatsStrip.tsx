@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import type { StatsView } from "./contract";
-import { Segmented } from "./components";
+import { Segmented, ShowHide } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatSpend } from "./format";
 import { formatEnergy } from "../../src/energy.js";
@@ -17,6 +17,8 @@ const StatsChart = lazy(() => import("./StatsChart"));
  */
 export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry[] }) {
   const [range, setRange] = useState<Range>(DEFAULT_RANGE);
+  // The chart is a drill-down: collapsed, the one-line total says enough for a glance.
+  const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<StatsView | null>(null);
   const [failed, setFailed] = useState(false);
   // Refetch when something that changes the numbers arrives (run_end, pipeline_done, …).
@@ -39,28 +41,33 @@ export function StatsStrip({ profile, feed }: { profile: string; feed: FeedEntry
     <div data-stats className="mt-3 rounded-lg border border-border bg-surface px-3 py-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-label font-semibold uppercase tracking-wide text-muted">History</span>
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2">
           <Segmented value={String(range) as `${Range}`} options={RANGES.map((r) => ({ value: String(r) as `${Range}`, label: `${r}d` }))} onChange={(v) => setRange(Number(v) as Range)} />
+          <ShowHide open={open} onToggle={() => setOpen(!open)} controls="stats-chart" label="history chart" data-stats-toggle />
         </span>
       </div>
       {failed && !stats ? (
         <p className="text-label text-muted">Couldn&apos;t load the history.</p>
       ) : (
         <>
-          <p className="mb-1 font-mono text-label" data-stats-total>
+          <p className="font-mono text-label" data-stats-total>
             {sum.finished} finished <span className="text-muted">({sum.avgFinished.toFixed(1)}/day)</span> · {formatSpend({ reported: sum.costUsd, est: sum.estUsd }) || "$0"}
             {sum.finished > 0 && sum.costUsd + sum.estUsd > 0 && <span className="text-muted"> ({formatSpend({ reported: sum.costUsd / sum.finished, est: sum.estUsd / sum.finished })}/ticket)</span>}
             {sum.energyKwh > 0 && <span className="text-muted" data-stats-energy> · {formatEnergy(sum)}</span>}
-            {sum.unestimatedRuns > 0 && <span className="text-faint" data-stats-unestimated> · {sum.unestimatedRuns} run{sum.unestimatedRuns === 1 ? "" : "s"} no estimate</span>}
+            {sum.unestimatedRuns > 0 && <span className="text-muted" data-stats-unestimated> · {sum.unestimatedRuns} run{sum.unestimatedRuns === 1 ? "" : "s"} no estimate</span>}
           </p>
-          <Suspense fallback={<div className="h-[210px]" aria-hidden="true" />}>
-            <StatsChart days={days} />
-          </Suspense>
-          <p className="mt-2 text-meta text-faint" data-stats-foot>
-            {sum.reworkRate !== null ? `Rework ${Math.round(sum.reworkRate * 100)}% of ${sum.runs} runs` : `${sum.runs} runs`}
-            {sum.bestDay ? ` · best day ${shortDate(sum.bestDay.date)} (${sum.bestDay.finished})` : ""}
-            {stats?.since ? ` · history since ${shortDate(stats.since.slice(0, 10))}` : ""}
-          </p>
+          {open && (
+            <div id="stats-chart" className="mt-1">
+              <Suspense fallback={<div className="h-[210px]" aria-hidden="true" />}>
+                <StatsChart days={days} />
+              </Suspense>
+              <p className="mt-2 text-meta text-muted" data-stats-foot>
+                {sum.reworkRate !== null ? `Rework · ${range} d: ${Math.round(sum.reworkRate * 100)}% of ${sum.runs} runs` : `${sum.runs} runs in ${range} d`}
+                {sum.bestDay ? ` · best day ${shortDate(sum.bestDay.date)} (${sum.bestDay.finished})` : ""}
+                {stats?.since ? ` · history since ${shortDate(stats.since.slice(0, 10))}` : ""}
+              </p>
+            </div>
+          )}
         </>
       )}
     </div>

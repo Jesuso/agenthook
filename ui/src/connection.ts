@@ -9,7 +9,7 @@ export function connectionState(connected: boolean, closed: boolean): Connection
 }
 
 export const CONNECTION_LABEL: Record<ConnectionState, string> = {
-  connected: "Live",
+  connected: "Live updates",
   reconnecting: "Reconnecting…",
   closed: "Disconnected — reload",
 };

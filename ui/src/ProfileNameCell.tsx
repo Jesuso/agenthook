@@ -3,7 +3,7 @@ import { formatDate, profileBadge, profileLabel, quotaPausedTitle } from "./form
 import { FullAutoShield, Pill } from "./components";
 
 /** A profile's name cell: label, fullAuto shield, ghost/config-missing badge, and the visible (tildified) config path. */
-export function ProfileNameCell({ p }: { p: ProfileView }) {
+export function ProfileNameCell({ p, path = true }: { p: ProfileView; path?: boolean }) {
   const badge = profileBadge(p);
   return (
     <>
@@ -33,7 +33,7 @@ export function ProfileNameCell({ p }: { p: ProfileView }) {
           </span>
         )}
       </div>
-      {p.configPath && (
+      {path && p.configPath && (
         <div className="block max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title={p.configPath}>
           {p.configPath}
         </div>

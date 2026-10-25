@@ -78,7 +78,7 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
             <Range days={days} />
           </Card>
           {empty && <p className="text-label text-muted">No runs in this range.</p>}
-          <p className="text-meta text-faint">{data.since ? `History since ${shortDate(data.since.slice(0, 10))}. ` : ""}Days follow your local midnight.</p>
+          <p className="text-meta text-muted">{data.since ? `History since ${shortDate(data.since.slice(0, 10))}. ` : ""}Days follow your local midnight.</p>
         </>
       )}
     </div>
@@ -89,7 +89,7 @@ function Card({ title, note, children }: { title: string; note: string; children
   return (
     <section className="min-w-0 rounded-lg border border-border bg-surface px-3 py-3">
       <h2 className="text-label font-semibold uppercase tracking-wide text-muted">{title}</h2>
-      <p className="mb-2 text-meta text-faint">{note}</p>
+      <p className="mb-2 text-meta text-muted">{note}</p>
       {children}
     </section>
   );
@@ -148,7 +148,7 @@ function Tip({ x, width, children }: { x: number; width: number; children: React
 
 function Legend({ items }: { items: { label: string; color: string }[] }) {
   return (
-    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-faint" aria-hidden="true">
+    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-muted" aria-hidden="true">
       {items.map((i) => (
         <span key={i.label} className="flex items-center gap-1">
           <span className="inline-block size-2 rounded-sm" style={{ background: i.color }} /> {i.label}
@@ -202,12 +202,12 @@ export function Stacked({ days }: { days: DayStats[] }) {
           ))}
           {!d.costUsd && !d.estUsd && <div className="font-mono text-muted">no spend</div>}
           {(d.energyKwh ?? 0) > 0 && <div className="font-mono text-muted" data-day-energy>{formatEnergy(d)}</div>}
-          {d.unestimatedRuns > 0 && <div className="font-mono text-faint">{d.unestimatedRuns} run{d.unestimatedRuns === 1 ? "" : "s"} no estimate</div>}
+          {d.unestimatedRuns > 0 && <div className="font-mono text-muted">{d.unestimatedRuns} run{d.unestimatedRuns === 1 ? "" : "s"} no estimate</div>}
         </Tip>
       )}
       <Legend items={m.legend.map((l) => ({ label: `${l.series} ${formatSpend({ reported: l.total, est: l.est }) || formatCost(0)}`, color: l.color }))} />
       {(m.legend.some((l) => l.est > 0) || m.unestimatedRuns > 0) && (
-        <p className="mt-1 text-meta text-faint" data-est-note>
+        <p className="mt-1 text-meta text-muted" data-est-note>
           {m.legend.some((l) => l.est > 0) && "Dashed = estimated at API rates (agent reported no cost)."}
           {m.legend.some((l) => l.est > 0) && m.unestimatedRuns > 0 && " "}
           {m.unestimatedRuns > 0 && `${m.unestimatedRuns} run${m.unestimatedRuns === 1 ? "" : "s"} with no estimate (unknown model or no tokens).`}
@@ -323,7 +323,7 @@ export function Range({ days }: { days: DayStats[] }) {
             <div className="font-mono text-muted">no costed tickets</div>
           )}
           {d.ticketEst && (
-            <div className="font-mono text-faint">
+            <div className="font-mono text-muted">
               est. median ~{axisDollars(d.ticketEst.p50)} · {d.ticketEst.n} tickets
             </div>
           )}

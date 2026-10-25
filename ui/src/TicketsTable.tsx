@@ -66,7 +66,8 @@ export function TicketsTable(props: TicketsTableProps) {
 
   return (
     <>
-      <h2 className="text-base font-semibold mb-2">tickets</h2>
+      {/* The All tickets summary above is the visible heading; this keeps the outline for screen readers. */}
+      <h2 className="sr-only">All tickets</h2>
       <div className="flex flex-wrap items-center gap-3 mb-2 text-sm" data-tickets-toolbar>
         {!props.lockProfile && (
         <select
@@ -192,9 +193,19 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
             {t.epic.name}
           </button>
         )}
-        <div title={t.summary ? `${t.title ?? t.displayId} — ${t.summary}` : t.title ?? undefined} className={`min-w-40 max-w-md truncate max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 ${title.unknown ? "text-muted" : ""}`}>
+        {/* A real button so the keyboard can open the drawer too; the row click is the mouse shortcut. */}
+        <button
+          type="button"
+          data-ticket-open
+          title={t.summary ? `${t.title ?? t.displayId} — ${t.summary}` : t.title ?? undefined}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen({ profile: t.profile, ref: t.ref });
+          }}
+          className={`block min-w-40 max-w-md truncate text-left max-lg:max-w-64 max-lg:whitespace-normal max-lg:line-clamp-2 focus-visible:outline-2 focus-visible:outline-accent ${title.unknown ? "text-muted" : ""}`}
+        >
           {title.text}
-        </div>
+        </button>
       </td>
       <td className={`${NOWRAP} font-mono`}>{t.profile}</td>
       <td className={NOWRAP}>{t.step ?? "—"}</td>
@@ -228,11 +239,12 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
         {(t.status === "failed" || t.status === "cancelled") && (
           <button
             type="button"
+            aria-label={`Dismiss ${t.displayId}`}
             title="Acknowledge: stop counting this ticket as needing you (the ticket itself is untouched)"
             className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
             onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}
           >
-            dismiss
+            Dismiss
           </button>
         )}
       </td>

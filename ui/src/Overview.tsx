@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ProfileView, Snapshot, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatDuration, formatModel, formatQuota, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
+import { formatCost, formatDuration, formatModel, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
@@ -10,10 +10,13 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { Menu, Pill, ProfileMark, TicketId } from "./components";
+import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShowHide, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
+import { Modal } from "./Modal";
+import { dismissKey } from "./deferredDismiss";
+import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
 
@@ -36,86 +39,142 @@ export type OverviewProps = {
   menuItems: MenuItem[];
   note: string;
   onDismiss: (t: Ref) => void;
+  /** Dismissed but still undoable (`dismissKey`): hidden from Needs you until sent or undone. */
+  dismissing?: ReadonlySet<string>;
   /** Answer a held ticket (optional comment for the agent); resolves with what happened. */
   onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>;
 };
 
 /**
- * One profile's dashboard, three zones (docs/web-ui.md § v4): Needs you (hidden when empty, so
- * empty means calm), Now (running agents, slots, queue) and Progress (today vs yesterday over the
- * events tail). The full ticket table and the live activity feed are collapsed drill-downs.
+ * One profile's dashboard (docs/web-ui.md § v4), in the order a glance needs it: Needs you leads
+ * (its count is the page's headline; empty says "All clear"), then Now (running agents, slots,
+ * queue), the digest, and Progress (today vs yesterday over the events tail). The full ticket table
+ * and the live activity feed are collapsed drill-downs.
  */
 export function Overview(props: OverviewProps) {
   const { profile, snapshot, now, feed, onOpen } = props;
   const scoped = scopeToProfile(snapshot, profile.name);
   const forge = !!profile.forge;
-  const needs = needsYouItems(scoped.tickets, forge);
+  const needs = needsYouItems(scoped.tickets, forge).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
   const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
+  const [help, setHelp] = useState(false);
+  const [ticketsOpen, setTicketsOpen] = useState(false);
+  const filtered = props.statusFilter !== "" || props.epicFilter !== "";
+  const ticketsShown = ticketsOpen || filtered;
+  useNeedsYouKeys(setHelp);
+  // A background tab or a side screen still shows whether anything needs you.
+  useEffect(() => {
+    document.title = `${needs.length ? `(${needs.length}) ` : ""}${profile.label} · agenthook`;
+    return () => {
+      document.title = "agenthook";
+    };
+  }, [needs.length, profile.label]);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <ProfileMark p={profile} />
-        <h1 className="text-title font-semibold">
-          <ProfileNameCell p={profile} />
-        </h1>
-        <div className="ml-auto flex items-center gap-2">
-          {props.note && <span className="text-label text-status-held">{props.note}</span>}
-          <Menu label="profile actions" items={props.menuItems} />
+    <div className="mx-auto flex max-w-6xl flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <ProfileMark p={profile} />
+          {/* The config path sits beside the heading, not in it: a screen reader names the page by
+              the profile alone, not "cahui-svc-test/tmp/ah-svc-test/…". */}
+          <div className="min-w-0">
+            <h1 className="text-title font-semibold">
+              <ProfileNameCell p={profile} path={false} />
+            </h1>
+            {profile.configPath && (
+              <p className="max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title={profile.configPath}>
+                {profile.configPath}
+              </p>
+            )}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {props.note && <span className="text-label text-status-held">{props.note}</span>}
+            <Menu label="profile actions" items={props.menuItems} />
+          </div>
+        </div>
+
+        {/* The machine's state, one quiet line: what the human came for is Needs you, below. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label text-muted" data-summary>
+          <ReceiverStatus p={profile} long />
+          {/* Down: the banner below says it; dashes for slots and queue would only repeat it. */}
+          {profile.up && (
+            <>
+              <span className="inline-flex items-center gap-2">
+                <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
+                agents
+              </span>
+              <span>
+                <span className="font-mono text-fg">{profile.queued ?? 0}</span> queued
+              </span>
+            </>
+          )}
+          {/* The Claude quota lives in the app bar, once; repeating it here was the critique's noise. */}
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2" data-summary>
-        <Tile label="agents">
-          <SlotPips active={profile.up ? profile.active ?? 0 : 0} max={profile.maxConcurrent ?? 0} up={profile.up} />
-        </Tile>
-        <Tile label="queued">
-          <span className="font-mono">{profile.up ? profile.queued ?? 0 : "—"}</span>
-        </Tile>
-        {profile.quota && (
-          <Tile label="claude quota" title="Claude subscription quota, as of the last Claude run">
-            <span className="text-body" data-quota>
-              {formatQuota(profile.quota, now)}
-            </span>
-          </Tile>
-        )}
-      </div>
+      {!profile.up && <StoppedBanner profile={profile} />}
 
-      <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
+      {/* Screen readers hear the headline change (a ticket arrives or is handled), not every re-render. */}
+      <p className="sr-only" aria-live="polite" data-needs-live>
+        {needs.length === 0 ? "All clear, nothing needs you" : `${needs.length} ${needs.length === 1 ? "ticket needs" : "tickets need"} you`}
+      </p>
 
-      {needs.length > 0 && <NeedsYouZone items={needs} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />}
+      <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} />
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
+      <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
+
       <ProgressZone prog={prog} profile={profile.name} feed={feed} />
 
-      <details data-all-tickets className="rounded-lg border border-border bg-surface" open={props.statusFilter !== "" || props.epicFilter !== ""}>
-        <summary className="cursor-pointer select-none px-3 py-2 text-label font-semibold uppercase tracking-wide text-muted">
-          All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
-        </summary>
-        <div className="p-3">
-          <TicketsTable
-            tickets={scoped.tickets}
-            profiles={scoped.profiles}
-            now={now}
-            profileFilter={profile.name}
-            onProfileFilter={() => {}}
-            lockProfile
-            statusFilter={props.statusFilter}
-            onStatusFilter={props.setStatusFilter}
-            epicFilter={props.epicFilter}
-            onEpicFilter={props.setEpicFilter}
-            showAll={props.showAll}
-            onShowAll={props.setShowAll}
-            open={props.open}
-            onOpen={onOpen}
-            onDismiss={props.onDismiss}
-          />
-        </div>
-      </details>
+      <div className="flex flex-col gap-3">
+        {/* A filter (set from Stats, Epics or a chip) opens it: the filtered table is what was asked for. */}
+        <section data-all-tickets data-open={ticketsShown} className="rounded-lg border border-border bg-surface">
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
+              All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
+            </h2>
+            {!filtered && <ShowHide open={ticketsOpen} onToggle={() => setTicketsOpen(!ticketsOpen)} controls="all-tickets" label="all tickets" data-tickets-toggle />}
+          </div>
+          {ticketsShown && (
+          <div id="all-tickets" className="px-3 pb-3">
+            <TicketsTable
+              tickets={scoped.tickets}
+              profiles={scoped.profiles}
+              now={now}
+              profileFilter={profile.name}
+              onProfileFilter={() => {}}
+              lockProfile
+              statusFilter={props.statusFilter}
+              onStatusFilter={props.setStatusFilter}
+              epicFilter={props.epicFilter}
+              onEpicFilter={props.setEpicFilter}
+              showAll={props.showAll}
+              onShowAll={props.setShowAll}
+              open={props.open}
+              onOpen={onOpen}
+              onDismiss={props.onDismiss}
+            />
+          </div>
+          )}
+        </section>
 
-      <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
+        <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
+      </div>
+
+      {help && (
+        <Modal title="Keyboard shortcuts" onClose={() => setHelp(false)}>
+          <dl data-shortcuts className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body">
+            {OVERVIEW_SHORTCUTS.map((s) => (
+              <div key={s.keys} className="contents">
+                <dt><kbd className="rounded-sm border border-border bg-surface-raised px-1.5 font-mono text-label">{s.keys}</kbd></dt>
+                <dd className="text-muted">{s.what}</dd>
+              </div>
+            ))}
+          </dl>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -125,6 +184,28 @@ function Tile({ label, title, children }: { label: string; title?: string; child
     <div title={title} className="min-w-32 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="text-label uppercase tracking-wide text-muted">{label}</div>
       <div className="text-title font-semibold">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A stopped receiver, said once at the top: nothing runs, what happens to tickets meanwhile, and the
+ * two commands that recover (start, then reconcile to fire tickets that moved while it was down).
+ */
+function StoppedBanner({ profile }: { profile: ProfileView }) {
+  const cfg = profile.configPath ? ` --config ${profile.configPath}` : "";
+  return (
+    <div data-stopped-banner className="rounded-lg border border-status-held/40 bg-status-held-bg px-3 py-2 text-body">
+      <p className="font-semibold text-status-held">The receiver is stopped, so no agents will run.</p>
+      <p className="text-fg">
+        Tickets moved on the board wait in their stage.{!profile.configMissing && " Start it, then pick up what moved meanwhile:"}
+      </p>
+      {!profile.configMissing && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          <CopyCommand command={`agenthook start${cfg}`} />
+          <CopyCommand command={`agenthook reconcile${cfg}`} />
+        </div>
+      )}
     </div>
   );
 }
@@ -167,7 +248,7 @@ const KIND: Record<NeedsItem["kind"], { text: string; tone: "failed" | "held" | 
 /** Hover (or keyboard focus) reveals a row's actions; touch screens always show them. */
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
 /** A primary, always-visible row action (Release…, PR ↗). */
-const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent";
+const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
 /** The inline answer form under a held row: an optional comment for the agent, then Release. */
@@ -214,16 +295,88 @@ function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease
         <button type="button" disabled={busy} onClick={onClose} className={LINK}>
           Cancel
         </button>
-        <span className="ml-auto text-meta text-faint">⌘/Ctrl + Enter to release</span>
+        <span className="ml-auto text-meta text-muted">⌘/Ctrl + Enter to release</span>
       </div>
     </div>
   );
 }
 
-function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: NeedsItem[]; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"] }) {
+/**
+ * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
+ * its live log), r opens the focused held
+ * row's answer box, d dismisses the focused failed row, ? shows the shortcut sheet. Acts through the
+ * rows' own buttons, so a shortcut can never do what a click could not.
+ */
+function useNeedsYouKeys(setHelp: (open: boolean) => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = overviewAction(e, !!document.querySelector('[role="dialog"]'));
+      if (!action) return;
+      if (action === "help") {
+        e.preventDefault();
+        return setHelp(true);
+      }
+      const titles = [...document.querySelectorAll<HTMLElement>("[data-needs-open], [data-now-open]")];
+      const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-needs-row], [data-now-row]");
+      if (action === "next" || action === "prev") {
+        if (!titles.length) return;
+        e.preventDefault();
+        const at = row ? titles.findIndex((t) => row.contains(t)) : -1;
+        const to = at === -1 ? (action === "next" ? 0 : titles.length - 1) : Math.min(titles.length - 1, Math.max(0, at + (action === "next" ? 1 : -1)));
+        titles[to].focus();
+        return;
+      }
+      const button = row?.querySelector<HTMLElement>(action === "release" ? "[data-release-open]" : "[data-needs-dismiss]");
+      if (!button) return;
+      e.preventDefault();
+      if (action === "dismiss") {
+        // Keep the keyboard in the list: focus the next row (or the previous at the end) first.
+        const at = titles.findIndex((t) => row!.contains(t));
+        (titles[at + 1] ?? titles[at - 1])?.focus();
+      }
+      button.click();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setHelp]);
+}
+
+/** The headline count takes the tone of the worst thing waiting: failed, then held. */
+const headlineTone = (items: NeedsItem[]) =>
+  items.some((i) => i.kind === "failed") ? "text-status-failed" : items.some((i) => i.kind === "held") ? "text-status-held" : "text-fg";
+
+function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"] }) {
   const [releasing, setReleasing] = useState<string | null>(null);
+  if (items.length === 0) {
+    return (
+      // The calm verdict takes the same headline slot as "N need you": the second-screen glance has
+      // to read "look away" as loudly as "look here". Down, it stays neutral: someone must restart it.
+      <section data-all-clear>
+        <h2 className="flex items-baseline gap-2">
+          {up && (
+            <span aria-hidden="true" className="text-stat font-semibold text-success">
+              ✓
+            </span>
+          )}{" "}
+          <span className="text-stat font-semibold">{up ? "All clear" : "Nothing needs you"}</span>
+        </h2>
+        <p className="text-label text-muted">
+          {up ? "Held questions, failed runs and PRs ready to merge show up here." : "Until the receiver is started again, nothing new can arrive here."}
+        </p>
+      </section>
+    );
+  }
   return (
-    <Zone title="Needs you" count={items.length}>
+    <section>
+      <div className="mb-3 flex items-baseline gap-2">
+        <h2 className="flex items-baseline gap-2">
+          <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>{" "}
+          <span className="text-title font-semibold">{items.length === 1 ? "needs you" : "need you"}</span>
+        </h2>
+        <p className="ml-auto text-label text-muted max-sm:hidden" data-keys-hint>
+          <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">?</kbd> shortcuts
+        </p>
+      </div>
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
           const { ticket: t, kind, reason, since } = item;
@@ -231,32 +384,34 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
           const pr = prNumber(t.prUrl);
           return (
             <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
-              <div className="group flex items-center gap-3 px-3 py-2">
-                <span className="w-[4.5rem] shrink-0"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
+              {/* Below sm (a half-width window, a phone) the row stacks: kind, id, age and the action on
+                  one line, the title and its reason full width underneath, instead of squeezing to "…". */}
+              <div className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1">
+                <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
-                <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                <button type="button" data-needs-open className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full" title={t.summary ? `${t.summary} — open details` : "open details"} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
                   <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
                   {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
                 </button>
-                <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted">
+                <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
                   {t.step ? `${t.step} · ` : ""}
                   {formatRelative(since, now)}
                 </span>
                 {/* One primary action per row: always visible, fixed width, so the columns line up. A PR
                     link on a held/failed row lives in the drawer header; the title opens the drawer. */}
-                <span className="w-28 shrink-0 text-right" data-needs-primary>
+                <span className="w-28 shrink-0 text-right max-sm:w-auto" data-needs-primary>
                   {kind === "held" ? (
                     releasing !== t.ref && (
-                      <button type="button" data-release-open className={ACTION} onClick={() => setReleasing(t.ref)}>
+                      <button type="button" data-release-open aria-label={`Release ${t.displayId}…`} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
                         Release…
                       </button>
                     )
                   ) : kind === "failed" ? (
-                    <button type="button" className={ACTION} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
+                    <button type="button" data-needs-dismiss aria-label={`Dismiss ${t.displayId}`} aria-keyshortcuts="d" className={ACTION} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
                       Dismiss
                     </button>
                   ) : t.prUrl ? (
-                    <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer">
+                    <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer" aria-label={`Open PR ${pr ? `#${pr}` : ""} for ${t.displayId} (new tab)`}>
                       PR {pr ? `#${pr}` : ""} ↗
                     </a>
                   ) : null}
@@ -267,7 +422,7 @@ function NeedsYouZone({ items, now, onOpen, onDismiss, onRelease }: { items: Nee
           );
         })}
       </ul>
-    </Zone>
+    </section>
   );
 }
 
@@ -276,20 +431,21 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
   const model = formatModel(t.model);
   const elapsed = t.startedAt ? formatDuration(now - Date.parse(t.startedAt)) : "—";
   return (
-    <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2">
+    <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
       <TicketId id={t.displayId} url={t.trackerUrl} />
-      <button type="button" className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
         <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
         {t.summary && <span className="block truncate text-label text-muted" data-now-sub>{t.summary}</span>}
       </button>
       {t.step && <Pill>{t.step}</Pill>}
       {queuedAt === undefined && (
         <>
-          <span className="font-mono text-label text-muted" title={model.title}>{model.text}</span>
+          {/* Narrow: model and cost go (the drawer has both); elapsed stays, it is the progress signal. */}
+          <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
           <span className="font-mono text-label" title="elapsed">{elapsed}</span>
-          <span className="font-mono text-label text-muted" title="cost so far (approx.)">{formatTicketSpend(t)}</span>
-          <button type="button" className={`${LINK} ${REVEAL}`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+          <span className="font-mono text-label text-muted max-sm:hidden" title="cost so far (approx.)">{formatTicketSpend(t)}</span>
+          <button type="button" className={`${LINK} ${REVEAL} max-sm:hidden`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
             Follow log
           </button>
         </>
@@ -305,20 +461,20 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
     <Zone title="Now" count={running.length}>
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
         {running.length > 0 && <ul className="divide-y divide-border-subtle">{running.map((t) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} />)}</ul>}
+        {/* Idle capacity is one quiet line, not a row per slot: rows are for work. */}
         {free > 0 && (
-          <ul aria-label="free slots" className={running.length ? "border-t border-border-subtle" : ""}>
-            {Array.from({ length: free }, (_, i) => (
-              <li key={i} data-free-slot className="flex items-center gap-3 px-3 py-2 text-label text-muted">
-                <span aria-hidden="true" className="size-2 rounded-full border border-dashed border-border-strong" />
-                free slot
-              </li>
-            ))}
-          </ul>
+          <p data-free-slots={free} className={`flex items-center gap-3 px-3 py-2 text-label text-muted ${running.length ? "border-t border-border-subtle" : ""}`}>
+            <span aria-hidden="true" className="size-2 rounded-full border border-dashed border-border-strong" />
+            {running.length === 0 ? "Nothing running · " : ""}
+            {free} free slot{free === 1 ? "" : "s"}
+          </p>
         )}
-        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">receiver is down — nothing is running</p>}
+        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">Nothing is running.</p>}
         {queued.length > 0 && (
           <div className="border-t border-border-subtle">
-            <div className="px-3 pt-2 text-label uppercase tracking-wide text-muted">queued {queued.length}</div>
+            <div className="px-3 pt-2 text-label text-muted">
+              Queued · <span className="font-mono">{queued.length}</span>
+            </div>
             <ul className="divide-y divide-border-subtle">{queued.map((t, i) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} queuedAt={i + 1} />)}</ul>
           </div>
         )}
@@ -341,7 +497,7 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
           <span className="font-mono">{formatSpend({ reported: prog.costToday, est: prog.estToday }) || formatCost(0)}</span>{" "}
           <span className="text-label font-normal text-muted">{prog.costYesterday || prog.estYesterday ? `yesterday ${formatSpend({ reported: prog.costYesterday, est: prog.estYesterday })}` : ""}</span>
         </Tile>
-        <Tile label="rework rate" title="share of agent runs that ended in a rework loop (changes), over the last ~48 h of events">
+        <Tile label="rework · 48 h" title="share of agent runs that ended in a rework loop (changes), over the last ~48 h of events">
           {rate === null ? (
             <span className="text-label font-normal text-muted">needs {MIN_RUNS_FOR_RATES}+ runs ({prog.runs} so far)</span>
           ) : (
@@ -349,7 +505,7 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
           )}
         </Tile>
       </dl>
-      <p className="mt-1 text-meta text-faint">Today, yesterday and the rework rate come from the last ~48 h of events.</p>
+      <p className="mt-1 text-meta leading-4 text-muted">Today, yesterday and rework come from the last ~48 h of events; History below covers the chosen range.</p>
       <StatsStrip profile={profile} feed={feed} />
     </Zone>
   );
