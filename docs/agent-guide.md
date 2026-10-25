@@ -38,7 +38,7 @@ Vocabulary you will see in tool output:
   `id` / `title` next to a ref are the human display id and a clipped title.
 - **slot** — concurrency: at most `slots.max` agents run at once; the rest wait in the **queue**.
 - **held** — a task whose agent asked for input. It stays parked until someone answers (`release`).
-- **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again or you `dismiss` them. `held` + `failed` is the dashboard's "needs you" list.
+- **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again, you `retry` them, or you `dismiss` them. `held` + `failed` is the dashboard's "needs you" list.
 - **backlog / queue stage** — optional opt-in lane the receiver pulls from when a slot frees.
 - There is **no polling** inside agenthook: forward motion is webhook-driven. Reads cost nothing on
   the tracker; `board`/`prs` hit the tracker/forge only when you call them (cached ~30 s).
@@ -257,6 +257,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `run {ref, step?, assign?, force?}` | assign + move into a step's source stage | ref not found; ticket already completed (override: `force`); already in the pipeline (override: `force`) |
 | `catchup {ref, force?}` | re-fire the step for the stage the ticket **currently rests in**; use instead of `run {force}` when `run`'s move produces no fresh transition | not assigned to us; rests in no pipeline source stage; no tracker support |
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
+| `retry {ref}` | re-run a **failed** task's failed step: back into that step's source stage (the webhook fires it); never reassigns | not failed (running, queued, held, dismissed or re-run since); not assigned to us; step is `manual` |
 | `dismiss {ref}` | acknowledge a **failed/cancelled** task so dashboards stop counting it as needing attention (writes a `dismissed` event; the ticket is untouched) | ref is running, queued or held |
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |
 | `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`) | — |

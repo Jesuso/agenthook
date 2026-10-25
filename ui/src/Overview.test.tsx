@@ -23,7 +23,7 @@ const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProp
   renderToStaticMarkup(
     createElement(Overview, {
       profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
-      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), ...over,
+      open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), ...over,
     }),
   );
 
@@ -52,7 +52,7 @@ describe("Overview", () => {
 
   it("narrow: Needs-you rows stack the title under the action line; Now rows drop model, cost and Follow log", () => {
     const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("r", { status: "running" })]);
-    expect(html).toMatch(/data-needs-open="true" class="[^"]*max-sm:order-last max-sm:basis-full/);
+    expect(html).toMatch(/data-needs-open="true" aria-label="[^"]*" class="[^"]*max-sm:order-last max-sm:basis-full/);
     expect(html).toMatch(/max-sm:hidden" title="claude-opus-5-5"/);
     expect(html).toMatch(/max-sm:hidden" title="cost so far/);
   });
@@ -72,6 +72,21 @@ describe("Overview", () => {
     expect(html).toContain("tests red");
     expect(html).toContain("which db?");
     expect(html.match(/data-needs-dismiss/g)).toHaveLength(1);
+  });
+
+  it("a failed row: one plain-words reason (raw log in the drawer), a short accessible name; Open log instead of Re-run when down", () => {
+    const raw = 'sandbox (docker) could not start the run: service "bad" not ready within 5s (wait: false) — last log lines: 2026-10-24T18:00:00Z boot';
+    const row = (html: string) => html.slice(html.indexOf('data-needs-row="f"'), html.indexOf("</li>", html.indexOf('data-needs-row="f"')));
+    const up = row(render(profile(), [ticket("f", { status: "failed", failReason: raw })]));
+    expect(up).toMatch(/data-needs-sub[^>]*>Sandbox could not start: service &quot;bad&quot; not ready within 5s \(wait: false\)</);
+    expect(up).not.toContain("last log lines");
+    expect(up).toContain('aria-label="#f Title f, failed: Sandbox could not start: service &quot;bad&quot; not ready within 5s (wait: false)"');
+    expect(up).toContain('aria-label="Re-run #f (code)"');
+    const down = row(render(profile({ up: false }), [ticket("f", { status: "failed", failReason: "non-zero exit (1)" })]));
+    expect(down).not.toContain("data-needs-retry");
+    expect(down).toMatch(/data-needs-primary[^>]*><button[^>]*data-needs-log[^>]*>Open log</);
+    expect(down).toContain("data-needs-dismiss");
+    expect(down).toContain("The agent exited with code 1");
   });
 
   it("links every ticket id to its tracker page, in Needs you and in Now", () => {
@@ -98,7 +113,7 @@ describe("Overview", () => {
     expect(row('data-needs-row="p"')).toMatch(/data-needs-sub[^>]*>PR-ready summary\./);
   });
 
-  it("keeps each row's primary action visible in one fixed slot (PR link on PR ready, Release on held, Dismiss on failed)", () => {
+  it("keeps each row's primary action visible in one fixed slot (PR link on PR ready, Release on held, Re-run on failed)", () => {
     const html = render(profile({ forge: "github" }), [
       ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8114" }),
       ticket("n", { status: "done", prState: "ready", finishedAt: local(9), prUrl: null }),
@@ -108,7 +123,8 @@ describe("Overview", () => {
     const row = (ref: string) => html.slice(html.indexOf(`data-needs-row="${ref}"`), html.indexOf("</li>", html.indexOf(`data-needs-row="${ref}"`)));
     expect(row("p")).toMatch(/data-needs-primary[^>]*><a[^>]*href="https:\/\/github.com\/o\/r\/pull\/8114"[^>]*>PR #8114/);
     expect(row("h")).toMatch(/data-needs-primary[^>]*><button[^>]*data-release-open/);
-    expect(row("f")).toMatch(/data-needs-primary[^>]*><button[^>]*>Dismiss/);
+    expect(row("f")).toMatch(/data-needs-primary[^>]*><button[^>]*data-needs-retry[^>]*>Re-run</);
+    expect(row("f")).toMatch(/data-needs-dismiss[^>]*>Dismiss</); // secondary, before the primary
     expect(html).not.toContain('data-needs-row="n"'); // no PR known: Finished, not Needs you
     for (const r of ["p", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
   });

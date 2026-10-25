@@ -15,6 +15,8 @@ import {
   restartReducer,
   restartRequest,
   restartText,
+  retryOutcome,
+  retryRequest,
   sensitiveDiff,
 } from "./config";
 import type { ConfigEvent, RestartAction, RestartState } from "./config";
@@ -48,6 +50,22 @@ describe("release", () => {
     expect(releaseOutcome("#42", 504, null)).toMatchObject({ ok: false, error: expect.stringContaining("in time") });
     expect(releaseOutcome("#42", 0, null)).toEqual({ ok: false, error: "network error" });
     expect(releaseOutcome("#42", 418, null)).toEqual({ ok: false, error: "release failed (status 418)" });
+  });
+});
+
+describe("retry", () => {
+  it("POST /api/retry with the guard headers and {profile, ref}", () => {
+    const { url, init } = retryRequest("p", "42");
+    expect(url).toBe("/api/retry");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ profile: "p", ref: "42" });
+  });
+
+  it("maps every status to an outcome", () => {
+    expect(retryOutcome("#42", 200, { step: "code" })).toEqual({ ok: true, text: "Re-running #42 · code" });
+    expect(retryOutcome("#42", 502, { error: "42 is not assigned to us" })).toEqual({ ok: false, error: "42 is not assigned to us" });
+    expect(retryOutcome("#42", 503, null)).toMatchObject({ ok: false, error: expect.stringContaining("not running") });
+    expect(retryOutcome("#42", 418, null)).toEqual({ ok: false, error: "re-run failed (status 418)" });
   });
 });
 

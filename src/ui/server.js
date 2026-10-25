@@ -20,7 +20,8 @@
 // the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
 // read side (config path, archive pattern, webhook hint). `POST /api/dismiss` (same guards) asks
 // the receiver over its socket to acknowledge a failed/cancelled ticket (a `dismissed` event the
-// receiver itself writes). `POST /api/release` (same guards) answers a held ticket: the receiver
+// receiver itself writes). `POST /api/retry` (same guards) re-runs a failed ticket's failed step
+// (the receiver re-enters its source stage, only for a ticket that is failed and ours). `POST /api/release` (same guards) answers a held ticket: the receiver
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
 // reused as the MCP `release` tool). `GET /api/epics[/<ref>]` asks the receiver's `epics` op (the
 // tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic.
@@ -80,6 +81,7 @@ const WRITABLE = new Set([INSTR_FILE, CONFIG]);
 const RESTART = "/api/restart";
 const REMOVE = "/api/profile/remove";
 const DISMISS = "/api/dismiss";
+const RETRY = "/api/retry";
 const RELEASE = "/api/release";
 const DIGEST = "/api/digest";
 const PAUSE = "/api/pause";
@@ -173,7 +175,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
 
   /**
    * The guard prelude shared by the two PUTs and every POST (`/api/restart`, `/api/pause`,
-   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/release`), in order: cookie (Host already checked) → 401;
+   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/retry`, `/api/release`), in order: cookie (Host already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -297,6 +299,27 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       const sock = resolveProfileSock(registry, profile);
       if (!sock) return send(res, 404);
       callControl(sock.sockPath, "dismiss", { ref, actor: "ui" }, restartTimeoutMs).then(({ status, body: result }) => sendStatusJson(res, status, result));
+    });
+
+  /**
+   * `POST /api/retry` — readGuardedJson, then `{profile, ref}` both strings (ref non-empty) → else
+   * 400; unknown profile → 404 (socket never contacted); else sends `{cmd:'retry', args:{ref,
+   * actor:'ui'}}` and maps the reply via `callControl`. The receiver refuses a ticket that is not
+   * failed, not ours, or whose step is manual → 502 `{error}`. It reads and moves the ticket on the
+   * tracker (a few API calls), so it shares release's longer timeout. Audits
+   * `{ts, action:'retry', profile, ref, status}`.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postRetry = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, ref } = body;
+      if (typeof profile !== "string" || typeof ref !== "string" || !ref) return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "retry", { ref, actor: "ui" }, releaseTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "retry", profile, ref, status });
+        sendStatusJson(res, status, result);
+      });
     });
 
   /**
@@ -463,11 +486,12 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     if (req.method === "POST" && p === RESTART) return postRestart(req, res, host);
     if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
     if (req.method === "POST" && p === DISMISS) return postDismiss(req, res, host);
+    if (req.method === "POST" && p === RETRY) return postRetry(req, res, host);
     if (req.method === "POST" && p === RELEASE) return postRelease(req, res, host);
     if (req.method === "POST" && p === DIGEST) return postDigest(req, res, host);
     if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
     if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
-    if (p === RESTART || p === REMOVE || p === DISMISS || p === RELEASE || p === PAUSE || p === RESUME) {
+    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RELEASE || p === PAUSE || p === RESUME) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }

@@ -13,7 +13,7 @@ import { isUndoKey } from "./shortcuts";
 import { affectsRuns } from "./logview";
 import { DISCARD_PROMPT } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
-import { CONFIG_DISCARD_PROMPT, RESTART_IDLE, dismissRequest, queueToggleRequest, releaseOutcome, releaseRequest, restartRequest, restartText } from "./config";
+import { CONFIG_DISCARD_PROMPT, RESTART_IDLE, dismissRequest, queueToggleRequest, releaseOutcome, releaseRequest, restartRequest, restartText, retryOutcome, retryRequest } from "./config";
 import type { ReleaseOutcome } from "./config";
 import type { ConfigSinkEvent } from "./config";
 import { RemoveProfile } from "./RemoveProfile";
@@ -373,6 +373,18 @@ export default function App() {
             const label = displayIdFor(t.profile, t.ref) ?? t.ref;
             const settle = (status: number, body: any) => {
               const out = releaseOutcome(label, status, body);
+              if (out.ok) setToast({ text: out.text, hint: null });
+              return out;
+            };
+            return fetch(url, init)
+              .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
+              .catch(() => settle(0, null));
+          }}
+          onRetry={(t): Promise<ReleaseOutcome> => {
+            const { url, init } = retryRequest(t.profile, t.ref);
+            const label = displayIdFor(t.profile, t.ref) ?? t.ref;
+            const settle = (status: number, body: any) => {
+              const out = retryOutcome(label, status, body);
               if (out.ok) setToast({ text: out.text, hint: null });
               return out;
             };

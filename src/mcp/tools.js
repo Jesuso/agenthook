@@ -177,6 +177,14 @@ const TOOLS = {
       ["ref", "comment"],
     ),
   },
+  retry: {
+    write: true,
+    def: schema(
+      "Re-run a FAILED task's failed step: moves the ticket back into that step's source stage (the tracker webhook fires it, like `run`; queued directly if it never left the source stage). Never reassigns. Errors if the task is not failed (running, queued, held, dismissed or re-run since), is not assigned to us, or its step is manual.",
+      { profile: PROFILE, ref: REF },
+      ["ref"],
+    ),
+  },
   dismiss: {
     write: true,
     def: schema(
