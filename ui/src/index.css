@@ -94,6 +94,8 @@
 
   --text-stat: 28px;
   --text-stat--line-height: 32px;
+  --text-heading: 20px;
+  --text-heading--line-height: 28px;
 }
 
 :root {

@@ -41,6 +41,11 @@ typography:
     fontSize: "28px"
     fontWeight: 600
     lineHeight: "32px"
+  heading:
+    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontSize: "20px"
+    fontWeight: 600
+    lineHeight: "28px"
   title:
     fontFamily: "ui-sans-serif, system-ui, sans-serif"
     fontSize: "15px"
@@ -245,6 +250,7 @@ reads and what the system reports.
 
 ### Hierarchy
 - **Stat** (600, 28px, 32px): headline numbers in tiles. The largest type on the board.
+- **Heading** (600, 20px, 28px): the subject of a detail page (an epic's name), under the 15px page title. Only one per page.
 - **Title** (600, 15px, 22px): page and profile headings, the app name.
 - **Body** (400, 13px, 20px): ticket titles, digest prose, reasons.
 - **Label** (500, 12px, 16px): buttons, pills, badges, nav tabs, form controls.

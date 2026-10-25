@@ -662,19 +662,49 @@ the tracker read is the receiver's `epics` control op (`src/ops.js`); the UI ser
 ### Epics view (built)
 The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy chunk like Stats.
 - **Routes:** `#/p/<key>/epics` (the **Epics** tab) lists the profile's epics; `#/p/<key>/epics/<ref>`
-  is one epic's page. Fetched on open and on **Refresh**; a `ticket` SSE event for the profile refetches
-  after a 2 s quiet period (trailing debounce). No timer polling. 404 / 502 / 503 / 504 show inline.
-- **List** (`EpicsView.tsx`): one row per epic — name (→ its page), tracker `status`, a stacked bar of
-  `byStage` with `N/M` (N = finished + merged, M = total), a needs-you badge and the ETA when known.
-  Completed epics sit last, dimmed, under a collapsed "Completed (k)". Among open epics, `readyToClose`
-  ones sort first and show a "ready to close" chip. `supported:false` → "This tracker
-  has no epics"; `live:false` → a "known tickets only — receiver down" note.
-- **Epic page** (`EpicPage.tsx`): header (name, status, tracker link only if http(s)), a "ready to
-  close" banner when `readyToClose` ("All tickets finished — close this epic on the tracker?"), the
-  same stage bar with a legend, **Needs you** first, a 14-day velocity sparkline (`ui/src/epicSparkline.ts`,
-  a pure d3 model) with `finished14`, per-day rate and ETA, then the other tickets by bucket (running, backlog,
-  finished, merged) and an "Untracked / not on board" note. A ticket that has a local row opens the
-  ticket drawer.
+  is one epic's page (the browser tab names it). Fetched on open and on **Refresh**; a `ticket` SSE
+  event for the profile refetches silently after a 2 s quiet period (trailing debounce; only a Refresh
+  click shows "Refreshing…"). No timer polling. Folds (Closed, an epic's history) keep their state per
+  tab, and coming back to the list focuses the epic you left (opening Closed if it is there). 404 / 502 / 503 / 504 show inline with **Try again**,
+  a failed refetch keeps the last good data under the error, 503 offers `agenthook start`, and a 404
+  links back to the list.
+- **Keys** (`shortcuts.ts` `epicsAction`, read-only): j / k walk epics on the list and tickets on a
+  page, Enter opens, u goes back to the list, ? (or the "?" button) shows the sheet. The sheet
+  (`ShortcutSheet`, shared with the Overview, which gets the same "?" button) has a switch that turns
+  every single-key shortcut off, per browser (WCAG 2.1.4). The shared `Modal` is named by its title,
+  takes focus, keeps Tab inside, has a Close button and hands focus back on close.
+- **One stage bar** (`EpicStageBar.tsx`) on both pages, named "N of M finished: …" for screen
+  readers. Merged is the strongest fill, finished the same green lighter, and **awaiting merge** is a
+  hollow segment drawn only on evidence: a finished ticket whose PR is recorded and not merged (the
+  page knows it from local rows; the list never draws it). A finished ticket with no recorded PR is
+  just finished (CONTEXT.md). Every label comes from one map (`segLabel`: untracked reads "not on the
+  board"). The key with counts
+  (`StageKey`) sits under the bar on a page; the list has a swatch-only key under its open rows.
+- **List** (`EpicsView.tsx`): one row per epic, the whole row a link — needs-you count first (when any
+  open epic has one), then id and name with the tracker's `status` muted beside it ("· Idea": the
+  tracker's word, not progress), the bar with `N/M · k left`, and one note
+  slot (only when some row fills it): a neutral "ready to close" chip, else the ETA, else "stalled N d".
+  Open epics sort by what needs the human: most needs-you tickets, then any running, then ready to
+  close (which is not Needs you), then the server's order. Closed epics sit last under a collapsed
+  "Closed (k)" as muted rows with their outcome ("6/6 finished", or "no tickets"), no bar and no status; with no open epics a
+  line says so and Closed starts open. A row's link carries its state for screen readers
+  (`aria-describedby`: needs-you, status, bar, note); heading counts read as "(3 tickets)". `supported:false` → "This tracker has no epics"; `live:false` → a "known tickets
+  only — receiver down" note.
+- **Epic page** (`EpicPage.tsx`), in attention order: the epic name (the `heading` token, above the
+  page title in size), id, tracker status and link (http(s) only); a "ready to close" banner phrased
+  as the human's task; the bar with a count per stage; one pace line in words (`paceOf`: "4 tickets
+  finished this week, the latest 1 d ago", or "Stalled: nothing finished for 6 days" once 5+ days
+  pass with work left; the ETA with its basis, "3 left at 0.3/day: ~10 d · Nov 4", or the real reason
+  there is none: nothing finished yet, or fewer than 3 days with finished work). Then **Needs you**:
+  each ticket's held question, fail reason or "PR ready to merge", its step and age, and its action
+  named as on the Overview: **Release…** (the answer box opens inline), **Re-run…** (asks once
+  inline, naming the step; Open log while the receiver is down) with a quieter **Dismiss** (Undo in
+  the toast), **Review PR**, or the tracker when it never ran here; the name opens the drawer. Writes
+  are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only tickets with a recorded, unmerged PR, each with its
+  PR link); Backlog; "Not on the board"; and the rest folded, titled by what it holds ("Finished and
+  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when its URL
+  derives from the epic's (`ticketUrl`), marked "tracker ↗" and announced as a new tab, else a row
+  that says "never ran here, no link".
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or
   malformed, `url` only http(s)) puts an epic chip on the row; clicking it filters the table to that
   epic. The toolbar's epic select (shown once a row has an epic) does the same; status counts follow it.

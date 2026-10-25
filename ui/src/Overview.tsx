@@ -10,14 +10,14 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShowHide, TicketId } from "./components";
+import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
-import { Modal } from "./Modal";
+import { ReleasePanel } from "./ReleasePanel";
 import { dismissKey } from "./deferredDismiss";
 import { failureSummary } from "./failure";
-import { OVERVIEW_SHORTCUTS, overviewAction } from "./shortcuts";
+import { OVERVIEW_SHORTCUTS, overviewAction, shortcutsEnabled } from "./shortcuts";
 
 type Ref = { profile: string; ref: string };
 
@@ -93,6 +93,7 @@ export function Overview(props: OverviewProps) {
           </div>
           <div className="ml-auto flex items-center gap-2">
             {props.note && <span className="text-label text-status-held">{props.note}</span>}
+            <ShortcutsButton onClick={() => setHelp(true)} />
             <Menu label="profile actions" items={props.menuItems} />
           </div>
         </div>
@@ -166,18 +167,7 @@ export function Overview(props: OverviewProps) {
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
 
-      {help && (
-        <Modal title="Keyboard shortcuts" onClose={() => setHelp(false)}>
-          <dl data-shortcuts className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body">
-            {OVERVIEW_SHORTCUTS.map((s) => (
-              <div key={s.keys} className="contents">
-                <dt><kbd className="rounded-sm border border-border bg-surface-raised px-1.5 font-mono text-label">{s.keys}</kbd></dt>
-                <dd className="text-muted">{s.what}</dd>
-              </div>
-            ))}
-          </dl>
-        </Modal>
-      )}
+      {help && <ShortcutSheet rows={OVERVIEW_SHORTCUTS} onClose={() => setHelp(false)} />}
     </div>
   );
 }
@@ -256,56 +246,6 @@ const QUIET = "inline-block rounded-md px-2 py-0.5 text-label text-muted hover:b
 const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
-/** The inline answer form under a held row: an optional comment for the agent, then Release. */
-function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease: OverviewProps["onRelease"]; onClose: () => void }) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const t = item.ticket;
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    const out = await onRelease({ profile: t.profile, ref: t.ref }, text);
-    if (out.ok) return onClose();
-    setBusy(false);
-    setError(out.error);
-  };
-  return (
-    <div data-release-panel={t.ref} className="flex flex-col gap-2 border-t border-border-subtle bg-surface-raised px-3 py-3">
-      <label className="flex flex-col gap-1 text-label text-muted">
-        Answer for the agent (optional) — added to its prompt when it re-runs {t.step ?? "the step"}
-        <textarea
-          autoFocus
-          rows={3}
-          maxLength={8000}
-          value={text}
-          disabled={busy}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") onClose();
-            else if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy) void submit();
-          }}
-          className="rounded border border-border bg-surface px-2 py-1 text-body text-fg focus-visible:outline-2 focus-visible:outline-accent"
-        />
-      </label>
-      {error && (
-        <p role="alert" className="text-label text-status-failed">
-          {error}
-        </p>
-      )}
-      <div className="flex items-center gap-2">
-        <button type="button" disabled={busy} onClick={() => void submit()} className="rounded-md bg-accent px-3 py-1 text-label font-medium text-accent-fg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
-          {busy ? "Releasing…" : "Release"}
-        </button>
-        <button type="button" disabled={busy} onClick={onClose} className={LINK}>
-          Cancel
-        </button>
-        <span className="ml-auto text-meta text-muted">⌘/Ctrl + Enter to release</span>
-      </div>
-    </div>
-  );
-}
-
 /**
  * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
  * its live log), r opens the focused held row's answer box or re-runs the focused failed one, d
@@ -315,7 +255,7 @@ function ReleasePanel({ item, onRelease, onClose }: { item: NeedsItem; onRelease
 function useNeedsYouKeys(setHelp: (open: boolean) => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const action = overviewAction(e, !!document.querySelector('[role="dialog"]'));
+      const action = shortcutsEnabled() ? overviewAction(e, !!document.querySelector('[role="dialog"]')) : null;
       if (!action) return;
       if (action === "help") {
         e.preventDefault();
@@ -469,7 +409,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                   Couldn't re-run {t.displayId}: {rerun.error}
                 </p>
               )}
-              {kind === "held" && releasing === t.ref && <ReleasePanel item={item} onRelease={onRelease} onClose={() => setReleasing(null)} />}
+              {kind === "held" && releasing === t.ref && <ReleasePanel ticket={item.ticket} onRelease={onRelease} onClose={() => setReleasing(null)} />}
             </li>
           );
         })}
