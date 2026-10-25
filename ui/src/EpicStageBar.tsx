@@ -42,7 +42,7 @@ export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<Epic
   const { done, total } = progressOf(epic);
   const counts = segCounts(epic, awaiting);
   const segs = ORDER.filter((s) => counts[s] > 0).map((s) => ({ seg: s, count: counts[s], pct: (counts[s] / epic.total) * 100 }));
-  const left = epic.byStage.running + epic.byStage.needsYou + epic.byStage.backlog;
+  const left = total - epic.byStage.finished - epic.byStage.merged; // the server's `remaining`
   const named = segs.map((s) => `${s.count} ${segLabel(s.seg)}`).join(", ") || "no tickets";
   return (
     <div className={`flex min-w-0 items-center gap-2 ${wide ? "w-full" : ""}`} data-stage-bar>

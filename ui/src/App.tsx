@@ -376,6 +376,7 @@ export default function App() {
             onRelease={release}
             onRetry={retry}
             onDismiss={dismiss}
+            dismissing={dismissal.pending}
           />
         </Suspense>
       );

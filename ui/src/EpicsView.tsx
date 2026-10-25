@@ -5,7 +5,7 @@ import { REFETCH_DEBOUNCE_MS, progressOf, etaLabel, fetchEpic, fetchEpics, split
 import type { Loaded } from "./epics";
 import { EpicStageBar, StageKey, segCounts } from "./EpicStageBar";
 import type { Seg } from "./EpicStageBar";
-import { Count, EpicPage, LiveNote, paceOf } from "./EpicPage";
+import { Chevron, Count, EpicPage, LiveNote, paceOf } from "./EpicPage";
 import { useDisclosure } from "./disclosure";
 import { CopyCommand, EmptyState, Pill, ProfileMark, ShortcutSheet, ShortcutsButton } from "./components";
 import { profileLabel } from "./format";
@@ -22,7 +22,7 @@ const QUIET = "rounded-md px-2 py-1 text-label text-muted hover:bg-surface-raise
  * silently after a REFETCH_DEBOUNCE_MS quiet period, and a failed refetch keeps the last good data
  * under the error. No timer polling. One profile at a time (ADR 0001).
  */
-export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, onRelease, onRetry, onDismiss }: { profile: ProfileView; epic?: string; rows: TicketRow[]; ticketsNonce: number; onOpen: (t: Ref) => void; onRelease?: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry?: (t: Ref) => Promise<ReleaseOutcome>; onDismiss?: (t: Ref) => void }) {
+export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, onRelease, onRetry, onDismiss, dismissing }: { profile: ProfileView; epic?: string; rows: TicketRow[]; ticketsNonce: number; onOpen: (t: Ref) => void; onRelease?: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry?: (t: Ref) => Promise<ReleaseOutcome>; onDismiss?: (t: Ref) => void; dismissing?: ReadonlySet<string> }) {
   // Tagged with the route it answers, so a previous route's response (the list, another epic) never renders under this one.
   const [data, setData] = useState<{ route: string; result: Loaded<EpicsResponse | EpicResponse> } | null>(null);
   const [good, setGood] = useState<{ route: string; body: EpicsResponse | EpicResponse } | null>(null);
@@ -142,7 +142,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
       )}
       {body &&
         ("epic" in body ? (
-          <EpicPage body={body} profile={profile.name} rows={rows} onOpen={onOpen} actions={{ up: profile.up, onRelease, onRetry, onDismiss }} />
+          <EpicPage body={body} profile={profile.name} rows={rows} onOpen={onOpen} actions={{ up: profile.up, onRelease, onRetry, onDismiss, dismissing }} />
         ) : (
           <EpicsList body={body} profile={profile.name} focusRef={cameFrom} />
         ))}
@@ -194,9 +194,12 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
   const { open, completed } = body.supported ? splitCompleted(body.epics) : { open: [], completed: [] };
   const [closedOpen, setClosedOpen] = useDisclosure(`${profile}:closed`, open.length === 0);
   const back = focusRef ? completed.some((e) => e.ref === focusRef) : false;
+  // Once per return: later fold toggles must neither reopen Closed nor pull focus back to the row.
+  const returned = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!focusRef) return;
+    if (!focusRef || returned.current === focusRef) return;
     if (back && !closedOpen) return setClosedOpen(true); // focus once the row is visible (next run)
+    returned.current = focusRef;
     document.querySelector<HTMLElement>(`[data-epic-row="${CSS.escape(focusRef)}"] [data-epic-nav]`)?.focus();
   }, [focusRef, back, closedOpen]);
   if (!body.supported) return <EmptyState title="This tracker has no epics" />;
@@ -228,9 +231,7 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
       {completed.length > 0 && (
         <details className="group rounded-lg border border-border bg-surface" data-epics-completed open={closedOpen} onToggle={(e) => setClosedOpen(e.currentTarget.open)}>
           <summary className="flex cursor-pointer list-none items-baseline gap-2 rounded-lg px-3 py-2 text-body font-semibold select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent">
-            <svg aria-hidden="true" viewBox="0 0 12 12" className="size-3 shrink-0 self-center transition-transform group-open:rotate-90 motion-reduce:transition-none" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M4.5 2.5L8 6l-3.5 3.5" />
-            </svg>
+            <Chevron />
             Closed
             <Count n={completed.length} noun="epic" />
           </summary>

@@ -117,7 +117,7 @@ describe("EpicPage", () => {
     expect(out).not.toContain('data-chart="epic-velocity"');
     expect(out).toContain("Stalled: nothing finished for 10 days.");
     expect(out).toContain('data-stalled="true"');
-    expect(out).toContain("3 left. No estimate yet: that needs work finished on 3 different days (2 so far).");
+    expect(out).toContain("4 left. No estimate yet: that needs work finished on 3 different days (2 so far).");
     expect(out).not.toContain("<header");
     const linked = page({ epic: { ...detail, url: "https://app.asana.com/0/1/E1" } });
     expect(linked).toContain('href="https://app.asana.com/0/1/E1"');
@@ -316,5 +316,40 @@ describe("Epics round 4 list polish", () => {
     const out = list({ epics: [epicStats({ ref: "E1", status: "Idea", byStage: { backlog: 1 } })] });
     expect(out).toContain("data-tracker-status");
     expect(out).not.toMatch(/rounded-full[^>]*>Idea</);
+  });
+});
+
+describe("Epics PR #555 review fixes", () => {
+  it("a page that turns unsupported on refetch renders the empty state (hooks run before the early return)", () => {
+    expect(page({ supported: false, epic: null })).toContain("This tracker has no epics");
+  });
+  it("untracked tickets count as left, as the server's remaining does", () => {
+    const e = epicStats({ ref: "E1", byStage: { finished: 4, untracked: 2 } });
+    expect(html(createElement(EpicStageBar, { epic: e }))).toContain(" · 2 left");
+    expect(paceOf(e).eta).toContain("2 left.");
+  });
+  it("a stall wins over 'this week': the page says Stalled when the list would", () => {
+    const e = epicStats({ ref: "E1", byStage: { backlog: 1, finished: 1 }, velocity: { days: velocityDays([0, 0, 0, 0, 0, 0, 0, 0, 1]), finished14: 1, activeDays: 1, perDay: null } });
+    const p = paceOf(e);
+    expect(p.stalled).toBe(true);
+    expect(p.text).toMatch(/^Stalled: nothing finished for 5 days\./);
+  });
+  it("Running names queued, interrupted and stalled tickets", () => {
+    const detail = epicDetail({ ref: "E1" }, [epicTicket("r1", "running"), epicTicket("r2", "running")]);
+    const out = page({ epic: detail }, [{ ...row("r1"), status: "running" } as TicketRow, { ...row("r2"), status: "stalled" } as TicketRow]);
+    const r1 = out.slice(out.indexOf('data-epic-ticket="r1"'), out.indexOf('data-epic-ticket="r2"'));
+    expect(r1).not.toContain("stalled");
+    expect(out.slice(out.indexOf('data-epic-ticket="r2"'))).toContain("stalled");
+  });
+  it("a dismissed ticket leaves Needs you at once, during its Undo window", () => {
+    const detail = epicDetail({ ref: "E1" }, [epicTicket("n1", "needsYou")]);
+    const failed = { ...row("n1"), status: "failed", step: "build" } as TicketRow;
+    expect(page({ epic: detail }, [failed])).toContain('data-group="needsYou"');
+    expect(page({ epic: detail }, [failed], { dismissing: new Set(["dev\u0000n1"]) })).not.toContain('data-group="needsYou"');
+  });
+  it("Review PR refuses a non-http PR URL", () => {
+    const detail = epicDetail({ ref: "E1" }, [epicTicket("n1", "needsYou")]);
+    const bad = { ...row("n1"), status: "done", prState: "ready", prUrl: "javascript:alert(1)" } as TicketRow;
+    expect(page({ epic: detail }, [bad])).not.toContain("javascript:");
   });
 });
