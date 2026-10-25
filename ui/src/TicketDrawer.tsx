@@ -1,4 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
 import type { LogFrame, RunView, TicketRow, TicketStatus } from "./contract";
 import { formatDuration, formatRelative, formatTicketSpend, ticketTitle } from "./format";
 import { prNumber } from "./tickets";
@@ -15,12 +16,16 @@ import {
   logStreamUrl,
   logText,
   outcomeTone,
+  readLogView,
   readWrap,
   runDurationMs,
   runsUrl,
   visibleRange,
+  writeLogView,
   writeWrap,
 } from "./logview";
+import { chronological, isBounce, stepOrder, storyBlocks, timeScale } from "./runlog";
+import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
 import { IconButton, Pill, StatusBadge } from "./components";
 
@@ -39,6 +44,25 @@ const DOT_TEXT: Record<TicketStatus, string> = {
   interrupted: "text-status-interrupted",
   stalled: "text-status-stalled",
 };
+
+const RUN_BG: Record<TicketStatus, string> = {
+  running: "bg-status-running",
+  queued: "bg-status-queued",
+  held: "bg-status-held",
+  failed: "bg-status-failed",
+  done: "bg-status-done",
+  cancelled: "bg-status-cancelled",
+  idle: "bg-status-idle",
+  interrupted: "bg-status-interrupted",
+  stalled: "bg-status-stalled",
+};
+
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/** When a run ended for drawing: its end, now while it runs, its start when the end aged out. */
+function runEndMs(r: RunView, now: number): number {
+  return Date.parse(r.startedAt) + (runDurationMs(r, now) ?? 0);
+}
 
 type RunsState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; runs: RunView[] };
 
@@ -88,6 +112,9 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   const now = Date.now();
   const label = ticket?.displayId ?? ticketRef;
   const pr = prNumber(ticket?.prUrl ?? null);
+  const seq = chronological(list);
+  const order = stepOrder(list);
+  const span = timeScale(seq.map((r) => ({ start: Date.parse(r.startedAt), end: Math.max(runEndMs(r, now), Date.parse(r.startedAt) + 1000) })));
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
@@ -149,46 +176,93 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             {ticket.summary}
           </p>
         )}
-        <div className="flex min-h-0 flex-1 flex-col p-4">
+        <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
           {runs.kind === "loading" && <p className="text-label text-muted">Loading runs…</p>}
           {runs.kind === "error" && <p className="text-label text-status-failed">Failed to load runs (status {runs.status}).</p>}
           {runs.kind === "ok" && list.length === 0 && <p className="text-label text-muted">No run logs for this ticket.</p>}
           {list.length > 0 && (
-            <div className="mb-3 max-h-48 shrink-0 overflow-auto rounded-md border border-border">
-              <table className="w-full border-collapse text-label">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted">
-                    <th className="px-2 py-1 font-medium">step</th>
-                    <th className="px-2 py-1 font-medium">started</th>
-                    <th className="px-2 py-1 font-medium">duration</th>
-                    <th className="px-2 py-1 font-medium">outcome</th>
-                    <th className="px-2 py-1 font-medium">cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((r) => {
-                    const on = r.run === selected?.run;
+            <section aria-label="Runs by step over time" className="mb-3 shrink-0 rounded-md border border-border bg-bg px-3 pt-2 pb-1.5">
+              <div className="relative">
+                {order.map((s) => (
+                  <div key={s} className="grid grid-cols-[72px_minmax(0,1fr)] items-center border-b border-border-subtle last:border-b-0">
+                    <span className="truncate text-label text-muted">{s}</span>
+                    <div className="relative h-[30px]">
+                      {seq
+                        .filter((r) => r.step === s)
+                        .map((r) => {
+                          const on = r.run === selected?.run;
+                          const a = Date.parse(r.startedAt);
+                          return (
+                            <button
+                              key={r.run}
+                              type="button"
+                              aria-pressed={on}
+                              aria-label={`${r.step} ${formatOutcome(r)}, ${formatRelative(r.startedAt, now)}, ${formatDuration(runDurationMs(r, now))}`}
+                              title={`${r.step} · ${formatOutcome(r)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r)}`}
+                              onClick={() => setPicked(r.run)}
+                              className={`absolute top-1/2 h-3.5 min-w-2 -translate-y-1/2 rounded-sm ${RUN_BG[outcomeTone(r)]} ${r.running ? "animate-status-pulse" : ""} ${on ? "z-10 ring-2 ring-fg ring-offset-2 ring-offset-bg" : "opacity-60 hover:opacity-100"}`}
+                              style={{ left: `${span.x(a)}%`, width: `${span.x(runEndMs(r, now)) - span.x(a)}%` }}
+                            />
+                          );
+                        })}
+                    </div>
+                  </div>
+                ))}
+                <svg aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 left-[72px] h-full w-[calc(100%-72px)]" viewBox={`0 0 100 ${order.length}`} preserveAspectRatio="none">
+                  {seq.slice(0, -1).map((r, i) => {
+                    const n = seq[i + 1];
+                    const x1 = span.x(runEndMs(r, now));
+                    const x2 = span.x(Date.parse(n.startedAt));
+                    const y1 = order.indexOf(r.step) + 0.5;
+                    const y2 = order.indexOf(n.step) + 0.5;
+                    const xm = (x1 + x2) / 2;
                     return (
-                      <tr
+                      <path
                         key={r.run}
-                        aria-selected={on}
-                        className={`cursor-pointer border-b border-border-subtle last:border-b-0 ${on ? "bg-surface-raised" : "hover:bg-surface-raised"}`}
-                        onClick={() => setPicked(r.run)}
-                      >
-                        <td className={`border-l-2 px-2 py-1 ${on ? "border-l-accent font-medium" : "border-l-transparent"}`}>{r.step}</td>
-                        <td className="px-2 py-1" title={r.startedAt}>
-                          {formatRelative(r.startedAt, now)}
-                        </td>
-                        <td className="px-2 py-1 font-mono">{formatDuration(runDurationMs(r, now))}</td>
-                        <td className="px-2 py-1">
-                          <Pill tone={outcomeTone(r)}>{formatOutcome(r)}</Pill>
-                        </td>
-                        <td className="px-2 py-1 font-mono">{formatRunCost(r)}</td>
-                      </tr>
+                        d={`M${x1} ${y1} C${xm + 1.5} ${y1} ${xm - 1.5} ${y2} ${x2} ${y2}`}
+                        fill="none"
+                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={isBounce(r) ? 1.5 : 1}
+                        strokeDasharray={isBounce(r) ? "4 3" : undefined}
+                        className={isBounce(r) ? "stroke-status-held" : "stroke-border-strong"}
+                      />
                     );
                   })}
-                </tbody>
-              </table>
+                </svg>
+                <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 left-[72px]">
+                  {span.breaks.map((b) => (
+                    <span key={b.x} className="absolute inset-y-0 border-l border-dashed border-border-strong" style={{ left: `${b.x}%` }} />
+                  ))}
+                </div>
+              </div>
+              <div className="relative mt-1 ml-[72px] h-3.5 font-mono text-meta text-muted">
+                {!span.breaks.some((b) => b.x < 16) && <span className="absolute left-0">{clock(span.t0)}</span>}
+                {span.breaks.map((b) => (
+                  <span key={b.x} title="idle time, squeezed on this axis" className="absolute -translate-x-1/2 bg-bg px-1 whitespace-nowrap" style={{ left: `${b.x}%` }}>
+                    +{formatDuration(b.ms)}
+                  </span>
+                ))}
+                {!span.breaks.some((b) => b.x > 84) && <span className="absolute right-0">{clock(span.t1)}</span>}
+              </div>
+            </section>
+          )}
+          {selected && (
+            <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
+              <span className="font-medium text-fg">{selected.step}</span>
+              <Pill tone={outcomeTone(selected)}>{formatOutcome(selected)}</Pill>
+              <span className="font-mono text-muted">{formatDuration(runDurationMs(selected, now))}</span>
+              <span className="font-mono text-muted">{formatRunCost(selected)}</span>
+              <span className="text-muted" title={selected.startedAt}>
+                started {formatRelative(selected.startedAt, now)}
+              </span>
+              {seq.some(isBounce) && (
+                <span className="ml-auto inline-flex items-center gap-1.5 text-meta text-muted">
+                  <svg aria-hidden="true" width="18" height="6" className="stroke-status-held">
+                    <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" strokeDasharray="4 3" />
+                  </svg>
+                  sent back
+                </span>
+              )}
             </div>
           )}
           {selected && <LogView key={selected.run} profile={profile} run={selected.run} running={selected.running} />}
@@ -218,6 +292,7 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [everOpened, setEverOpened] = useState(false);
   const [wrap, setWrap] = useState(readWrap);
+  const [view, setView] = useState(readLogView);
   const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
 
   useEffect(() => {
@@ -295,7 +370,9 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
   const live = liveIndicator(status, running, everOpened);
 
   let body;
-  if (wrap) {
+  if (view === "story") {
+    body = <RunStory buf={buf.current} gen={gen} total={total} tail={buf.current.partial} running={running} />;
+  } else if (wrap) {
     body = chunkRanges(total, undefined, buf.current.dropped).map((c) => (
       <LogChunk key={c.key} buf={buf.current} gen={gen} first={c.start + buf.current.dropped} count={c.end - c.start} tail={c.end === total ? buf.current.partial : ""} />
     ));
@@ -334,7 +411,25 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
               Jump to end ↓
             </button>
           )}
-          <label className="flex cursor-pointer items-center gap-1">
+          <span role="tablist" aria-label="Log view" className="inline-flex rounded-md border border-border p-px">
+            {(["story", "raw"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={view === v}
+                data-log-view={v}
+                className={`rounded-[4px] px-2 ${view === v ? "bg-surface-raised text-fg" : "text-muted hover:text-fg"}`}
+                onClick={() => {
+                  setView(v);
+                  writeLogView(v);
+                }}
+              >
+                {v === "story" ? "Story" : "Raw"}
+              </button>
+            ))}
+          </span>
+          <label className={`flex cursor-pointer items-center gap-1 ${view === "story" ? "hidden" : ""}`}>
             <input
               type="checkbox"
               checked={wrap}
@@ -357,8 +452,8 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
       </div>
       <div
         ref={box}
-        className="relative min-h-0 flex-1 overflow-auto rounded-md border border-border bg-bg font-mono text-label"
-        style={{ lineHeight: `${LINE_H}px` }}
+        className={`relative min-h-0 flex-1 overflow-auto rounded-md border border-border bg-bg ${view === "story" ? "" : "font-mono text-label"}`}
+        style={view === "story" ? undefined : { lineHeight: `${LINE_H}px` }}
         onScroll={(e) => {
           const el = e.currentTarget;
           const atBottom = isAtBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
@@ -389,5 +484,71 @@ const LogChunk = memo(function LogChunk({ buf, first, count }: { buf: LogBuffer;
     >
       {text}
     </pre>
+  );
+});
+
+/** Beats past this many fold into "Show N more" (the first few and the last several stay). */
+const BEAT_FOLD = 12;
+
+/**
+ * The Story tab: the log as the agent told it. Each one-line message is a beat on a thin rail,
+ * the report renders as markdown, and `[agenthook]` notices stand out. Model output built from
+ * third-party ticket content: react-markdown escapes raw HTML, never add rehype-raw.
+ */
+const RunStory = memo(function RunStory({ buf, total, running }: { buf: LogBuffer; gen: number; total: number; tail: string; running: boolean }) {
+  const [unfold, setUnfold] = useState(false);
+  const blocks = useMemo(() => {
+    const lines: string[] = [];
+    for (let i = 0; i < total; i++) lines.push(lineAt(buf, i));
+    return storyBlocks(lines);
+    // `total` and the trailing partial change whenever the buffer does (it is mutated in place).
+  }, [buf, total, buf.partial]); // eslint-disable-line react-hooks/exhaustive-deps
+  const beatIdx = blocks.flatMap((b, i) => (b.kind === "beat" ? [i] : []));
+  const fold = !unfold && beatIdx.length > BEAT_FOLD ? new Set(beatIdx.slice(3, beatIdx.length - 6)) : new Set<number>();
+  const lastBeat = beatIdx[beatIdx.length - 1];
+  if (blocks.length === 0) return <p className="p-3 text-label text-muted">{running ? "Waiting for the agent's first message…" : "The agent wrote nothing to this log."}</p>;
+  const out: React.ReactNode[] = [];
+  let folded = false;
+  blocks.forEach((b: StoryBlock, i) => {
+    if (fold.has(i)) {
+      if (!folded) {
+        folded = true;
+        out.push(
+          <li key={`fold-${i}`} className="relative pb-2 pl-5">
+            <span aria-hidden="true" className="absolute top-2 left-[5px] h-px w-[7px] bg-border-strong" />
+            <button type="button" className="text-label text-accent hover:underline" onClick={() => setUnfold(true)}>
+              Show {fold.size} more steps
+            </button>
+          </li>,
+        );
+      }
+      return;
+    }
+    if (b.kind === "beat") {
+      const live = running && i === lastBeat;
+      out.push(
+        <li key={i} data-story-beat className="relative pb-2 pl-5 text-body text-fg">
+          <span aria-hidden="true" className={`absolute top-[7px] left-[4px] size-[7px] rounded-full ${live ? "animate-status-pulse bg-status-running" : "bg-border-strong"}`} />
+          {b.text.replace(/\*\*/g, "")}
+        </li>,
+      );
+    } else if (b.kind === "notice") {
+      out.push(
+        <li key={i} data-story-notice className="relative my-2 rounded-md bg-status-held-bg px-3 py-1.5 text-label text-status-held">
+          {b.text}
+        </li>,
+      );
+    } else {
+      out.push(
+        <li key={i} data-story-prose className="md-preview relative my-2 bg-bg border-t border-border-subtle pt-2 text-body text-fg [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <Markdown>{b.text}</Markdown>
+        </li>,
+      );
+    }
+  });
+  return (
+    <ol className="relative m-0 list-none p-3 before:absolute before:top-4 before:bottom-4 before:left-[19px] before:w-px before:bg-border" data-run-story>
+      {out}
+    </ol>
   );
 });

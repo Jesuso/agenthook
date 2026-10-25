@@ -171,6 +171,25 @@ export function liveIndicator(
 const WRAP_KEY = "ah.log.wrap";
 
 /** The log's wrap toggle, persisted per browser; on unless explicitly turned off. */
+const VIEW_KEY = "ah.log.view";
+
+/** The run view's last-picked tab: the parsed story (default) or the raw log. */
+export function readLogView(store: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): "story" | "raw" {
+  try {
+    return store?.getItem(VIEW_KEY) === "raw" ? "raw" : "story";
+  } catch {
+    return "story";
+  }
+}
+
+export function writeLogView(view: "story" | "raw", store: Pick<Storage, "setItem"> | undefined = globalThis.localStorage): void {
+  try {
+    store?.setItem(VIEW_KEY, view);
+  } catch {
+    /* storage disabled — the tab just won't persist */
+  }
+}
+
 export function readWrap(store: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): boolean {
   try {
     return store?.getItem(WRAP_KEY) !== "0";

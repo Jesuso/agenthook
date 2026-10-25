@@ -581,6 +581,22 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   summary otherwise; either way the summary is in the title tooltip. The drawer shows it under the
   header; the All-tickets table has it as a tooltip. Full descriptions stay in the tracker (the id links there).
 
+### Run history in the drawer (built)
+- **Swimlanes** replace the run table: one lane per step in the order this ticket's `advance`
+  verdicts imply (`stepOrder`, `ui/src/runlog.ts`), time left to right, one bar per run in its
+  outcome's status colour. Consecutive runs are joined by a curve: grey for a hand-off, amber and
+  dashed when a `changes` verdict sent the ticket back. Idle gaps longer than 12% of the run time
+  (a hold left overnight) are squeezed on the axis and labelled with their real length (`timeScale`).
+- Clicking a bar picks that run; the newest is picked until you do. A caption under the lanes
+  carries what the table showed: step, outcome, duration, cost, start.
+- **Story / Raw** tabs on the log (the choice is remembered). Story reads the log the way the agent
+  wrote it (`storyBlocks`): each one-line message between tool calls is a beat on a rail, the
+  report renders as markdown (react-markdown, no raw HTML), `[agenthook]` notices stand out, and
+  past 12 beats the middle folds into "Show N more steps". Raw is the old monospace tail with wrap
+  and Copy.
+- Not shown yet: the agent's tool calls. The agent parser writes only assistant text to the log,
+  so the actions a run took are not in it.
+
 ### Digest agent (built)
 A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up"). Decisions:
 - **Trigger**: a button on the Overview only (never Home: one profile at a time). Never automatic, never on a timer.
