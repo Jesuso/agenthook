@@ -121,7 +121,7 @@ by the next review run, and is dropped on terminal fail/cancel and on merge. `ti
 
 `epics {ref?, fresh?}` → list: `{at, live, supported, epics:[{ref,name,url,displayId?,status,
 completed,readyToClose,total,byStage,needsYou,startedAt,velocity,eta}]}`; with `ref`, the detail shape instead:
-`{at, live, supported, epic:{…same stats…, tickets:[{ref,displayId?,name,completed,stage,bucket,status}]}}`.
+`{at, live, supported, epic:{…same stats…, tickets:[{ref,displayId?,name,completed,stage,url,bucket,status}]}}`.
 `byStage` buckets: `backlog`/`running`/`needsYou`/`finished`/`merged`/`untracked`. `readyToClose` is
 `true` when the epic is open but every ticket is finished/merged and none need you — a person has to
 close it on the tracker, agenthook never does; it's always `false` on a `live:false` read (the

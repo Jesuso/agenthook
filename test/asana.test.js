@@ -874,12 +874,13 @@ test("mapEpics keeps only Epic-typed rows, maps status and completed", () => {
   ]);
 });
 
-test("mapEpicTickets keeps a subtask in the project (right stage + displayId) and drops one outside it", () => {
+test("mapEpicTickets keeps a subtask in the project (right stage + displayId + permalink, even with a /f suffix) and drops one outside it", () => {
   const data = [
     {
       gid: "T1",
       name: "In project",
       completed: false,
+      permalink_url: "https://app.asana.com/0/1/T1/f",
       custom_fields: [{ name: "ID", display_value: "ID-1" }],
       memberships: [{ project: { gid: "P1" }, section: { name: "In progress" } }],
     },
@@ -890,7 +891,9 @@ test("mapEpicTickets keeps a subtask in the project (right stage + displayId) an
       memberships: [{ project: { gid: "OTHER" }, section: { name: "Backlog" } }],
     },
   ];
-  assert.deepEqual(mapEpicTickets(data, "P1", "ID"), [{ ref: "T1", displayId: "ID-1", name: "In project", completed: false, stage: "In progress" }]);
+  assert.deepEqual(mapEpicTickets(data, "P1", "ID"), [
+    { ref: "T1", displayId: "ID-1", name: "In project", completed: false, stage: "In progress", url: "https://app.asana.com/0/1/T1/f" },
+  ]);
 });
 
 test("fetchTask returns epic and isEpic with no extra API call (opt_fields only)", async () => {
@@ -965,16 +968,19 @@ test("listEpicTickets returns [] with no Epic type configured (fail-open, no sub
   assert.deepEqual(tickets, []);
 });
 
-test("listEpicTickets maps the subtasks results once the Epic type is found", async () => {
+test("listEpicTickets maps the subtasks results once the Epic type is found, requesting permalink_url", async () => {
+  const urls = [];
   const tickets = await withFetch(
     (u) => {
+      urls.push(u);
       if (u.includes("/custom_types")) return ok({ data: [{ gid: "CT1", name: "Epic" }] });
-      if (u.includes("/tasks/E1/subtasks")) return ok({ data: [{ gid: "T1", name: "A ticket", completed: false, custom_fields: [], memberships: [{ project: { gid: "P1" }, section: { name: "Doing" } }] }] });
+      if (u.includes("/tasks/E1/subtasks")) return ok({ data: [{ gid: "T1", name: "A ticket", completed: false, permalink_url: "https://app.asana.com/0/1/T1", custom_fields: [], memberships: [{ project: { gid: "P1" }, section: { name: "Doing" } }] }] });
       throw new Error(`unexpected call: ${u}`);
     },
     () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpicTickets?.("E1"),
   );
-  assert.deepEqual(tickets, [{ ref: "T1", displayId: undefined, name: "A ticket", completed: false, stage: "Doing" }]);
+  assert.deepEqual(tickets, [{ ref: "T1", displayId: undefined, name: "A ticket", completed: false, stage: "Doing", url: "https://app.asana.com/0/1/T1" }]);
+  assert.ok(urls.some((u) => u.includes("/tasks/E1/subtasks") && u.includes("permalink_url")));
 });
 
 test("listEpicTickets returns [] on a subtasks API error (fail-open)", async () => {

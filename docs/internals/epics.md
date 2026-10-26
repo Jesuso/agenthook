@@ -4,6 +4,12 @@
 
 - `src/epics.js` — pure `epicStats` (progress by bucket, needs-you, velocity, ETA) joining an `Epic` + its `EpicTicket`s with `ui/rows.js` `TicketRow`s and `ui/stats.js` `readHistory`; `isNeedsYou` mirrors `ui/src/summary.ts`; `ticketBucket` is the per-ticket decision, `epicDetail` adds it per ticket,
   `localEpics` groups `refmeta.epic` for the UI's receiver-down fallback, `EPIC_REF_RE` guards refs before any tracker URL. No I/O.
+- Each `EpicTicket` carries its own tracker web URL (`url`, null/absent when unknown) — never derived
+  from the epic's URL. Each tracker's `mapEpicTickets`/`mapProjectEpicTickets` fills it from data its
+  API already returns (Asana: `permalink_url`; GitHub: `html_url`; GitHub Projects v2: the sub-issue's
+  `url`; Jira: `${baseUrl}/browse/${key}`). `localEpics` carries it through from `refmeta[ref].url`
+  (dispatch records the tracker's `task.url` there per run). The UI (`ui/src/EpicPage.tsx`) links a
+  ticket row straight off `t.url` through `safeUrl`.
 - `src/epic-changed.js` — emits a read-only `{kind:'epic_changed', ref:<epic>}` signal outside the
   queue (GitHub only today — see [trackers.md](trackers.md)), dropping ops' epics cache.
 

@@ -238,6 +238,7 @@
  * @property {string} name
  * @property {boolean} completed
  * @property {string|null} stage  the tracker stage the ticket rests in (Asana: the section name of its membership in this project); "" when in this tracker's view but in no stage (backlog); null when outside this tracker's view (untracked)
+ * @property {string|null} [url]  the ticket's own tracker web URL; null/absent when unknown
  */
 
 /**
