@@ -59,6 +59,11 @@ export function displayPath(path: string, configPath: string | null): string {
   return dir && path.startsWith(dir) ? path.slice(dir.length) : path;
 }
 
+/** The shell command that creates a not-yet-created file, its path single-quoted when it needs it. */
+export function touchCommand(path: string): string {
+  return /^[\w@%+=:,./-]+$/.test(path) ? `touch ${path}` : `touch '${path.replace(/'/g, "'\\''")}'`;
+}
+
 /** Derived, never sticky: undoing back to the loaded content makes the buffer clean again. */
 export function isDirty(buffer: string, loaded: { content: string }): boolean {
   return buffer !== loaded.content;

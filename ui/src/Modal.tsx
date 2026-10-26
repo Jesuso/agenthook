@@ -45,7 +45,7 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
   useEscape(props.onClose);
   useReturnFocus(() => box.current?.focus());
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-6" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-2 sm:p-6" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
       <div
         ref={box}
         role="dialog"
@@ -53,7 +53,7 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
         aria-labelledby={`${id}-title`}
         tabIndex={-1}
         onKeyDown={(e) => trapTab(e, box.current)}
-        className="flex max-h-full w-full min-w-0 max-w-5xl flex-col rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-3 outline-none sm:p-4"
+        className="flex max-h-full w-full min-w-0 max-w-5xl flex-col rounded border border-[var(--color-border)] bg-surface p-3 shadow-xl outline-none sm:p-4"
       >
         <div className="mb-2 flex items-start gap-2">
           <h2 id={`${id}-title`} className="min-w-0 flex-1 break-words font-semibold">
@@ -124,7 +124,7 @@ export function ConfirmModal(props: ConfirmOptions & { onConfirm: () => void; on
   useEscape(props.onCancel);
   useReturnFocus(() => cancel.current?.focus());
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-6" onClick={(e) => e.target === e.currentTarget && props.onCancel()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-6" onClick={(e) => e.target === e.currentTarget && props.onCancel()}>
       <div
         ref={box}
         role="alertdialog"
@@ -132,7 +132,7 @@ export function ConfirmModal(props: ConfirmOptions & { onConfirm: () => void; on
         aria-labelledby={`${id}-title`}
         aria-describedby={props.body ? `${id}-body` : undefined}
         onKeyDown={(e) => trapTab(e, box.current)}
-        className="max-h-full w-full max-w-md overflow-auto break-words rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4"
+        className="max-h-full w-full max-w-md overflow-auto break-words rounded border border-[var(--color-border)] bg-surface p-4 shadow-xl"
       >
         <h2 id={`${id}-title`} className="mb-2 font-semibold">
           {props.title}

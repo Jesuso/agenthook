@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
-import type { InstructionsView as InstructionsBody, ProfileView } from "./contract";
-import { baseName, discardPrompt, displayPath, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import type { InstructionFileView, InstructionsView as InstructionsBody, ProfileView } from "./contract";
+import { baseName, discardPrompt, displayPath, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty, touchCommand } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -10,11 +10,12 @@ import { DiffLegend, Modal, useConfirm } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
-import { EmptyState, FullAutoShield, Pill, Segmented } from "./components";
+import { CopyCommand, EmptyState, FullAutoShield, Pill, Segmented } from "./components";
 import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
-type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
+// `missing`: a listed file that isn't created yet, picked to see what it is and how to create it.
+type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "missing"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
 type Side = "none" | "preview" | "agent";
 type Toast = { kind: "error" | "ok"; text: string };
 
@@ -121,7 +122,11 @@ export default function InstructionsView(props: {
    *  SSE-driven re-fetch (same list, new object, bumped `listNonce`) never re-triggers this once
    *  a file is already open. */
   useEffect(() => {
-    if (list.kind !== "ok" || fileRef.current.kind !== "none") return;
+    if (list.kind !== "ok") return;
+    const f = fileRef.current;
+    // A picked not-created file opens by itself once a re-fetched list says it exists.
+    if (f.kind === "missing" && list.body.files.some((x) => x.path === f.path && x.exists)) return load(profile, f.path);
+    if (f.kind !== "none") return;
     let remembered: string | null = null;
     try {
       remembered = localStorage.getItem(lastFileKey(profile));
@@ -227,6 +232,10 @@ export default function InstructionsView(props: {
     props.onDirtyChange(dirty);
   }, [dirty]);
   const profileName = props.profiles.find((p) => p.name === profile);
+  const fullAuto = !!profileName?.fullAuto;
+  // The highlighted row: the open file, or the not-created one being shown.
+  const selectedPath = open?.path ?? (file.kind === "missing" ? file.path : null);
+  const missingFile = file.kind === "missing" && list.kind === "ok" ? list.body.files.find((f) => f.path === file.path) : undefined;
   useEffect(() => {
     const name = open ? `${baseName(open.path)} · ` : "";
     document.title = `${dirty ? "● " : ""}${name}${t("instructions.title")} · ${profileName ? profileLabel(profileName) : profile} · agenthook`;
@@ -262,8 +271,13 @@ export default function InstructionsView(props: {
   };
 
   const pickFile = (path: string) => {
-    if (open?.path === path) return;
-    unlessDirty(() => load(profile, path));
+    if (selectedPath === path) return;
+    const missing = list.kind === "ok" && list.body.files.some((f) => f.path === path && !f.exists);
+    unlessDirty(() => {
+      if (!missing) return load(profile, path);
+      loadSeq.current++;
+      setFile({ kind: "missing", path });
+    });
   };
 
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("instructions.noProfiles")}</p>;
@@ -302,10 +316,10 @@ export default function InstructionsView(props: {
           <select
             aria-label={t("instructions.fileLabel")}
             className="w-full shrink-0 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-1 font-mono text-sm md:hidden"
-            value={open?.path ?? ""}
+            value={selectedPath ?? ""}
             onChange={(e) => pickFile(e.target.value)}
           >
-            {!open && (
+            {!selectedPath && (
               <option value="" disabled>
                 {t("instructions.selectFile")}
               </option>
@@ -313,7 +327,7 @@ export default function InstructionsView(props: {
             {groupFiles(list.body.files, lang).map((g) => (
               <optgroup key={g.scope} label={g.label}>
                 {g.files.map((f) => (
-                  <option key={f.path} value={f.path} disabled={!f.exists}>
+                  <option key={f.path} value={f.path}>
                     {baseName(f.path)}
                     {!f.exists ? ` · ${t("instructions.missing")}` : f.agentsRunning > 0 ? ` · ${t("instructions.running", { count: f.agentsRunning })}` : ""}
                   </option>
@@ -322,25 +336,31 @@ export default function InstructionsView(props: {
             ))}
           </select>
         )}
-        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48 max-md:hidden">
+        <nav aria-label={t("instructions.filesNav")} className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48 max-md:hidden">
           {list.kind === "loading" && <p className="text-muted">{t("instructions.loadingFiles")}</p>}
           {list.kind === "ok" &&
             groupFiles(list.body.files, lang).map((g) => (
               <section key={g.scope} className="mb-3">
-                <h3 className="mb-1 text-xs uppercase tracking-wide text-muted">{g.label}</h3>
+                <h2 className="mb-1 text-xs uppercase tracking-wide text-muted">{g.label}</h2>
                 <ul>
                   {g.files.map((f) => (
                     <li key={f.path}>
                       <button
-                        // Not `disabled`: a file that isn't created yet stays focusable so keyboard and
-                        // screen-reader users reach it and hear why it can't open.
-                        className={`w-full rounded px-2 py-1 text-left aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${open?.path === f.path ? "bg-surface-raised" : ""}`}
-                        aria-disabled={!f.exists || undefined}
-                        aria-current={open?.path === f.path || undefined}
+                        // A file that isn't created yet still opens: the pane says what it is and how to create it.
+                        className={`w-full rounded px-2 py-1 text-left hover:bg-surface-raised ${selectedPath === f.path ? "bg-surface-raised" : ""} ${f.exists ? "" : "text-muted"}`}
+                        aria-current={selectedPath === f.path || undefined}
                         title={f.exists ? f.path : t("instructions.missingTitle", { path: f.path })}
-                        onClick={() => f.exists && pickFile(f.path)}
+                        onClick={() => pickFile(f.path)}
                       >
-                        <div className="truncate font-mono">{baseName(f.path)}</div>
+                        <div className="truncate font-mono">
+                          {baseName(f.path)}
+                          {dirty && open?.path === f.path && (
+                            <>
+                              <span aria-hidden="true" className="ml-1.5 text-fg">●</span>
+                              <span className="sr-only">{` ${t("instructions.unsaved")}`}</span>
+                            </>
+                          )}
+                        </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted">
                           {f.ids.length ? f.ids.map((id) => <Pill key={id}>{id}</Pill>) : <span>—</span>}
                           <span>· {f.exists ? formatBytes(f.bytes) : t("instructions.missing")}</span>
@@ -366,6 +386,7 @@ export default function InstructionsView(props: {
           {file.kind === "none" && list.kind === "ok" && list.body.files.length > 0 && (
             <EmptyState title={t("instructions.selectFile")} hint={t("instructions.selectFileHint")} />
           )}
+          {missingFile && <MissingFile file={missingFile} onReload={() => setListNonce((n) => n + 1)} />}
           {file.kind === "loading" && <p className="text-sm">{t("instructions.loadingFile", { name: baseName(file.path) })}</p>}
           {file.kind === "error" && (
             <p className="text-sm text-status-failed">
@@ -380,10 +401,11 @@ export default function InstructionsView(props: {
                 <span className="min-w-0 flex-1 basis-32 truncate font-mono" title={open.path}>
                   {displayPath(open.path, list.kind === "ok" ? list.body.configPath : null)}
                 </span>
-                {phase === "saving" ? (
-                  <span className="shrink-0 text-muted">{t("instructions.saving")}</span>
-                ) : (
-                  dirty && <span className="shrink-0 font-medium text-fg">{t("instructions.modified")}</span>
+                {fullAuto && (
+                  <span title={t("fullAuto.title")} className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-raised px-2 text-label text-fg">
+                    <FullAutoShield />
+                    {t("instructions.fullAutoChip")}
+                  </span>
                 )}
                 <Segmented
                   label={t("instructions.sidePanel")}
@@ -396,13 +418,24 @@ export default function InstructionsView(props: {
                   onChange={setSide}
                 />
                 <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-                  <InlineLiveEffect agentsRunning={agentsRunning} />
-                  {/* Clean is already said by the disabled Save; only a fresh save earns a word. */}
-                  {!dirty && phase === "editing" && savedAt?.path === open.path && (
-                    <span className="text-label text-muted">
-                      {t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}
-                    </span>
-                  )}
+                  <InlineLiveEffect agentsRunning={agentsRunning} show={dirty || agentsRunning > 0} />
+                  {/* One fixed-width slot for the buffer's state, so the first keystroke shifts nothing.
+                      Clean is already said by the disabled Save; only a fresh save earns a word. */}
+                  <span aria-live="polite" className="w-28 shrink-0 truncate text-right text-label">
+                    {phase === "saving" ? (
+                      <span className="text-muted">{t("instructions.saving")}</span>
+                    ) : dirty ? (
+                      <span className="font-medium text-fg">
+                        <span aria-hidden="true">● </span>
+                        {t("instructions.modified")}
+                      </span>
+                    ) : (
+                      phase === "editing" &&
+                      savedAt?.path === open.path && (
+                        <span className="text-muted">{t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}</span>
+                      )
+                    )}
+                  </span>
                   <button
                     className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!dirty || phase !== "editing"}
@@ -425,8 +458,9 @@ export default function InstructionsView(props: {
                         <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={showDiff}>
                           {t("instructions.diff")}
                         </button>
-                        <button className="rounded border border-status-failed bg-surface px-2 py-0.5 text-status-failed hover:bg-status-failed-bg" onClick={overwrite}>
-                          {t("instructions.overwrite")}
+                        {/* Secondary like its neighbours; "…" says a confirm follows, and that confirm carries the destructive styling. */}
+                        <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={overwrite}>
+                          {t("instructions.overwrite")}…
                         </button>
                       </>
                     )}
@@ -456,7 +490,7 @@ export default function InstructionsView(props: {
         <Modal title={t("instructions.saveConfirmTitle", { name: baseName(doc.open.path) })} onClose={() => act({ type: "cancel" })}>
           <ConfirmSave
             agentsRunning={agentsRunning}
-            fullAuto={!!props.profiles.find((p) => p.name === profile)?.fullAuto}
+            fullAuto={fullAuto}
             onCancel={() => act({ type: "cancel" })}
             onSave={() => put("confirm")}
           >
@@ -473,8 +507,8 @@ export default function InstructionsView(props: {
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setDiff(false)}>
               {t("instructions.close")}
             </button>
-            <button className="rounded border border-status-failed px-3 py-1 text-status-failed hover:bg-status-failed-bg" onClick={overwrite}>
-              {t("instructions.overwrite")}
+            <button className="rounded border border-[var(--color-border)] px-3 py-1 hover:bg-surface-raised" onClick={overwrite}>
+              {t("instructions.overwrite")}…
             </button>
           </div>
         </Modal>
@@ -482,11 +516,11 @@ export default function InstructionsView(props: {
       {toast && (
         <div
           role={toast.kind === "error" ? "alert" : "status"}
-          className={`fixed bottom-4 right-4 z-50 flex max-w-md items-center gap-3 rounded border bg-[var(--color-bg)] px-3 py-2 text-sm shadow ${toast.kind === "error" ? "border-[var(--color-err)] text-[var(--color-err)]" : "border-success text-fg"}`}
+          className={`fixed bottom-4 right-4 z-50 flex max-w-md items-center gap-3 rounded border bg-surface py-2 pr-1.5 pl-3 text-sm shadow-lg ${toast.kind === "error" ? "border-[var(--color-err)] text-[var(--color-err)]" : "border-success text-fg"}`}
         >
           {toast.text}
-          <button aria-label={t("instructions.dismiss")} onClick={() => setToast(null)}>
-            ×
+          <button aria-label={t("instructions.dismiss")} className="inline-flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-raised hover:text-fg" onClick={() => setToast(null)}>
+            <span aria-hidden="true">×</span>
           </button>
         </div>
       )}
@@ -508,13 +542,16 @@ function ConfirmSave(props: { agentsRunning: number; fullAuto: boolean; onCancel
   const locked = live && !ack;
   return (
     <>
-      <div className="mb-3 space-y-1 text-sm text-muted">
-        {props.fullAuto && (
-          <p className="flex items-center gap-1.5 text-fg">
+      {/* The consequence leads; when and the safety net follow, quieter. */}
+      {props.fullAuto && (
+        <p className="mb-2 flex items-start gap-2 rounded border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-fg">
+          <span className="mt-0.5 shrink-0">
             <FullAutoShield />
-            {t("instructions.fullAutoNote")}
-          </p>
-        )}
+          </span>
+          {t("instructions.fullAutoNote")}
+        </p>
+      )}
+      <div className="mb-3 space-y-0.5 text-label text-muted">
         {!live && <p>{liveEffectNote(0, lang).text}</p>}
         <p>{t("instructions.backupNote")}</p>
       </div>
@@ -537,14 +574,38 @@ function ConfirmSave(props: { agentsRunning: number; fullAuto: boolean; onCancel
   );
 }
 
-/** The same note, inline beside Save rather than inside the confirm modal. */
-function InlineLiveEffect(props: { agentsRunning: number }) {
+/** The same note, inline beside Save rather than inside the confirm modal. Shown only while it
+ *  matters (unsaved edits, or agents running); the live region itself stays mounted so a change
+ *  is announced. */
+function InlineLiveEffect(props: { agentsRunning: number; show: boolean }) {
   const { lang } = useT();
   const note = liveEffectNote(props.agentsRunning, lang);
   // Running agents are state, so they take the running hue; no warning glyph (nothing is wrong).
   return (
     <span role="status" className={`text-label ${note.warn ? "text-status-running" : "text-muted"}`}>
-      {note.text}
+      {props.show && note.text}
     </span>
+  );
+}
+
+/** A listed file that isn't created yet: what reads it, and the command that creates it. */
+function MissingFile(props: { file: InstructionFileView; onReload: () => void }) {
+  const { t } = useT();
+  const ids = props.file.ids.join(", ");
+  return (
+    <EmptyState
+      title={t("instructions.missingHeading", { name: baseName(props.file.path) })}
+      hint={`${t(`instructions.scope.${props.file.scope}`, { ids })} ${t("instructions.missingHint")}`}
+      action={
+        <div className="flex w-full max-w-xl flex-col items-center gap-2">
+          <div className="w-full text-left">
+            <CopyCommand command={touchCommand(props.file.path)} />
+          </div>
+          <button type="button" className="rounded border border-border px-2 py-0.5 text-label hover:bg-surface-raised" onClick={props.onReload}>
+            {t("instructions.reloadList")}
+          </button>
+        </div>
+      }
+    />
   );
 }

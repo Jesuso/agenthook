@@ -139,6 +139,6 @@ describe("Modal in Spanish", () => {
     );
     expect(document.querySelector("[data-modal-close]")!.textContent).toBe("Cerrar");
     expect(document.querySelector("[data-confirm-cancel]")!.textContent).toBe("Cancelar");
-    expect(document.querySelector("[data-modal-body]")!.textContent).toBe("en discotu búfer");
+    expect(document.querySelector("[data-modal-body]")!.textContent).toBe("en discotus cambios");
   });
 });

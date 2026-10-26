@@ -96,9 +96,9 @@ describe("InstructionsView in-app confirms", () => {
     const root = await dirtyView();
     await act(async () => sink.current!({ type: "instructions", profile: "demo", path: "/a/code.md", hash: "h2", source: "disk" }));
     await until(() => root.textContent!.includes("changed on disk"));
-    const overwrite = () => [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Overwrite")!;
+    const overwrite = () => [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Overwrite…")!;
     await click(overwrite());
-    expect(confirmDialog()?.textContent).toContain("Overwrite the on-disk version with your buffer?");
+    expect(confirmDialog()?.textContent).toContain("Overwrite the on-disk version with your edits?");
     await answerConfirm(false);
     expect(puts).toEqual([]);
     await click(overwrite());
@@ -138,6 +138,25 @@ describe("InstructionsView save confirm", () => {
 });
 
 describe("InstructionsView chrome", () => {
+  it("marks a fullAuto profile in the toolbar and leads its save confirm with it", async () => {
+    const auto = [{ ...profiles[0], fullAuto: true }] as unknown as ProfileView[];
+    m = await mount(createElement(InstructionsView, { profiles: auto, eventSink: sink as any, onDirtyChange: () => {} }));
+    const editor = (await until(() => m!.root.querySelector<HTMLElement>(".cm-editor")))!;
+    expect(m.root.querySelector('[title^="fullAuto:"]')!.textContent).toContain("fullAuto");
+    // The next-run note only appears once there is something to save.
+    expect(m.root.textContent).not.toContain("Takes effect on the next agent run.");
+    await act(async () => {
+      const ev = EditorView.findFromDOM(editor)!;
+      ev.dispatch({ changes: { from: 0, insert: "x" } });
+    });
+    await until(() => m!.root.textContent!.includes("Takes effect on the next agent run."));
+    const nav = m.root.querySelector("nav")!;
+    expect(nav.textContent).toContain("unsaved edits");
+    await click([...m.root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Save")!);
+    const dialog = (await until(() => document.querySelector('[role="dialog"]')))!;
+    expect(dialog.querySelector("[data-modal-body] > p")!.textContent).toContain("This profile runs fullAuto");
+  });
+
   it("has no page-level profile picker when the dashboard hands over one profile", async () => {
     m = await mount(createElement(InstructionsView, { profiles: [profiles[0]], eventSink: sink as any, onDirtyChange: () => {} }));
     await until(() => m!.root.querySelector(".cm-content"));
@@ -162,11 +181,20 @@ describe("InstructionsView accessibility", () => {
     expect(root.querySelector(".cm-content")!.getAttribute("aria-label")).toBe("Instructions for code.md");
     expect(document.title).toBe("code.md · Instructions · demo · agenthook");
     const soul = [...root.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent?.includes("SOUL.md"))!;
-    expect(soul.disabled).toBe(false);
-    expect(soul.getAttribute("aria-disabled")).toBe("true");
+    expect(root.querySelector("nav")!.getAttribute("aria-label")).toBe("Instruction files");
+    expect([...root.querySelectorAll("nav h2")].map((h) => h.textContent)).toEqual(["steps", "digest SOUL"]);
     expect(soul.title).toContain("doesn't exist yet");
     await click(soul);
     expect(fetched("/api/instructions/file?profile=demo&path=%2Fa%2FSOUL.md")).toBe(false);
+    // The pane says what reads the file and how to create it; once it exists, Reload list opens it.
+    await until(() => root.textContent!.includes("SOUL.md isn't created yet"));
+    expect(soul.getAttribute("aria-current")).toBe("true");
+    expect(root.textContent).toContain("The Digest agent reads this file as its persona.");
+    expect(root.querySelector("[data-copy-command]")!.textContent).toContain("touch /a/SOUL.md");
+    files[1] = { ...files[1], exists: true };
+    await click([...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Reload list")!);
+    await until(() => fetched("/api/instructions/file?profile=demo&path=%2Fa%2FSOUL.md"));
+    await until(() => root.querySelector(".cm-content")?.getAttribute("aria-label") === "Instructions for SOUL.md");
   });
 });
 

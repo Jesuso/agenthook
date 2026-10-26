@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { InstructionFileView } from "./contract";
-import { displayPath, baseName, externalChange, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import { displayPath, baseName, externalChange, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty, touchCommand } from "./instructions";
 import type { InstructionsEvent, OpenFile } from "./instructions";
 
 function file(path: string, scope: InstructionFileView["scope"], ids: string[], exists = true): InstructionFileView {
@@ -120,5 +120,12 @@ describe("displayPath", () => {
     expect(displayPath("/elsewhere/SOUL.md", "/home/me/repo/agenthook.config.json")).toBe("/elsewhere/SOUL.md");
     expect(displayPath("/home/me/repo-other/x.md", "/home/me/repo/agenthook.config.json")).toBe("/home/me/repo-other/x.md");
     expect(displayPath("/a/x.md", null)).toBe("/a/x.md");
+  });
+});
+
+describe("touchCommand", () => {
+  it("quotes only a path that needs it", () => {
+    expect(touchCommand("/home/me/repo/SOUL.md")).toBe("touch /home/me/repo/SOUL.md");
+    expect(touchCommand("/home/me/my repo/it's.md")).toBe("touch '/home/me/my repo/it'\\''s.md'");
   });
 });
