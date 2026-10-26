@@ -293,7 +293,7 @@ export default function InstructionsView(props: {
                       <button
                         className={`w-full rounded px-2 py-1 text-left disabled:cursor-not-allowed disabled:opacity-60 ${open?.path === f.path ? "bg-surface-raised" : ""}`}
                         disabled={!f.exists}
-                        title={f.path}
+                        title={f.exists ? f.path : t("instructions.missingTitle", { path: f.path })}
                         onClick={() => pickFile(f.path)}
                       >
                         <div className="truncate font-mono">{baseName(f.path)}</div>
@@ -311,7 +311,7 @@ export default function InstructionsView(props: {
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           {list.kind === "error" && (
-            <EmptyState title={t("instructions.listError")} hint={t("instructions.requestFailed", { status: list.status })} />
+            <EmptyState title={t("instructions.listError")} hint={list.status === 0 ? t("instructions.requestNetwork") : t("instructions.requestFailed", { status: list.status })} />
           )}
           {list.kind === "ok" && list.body.files.length === 0 && (
             <EmptyState

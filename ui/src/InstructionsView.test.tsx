@@ -146,7 +146,7 @@ describe("InstructionsView in Spanish", () => {
     const editor = (await until(() => m!.root.querySelector<HTMLElement>(".cm-editor")))!;
     const root = m.root;
     expect(root.textContent).toContain("pasos");
-    expect(root.textContent).toContain("Vista previa");
+    expect(root.textContent).toContain("Renderizado");
     expect(root.textContent).toContain("Sin cambios");
     await click([...root.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent?.includes("Lo que ve el agente"))!);
     await until(() => root.textContent!.includes("no hay vista previa para este paso"));

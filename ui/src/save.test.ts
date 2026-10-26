@@ -205,8 +205,8 @@ describe("liveEffectNote", () => {
   });
 
   it("warns with the running-agent count", () => {
-    expect(liveEffectNote(1)).toEqual({ text: "Takes effect on the next agent run — 1 agent currently running on steps using this file.", warn: true });
-    expect(liveEffectNote(3).text).toBe("Takes effect on the next agent run — 3 agents currently running on steps using this file.");
+    expect(liveEffectNote(1)).toEqual({ text: "Takes effect on the next agent run. 1 agent already running on it keeps the old version.", warn: true });
+    expect(liveEffectNote(3).text).toBe("Takes effect on the next agent run. 3 agents already running on it keep the old version.");
     expect(liveEffectNote(3).warn).toBe(true);
   });
 });
