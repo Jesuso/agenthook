@@ -1,31 +1,37 @@
 import type { InstructionFileView, UiEvent } from "./contract";
+import { translate } from "./i18n";
+import type { MessageKey } from "./i18n";
 
 export type InstructionsEvent = Extract<UiEvent, { type: "instructions" }>;
 
 /** A file open in the editor: the content as loaded and its sha256 (the base of any later save). */
 export type OpenFile = { profile: string; path: string; content: string; baseHash: string };
 
-export const DISCARD_PROMPT = "Discard unsaved changes to the open instructions file?";
+/** The discard prompt for a dirty instructions buffer, in `lang`. */
+export const discardPrompt = (lang = "en"): string => translate(lang, "instructions.discardPrompt");
+
+/** The English discard prompt, for callers without a language. */
+export const DISCARD_PROMPT = discardPrompt();
 
 export type FileGroup = { scope: InstructionFileView["scope"]; label: string; files: InstructionFileView[] };
 
-const GROUPS: { scope: InstructionFileView["scope"]; label: string }[] = [
-  { scope: "step", label: "steps" },
-  { scope: "default", label: "profile default" },
-  { scope: "repo", label: "repos" },
-  { scope: "soul", label: "digest SOUL" },
+const GROUPS: { scope: InstructionFileView["scope"]; label: MessageKey }[] = [
+  { scope: "step", label: "instructions.group.step" },
+  { scope: "default", label: "instructions.group.default" },
+  { scope: "repo", label: "instructions.group.repo" },
+  { scope: "soul", label: "instructions.group.soul" },
 ];
 
 /**
  * Files grouped step → default → repo — the order the pipeline actually runs them in
  * (`src/heartbeat.js`'s `instructionTargets`). Within a group the server's order is kept as-is
- * (no re-sort); empty groups are omitted.
+ * (no re-sort); empty groups are omitted. Group labels are in `lang`.
  */
-export function groupFiles(files: InstructionFileView[]): FileGroup[] {
+export function groupFiles(files: InstructionFileView[], lang = "en"): FileGroup[] {
   const out: FileGroup[] = [];
   for (const g of GROUPS) {
     const members = files.filter((f) => f.scope === g.scope);
-    if (members.length) out.push({ ...g, files: members });
+    if (members.length) out.push({ scope: g.scope, label: translate(lang, g.label), files: members });
   }
   return out;
 }

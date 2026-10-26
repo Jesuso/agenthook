@@ -220,3 +220,14 @@ describe("readWrap / writeWrap", () => {
     expect(readWrap(undefined)).toBe(true);
   });
 });
+
+describe("Spanish chrome", () => {
+  it("translates the live dot, the running outcome and the cost words; a verdict stays as written", () => {
+    expect(liveIndicator("live", true, true, "es").label).toBe("en vivo");
+    expect(liveIndicator("closed", true, true, "es").label).toBe("desconectado");
+    expect(formatOutcome({ outcome: null, running: true }, "es")).toBe("en curso");
+    expect(formatOutcome({ outcome: "advance", running: false }, "es")).toBe("advance");
+    expect(formatRunCost({ costUsd: null, unpriced: true }, "es")).toBe("sin precio");
+    expect(formatRunCost({ costUsd: null, unpriced: true, estUsd: 0.42 }, "es")).toMatch(/^~0,42\sUS\$ est\.$/);
+  });
+});

@@ -1,6 +1,8 @@
 import type { ProfileView } from "./contract";
 import { RESTART_IDLE, restartInFlight, restartReducer } from "./config";
 import type { RestartAction, RestartState } from "./config";
+import { translate } from "./i18n";
+import type { MessageKey, Vars } from "./i18n";
 
 // The dashboard profile row's control actions (Restart when idle, Pause new runs / Resume): the
 // enabled/disabled logic, the per-profile restart banner map, and the pause/resume outcome text.
@@ -60,18 +62,19 @@ export function restartsReducer(m: Restarts, a: RestartsAction): Restarts {
 }
 
 /**
- * The pause/resume toast. A 200 whose result carries a `note` (a resume while a restart,
+ * The pause/resume toast, in `lang`. A 200 whose result carries a `note` (a resume while a restart,
  * decommission or shutdown holds the queue) did NOT take effect, so it reads as refused.
  */
-export function queueToggleText(cmd: "pause" | "resume", label: string, status: number, body: any): string {
-  const verb = cmd === "pause" ? "Pause" : "Resume";
+export function queueToggleText(cmd: "pause" | "resume", label: string, status: number, body: any, lang = "en"): string {
+  const tr = (key: MessageKey, vars?: Vars) => translate(lang, key, vars);
+  const verb = tr(cmd === "pause" ? "profileActions.pause" : "profileActions.resume");
   if (status === 200) {
-    if (typeof body?.note === "string") return `${verb} refused for ${label}: ${body.note}`;
-    return cmd === "pause" ? `Paused new runs on ${label}` : `Resumed ${label}`;
+    if (typeof body?.note === "string") return tr("profileActions.refused", { verb, label, note: body.note });
+    return tr(cmd === "pause" ? "profileActions.paused" : "profileActions.resumed", { label });
   }
-  if (status === 503) return `${verb} failed: ${label}'s receiver is not running`;
-  if (status === 504) return `${verb} failed: ${label}'s receiver didn't answer in time`;
-  if (status === 502) return `${verb} refused by the receiver: ${typeof body?.error === "string" ? body.error : "unknown error"}`;
-  if (status === 0) return `${verb} failed (network error)`;
-  return `${verb} failed (status ${status})`;
+  if (status === 503) return tr("profileActions.down", { verb, label });
+  if (status === 504) return tr("profileActions.timeout", { verb, label });
+  if (status === 502) return tr("profileActions.refusedByReceiver", { verb, error: typeof body?.error === "string" ? body.error : tr("profileActions.unknownError") });
+  if (status === 0) return tr("profileActions.network", { verb });
+  return tr("profileActions.status", { verb, status });
 }

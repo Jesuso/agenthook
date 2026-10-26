@@ -302,8 +302,8 @@ const headlineTone = (items: NeedsItem[]) =>
 type Retry = { state: "busy" | "started" } | { state: "error"; error: string };
 
 /** A row's second line: the agent's plain sentence, else the (short) reason, else the summary. */
-function needsSub(item: NeedsItem) {
-  const reason = item.kind === "failed" ? failureSummary(item.reason) : item.reason;
+function needsSub(item: NeedsItem, lang = "en") {
+  const reason = item.kind === "failed" ? failureSummary(item.reason, lang) : item.reason;
   return { reason, sub: item.ticket.plain ?? reason ?? item.ticket.summary };
 }
 
@@ -314,7 +314,7 @@ const needsTitle = (t: TicketRow, tr: T, lang: string) => {
 
 /** What a row's 🔊 (and auto-read) says: its title, then its full second line. */
 function needsSpeech(item: NeedsItem, tr: T, lang: string): string {
-  const { sub } = needsSub(item);
+  const { sub } = needsSub(item, lang);
   const { titleText } = needsTitle(item.ticket, tr, lang);
   return sub ? `${titleText}. ${sub}` : titleText;
 }
@@ -391,7 +391,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
           // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
-          const { reason, sub } = needsSub(item);
+          const { reason, sub } = needsSub(item, lang);
           const subTitle = t.plain ? (item.reason ?? t.summary ?? undefined) : (reason ?? t.summary ?? undefined);
           const said = t.plain ?? reason;
           const { title, titleText } = needsTitle(t, tr, lang);

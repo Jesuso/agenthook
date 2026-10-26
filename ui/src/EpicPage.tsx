@@ -10,12 +10,15 @@ import { dismissKey } from "./deferredDismiss";
 import { prNumber } from "./tickets";
 import { useDisclosure } from "./disclosure";
 import { formatRelative } from "./format";
+import { translate } from "./i18n";
+import type { MessageKey } from "./i18n";
+import { useT } from "./i18n/react";
 
 type Ref = { profile: string; ref: string };
 
 /** A section's title: the segment's one label (segLabel), sentence case. */
-const titleOf = (s: Seg) => {
-  const l = segLabel(s);
+const titleOf = (s: Seg, lang: string) => {
+  const l = segLabel(s, lang);
   return l[0].toUpperCase() + l.slice(1);
 };
 
@@ -47,22 +50,23 @@ export type EpicActions = {
  * that didn't opens on its tracker when it carries its own URL, or says it can't.
  */
 export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }: { body: EpicResponse; profile: string; rows: TicketRow[]; onOpen: (t: Ref) => void; actions?: EpicActions }) {
+  const { t: tr, lang } = useT();
   const epic = body.epic;
   // Hooks before the early return: a refetch can flip `supported` on the same mounted page.
   const [historyOpen, setHistoryOpen] = useDisclosure(`${profile}:${epic?.ref ?? ""}:history`);
-  if (!body.supported || !epic) return <EmptyState title="This tracker has no epics" />;
+  if (!body.supported || !epic) return <EmptyState title={tr("epics.unsupported")} />;
   const url = safeUrl(epic.url);
   const groups = groupTickets(epic.tickets);
   const rowBy = new Map(rows.filter((r) => r.profile === profile).map((r) => [r.ref, r]));
   const now = Date.now();
-  const pace = paceOf(epic);
+  const pace = paceOf(epic, lang);
   const open = (t: EpicDetailTicket) => onOpen({ profile, ref: t.ref });
   const hrefOf = (t: EpicDetailTicket) => safeUrl(t.url);
   // Awaiting merge only on evidence (a recorded, unmerged PR); a finished ticket without one is just finished.
   const awaiting = groups.finished.filter((t) => openPr(rowBy.get(t.ref)));
   const finishedRest = groups.finished.filter((t) => !openPr(rowBy.get(t.ref)));
   const history = [...finishedRest, ...groups.merged];
-  const historyTitle = finishedRest.length && groups.merged.length ? "Finished and merged" : groups.merged.length ? "Merged" : "Finished";
+  const historyTitle = finishedRest.length && groups.merged.length ? tr("epic.historyBoth") : titleOf(groups.merged.length ? "merged" : "finished", lang);
   const counts = segCounts(epic, awaiting.length);
   const needs = groups.needsYou.filter((t) => !actions.dismissing?.has(dismissKey({ profile, ref: t.ref })));
 
@@ -72,10 +76,10 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
         <h2 className="text-heading font-semibold text-balance">{epic.name}</h2>
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label text-muted">
           {epic.displayId && <span className="font-mono">{epic.displayId}</span>}
-          {epic.status && <span>Tracker status: {epic.status}</span>}
+          {epic.status && <span>{tr("epic.trackerStatus", { status: epic.status })}</span>}
           {url && (
             <a className="rounded-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent" href={url} target="_blank" rel="noopener noreferrer">
-              Open on the tracker
+              {tr("epic.openOnTracker")}
               <Ext />
             </a>
           )}
@@ -144,7 +148,7 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
             {history.map((t) => (
               <li key={t.ref} data-epic-ticket={t.ref}>
                 <TicketLine t={t} row={rowBy.get(t.ref)} href={hrefOf(t)} onOpen={() => open(t)}>
-                  {finishedRest.length > 0 && groups.merged.length > 0 && <span className={`shrink-0 text-label ${t.bucket === "merged" ? "text-status-done" : "text-muted"}`}>{segLabel(t.bucket)}</span>}
+                  {finishedRest.length > 0 && groups.merged.length > 0 && <span className={`shrink-0 text-label ${t.bucket === "merged" ? "text-status-done" : "text-muted"}`}>{segLabel(t.bucket, lang, 1)}</span>}
                 </TicketLine>
               </li>
             ))}
@@ -152,7 +156,7 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
         </details>
       )}
       {epic.tickets.length === 0 && (
-        <p className="rounded-lg border border-border bg-surface px-3 py-3 text-muted">{epic.completed ? "Closed with no tickets." : "No tickets in this epic yet."}</p>
+        <p className="rounded-lg border border-border bg-surface px-3 py-3 text-muted">{epic.completed ? tr("epic.closedEmpty") : tr("epic.empty")}</p>
       )}
     </div>
   );
@@ -165,7 +169,8 @@ const ETA_ACTIVE_DAYS = 3;
  * Plain-language pace: what finished lately (finished and merged alike), a stall when nothing has
  * for 5 days, and an ETA only with its basis; when there is none, the real reason why.
  */
-export function paceOf(epic: Pick<EpicDetail, "velocity" | "byStage" | "total" | "completed" | "eta">): { text: string; eta: string | null; stalled: boolean; since: number | null } {
+export function paceOf(epic: Pick<EpicDetail, "velocity" | "byStage" | "total" | "completed" | "eta">, lang = "en"): { text: string; eta: string | null; stalled: boolean; since: number | null } {
+  const tr = (key: MessageKey, vars?: Record<string, string | number>) => translate(lang, key, vars);
   const { days, finished14, activeDays, perDay } = epic.velocity;
   const { done, total } = progressOf(epic);
   // Same as the server's `remaining` (src/epics.js): untracked tickets are still left to do.
@@ -174,34 +179,35 @@ export function paceOf(epic: Pick<EpicDetail, "velocity" | "byStage" | "total" |
   for (const d of days) if (d.finished > 0) last = d.date;
   const today = days.length ? days[days.length - 1].date : null;
   const since = last && today ? Math.round((Date.parse(today) - Date.parse(last)) / 86_400_000) : null;
-  if (epic.completed) return { text: `Closed with ${done} of ${total} finished.`, eta: null, stalled: false, since };
+  if (epic.completed) return { text: tr("epic.pace.closed", { done, total }), eta: null, stalled: false, since };
   const week = days.slice(-7).reduce((a, d) => a + d.finished, 0);
   const stalled = left > 0 && (since === null || since >= 5);
   const text =
     week > 0 && !stalled
-      ? `${week} ${week === 1 ? "ticket" : "tickets"} finished this week, the latest ${since === 0 ? "today" : `${since} d ago`}.`
+      ? tr("epic.pace.week", { count: week, when: since === 0 ? tr("epic.pace.today") : tr("epic.pace.daysAgo", { days: String(since) }) })
       : since !== null
-        ? `${stalled ? "Stalled: n" : "N"}othing finished for ${since} days.`
-        : `${stalled ? "Stalled: n" : "N"}othing finished in the last ${days.length} days.`;
+        ? tr(stalled ? "epic.pace.stalledFor" : "epic.pace.noneFor", { days: since })
+        : tr(stalled ? "epic.pace.stalledIn" : "epic.pace.noneIn", { days: days.length });
   const eta =
     left === 0
       ? null
       : epic.eta && perDay
-        ? `${left} left at ${perDayLabel(perDay)}: ${etaLabel(epic.eta)}.`
+        ? tr("epic.pace.eta", { count: left, rate: perDayLabel(perDay, lang), eta: etaLabel(epic.eta, lang) ?? "" })
         : finished14 === 0
-          ? `${left} left. No estimate until something finishes.`
-          : `${left} left. No estimate yet: that needs work finished on ${ETA_ACTIVE_DAYS} different days (${activeDays} so far).`;
+          ? tr("epic.pace.noEstimate", { count: left })
+          : tr("epic.pace.notYet", { count: left, need: ETA_ACTIVE_DAYS, active: activeDays });
   return { text, eta, stalled, since };
 }
 
 /** The new-tab mark, said aloud as "(new tab)". */
 function Ext() {
+  const { t } = useT();
   return (
     <>
       <svg aria-hidden="true" viewBox="0 0 12 12" className="ml-1 inline size-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path d="M4.5 2.5h5v5M9.5 2.5L3 9" />
       </svg>
-      <span className="sr-only"> (new tab)</span>
+      <span className="sr-only">{` ${t("epic.newTab")}`}</span>
     </>
   );
 }
@@ -215,21 +221,23 @@ export function Chevron() {
 }
 
 /** A heading's count: shown as a bare number, read aloud as "(3 tickets)". */
-export function Count({ n, noun = "ticket" }: { n: number; noun?: string }) {
+export function Count({ n, noun = "ticket" }: { n: number; noun?: "ticket" | "epic" }) {
+  const { t } = useT();
   return (
     <span className="font-mono text-label font-normal text-muted">
       <span className="sr-only"> (</span>
       {n}
-      <span className="sr-only">{` ${noun}${n === 1 ? "" : "s"})`}</span>
+      <span className="sr-only">{` ${t(noun === "epic" ? "epic.noun.epic" : "epic.noun.ticket", { count: n })})`}</span>
     </span>
   );
 }
 
 function Section({ group, count, tone = "", children }: { group: Seg; count: number; tone?: string; children: React.ReactNode }) {
+  const { lang } = useT();
   return (
     <section className="rounded-lg border border-border bg-surface" data-group={group}>
       <h3 className={`flex items-baseline gap-2 border-b border-border-subtle px-3 py-2 text-body font-semibold ${tone}`}>
-        {titleOf(group)}
+        {titleOf(group, lang)}
         <Count n={count} />
       </h3>
       <ul className="p-1">{children}</ul>
@@ -242,6 +250,7 @@ function Section({ group, count, tone = "", children }: { group: Seg; count: num
  * said aloud); a ticket with neither says so on the row. j/k walk the `data-epic-nav` targets.
  */
 function TicketLine({ t, row, href, onOpen, children }: { t: EpicDetailTicket; row: TicketRow | undefined; href: string | null; onOpen: () => void; children?: React.ReactNode }) {
+  const { t: tr } = useT();
   const cls = "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-[5px] text-left";
   const body = (
     <>
@@ -260,10 +269,10 @@ function TicketLine({ t, row, href, onOpen, children }: { t: EpicDetailTicket; r
     );
   if (href)
     return (
-      <a data-epic-nav className={`${cls} hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent`} href={href} target="_blank" rel="noopener noreferrer" title="Never ran here: opens on the tracker">
+      <a data-epic-nav className={`${cls} hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent`} href={href} target="_blank" rel="noopener noreferrer" title={tr("epic.neverRanTitle")}>
         {body}
         <span className="shrink-0 text-meta text-muted">
-          tracker
+          {tr("epic.trackerLink")}
           <Ext />
         </span>
       </a>
@@ -271,7 +280,7 @@ function TicketLine({ t, row, href, onOpen, children }: { t: EpicDetailTicket; r
   return (
     <div className={cls}>
       {body}
-      <span className="shrink-0 text-meta text-muted">never ran here, no link</span>
+      <span className="shrink-0 text-meta text-muted">{tr("epic.noLink")}</span>
     </div>
   );
 }
@@ -281,15 +290,17 @@ function TicketLine({ t, row, href, onOpen, children }: { t: EpicDetailTicket; r
  * link (never nested in the row's button).
  */
 function AwaitingItem({ t, row, href, onOpen }: { t: EpicDetailTicket; row: TicketRow | undefined; href: string | null; onOpen: () => void }) {
+  const { t: tr } = useT();
   const pr = openPr(row);
   const num = prNumber(pr);
+  const id = t.displayId ?? t.ref;
   return (
     <li className="flex items-center gap-2 pr-2" data-epic-ticket={t.ref}>
       <div className="min-w-0 flex-1">
         <TicketLine t={t} row={row} href={href} onOpen={onOpen} />
       </div>
       {pr && (
-        <a className={READ} href={pr} target="_blank" rel="noopener noreferrer" aria-label={`PR ${num ? `#${num} ` : ""}for ${t.displayId ?? t.ref} (new tab)`} data-epic-pr>
+        <a className={READ} href={pr} target="_blank" rel="noopener noreferrer" aria-label={num ? tr("epic.prAria", { num, id }) : tr("epic.prAriaNoNum", { id })} data-epic-pr>
           PR{num ? ` #${num}` : ""}
           <Ext />
         </a>
@@ -299,11 +310,11 @@ function AwaitingItem({ t, row, href, onOpen }: { t: EpicDetailTicket; row: Tick
 }
 
 /** Why a ticket needs the human, from its local row. */
-function needOf(row: TicketRow | undefined): { kind: "held" | "failed" | "pr"; reason: string; since: string | null } | null {
+function needOf(row: TicketRow | undefined, lang: string): { kind: "held" | "failed" | "pr"; reason: string; since: string | null } | null {
   if (!row) return null;
-  if (row.status === "held") return { kind: "held", reason: row.heldReason ?? "Held for a decision; the agent gave no reason.", since: row.heldAt ?? row.startedAt };
-  if (row.status === "failed") return { kind: "failed", reason: row.failReason ?? "The run failed without a reason.", since: row.startedAt };
-  if (row.status === "done" && row.prState === "ready" && row.prUrl) return { kind: "pr", reason: "PR ready to merge.", since: row.finishedAt };
+  if (row.status === "held") return { kind: "held", reason: row.heldReason ?? translate(lang, "epic.heldNoReason"), since: row.heldAt ?? row.startedAt };
+  if (row.status === "failed") return { kind: "failed", reason: row.failReason ?? translate(lang, "epic.failedNoReason"), since: row.startedAt };
+  if (row.status === "done" && row.prState === "ready" && row.prUrl) return { kind: "pr", reason: translate(lang, "epic.prReady"), since: row.finishedAt };
   return null;
 }
 
@@ -315,6 +326,7 @@ type Rerun = { state: "busy" | "started" } | { state: "error"; error: string };
  * receiver is down), a ready PR → Review PR. The name opens the drawer, as on the Overview.
  */
 function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket; row: TicketRow | undefined; href: string | null; onOpen: () => void; now: number; actions: EpicActions }) {
+  const { t: tr, lang } = useT();
   const [answering, setAnswering] = useState(false);
   // Closing the answer box (Cancel, Esc) hands focus back to Release…, which it replaced.
   const releaseBtn = useRef<HTMLButtonElement>(null);
@@ -335,11 +347,11 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
     else if (wasConfirming.current) rerunBtn.current?.focus();
     wasConfirming.current = confirming;
   }, [confirming]);
-  const n = needOf(row);
+  const n = needOf(row, lang);
   const id = t.displayId ?? t.ref;
   const tone = n?.kind === "failed" ? "text-status-failed" : "text-status-held";
-  const reason = n ? n.reason : row ? "Marked Needs you on the tracker." : "Needs you on the tracker; it never ran here.";
-  const meta = [row?.step, n?.since ? formatRelative(n.since, now) : null].filter(Boolean).join(" · ");
+  const reason = n ? n.reason : row ? tr("epic.markedNeedsYou") : tr("epic.needsYouNeverRan");
+  const meta = [row?.step, n?.since ? formatRelative(n.since, now, lang) : null].filter(Boolean).join(" · ");
   const retry = () => {
     if (!row || !actions.onRetry) return;
     setConfirming(false);
@@ -351,14 +363,14 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
   if (prHref)
     primary = (
       <a className={READ} href={prHref} target="_blank" rel="noopener noreferrer">
-        Review PR
+        {tr("epic.reviewPr")}
         <Ext />
       </a>
     );
   else if (n?.kind === "held" && row && actions.onRelease)
     primary = !answering && (
-      <button ref={releaseBtn} type="button" data-epic-release className={WRITE} aria-label={`Release ${id}…`} onClick={() => setAnswering(true)}>
-        Release…
+      <button ref={releaseBtn} type="button" data-epic-release className={WRITE} aria-label={tr("overview.releaseAria", { id })} onClick={() => setAnswering(true)}>
+        {tr("overview.release")}
       </button>
     );
   else if (n?.kind === "failed" && row && actions.up && actions.onRetry)
@@ -373,12 +385,12 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
           }
         }}
       >
-        <span className="text-muted">Re-run {row.step ?? "the failed step"}?</span>
+        <span className="text-muted">{row.step ? tr("epic.rerunConfirm", { step: row.step }) : tr("epic.rerunConfirmNoStep")}</span>
         <button ref={confirmBtn} type="button" data-epic-retry className={WRITE} onClick={retry}>
-          Re-run
+          {tr("overview.rerun")}
         </button>
         <button type="button" className={QUIET} onClick={() => setConfirming(false)}>
-          Cancel
+          {tr("epic.cancel")}
         </button>
       </span>
     ) : (
@@ -387,24 +399,24 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
         ref={rerunBtn}
         data-epic-retry-open
         className={`${WRITE} aria-disabled:cursor-default aria-disabled:border-border aria-disabled:bg-transparent aria-disabled:text-muted`}
-        aria-label={`Re-run ${id}${row.step ? ` (${row.step})` : ""}…`}
+        aria-label={row.step ? tr("epic.rerunAriaStep", { id, step: row.step }) : tr("epic.rerunAria", { id })}
         // aria-disabled, not disabled: it keeps focus after a confirm instead of dropping it to the page.
         aria-disabled={rerun?.state === "busy" || rerun?.state === "started" || undefined}
         onClick={() => rerun?.state !== "busy" && rerun?.state !== "started" && setConfirming(true)}
       >
-        {rerun?.state === "busy" ? "Re-running…" : rerun?.state === "started" ? "Started" : "Re-run…"}
+        {rerun?.state === "busy" ? tr("overview.rerunning") : rerun?.state === "started" ? tr("overview.started") : tr("epic.rerunOpen")}
       </button>
     );
   else if (row && !actions.up && n?.kind === "failed")
     primary = (
-      <button type="button" data-epic-log className={QUIET} aria-label={`Open log for ${id}`} onClick={onOpen}>
-        Open log
+      <button type="button" data-epic-log className={QUIET} aria-label={tr("overview.openLogAria", { id })} onClick={onOpen}>
+        {tr("overview.openLog")}
       </button>
     );
   else if (!row && href)
     primary = (
       <a data-epic-nav className={READ} href={href} target="_blank" rel="noopener noreferrer">
-        Open on the tracker
+        {tr("epic.openOnTracker")}
         <Ext />
       </a>
     );
@@ -414,7 +426,7 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
         <span className="w-24 shrink-0 pt-0.5 font-mono text-label text-muted">{id}</span>
         <div className="min-w-0 flex-1">
           {row ? (
-            <button type="button" data-epic-nav className="block max-w-full truncate rounded-sm text-left hover:underline focus-visible:outline-2 focus-visible:outline-accent" title={`${t.name}: open details and log`} onClick={onOpen}>
+            <button type="button" data-epic-nav className="block max-w-full truncate rounded-sm text-left hover:underline focus-visible:outline-2 focus-visible:outline-accent" title={tr("epic.openDetailsTitle", { name: t.name })} onClick={onOpen}>
               {t.name}
             </button>
           ) : (
@@ -432,8 +444,8 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
         </div>
         <span className="flex shrink-0 items-center gap-1">
           {n?.kind === "failed" && row && actions.onDismiss && !confirming && (
-            <button type="button" data-epic-dismiss className={QUIET} aria-label={`Dismiss ${id}`} title="acknowledge: it stops counting as needing you" onClick={() => actions.onDismiss!({ profile: row.profile, ref: row.ref })}>
-              Dismiss
+            <button type="button" data-epic-dismiss className={QUIET} aria-label={tr("overview.dismissAria", { id })} title={tr("overview.dismissTitle")} onClick={() => actions.onDismiss!({ profile: row.profile, ref: row.ref })}>
+              {tr("overview.dismiss")}
             </button>
           )}
           {primary}
@@ -446,16 +458,17 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
 
 /** All tickets finished, epic still open: closing it is the human's job, said as an instruction (ADR 0003–0006). */
 function ReadyToCloseBanner({ url }: { url: string | null }) {
+  const { t } = useT();
   return (
     <p className="rounded-md border border-border-strong bg-surface px-3 py-2 text-body" data-ready-to-close>
-      <span className="font-medium">All tickets finished.</span>{" "}
+      <span className="font-medium">{t("epic.allFinished")}</span>{" "}
       {url ? (
         <a className="rounded-sm text-accent underline focus-visible:outline-2 focus-visible:outline-accent" href={url} target="_blank" rel="noopener noreferrer">
-          Close this epic on the tracker
+          {t("epic.closeOnTracker")}
           <Ext />
         </a>
       ) : (
-        "Close this epic on the tracker."
+        `${t("epic.closeOnTracker")}.`
       )}
     </p>
   );
@@ -463,9 +476,10 @@ function ReadyToCloseBanner({ url }: { url: string | null }) {
 
 /** `live:false`: built from the profile dir alone. */
 export function LiveNote() {
+  const { t } = useT();
   return (
     <p className="text-label text-status-held" data-live-note>
-      Known tickets only — receiver down, so the tracker wasn&apos;t read.
+      {t("epic.liveNote")}
     </p>
   );
 }

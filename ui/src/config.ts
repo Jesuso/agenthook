@@ -1,12 +1,15 @@
 import type { ProfileView, UiEvent } from "./contract";
 import { sensitiveChanges } from "./contract";
 import type { InstructionsEvent } from "./instructions";
+import { translate } from "./i18n";
 
 export type ConfigEvent = Extract<UiEvent, { type: "config" }>;
 /** What the Config view's sink receives: config-file changes and feed events (restart lifecycle). */
 export type ConfigSinkEvent = ConfigEvent | Extract<UiEvent, { type: "event" }>;
 
 export const CONFIG_DISCARD_PROMPT = "Discard unsaved changes to the open config?";
+/** `CONFIG_DISCARD_PROMPT` in `lang`. */
+export const configDiscardPrompt = (lang = "en"): string => translate(lang, "configHelp.discardPrompt");
 
 export function configUrl(profile: string): string {
   return `/api/config?${new URLSearchParams({ profile })}`;
@@ -46,9 +49,12 @@ export function releaseRequest(profile: string, ref: string, comment: string): {
 export type ReleaseOutcome = { ok: true; text: string } | { ok: false; error: string };
 
 /** Map `POST /api/release`'s status + body (0 = network error) to its outcome. */
-export function releaseOutcome(label: string, status: number, body: any): ReleaseOutcome {
-  if (status === 200) return { ok: true, text: `Released ${label}${typeof body?.step === "string" ? ` → re-running ${body.step}` : ""}` };
-  return { ok: false, error: refusal("release", status, body) };
+export function releaseOutcome(label: string, status: number, body: any, lang = "en"): ReleaseOutcome {
+  if (status === 200) {
+    const text = typeof body?.step === "string" ? translate(lang, "release.outcome.releasedStep", { label, step: body.step }) : translate(lang, "release.outcome.released", { label });
+    return { ok: true, text };
+  }
+  return { ok: false, error: refusal("release.outcome.failed", status, body, lang) };
 }
 
 /** Re-run a failed ticket's failed step: the receiver moves it back into that step's source stage. */
@@ -57,18 +63,21 @@ export function retryRequest(profile: string, ref: string): { url: string; init:
 }
 
 /** Map `POST /api/retry`'s status + body (0 = network error) to its outcome. */
-export function retryOutcome(label: string, status: number, body: any): ReleaseOutcome {
-  if (status === 200) return { ok: true, text: `Re-running ${label}${typeof body?.step === "string" ? ` · ${body.step}` : ""}` };
-  return { ok: false, error: refusal("re-run", status, body) };
+export function retryOutcome(label: string, status: number, body: any, lang = "en"): ReleaseOutcome {
+  if (status === 200) {
+    const text = typeof body?.step === "string" ? translate(lang, "retry.rerunningStep", { label, step: body.step }) : translate(lang, "retry.rerunning", { label });
+    return { ok: true, text };
+  }
+  return { ok: false, error: refusal("retry.failed", status, body, lang) };
 }
 
 /** Why a release / re-run did not happen, from a non-200 status (0 = network error). */
-function refusal(what: string, status: number, body: any): string {
-  if (status === 502) return typeof body?.error === "string" ? body.error : "the receiver refused";
-  if (status === 503) return "the receiver is not running";
-  if (status === 504) return "the receiver didn't answer in time — check the activity feed before retrying";
-  if (status === 0) return "network error";
-  return `${what} failed (status ${status})`;
+function refusal(failed: "release.outcome.failed" | "retry.failed", status: number, body: any, lang: string): string {
+  if (status === 502) return typeof body?.error === "string" ? body.error : translate(lang, "release.outcome.refused");
+  if (status === 503) return translate(lang, "release.outcome.notRunning");
+  if (status === 504) return translate(lang, "release.outcome.timeout");
+  if (status === 0) return translate(lang, "release.outcome.network");
+  return translate(lang, failed, { status });
 }
 
 /**
@@ -81,11 +90,11 @@ export function moveTarget(raw: unknown, stateKey: string): string | null {
 }
 
 /** The browser's own JSON.parse — Save waits on it (and on the client checks); the server stays the authority for the rest. */
-export function parseCheck(text: string): { ok: true; raw: unknown } | { ok: false; error: string } {
+export function parseCheck(text: string, lang = "en"): { ok: true; raw: unknown } | { ok: false; error: string } {
   try {
     return { ok: true, raw: JSON.parse(text) };
   } catch (e) {
-    return { ok: false, error: `invalid JSON: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, error: translate(lang, "configHelp.invalidJson", { error: e instanceof Error ? e.message : String(e) }) };
   }
 }
 
@@ -112,7 +121,7 @@ const truncate = (s: string): string => (s.length > BANNER_FIRST_MAX ? `${s.slic
  * cards". The row is amber when every problem is a pristine card's (`ctx.incomplete`).
  * `fullFirst` is the untruncated text, for the row's `title`.
  */
-export function bannerStatus(parseError: string | null, checks: string[], serverErrors: string[], ctx: BannerContext = NO_CARDS): BannerStatus {
+export function bannerStatus(parseError: string | null, checks: string[], serverErrors: string[], ctx: BannerContext = NO_CARDS, lang = "en"): BannerStatus {
   if (parseError !== null) {
     return { ok: false, first: truncate(parseError), fullFirst: parseError, moreCount: checks.length + serverErrors.length, amber: false, summary: false };
   }
@@ -121,7 +130,7 @@ export function bannerStatus(parseError: string | null, checks: string[], server
   const amber = problems.every(ctx.incomplete);
   const listed = problems.filter((e) => !ctx.onCard(e));
   if (listed.length === 0) {
-    const count = `${problems.length} problem${problems.length === 1 ? "" : "s"} — see the highlighted cards`;
+    const count = translate(lang, "banner.seeCards", { count: problems.length });
     return { ok: false, first: count, fullFirst: count, moreCount: 0, amber, summary: true };
   }
   const first = listed[0];
@@ -133,8 +142,12 @@ const CLEAR_FIELDS = new Set(["name", "fullAuto", "claudeBin", "tracker.userGid"
 const isClear = (path: string) => CLEAR_FIELDS.has(path) || /^tracker\.pipeline\[\d+\]\.bin$/.test(path);
 // A step's or a service's `env` may hold literal secrets: the confirm names its variables, never their values.
 const isStepEnv = (path: string) => /^(tracker\.pipeline\[\d+\]|sandbox\.services\.[^.]+)\.env$/.test(path);
-const envShown = (v: unknown) =>
-  v === undefined ? "(unset)" : v && typeof v === "object" && !Array.isArray(v) ? `{${Object.keys(v).join(", ")}}` : "(set)";
+const envShown = (v: unknown, lang: string) =>
+  v === undefined
+    ? translate(lang, "configHelp.unset")
+    : v && typeof v === "object" && !Array.isArray(v)
+      ? `{${Object.keys(v).join(", ")}}`
+      : translate(lang, "configHelp.set");
 // Same rule as src/config.js literalSecrets: a non-empty string that is not exactly one `${VAR}` ref.
 const isLiteralSecret = (v: unknown) => typeof v === "string" && v !== "" && !/^\$\{[A-Z0-9_]+\}$/.test(v);
 
@@ -159,32 +172,33 @@ export type SensitiveChange = { path: string; from: string; to: string };
  * text reports every sensitive path present in the new one; an unparseable new text reports none
  * (Save is disabled then anyway).
  */
-export function sensitiveDiff(oldText: string, newText: string): SensitiveChange[] {
+export function sensitiveDiff(oldText: string, newText: string, lang = "en"): SensitiveChange[] {
   const next = parseCheck(newText);
   if (!next.ok) return [];
   const prev = parseCheck(oldText);
   const oldRaw = prev.ok ? prev.raw : undefined;
+  const set = translate(lang, "configHelp.set");
+  const changed = translate(lang, "configHelp.changed");
+  const shown = (v: unknown) => (v === undefined ? translate(lang, "configHelp.unset") : JSON.stringify(v));
   return sensitiveChanges(oldRaw, next.raw).map((path: string) => {
     const a = valueAt(oldRaw, path);
     const b = valueAt(next.raw, path);
     if (isClear(path)) return { path, from: shown(a), to: shown(b) };
     if (isStepEnv(path)) {
-      const from = envShown(a);
-      const to = envShown(b);
-      return { path, from, to: to === from ? "(changed)" : to };
+      const from = envShown(a, lang);
+      const to = envShown(b, lang);
+      return { path, from, to: to === from ? changed : to };
     }
     return {
       path,
-      from: isLiteralSecret(a) ? "(set)" : shown(a),
-      to: isLiteralSecret(b) ? (a === undefined ? "(set)" : "(changed)") : shown(b),
+      from: isLiteralSecret(a) ? set : shown(a),
+      to: isLiteralSecret(b) ? (a === undefined ? set : changed) : shown(b),
     };
   });
 }
 
-const shown = (v: unknown) => (v === undefined ? "(unset)" : JSON.stringify(v));
-
 /** `name`'s confirm-dialog path reads as "label" (the UI's term for it), not the raw JSON key. */
-export const sensitiveLabel = (path: string): string => (path === "name" ? "label (name)" : path);
+export const sensitiveLabel = (path: string, lang = "en"): string => (path === "name" ? translate(lang, "configHelp.nameLabel") : path);
 
 /** An SSE `config` event as the `instructions` shape `saveReducer` keys on (`path` = the open config's). */
 export function configEventAsFile(ev: ConfigEvent, path: string): InstructionsEvent {
@@ -205,7 +219,8 @@ export type RestartState =
 
 export type RestartAction =
   | { type: "request"; pid: number | null }
-  | { type: "response"; status: number; body: any }
+  // `lang`: the language the error line is written in (default English).
+  | { type: "response"; status: number; body: any; lang?: string }
   // A feed event (`restart_requested` / `restarting`) already filtered to this profile.
   | { type: "event"; event: Record<string, any> }
   | { type: "profile"; profile: ProfileView }
@@ -225,7 +240,7 @@ export function restartReducer(s: RestartState, a: RestartAction): RestartState 
       // SSE can beat the reply (an idle receiver fires at once): only `requesting` takes it.
       if (s.kind !== "requesting") return s;
       if (a.status === 200) return { kind: "pending", pid: s.pid, active: Number(a.body?.active) || 0 };
-      return { kind: "error", message: restartErrorText(a.status, a.body) };
+      return { kind: "error", message: restartErrorText(a.status, a.body, a.lang) };
     case "event": {
       if (s.kind !== "requesting" && s.kind !== "pending") return s;
       if (a.event.event === "restarting") return { kind: "restarting", pid: s.pid };
@@ -246,27 +261,30 @@ export function restartReducer(s: RestartState, a: RestartAction): RestartState 
 }
 
 /** 503 down / 504 timeout / 502 the receiver's own refusal (e.g. a config it won't boot on). */
-export function restartErrorText(status: number, body: any): string {
-  if (status === 503) return "Restart failed: receiver not running — start it to apply the config.";
-  if (status === 504) return "Restart failed: the receiver didn't answer in time.";
-  if (status === 502) return `Restart refused by the receiver: ${typeof body?.error === "string" ? body.error : "unknown error"}`;
-  if (status === 0) return "Restart failed (network error)";
-  return `Restart failed (status ${status})`;
+export function restartErrorText(status: number, body: any, lang = "en"): string {
+  if (status === 503) return translate(lang, "restart.error.notRunning");
+  if (status === 504) return translate(lang, "restart.error.timeout");
+  if (status === 502) return translate(lang, "restart.error.refused", { error: typeof body?.error === "string" ? body.error : translate(lang, "restart.error.unknown") });
+  if (status === 0) return translate(lang, "restart.error.network");
+  return translate(lang, "restart.error.status", { status });
 }
 
-/** `upText` is the `up` line: the Config view's default, or e.g. "restarted" on the dashboard. */
-export function restartText(s: RestartState, upText = "up — the new config is live"): string | null {
+/**
+ * `upText` is the `up` line: the Config view's default (`restart.up` in `lang`), or e.g. "restarted"
+ * (`restart.restarted`) on the dashboard. The `error` line is the reducer's, in its response action's `lang`.
+ */
+export function restartText(s: RestartState, upText?: string, lang = "en"): string | null {
   switch (s.kind) {
     case "idle":
       return null;
     case "requesting":
-      return "requesting restart…";
+      return translate(lang, "restart.requesting");
     case "pending":
-      return `restart pending (${s.active === 1 ? "1 agent" : `${s.active} agents`} running)`;
+      return translate(lang, "restart.pending", { count: s.active });
     case "restarting":
-      return "restarting…";
+      return translate(lang, "restart.restarting");
     case "up":
-      return upText;
+      return upText ?? translate(lang, "restart.up");
     case "error":
       return s.message;
   }

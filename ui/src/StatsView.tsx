@@ -6,8 +6,10 @@ import { formatCost, formatSpend, profileLabel } from "./format";
 import { formatEnergy } from "../../src/energy.js";
 import { latestChange, shortDate, statsUrl } from "./stats";
 import { axisDollars } from "./statsChart";
-import { DOWN, UP, calendarModel, divergingModel, nearestDay, rangeModel, stackedModel } from "./statsModels";
+import { DOWN, OTHER_STEPS, UP, calendarModel, divergingModel, nearestDay, rangeModel, stackedModel } from "./statsModels";
 import type { Outcome, Tick } from "./statsModels";
+import { useT } from "./i18n/react";
+import type { MessageKey } from "./i18n";
 
 const RANGES = ["14", "30", "90"] as const;
 type Range = (typeof RANGES)[number];
@@ -21,7 +23,7 @@ const OUTCOME_COLOR: Record<Outcome, string> = {
   hold: "var(--color-status-held)",
   fail: "var(--color-status-failed)",
 };
-const OUTCOME_LABEL: Record<Outcome, string> = { advance: "advanced", changes: "sent back (changes)", hold: "held", fail: "failed" };
+const OUTCOME_LABEL: Record<Outcome, MessageKey> = { advance: "statsView.outcome.advance", changes: "statsView.outcome.changes", hold: "statsView.outcome.hold", fail: "statsView.outcome.fail" };
 
 /**
  * The profile's deeper history (docs/web-ui.md § Daily stats): four charts over the day buckets
@@ -29,6 +31,7 @@ const OUTCOME_LABEL: Record<Outcome, string> = { advance: "advanced", changes: "
  * unit-tested); these components only draw it. One profile at a time (ADR 0001).
  */
 export default function StatsView({ profile, feed }: { profile: ProfileView; feed: FeedEntry[] }) {
+  const { t, lang } = useT();
   const [range, setRange] = useState<Range>("30");
   const [data, setData] = useState<StatsData | null>(null);
   const [failed, setFailed] = useState(false);
@@ -54,31 +57,31 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
       <div className="flex flex-wrap items-center gap-3">
         <ProfileMark p={profile} />
         <h1 className="text-title font-semibold">
-          Stats <span className="font-normal text-muted">· {profileLabel(profile)}</span>
+          {t("statsView.title")} <span className="font-normal text-muted">· {profileLabel(profile)}</span>
         </h1>
         <span className="ml-auto">
-          <Segmented value={range} options={RANGES.map((r) => ({ value: r, label: `${r}d` }))} onChange={setRange} />
+          <Segmented value={range} options={RANGES.map((r) => ({ value: r, label: t("stats.days", { count: Number(r) }) }))} onChange={setRange} />
         </span>
       </div>
-      {failed && !data && <p className="text-label text-muted">Couldn&apos;t load the history.</p>}
+      {failed && !data && <p className="text-label text-muted">{t("stats.loadFailed")}</p>}
       {data && (
         <>
-          <Card title="Finished per day" note={`last ${Math.min(CALENDAR_DAYS / 7, Math.ceil(all.length / 7))} weeks · darker = more tickets`}>
+          <Card title={t("statsView.finishedPerDay")} note={t("statsView.calendarNote", { count: Math.min(CALENDAR_DAYS / 7, Math.ceil(all.length / 7)) })}>
             <Calendar days={all} />
           </Card>
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Spend by step" note="what each pipeline step cost per day">
+            <Card title={t("statsView.spendByStep")} note={t("statsView.spendByStepNote")}>
               <Stacked days={days} />
             </Card>
-            <Card title="How runs ended" note="advances above the line; rework, holds and failures below">
+            <Card title={t("statsView.howRunsEnded")} note={t("statsView.howRunsEndedNote")}>
               <Diverging days={days} />
             </Card>
           </div>
-          <Card title="What a finished ticket cost" note="median and the 10th–90th percentile spread of the tickets finished each day (reported agent spend; estimates in the tooltip)">
+          <Card title={t("statsView.ticketCost")} note={t("statsView.ticketCostNote")}>
             <Range days={days} />
           </Card>
-          {empty && <p className="text-label text-muted">No runs in this range.</p>}
-          <p className="text-meta text-muted">{data.since ? `History since ${shortDate(data.since.slice(0, 10))}. ` : ""}Days follow your local midnight.</p>
+          {empty && <p className="text-label text-muted">{t("statsView.empty")}</p>}
+          <p className="text-meta text-muted">{data.since ? `${t("statsView.since", { date: shortDate(data.since.slice(0, 10), lang) })} ` : ""}{t("statsView.midnight")}</p>
         </>
       )}
     </div>
@@ -171,14 +174,15 @@ function usePointerDay(width: number, centers: { centers: number[]; plot: { left
 // ------------------------------------------------------------------- 1. spend by step
 
 export function Stacked({ days }: { days: DayStats[] }) {
+  const { t, lang } = useT();
   const [ref, w] = useWidth();
-  const m = stackedModel(days, w, H);
+  const m = stackedModel(days, w, H, lang);
   const { hover, onMove, onLeave } = usePointerDay(w, m);
   const d = hover >= 0 ? days[hover] : null;
   const color = (s: string) => m.legend.find((l) => l.series === s)?.color ?? "var(--color-muted)";
   return (
     <div ref={ref} className="relative" data-chart="spend-by-step">
-      <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label="Spend per day, stacked by pipeline step" onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
+      <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label={t("statsView.stackedLabel")} onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
         <Grid ticks={m.yTicks} left={m.plot.left} right={m.plot.right} zero="$0.00" />
         {m.segments.map((s) => {
           const op = hover < 0 || days[hover].date === s.date ? 0.9 : 0.55;
@@ -193,24 +197,24 @@ export function Stacked({ days }: { days: DayStats[] }) {
       </svg>
       {d && (
         <Tip x={m.centers[hover]} width={w}>
-          <div className="font-medium">{shortDate(d.date)}</div>
+          <div className="font-medium">{shortDate(d.date, lang)}</div>
           {Object.entries(d.byStep).filter(([, v]) => v.costUsd + (v.estUsd ?? 0) > 0 || (v.energyKwh ?? 0) > 0).sort((a, b) => b[1].costUsd + (b[1].estUsd ?? 0) - a[1].costUsd - (a[1].estUsd ?? 0)).map(([k, v]) => (
             <div key={k} className="font-mono text-muted">
-              {k} {formatSpend({ reported: v.costUsd, est: v.estUsd })} · {v.runs} runs
+              {k} {formatSpend({ reported: v.costUsd, est: v.estUsd })} · {t("chart.runs", { count: v.runs })}
               {(v.energyKwh ?? 0) > 0 && ` · ${formatEnergy(v)}`}
             </div>
           ))}
-          {!d.costUsd && !d.estUsd && <div className="font-mono text-muted">no spend</div>}
+          {!d.costUsd && !d.estUsd && <div className="font-mono text-muted">{t("chart.noSpend")}</div>}
           {(d.energyKwh ?? 0) > 0 && <div className="font-mono text-muted" data-day-energy>{formatEnergy(d)}</div>}
-          {d.unestimatedRuns > 0 && <div className="font-mono text-muted">{d.unestimatedRuns} run{d.unestimatedRuns === 1 ? "" : "s"} no estimate</div>}
+          {d.unestimatedRuns > 0 && <div className="font-mono text-muted">{t("stats.noEstimate", { count: d.unestimatedRuns })}</div>}
         </Tip>
       )}
-      <Legend items={m.legend.map((l) => ({ label: `${l.series} ${formatSpend({ reported: l.total, est: l.est }) || formatCost(0)}`, color: l.color }))} />
+      <Legend items={m.legend.map((l) => ({ label: `${l.series === OTHER_STEPS ? t("statsView.otherSteps") : l.series} ${formatSpend({ reported: l.total, est: l.est }) || formatCost(0, lang)}`, color: l.color }))} />
       {(m.legend.some((l) => l.est > 0) || m.unestimatedRuns > 0) && (
         <p className="mt-1 text-meta text-muted" data-est-note>
-          {m.legend.some((l) => l.est > 0) && "Dashed = estimated at API rates (agent reported no cost)."}
+          {m.legend.some((l) => l.est > 0) && t("statsView.estNote")}
           {m.legend.some((l) => l.est > 0) && m.unestimatedRuns > 0 && " "}
-          {m.unestimatedRuns > 0 && `${m.unestimatedRuns} run${m.unestimatedRuns === 1 ? "" : "s"} with no estimate (unknown model or no tokens).`}
+          {m.unestimatedRuns > 0 && t("statsView.unestimatedNote", { count: m.unestimatedRuns })}
         </p>
       )}
     </div>
@@ -220,13 +224,14 @@ export function Stacked({ days }: { days: DayStats[] }) {
 // ------------------------------------------------------------------- 2. how runs ended
 
 export function Diverging({ days }: { days: DayStats[] }) {
+  const { t, lang } = useT();
   const [ref, w] = useWidth();
-  const m = divergingModel(days, w, H);
+  const m = divergingModel(days, w, H, lang);
   const { hover, onMove, onLeave } = usePointerDay(w, m);
   const d = hover >= 0 ? days[hover] : null;
   return (
     <div ref={ref} className="relative" data-chart="outcomes">
-      <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label="Run outcomes per day: advances above the line, rework below" onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
+      <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label={t("statsView.divergingLabel")} onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
         <Grid ticks={m.yTicks} left={m.plot.left} right={m.plot.right} zero="0" />
         {m.segments.map((s) => (
           <rect key={`${s.date}${s.outcome}`} x={s.x} y={s.y} width={s.w} height={Math.max(0.5, s.h)} fill={OUTCOME_COLOR[s.outcome]} opacity={hover < 0 || days[hover].date === s.date ? 0.9 : 0.55} />
@@ -236,15 +241,15 @@ export function Diverging({ days }: { days: DayStats[] }) {
       </svg>
       {d && (
         <Tip x={m.centers[hover]} width={w}>
-          <div className="font-medium">{shortDate(d.date)}</div>
+          <div className="font-medium">{shortDate(d.date, lang)}</div>
           {[...UP, ...DOWN].map((o) => (
             <div key={o} className="font-mono text-muted">
-              {d.outcomes[o]} {OUTCOME_LABEL[o]}
+              {d.outcomes[o]} {t(OUTCOME_LABEL[o])}
             </div>
           ))}
         </Tip>
       )}
-      <Legend items={[...UP, ...DOWN].map((o) => ({ label: OUTCOME_LABEL[o], color: OUTCOME_COLOR[o] }))} />
+      <Legend items={[...UP, ...DOWN].map((o) => ({ label: t(OUTCOME_LABEL[o]), color: OUTCOME_COLOR[o] }))} />
     </div>
   );
 }
@@ -252,21 +257,22 @@ export function Diverging({ days }: { days: DayStats[] }) {
 // ------------------------------------------------------------------- 3. calendar
 
 export function Calendar({ days }: { days: DayStats[] }) {
+  const { t, lang } = useT();
   const [ref, w] = useWidth();
-  const m = calendarModel(days, w);
+  const m = calendarModel(days, w, lang);
   const [hover, setHover] = useState<string | null>(null);
   const cell = hover ? m.cells.find((c) => c.date === hover) : null;
   return (
     <div ref={ref} className="relative" data-chart="calendar">
-      <svg viewBox={`0 0 ${Math.max(w, m.width)} ${m.height}`} width="100%" height={m.height} role="img" aria-label="Tickets finished per day, as a calendar" className="block">
-        {m.months.map((t) => (
-          <text key={`${t.pos}${t.label}`} x={t.pos} y={10} className="fill-[var(--color-faint)] text-[10px]">
-            {t.label}
+      <svg viewBox={`0 0 ${Math.max(w, m.width)} ${m.height}`} width="100%" height={m.height} role="img" aria-label={t("statsView.calendarLabel")} className="block">
+        {m.months.map((tk) => (
+          <text key={`${tk.pos}${tk.label}`} x={tk.pos} y={10} className="fill-[var(--color-faint)] text-[10px]">
+            {tk.label}
           </text>
         ))}
-        {m.weekdays.map((t) => (
-          <text key={t.pos} x={0} y={t.pos} dy="0.32em" className="fill-[var(--color-faint)] text-[10px]">
-            {t.label}
+        {m.weekdays.map((tk) => (
+          <text key={tk.pos} x={0} y={tk.pos} dy="0.32em" className="fill-[var(--color-faint)] text-[10px]">
+            {tk.label}
           </text>
         ))}
         {m.cells.map((c) => (
@@ -279,8 +285,8 @@ export function Calendar({ days }: { days: DayStats[] }) {
       </svg>
       {cell && (
         <Tip x={cell.x} width={Math.max(w, m.width)}>
-          <div className="font-medium">{shortDate(cell.date)}</div>
-          <div className="font-mono text-muted">{cell.finished} finished</div>
+          <div className="font-medium">{shortDate(cell.date, lang)}</div>
+          <div className="font-mono text-muted">{t("stats.finished", { count: cell.finished })}</div>
         </Tip>
       )}
     </div>
@@ -290,14 +296,15 @@ export function Calendar({ days }: { days: DayStats[] }) {
 // ------------------------------------------------------------------- 4. cost of a finished ticket
 
 export function Range({ days }: { days: DayStats[] }) {
+  const { t, lang } = useT();
   const [ref, w] = useWidth();
-  const m = rangeModel(days, w, H);
+  const m = rangeModel(days, w, H, lang);
   const { hover, onMove, onLeave } = usePointerDay(w, m);
   const d = hover >= 0 ? days[hover] : null;
   const bw = Math.max(4, Math.min(12, m.bandwidth * 0.5));
   return (
     <div ref={ref} className="relative" data-chart="ticket-cost">
-      <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label="Cost of the tickets finished each day: median and spread" onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
+      <svg viewBox={`0 0 ${w} ${H}`} width="100%" height={H} role="img" aria-label={t("statsView.rangeLabel")} onPointerMove={onMove} onPointerLeave={onLeave} className="block touch-none select-none">
         <Grid ticks={m.yTicks} left={m.plot.left} right={m.plot.right} zero="$0.00" />
         {m.trend && <path d={m.trend} fill="none" stroke="var(--color-border-strong, var(--color-border))" strokeWidth={1} strokeDasharray="3 3" />}
         {m.points.map((p) => (
@@ -310,26 +317,26 @@ export function Range({ days }: { days: DayStats[] }) {
       </svg>
       {d && (
         <Tip x={m.centers[hover]} width={w}>
-          <div className="font-medium">{shortDate(d.date)}</div>
+          <div className="font-medium">{shortDate(d.date, lang)}</div>
           {d.ticketCost ? (
             <>
-              <div className="font-mono text-muted">median {axisDollars(d.ticketCost.p50)}</div>
+              <div className="font-mono text-muted">{t("statsView.median", { value: axisDollars(d.ticketCost.p50) })}</div>
               <div className="font-mono text-muted">
                 p10 {axisDollars(d.ticketCost.p10)} · p90 {axisDollars(d.ticketCost.p90)}
               </div>
-              <div className="font-mono text-muted">{d.ticketCost.n} tickets</div>
+              <div className="font-mono text-muted">{t("statsView.tickets", { count: d.ticketCost.n })}</div>
             </>
           ) : (
-            <div className="font-mono text-muted">no costed tickets</div>
+            <div className="font-mono text-muted">{t("statsView.noCostedTickets")}</div>
           )}
           {d.ticketEst && (
             <div className="font-mono text-muted">
-              est. median ~{axisDollars(d.ticketEst.p50)} · {d.ticketEst.n} tickets
+              {t("statsView.estMedian", { value: axisDollars(d.ticketEst.p50), count: d.ticketEst.n })}
             </div>
           )}
         </Tip>
       )}
-      <Legend items={[{ label: "median", color: "var(--color-fg)" }, { label: "10th–90th percentile", color: "color-mix(in srgb, var(--profile-accent, var(--color-accent)) 35%, transparent)" }]} />
+      <Legend items={[{ label: t("statsView.legendMedian"), color: "var(--color-fg)" }, { label: t("statsView.legendSpread"), color: "color-mix(in srgb, var(--profile-accent, var(--color-accent)) 35%, transparent)" }]} />
     </div>
   );
 }

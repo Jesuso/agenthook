@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { RemovePreview } from "./contract";
 import { Modal } from "./Modal";
+import { rich, useT } from "./i18n/react";
 import { canConfirmRemove, classifyRemoveResponse, removeErrorText, removeRequest } from "./remove";
 
 export type Archived = { archivedTo: string; webhookHint: string | null };
@@ -11,6 +12,7 @@ export type Archived = { archivedTo: string; webhookHint: string | null };
  * anything else stays open with the error inline.
  */
 export function RemoveProfile(props: { profile: string; onClose: () => void; onArchived: (r: Archived) => void; onPending: () => void }) {
+  const { t, lang } = useT();
   const [preview, setPreview] = useState<RemovePreview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -21,8 +23,8 @@ export function RemoveProfile(props: { profile: string; onClose: () => void; onA
   useEffect(() => {
     let live = true;
     fetch(`/api/profile/remove-preview?profile=${encodeURIComponent(props.profile)}`)
-      .then((res) => (res.ok ? res.json().then((p: RemovePreview) => live && setPreview(p)) : live && setLoadError(`Couldn't load the profile (status ${res.status})`)))
-      .catch(() => live && setLoadError("Couldn't load the profile (network error)"));
+      .then((res) => (res.ok ? res.json().then((p: RemovePreview) => live && setPreview(p)) : live && setLoadError(t("removeDialog.loadFailed", { status: res.status }))))
+      .catch(() => live && setLoadError(t("removeDialog.loadNetwork")));
     return () => {
       live = false;
     };
@@ -41,16 +43,16 @@ export function RemoveProfile(props: { profile: string; onClose: () => void; onA
         const kind = classifyRemoveResponse(status);
         if (kind === "archived") return props.onArchived({ archivedTo: body?.archivedTo ?? "", webhookHint: body?.webhookHint ?? null });
         if (kind === "pending") return props.onPending();
-        setError(removeErrorText(status, body));
+        setError(removeErrorText(status, body, lang));
       });
   };
 
   return (
-    <Modal title={`Remove ${preview?.label ?? props.profile}`} onClose={props.onClose}>
+    <Modal title={t("removeDialog.title", { label: preview?.label ?? props.profile })} onClose={props.onClose}>
       {loadError ? (
         <p className="text-sm text-[var(--color-err)]">{loadError}</p>
       ) : !preview ? (
-        <p className="text-sm">Loading…</p>
+        <p className="text-sm">{t("removeDialog.loading")}</p>
       ) : (
         <RemoveProfileForm
           preview={preview}
@@ -68,7 +70,7 @@ export function RemoveProfile(props: { profile: string; onClose: () => void; onA
   );
 }
 
-/** The modal body — hook-free, so it renders (and is tested) without a DOM. */
+/** The modal body — stateless (only the i18n context), so it renders (and is tested) without a DOM. */
 export function RemoveProfileForm(props: {
   preview: RemovePreview;
   typed: string;
@@ -80,47 +82,33 @@ export function RemoveProfileForm(props: {
   onSubmit: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useT();
   const p = props.preview;
   const ok = canConfirmRemove(props.typed, p.label);
+  const code = (text: string) => <code className="font-mono">{text}</code>;
   return (
     <div className="flex flex-col gap-2 text-sm">
-      <p>
-        {p.up ? "The receiver is running: it finishes its running agents, then stops and archives itself." : "The receiver is stopped: its state dir is archived now."}
-      </p>
+      <p>{t(p.up ? "removeDialog.up" : "removeDialog.down")}</p>
       <ul className="list-disc pl-5">
+        <li>{rich(t("removeDialog.stateDir"), { pattern: code(p.archivePattern) })}</li>
+        <li>{rich(t("removeDialog.configKept"), { path: code(p.configPath ?? t("removeDialog.unknown")) })}</li>
         <li>
-          The state dir (history, dedup, logs, webhook secrets) moves to <code className="font-mono">{p.archivePattern}</code>. Reversible —
-          move the dir back.
+          {p.up
+            ? t("removeDialog.webhooksUp")
+            : p.webhookHint
+              ? rich(t("removeDialog.webhooksHint"), { cmd: code(p.webhookHint) })
+              : t("removeDialog.webhooksNoHint")}
         </li>
-        <li>
-          The config file is not touched: <code className="font-mono">{p.configPath ?? "unknown"}</code>.
-        </li>
-        <li>
-          Webhooks:{" "}
-          {p.up ? (
-            "unregistered by the receiver before it exits (when checked below)."
-          ) : p.webhookHint ? (
-            <>
-              can't be unregistered without the receiver; run <code className="font-mono">{p.webhookHint}</code> (or skip if it never registered).
-            </>
-          ) : (
-            "can't be unregistered without the receiver; run `agenthook unregister` with this profile's config (or skip if it never registered)."
-          )}
-        </li>
-        <li>
-          Agent worktrees are not touched — run <code className="font-mono">agenthook cleanup</code> in the repo.
-        </li>
+        <li>{rich(t("removeDialog.worktrees"), { cmd: code("agenthook cleanup") })}</li>
       </ul>
       {p.up && (
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={props.unregister} onChange={(e) => props.onUnregister(e.target.checked)} />
-          Unregister webhooks
+          {t("removeDialog.unregister")}
         </label>
       )}
       <label className="flex flex-col gap-1">
-        <span>
-          Type <code className="font-mono">{p.label}</code> to confirm
-        </span>
+        <span>{rich(t("removeDialog.typeToConfirm"), { label: code(p.label) })}</span>
         <input
           className="rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 font-mono"
           value={props.typed}
@@ -136,14 +124,14 @@ export function RemoveProfileForm(props: {
       )}
       <div className="flex justify-end gap-2">
         <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={props.onCancel}>
-          Cancel
+          {t("removeDialog.cancel")}
         </button>
         <button
           className="rounded border border-[var(--color-err)] px-3 py-1 text-[var(--color-err)] disabled:opacity-40"
           disabled={!ok || props.busy}
           onClick={props.onSubmit}
         >
-          {props.busy ? "Removing…" : "Remove"}
+          {props.busy ? t("removeDialog.removing") : t("removeDialog.remove")}
         </button>
       </div>
     </div>

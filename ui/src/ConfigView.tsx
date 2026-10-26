@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import type { MessageKey } from "./i18n";
+import { rich, useT } from "./i18n/react";
 import { json } from "@codemirror/lang-json";
 import type { ConfigView as ConfigBody, ProfileView } from "./contract";
 import { profileLabel } from "./format";
@@ -16,9 +18,9 @@ import { overflowEdges, revealScrollLeft } from "./scrollRow";
 import { classifySaveResponse, freshSave, saveErrorText, saveReducer } from "./save";
 import type { SaveAction, SaveState } from "./save";
 import {
-  CONFIG_DISCARD_PROMPT,
   RESTART_IDLE,
   bannerStatus,
+  configDiscardPrompt,
   configEventAsFile,
   configSaveRequest,
   configUrl,
@@ -45,9 +47,18 @@ type Pristine = Record<CardList, ReadonlySet<number>>;
 const NO_PRISTINE: Pristine = { sinks: new Set(), repos: new Set(), steps: new Set() };
 
 const JSON_LANG = json();
-const OVERWRITE_TITLE = "Overwrite the on-disk config with your buffer?";
-const OVERWRITE_BODY = "The on-disk changes will be replaced (the previous content is kept as a backup).";
-const META_LABEL: Record<Meta["as"], string> = { load: "as of last load", save: "as of last save", rejected: "save rejected" };
+const META_LABEL: Record<Meta["as"], MessageKey> = { load: "configView.meta.load", save: "configView.meta.save", rejected: "configView.meta.rejected" };
+const PANE_LABEL: Record<Pane, MessageKey> = {
+  basics: "configView.pane.basics",
+  pipeline: "configView.pane.pipeline",
+  tracker: "configView.pane.tracker",
+  forge: "configView.pane.forge",
+  ingress: "configView.pane.ingress",
+  integrations: "configView.pane.integrations",
+  repos: "configView.pane.repos",
+  raw: "configView.pane.raw",
+};
+const MONO = (text: string) => <span className="font-mono">{text}</span>;
 // Below `sm` (phones): a 40px touch target; desktop keeps the compact size.
 const TOUCH = "min-h-10 min-w-10 sm:min-h-0 sm:min-w-0";
 // How far a revealed tab stays clear of the row's edge fade.
@@ -75,6 +86,7 @@ export default function ConfigView(props: {
   /** The profile to open on (the dashboard's ⋯ menu); falls back to the first one. */
   initialProfile?: string;
 }) {
+  const { t, lang } = useT();
   const [picked, setPicked] = useState(props.initialProfile ?? props.profiles[0]?.name ?? "");
   // A requested state-dir move (old key → label). The old key vanishes from the snapshot when the
   // dir moves, so follow to the new one instead of falling back to the first profile.
@@ -153,7 +165,7 @@ export default function ConfigView(props: {
   const open = doc?.open ?? null;
   const phase = doc?.phase.kind ?? null;
   const dirty = doc ? isDirty(doc.buffer, doc.open) : false;
-  const parsed = doc ? parseCheck(doc.buffer) : null;
+  const parsed = doc ? parseCheck(doc.buffer, lang) : null;
   const checks = parsed?.ok ? clientErrors(parsed.raw) : [];
   const perStep = parsed?.ok && file.kind === "ok" ? stepErrors(parsed.raw, file.meta.errors) : undefined;
 
@@ -161,7 +173,7 @@ export default function ConfigView(props: {
     const seq = ++discoverSeq.current;
     setStages({ profile: prof, source: { kind: "loading" }, body: null });
     const land = (status: number, body: any) => {
-      if (seq === discoverSeq.current) setStages({ profile: prof, source: stageSource(status, body), body: status === 200 ? body : null });
+      if (seq === discoverSeq.current) setStages({ profile: prof, source: stageSource(status, body, lang), body: status === 200 ? body : null });
     };
     fetch(discoverUrl(prof))
       .then((res) =>
@@ -306,7 +318,7 @@ export default function ConfigView(props: {
     };
     const fail = (status: number) => {
       settle({ type: "failed" });
-      setToast(saveErrorText(status));
+      setToast(saveErrorText(status, lang));
     };
     fetch(url, init)
       .then((res) => {
@@ -346,17 +358,17 @@ export default function ConfigView(props: {
 
   const overwrite = () => {
     if (doc?.phase.kind !== "conflict") return;
-    const changes = sensitiveDiff(doc.phase.content ?? doc.open.content, doc.buffer);
+    const changes = sensitiveDiff(doc.phase.content ?? doc.open.content, doc.buffer, lang);
     const body = (
       <>
-        <p>{OVERWRITE_BODY}</p>
+        <p>{t("configView.overwriteBody")}</p>
         {changes.length > 0 && (
           <>
-            <p className="mt-2 font-semibold">Sensitive fields change:</p>
+            <p className="mt-2 font-semibold">{t("configView.sensitiveChange")}</p>
             <ul className="break-all font-mono text-xs">
               {changes.map((c) => (
                 <li key={c.path}>
-                  {sensitiveLabel(c.path)}: {c.from} → {c.to}
+                  {sensitiveLabel(c.path, lang)}: {c.from} → {c.to}
                 </li>
               ))}
             </ul>
@@ -364,12 +376,12 @@ export default function ConfigView(props: {
         )}
       </>
     );
-    ask({ title: OVERWRITE_TITLE, body, confirmLabel: "Overwrite", destructive: true }).then((ok) => ok && put("overwrite"));
+    ask({ title: t("configView.overwriteTitle"), body, confirmLabel: t("configView.overwrite"), destructive: true }).then((ok) => ok && put("overwrite"));
   };
 
   /** Throw the edits away: the buffer goes back to the loaded/saved text (a conflict then reloads). */
   const revert = () => {
-    ask({ title: "Revert unsaved changes", body: CONFIG_DISCARD_PROMPT, confirmLabel: "Discard changes", destructive: true }).then((ok) => {
+    ask({ title: t("configView.revertTitle"), body: configDiscardPrompt(lang), confirmLabel: t("configView.discardChanges"), destructive: true }).then((ok) => {
       if (!ok) return;
       const f = fileRef.current;
       clearPristine();
@@ -390,10 +402,10 @@ export default function ConfigView(props: {
     fetch(configUrl(target.profile))
       .then((res) => {
         if (res.status === 404) return settle({ type: "disk", disk: null });
-        if (!res.ok) return setToast(`Couldn't load the on-disk config (status ${res.status})`);
+        if (!res.ok) return setToast(t("configView.diskLoadFailed", { status: res.status }));
         return res.json().then((b: ConfigBody) => settle({ type: "disk", disk: { content: b.text, hash: b.hash } }));
       })
-      .catch(() => setToast("Couldn't load the on-disk config (network error)"));
+      .catch(() => setToast(t("configView.diskLoadNetwork")));
   };
 
   /** "Restart when idle"; `moveTo` also moves the state dir to that key (the move confirm). */
@@ -403,7 +415,7 @@ export default function ConfigView(props: {
     if (moveTo !== undefined) setMoving({ from: prof, to: moveTo });
     const { url, init } = restartRequest(prof, moveTo);
     const settle = (status: number, body: any) => {
-      if (profileRef.current === prof) dispatchRestart({ type: "response", status, body });
+      if (profileRef.current === prof) dispatchRestart({ type: "response", status, body, lang });
     };
     fetch(url, init)
       .then((res) =>
@@ -462,15 +474,15 @@ export default function ConfigView(props: {
       dispatchRestart({ type: "reset" });
     };
     if (!dirty) return go();
-    ask({ title: "Unsaved changes", body: CONFIG_DISCARD_PROMPT, confirmLabel: "Discard", cancelLabel: "Keep editing", destructive: true }).then((ok) => ok && go());
+    ask({ title: t("leave.title"), body: configDiscardPrompt(lang), confirmLabel: t("leave.discard"), cancelLabel: t("configView.keepEditing"), destructive: true }).then((ok) => ok && go());
   };
 
-  if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">No profiles.</p>;
+  if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("configView.noProfiles")}</p>;
 
-  const sensitive: SensitiveChange[] = doc?.phase.kind === "confirming" ? sensitiveDiff(doc.open.content, doc.buffer) : [];
+  const sensitive: SensitiveChange[] = doc?.phase.kind === "confirming" ? sensitiveDiff(doc.open.content, doc.buffer, lang) : [];
   const receiverUp = profileView?.up ?? false;
   const restartBusy = restart.kind === "requesting" || restart.kind === "pending" || restart.kind === "restarting";
-  const restartLine = restartText(restart);
+  const restartLine = restartText(restart, undefined, lang);
   const loadedRaw = open ? parseCheck(open.content) : null;
   const moveTo = loadedRaw?.ok ? moveTarget(loadedRaw.raw, profile) : null;
   // The Raw editor needs a bounded height to scroll internally; the form panes scroll with the page.
@@ -503,19 +515,19 @@ export default function ConfigView(props: {
           </span>
         )}
         {phase === "saving" ? (
-          <span className="shrink-0 text-[var(--color-muted)]">saving…</span>
+          <span className="shrink-0 text-[var(--color-muted)]">{t("configView.saving")}</span>
         ) : (
-          dirty && <span className="shrink-0 text-status-held">● modified</span>
+          dirty && <span className="shrink-0 text-status-held">{t("configView.modified")}</span>
         )}
         {open && (
           <button
             data-revert
             className="ml-auto shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!dirty || (phase !== "editing" && phase !== "conflict")}
-            title="Discard your unsaved changes"
+            title={t("configView.revertHint")}
             onClick={revert}
           >
-            Revert
+            {t("configView.revert")}
           </button>
         )}
         {open && (
@@ -527,30 +539,28 @@ export default function ConfigView(props: {
             aria-disabled={saveBlocked || undefined}
             title={
               parsed && !parsed.ok
-                ? "Fix the JSON first"
+                ? t("configView.fixJson")
                 : saveBlocked
-                  ? `Fix ${checks.length} problem${checks.length === 1 ? "" : "s"} first`
-                  : "Save (Ctrl/Cmd-S)"
+                  ? t("configView.fixProblems", { count: checks.length })
+                  : t("configView.saveHint")
             }
             onClick={requestSave}
           >
-            Save
+            {t("configView.save")}
           </button>
         )}
       </div>
-      {file.kind === "loading" && <p className="text-sm">Loading config…</p>}
+      {file.kind === "loading" && <p className="text-sm">{t("configView.loading")}</p>}
       {file.kind === "error" && (
         <p className="text-sm text-status-failed">
-          {file.status === 404
-            ? "This profile's receiver hasn't published a config path (start it once)."
-            : `Failed to load the config (status ${file.status}).`}
+          {file.status === 404 ? t("configView.noPath") : t("configView.loadFailed", { status: file.status })}
         </p>
       )}
       {file.kind === "ok" && open && doc && (
         <>
           {savedNote && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm sm:flex-nowrap">
-              <span>Saved — takes effect on restart.</span>
+              <span>{t("configView.saved")}</span>
               {restartLine && (
                 <span
                   className={
@@ -560,16 +570,16 @@ export default function ConfigView(props: {
                   {restartLine}
                 </span>
               )}
-              {!receiverUp && !restartBusy && <span className="text-[var(--color-muted)]">receiver not running; start it to apply</span>}
+              {!receiverUp && !restartBusy && <span className="text-[var(--color-muted)]">{t("configView.notRunningApply")}</span>}
               <span className="ml-auto flex gap-2">
                 <button
                   className="rounded border border-[var(--color-accent)] px-2 py-0.5 text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!receiverUp || restartBusy}
                   onClick={() => requestRestart()}
                 >
-                  Restart when idle
+                  {t("configView.restartIdle")}
                 </button>
-                <button aria-label="dismiss" onClick={() => setSavedNote(false)}>
+                <button aria-label={t("configView.dismiss")} onClick={() => setSavedNote(false)}>
                   ×
                 </button>
               </span>
@@ -578,8 +588,10 @@ export default function ConfigView(props: {
           {moving ? (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm sm:flex-nowrap">
               <span>
-                {restart.kind !== "up" ? "Moving" : profile === moving.to ? "Moved" : "Move failed (see receiver.log):"} state dir{" "}
-                <span className="font-mono">~/.agenthook/{moving.from}/</span> → <span className="font-mono">~/.agenthook/{moving.to}/</span>
+                {rich(t(restart.kind !== "up" ? "configView.moving" : profile === moving.to ? "configView.moved" : "configView.moveFailed"), {
+                  from: MONO(`~/.agenthook/${moving.from}/`),
+                  to: MONO(`~/.agenthook/${moving.to}/`),
+                })}
               </span>
               {restartLine && (
                 <span
@@ -591,7 +603,7 @@ export default function ConfigView(props: {
                 </span>
               )}
               {!restartBusy && (
-                <button className="ml-auto" aria-label="dismiss" onClick={() => setMoving(null)}>
+                <button className="ml-auto" aria-label={t("configView.dismiss")} onClick={() => setMoving(null)}>
                   ×
                 </button>
               )}
@@ -600,39 +612,35 @@ export default function ConfigView(props: {
             moveTo &&
             !dirty && (
               <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-border)] px-3 py-1.5 text-sm sm:flex-nowrap">
-                <span>
-                  Label <span className="font-mono">{moveTo}</span> differs from the state key <span className="font-mono">{profile}</span>.
-                </span>
+                <span>{rich(t("configView.labelDiffers"), { label: MONO(moveTo), key: MONO(profile) })}</span>
                 {receiverUp ? (
                   <button
                     className="ml-auto shrink-0 rounded border border-[var(--color-accent)] px-2 py-0.5 text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={restartBusy}
                     onClick={() => setMoveConfirm(true)}
                   >
-                    Move state dir to match name
+                    {t("configView.moveButton")}
                   </button>
                 ) : (
-                  <span className="text-[var(--color-muted)]">
-                    receiver not running — run <span className="font-mono">ah rename {moveTo} --move</span> to move it
-                  </span>
+                  <span className="text-[var(--color-muted)]">{rich(t("configView.moveNotRunning"), { cmd: MONO(`ah rename ${moveTo} --move`) })}</span>
                 )}
               </div>
             )
           )}
           {(phase === "conflict" || phase === "deleted") && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held sm:flex-nowrap">
-              {phase === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
+              {t(phase === "deleted" ? "configView.deletedOnDisk" : "configView.changedOnDisk")}
               <span className="ml-auto flex gap-2">
                 <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile)}>
-                  Reload
+                  {t("configView.reload")}
                 </button>
                 {phase === "conflict" && (
                   <>
                     <button className="rounded border border-status-held px-2 py-0.5" onClick={showDiff}>
-                      Diff
+                      {t("configView.diff")}
                     </button>
                     <button className="rounded border border-status-held px-2 py-0.5" onClick={overwrite}>
-                      Overwrite
+                      {t("configView.overwrite")}
                     </button>
                   </>
                 )}
@@ -641,19 +649,26 @@ export default function ConfigView(props: {
           )}
           {file.meta.literalSecrets.length > 0 && (
             <div className="mb-2 break-words rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
-              ⚠ Literal secret{file.meta.literalSecrets.length === 1 ? "" : "s"} in{" "}
-              <span className="font-mono">{file.meta.literalSecrets.join(", ")}</span> — prefer a <span className="font-mono">{"${VAR}"}</span> ref
-              (saving is still allowed).
+              {rich(t("configView.literalSecrets", { count: file.meta.literalSecrets.length }), {
+                paths: MONO(file.meta.literalSecrets.join(", ")),
+                ref: MONO("${VAR}"),
+              })}
             </div>
           )}
           {(() => {
-            const banner = bannerStatus(parsed && !parsed.ok ? parsed.error : null, checks, file.meta.errors, {
-              onCard: (e) => shownCard(e) !== null,
-              incomplete: (e) => {
-                const c = parsed?.ok ? cardFor(e, parsed.raw) : null;
-                return c !== null && pristine[c.list].has(c.index);
+            const banner = bannerStatus(
+              parsed && !parsed.ok ? parsed.error : null,
+              checks,
+              file.meta.errors,
+              {
+                onCard: (e) => shownCard(e) !== null,
+                incomplete: (e) => {
+                  const c = parsed?.ok ? cardFor(e, parsed.raw) : null;
+                  return c !== null && pristine[c.list].has(c.index);
+                },
               },
-            });
+              lang,
+            );
             const tone = banner.ok ? "ok" : banner.amber ? "held" : "failed";
             return (
               <div className="relative mb-2">
@@ -669,7 +684,7 @@ export default function ConfigView(props: {
                   }`}
                 >
                   {banner.ok ? (
-                    <span className="truncate">✓ valid (server: {META_LABEL[file.meta.as]})</span>
+                    <span className="truncate">{t("configView.valid", { meta: t(META_LABEL[file.meta.as]) })}</span>
                   ) : (
                     <>
                       <span className={`truncate text-xs ${banner.summary ? "" : "font-mono"}`} title={banner.fullFirst}>
@@ -682,7 +697,7 @@ export default function ConfigView(props: {
                           className="ml-auto shrink-0 whitespace-nowrap underline"
                           onClick={() => setBannerOpen((o) => !o)}
                         >
-                          {banner.moreCount > 0 ? `+${banner.moreCount} more` : banner.summary ? "list" : "full text"}
+                          {banner.moreCount > 0 ? t("configView.more", { count: banner.moreCount }) : banner.summary ? t("configView.list") : t("configView.fullText")}
                         </button>
                       )}
                     </>
@@ -696,7 +711,7 @@ export default function ConfigView(props: {
                     {parsed && !parsed.ok && <p className="mb-1 break-words font-mono text-xs text-status-failed">{parsed.error}</p>}
                     {checks.length > 0 && (
                       <>
-                        <h4 className="mb-1 text-xs text-[var(--color-muted)]">config checks (the server decides on save)</h4>
+                        <h4 className="mb-1 text-xs text-[var(--color-muted)]">{t("configView.checks")}</h4>
                         <ul className="mb-2 list-disc space-y-1 pl-4 text-status-held">
                           {checks.map((e, i) => (
                             <li key={i} className="break-words">
@@ -708,7 +723,7 @@ export default function ConfigView(props: {
                     )}
                     {file.meta.errors.length > 0 && (
                       <>
-                        <h4 className="mb-1 text-xs text-[var(--color-muted)]">server ({META_LABEL[file.meta.as]})</h4>
+                        <h4 className="mb-1 text-xs text-[var(--color-muted)]">{t("configView.server", { meta: t(META_LABEL[file.meta.as]) })}</h4>
                         <ul className="list-disc space-y-1 pl-4 text-status-failed">
                           {file.meta.errors.map((e, i) => (
                             <li key={i} className="break-words">
@@ -733,30 +748,30 @@ export default function ConfigView(props: {
               onScroll={measureTabs}
               className="flex flex-nowrap gap-1 overflow-x-auto text-sm shadow-[inset_0_-1px_0_var(--color-border)] [scrollbar-width:thin]"
             >
-              {PANES.map((t) => (
+              {PANES.map((p) => (
                 <button
-                  key={t}
-                  data-config-pane={t}
-                  className={`${TOUCH} shrink-0 border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${t === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
-                  disabled={t !== "raw" && !parsed?.ok}
-                  title={t !== "raw" && !parsed?.ok ? "fix the JSON in Raw first" : undefined}
-                  onClick={() => switchPane(t)}
+                  key={p}
+                  data-config-pane={p}
+                  className={`${TOUCH} shrink-0 border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${p === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
+                  disabled={p !== "raw" && !parsed?.ok}
+                  title={p !== "raw" && !parsed?.ok ? t("configView.fixInRaw") : undefined}
+                  onClick={() => switchPane(p)}
                 >
-                  {t}
+                  {t(PANE_LABEL[p])}
                 </button>
               ))}
             </div>
             {tabEdges.start && <span data-tab-fade="start" className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-linear-to-r from-[var(--color-bg)] to-transparent" />}
             {tabEdges.end && <span data-tab-fade="end" className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-linear-to-l from-[var(--color-bg)] to-transparent" />}
           </div>
-          {!parsed?.ok && <p className="-mt-1 mb-2 text-xs text-[var(--color-muted)]">fix the JSON in Raw first</p>}
+          {!parsed?.ok && <p className="-mt-1 mb-2 text-xs text-[var(--color-muted)]">{t("configView.fixInRaw")}</p>}
           <div className="mb-2 rounded border border-[var(--color-border)]">
             <button
               className="flex min-h-10 w-full items-center gap-2 px-2 py-1 text-left text-xs uppercase tracking-wide text-[var(--color-muted)] sm:min-h-0"
               onClick={() => setGraphOpen((o) => !o)}
             >
               <span>{graphOpen ? "▾" : "▸"}</span>
-              Pipeline graph
+              {t("configView.graph")}
             </button>
             {graphOpen && (
               // Height-capped on phones so the form below stays reachable; the graph scrolls inside.
@@ -768,11 +783,12 @@ export default function ConfigView(props: {
                       stageKeysFor(stages?.profile === profile ? stages.body : null, (parsed.raw as any)?.tracker?.type),
                       stages?.profile === profile ? stages.body?.stages : null,
                       (parsed.raw as any)?.agent,
+                      lang,
                     )}
                     onSelectStep={selectStep}
                   />
                 ) : (
-                  <p className="text-sm text-[var(--color-muted)]">fix the JSON to see the graph</p>
+                  <p className="text-sm text-[var(--color-muted)]">{t("configView.graphFix")}</p>
                 )}
               </div>
             )}
@@ -818,20 +834,21 @@ export default function ConfigView(props: {
         </>
       )}
       {doc?.phase.kind === "confirming" && (
-        <Modal title="Save agenthook.config.json?" onClose={() => act({ type: "cancel" })}>
-          <p className="mb-2 text-sm text-[var(--color-muted)]">The receiver reads its config at boot — this takes effect on restart.</p>
+        <Modal title={t("configView.saveTitle")} onClose={() => act({ type: "cancel" })}>
+          <p className="mb-2 text-sm text-[var(--color-muted)]">{t("configView.saveBody")}</p>
           {sensitive.length > 0 && (
             <div className="mb-2 rounded border border-status-held bg-status-held-bg px-3 py-2 text-sm text-status-held">
-              <p className="mb-1 font-semibold">Sensitive fields change:</p>
+              <p className="mb-1 font-semibold">{t("configView.sensitiveChange")}</p>
               <ul className="mb-2 break-all font-mono text-xs">
                 {sensitive.map((c) => (
                   <li key={c.path}>
-                    {sensitiveLabel(c.path)}: {c.from} → {c.to}
+                    {sensitiveLabel(c.path, lang)}: {c.from} → {c.to}
                   </li>
                 ))}
               </ul>
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />I understand these sensitive fields change
+                <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+                {t("configView.ack")}
               </label>
             </div>
           )}
@@ -839,34 +856,27 @@ export default function ConfigView(props: {
           <DiffView a={doc.open.content} b={doc.buffer} language={JSON_LANG} />
           <div className="mt-3 flex justify-end gap-2">
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => act({ type: "cancel" })}>
-              Cancel
+              {t("configView.cancel")}
             </button>
             <button
               className="rounded border border-[var(--color-accent)] px-3 py-1 text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={sensitive.length > 0 && !ack}
               onClick={() => put("confirm")}
             >
-              Save
+              {t("configView.save")}
             </button>
           </div>
         </Modal>
       )}
       {moveConfirm && moveTo && (
-        <Modal title="Move the state dir to match the name?" onClose={() => setMoveConfirm(false)}>
+        <Modal title={t("configView.moveTitle")} onClose={() => setMoveConfirm(false)}>
           <div className="space-y-2 text-sm">
-            <p>
-              Moves <span className="font-mono">~/.agenthook/{profile}/</span> → <span className="font-mono">~/.agenthook/{moveTo}/</span> with all its
-              history (dedup, queue, held items, logs).
-            </p>
-            <p>
-              Applied when the receiver is idle: new runs pause, running agents finish, then the dir moves, <span className="font-mono">stateId</span> is
-              removed from the config, and the receiver restarts on <span className="font-mono">{moveTo}</span>. If the move fails, it restarts on{" "}
-              <span className="font-mono">{profile}</span> instead.
-            </p>
+            <p>{rich(t("configView.moveBody"), { from: MONO(`~/.agenthook/${profile}/`), to: MONO(`~/.agenthook/${moveTo}/`) })}</p>
+            <p>{rich(t("configView.moveApplied"), { stateId: MONO("stateId"), to: MONO(moveTo), from: MONO(profile) })}</p>
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setMoveConfirm(false)}>
-              Cancel
+              {t("configView.cancel")}
             </button>
             <button
               className="rounded border border-[var(--color-accent)] px-3 py-1 text-[var(--color-accent)]"
@@ -875,25 +885,25 @@ export default function ConfigView(props: {
                 requestRestart(moveTo);
               }}
             >
-              Move when idle
+              {t("configView.moveWhenIdle")}
             </button>
           </div>
         </Modal>
       )}
       {diff && doc?.phase.kind === "conflict" && (
-        <Modal title="agenthook.config.json changed on disk" onClose={() => setDiff(false)}>
+        <Modal title={t("configView.diffTitle")} onClose={() => setDiff(false)}>
           <DiffLegend />
           {doc.phase.content === null ? (
-            <p className="text-sm">Loading the on-disk version…</p>
+            <p className="text-sm">{t("configView.diffLoading")}</p>
           ) : (
             <DiffView a={doc.phase.content} b={doc.buffer} language={JSON_LANG} />
           )}
           <div className="mt-3 flex justify-end gap-2">
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setDiff(false)}>
-              Close
+              {t("configView.close")}
             </button>
             <button className="rounded border border-status-held px-3 py-1 text-status-held" onClick={overwrite}>
-              Overwrite
+              {t("configView.overwrite")}
             </button>
           </div>
         </Modal>
@@ -901,7 +911,7 @@ export default function ConfigView(props: {
       {toast && (
         <div role="alert" className="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded border border-status-failed bg-[var(--color-bg)] px-3 py-2 text-sm text-status-failed shadow">
           {toast}
-          <button aria-label="dismiss" onClick={() => setToast(null)}>
+          <button aria-label={t("configView.dismiss")} onClick={() => setToast(null)}>
             ×
           </button>
         </div>

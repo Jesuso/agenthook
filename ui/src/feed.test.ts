@@ -116,3 +116,13 @@ describe("groupByMinute", () => {
     expect(groups[0].minute).toBe("—");
   });
 });
+
+describe("formatFeedEvent in Spanish", () => {
+  it("translates the words, keeps step ids, reasons and costs as written", () => {
+    expect(formatFeedEvent({ event: "run_start", ref: "1", step: "code" }, null, "es").text).toBe("inició code");
+    expect(formatFeedEvent({ event: "run_end", ref: "1", step: "code", outcome: "advance", unpriced: true, estUsd: 0.25 }, null, "es").text).toBe("code aprobado · ~$0.25 est.");
+    expect(formatFeedEvent({ event: "failed", ref: "1", reason: "oops" }, null, "es").text).toBe("falló: oops");
+    expect(formatFeedEvent({ event: "restarting", ref: "" }, null, "es").text).toBe("reiniciando");
+    expect(formatFeedEvent({ event: "something_new", ref: "1" }, null, "es").text).toBe("something_new");
+  });
+});

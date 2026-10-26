@@ -6,6 +6,8 @@ import { BasicsForm, ModelField, modelSelectState, openAfterMove, openAfterRemov
 import type { SandboxReadiness } from "./contract";
 import { click, mount, until } from "./domHarness";
 import type { Mounted } from "./domHarness";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 
 // The Sandbox group's readiness card fetches on mount; no test here reaches a real server.
 let readiness: { status: number; body: SandboxReadiness | null } = { status: 200, body: { enabled: false, rows: [] } };
@@ -328,5 +330,30 @@ describe("AppearanceFields (in BasicsForm)", () => {
 
   it("previews the configured emoji, else the derived one", () => {
     expect(render({ name: "p", repoPath: "/r", ui: { emoji: "🦊" } })).toContain(">🦊</span>");
+  });
+});
+
+describe("BasicsForm in Spanish (#562)", () => {
+  let m: Mounted | null = null;
+  afterEach(async () => {
+    await m?.unmount();
+    m = null;
+    setLangSetting("en", []);
+  });
+
+  it("renders its notes, the sandbox Off option and the Advanced count in Spanish", async () => {
+    setLangSetting("es", []);
+    const raw = { name: "p", repoPath: "/repo", fullAuto: true };
+    m = await mount(createElement(I18nProvider, null, createElement(BasicsForm, { text: JSON.stringify(raw), onEdit: () => {}, raw, stateKey: "p" })));
+    const text = m.root.textContent!;
+    expect(text).toContain("Solo es la etiqueta visible. El estado se queda en ~/.agenthook/p/");
+    expect(text).toContain("fullAuto sin sandbox:");
+    expect(m.root.querySelector("[data-advanced] summary")!.textContent).toBe("Avanzado · 0 definidos");
+    expect(m.root.querySelector<HTMLSelectElement>('select[name="sandbox.type"]')!.options[0].textContent).toBe("Desactivado");
+  });
+
+  it("summarizeStep's advanced count follows the language", () => {
+    expect(summarizeStep({ kind: "implement" }, null, null, 1, "es")).toBe("implement · +1 avanzado");
+    expect(summarizeStep({ kind: "implement" }, null, null, 2, "es")).toBe("implement · +2 avanzados");
   });
 });

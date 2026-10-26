@@ -1,6 +1,8 @@
 import type { TicketStatus, UiEvent } from "./contract";
 import { shortRef } from "./format";
 import { formatEnergy } from "../../src/energy.js";
+import { translate } from "./i18n";
+import type { MessageKey, Vars } from "./i18n";
 
 export const FEED_MAX = 200;
 
@@ -12,9 +14,15 @@ export function appendFeed(feed: FeedEntry[], ev: FeedEntry): FeedEntry[] {
 }
 
 const RUN_END_TONE: Record<string, TicketStatus> = { advance: "done", hold: "held", changes: "queued", fail: "failed" };
-const RUN_END_WORD: Record<string, string> = { advance: "passed", hold: "held", changes: "→ changes", fail: "failed" };
+const RUN_END_KEY: Record<string, MessageKey> = { advance: "feed.runEnd.advance", hold: "feed.runEnd.hold", changes: "feed.runEnd.changes", fail: "feed.runEnd.fail" };
 
-const PLAIN_EVENTS = new Set(["restart_requested", "restarting", "decommission_requested", "decommissioning"]);
+/** Events shown as their name in words, with no ticket (the English is the name with `_` → space). */
+const PLAIN_EVENTS: Record<string, MessageKey> = {
+  restart_requested: "feed.restartRequested",
+  restarting: "feed.restarting",
+  decommission_requested: "feed.decommissionRequested",
+  decommissioning: "feed.decommissioning",
+};
 
 /** Event names hidden from the activity feed by default (src/events.js HIDDEN_BY_DEFAULT). */
 const HIDDEN_FEED_EVENTS = new Set(["coalesced", "digest_start", "digest_end", "epic_changed"]);
@@ -24,107 +32,110 @@ export function isHiddenFeedEvent(name: string): boolean {
   return HIDDEN_FEED_EVENTS.has(name);
 }
 
-/** Human text + status tone for one events.jsonl line (src/dispatch.js / src/engine.js event names). */
-export function formatFeedEvent(event: Record<string, any>, displayId: string | null): { text: string; title?: string; tone: TicketStatus; ticket: boolean } {
+/** Human text (in `lang`) + status tone for one events.jsonl line (src/dispatch.js / src/engine.js event names). */
+export function formatFeedEvent(event: Record<string, any>, displayId: string | null, lang = "en"): { text: string; title?: string; tone: TicketStatus; ticket: boolean } {
+  const tr = (key: MessageKey, vars?: Vars) => translate(lang, key, vars);
   const name = String(event.event ?? "");
   const ref = event.ref ? String(event.ref) : "";
   const ticket = ref !== "";
+  const step = event.step ?? "?";
 
   let text: string;
   let tone: TicketStatus = "idle";
 
   switch (name) {
     case "run_start": {
-      text = `started ${event.step ?? "?"}`;
+      text = tr("feed.runStart", { step });
       tone = "running";
       break;
     }
     case "run_end": {
       const outcome = String(event.outcome ?? "");
-      const word = RUN_END_WORD[outcome] ?? (outcome || "ended");
+      const key = Object.hasOwn(RUN_END_KEY, outcome) ? RUN_END_KEY[outcome] : undefined;
       tone = RUN_END_TONE[outcome] ?? "idle";
-      text = `${event.step ?? "?"} ${word}`;
+      // An outcome this UI doesn't know shows as its raw name.
+      text = key ? tr(key, { step }) : outcome ? `${step} ${outcome}` : tr("feed.runEnd.ended", { step });
       if (typeof event.costUsd === "number" && event.unpriced !== true) text += ` · $${event.costUsd.toFixed(2)}`;
-      else if (typeof event.estUsd === "number") text += ` · ~$${event.estUsd.toFixed(2)} est.`;
+      else if (typeof event.estUsd === "number") text += ` · ${tr("feed.est", { value: event.estUsd.toFixed(2) })}`;
       const energy = formatEnergy(event);
       if (energy) text += ` · ${energy}`;
       break;
     }
     case "enqueued": {
-      text = `queued for ${event.step ?? "?"}`;
+      text = tr("feed.enqueued", { step });
       tone = "queued";
       break;
     }
     case "failed": {
       // Mirrors CANCELLED_REASON in src/events.js: an operator cancel is not a crash.
       const cancelled = event.reason === "cancelled by operator";
-      text = cancelled ? "cancelled by operator" : `failed: ${event.reason ?? "?"}`;
+      text = cancelled ? tr("feed.cancelled") : tr("feed.failed", { reason: event.reason ?? "?" });
       tone = cancelled ? "cancelled" : "failed";
       break;
     }
     case "dismissed": {
-      text = "dismissed";
+      text = tr("feed.dismissed");
       tone = "idle";
       break;
     }
     case "coalesced": {
-      text = "duplicate dropped";
+      text = tr("feed.coalesced");
       tone = "idle";
       break;
     }
     case "verdict_missing": {
-      text = `${event.step ?? "?"} exited with no valid verdict`;
+      text = tr("feed.verdictMissing", { step });
       tone = "held";
       break;
     }
     case "blocked": {
-      text = `held: ${event.reason ?? "?"}`;
+      text = tr("feed.blocked", { reason: event.reason ?? "?" });
       tone = "held";
       break;
     }
     case "merged": {
-      text = "merged";
+      text = tr("feed.merged");
       tone = "done";
       break;
     }
     case "pipeline_done": {
-      text = "done";
+      text = tr("status.done");
       tone = "done";
       break;
     }
     case "ci_red": {
-      text = `CI red (${event.action ?? "?"})`;
+      text = tr("feed.ciRed", { action: event.action ?? "?" });
       tone = "failed";
       break;
     }
     case "overlap_held": {
-      text = "waiting on overlap";
+      text = tr("feed.overlapHeld");
       tone = "held";
       break;
     }
     case "overlap_released":
     case "pulled": {
-      text = name === "pulled" ? "pulled" : "overlap released";
+      text = tr(name === "pulled" ? "feed.pulled" : "feed.overlapReleased");
       tone = "queued";
       break;
     }
     case "epic_skipped": {
-      text = "epic — skipped";
+      text = tr("feed.epicSkipped");
       tone = "idle";
       break;
     }
     case "epic_changed": {
-      text = "epic changed";
+      text = tr("feed.epicChanged");
       tone = "idle";
       break;
     }
     default: {
-      if (PLAIN_EVENTS.has(name)) {
-        text = name.replace(/_/g, " ");
+      if (Object.hasOwn(PLAIN_EVENTS, name)) {
+        text = tr(PLAIN_EVENTS[name]);
         tone = "idle";
         return { text, tone, ticket: false };
       }
-      text = name || "event";
+      text = name || tr("lastEvent.event");
       tone = "idle";
     }
   }

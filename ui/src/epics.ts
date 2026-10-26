@@ -1,5 +1,7 @@
 import type { EpicBucket, EpicDetailTicket, EpicResponse, EpicStats, EpicsResponse } from "./contract";
 import { shortDate } from "./stats";
+import { translate } from "./i18n";
+import type { MessageKey } from "./i18n";
 import type { Route } from "./route";
 
 /** A ticket SSE event for the profile refetches the open epics view after this quiet period — a
@@ -21,17 +23,21 @@ export function epicsUrl(profile: string, ref: string | null = null, tzOffset: n
   return `${path}?profile=${encodeURIComponent(profile)}&tz=${tzOffset}`;
 }
 
-export type Loaded<T> = { kind: "ok"; body: T } | { kind: "error"; status: number; message: string };
+/** A failed read keeps the server's `error` so a view can rebuild `message` in its language (epicsError). */
+export type Loaded<T> = { kind: "ok"; body: T } | { kind: "error"; status: number; error: string | null; message: string };
 
-/** The inline message for a failed epics read (docs/web-ui.md § Epics data). `detail` = one epic's page. */
-export function epicsError(status: number, error: string | null, detail: boolean): string {
-  if (status === 404) return detail ? "No such epic on this profile." : "Unknown profile.";
-  if (status === 400) return "Bad epic reference.";
-  if (status === 502) return `The receiver couldn't read the tracker${error ? `: ${error}` : ""}.`;
-  if (status === 503) return "The receiver isn't running.";
-  if (status === 504) return "The tracker read timed out — try Refresh.";
-  if (status === 0) return "Dashboard unreachable.";
-  return `Couldn't load epics (status ${status}).`;
+/**
+ * The inline message for a failed epics read (docs/web-ui.md § Epics data). `detail` = one epic's
+ * page. The server's `error` goes into the sentence as written.
+ */
+export function epicsError(status: number, error: string | null, detail: boolean, lang = "en"): string {
+  if (status === 404) return translate(lang, detail ? "epics.error.noEpic" : "epics.error.unknownProfile");
+  if (status === 400) return translate(lang, "epics.error.badRef");
+  if (status === 502) return error ? translate(lang, "epics.error.trackerDetail", { error }) : translate(lang, "epics.error.tracker");
+  if (status === 503) return translate(lang, "epics.error.down");
+  if (status === 504) return translate(lang, "epics.error.timeout");
+  if (status === 0) return translate(lang, "epics.error.unreachable");
+  return translate(lang, "epics.error.status", { status });
 }
 
 async function load<T>(url: string, detail: boolean, fetchImpl: typeof fetch): Promise<Loaded<T>> {
@@ -39,9 +45,9 @@ async function load<T>(url: string, detail: boolean, fetchImpl: typeof fetch): P
     const res = await fetchImpl(url);
     if (res.ok) return { kind: "ok", body: (await res.json()) as T };
     const error = await res.json().then((b: { error?: unknown }) => (typeof b?.error === "string" ? b.error : null), () => null);
-    return { kind: "error", status: res.status, message: epicsError(res.status, error, detail) };
+    return { kind: "error", status: res.status, error, message: epicsError(res.status, error, detail) };
   } catch {
-    return { kind: "error", status: 0, message: epicsError(0, null, detail) };
+    return { kind: "error", status: 0, error: null, message: epicsError(0, null, detail) };
   }
 }
 
@@ -54,13 +60,14 @@ export const fetchEpic = (profile: string, ref: string, fetchImpl: typeof fetch 
 /** The stage bar's segments, left to right: done work first, the untracked tail last. */
 export const BUCKET_ORDER: EpicBucket[] = ["merged", "finished", "running", "needsYou", "backlog", "untracked"];
 
-export const BUCKET_LABEL: Record<EpicBucket, string> = {
-  merged: "merged",
-  finished: "finished",
-  running: "running",
-  needsYou: "needs you",
-  backlog: "backlog",
-  untracked: "not on the board",
+/** Each bucket's label as a dictionary key (merged/finished are plural forms: pass `count`). */
+export const BUCKET_LABEL: Record<EpicBucket, MessageKey> = {
+  merged: "epics.bucket.merged",
+  finished: "epics.bucket.finished",
+  running: "epics.bucket.running",
+  needsYou: "epics.bucket.needsYou",
+  backlog: "epics.bucket.backlog",
+  untracked: "epics.bucket.untracked",
 };
 
 /** N/M: N = finished + merged, M = every ticket. */
@@ -88,13 +95,13 @@ export function splitCompleted<T extends Pick<EpicStats, "completed" | "readyToC
 }
 
 /** "~3 d · Oct 19"; null without an ETA. */
-export function etaLabel(eta: EpicStats["eta"]): string | null {
-  return eta ? `~${eta.days} d · ${shortDate(eta.date)}` : null;
+export function etaLabel(eta: EpicStats["eta"], lang = "en"): string | null {
+  return eta ? `~${eta.days} d · ${shortDate(eta.date, lang)}` : null;
 }
 
 /** "0.4/day" — finished per day over the velocity window; "—" when nothing finished. */
-export function perDayLabel(perDay: number | null): string {
-  return perDay === null ? "—" : `${perDay >= 10 ? Math.round(perDay) : Math.round(perDay * 10) / 10}/day`;
+export function perDayLabel(perDay: number | null, lang = "en"): string {
+  return perDay === null ? "—" : translate(lang, "epics.perDay", { n: perDay >= 10 ? Math.round(perDay) : Math.round(perDay * 10) / 10 });
 }
 
 /** An epic's tracker URL when it is http(s), else null (never render another scheme as a link). */

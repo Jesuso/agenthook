@@ -2,6 +2,7 @@ import type { FeedEntry } from "./feed";
 import { formatFeedEvent, groupByMinute, ticketLabel } from "./feed";
 import { STATUS_CLASS } from "./components/StatusBadge";
 import { ShowHide } from "./components/ShowHide";
+import { useT } from "./i18n/react";
 
 export type ActivityRailProps = {
   feed: FeedEntry[];
@@ -19,6 +20,7 @@ export type ActivityRailProps = {
  * screens or an "Activity" panel under the summary strip on narrow ones. Live-only: nothing before
  * the page opened. */
 export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, variant, unread = 0 }: ActivityRailProps) {
+  const { t, lang } = useT();
   const groups = groupByMinute(feed);
   const bodyHeight = variant === "rail" ? "flex-1 min-h-0 overflow-y-auto" : "max-h-72 overflow-y-auto";
 
@@ -26,25 +28,25 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
     <div data-activity-rail={variant} className={variant === "rail" ? "flex h-full flex-col" : "rounded-lg border border-border bg-surface"}>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
-          Activity <span className="font-mono normal-case">{feed.length}</span>
+          {t("activity.title")} <span className="font-mono normal-case">{feed.length}</span>
           {unread > 0 && (
             <span data-unread={unread} className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-meta font-medium text-accent-fg">
-              {unread} new
+              {t("activity.new", { count: unread })}
             </span>
           )}
         </h2>
-        <ShowHide open={open} onToggle={onToggle} label="activity" data-activity-toggle />
+        <ShowHide open={open} onToggle={onToggle} label={t("activity.label")} data-activity-toggle />
       </div>
       {open &&
         (feed.length === 0 ? (
-          <p className="px-3 pb-3 text-label text-muted">No activity since this page opened — new events appear here live.</p>
+          <p className="px-3 pb-3 text-label text-muted">{t("activity.empty")}</p>
         ) : (
           <div className={bodyHeight}>
             {groups.map((g) => (
               <div key={g.key}>
                 <div className="sticky top-0 bg-surface px-3 py-0.5 text-label text-muted">{g.minute}</div>
                 {g.entries.map((e, i) => (
-                  <ActivityLine key={i} entry={e} displayId={e.event.ref ? displayIdFor(e.profile, String(e.event.ref)) : null} onOpen={onOpen} />
+                  <ActivityLine key={i} entry={e} displayId={e.event.ref ? displayIdFor(e.profile, String(e.event.ref)) : null} onOpen={onOpen} lang={lang} />
                 ))}
               </div>
             ))}
@@ -54,8 +56,9 @@ export function ActivityRail({ feed, displayIdFor, open, onToggle, onOpen, varia
   );
 }
 
-export function ActivityLine({ entry, displayId, onOpen }: { entry: FeedEntry; displayId: string | null; onOpen: (t: { profile: string; ref: string }) => void }) {
-  const f = formatFeedEvent(entry.event, displayId);
+/** One feed line; `lang` comes from the rail (no hook here, so a test can call it as a function). */
+export function ActivityLine({ entry, displayId, onOpen, lang = "en" }: { entry: FeedEntry; displayId: string | null; onOpen: (t: { profile: string; ref: string }) => void; lang?: string }) {
+  const f = formatFeedEvent(entry.event, displayId, lang);
   const ref = entry.event.ref ? String(entry.event.ref) : "";
   const time = formatTime(entry.event.ts);
   const label = f.ticket ? ticketLabel(ref, displayId) : null;

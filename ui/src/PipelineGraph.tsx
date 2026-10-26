@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { STAGE_H, STEP_H, STEP_W } from "./pipelineGraph";
 import type { EdgeRoute, GraphEdge, PipelineLayout, StageNode, StepNode } from "./pipelineGraph";
+import { useT } from "./i18n/react";
+import type { MessageKey } from "./i18n";
 
 /** Inline SVG render of `layoutPipeline`'s output (docs/web-ui.md § v3 "Pipeline graph"). Draws
  *  the routes the layout computed — no geometry decisions here. */
@@ -13,12 +15,12 @@ const EDGE_STYLE: Record<GraphEdge["type"], { stroke: string; dash?: string }> =
   queue: { stroke: "var(--color-muted)", dash: "2 3" },
 };
 
-const EDGE_LABEL: Record<GraphEdge["type"], string> = {
-  advance: "advance",
-  fail: "fail",
-  hold: "hold",
-  changes: "changes (default target)",
-  queue: "queue",
+const EDGE_LABEL: Record<GraphEdge["type"], MessageKey> = {
+  advance: "graph.edge.advance",
+  fail: "graph.edge.fail",
+  hold: "graph.edge.hold",
+  changes: "graph.edge.changesDefault",
+  queue: "graph.edge.queue",
 };
 
 /** Corner radius of an orthogonal route's bends. */
@@ -86,13 +88,14 @@ function EdgePath(props: { edge: GraphEdge; route: EdgeRoute; hover: boolean; on
 function StepCard(props: { node: StepNode; onSelect?: (id: string) => void }) {
   const n = props.node;
   const { onSelect } = props;
-  const badges = [n.manual && "manual", n.createsWorktree && "worktree", n.drainWorktree && "drain"].filter(Boolean) as string[];
+  const { t } = useT();
+  const badges = [n.manual && t("graph.badge.manual"), n.createsWorktree && t("graph.badge.worktree"), n.drainWorktree && t("graph.badge.drain")].filter(Boolean) as string[];
   const meta = [n.stepKind, n.agent !== "claude" && n.agent, n.model, n.effort].filter(Boolean).join(" · ");
   const select = onSelect
     ? {
         role: "button",
         tabIndex: 0,
-        "aria-label": `edit step ${n.id}`,
+        "aria-label": t("graph.editStep", { id: n.id }),
         "data-graph-step": n.id,
         className: "cursor-pointer",
         onClick: () => onSelect(n.id),
@@ -146,18 +149,19 @@ function StagePill(props: { node: StageNode }) {
 }
 
 function Legend() {
+  const { t } = useT();
   const types: GraphEdge["type"][] = ["advance", "fail", "hold", "changes", "queue"];
   return (
     <div className="flex flex-wrap justify-center gap-3 text-xs text-[var(--color-muted)]">
-      {types.map((t) => (
-        <span key={t} className="flex items-center gap-1">
+      {types.map((type) => (
+        <span key={type} className="flex items-center gap-1">
           <svg width={20} height={8}>
-            <line x1={0} y1={4} x2={20} y2={4} stroke={EDGE_STYLE[t].stroke} strokeWidth={2} strokeDasharray={EDGE_STYLE[t].dash} />
+            <line x1={0} y1={4} x2={20} y2={4} stroke={EDGE_STYLE[type].stroke} strokeWidth={2} strokeDasharray={EDGE_STYLE[type].dash} />
           </svg>
-          {EDGE_LABEL[t]}
+          {t(EDGE_LABEL[type])}
         </span>
       ))}
-      <span>· hover an edge for its label</span>
+      <span>{t("graph.hoverHint")}</span>
     </div>
   );
 }
@@ -165,15 +169,16 @@ function Legend() {
 /** `onSelectStep` makes the step nodes clickable (the config editor opens that step's card); stage pills never are. */
 export function PipelineGraph(props: { layout: PipelineLayout; onSelectStep?: (id: string) => void }) {
   const { layout } = props;
+  const { t } = useT();
   const [hovered, setHovered] = useState<number | null>(null);
-  if (!layout.nodes.length) return <p className="text-sm text-[var(--color-muted)]">no pipeline steps yet</p>;
+  if (!layout.nodes.length) return <p className="text-sm text-[var(--color-muted)]">{t("graph.empty")}</p>;
   return (
     <div className="flex flex-col gap-2">
       {layout.unknownStageKeys && (
-        <p className="text-xs text-[var(--color-warn)]">stage bindings unknown for this tracker — showing steps and `changes` edges only</p>
+        <p className="text-xs text-[var(--color-warn)]">{t("graph.unknownStages")}</p>
       )}
       <div className="overflow-auto">
-        <svg className="mx-auto block" width={layout.width} height={layout.height} role="img" aria-label="pipeline graph">
+        <svg className="mx-auto block" width={layout.width} height={layout.height} role="img" aria-label={t("graph.aria")}>
           <defs>
             {(["advance", "fail", "hold", "changes", "queue"] as const).map((t) => (
               <marker key={t} id={`ah-arrow-${t}`} viewBox="0 0 10 10" refX={8} refY={5} markerUnits="userSpaceOnUse" markerWidth={10} markerHeight={10} orient="auto-start-reverse">
@@ -188,9 +193,9 @@ export function PipelineGraph(props: { layout: PipelineLayout; onSelectStep?: (i
           {/* Labels last, over the cards: the `changes` arc's short label is persistent; hover shows the full one. */}
           {layout.edges.map((e, i) =>
             hovered === i ? (
-              <EdgeLabel key={`l:${i}`} at={layout.routes[i].labelAt} text={e.label ?? EDGE_LABEL[e.type]} color={EDGE_STYLE[e.type].stroke} />
+              <EdgeLabel key={`l:${i}`} at={layout.routes[i].labelAt} text={e.label ?? t(EDGE_LABEL[e.type])} color={EDGE_STYLE[e.type].stroke} />
             ) : e.type === "changes" ? (
-              <EdgeLabel key={`l:${i}`} at={layout.routes[i].labelAt} text="changes" color={EDGE_STYLE[e.type].stroke} />
+              <EdgeLabel key={`l:${i}`} at={layout.routes[i].labelAt} text={t("graph.edge.changes")} color={EDGE_STYLE[e.type].stroke} />
             ) : null,
           )}
         </svg>

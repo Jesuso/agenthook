@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { InstructionFileView, PromptPreview as PromptPreviewBody } from "./contract";
 import { formatRelative } from "./format";
 import { instructionFileUrl } from "./instructions";
+import { useT } from "./i18n/react";
 import { TICKET_MARKER, composePrompt, pickerSteps, promptPreviewUrl, repoFiles, runStartedAt, stepFileFor } from "./promptPreview";
 
 type DiskState = { kind: "none" } | { kind: "loading" } | { kind: "ok"; content: string } | { kind: "error" };
@@ -18,6 +19,7 @@ export function PromptPreview(props: {
   openFile: InstructionFileView;
   buffer: string;
 }) {
+  const { t, lang } = useT();
   const { profile, files, openFile, buffer } = props;
   const openScope = openFile.scope;
   const steps = pickerSteps(files, openFile);
@@ -73,7 +75,7 @@ export function PromptPreview(props: {
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-[var(--color-muted)]">
         {steps.length > 1 && (
           <label className="flex items-center gap-1">
-            step
+            {t("preview.step")}
             <select className="border border-[var(--color-border)] rounded bg-transparent px-1" value={stepId} onChange={(e) => setStepId(e.target.value)}>
               {steps.map((s) => (
                 <option key={s} value={s}>
@@ -85,7 +87,7 @@ export function PromptPreview(props: {
         )}
         {openScope !== "repo" && repos.length > 1 && (
           <label className="flex items-center gap-1">
-            repo
+            {t("preview.repo")}
             <select className="border border-[var(--color-border)] rounded bg-transparent px-1" value={repoPath} onChange={(e) => setRepoPath(e.target.value)}>
               {repos.map((f) => (
                 <option key={f.path} value={f.path}>
@@ -97,14 +99,14 @@ export function PromptPreview(props: {
         )}
         <span>
           {preview.kind === "ok" && preview.body.run !== null
-            ? `from run ${preview.body.run} (${formatRelative(runStartedAt(preview.body.run), Date.now())})`
+            ? t("preview.fromRun", { run: preview.body.run, ago: formatRelative(runStartedAt(preview.body.run), Date.now(), lang) })
             : preview.kind === "ok"
-              ? "no run yet — standing part only"
+              ? t("preview.noRun")
               : preview.kind === "error"
                 ? preview.status === 404
-                  ? "no preview for this step"
-                  : `couldn't load the prompt preview (status ${preview.status})`
-                : "loading…"}
+                  ? t("preview.none")
+                  : t("preview.error", { status: preview.status })
+                : t("preview.loading")}
         </span>
       </div>
       <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded border border-[var(--color-border)] px-4 py-2 font-mono text-sm">

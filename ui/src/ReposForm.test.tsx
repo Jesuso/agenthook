@@ -5,6 +5,8 @@ import { ReposForm } from "./ConfigForms";
 import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
 import { ConfirmProvider } from "./Modal";
 import type { Mounted } from "./domHarness";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 
 // The Repos tab (#343): repoPath/worktreePrefix, the repos cards (add/remove/reorder, the single-
 // default rule, the match tag list), each edit a minimal text edit.
@@ -135,5 +137,23 @@ describe("repos: unknown / non-object element", () => {
     expect(c1.hasAttribute("data-repo-unknown")).toBe(true);
     expect(c1.textContent).toContain("edit in Raw");
     expect(c1.querySelectorAll("input, select")).toHaveLength(0);
+  });
+});
+
+describe("ReposForm in Spanish (#562)", () => {
+  afterEach(async () => {
+    await m?.unmount();
+    m = null;
+    setLangSetting("en", []);
+  });
+
+  it("renders the list title, notes and the add button in Spanish", async () => {
+    setLangSetting("es", []);
+    const raw = { repoPath: "/repo" };
+    const text = JSON.stringify(raw, null, 2);
+    m = await mount(createElement(I18nProvider, null, createElement(ConfirmProvider, null, createElement(ReposForm, { text, raw, onEdit: () => {} }))));
+    expect(m.root.querySelector("[data-repos-list] h3")!.textContent).toBe("Repositorios");
+    expect(m.root.textContent).toContain("Un solo repositorio: los agentes trabajan en repoPath.");
+    expect(m.root.textContent).toContain("+ Agregar repositorio");
   });
 });

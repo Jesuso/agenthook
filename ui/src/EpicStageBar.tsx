@@ -1,5 +1,7 @@
 import type { EpicBucket, EpicStats } from "./contract";
 import { BUCKET_LABEL, BUCKET_ORDER, progressOf } from "./epics";
+import { translate } from "./i18n";
+import { useT } from "./i18n/react";
 
 /** A bar segment: a bucket, or `awaiting` — finished tickets with a known PR not merged yet. */
 export type Seg = EpicBucket | "awaiting";
@@ -23,8 +25,8 @@ const FILL: Record<Seg, string> = {
 /** A segment's fill. */
 export const segClass = (s: Seg) => FILL[s];
 
-/** A segment's name: the one map every label comes from. */
-export const segLabel = (s: Seg) => (s === "awaiting" ? "awaiting merge" : BUCKET_LABEL[s]);
+/** A segment's name: the one map every label comes from. `count` picks the plural form (none = a category: `other`). */
+export const segLabel = (s: Seg, lang = "en", count?: number) => translate(lang, s === "awaiting" ? "stageBar.awaiting" : BUCKET_LABEL[s], count === undefined ? undefined : { count });
 
 /** Counts per segment: `awaiting` (≤ finished) is split out of finished. */
 export function segCounts(epic: Pick<EpicStats, "byStage">, awaiting = 0): Record<Seg, number> {
@@ -39,14 +41,15 @@ export function segCounts(epic: Pick<EpicStats, "byStage">, awaiting = 0): Recor
  * bar followed by `N/M` and what is left. The running segment slides (`epic-seg-running`, index.css).
  */
 export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<EpicStats, "byStage" | "total">; wide?: boolean; awaiting?: number; id?: string }) {
+  const { t, lang } = useT();
   const { done, total } = progressOf(epic);
   const counts = segCounts(epic, awaiting);
   const segs = ORDER.filter((s) => counts[s] > 0).map((s) => ({ seg: s, count: counts[s], pct: (counts[s] / epic.total) * 100 }));
   const left = total - epic.byStage.finished - epic.byStage.merged; // the server's `remaining`
-  const named = segs.map((s) => `${s.count} ${segLabel(s.seg)}`).join(", ") || "no tickets";
+  const named = segs.map((s) => `${s.count} ${segLabel(s.seg, lang, s.count)}`).join(", ") || t("epics.noTickets");
   return (
     <div className={`flex min-w-0 items-center gap-2 ${wide ? "w-full" : ""}`} data-stage-bar>
-      <div id={id} role="img" aria-label={`${done} of ${total} finished: ${named}`} title={named} className={`flex gap-px overflow-hidden rounded-full bg-surface-raised ${wide ? "h-3 w-full" : "h-2 w-40 shrink-0"}`}>
+      <div id={id} role="img" aria-label={t("stageBar.aria", { done, total, named })} title={named} className={`flex gap-px overflow-hidden rounded-full bg-surface-raised ${wide ? "h-3 w-full" : "h-2 w-40 shrink-0"}`}>
         {segs.map((s) => (
           <span key={s.seg} data-seg={s.seg} className={segClass(s.seg)} style={{ width: `${s.pct}%` }} />
         ))}
@@ -56,7 +59,7 @@ export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<Epic
           <span className="font-mono">
             {done}/{total}
           </span>
-          {left > 0 && <span className="text-muted">{` · ${left} left`}</span>}
+          {left > 0 && <span className="text-muted">{` · ${t("stageBar.left", { count: left })}`}</span>}
         </span>
       )}
     </div>
@@ -65,13 +68,14 @@ export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<Epic
 
 /** The key to the bar: one swatch per present segment in bar order, with its count unless `quiet`. */
 export function StageKey({ counts, quiet }: { counts: Record<Seg, number>; quiet?: boolean }) {
+  const { t, lang } = useT();
   return (
-    <ul className={`flex flex-wrap gap-x-4 gap-y-1 ${quiet ? "text-meta" : "text-label"}`} data-stage-key aria-label="Bar key">
+    <ul className={`flex flex-wrap gap-x-4 gap-y-1 ${quiet ? "text-meta" : "text-label"}`} data-stage-key aria-label={t("stageBar.key")}>
       {ORDER.filter((s) => counts[s] > 0).map((s) => (
         <li key={s} className="flex items-center gap-1.5">
           <span aria-hidden="true" className={`size-2.5 rounded-sm ${segClass(s)}`} />
           {!quiet && <span className="font-mono">{counts[s]}</span>}
-          <span className="text-muted">{segLabel(s)}</span>
+          <span className="text-muted">{segLabel(s, lang, quiet ? undefined : counts[s])}</span>
         </li>
       ))}
     </ul>

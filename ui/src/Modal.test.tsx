@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { act, createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfirmModal, Modal, useConfirm } from "./Modal";
+import { ConfirmModal, DiffLegend, Modal, useConfirm } from "./Modal";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 import type { Ask } from "./Modal";
 import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
 import type { Mounted } from "./domHarness";
@@ -119,5 +121,24 @@ describe("useConfirm", () => {
     expect(confirmDialog()!.textContent).toContain("#2");
     await answerConfirm(true);
     expect(answers).toEqual(["#1:false", "#2:true"]);
+  });
+});
+
+describe("Modal in Spanish", () => {
+  afterEach(() => setLangSetting("en", []));
+
+  it("labels Close, Cancel and the diff legend in Spanish", async () => {
+    setLangSetting("es", []);
+    m = await mount(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(Modal, { title: "T", onClose: () => {}, children: createElement(DiffLegend) }),
+        createElement(ConfirmModal, { ...confirmProps, onConfirm: () => {}, onCancel: () => {} }),
+      ),
+    );
+    expect(document.querySelector("[data-modal-close]")!.textContent).toBe("Cerrar");
+    expect(document.querySelector("[data-confirm-cancel]")!.textContent).toBe("Cancelar");
+    expect(document.querySelector("[data-modal-body]")!.textContent).toBe("en discotu búfer");
   });
 });

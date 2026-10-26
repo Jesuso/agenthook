@@ -36,27 +36,27 @@ describe("language setting", () => {
     expect(localStorage.getItem("ah-reading")).toBeNull();
   });
 
-  it("offers endonyms, Español flagged partial while its dictionary is incomplete", async () => {
+  it("offers endonyms; Español is complete, so it isn't flagged partial", async () => {
     await open();
     const group = document.querySelector('[role="radiogroup"][aria-label="Language"]')!;
-    expect([...group.querySelectorAll('[role="radio"]')].map((b) => b.textContent)).toEqual(["Auto", "English", "Español (partial)"]);
+    expect([...group.querySelectorAll('[role="radio"]')].map((b) => b.textContent)).toEqual(["Auto", "English", "Español"]);
   });
 
   it("choosing Español re-renders live and sets <html lang>; English and Reset set it back", async () => {
     await open();
-    await click(radio("Español (partial)"));
+    await click(radio("Español"));
     expect(html.lang).toBe("es");
     expect(dot().textContent).toBe("Actualizaciones en vivo");
-    // The panel itself follows: its labels and the partial flag are now Spanish.
+    // The panel itself follows: its labels are now Spanish.
     expect(document.querySelector('[role="radiogroup"][aria-label="Idioma"]')).toBeTruthy();
-    expect(radio("Español (parcial)").getAttribute("aria-checked")).toBe("true");
+    expect(radio("Español").getAttribute("aria-checked")).toBe("true");
     expect(JSON.parse(localStorage.getItem("ah-reading")!)).toEqual({ lang: "es" });
 
     await click(radio("English"));
     expect(html.lang).toBe("en");
     expect(dot().textContent).toBe("Live updates");
 
-    await click(radio("Español (partial)"));
+    await click(radio("Español"));
     expect(html.lang).toBe("es");
     await click(document.querySelector("[data-reading-reset]")!);
     expect(html.lang).toBe("en");
@@ -65,8 +65,10 @@ describe("language setting", () => {
     expect(localStorage.getItem("ah-reading")).toBeNull();
   });
 
-  it("Auto with a Spanish browser stays English: Spanish is not complete", () => {
-    expect(setLangSetting("auto", ["es-MX"])).toBe("en");
-    expect(html.lang).toBe("en");
+  it("Auto with a Spanish browser renders Español", async () => {
+    expect(setLangSetting("auto", ["es-MX"])).toBe("es");
+    expect(html.lang).toBe("es");
+    await m.rerender(createElement(I18nProvider, null, createElement(AppBar, { connection: "connected" })));
+    expect(dot().textContent).toBe("Actualizaciones en vivo");
   });
 });

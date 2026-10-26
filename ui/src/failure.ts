@@ -1,6 +1,10 @@
 // One plain line for a failed run's reason (the Needs-you row and its accessible name). The receiver
 // writes reasons for the log, not for a glance: "sandbox (docker) could not start the run: service
 // "bad" not ready within 5s (wait: false) — last log lines: …". The drawer keeps the full text.
+// The known classes are translated (`lang`, #562); the receiver's detail inside them stays as written.
+
+import { translate } from "./i18n";
+import type { MessageKey } from "./i18n";
 
 const MAX = 90;
 
@@ -10,22 +14,26 @@ const head = (s: string) => {
   return line.length > MAX ? `${line.slice(0, MAX - 1).trimEnd()}…` : line;
 };
 
-const CLASSES: [RegExp, (m: RegExpMatchArray) => string][] = [
-  [/^interrupted by restart/i, () => "Interrupted when the receiver restarted"],
-  [/^non-zero exit \((-?\d+)\)/i, (m) => `The agent exited with code ${m[1]}`],
-  [/^timeout: exceeded maxMinutes=(\d+)/i, (m) => `Timed out after ${m[1]} min`],
-  [/^timeout: no output for idleMinutes=(\d+)/i, (m) => `Stopped after ${m[1]} min without output`],
-  [/^sandbox \([^)]*\) could not start the run: ([\s\S]*)/i, (m) => `Sandbox could not start: ${head(m[1])}`],
-  [/^sandbox setup failed: ([\s\S]*)/i, (m) => `Sandbox setup failed: ${head(m[1])}`],
+/** Each class: its pattern, its message, and the message's `{value}` from the match (if any). */
+const CLASSES: [RegExp, MessageKey, (m: RegExpMatchArray) => string | undefined][] = [
+  [/^interrupted by restart/i, "failure.interrupted", () => undefined],
+  [/^non-zero exit \((-?\d+)\)/i, "failure.exitCode", (m) => m[1]],
+  [/^timeout: exceeded maxMinutes=(\d+)/i, "failure.timedOut", (m) => m[1]],
+  [/^timeout: no output for idleMinutes=(\d+)/i, "failure.idle", (m) => m[1]],
+  [/^sandbox \([^)]*\) could not start the run: ([\s\S]*)/i, "failure.sandboxStart", (m) => head(m[1])],
+  [/^sandbox setup failed: ([\s\S]*)/i, "failure.sandboxSetup", (m) => head(m[1])],
 ];
 
 /** The one-line summary of a failure reason; null stays null (no reason recorded). */
-export function failureSummary(reason: string | null | undefined): string | null {
+export function failureSummary(reason: string | null | undefined, lang = "en"): string | null {
   const r = reason?.trim();
   if (!r) return null;
-  for (const [re, say] of CLASSES) {
+  for (const [re, key, value] of CLASSES) {
     const m = r.match(re);
-    if (m) return say(m);
+    if (m) {
+      const v = value(m);
+      return translate(lang, key, v === undefined ? undefined : { value: v });
+    }
   }
   return head(r);
 }

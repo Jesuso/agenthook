@@ -6,6 +6,8 @@ import { addSink, moveSink, removeSink, sinkEvents } from "./configEdit";
 import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
 import { ConfirmProvider } from "./Modal";
 import type { Mounted } from "./domHarness";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 
 // The Integrations tab (#342): sinks, digest, overlapGuard — every edit a minimal text edit.
 
@@ -321,5 +323,26 @@ describe("IntegrationsForm quota pacing", () => {
     expect(last()).toEqual({ name: "p" });
     const bad = await live({ name: "p", quota: { pauseAboveFiveHour: 2 } });
     expect(bad.root.querySelector("[data-quota-panel]")!.textContent).toContain("quota.pauseAboveFiveHour must be a number in (0, 1]");
+  });
+});
+
+describe("IntegrationsForm in Spanish (#562)", () => {
+  afterEach(async () => {
+    await m?.unmount();
+    m = null;
+    setLangSetting("en", []);
+  });
+
+  it("renders the panel titles, buttons and the remove confirm in Spanish", async () => {
+    setLangSetting("es", []);
+    const raw = { sinks: [{ type: "slack", url: "${A}" }] };
+    const text = JSON.stringify(raw, null, 2);
+    m = await mount(createElement(I18nProvider, null, createElement(ConfirmProvider, null, createElement(IntegrationsForm, { text, raw, onEdit: () => {} }))));
+    const titles = [...m.root.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(titles).toEqual(["Destinos", "Resumen", "Precios", "Energía", "Ritmo de cuota", "Protección contra solapamiento"]);
+    expect(m.root.textContent).toContain("+ Agregar destino");
+    await click(m.root.querySelector("[data-remove-sink]")!);
+    expect(confirmDialog()?.textContent).toContain("¿Quitar el destino #1 (slack)?");
+    await answerConfirm(false);
   });
 });

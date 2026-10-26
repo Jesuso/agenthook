@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment happy-dom
+import { describe, it, expect, afterEach } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import EpicsView, { EpicsList } from "./EpicsView";
@@ -7,6 +8,10 @@ import type { EpicActions } from "./EpicPage";
 import { EpicStageBar } from "./EpicStageBar";
 import { epicDetail, epicStats, epicTicket, velocityDays } from "./epicsFixtures";
 import type { EpicResponse, EpicsResponse, ProfileView, TicketRow } from "./contract";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
+import { mount } from "./domHarness";
+import type { Mounted } from "./domHarness";
 
 const profile = { name: "dev", label: "dev", up: true, color: "teal", emoji: "🚀", forge: null } as unknown as ProfileView;
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
@@ -360,5 +365,38 @@ describe("Epics PR #555 review fixes", () => {
     const detail = epicDetail({ ref: "E1" }, [epicTicket("n1", "needsYou")]);
     const bad = { ...row("n1"), status: "done", prState: "ready", prUrl: "javascript:alert(1)" } as TicketRow;
     expect(page({ epic: detail }, [bad])).not.toContain("javascript:");
+  });
+});
+
+describe("Epics in Spanish", () => {
+  let m: Mounted;
+  afterEach(async () => {
+    await m.unmount();
+    setLangSetting("en", []);
+  });
+  const es = async (el: React.ReactElement) => {
+    setLangSetting("es", []);
+    m = await mount(createElement(I18nProvider, null, el));
+    return m.root.innerHTML;
+  };
+
+  it("the list: closed fold, pills, counts, the stage bar and its key", async () => {
+    const epics = [
+      epicStats({ ref: "E1", name: "Checkout revamp", status: "On track", byStage: { merged: 2, finished: 1, needsYou: 1, backlog: 3 }, needsYou: ["a"] }),
+      epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { finished: 2 } }),
+      epicStats({ ref: "E0", name: "Old epic", completed: true, byStage: { merged: 3 } }),
+    ];
+    const out = await es(createElement(EpicsList, { body: { at: "t", live: false, supported: true, epics }, profile: "dev" }));
+    for (const s of ["Cerradas", " épica)", "te necesita 1", "listo para cerrar", " · faltan 4", "3/3</span> terminados", "Solo tickets conocidos", "fusionados", "estado en el tracker"]) expect(out).toContain(s);
+    expect(out).toContain('aria-label="3 de 7 terminados: 2 fusionados, 1 terminado, 1 te necesita, 3 backlog"');
+    expect(out).not.toContain("needs you");
+  });
+
+  it("an epic's page: sections, pace, actions", async () => {
+    const tickets = [epicTicket("n1", "needsYou"), epicTicket("b1", "backlog"), epicTicket("m1", "merged")];
+    const failed = { profile: "dev", ref: "n1", status: "failed", failReason: null, startedAt: null, step: "build" } as unknown as TicketRow;
+    const body = { at: "t", live: true, supported: true, epic: epicDetail({ ref: "E1", status: "At risk" }, tickets) };
+    const out = await es(createElement(EpicPage, { body, profile: "dev", rows: [failed], onOpen: () => {}, actions: { up: true, onRetry: ok, onDismiss: () => {} } }));
+    for (const s of ["Estado en el tracker: At risk", ">Te necesita<", ">Backlog<", ">Fusionados<", " ticket)", "La ejecución falló sin un motivo.", ">Reejecutar…</button>", 'aria-label="Reejecutar n1 (build)…"', ">Descartar</button>", "Faltan 2. Sin estimación hasta que algo termine.", "nunca se ejecutó aquí, sin enlace"]) expect(out).toContain(s);
   });
 });

@@ -1,9 +1,14 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment happy-dom
+import { describe, it, expect, afterEach } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TicketsTable } from "./TicketsTable";
 import type { TicketsTableProps } from "./TicketsTable";
 import type { TicketRow } from "./contract";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
+import { mount } from "./domHarness";
+import type { Mounted } from "./domHarness";
 
 const NOW = Date.parse("2026-10-08T12:00:00Z");
 
@@ -144,5 +149,25 @@ describe("TicketsTable", () => {
     const filtered = render(rows, { epicFilter: "E1" });
     expect([...filtered.matchAll(/data-ticket-row="(\d+)"/g)].map((m) => m[1])).toEqual(["1"]);
     expect(filtered).toMatch(/role="radio"[^>]*>all <span class="font-mono opacity-70">1<\/span>/);
+  });
+});
+
+describe("TicketsTable in Spanish", () => {
+  let m: Mounted;
+  afterEach(async () => {
+    await m.unmount();
+    setLangSetting("en", []);
+  });
+
+  it("headers, chips, toolbar and row actions follow the language", async () => {
+    setLangSetting("es", []);
+    const props = { tickets: [ticket({ ref: "7", status: "failed" }), ...many(55)], profiles: [], now: NOW, profileFilter: "", onProfileFilter: () => {}, statusFilter: "", epicFilter: "", onEpicFilter: () => {}, onStatusFilter: () => {}, showAll: true, onShowAll: () => {}, open: null, onOpen: () => {}, onDismiss: () => {} };
+    m = await mount(createElement(I18nProvider, null, createElement(TicketsTable, props)));
+    const heads = [...m.root.querySelectorAll("th")].map((th) => th.textContent);
+    expect(heads.slice(0, 4)).toEqual(["id", "título", "perfil", "paso"]);
+    expect(m.root.querySelector('[data-tickets-toolbar] select')!.getAttribute("aria-label")).toBe("perfil");
+    const text = m.root.textContent!;
+    for (const s of ["todos los perfiles", "te necesita", "fallido", "mostrar todos", "50 mostrados / 56 en total", "mostrar 50 más (quedan 6)", "Descartar"]) expect(text).toContain(s);
+    expect(m.root.innerHTML).toContain('aria-label="Descartar #7"');
   });
 });

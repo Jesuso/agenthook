@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -25,5 +25,9 @@ export default defineConfig({
     proxy: {
       "/api": "http://127.0.0.1:4180",
     },
+  },
+  test: {
+    // Every test starts in English, whatever the host's languages (src/test-setup.ts, #562).
+    setupFiles: ["src/test-setup.ts"],
   },
 });

@@ -7,3 +7,6 @@ export type Messages = Record<string, Message>;
 
 /** `complete` is what Auto trusts: a language is offered by Auto only once every view is translated. */
 export type DictionaryMeta = { lang: string; name: string; complete: boolean };
+
+/** A language's config-form labels and help (`fieldMeta`), keyed by the schema entry's dotted path. */
+export type SchemaOverlay = Record<string, { label: string; help: string }>;
