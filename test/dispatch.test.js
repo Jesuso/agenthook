@@ -1333,6 +1333,19 @@ test("dispatch: a bad summary is dropped with the outcome kept; a changes verdic
   assert.equal(store.getSummaries("42")?.review?.outcome, "changes");
 });
 
+test("parseSummary: plain is measured apart from the cap — clipped on its own, dropped when not a string (#563)", () => {
+  const files = Array.from({ length: 8 }, (_, i) => `src/some/dir/file-${i}.js`);
+  const near = { verdict: "feature", files: files.slice(0, 7) };
+  assert.ok(JSON.stringify(near).length <= 300);
+  const withPlain = { ...near, plain: "Ready for coding: agents will write one plain sentence per run, shown in place of the reason." };
+  assert.ok(JSON.stringify(withPlain).length > 300, "fixture: plain pushes it past the cap");
+  assert.equal(parseSummary(withPlain), withPlain, "kept whole");
+  const long = parseSummary({ risk: "low", plain: "x".repeat(500) });
+  assert.equal(long?.plain.length, 300);
+  assert.ok(long?.plain.endsWith("…"));
+  assert.deepEqual(parseSummary({ risk: "low", plain: 3 }), { risk: "low" });
+});
+
 test("run_end carries summary.plain whitespace-collapsed; absent when missing, blank or not a string (#563)", async () => {
   const { events, runStep } = summaryHarness();
   const ends = () => events.filter((e) => e.event === "run_end");

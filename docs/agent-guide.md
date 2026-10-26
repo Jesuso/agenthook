@@ -106,7 +106,7 @@ or failed. `summary` is the free-form object the agent wrote in its verdict (e.g
 tier — its shape is whatever the project's instructions ask for); it appears only on the run that
 wrote it, and only while it is that step's latest summary for the ref. Every step's prompt asks for
 `summary.plain`: one plain sentence (≤ ~25 words, no code or ids) saying the outcome and, on a
-hold or fail, what the human must decide. It counts toward the 300-char cap and also rides on the
+hold or fail, what the human must decide. It is measured apart from the 300-char cap (clipped to 300 on its own) and also rides on the
 run's `run_end` event as `plain`.
 
 `prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt,mine?}]}`. `ci` is

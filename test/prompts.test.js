@@ -252,6 +252,6 @@ test("every step kind's verdict footer asks for a plain one-sentence summary (#5
     assert.match(p, /"summary": \{"plain": "<one sentence for a human>"\}/, kind);
     assert.match(p, /at most ~25 words, no code, file paths, ids or jargon/, kind);
     assert.match(p, /when holding or failing, what the human must decide/, kind);
-    assert.match(p, /counts toward the 300-char summary limit/, kind);
+    assert.match(p, /does not count toward the 300-char summary limit/, kind);
   }
 });
