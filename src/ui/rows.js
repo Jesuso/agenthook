@@ -207,6 +207,10 @@ export function readProfileState(dir, events) {
   };
 }
 
+/** Which newest `run_end.outcome` a row's `plain` must match per status ("*" = any); unlisted → none.
+ * @type {Partial<Record<import('./contract.js').TicketStatus, string>>} */
+const PLAIN_OUTCOME = { held: "hold", failed: "fail", done: "advance", running: "*", queued: "*" };
+
 /** @param {any} v */
 const str = (v) => (typeof v === "string" && v ? v : null);
 
@@ -288,6 +292,8 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let finishedAt = null;
     /** @type {string|null} */
     let failReason = null;
+    /** @type {Record<string, any>|null} */
+    let lastEnd = null;
     for (const e of events) {
       if (e.event === "run_start") lastStart = e;
       if (e.event === "run_start" || e.event === "enqueued") {
@@ -304,6 +310,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
         failReason = str(e.reason);
       } else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
       if (e.event === "run_end") {
+        lastEnd = e;
         if (typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
         estUsd += costOf(e, pricing).estUsd ?? 0;
         if (typeof e.energyKwh === "number" && Number.isFinite(e.energyKwh) && e.energyKwh >= 0) {
@@ -321,6 +328,10 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     // A PR the receiver later learned is merged/closed (refmeta.prState, from the `prs` op or a
     // merge job) outranks the event-derived `ready` — no forge hook needed for it to leave Needs you.
     if (prState === "ready" && (meta.prState === "merged" || meta.prState === "closed")) prState = meta.prState;
+    // The newest run's plain sentence, only while it describes the row's state: an applied
+    // outcome that differs from the run's (changes cap, CI bounce, cancel) shows none.
+    const want = PLAIN_OUTCOME[status];
+    const plain = lastEnd && (want === "*" || lastEnd.outcome === want) ? str(lastEnd.plain)?.slice(0, 300) ?? null : null;
     const pr = meta.pr;
     const trackerUrl = str(meta.url);
     rows.push({
@@ -329,6 +340,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       displayId: str(meta.displayId) ?? ref,
       title: str(meta.title) ?? lastName,
       summary: str(meta.summary)?.slice(0, 300) ?? null,
+      plain,
       step: str(run?.stepId) ?? str(queued?.stepId) ?? str(held?.stepId) ?? lastStep,
       status,
       model: run ? str(run.model) : str(lastStart?.model),

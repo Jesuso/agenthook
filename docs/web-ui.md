@@ -581,6 +581,20 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   summary otherwise; either way the summary is in the title tooltip. The drawer shows it under the
   header; the All-tickets table has it as a tooltip. Full descriptions stay in the tracker (the id links there).
 
+### One plain sentence per run (built)
+- Every step's verdict prompt asks the agent for `summary.plain`: one sentence, ≤ ~25 words, no
+  code, paths, ids or jargon, saying the outcome and, on a hold or fail, what the human must decide.
+  It rides on the run's `run_end` event as `plain` (no new state file, no config key).
+- `TicketRow.plain` is the ref's newest `run_end.plain`, set only while it describes the row: held ↔
+  `hold`, failed ↔ `fail`, done ↔ `advance`, running/queued ↔ any (the previous step's sentence);
+  null otherwise, so a sentence never shows when the applied outcome differed (changes cap, CI
+  bounce, timeout, cancel). `RunView.plain` is each run's own.
+- Needs-you rows: `plain` takes the second line in place of the reason / summary, and the full
+  reason (else the summary) moves to its tooltip. Now rows: `plain` takes the second line in place
+  of the summary, which stays in the title tooltip. Drawer: `plain` leads the reason block above the
+  unchanged full reason, and the selected run's `plain` sits under its caption. All prose, not
+  monospace. A run without `plain` renders exactly as before.
+
 ### Run history in the drawer (built)
 - **Swimlanes** replace the run table: one lane per step in the order this ticket's `advance`
   verdicts imply (`stepOrder`, `ui/src/runlog.ts`), time left to right, one bar per run in its
@@ -702,8 +716,8 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   the toast), **Review PR**, or the tracker when it never ran here; the name opens the drawer. Writes
   are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only tickets with a recorded, unmerged PR, each with its
   PR link); Backlog; "Not on the board"; and the rest folded, titled by what it holds ("Finished and
-  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when its URL
-  derives from the epic's (`ticketUrl`), marked "tracker ↗" and announced as a new tab, else a row
+  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when the ticket
+  carries its own URL (`EpicTicket.url`), marked "tracker ↗" and announced as a new tab, else a row
   that says "never ran here, no link".
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or
   malformed, `url` only http(s)) puts an epic chip on the row; clicking it filters the table to that

@@ -380,14 +380,17 @@ test("mapEpics / mapEpicTickets: status, done-category completion, subtasks drop
     ],
   );
   assert.deepEqual(
-    mapEpicTickets([
-      { key: "A-2", fields: { summary: "S", issuetype: STORY, status: { name: "QA", statusCategory: { key: "indeterminate" } } } },
-      { key: "A-3", fields: { summary: "Sub", issuetype: SUBTASK, status: { name: "To Do", statusCategory: { key: "new" } } } },
-      { key: "A-4", fields: { summary: "B", issuetype: { name: "Bug", hierarchyLevel: 0 }, status: { name: "Done", statusCategory: { key: "done" } } } },
-    ]),
+    mapEpicTickets(
+      [
+        { key: "A-2", fields: { summary: "S", issuetype: STORY, status: { name: "QA", statusCategory: { key: "indeterminate" } } } },
+        { key: "A-3", fields: { summary: "Sub", issuetype: SUBTASK, status: { name: "To Do", statusCategory: { key: "new" } } } },
+        { key: "A-4", fields: { summary: "B", issuetype: { name: "Bug", hierarchyLevel: 0 }, status: { name: "Done", statusCategory: { key: "done" } } } },
+      ],
+      base,
+    ),
     [
-      { ref: "A-2", displayId: "A-2", name: "S", completed: false, stage: "QA" },
-      { ref: "A-4", displayId: "A-4", name: "B", completed: true, stage: "Done" },
+      { ref: "A-2", displayId: "A-2", name: "S", completed: false, stage: "QA", url: `${base}/browse/A-2` },
+      { ref: "A-4", displayId: "A-4", name: "B", completed: true, stage: "Done", url: `${base}/browse/A-4` },
     ],
   );
 });

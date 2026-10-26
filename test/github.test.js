@@ -1006,18 +1006,18 @@ test("mapEpicTickets: in-pipeline stage, no-pipeline-label same-repo, other-repo
   const repoApiUrl = "https://api.github.com/repos/o/r";
   const tickets = mapEpicTickets(
     [
-      { number: 10, title: "in pipeline", state: "open", repository_url: repoApiUrl, labels: [{ name: "agent:review" }] },
-      { number: 11, title: "no stage", state: "open", repository_url: repoApiUrl, labels: [{ name: "bug" }] },
-      { number: 12, title: "other repo", state: "closed", repository_url: "https://api.github.com/repos/o/other" },
+      { number: 10, title: "in pipeline", state: "open", repository_url: repoApiUrl, html_url: "https://github.com/o/r/issues/10", labels: [{ name: "agent:review" }] },
+      { number: 11, title: "no stage", state: "open", repository_url: repoApiUrl, html_url: "https://github.com/o/r/issues/11", labels: [{ name: "bug" }] },
+      { number: 12, title: "other repo", state: "closed", repository_url: "https://api.github.com/repos/o/other", html_url: "https://github.com/o/other/issues/12" },
       { number: 13, title: "pr", state: "open", repository_url: repoApiUrl, pull_request: {} },
     ],
     repoApiUrl,
     stageLabels,
   );
   assert.deepEqual(tickets, [
-    { ref: "10", displayId: "#10", name: "in pipeline", completed: false, stage: "agent:review" },
-    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: "" },
-    { ref: "o/other#12", displayId: "o/other#12", name: "other repo", completed: true, stage: null },
+    { ref: "10", displayId: "#10", name: "in pipeline", completed: false, stage: "agent:review", url: "https://github.com/o/r/issues/10" },
+    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: "", url: "https://github.com/o/r/issues/11" },
+    { ref: "o/other#12", displayId: "o/other#12", name: "other repo", completed: true, stage: null, url: "https://github.com/o/other/issues/12" },
   ]);
   assert.equal(ticketBucket(tickets[1], null, [], false), "backlog");
   const openOtherRepo = mapEpicTickets(

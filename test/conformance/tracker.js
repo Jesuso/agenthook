@@ -331,7 +331,11 @@ export function checkOptional(fixture) {
     if (a.listEpicTickets) {
       const tickets = await a.listEpicTickets(fixture.refs.epic ?? ours);
       assert.ok(Array.isArray(tickets), `${fixture.name}: listEpicTickets must resolve to an array`);
-      for (const t of tickets) assert.ok(typeof t.ref === "string" && typeof t.completed === "boolean" && (t.stage === null || typeof t.stage === "string"), `${fixture.name}: bad EpicTicket ${JSON.stringify(t)}`);
+      for (const t of tickets)
+        assert.ok(
+          typeof t.ref === "string" && typeof t.completed === "boolean" && (t.stage === null || typeof t.stage === "string") && (t.url === undefined || t.url === null || typeof t.url === "string"),
+          `${fixture.name}: bad EpicTicket ${JSON.stringify(t)}`,
+        );
     }
     if (a.wizardSteps) assert.ok(Array.isArray(a.wizardSteps({})), `${fixture.name}: wizardSteps must return an array`);
     if (a.pipelineBindings) {

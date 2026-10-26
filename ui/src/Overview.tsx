@@ -336,6 +336,10 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
           const reason = kind === "failed" ? failureSummary(item.reason) : item.reason;
+          // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
+          const sub = t.plain ?? reason ?? t.summary;
+          const subTitle = t.plain ? (item.reason ?? t.summary ?? undefined) : (reason ?? t.summary ?? undefined);
+          const said = t.plain ?? reason;
           const title = ticketTitle(t);
           const titleText = title.unknown ? "(untitled)" : title.text;
           const rerun = retries[t.ref];
@@ -350,13 +354,13 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                 <button
                   type="button"
                   data-needs-open
-                  aria-label={`${t.displayId} ${titleText}, ${KIND[kind].text}${reason ? `: ${reason}` : ""}`}
+                  aria-label={`${t.displayId} ${titleText}, ${KIND[kind].text}${said ? `: ${said}` : ""}`}
                   className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full"
                   title={t.summary ? `${t.summary} — open details` : "open details"}
                   onClick={() => onOpen({ profile: t.profile, ref: t.ref })}
                 >
                   <span className={title.unknown ? "text-muted" : ""}>{titleText}</span>
-                  {(reason || t.summary) && <span className="block truncate text-label text-muted" data-needs-sub title={reason ?? t.summary ?? undefined}>{reason ?? t.summary}</span>}
+                  {sub && <span className="block truncate text-label text-muted" data-needs-sub title={subTitle}>{sub}</span>}
                 </button>
                 <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
                   {t.step ? `${t.step} · ` : ""}
@@ -428,7 +432,7 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
       <TicketId id={t.displayId} url={t.trackerUrl} />
       <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
         <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
-        {t.summary && <span className="block truncate text-label text-muted" data-now-sub>{t.summary}</span>}
+        {(t.plain ?? t.summary) && <span className="block truncate text-label text-muted" data-now-sub>{t.plain ?? t.summary}</span>}
       </button>
       {t.step && <Pill>{t.step}</Pill>}
       {queuedAt === undefined && (

@@ -226,7 +226,7 @@ test("epicDetail: epicStats plus each ticket's bucket and local status (null whe
 
 test("localEpics: refmeta grouped by epic.ref; null/absent/garbage epics skipped", () => {
   const groups = localEpics({
-    a: { title: "A", displayId: "#a", epic: { ref: "E1", name: "One", url: "u1" } },
+    a: { title: "A", displayId: "#a", url: "https://x/a", epic: { ref: "E1", name: "One", url: "u1" } },
     b: { title: "B", epic: { ref: "E1", name: "One" } },
     c: { epic: { ref: "E2", name: "Two" } },
     d: { title: "D", epic: null },
@@ -236,8 +236,11 @@ test("localEpics: refmeta grouped by epic.ref; null/absent/garbage epics skipped
   assert.deepEqual(
     groups.map((g) => [g.epic, g.tickets]),
     [
-      [{ ref: "E1", name: "One", url: "u1", status: null, completed: false }, [{ ref: "a", displayId: "#a", name: "A", completed: false, stage: null }, { ref: "b", name: "B", completed: false, stage: null }]],
-      [{ ref: "E2", name: "Two", url: "", status: null, completed: false }, [{ ref: "c", name: "c", completed: false, stage: null }]],
+      [
+        { ref: "E1", name: "One", url: "u1", status: null, completed: false },
+        [{ ref: "a", displayId: "#a", name: "A", completed: false, stage: null, url: "https://x/a" }, { ref: "b", name: "B", completed: false, stage: null, url: null }],
+      ],
+      [{ ref: "E2", name: "Two", url: "", status: null, completed: false }, [{ ref: "c", name: "c", completed: false, stage: null, url: null }]],
     ],
   );
 });

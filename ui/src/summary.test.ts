@@ -33,7 +33,7 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
 }
 
 function ticket(ref: string, status: TicketRow["status"]): TicketRow {
-  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null, summary: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null };
+  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null, summary: null, plain: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null };
 }
 
 // Local time on purpose: "today" is the browser's local day.

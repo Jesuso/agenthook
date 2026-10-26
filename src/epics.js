@@ -200,6 +200,7 @@ export function localEpics(refmeta) {
       name: typeof m.title === "string" ? m.title : ref,
       completed: false,
       stage: null,
+      url: typeof m.url === "string" && m.url ? m.url : null,
     });
   }
   return [...byEpic.values()];

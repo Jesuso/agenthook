@@ -25,7 +25,7 @@ const RUNS: RunView[] = [
   run("qa", "2026-10-25T17:33:29Z", null, null, { running: true, costUsd: null }),
   run("review", "2026-10-25T17:32:02Z", "2026-10-25T17:33:27Z", "advance"),
   run("code", "2026-10-25T17:31:15Z", "2026-10-25T17:32:00Z", "advance"),
-  run("review", "2026-10-25T17:28:30Z", "2026-10-25T17:31:12Z", "changes"),
+  run("review", "2026-10-25T17:28:30Z", "2026-10-25T17:31:12Z", "changes", { plain: "Two doc links are broken; sent back to fix them." }),
 ];
 
 const LOG = ["# CAHUI-263  docs", "Reading the diff.", "Two paths don't resolve.", "**Blocking:**", "- `AGENTS.md:24` cites the wrong path"].join("\n");
@@ -92,6 +92,17 @@ describe("TicketDrawer runs", () => {
     expect(root.querySelector("[data-run-story]")).toBeNull();
     expect(root.textContent).toContain("**Blocking:**");
     expect(localStorage.getItem("ah.log.view")).toBe("raw");
+    await unmount();
+  });
+
+  it("shows the selected run's plain sentence as prose right under its caption, and nothing for a run without one", async () => {
+    const { root, unmount } = await open();
+    expect(root.querySelector("[data-run-plain]")).toBeNull();
+    await click(root.querySelector('button[aria-label^="review changes"]')!);
+    const plain = root.querySelector("[data-run-caption]")!.nextElementSibling!;
+    expect(plain.hasAttribute("data-run-plain")).toBe(true);
+    expect(plain.textContent).toBe("Two doc links are broken; sent back to fix them.");
+    expect(plain.className).not.toContain("font-mono");
     await unmount();
   });
 });

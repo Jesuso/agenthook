@@ -11,13 +11,18 @@ export function timeoutReason(kind, minutes) {
 
 const DIFFICULTIES = /** @type {const} */ (["easy", "medium", "hard"]);
 
-/** Serialised-size cap for a verdict's free-form `summary` object. */
+/** Serialised-size cap for a verdict's free-form `summary` object (its `plain` key excluded). */
 export const MAX_SUMMARY_CHARS = 300;
+
+/** Cap for `summary.plain`, the one-sentence human summary: clipped, never counted toward MAX_SUMMARY_CHARS. */
+export const MAX_PLAIN_CHARS = 300;
 
 /**
  * The verdict's optional `summary`: a small plain object, stored as-is (never interpreted)
  * for supervisors. Anything else — non-object, array, null, or over MAX_SUMMARY_CHARS
- * serialised — is dropped with one log line; it never affects the outcome.
+ * serialised — is dropped with one log line; it never affects the outcome. `plain` is measured
+ * on its own (clipped to MAX_PLAIN_CHARS, dropped when not a string), so adding the one-sentence
+ * summary never pushes an otherwise-valid summary over the cap.
  * @param {unknown} raw
  * @returns {Record<string, unknown>|undefined}
  */
@@ -27,12 +32,15 @@ export function parseSummary(raw) {
     console.log("[verdict] dropping summary (non-object)");
     return undefined;
   }
-  const n = JSON.stringify(raw).length; // raw came from JSON.parse — always serialisable
+  const { plain, ...rest } = /** @type {Record<string, unknown>} */ (raw);
+  const n = JSON.stringify(rest).length; // raw came from JSON.parse — always serialisable
   if (n > MAX_SUMMARY_CHARS) {
     console.log(`[verdict] dropping summary (oversize ${n} chars)`);
     return undefined;
   }
-  return /** @type {Record<string, unknown>} */ (raw);
+  if (plain === undefined || (typeof plain === "string" && plain.length <= MAX_PLAIN_CHARS)) return /** @type {Record<string, unknown>} */ (raw);
+  if (typeof plain !== "string") return rest;
+  return { ...rest, plain: plain.slice(0, MAX_PLAIN_CHARS - 1).trimEnd() + "…" };
 }
 
 const MAX_FINDINGS = 20000;

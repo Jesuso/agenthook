@@ -16,7 +16,7 @@ const row: TicketRow = {
   costUsd: 1.25, estUsd: 0,
   trackerUrl: "https://github.com/Jesuso/agenthook/issues/221",
   prUrl: "https://github.com/Jesuso/agenthook/pull/230",
-  summary: null, heldReason: null,
+  summary: null, plain: null, heldReason: null,
   heldAt: null,
   failReason: null,
   prState: null,
@@ -32,6 +32,12 @@ describe("TicketDrawer", () => {
     expect(render({ ...row, status: "failed", failReason: 'service "bad" not ready within 5s' })).toMatch(/data-drawer-reason[\s\S]*Why it failed[\s\S]*service &quot;bad&quot; not ready within 5s/);
     expect(render({ ...row, status: "held", heldReason: "Which DB?" })).toMatch(/data-drawer-reason[\s\S]*What the agent is asking[\s\S]*Which DB\?/);
     expect(render(row)).not.toContain("data-drawer-reason");
+  });
+
+  it("leads the reason block with the agent's plain sentence, as prose, above the unchanged full reason", () => {
+    const html = render({ ...row, status: "held", heldReason: "Which DB? Postgres or SQLite (see src/db.js:12)", plain: "It needs you to pick a database." });
+    expect(html).toMatch(/data-drawer-reason[\s\S]*What the agent is asking<\/p><p data-drawer-plain="true" class="mb-1 text-body text-fg">It needs you to pick a database\.<\/p><p class="[^"]*font-mono[^"]*">Which DB\? Postgres or SQLite \(see src\/db\.js:12\)<\/p>/);
+    expect(render({ ...row, status: "held", heldReason: "Which DB?" })).not.toContain("data-drawer-plain");
   });
 
   it("shows the ticket's summary under the header, and nothing when it has none", () => {

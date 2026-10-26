@@ -125,8 +125,11 @@ export function createFinish(ctx) {
     const costUsd = unpriced ? undefined : usage.costUsd;
     // Model + tokens ride along when a result was seen, so Stats can price from events.jsonl alone.
     const tokens = result ? { ...(usage.model ? { model: usage.model } : {}), input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheCreate: usage.cacheCreate } : {};
+    // The agent's one plain sentence for a human (summary.plain), whitespace-collapsed; absent when none.
+    const plain = typeof verdict.summary?.plain === "string" ? verdict.summary.plain.replace(/\s+/g, " ").trim() : "";
     emit?.("run_end", job.ref, step.id, {
       outcome: verdict.outcome,
+      ...(plain ? { plain } : {}),
       ...(costUsd !== undefined ? { costUsd } : {}),
       ...(unpriced ? { unpriced: true } : {}),
       ...(usage.costBasis ? { costBasis: usage.costBasis } : {}),
