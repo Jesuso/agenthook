@@ -847,7 +847,6 @@ export const messages: Record<MessageKey, Message> = {
   "instructions.tab.preview": "Renderizado",
   "instructions.tab.agent": "Agente",
   "instructions.tab.agentLong": "Lo que ve el agente",
-  "instructions.noChanges": "Sin cambios",
   "instructions.saveTitle": "Guardar (Ctrl/Cmd-S)",
   "instructions.save": "Guardar",
   "instructions.deletedBanner": "Este archivo se eliminó en disco. Recarga para descartar tus cambios, o cópialos antes a un lugar seguro.",

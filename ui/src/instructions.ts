@@ -49,6 +49,16 @@ export function initialFile(files: InstructionFileView[], remembered: string | n
   return null;
 }
 
+/**
+ * The open file's path as the toolbar shows it: relative to the profile config's directory when
+ * it sits under it (the usual repo layout), else in full. The tooltip always has the full path.
+ */
+export function displayPath(path: string, configPath: string | null): string {
+  if (!configPath) return path;
+  const dir = configPath.slice(0, Math.max(configPath.lastIndexOf("/"), configPath.lastIndexOf("\\")) + 1);
+  return dir && path.startsWith(dir) ? path.slice(dir.length) : path;
+}
+
 /** Derived, never sticky: undoing back to the loaded content makes the buffer clean again. */
 export function isDirty(buffer: string, loaded: { content: string }): boolean {
   return buffer !== loaded.content;

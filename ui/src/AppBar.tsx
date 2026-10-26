@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { connectionLabel } from "./connection";
 import type { ConnectionState } from "./connection";
 import { Pill, ProfileMark, ReadingPanel } from "./components";
@@ -57,8 +58,22 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
   const { t } = useT();
   const current = nav?.profiles.find((p) => p.name === nav.profile);
   const quota = current?.quota ? formatQuota(current.quota, nav?.now ?? Date.now()) : "";
+  // Publish the bar's live height as `--appbar-h`: it wraps to two or three rows below `lg`, and
+  // full-height views (the Instructions editor) size themselves to the space left under it.
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement.style;
+    const ro = new ResizeObserver(() => root.setProperty("--appbar-h", `${el.offsetHeight}px`));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.removeProperty("--appbar-h");
+    };
+  }, []);
   return (
-    <header className="sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-1.5 lg:h-11 lg:flex-nowrap lg:gap-x-6 lg:py-0">
+    <header ref={bar} className="sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-1.5 lg:h-11 lg:flex-nowrap lg:gap-x-6 lg:py-0">
       <div className="flex shrink-0 items-center gap-2">
         <span className="text-title font-semibold tracking-tight">agenthook</span>
         <Pill title={t("appBar.version")}>v{__APP_VERSION__}</Pill>

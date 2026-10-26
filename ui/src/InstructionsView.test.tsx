@@ -137,6 +137,15 @@ describe("InstructionsView save confirm", () => {
   });
 });
 
+describe("InstructionsView chrome", () => {
+  it("has no page-level profile picker when the dashboard hands over one profile", async () => {
+    m = await mount(createElement(InstructionsView, { profiles: [profiles[0]], eventSink: sink as any, onDirtyChange: () => {} }));
+    await until(() => m!.root.querySelector(".cm-content"));
+    expect(m.root.querySelector('select[aria-label="Profile"]')).toBeNull();
+    expect(m.root.textContent).not.toContain("No changes");
+  });
+});
+
 describe("InstructionsView accessibility", () => {
   it("names its controls and the page, and keeps a not-created file reachable", async () => {
     const files = [file("/a/code.md"), { ...file("/a/SOUL.md"), scope: "soul", exists: false }];
@@ -171,7 +180,6 @@ describe("InstructionsView in Spanish", () => {
     const root = m.root;
     expect(root.textContent).toContain("pasos");
     expect(root.textContent).toContain("Renderizado");
-    expect(root.textContent).toContain("Sin cambios");
     await click([...root.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent?.includes("Lo que ve el agente"))!);
     await until(() => root.textContent!.includes("no hay vista previa para este paso"));
     await act(async () => {

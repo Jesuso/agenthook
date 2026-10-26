@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { InstructionsView as InstructionsBody, ProfileView } from "./contract";
-import { baseName, discardPrompt, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import { baseName, discardPrompt, displayPath, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -269,9 +269,14 @@ export default function InstructionsView(props: {
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("instructions.noProfiles")}</p>;
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
-      <div className="mb-3 flex min-w-0 items-center gap-3 text-sm">
+    // Fills the viewport under the sticky app bar exactly (`--appbar-h` comes from AppBar; 2rem is
+    // <main>'s padding), so the editor scrolls inside itself and the page never does.
+    <div className="flex h-[calc(100dvh-var(--appbar-h,2.75rem)-2rem)] min-h-[24rem] flex-col">
+      <div className="mb-3 flex min-w-0 items-baseline gap-3 text-sm">
         <h1 className="shrink-0 text-title font-semibold">{t("instructions.title")}</h1>
+        {/* The dashboard mounts one profile at a time and switches from the app bar; the picker only
+            appears for a caller that hands over several. */}
+        {props.profiles.length > 1 && (
         <select
           aria-label={t("instructions.profileLabel")}
           className="shrink-0 border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
@@ -284,8 +289,9 @@ export default function InstructionsView(props: {
             </option>
           ))}
         </select>
+        )}
         {list.kind === "ok" && list.body.configPath && (
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]" title={list.body.configPath}>
+          <span className="min-w-0 flex-1 truncate font-mono text-label text-muted" title={list.body.configPath}>
             {list.body.configPath}
           </span>
         )}
@@ -372,7 +378,7 @@ export default function InstructionsView(props: {
             <>
               <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
                 <span className="min-w-0 flex-1 basis-32 truncate font-mono" title={open.path}>
-                  {open.path}
+                  {displayPath(open.path, list.kind === "ok" ? list.body.configPath : null)}
                 </span>
                 {phase === "saving" ? (
                   <span className="shrink-0 text-muted">{t("instructions.saving")}</span>
@@ -391,11 +397,10 @@ export default function InstructionsView(props: {
                 />
                 <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
-                  {!dirty && phase === "editing" && (
+                  {/* Clean is already said by the disabled Save; only a fresh save earns a word. */}
+                  {!dirty && phase === "editing" && savedAt?.path === open.path && (
                     <span className="text-label text-muted">
-                      {savedAt?.path === open.path
-                        ? t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })
-                        : t("instructions.noChanges")}
+                      {t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}
                     </span>
                   )}
                   <button

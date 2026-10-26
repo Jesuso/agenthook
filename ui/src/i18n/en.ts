@@ -844,7 +844,6 @@ export const messages = {
   "instructions.tab.preview": "Rendered",
   "instructions.tab.agent": "Agent",
   "instructions.tab.agentLong": "What the agent sees",
-  "instructions.noChanges": "No changes",
   "instructions.saveTitle": "Save (Ctrl/Cmd-S)",
   "instructions.save": "Save",
   "instructions.deletedBanner": "This file was deleted on disk. Reload to drop your edits, or copy them somewhere safe first.",

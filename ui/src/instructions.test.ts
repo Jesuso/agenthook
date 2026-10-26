@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { InstructionFileView } from "./contract";
-import { baseName, externalChange, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import { displayPath, baseName, externalChange, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
 import type { InstructionsEvent, OpenFile } from "./instructions";
 
 function file(path: string, scope: InstructionFileView["scope"], ids: string[], exists = true): InstructionFileView {
@@ -110,5 +110,15 @@ describe("urls", () => {
   it("formatBytes switches to KB at 1024", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2.0 KB");
+  });
+});
+
+describe("displayPath", () => {
+  it("shows a file under the config's directory relative to it, anything else in full", () => {
+    expect(displayPath("/home/me/repo/INSTRUCTIONS.md", "/home/me/repo/agenthook.config.json")).toBe("INSTRUCTIONS.md");
+    expect(displayPath("/home/me/repo/steps/code.md", "/home/me/repo/agenthook.config.json")).toBe("steps/code.md");
+    expect(displayPath("/elsewhere/SOUL.md", "/home/me/repo/agenthook.config.json")).toBe("/elsewhere/SOUL.md");
+    expect(displayPath("/home/me/repo-other/x.md", "/home/me/repo/agenthook.config.json")).toBe("/home/me/repo-other/x.md");
+    expect(displayPath("/a/x.md", null)).toBe("/a/x.md");
   });
 });
