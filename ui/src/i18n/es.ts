@@ -61,6 +61,12 @@ export const messages: Record<MessageKey, Message> = {
   "reading.auto": "Automático",
   "reading.partial": "(parcial)",
   "reading.reset": "Restablecer",
+  "reading.readaloud": "Leer en voz alta",
+  "reading.rate": "Velocidad",
+  "reading.autoread": "Leer lo nuevo de Te necesita",
+  "reading.on": "Sí",
+  "speak.digest": "Leer el resumen en voz alta",
+  "speak.needsRow": "Leer en voz alta {id}",
 
   // Shared words
   "common.agents": "agentes",

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { READING_SETTINGS, applyReading, readReading, readingDefaults, resetReading, writeReading } from "./reading";
 
-const DEFAULTS = { text: "0", spacing: "off", measure: "default", bg: "default", lang: "auto" };
+const DEFAULTS = { text: "0", spacing: "off", measure: "default", bg: "default", lang: "auto", readaloud: "off", rate: "1", autoread: "off" };
 
 /** An in-memory Storage subset. */
 function memory(init: Record<string, string> = {}) {
@@ -40,10 +40,21 @@ const throwing = {
 };
 
 describe("reading settings", () => {
-  it("register text, spacing, line width, background and language, each default one of its options", () => {
-    expect(READING_SETTINGS.map((s) => s.key)).toEqual(["text", "spacing", "measure", "bg", "lang"]);
+  it("register text, spacing, line width, background, language and the read-aloud trio, each default one of its options", () => {
+    expect(READING_SETTINGS.map((s) => s.key)).toEqual(["text", "spacing", "measure", "bg", "lang", "readaloud", "rate", "autoread"]);
     for (const s of READING_SETTINGS) expect(s.options.map((o) => o.value), s.key).toContain(s.default);
     expect(readingDefaults()).toEqual(DEFAULTS);
+  });
+
+  it("gate the read-aloud rows on speech support, Speed and auto-read on Read aloud being on", () => {
+    const by = Object.fromEntries(READING_SETTINGS.map((s) => [s.key, s]));
+    for (const k of ["text", "spacing", "measure", "bg", "lang"]) expect(by[k].available ?? by[k].requires, k).toBeUndefined();
+    for (const k of ["readaloud", "rate", "autoread"]) expect(typeof by[k].available, k).toBe("function");
+    expect(by.readaloud.requires).toBeUndefined();
+    expect(by.rate.requires).toEqual({ key: "readaloud", value: "on" });
+    expect(by.autoread.requires).toEqual({ key: "readaloud", value: "on" });
+    expect(by.rate.options.map((o) => [o.value, "text" in o ? o.text : o.label])).toEqual([["0.75", "0.75×"], ["1", "1×"], ["1.25", "1.25×"], ["1.5", "1.5×"]]);
+    expect(by.autoread.label).toBe("reading.autoread");
   });
 
   it("read as the defaults with nothing stored, no storage, or storage that throws", () => {

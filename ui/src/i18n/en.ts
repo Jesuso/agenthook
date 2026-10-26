@@ -60,6 +60,12 @@ export const messages = {
   "reading.auto": "Auto",
   "reading.partial": "(partial)",
   "reading.reset": "Reset",
+  "reading.readaloud": "Read aloud",
+  "reading.rate": "Speed",
+  "reading.autoread": "Read new Needs you",
+  "reading.on": "On",
+  "speak.digest": "Read the digest aloud",
+  "speak.needsRow": "Read aloud {id}",
 
   // Shared words
   "common.agents": "agents",

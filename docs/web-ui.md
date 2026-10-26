@@ -737,6 +737,9 @@ of reading settings for prose. Nothing changes until a reader picks something.
   Instructions preview) at 60 characters.
 - **Background** (Default / Warm): a warmer page and panel background in both dark and light.
   Every text tier keeps AA contrast on it (`tokens.test.ts`).
+- **Read aloud** (Off / On), **Speed** (0.75× / 1× / 1.25× / 1.5×) and **Read new Needs you**
+  (Off / On): see [Read aloud](#read-aloud-built) below. Speed and Read new Needs you are disabled
+  while Read aloud is off.
 - **Reset** returns to the defaults.
 
 Monospace is excluded: ticket ids, logs, code, the editors and the diff keep their size and
@@ -744,7 +747,39 @@ spacing. The settings are per browser, in localStorage under `ah-reading`, and a
 `main.tsx` before the first render, so there is no flash. Each one is a `data-ah-<key>` attribute
 on `<html>` (absent at its default) and `index.css` styles only those attributes. To add a
 setting, add one entry to `READING_SETTINGS` in `ui/src/reading.ts` and its CSS rule in
-`index.css`. While the popover is open, the single-key shortcuts are off.
+`index.css`. An entry may set `available` (false hides its row, e.g. no speech in this browser)
+and `requires: { key, value }` (its row is disabled unless that setting has that value). The panel
+writes through a small shared store (`setReading`; components read it with `useReading()`), so a
+change, or Reset, shows everywhere at once without a reload. While the popover is open, the
+single-key shortcuts are off.
+
+### Read aloud (built)
+Read aloud (#560) uses the browser's own `window.speechSynthesis`, with no dependency. Where the
+browser has no `speechSynthesis` (or `SpeechSynthesisUtterance`), the three rows are not in the
+panel and no 🔊 renders. With Read aloud off (the default) nothing is added to the page.
+
+With it on, a 🔊 button (`SpeakButton`) appears:
+- in the Digest header, beside Refresh, while a digest is shown (reads its markdown);
+- on each Needs you row, right after the ticket id (reads the title, then the row's full second
+  line, not the truncated one);
+- in the ticket drawer, after the agent's plain sentence, the summary, and the selected run's
+  plain line. The monospace raw reason and the logs get none.
+
+Markdown is turned into speech first (`speechText` in `ui/src/speech.ts`): a fenced code block is
+read as "code block", links and images by their text, a bare URL as "link", and HTML and markdown
+syntax are dropped. Each line gets a pause. The utterance uses the Speed setting,
+`lang` = `<html lang>` (else `en`, so it follows the Language setting below), and the first system voice in that language (the default
+voice first, then an on-device one), picked at speak time because voices load late.
+
+Pressing a 🔊 stops any other speech and reads its own text; pressing it again while it plays stops
+it (`aria-pressed` shows which one is playing). While speech plays, **Escape** stops it and does
+nothing else (it does not close the drawer or the panel); with nothing playing, Escape is unchanged.
+
+**Read new Needs you** speaks each Needs you entry that arrives after page load, with the same text
+as its row button. Entries are tracked by `dismissKey` (profile + ref) from page load whatever the
+setting: the first list seen for each profile is its baseline and is never spoken, and an entry
+that leaves and comes back (an undone dismiss, a re-hold) is not read again until the page reloads.
+New entries join the browser's speech queue, so they never cut off speech already playing.
 
 ### Languages (built)
 The reading panel's **Language** setting (#561) is Auto / English / Español. It is stored with

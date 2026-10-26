@@ -21,6 +21,11 @@ All notable changes to this project are documented here. The format is based on
   remaining views follow (#562) it stays English and Español is marked "(partial)". The spend,
   energy and quota readouts stay English (they are shared with the CLI). Adding a language is one
   dictionary file; see docs/web-ui.md § Languages (#561).
+- Read aloud, in the same panel: with **Read aloud** on (only offered where the browser has
+  `speechSynthesis`), a 🔊 button reads the Digest, each Needs you row and the ticket drawer's
+  plain lines in the page's language, at a chosen **Speed**. **Read new Needs you** speaks entries
+  that arrive after the page loaded, queued behind any speech already playing. Escape stops speech.
+  Off by default, no dependency (#560).
 - Every agent run now ends with one plain sentence for a human (`summary.plain`): the outcome and,
   on a hold or fail, what you must decide. The dashboard shows it in place of the raw reason on
   Needs you and Now rows and at the top of the ticket drawer (the full reason stays in the tooltip
