@@ -1,10 +1,12 @@
+import { useT } from "../i18n/react";
+
 /**
  * fullAuto: a shield in full-strength neutral — agents on this profile skip every permission prompt.
  * Not amber: a status hue says a ticket's state (DESIGN.md, Colour Is State), and this is a standing
  * property of the profile.
  */
 export function FullAutoShield() {
-  const text = "fullAuto: agents run with --dangerously-skip-permissions";
+  const text = useT().t("fullAuto.title");
   return (
     <span title={text} aria-label={text} role="img" className="inline-flex text-fg">
       <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor" aria-hidden="true">

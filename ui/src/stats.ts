@@ -76,10 +76,10 @@ export function weekdayLetter(date: string): string {
   return WEEKDAYS[new Date(y, m - 1, d).getDay()] ?? "";
 }
 
-/** "Oct 14" for a local YYYY-MM-DD. */
-export function shortDate(date: string): string {
+/** "Oct 14" for a local YYYY-MM-DD; "14 oct" in es. */
+export function shortDate(date: string, lang = "en"): string {
   const [y, m, d] = date.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(y, m - 1, d).toLocaleDateString(lang === "en" ? "en-US" : lang, { month: "short", day: "numeric" });
 }
 
 /** The newest live event that changes the numbers (feed is newest first); "" when none — a refetch key, stable while the feed rolls. */

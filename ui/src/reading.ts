@@ -1,49 +1,65 @@
 // The reading panel's settings (#559): a registry of per-browser display options for prose. Each
 // setting is one `data-ah-<key>` attribute on <html>, styled only by index.css; its default value
 // removes the attribute, so with nothing chosen the page is exactly as it was. Adding a setting is
-// one entry here plus its CSS.
+// one entry here plus its CSS. Labels are dictionary keys (i18n/en.ts), translated when rendered;
+// an option with `text` instead (a percentage, a language's own name) is never translated. `lang`
+// (#561) has no CSS rule: ReadingPanel and main.tsx also hand it to the i18n store, which sets <html lang>.
+import { DICTIONARIES } from "./i18n";
+import type { MessageKey } from "./i18n";
 
-export type ReadingSetting = { key: string; label: string; options: { value: string; label: string }[]; default: string };
+export type ReadingOption = { value: string; label: MessageKey } | { value: string; text: string; partial?: boolean };
+export type ReadingSetting = { key: string; label: MessageKey; options: ReadingOption[]; default: string };
 
 export const READING_SETTINGS: ReadingSetting[] = [
   {
     key: "text",
-    label: "Text size",
+    label: "reading.text",
     options: [
-      { value: "0", label: "100%" },
-      { value: "1", label: "115%" },
-      { value: "2", label: "130%" },
-      { value: "3", label: "150%" },
+      { value: "0", text: "100%" },
+      { value: "1", text: "115%" },
+      { value: "2", text: "130%" },
+      { value: "3", text: "150%" },
     ],
     default: "0",
   },
   {
     key: "spacing",
-    label: "Spacing",
+    label: "reading.spacing",
     options: [
-      { value: "off", label: "Off" },
-      { value: "wide", label: "Wide" },
-      { value: "wider", label: "Wider" },
+      { value: "off", label: "reading.off" },
+      { value: "wide", label: "reading.wide" },
+      { value: "wider", label: "reading.wider" },
     ],
     default: "off",
   },
   {
     key: "measure",
-    label: "Line width",
+    label: "reading.measure",
     options: [
-      { value: "default", label: "Default" },
-      { value: "narrow", label: "Narrow" },
+      { value: "default", label: "reading.default" },
+      { value: "narrow", label: "reading.narrow" },
     ],
     default: "default",
   },
   {
     key: "bg",
-    label: "Background",
+    label: "reading.bg",
     options: [
-      { value: "default", label: "Default" },
-      { value: "warm", label: "Warm" },
+      { value: "default", label: "reading.default" },
+      { value: "warm", label: "reading.warm" },
     ],
     default: "default",
+  },
+  {
+    // Endonyms: a reader lost in a language they can't read still finds their own. An incomplete
+    // dictionary is flagged "(partial)" (ReadingPanel) and is never what Auto picks.
+    key: "lang",
+    label: "reading.lang",
+    options: [
+      { value: "auto", label: "reading.auto" },
+      ...Object.values(DICTIONARIES).map((d) => ({ value: d.meta.lang, text: d.meta.name, partial: !d.meta.complete })),
+    ],
+    default: "auto",
   },
 ];
 

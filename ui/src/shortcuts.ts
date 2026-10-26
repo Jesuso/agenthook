@@ -1,16 +1,17 @@
 // Overview keyboard shortcuts: a pure key → action map, so the rules (never while typing, never with
 // a modifier, never under an open dialog) are testable without a DOM.
+import type { MessageKey } from "./i18n";
 
 export type OverviewAction = "next" | "prev" | "release" | "dismiss" | "help";
 
-/** What the shortcuts sheet lists, in order. */
-export const OVERVIEW_SHORTCUTS: { keys: string; what: string }[] = [
-  { keys: "j / k", what: "Move to the next / previous ticket: Needs you first, then Now" },
-  { keys: "Enter", what: "Open the focused ticket (a running one shows its live log)" },
-  { keys: "r", what: "Release the focused held ticket (opens the answer box), or re-run the focused failed one" },
-  { keys: "d", what: "Dismiss the focused failed ticket" },
-  { keys: "Ctrl / ⌘ + Z", what: "Undo the last dismiss (within 5 s)" },
-  { keys: "?", what: "Show this list (Esc closes it)" },
+/** What the shortcuts sheet lists, in order; `what` is a dictionary key (i18n/en.ts), translated by Overview. */
+export const OVERVIEW_SHORTCUTS: { keys: string; what: MessageKey }[] = [
+  { keys: "j / k", what: "shortcuts.overview.move" },
+  { keys: "Enter", what: "shortcuts.overview.open" },
+  { keys: "r", what: "shortcuts.overview.release" },
+  { keys: "d", what: "shortcuts.overview.dismiss" },
+  { keys: "Ctrl / ⌘ + Z", what: "shortcuts.overview.undo" },
+  { keys: "?", what: "shortcuts.overview.help" },
 ];
 
 const KEYS: Record<string, OverviewAction> = { j: "next", k: "prev", r: "release", d: "dismiss", "?": "help" };
