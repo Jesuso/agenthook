@@ -167,4 +167,16 @@ describe("digest", () => {
     await click(b);
     expect(synth.calls).toEqual(["cancel", "speak:Today. Two PRs merged. code block."]);
   });
+
+  it("speaks the spoken field instead of the markdown when present, and never renders it", async () => {
+    const digest = { text: "## Today\n- Two PRs merged", spoken: "Two things wrapped up today.", generatedAt: new Date().toISOString() };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ digest }) })));
+    m = await mount(createElement(DigestPanel, { profile: "g", up: true, feed: [], now: Date.now() }));
+    await until(() => document.querySelector("[data-digest-meta]"));
+    await on();
+    const [b] = speakButtons();
+    await click(b);
+    expect(synth.calls).toEqual(["cancel", "speak:Two things wrapped up today."]);
+    expect(document.body.textContent).not.toContain("Two things wrapped up today.");
+  });
 });

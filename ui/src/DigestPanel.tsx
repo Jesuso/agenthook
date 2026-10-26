@@ -69,7 +69,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
           </p>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {digest && showBody && <SpeakButton text={digest.text} label={t("speak.digest")} />}
+          {digest && showBody && <SpeakButton text={digest.spoken || digest.text} label={t("speak.digest")} />}
           {stale && (
             <ShowHide open={expanded} onToggle={() => setExpanded(!expanded)} controls={bodyId} label={t("digest.label")} data-digest-toggle />
           )}

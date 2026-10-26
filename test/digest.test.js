@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildSnapshot, buildDigestPrompt, buildDigestArgs, buildToolLessArgs, createDigester, readDigest, writeDigest, readSoul, DEFAULT_SOUL, digestErrors, compactEpics } from "../src/digest.js";
+import { buildSnapshot, buildDigestPrompt, buildDigestArgs, buildToolLessArgs, createDigester, readDigest, writeDigest, readSoul, DEFAULT_SOUL, digestErrors, compactEpics, splitSpoken, SPOKEN_MARKER } from "../src/digest.js";
 import { summariesErrors } from "../src/digest-config.js";
 import { instructionTargets } from "../src/heartbeat.js";
 
@@ -392,6 +392,65 @@ test("readDigest/writeDigest: a legacy flat digest.json reads as the legacyLang 
   assert.equal(readDigest(dir, "es")?.text, "Nuevo");
   assert.equal(readDigest(dir, "en")?.text, "Old", "the legacy record survives as the en entry");
   assert.equal((fs.statSync(path.join(dir, "digest.json")).mode & 0o777), 0o600);
+});
+
+test("buildDigestPrompt: carries the SPOKEN_MARKER and keeps the under-200-words rule", () => {
+  const p = buildDigestPrompt({ soul: "S", snapshot: { x: 1 }, profile: "dev" });
+  assert.ok(p.includes(SPOKEN_MARKER));
+  assert.match(p, /under 200 words/);
+});
+
+test("splitSpoken: marker present splits digest text from the spoken part", () => {
+  assert.deepEqual(splitSpoken(`Digest body.\n${SPOKEN_MARKER}\nA short spoken line.`), { text: "Digest body.", spoken: "A short spoken line." });
+});
+
+test("splitSpoken: no marker keeps the whole trimmed result as text, no spoken key", () => {
+  assert.deepEqual(splitSpoken("  Just the digest.  "), { text: "Just the digest." });
+});
+
+test("splitSpoken: an empty spoken part after the marker drops to text only", () => {
+  assert.deepEqual(splitSpoken(`Digest body.\n${SPOKEN_MARKER}\n   `), { text: "Digest body." });
+});
+
+test("splitSpoken: an empty part before the marker falls back to the whole result as text", () => {
+  const raw = `${SPOKEN_MARKER}\nspoken only`;
+  assert.deepEqual(splitSpoken(raw), { text: raw.trim() });
+});
+
+test("splitSpoken: a marker-like line earlier in the body doesn't win — the last one does", () => {
+  const raw = `Mentions ${SPOKEN_MARKER} in passing.\nReal digest.\n${SPOKEN_MARKER}\nSpoken part.`;
+  assert.deepEqual(splitSpoken(raw), { text: `Mentions ${SPOKEN_MARKER} in passing.\nReal digest.`, spoken: "Spoken part." });
+});
+
+test("splitSpoken: the spoken part is capped at 600 chars", () => {
+  const long = "x".repeat(700);
+  const out = splitSpoken(`Digest.\n${SPOKEN_MARKER}\n${long}`);
+  assert.equal(out.spoken.length, 600);
+});
+
+test("digester: stores spoken alongside text when the agent writes a marker", async () => {
+  const { d, dir } = digester(async () => JSON.stringify({ result: `Two things need you.\n${SPOKEN_MARKER}\nTwo things need your attention.` }));
+  const rec = await d.request();
+  assert.equal(rec.text, "Two things need you.");
+  assert.equal(rec.spoken, "Two things need your attention.");
+  assert.equal(readDigest(dir)?.spoken, "Two things need your attention.");
+});
+
+test("digester: no marker in the result still succeeds, with no spoken field", async () => {
+  const { d, dir } = digester(async () => JSON.stringify({ result: "Plain digest, no marker." }));
+  const rec = await d.request();
+  assert.equal(rec.text, "Plain digest, no marker.");
+  assert.ok(!("spoken" in rec));
+  assert.ok(!("spoken" in /** @type {any} */ (readDigest(dir))));
+});
+
+test("readDigest/writeDigest: spoken round-trips, and is omitted entirely when absent", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-digest-spoken-"));
+  writeDigest(dir, { lang: "en", text: "T", spoken: "S", generatedAt: ago(0), basedOnEvents: 0, needsYou: 0 });
+  assert.equal(readDigest(dir, "en")?.spoken, "S");
+  writeDigest(dir, { lang: "fr", text: "T2", generatedAt: ago(0), basedOnEvents: 0, needsYou: 0 });
+  assert.ok(!("spoken" in /** @type {any} */ (readDigest(dir, "fr"))));
+  assert.equal(readDigest(dir, "en")?.spoken, "S", "other language unaffected");
 });
 
 test("buildToolLessArgs is the digest argv builder; summariesErrors validates the block", () => {
