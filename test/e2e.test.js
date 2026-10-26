@@ -14,6 +14,8 @@ import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { controlRequest } from "../src/ui/control-client.js";
 import { waitForEvents } from "../src/agent-api.js";
+import { readProfileState, buildRows } from "../src/ui/rows.js";
+import { promptPathFor } from "../src/dispatch/index.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(HERE, "..", "bin", "agenthook.js");
@@ -22,12 +24,15 @@ const NAME = "e2e";
 const SCENARIO_MS = 15000; // hard per-scenario deadline (the whole file runs in a few seconds)
 
 // One ref per scenario; the stub reads its verdicts per (ref, step) from this script.
+const HELD_OPTIONS = ["Postgres", "SQLite"];
 const SCRIPT = {
   happy: { triage: ["advance"], code: ["advance"], review: ["advance"] },
   loop: { triage: ["advance"], code: ["advance"], review: ["changes"] },
   hold: { triage: ["hold"] },
   crash: { triage: ["advance"], code: ["exit1"] },
   resting: { triage: ["advance"], code: ["advance"], review: ["advance"] },
+  // #565: a hold with a clickable answer, then `release` resumes it with that answer as the comment.
+  answer: { triage: [{ outcome: "hold", summary: { options: HELD_OPTIONS } }, "advance"], code: ["advance"], review: ["advance"] },
 };
 // Seeded straight into triage before boot (a ticket added while the receiver was down): boot
 // never fires it — only an explicit `reconcile` does.
@@ -230,6 +235,36 @@ scenario("hold: a hold verdict parks the ticket in the hold lane", async () => {
   assert.equal(await stageAfter("hold", "triage", "hold"), "held");
   const held = JSON.parse(fs.readFileSync(path.join(stateDir, "held.json"), "utf8"));
   assert.equal(held.hold?.stepId, "triage");
+});
+
+scenario("answer: a hold's options reach run_end + TicketRow.options, and release resumes it with the chosen option (#565)", async () => {
+  const held = await eventsUntil("answer", ["blocked"]);
+  const holdEnd = held.find((e) => e.event === "run_end" && e.step === "triage");
+  assert.deepEqual(holdEnd?.options, HELD_OPTIONS, "run_end carries the verdict's summary.options");
+  assert.equal(await stageAfter("answer", "triage", "hold"), "held");
+
+  const row = buildRows(NAME, readProfileState(stateDir)).find((r) => r.ref === "answer");
+  assert.equal(row?.status, "held");
+  assert.deepEqual(row?.options, HELD_OPTIONS, "TicketRow.options mirrors the hold run_end");
+
+  const chosen = HELD_OPTIONS[0];
+  const reply = await controlRequest(sock, "release", { ref: "answer", comment: chosen });
+  assert.equal(reply.ok, true, `release: ${!reply.ok ? reply.error : ""}`);
+
+  // Excludes "blocked" from the wait: the first triage run already produced one above, and
+  // eventsUntil re-scans the ref's whole tail from the start on each call.
+  const events = await eventsUntil("answer", ["pipeline_done", "failed"]);
+  assert.equal(events.at(-1)?.event, "pipeline_done");
+  assert.deepEqual(runEnds(events), ["triage:hold", "triage:advance", "code:advance", "review:advance"]);
+
+  const logsDir = path.join(stateDir, "logs");
+  const triageLogs = fs
+    .readdirSync(logsDir)
+    .filter((f) => f.endsWith("-step-triage-answer.log"))
+    .sort();
+  assert.equal(triageLogs.length, 2, "one log per triage run (held, then resumed)");
+  const prompt = fs.readFileSync(promptPathFor(path.join(logsDir, /** @type {string} */ (triageLogs.at(-1)))), "utf8");
+  assert.ok(prompt.includes(chosen), "the resumed run's prompt carries the owner's chosen option verbatim");
 });
 
 scenario("crash: a non-zero agent exit fails the step", async () => {
