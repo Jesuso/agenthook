@@ -280,8 +280,33 @@ export default function InstructionsView(props: {
           </span>
         )}
       </div>
-      <div className="flex min-h-0 flex-1 gap-4">
-        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48">
+      {/* Below md the file list folds into one select above the editor, so the editor keeps the width. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row md:gap-4">
+        {list.kind === "ok" && list.body.files.length > 0 && (
+          <select
+            aria-label={t("instructions.fileLabel")}
+            className="w-full shrink-0 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-1 font-mono text-sm md:hidden"
+            value={open?.path ?? ""}
+            onChange={(e) => pickFile(e.target.value)}
+          >
+            {!open && (
+              <option value="" disabled>
+                {t("instructions.selectFile")}
+              </option>
+            )}
+            {groupFiles(list.body.files, lang).map((g) => (
+              <optgroup key={g.scope} label={g.label}>
+                {g.files.map((f) => (
+                  <option key={f.path} value={f.path} disabled={!f.exists}>
+                    {baseName(f.path)}
+                    {!f.exists ? ` · ${t("instructions.missing")}` : f.agentsRunning > 0 ? ` · ${t("instructions.running", { count: f.agentsRunning })}` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        )}
+        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48 max-md:hidden">
           {list.kind === "loading" && <p className="text-muted">{t("instructions.loadingFiles")}</p>}
           {list.kind === "ok" &&
             groupFiles(list.body.files, lang).map((g) => (
@@ -309,7 +334,7 @@ export default function InstructionsView(props: {
               </section>
             ))}
         </nav>
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {list.kind === "error" && (
             <EmptyState title={t("instructions.listError")} hint={list.status === 0 ? t("instructions.requestNetwork") : t("instructions.requestFailed", { status: list.status })} />
           )}
@@ -350,7 +375,7 @@ export default function InstructionsView(props: {
                   ]}
                   onChange={setSide}
                 />
-                <span className="ml-auto flex shrink-0 items-center gap-2">
+                <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
                   {!dirty && phase === "editing" && (
                     <span className="text-label text-muted">
@@ -389,13 +414,14 @@ export default function InstructionsView(props: {
                   </span>
                 </div>
               )}
-              <div className="flex min-h-0 flex-1 gap-3">
-                <div className="min-w-0 flex-1">
+              {/* Below lg a side panel stacks under the editor instead of squeezing beside it. */}
+              <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+                <div className="min-h-0 min-w-0 flex-1">
                   <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
                 </div>
                 {side === "preview" && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.
-                  <div className="md-preview min-w-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm">
+                  <div className="md-preview min-h-0 min-w-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm">
                     <Markdown>{doc.buffer}</Markdown>
                   </div>
                 )}

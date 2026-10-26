@@ -832,6 +832,7 @@ export const messages: Record<MessageKey, Message> = {
   "instructions.noFiles": "No hay archivos de instrucciones",
   "instructions.noFilesHint": "El receptor los publica en su heartbeat, y el receptor de este perfil está detenido o es anterior al editor. Inícialo o actualízalo y recarga.",
   "instructions.selectFile": "Selecciona un archivo",
+  "instructions.fileLabel": "Archivo de instrucciones",
   "instructions.selectFileHint": "Elige un archivo de la lista para abrirlo.",
   "instructions.loadingFile": "Cargando {name}…",
   "instructions.fileGone": "No se puede abrir {path}. Ya no es un archivo de instrucciones editable: se borró, salió de la configuración, se reemplazó por un enlace simbólico o pesa más de 256 KB. Elige otro archivo de la lista.",

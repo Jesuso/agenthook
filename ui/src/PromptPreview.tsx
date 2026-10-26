@@ -71,7 +71,7 @@ export function PromptPreview(props: {
   const markerAt = ticket !== null ? text.indexOf(TICKET_MARKER) : -1;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-[var(--color-muted)]">
         {steps.length > 1 && (
           <label className="flex items-center gap-1">
@@ -86,9 +86,9 @@ export function PromptPreview(props: {
           </label>
         )}
         {openScope !== "repo" && repos.length > 1 && (
-          <label className="flex items-center gap-1">
+          <label className="flex min-w-0 items-center gap-1">
             {t("preview.repo")}
-            <select className="border border-[var(--color-border)] rounded bg-transparent px-1" value={repoPath} onChange={(e) => setRepoPath(e.target.value)}>
+            <select className="min-w-0 max-w-full border border-[var(--color-border)] rounded bg-transparent px-1" value={repoPath} onChange={(e) => setRepoPath(e.target.value)}>
               {repos.map((f) => (
                 <option key={f.path} value={f.path}>
                   {f.path}
