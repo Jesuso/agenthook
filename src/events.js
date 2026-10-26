@@ -9,7 +9,7 @@ export const CANCELLED_REASON = "cancelled by operator";
 
 /** Event names omitted by default from `ah events`/`ah watch`/the MCP `events` tool/the UI feed
  * unless explicitly requested — still written to events.jsonl. */
-export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_end", "epic_changed"]);
+export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_end", "summary_end", "epic_changed"]);
 
 /**
  * Create an event emitter that appends to `<dataDir>/events.jsonl`.
@@ -34,7 +34,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
  *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)
- *           | digest_start | digest_end (an on-demand Digest ran, src/digest.js; ref/step ""; `digest_end` has `outcome` ok|fail, `costUsd` or `reason`; hidden by default, not in the sinks' default set)
+ *           | digest_start | digest_end (an on-demand Digest ran, src/digest.js; ref/step ""; `digest_end` has `outcome` ok|fail, `lang`, `costUsd` or `reason`; hidden by default, not in the sinks' default set)
+ *           | summary_end (a ticket summary ran — never on a cache hit, src/summarize.js; ref/step ""; `outcome` ok|fail, `lang`, `costUsd` or `reason`; hidden by default, not in the sinks' default set)
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)
  *           | epic_skipped (a pipeline job reached an item that is an epic; no agent ran, nothing moved; `name`, `url`)
  *           | epic_changed (the tracker delivered an epic-structure change — GitHub: a sub-issue added/removed, an issue

@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildSnapshot, buildDigestPrompt, buildDigestArgs, createDigester, readDigest, readSoul, DEFAULT_SOUL, digestErrors, compactEpics } from "../src/digest.js";
+import { buildSnapshot, buildDigestPrompt, buildDigestArgs, buildToolLessArgs, createDigester, readDigest, writeDigest, readSoul, DEFAULT_SOUL, digestErrors, compactEpics } from "../src/digest.js";
+import { summariesErrors } from "../src/digest-config.js";
 import { instructionTargets } from "../src/heartbeat.js";
 
 const NOW = Date.parse("2026-10-15T12:00:00Z");
@@ -324,4 +325,80 @@ test("buildDigestPrompt: mentions epics guidance and the no-invented-ETA rule", 
   assert.match(p, /snapshot\.epics/);
   assert.match(p, /never estimate one yourself/);
   assert.match(p, /readyToClose is fully finished — close it\?/);
+});
+
+test("digester: model falls back digest.model → summaries.model → claude-haiku-5-5; budget digest → summaries", async () => {
+  /** @param {any} cfgExtra */
+  const argvOf = async (cfgExtra) => {
+    /** @type {string[]} */ let argv = [];
+    const dir = stateDir();
+    const d = createDigester({ cfg: { name: "dev", stateDir: dir, claudeBin: "claude", digest: { soul: path.join(dir, "SOUL.md") }, ...cfgExtra }, run: async (_b, a) => ((argv = a), JSON.stringify({ result: "ok" })), now: () => NOW });
+    const rec = await d.request();
+    return { model: argv[argv.indexOf("--model") + 1], budget: argv.includes("--max-budget-usd") ? argv[argv.indexOf("--max-budget-usd") + 1] : null, rec };
+  };
+  const def = await argvOf({});
+  assert.equal(def.model, "claude-haiku-5-5");
+  assert.equal(def.rec.model, "claude-haiku-5-5", "the record names the model it ran on");
+  assert.equal(def.budget, null, "no budget configured: no flag");
+  const sum = await argvOf({ summaries: { model: "s-model", maxBudgetUsd: 0.3 } });
+  assert.deepEqual([sum.model, sum.budget], ["s-model", "0.3"]);
+  const own = await argvOf({ digest: { soul: "/nope", model: "d-model", maxBudgetUsd: 2 }, summaries: { model: "s-model", maxBudgetUsd: 0.3 } });
+  assert.deepEqual([own.model, own.budget], ["d-model", "2"]);
+});
+
+test("digester: language falls back lang → cfg.language → en; cached per language, single-flight per language", async () => {
+  const dir = stateDir();
+  /** @type {string[]} */ const langs = [];
+  /** @type {((v: string) => void)[]} */ const finish = [];
+  /** @param {any} cfgExtra */
+  const make = (cfgExtra = {}) =>
+    createDigester({
+      cfg: { name: "dev", stateDir: dir, claudeBin: "claude", digest: { soul: path.join(dir, "SOUL.md") }, ...cfgExtra },
+      run: (_b, a) => {
+        const lang = /language "([^"]+)"/.exec(a[a.indexOf("-p") + 1])?.[1] ?? "?";
+        langs.push(lang);
+        return new Promise((r) => finish.push(() => r(JSON.stringify({ result: `in ${lang}` }))));
+      },
+      now: () => NOW,
+    });
+  const d = make();
+  const en1 = d.request();
+  const en2 = d.request({});
+  const es = d.request({ lang: "es" });
+  assert.deepEqual(langs, ["en", "es"], "one run per language; the second en request joined");
+  finish.forEach((f) => f(""));
+  assert.equal((await en1).text, "in en");
+  assert.equal(await en2, await en1);
+  assert.equal((await es).lang, "es");
+  assert.equal(readDigest(dir, "en")?.text, "in en");
+  assert.equal(readDigest(dir, "es")?.text, "in es", "both languages kept");
+  assert.equal(readDigest(dir, "fr"), null);
+
+  const fr = make({ language: "fr" });
+  const p = fr.request();
+  finish.at(-1)?.("");
+  assert.equal((await p).text, "in fr", "cfg.language is the default");
+  assert.equal(readDigest(dir, "en")?.text, "in en");
+});
+
+test("readDigest/writeDigest: a legacy flat digest.json reads as the legacyLang entry and is carried over on the next write", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-digest-legacy-"));
+  const legacy = { text: "Old", generatedAt: "2026-10-01T00:00:00Z", basedOnEvents: 0, needsYou: 0 };
+  fs.writeFileSync(path.join(dir, "digest.json"), JSON.stringify(legacy));
+  assert.equal(readDigest(dir)?.text, "Old", "default en");
+  assert.equal(readDigest(dir, "es"), null);
+  assert.equal(readDigest(dir, "es", "es")?.text, "Old", "a profile with language es reads it as es");
+  writeDigest(dir, { ...legacy, text: "Nuevo", lang: "es" }, "en");
+  assert.equal(readDigest(dir, "es")?.text, "Nuevo");
+  assert.equal(readDigest(dir, "en")?.text, "Old", "the legacy record survives as the en entry");
+  assert.equal((fs.statSync(path.join(dir, "digest.json")).mode & 0o777), 0o600);
+});
+
+test("buildToolLessArgs is the digest argv builder; summariesErrors validates the block", () => {
+  assert.equal(buildDigestArgs, buildToolLessArgs);
+  assert.deepEqual(summariesErrors(undefined), []);
+  assert.deepEqual(summariesErrors({ model: "claude-haiku-5-5", maxBudgetUsd: 0.05 }), []);
+  assert.equal(summariesErrors({ maxBudgetUsd: 0 }).length, 1);
+  assert.equal(summariesErrors({ model: "" }).length, 1);
+  assert.equal(summariesErrors("x").length, 1);
 });

@@ -595,6 +595,49 @@ test("digest: delegates to the digester, audited; no digester → refused; not a
   assert.deepEqual(lines.map((l) => [l.cmd, l.ok, l.actor]), [["digest", true, "ui"], ["digest", false, "unknown"]]);
 });
 
+test("digest {lang}: canonicalized and forwarded; an invalid lang is refused before the digester", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
+  const cfg = /** @type {any} */ ({ name: "t", provider: "github", stateDir: dir, dataDir: dir, pipeline: [{ id: "code" }] });
+  const store = createStore(dir);
+  const queue = createQueue(1, () => new Promise(() => {}), undefined, {});
+  /** @type {any[]} */ const asked = [];
+  const ops = createOps({ cfg, store, forge: null, queue, leavePipeline() {}, adapter: /** @type {any} */ ({}), cancelRun: () => false, intake: () => 0, emit() {}, heartbeat: { update() {} }, pull: async () => {}, isLocked: () => false, digester: { request: async (o) => (asked.push(o), { text: "x" }) } });
+  await ops.digest({});
+  await ops.digest({ lang: "ES" });
+  await assert.rejects(ops.digest({ lang: "no way!" }), /BCP-47/);
+  assert.deepEqual(asked, [{}, { lang: "es" }]);
+});
+
+test("summary: validates ref + lang, forwards canonical lang, refusals readable; not a write (no audit, no board-cache reset)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
+  const cfg = /** @type {any} */ ({ name: "t", provider: "github", stateDir: dir, dataDir: dir, pipeline: [{ id: "code" }] });
+  const store = createStore(dir);
+  const queue = createQueue(1, () => new Promise(() => {}), undefined, {});
+  let boardReads = 0;
+  const adapter = /** @type {any} */ ({ listResting: async () => (boardReads++, []) });
+  /** @type {any[]} */ const asked = [];
+  const summarizer = {
+    request: async (/** @type {any} */ o) => {
+      asked.push(o);
+      if (o.ref === "theirs") throw new Error("theirs is not assigned to us");
+      return { ref: o.ref, lang: o.lang, text: "Resumen", generatedAt: "t" };
+    },
+  };
+  const base = { cfg, store, forge: null, queue, leavePipeline() {}, adapter, cancelRun: () => false, intake: () => 0, emit() {}, heartbeat: { update() {} }, pull: async () => {}, isLocked: () => false };
+  const ops = createOps({ ...base, summarizer });
+  await ops.board({});
+  assert.deepEqual(await ops.summary({ ref: "7", lang: "es-mx", actor: "ui" }), { ref: "7", lang: "es-MX", text: "Resumen", generatedAt: "t" });
+  await assert.rejects(ops.summary({ ref: "7", lang: "<script>" }), /BCP-47/);
+  await assert.rejects(ops.summary({ ref: "7" }), /BCP-47/);
+  await assert.rejects(ops.summary({ ref: 7, lang: "en" }), /ref is required/);
+  await assert.rejects(ops.summary({ ref: "theirs", lang: "en" }), /not assigned to us/);
+  assert.equal(asked.length, 2, "invalid args never reach the summarizer");
+  await ops.board({});
+  assert.equal(boardReads, 1, "the board cache survived the summary calls");
+  assert.ok(!fs.existsSync(path.join(dir, "control-audit.jsonl")), "not audited");
+  await assert.rejects(createOps(base).summary({ ref: "7", lang: "en" }), /not available/);
+});
+
 /** A fake epic-capable adapter counting its tracker reads. */
 function epicAdapter() {
   const calls = { listEpics: 0, listEpicTickets: /** @type {string[]} */ ([]) };

@@ -45,6 +45,7 @@ import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
 import { createDigester } from "../digest.js";
+import { createSummarizer } from "../summarize.js";
 import { claimStateDir, writeProfileMarker } from "../profile.js";
 import { createOps } from "../ops.js";
 import { readQuota, writeQuota } from "../quota-file.js";
@@ -196,6 +197,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
         return r.supported ? r.epics : null;
       },
     }),
+    summarizer: createSummarizer({ cfg, store, adapter, emit }),
     cancelRun: runClaude.cancel,
     pull: () => puller.pull(),
     // mirrors dispatch's leavePipeline: a ref abandoned by `cancel` must not keep an overlap lock

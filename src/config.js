@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { controlSockPath } from "./paths.js";
 import { identityErrors } from "./identity.js";
-import { digestErrors } from "./digest-config.js";
+import { digestErrors, summariesErrors } from "./digest-config.js";
 import { pricingErrors } from "./pricing.js";
 import { energyErrors } from "./energy.js";
 import { quotaErrors } from "./quota.js";
@@ -587,6 +587,7 @@ export function validateRawConfig(raw) {
   errors.push(...sinkErrors(cfg.sinks));
   errors.push(...identityErrors(cfg.ui));
   errors.push(...digestErrors(cfg.digest));
+  errors.push(...summariesErrors(cfg.summaries));
   errors.push(...pricingErrors(cfg.pricing));
   errors.push(...energyErrors(cfg.energy));
   errors.push(...quotaErrors(cfg.quota));

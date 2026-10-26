@@ -25,7 +25,7 @@ const PLAIN_EVENTS: Record<string, MessageKey> = {
 };
 
 /** Event names hidden from the activity feed by default (src/events.js HIDDEN_BY_DEFAULT). */
-const HIDDEN_FEED_EVENTS = new Set(["coalesced", "digest_start", "digest_end", "epic_changed"]);
+const HIDDEN_FEED_EVENTS = new Set(["coalesced", "digest_start", "digest_end", "summary_end", "epic_changed"]);
 
 /** Whether `name` (events.jsonl's `event` field) should not be appended to the activity feed. */
 export function isHiddenFeedEvent(name: string): boolean {

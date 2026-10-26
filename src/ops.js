@@ -19,6 +19,7 @@ import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
 import { repositoryOf } from "./heartbeat.js";
 import { buildRows, readProfileState } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
+import { canonicalLang } from "./digest-config.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
@@ -105,7 +106,8 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   leavePipeline?: (ref: string) => void,
  *   isLocked: () => boolean,
  *   now?: () => number,
- *   digester?: { request(): Promise<any> },
+ *   digester?: { request(o?: { lang?: string }): Promise<any> },
+ *   summarizer?: { request(o: { ref: string, lang: string }): Promise<any> },
  *   onEpicChanged?: (reset: () => void) => void,
  *   pacer?: { operatorPause(): void, operatorResume(): string|null },
  * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it.
@@ -118,6 +120,7 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
 export function createOps(deps) {
   const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline, pacer } = deps;
   const digester = deps.digester;
+  const summarizer = deps.summarizer;
   const now = deps.now ?? Date.now;
 
   /** @param {string} cmd @param {any} args @param {{ok: boolean, error?: string}} outcome */
@@ -522,10 +525,19 @@ export function createOps(deps) {
     }),
     // The Digest (src/digest.js): a tool-less summary outside the slot pool. Waits for the result;
     // a request while one runs joins it. Never touches the board, so it is not a ticket write.
-    digest: write("digest", async () => {
+    // `lang` (the viewer's UI language) picks the language and the per-language cache entry.
+    digest: write("digest", async (args) => {
       if (!digester) throw new Error("digest is not available on this receiver");
-      return await digester.request();
+      return await digester.request(args.lang === undefined ? {} : { lang: canonicalLang(args.lang) });
     }),
+    // A ticket's summary in the viewer's language (src/summarize.js): read-like and cached, called
+    // on every drawer open — so not a `write` (no board-cache reset, no audit line per open).
+    async summary(/** @type {any} */ args) {
+      if (!summarizer) throw new Error("summary is not available on this receiver");
+      const ref = needString(args?.ref, "ref");
+      const lang = canonicalLang(args?.lang);
+      return await summarizer.request({ ref, lang });
+    },
     pull: write("pull", async () => {
       await pull();
       return { ...queue.state() };

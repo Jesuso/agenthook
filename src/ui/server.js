@@ -30,6 +30,7 @@
 // the profile's `.env` checked for a claude credential, no value returned. Nothing else in any
 // state dir is ever written.
 import { readDigest } from "../digest.js";
+import { canonicalLang } from "../digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
 import { readStats } from "./stats.js";
@@ -84,6 +85,7 @@ const DISMISS = "/api/dismiss";
 const RETRY = "/api/retry";
 const RELEASE = "/api/release";
 const DIGEST = "/api/digest";
+const SUMMARY = "/api/summary";
 const PAUSE = "/api/pause";
 const RESUME = "/api/resume";
 
@@ -108,12 +110,12 @@ export function cookieToken(header) {
 
 /**
  * @param {{ port: number, token: string, distDir: string, registry?: string,
- *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, epicsTimeoutMs?: number,
+ *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, summaryTimeoutMs?: number, epicsTimeoutMs?: number,
  *   sandboxIo?: { run?: import('../types.js').IngressRun, has?: (bin: string) => boolean,
  *     build?: (bin: string, args: string[], dockerfile: string) => { status: number|null } } }} opts  `sandboxIo`: the readiness probes (tests stub them)
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, epicsTimeoutMs = 20000, sandboxIo = {} }) {
+export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, summaryTimeoutMs = 200000, epicsTimeoutMs = 20000, sandboxIo = {} }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -346,23 +348,54 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       });
     });
 
+  /** A canonical BCP-47 tag, or null when `v` is not one. @param {unknown} v */
+  const langOrNull = (v) => {
+    try {
+      return canonicalLang(v);
+    } catch {
+      return null;
+    }
+  };
+
   /**
-   * `POST /api/digest` — readGuardedJson, then `{profile}` a string → else 400; unknown profile →
-   * 404. Sends `{cmd:'digest', args:{actor:'ui'}}` and waits (the agent takes up to a few
-   * minutes; a request while one runs joins it). 200 = the new DigestView. Audits
-   * `{ts, action:'digest', profile, status}`. The UI never spawns the agent itself.
+   * `POST /api/digest` — readGuardedJson, then `{profile}` a string and `lang`, when present, a
+   * BCP-47 tag (the viewer's UI language) → else 400; unknown profile → 404. Sends
+   * `{cmd:'digest', args:{actor:'ui'[, lang]}}` and waits (the agent takes up to a few minutes; a
+   * request for the same language while one runs joins it). 200 = the new DigestView. Audits
+   * `{ts, action:'digest', profile, status[, lang]}`. The UI never spawns the agent itself.
    * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
    */
   const postDigest = (req, res, host) =>
     readGuardedJson(req, res, host, (body) => {
       const { profile } = body;
       if (typeof profile !== "string") return send(res, 400);
+      const lang = body.lang === undefined ? null : langOrNull(body.lang);
+      if (body.lang !== undefined && !lang) return send(res, 400);
       const sock = resolveProfileSock(registry, profile);
       if (!sock) return send(res, 404);
-      callControl(sock.sockPath, "digest", { actor: "ui" }, digestTimeoutMs).then(({ status, body: result }) => {
-        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "digest", profile, status });
+      const withLang = lang ? { lang } : {};
+      callControl(sock.sockPath, "digest", { actor: "ui", ...withLang }, digestTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "digest", profile, status, ...withLang });
         sendStatusJson(res, status, result);
       });
+    });
+
+  /**
+   * `POST /api/summary` — readGuardedJson, then `{profile, ref, lang}` (strings, `lang` a BCP-47 tag)
+   * → else 400; unknown profile → 404. Sends `{cmd:'summary', args:{ref, lang, actor:'ui'}}`: a
+   * cached ticket summary in the viewer's language, or one cheap tool-less run (src/summarize.js).
+   * A POST, not a GET: a miss spends money, so it gets the same Host/CSRF guard as the digest. Not
+   * audited — the drawer asks on every open and a cache hit is a read.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postSummary = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, ref } = body;
+      const lang = langOrNull(body.lang);
+      if (typeof profile !== "string" || typeof ref !== "string" || !ref || !lang) return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "summary", { ref, lang, actor: "ui" }, summaryTimeoutMs).then(({ status, body: result }) => sendStatusJson(res, status, result));
     });
 
   /** A profile's config path (profile.json, else the heartbeat), or null. @param {string} profile */
@@ -489,9 +522,10 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     if (req.method === "POST" && p === RETRY) return postRetry(req, res, host);
     if (req.method === "POST" && p === RELEASE) return postRelease(req, res, host);
     if (req.method === "POST" && p === DIGEST) return postDigest(req, res, host);
+    if (req.method === "POST" && p === SUMMARY) return postSummary(req, res, host);
     if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
     if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
-    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RELEASE || p === PAUSE || p === RESUME) {
+    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RELEASE || p === PAUSE || p === RESUME || p === SUMMARY) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }
@@ -565,7 +599,9 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       if (p === DIGEST) {
         const dir = profileDir(registry, params.get("profile") || "");
         if (!dir) return send(res, 404);
-        return sendJson(res, () => ({ digest: readDigest(dir) }));
+        const lang = params.has("lang") ? langOrNull(params.get("lang")) : "en";
+        if (!lang) return send(res, 400);
+        return sendJson(res, () => ({ digest: readDigest(dir, lang) }));
       }
       if (p === "/api/discover") {
         const sock = resolveProfileSock(registry, params.get("profile") || "");

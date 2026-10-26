@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Ticket summaries and the Digest in the dashboard's language. The ticket drawer shows the quick
+  extract of the description at once, then swaps in a short summary written in the UI language by
+  a cheap tool-less `claude -p` (`summaries.model`, default `claude-haiku-5-5`;
+  `summaries.maxBudgetUsd`, default $0.10 per run). Summaries are cached per ticket, language and
+  description in `<stateDir>/ticket-summaries.json`, so reopening a ticket or switching back to a
+  language costs no run, and an edited description is re-summarized. Only a tracked ticket
+  assigned to us is summarized (never an epic); a failure silently keeps the extract. The work goes
+  through a new `summary` control op behind `POST /api/summary`, never on boot or a timer, with at
+  most 2 runs at once outside the agent slots. A `summary_end` event (hidden by default) records
+  each run's cost (#573).
 - An optional profile `language` (a BCP-47 tag such as `es`): agents write their human-facing
   text (verdict reason, the one plain sentence, tracker comments, held questions) and the Digest in
   that language. Code, commits and PRs are unaffected. Unset keeps today's behaviour (#564).
@@ -43,6 +53,15 @@ All notable changes to this project are documented here. The format is based on
   Release panel and the ticket drawer. Confirming sends the chosen text through the existing
   `release` op, exactly like a typed answer — no tracker comment, no new adapter method. A held
   ticket without options renders as before (#565).
+
+### Changed
+
+- **Behavior change:** the Digest follows the dashboard's language (falling back to `language`,
+  then English) and is cached per language in `digest.json`; an older single-digest file is still
+  read, not lost. With `digest.model` unset the Digest now runs on
+  `summaries.model` (Haiku 5.5 by default) instead of the CLI's default model, and with
+  `digest.maxBudgetUsd` unset it uses `summaries.maxBudgetUsd` when that is set. Set
+  `digest.model` to keep the old model (#573).
 
 ## [0.12.0] — 2026-10-24
 

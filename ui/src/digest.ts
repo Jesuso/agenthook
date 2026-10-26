@@ -4,14 +4,14 @@ import { translate } from "./i18n";
 
 const guarded = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json", "X-AH-UI": "1" }, body: JSON.stringify(body) });
 
-/** Generate (or join the running) digest: `POST /api/digest`. It answers when the agent is done. */
-export function digestRequest(profile: string): { url: string; init: RequestInit } {
-  return { url: "/api/digest", init: guarded("POST", { profile }) };
+/** Generate (or join the running) digest in the UI language `lang`: `POST /api/digest`. It answers when the agent is done. */
+export function digestRequest(profile: string, lang?: string): { url: string; init: RequestInit } {
+  return { url: "/api/digest", init: guarded("POST", lang ? { profile, lang } : { profile }) };
 }
 
-/** The cached digest: `GET /api/digest?profile=`. */
-export function digestUrl(profile: string): string {
-  return `/api/digest?profile=${encodeURIComponent(profile)}`;
+/** The cached digest in `lang`: `GET /api/digest?profile=&lang=`. */
+export function digestUrl(profile: string, lang?: string): string {
+  return `/api/digest?profile=${encodeURIComponent(profile)}${lang ? `&lang=${encodeURIComponent(lang)}` : ""}`;
 }
 
 export type DigestOutcome = { ok: true; digest: DigestView } | { ok: false; error: string };

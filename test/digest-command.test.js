@@ -66,7 +66,7 @@ test("receiver down: writes digest.json, prints text + footer, appends digest_st
     assert.equal(c.out[0], "All quiet.");
     assert.match(c.out[1], /^generated .*\$0\.02$/);
     const rec = JSON.parse(fs.readFileSync(path.join(p.stateDir, "digest.json"), "utf8"));
-    assert.equal(rec.text, "All quiet.");
+    assert.equal(rec.byLang.en.text, "All quiet.", "no language configured: the en entry");
     const lines = fs.readFileSync(path.join(p.stateDir, "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
     assert.deepEqual(lines.map((l) => l.event), ["digest_start", "digest_end"]);
   } finally {

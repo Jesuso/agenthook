@@ -651,7 +651,8 @@
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {SandboxConfig} [sandbox]  optional; absent = agents run on the host. Set = each run in its own container (src/sandbox/)
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
- * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config
+ * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config; unset `model`/`maxBudgetUsd` fall back to `summaries.*`
+ * @property {{ model?: string, maxBudgetUsd?: number }} [summaries]  cheap tool-less summaries in the UI language (src/summarize.js); `model` default "claude-haiku-5-5", `maxBudgetUsd` default 0.1 per ticket-summary run
  * @property {Record<string, { input: number, output: number, cacheRead?: number, cacheWrite?: number }>} [pricing]  API-equivalent $/Mtok per model name or glob (src/pricing.js); checked before the built-in Claude rates
  * @property {{ usdPerKwh: number, source: { type: 'hwmon'|'command'|'watts', name?: string, cmd?: string, watts?: number } }} [energy]  local energy basis (src/energy.js): the power source an `energy: true` step's runs are measured with, and the electricity price
  * @property {{ pauseAboveSevenDay?: number, pauseAboveFiveHour?: number }} [quota]  opt-in Claude quota pacer (src/quota.js): pause admission at/above a window's utilization (0–1], resume at its reset

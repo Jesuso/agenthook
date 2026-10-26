@@ -3,7 +3,8 @@
 // The receiver builds a text snapshot of the profile (what needs a human, what runs, what
 // finished, cost) plus the profile's SOUL, and runs `claude -p` over it with every tool
 // disabled — read-only by construction, whatever `fullAuto` says. It runs outside the slot
-// pool, one at a time; the latest result is the only one kept (<stateDir>/digest.json).
+// pool, one at a time per language; the latest result per language is kept (<stateDir>/digest.json).
+// The tool-less argv and the runner are shared with the ticket summaries (src/summarize.js).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,7 @@ import { readProfileState, buildRows } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { localEpics, epicStats } from "./epics.js";
 import { sumCosts } from "./pricing.js";
+import { SUMMARIES_MODEL } from "./digest-config.js";
 export { digestErrors, DIGEST_ACCESS } from "./digest-config.js";
 
 const WINDOW_MS = 48 * 3600 * 1000;
@@ -191,34 +193,57 @@ export function buildDigestPrompt({ soul, snapshot, profile, language }) {
 }
 
 /**
- * `claude -p` argv for a digest: no tools, no MCP, no saved session, never `fullAuto`. Project settings
- * only (the caller passes a throwaway cwd, so none): the owner's user-level CLAUDE.md and hooks must not shape the
- * text. Pure.
+ * `claude -p` argv for a tool-less run (the digest, a ticket summary): no tools, no MCP, no saved
+ * session, never `fullAuto`. Project settings only (the caller passes a throwaway cwd, so none): the
+ * owner's user-level CLAUDE.md and hooks must not shape the text. Pure.
  * @param {{ prompt: string, model?: string, maxBudgetUsd?: number }} o
  */
-export function buildDigestArgs({ prompt, model, maxBudgetUsd }) {
+export function buildToolLessArgs({ prompt, model, maxBudgetUsd }) {
   const args = ["-p", prompt, "--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--setting-sources", "project"];
   if (model) args.push("--model", model);
   if (maxBudgetUsd) args.push("--max-budget-usd", String(maxBudgetUsd));
   return args;
 }
+export const buildDigestArgs = buildToolLessArgs;
 
-/** @param {string} dir @returns {import('./ui/contract.js').DigestView|null} */
-export function readDigest(dir) {
+/** @param {any} v */
+const isDigest = (v) => !!v && typeof v === "object" && typeof v.text === "string" && typeof v.generatedAt === "string";
+
+/**
+ * The cached digest for `lang`. `digest.json` is `{ byLang: { <lang>: DigestView } }`; a legacy flat
+ * record (one digest, pre per-language) reads as the `legacyLang` entry (the profile's
+ * `language`, else "en").
+ * @param {string} dir @param {string} [lang] @param {string} [legacyLang]
+ * @returns {import('./ui/contract.js').DigestView|null}
+ */
+export function readDigest(dir, lang = "en", legacyLang = "en") {
   const v = readJsonObject(path.join(dir, "digest.json"));
-  return typeof v.text === "string" && typeof v.generatedAt === "string" ? /** @type {any} */ (v) : null;
+  if (v.byLang && typeof v.byLang === "object") return Object.hasOwn(v.byLang, lang) && isDigest(v.byLang[lang]) ? v.byLang[lang] : null;
+  return isDigest(v) && (v.lang ?? legacyLang) === lang ? /** @type {any} */ (v) : null;
 }
 
-/** Receiver-owned state file: temp + rename so a reader never sees a torn write. @param {string} dir @param {object} rec */
-export function writeDigest(dir, rec) {
+/**
+ * Store `rec` as its language's entry (`rec.lang`), keeping the other languages; a legacy flat
+ * record is carried over as the `legacyLang` entry. Receiver-owned state file: temp + rename so a
+ * reader never sees a torn write.
+ * @param {string} dir @param {import('./ui/contract.js').DigestView & { lang: string }} rec @param {string} [legacyLang]
+ */
+export function writeDigest(dir, rec, legacyLang = "en") {
   const file = path.join(dir, "digest.json");
+  const old = readJsonObject(file);
+  /** @type {Record<string, any>} */
+  const byLang = old.byLang && typeof old.byLang === "object" ? { ...old.byLang } : isDigest(old) ? { [old.lang ?? legacyLang]: old } : {};
+  byLang[rec.lang] = rec;
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(rec, null, 2) + "\n", { mode: 0o600 });
+  fs.writeFileSync(tmp, JSON.stringify({ byLang }, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 
-/** Child that prints one JSON document; resolves its text or rejects. @param {string} bin @param {string[]} args @param {string} cwd */
-function defaultRunClaude(bin, args, cwd) {
+/**
+ * Child that prints one JSON document; resolves its stdout or rejects. Shared by every tool-less
+ * run (the digest, ticket summaries). @param {string} bin @param {string[]} args @param {string} cwd
+ */
+export function runClaudeJson(bin, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
@@ -229,7 +254,7 @@ function defaultRunClaude(bin, args, cwd) {
     child.on("error", (e) => (clearTimeout(timer), reject(e)));
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) return reject(new Error(`digest agent exited ${code}: ${err.trim() || "no output"}`));
+      if (code !== 0) return reject(new Error(`${path.basename(bin)} exited ${code}: ${err.trim() || "no output"}`));
       resolve(out);
     });
   });
@@ -246,11 +271,15 @@ function defaultRunClaude(bin, args, cwd) {
  *   readEpics?: () => Promise<import('./epics.js').EpicStats[]|null>,
  * }} deps
  */
-export function createDigester({ cfg, emit, run = defaultRunClaude, now = Date.now, repository = null, readEpics }) {
-  /** @type {Promise<import('./ui/contract.js').DigestView>|null} */
-  let inflight = null;
+export function createDigester({ cfg, emit, run = runClaudeJson, now = Date.now, repository = null, readEpics }) {
+  /** Single-flight per language. @type {Map<string, Promise<import('./ui/contract.js').DigestView>>} */
+  const inflight = new Map();
+  const legacyLang = cfg.language || "en";
+  const model = cfg.digest?.model ?? cfg.summaries?.model ?? SUMMARIES_MODEL;
+  const maxBudgetUsd = cfg.digest?.maxBudgetUsd ?? cfg.summaries?.maxBudgetUsd;
 
-  async function generate() {
+  /** @param {string} language */
+  async function generate(language) {
     const t = now();
     let epics;
     if (readEpics) {
@@ -263,13 +292,13 @@ export function createDigester({ cfg, emit, run = defaultRunClaude, now = Date.n
     }
     const snapshot = buildSnapshot(cfg.stateDir, { repository, now: t, epics, pricing: cfg.pricing });
     const soul = readSoul(cfg.digest?.soul);
-    const prompt = buildDigestPrompt({ soul, snapshot, profile: cfg.name, language: cfg.language });
+    const prompt = buildDigestPrompt({ soul, snapshot, profile: cfg.name, language });
     emit?.("digest_start", "", "");
     // A throwaway cwd outside $HOME: from under it (e.g. the state dir) claude still loaded the
     // owner's user-level CLAUDE.md even with project-only settings (seen live: a spoken-summary line).
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ah-digest-"));
     try {
-      const raw = await run(cfg.claudeBin, buildDigestArgs({ prompt, model: cfg.digest?.model, maxBudgetUsd: cfg.digest?.maxBudgetUsd }), cwd);
+      const raw = await run(cfg.claudeBin, buildToolLessArgs({ prompt, model, maxBudgetUsd }), cwd);
       /** @type {any} */ let res;
       try {
         res = JSON.parse(raw);
@@ -278,20 +307,21 @@ export function createDigester({ cfg, emit, run = defaultRunClaude, now = Date.n
       }
       if (res?.is_error || typeof res?.result !== "string" || !res.result.trim()) throw new Error(`digest agent failed: ${clip(res?.result ?? res?.subtype ?? "empty result", 200)}`);
       const costUsd = typeof res.total_cost_usd === "number" ? res.total_cost_usd : undefined;
-      /** @type {import('./ui/contract.js').DigestView} */
+      /** @type {import('./ui/contract.js').DigestView & { lang: string }} */
       const rec = {
+        lang: language,
         text: res.result.trim().slice(0, RESULT_MAX),
         generatedAt: new Date(now()).toISOString(),
         ...(costUsd !== undefined ? { costUsd } : {}),
-        ...(cfg.digest?.model ? { model: cfg.digest.model } : {}),
+        model,
         basedOnEvents: snapshot.last24h.runs,
         needsYou: snapshot.needsYou.held.length + snapshot.needsYou.failed.length + snapshot.needsYou.prAwaitingMerge.length,
       };
-      writeDigest(cfg.stateDir, rec);
-      emit?.("digest_end", "", "", { outcome: "ok", ...(costUsd !== undefined ? { costUsd } : {}) });
+      writeDigest(cfg.stateDir, rec, legacyLang);
+      emit?.("digest_end", "", "", { outcome: "ok", lang: language, ...(costUsd !== undefined ? { costUsd } : {}) });
       return rec;
     } catch (e) {
-      emit?.("digest_end", "", "", { outcome: "fail", reason: clip(e.message, 200) });
+      emit?.("digest_end", "", "", { outcome: "fail", lang: language, reason: clip(e.message, 200) });
       throw e;
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
@@ -299,13 +329,21 @@ export function createDigester({ cfg, emit, run = defaultRunClaude, now = Date.n
   }
 
   return {
-    /** Start (or join) a digest run. */
-    request() {
-      if (!inflight) inflight = generate().finally(() => (inflight = null));
-      return inflight;
+    /**
+     * Start (or join) a digest run in `lang` (else the profile's `language`, else "en").
+     * @param {{ lang?: string }} [o]
+     */
+    request({ lang } = {}) {
+      const language = lang || legacyLang;
+      let p = inflight.get(language);
+      if (!p) {
+        p = generate(language).finally(() => inflight.delete(language));
+        inflight.set(language, p);
+      }
+      return p;
     },
     get running() {
-      return inflight !== null;
+      return inflight.size > 0;
     },
   };
 }

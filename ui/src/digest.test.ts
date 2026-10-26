@@ -15,6 +15,10 @@ describe("digest requests", () => {
   it("encodes the profile in the read url", () => {
     expect(digestUrl("a b")).toBe("/api/digest?profile=a%20b");
   });
+  it("sends the UI language on POST and GET", () => {
+    expect(JSON.parse(String(digestRequest("dev", "es").init.body))).toEqual({ profile: "dev", lang: "es" });
+    expect(digestUrl("dev", "es")).toBe("/api/digest?profile=dev&lang=es");
+  });
 });
 
 describe("digestOutcome", () => {
