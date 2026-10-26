@@ -430,3 +430,15 @@ describe("restartReducer", () => {
     expect(restartText({ kind: "up" }, "restarted")).toBe("restarted");
   });
 });
+
+describe("config helpers in Spanish", () => {
+  it("translate with lang and keep English by default", () => {
+    expect(releaseOutcome("#42", 200, { step: "triage" }, "es")).toEqual({ ok: true, text: "#42 liberado → reejecutando triage" });
+    expect(retryOutcome("#42", 418, null, "es")).toEqual({ ok: false, error: "la reejecución falló (estado 418)" });
+    expect(restartText({ kind: "pending", pid: 1, active: 2 }, undefined, "es")).toBe("reinicio pendiente (2 agentes en curso)");
+    expect(restartText({ kind: "up" }, undefined, "es")).toBe("activo — la nueva configuración ya está en uso");
+    expect(restartReducer({ kind: "requesting", pid: 1 }, { type: "response", status: 0, body: null, lang: "es" })).toEqual({ kind: "error", message: "El reinicio falló (error de red)" });
+    expect(bannerStatus(null, ["a"], [], { onCard: () => true, incomplete: () => false }, "es")).toMatchObject({ first: "1 problema — mira las tarjetas resaltadas" });
+    expect(sensitiveDiff(cfg(), cfg({ sinks: [] }), "es").some((c) => c.to === "(sin definir)")).toBe(true);
+  });
+});

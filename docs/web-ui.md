@@ -757,10 +757,14 @@ in the panel re-renders the app in place through `I18nProvider` (in `App.tsx`) a
   dictionary is only ever an explicit choice, and its option says "(partial)". Completeness is
   that flag, not a key count: the parity test makes every dictionary's keys equal.
 - English and Español are endonyms and never translated; "Auto" and "(partial)" are.
-- Translated so far: the app shell and app bar, Home, the Overview (Needs you, Now, the digest
-  panel's chrome, Progress and its history strip) and every shared component. The Tickets table,
-  ticket drawer, Epics, Stats, Instructions and Config views are still English (#562), and so
-  are ticket ids, code, logs and anything an agent wrote (the digest body, reasons, summaries).
+- Translated: every view (#561, #562) — the app shell, Home, the Overview, Epics and the epic
+  page, Stats, the Tickets table, the ticket drawer and its run-log viewer chrome, Config (with
+  every form label and help line), Instructions, the pipeline graph, every dialog and shared
+  component. Español is complete (neutral Latin American Spanish, tú form), so Auto picks it.
+  Never translated: ticket titles and other tracker content, anything an agent wrote (the digest
+  body, reasons, summaries), log text, config keys and the raw key shown beside each form label,
+  ids, code and copyable CLI commands. A server's error detail is quoted as-is inside a
+  translated sentence.
 - **Known gap:** the spend, energy and quota readouts come from `src/pricing.js`,
   `src/energy.js` and `src/quota.js`, which the CLI shares, so they stay English in every
   language.
@@ -772,7 +776,25 @@ falls back to `other`). Components call `const { t, lang } = useT()`; a key miss
 dictionary falls back to English, then to the key itself. The pure helpers in `format.ts`,
 `stats.ts` and `statsModels.ts` take a trailing `lang` (default `"en"`). At `"en"` they keep
 their hand-built English, so output never depends on the browser's ICU; other languages use
-`Intl.RelativeTimeFormat` (narrow), `Intl.NumberFormat` (USD) and `toLocaleDateString`.
+`Intl.RelativeTimeFormat` (narrow), `Intl.NumberFormat` (USD) and `toLocaleDateString`. Every
+other helper that returns UI text (`epics.ts`, `failure.ts`, `remove.ts`, `save.ts`, `config.ts`,
+…) takes the same trailing `lang`, and its English output is unchanged byte for byte.
+
+**Config labels and help.** `src/config-schema.js` stays English: the CLI and the server share
+it. A language translates it with an overlay, `ui/src/i18n/schema.<lang>.ts`: a
+`Record<path, { label, help }>` keyed by the entry's dotted path (`tracker.pipeline.*.maxMinutes`).
+`fieldMeta(path, lang)` uses the overlay's entry when it has one, else the schema's English; the
+raw key beside the label is never translated. `schema.test.ts` holds the Spanish overlay's keys to
+`CONFIG_SCHEMA`'s paths exactly, so a new config key fails CI until it is translated.
+
+**Hard-coded text guard.** `ui/src/i18n/hardcoded.test.ts` parses every non-test
+`ui/src/**/*.tsx` (outside `i18n/`) with the TypeScript compiler and fails on JSX text with a
+letter in it, and on a string literal with a letter in it as the value of `title`, `aria-label`,
+`placeholder`, `label`, `alt`, `confirmLabel`, `cancelLabel` or `body` (or a `{"…"}` child),
+naming the file, line and text. Names, ids, key caps and commands that are never translated are
+an exact-string allowlist in the test. It can't see string literals outside JSX (plain `.ts`
+helpers, `ask({…})` objects), so review those by hand. Tests render in English whatever the
+host's languages: `ui/src/test-setup.ts` (vitest `setupFiles`) sets English before each test.
 
 **Adding a language:**
 1. Copy `ui/src/i18n/en.ts` to `ui/src/i18n/<lang>.ts`, type its messages as
@@ -783,8 +805,10 @@ their hand-built English, so output never depends on the browser's ICU; other la
    Te necesita, Listo para cerrar, Resumen, Servicio, SOUL).
 3. Register it in `DICTIONARIES` in `ui/src/i18n/index.ts`. The reading panel lists it by its
    `meta.name`.
-4. Set `meta.complete: true` only once every view renders through it; until then Auto skips it.
-5. Run `npm run typecheck:ui` and `npm run test:ui`. The parity test (`i18n.test.ts`) fails on a
+4. Copy `ui/src/i18n/schema.es.ts` to `schema.<lang>.ts`, translate it, and register it in
+   `SCHEMA_OVERLAYS` (`ConfigForms.tsx`); give it a completeness test like `schema.test.ts`.
+5. Set `meta.complete: true` only once every view renders through it; until then Auto skips it.
+6. Run `npm run typecheck:ui` and `npm run test:ui`. The parity test (`i18n.test.ts`) fails on a
    missing or extra key, a differing `{var}` set in any plural form, or a plural where English has
    a string.
 

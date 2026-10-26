@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { epicsAction, isUndoKey, overviewAction, setShortcutsEnabled, shortcutsEnabled } from "./shortcuts";
+import { EPICS_SHORTCUTS, epicsAction, isUndoKey, overviewAction, setShortcutsEnabled, shortcutsEnabled } from "./shortcuts";
+import { translate } from "./i18n";
 
 const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; target: unknown }> = {}) =>
   ({ key: k, metaKey: false, ctrlKey: false, altKey: false, target: { tagName: "BUTTON" }, ...over }) as Parameters<typeof overviewAction>[0];
@@ -39,6 +40,11 @@ describe("epicsAction", () => {
     expect(epicsAction(key("?"), false)).toBe("help");
     expect(epicsAction(key("r"), false)).toBeNull();
     expect(epicsAction(key("d"), false)).toBeNull();
+  });
+  it("lists its keys as written, with the help text in each language", () => {
+    expect(EPICS_SHORTCUTS.map((s) => s.keys)).toEqual(["j / k", "Enter", "u", "?"]);
+    expect(EPICS_SHORTCUTS.map((s) => translate("en", s.what))).toEqual(["Move to the next / previous epic (on an epic's page: ticket)", "Open the focused epic or ticket", "Back to the epics list", "Show this list (Esc closes it)"]);
+    expect(translate("es", EPICS_SHORTCUTS[2].what)).toBe("Volver a la lista de épicas");
   });
   it("passes through while typing, with a modifier, or under a dialog", () => {
     expect(epicsAction(key("j", { target: { tagName: "INPUT" } as unknown as EventTarget }), false)).toBeNull();

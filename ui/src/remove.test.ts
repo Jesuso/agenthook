@@ -1,10 +1,14 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { canConfirmRemove, classifyRemoveResponse, pendingText, removeErrorText, removeRequest } from "./remove";
 import { clearRemovedProfile } from "./state";
 import { RemoveProfileForm } from "./RemoveProfile";
 import type { RemovePreview } from "./contract";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
+import { mount } from "./domHarness";
 
 describe("canConfirmRemove", () => {
   it("accepts only the exact label", () => {
@@ -65,6 +69,7 @@ describe("clearRemovedProfile", () => {
 });
 
 describe("RemoveProfileForm", () => {
+  afterEach(() => setLangSetting("en", []));
   const preview: RemovePreview = {
     profile: "key",
     label: "My Bot",
@@ -102,6 +107,25 @@ describe("RemoveProfileForm", () => {
     const down = render({ preview: { up: false } });
     expect(down).not.toMatch(/type="checkbox"/);
     expect(down).toContain("agenthook unregister --config ~/proj/agenthook.config.json");
+  });
+
+  it("renders in Spanish under the provider", async () => {
+    setLangSetting("es", []);
+    const m = await mount(createElement(I18nProvider, null, createElement(RemoveProfileForm, {
+      preview: { ...preview, configPath: null },
+      typed: "",
+      onType: () => {},
+      unregister: true,
+      onUnregister: () => {},
+      busy: false,
+      error: null,
+      onSubmit: () => {},
+      onCancel: () => {},
+    })));
+    expect([...m.root.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Cancelar", "Quitar"]);
+    expect(m.root.textContent).toContain("Dar de baja los webhooks");
+    expect(m.root.textContent).toContain("El archivo de configuración no se modifica: desconocido.");
+    await m.unmount();
   });
 
   it("names the archive pattern and the untouched config (unknown for a legacy dir)", () => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { InstructionsView as InstructionsBody, ProfileView } from "./contract";
-import { DISCARD_PROMPT, baseName, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
+import { baseName, discardPrompt, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -11,6 +11,7 @@ import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
 import { EmptyState, Pill, Segmented } from "./components";
+import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
 type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
@@ -19,8 +20,6 @@ type Side = "none" | "preview" | "agent";
 /** `localStorage` key for the last file opened in a profile, so re-opening the tab lands there. */
 const lastFileKey = (profile: string) => `ah.instructions.last:${profile}`;
 
-const OVERWRITE_TITLE = "Overwrite the on-disk version with your buffer?";
-const OVERWRITE_BODY = "The on-disk changes will be replaced (the previous content is kept as .bak).";
 
 /**
  * Per-profile standing-instruction files and a CodeMirror editor over one of them. Saves go
@@ -35,6 +34,7 @@ export default function InstructionsView(props: {
   /** The profile to open on (the dashboard's ⋯ menu); falls back to the first one. */
   initialProfile?: string;
 }) {
+  const { t, lang } = useT();
   const [picked, setPicked] = useState(props.initialProfile ?? props.profiles[0]?.name ?? "");
   const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
   const [list, setList] = useState<ListState>({ kind: "loading" });
@@ -160,7 +160,7 @@ export default function InstructionsView(props: {
     };
     const fail = (status: number) => {
       settle({ type: "failed" });
-      setToast(saveErrorText(status));
+      setToast(saveErrorText(status, lang));
     };
     fetch(url, init)
       .then((res) => {
@@ -174,7 +174,7 @@ export default function InstructionsView(props: {
   };
 
   const overwrite = () => {
-    ask({ title: OVERWRITE_TITLE, body: OVERWRITE_BODY, confirmLabel: "Overwrite", destructive: true }).then((ok) => ok && put("overwrite"));
+    ask({ title: t("instructions.overwriteTitle"), body: t("instructions.overwriteBody"), confirmLabel: t("instructions.overwrite"), destructive: true }).then((ok) => ok && put("overwrite"));
   };
 
   /** Diff on a conflict: the 409 carried the disk content; an SSE-raised one fetches it. */
@@ -189,10 +189,10 @@ export default function InstructionsView(props: {
     fetch(instructionFileUrl(target.profile, target.path))
       .then((res) => {
         if (res.status === 404) return settle({ type: "disk", disk: null });
-        if (!res.ok) return setToast(`Couldn't load the on-disk version (status ${res.status})`);
+        if (!res.ok) return setToast(t("instructions.diskLoadFailed", { status: res.status }));
         return res.json().then((b: { content: string; hash: string }) => settle({ type: "disk", disk: b }));
       })
-      .catch(() => setToast("Couldn't load the on-disk version (network error)"));
+      .catch(() => setToast(t("instructions.diskLoadNetwork")));
   };
 
   // Mod-s anywhere in the view (the editor's own binding stops propagation when it has focus).
@@ -233,7 +233,7 @@ export default function InstructionsView(props: {
   /** Runs `go` now on a clean buffer, else after the discard is confirmed. */
   const unlessDirty = (go: () => void) => {
     if (!dirty) return go();
-    ask({ title: "Unsaved changes", body: DISCARD_PROMPT, confirmLabel: "Discard", cancelLabel: "Keep editing", destructive: true }).then((ok) => ok && go());
+    ask({ title: t("instructions.unsavedTitle"), body: discardPrompt(lang), confirmLabel: t("instructions.discard"), cancelLabel: t("instructions.keepEditing"), destructive: true }).then((ok) => ok && go());
   };
 
   const pickProfile = (name: string) => {
@@ -251,7 +251,7 @@ export default function InstructionsView(props: {
     unlessDirty(() => load(profile, path));
   };
 
-  if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">No profiles.</p>;
+  if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("instructions.noProfiles")}</p>;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
@@ -275,9 +275,9 @@ export default function InstructionsView(props: {
       </div>
       <div className="flex min-h-0 flex-1 gap-4">
         <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48">
-          {list.kind === "loading" && <p className="text-muted">Loading files…</p>}
+          {list.kind === "loading" && <p className="text-muted">{t("instructions.loadingFiles")}</p>}
           {list.kind === "ok" &&
-            groupFiles(list.body.files).map((g) => (
+            groupFiles(list.body.files, lang).map((g) => (
               <section key={g.scope} className="mb-3">
                 <h3 className="mb-1 text-xs uppercase tracking-wide text-muted">{g.label}</h3>
                 <ul>
@@ -292,8 +292,8 @@ export default function InstructionsView(props: {
                         <div className="truncate font-mono">{baseName(f.path)}</div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted">
                           {f.ids.length ? f.ids.map((id) => <Pill key={id}>{id}</Pill>) : <span>—</span>}
-                          <span>· {f.exists ? formatBytes(f.bytes) : <span className="text-status-failed">missing</span>}</span>
-                          {f.agentsRunning > 0 && <span className="text-status-held">· {f.agentsRunning} running</span>}
+                          <span>· {f.exists ? formatBytes(f.bytes) : <span className="text-status-failed">{t("instructions.missing")}</span>}</span>
+                          {f.agentsRunning > 0 && <span className="text-status-held">· {t("instructions.running", { count: f.agentsRunning })}</span>}
                         </div>
                       </button>
                     </li>
@@ -304,23 +304,23 @@ export default function InstructionsView(props: {
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           {list.kind === "error" && (
-            <EmptyState title="Couldn't load instruction files" hint={`Request failed (status ${list.status}).`} />
+            <EmptyState title={t("instructions.listError")} hint={t("instructions.requestFailed", { status: list.status })} />
           )}
           {list.kind === "ok" && list.body.files.length === 0 && (
             <EmptyState
-              title="No instruction files"
-              hint="…the receiver publishes them in its heartbeat; this profile is down or predates the editor."
+              title={t("instructions.noFiles")}
+              hint={t("instructions.noFilesHint")}
             />
           )}
           {file.kind === "none" && list.kind === "ok" && list.body.files.length > 0 && (
-            <EmptyState title="Select a file" hint="Pick a file from the list to open it." />
+            <EmptyState title={t("instructions.selectFile")} hint={t("instructions.selectFileHint")} />
           )}
-          {file.kind === "loading" && <p className="text-sm">Loading {baseName(file.path)}…</p>}
+          {file.kind === "loading" && <p className="text-sm">{t("instructions.loadingFile", { name: baseName(file.path) })}</p>}
           {file.kind === "error" && (
             <p className="text-sm text-status-failed">
               {file.status === 404
-                ? `Can't open ${file.path}: it's gone, no longer allowlisted, a symlink, or over 256 KB.`
-                : `Failed to load ${file.path} (status ${file.status}).`}
+                ? t("instructions.fileGone", { path: file.path })
+                : t("instructions.fileFailed", { path: file.path, status: file.status })}
             </p>
           )}
           {open && (
@@ -330,46 +330,46 @@ export default function InstructionsView(props: {
                   {open.path}
                 </span>
                 {phase === "saving" ? (
-                  <span className="shrink-0 text-muted">saving…</span>
+                  <span className="shrink-0 text-muted">{t("instructions.saving")}</span>
                 ) : (
-                  dirty && <span className="shrink-0 text-status-held">● modified</span>
+                  dirty && <span className="shrink-0 text-status-held">{t("instructions.modified")}</span>
                 )}
                 <Segmented
                   value={side}
                   options={[
-                    { value: "none", label: "Editor" },
-                    { value: "preview", label: "Preview" },
-                    { value: "agent", label: <><span className="lg:hidden">Agent</span><span className="max-lg:hidden">What the agent sees</span></> },
+                    { value: "none", label: t("instructions.tab.editor") },
+                    { value: "preview", label: t("instructions.tab.preview") },
+                    { value: "agent", label: <><span className="lg:hidden">{t("instructions.tab.agent")}</span><span className="max-lg:hidden">{t("instructions.tab.agentLong")}</span></> },
                   ]}
                   onChange={setSide}
                 />
                 <span className="ml-auto flex shrink-0 items-center gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
-                  {!dirty && phase === "editing" && <span className="text-label text-muted">No changes</span>}
+                  {!dirty && phase === "editing" && <span className="text-label text-muted">{t("instructions.noChanges")}</span>}
                   <button
                     className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!dirty || phase !== "editing"}
-                    title="Save (Ctrl/Cmd-S)"
+                    title={t("instructions.saveTitle")}
                     onClick={requestSave}
                   >
-                    Save
+                    {t("instructions.save")}
                   </button>
                 </span>
               </div>
               {(phase === "conflict" || phase === "deleted") && (
                 <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
-                  {phase === "deleted" ? "deleted on disk" : "changed on disk"} — your edits are based on an older version.
+                  {phase === "deleted" ? t("instructions.deletedBanner") : t("instructions.changedBanner")}
                   <span className="ml-auto flex gap-2">
                     <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
-                      Reload
+                      {t("instructions.reload")}
                     </button>
                     {phase === "conflict" && (
                       <>
                         <button className="rounded border border-status-held px-2 py-0.5" onClick={showDiff}>
-                          Diff
+                          {t("instructions.diff")}
                         </button>
                         <button className="rounded border border-status-held px-2 py-0.5" onClick={overwrite}>
-                          Overwrite
+                          {t("instructions.overwrite")}
                         </button>
                       </>
                     )}
@@ -395,30 +395,30 @@ export default function InstructionsView(props: {
         </div>
       </div>
       {doc?.phase.kind === "confirming" && (
-        <Modal title={`Save ${baseName(doc.open.path)}?`} onClose={() => act({ type: "cancel" })}>
+        <Modal title={t("instructions.saveConfirmTitle", { name: baseName(doc.open.path) })} onClose={() => act({ type: "cancel" })}>
           <LiveEffect agentsRunning={agentsRunning} />
           <DiffLegend />
           <DiffView a={doc.open.content} b={doc.buffer} />
           <div className="mt-3 flex justify-end gap-2">
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => act({ type: "cancel" })}>
-              Cancel
+              {t("instructions.cancel")}
             </button>
             <button className="rounded border border-[var(--color-accent)] px-3 py-1 text-[var(--color-accent)]" onClick={() => put("confirm")}>
-              Save
+              {t("instructions.save")}
             </button>
           </div>
         </Modal>
       )}
       {diff && doc?.phase.kind === "conflict" && (
-        <Modal title={`${baseName(doc.open.path)} changed on disk`} onClose={() => setDiff(false)}>
+        <Modal title={t("instructions.changedTitle", { name: baseName(doc.open.path) })} onClose={() => setDiff(false)}>
           <DiffLegend />
-          {doc.phase.content === null ? <p className="text-sm">Loading the on-disk version…</p> : <DiffView a={doc.phase.content} b={doc.buffer} />}
+          {doc.phase.content === null ? <p className="text-sm">{t("instructions.loadingDisk")}</p> : <DiffView a={doc.phase.content} b={doc.buffer} />}
           <div className="mt-3 flex justify-end gap-2">
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setDiff(false)}>
-              Close
+              {t("instructions.close")}
             </button>
             <button className="rounded border border-[var(--color-warn)] px-3 py-1 text-[var(--color-warn)]" onClick={overwrite}>
-              Overwrite
+              {t("instructions.overwrite")}
             </button>
           </div>
         </Modal>
@@ -426,7 +426,7 @@ export default function InstructionsView(props: {
       {toast && (
         <div role="alert" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded border border-[var(--color-err)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-err)] shadow">
           {toast}
-          <button aria-label="dismiss" onClick={() => setToast(null)}>
+          <button aria-label={t("instructions.dismiss")} onClick={() => setToast(null)}>
             ×
           </button>
         </div>
@@ -437,12 +437,14 @@ export default function InstructionsView(props: {
 }
 
 function LiveEffect(props: { agentsRunning: number }) {
-  const note = liveEffectNote(props.agentsRunning);
+  const { lang } = useT();
+  const note = liveEffectNote(props.agentsRunning, lang);
   return <p className={`mb-2 text-sm ${note.warn ? "text-[var(--color-warn)]" : "text-[var(--color-muted)]"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</p>;
 }
 
 /** The same note, inline beside Save rather than inside the confirm modal. */
 function InlineLiveEffect(props: { agentsRunning: number }) {
-  const note = liveEffectNote(props.agentsRunning);
+  const { lang } = useT();
+  const note = liveEffectNote(props.agentsRunning, lang);
   return <span className={`text-label ${note.warn ? "text-status-held" : "text-muted"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</span>;
 }

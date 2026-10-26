@@ -81,6 +81,11 @@ import { digestErrors } from "../../src/digest-config.js";
 import { energyErrors } from "../../src/energy.js";
 import { HelpTip, ProfileMark } from "./components";
 import { ConfirmContext } from "./Modal";
+import { translate } from "./i18n";
+import type { MessageKey, Vars } from "./i18n";
+import { rich, useT } from "./i18n/react";
+import { SCHEMA_ES } from "./i18n/schema.es";
+import type { SchemaOverlay } from "./i18n/types";
 
 /** The stage-picker feed for the open profile: the discover outcome, `null` before the first fetch. */
 export type StagesState = { source: StageSource; body: Discover | null };
@@ -111,24 +116,30 @@ const TOUCH = "min-h-10 min-w-10 sm:min-h-0 sm:min-w-0";
 const ICON_BUTTON = `${BUTTON} ${TOUCH} shrink-0`;
 
 /** The tracker-neutral human label for each stage role; the hint shown beside it is the tracker's real key. */
-const ROLE_LABEL: Record<(typeof STAGE_ROLES)[number], string> = {
-  source: "Starts when in",
-  success: "On success →",
-  failure: "On failure →",
-  hold: "On hold →",
-  queue: "Backlog (queue)",
+const ROLE_LABEL: Record<(typeof STAGE_ROLES)[number], MessageKey> = {
+  source: "forms.role.source",
+  success: "forms.role.success",
+  failure: "forms.role.failure",
+  hold: "forms.role.hold",
+  queue: "forms.role.queue",
 };
+
+/** Each language's config-form labels and help over the English schema (docs/web-ui.md § Languages). */
+const SCHEMA_OVERLAYS: Record<string, SchemaOverlay> = { es: SCHEMA_ES };
 
 /**
  * Pure: a form field's display, from its config-schema entry (src/config-schema.js) — label, help,
  * the raw key shown in monospace (people search the docs by key), and a placeholder from the
- * entry's `default` ("3 (default)"). A path with no entry falls back to its raw key.
+ * entry's `default` ("3 (default)"). A path with no entry falls back to its raw key. Label and help
+ * come from the language's overlay (i18n/schema.<lang>.ts, #562) when it has the entry; the schema
+ * itself stays English (the CLI and server share it). The raw key is never translated.
  */
-export function fieldMeta(path: JSONPath): { entry: SchemaEntry | undefined; label: string; hint: string; help?: string; placeholder?: string } {
+export function fieldMeta(path: JSONPath, lang = "en"): { entry: SchemaEntry | undefined; label: string; hint: string; help?: string; placeholder?: string } {
   const entry = schemaEntry(path);
   const hint = String(path[path.length - 1]);
-  const placeholder = entry?.placeholder ?? (entry?.default !== undefined ? `${entry.default} (default)` : undefined);
-  return { entry, label: entry?.label ?? hint, hint, help: entry?.help, placeholder };
+  const placeholder = entry?.placeholder ?? (entry?.default !== undefined ? translate(lang, "config.defaultValue", { value: String(entry.default) }) : undefined);
+  const local = entry ? SCHEMA_OVERLAYS[lang]?.[entry.path.join(".")] : undefined;
+  return { entry, label: local?.label ?? entry?.label ?? hint, hint, help: local?.help ?? entry?.help, placeholder };
 }
 
 /**
@@ -171,7 +182,8 @@ function Group(props: { title: string; children: React.ReactNode }) {
 }
 
 function TextField(props: EditProps & { path: JSONPath; value: unknown; readOnly?: boolean }) {
-  const m = fieldMeta(props.path);
+  const { lang } = useT();
+  const m = fieldMeta(props.path, lang);
   return (
     <Field label={m.label} hint={m.hint} help={m.help}>
       <input
@@ -191,17 +203,19 @@ function TextField(props: EditProps & { path: JSONPath; value: unknown; readOnly
  * The schema's min/max are HTML hints only — never clamped here; validateRawConfig judges on save.
  */
 function NumberField(props: EditProps & { path: JSONPath; value: unknown }) {
-  const m = fieldMeta(props.path);
+  const { t, lang } = useT();
+  const m = fieldMeta(props.path, lang);
   const shown = fieldText(props.value);
   const [draft, setDraft] = useState(shown);
-  const [error, setError] = useState<string | null>(null);
+  // numberEdit's one failure is "not a number"; kept as a flag so a language switch re-renders it.
+  const [error, setError] = useState(false);
   // Any buffer change (this field's own valid edit, another field, Raw) re-syncs from the buffer.
   useEffect(() => {
     setDraft(shown);
-    setError(null);
+    setError(false);
   }, [props.text]);
   return (
-    <Field label={m.label} hint={m.hint} help={m.help} error={error}>
+    <Field label={m.label} hint={m.hint} help={m.help} error={error ? t("forms.notANumber") : null}>
       <input
         className={INPUT}
         name={props.path.join(".")}
@@ -213,7 +227,7 @@ function NumberField(props: EditProps & { path: JSONPath; value: unknown }) {
         onChange={(e) => {
           setDraft(e.target.value);
           const r = numberEdit(props.text, props.path, e.target.value);
-          setError(r.ok ? null : r.error);
+          setError(!r.ok);
           if (r.ok) props.onEdit(r.text);
         }}
       />
@@ -227,7 +241,8 @@ function NumberField(props: EditProps & { path: JSONPath; value: unknown }) {
  * checking removes the key again. Without it, `boolEdit` as before.
  */
 function CheckField(props: EditProps & { path: JSONPath; value: unknown; explicitFalse?: boolean; defaultValue?: boolean }) {
-  const m = fieldMeta(props.path);
+  const { lang } = useT();
+  const m = fieldMeta(props.path, lang);
   const helpId = useId();
   const dv = props.defaultValue;
   return (
@@ -261,7 +276,8 @@ function CheckField(props: EditProps & { path: JSONPath; value: unknown; explici
  * `type`) has no removing option — only an unset value shows a disabled "(choose…)".
  */
 function SelectField(props: EditProps & { path: JSONPath; value: unknown; edit?: (input: string) => string; required?: boolean }) {
-  const m = fieldMeta(props.path);
+  const { t, lang } = useT();
+  const m = fieldMeta(props.path, lang);
   const options = m.entry?.options ?? [];
   const cur = fieldText(props.value);
   const extra = cur !== "" && !options.includes(cur);
@@ -270,11 +286,11 @@ function SelectField(props: EditProps & { path: JSONPath; value: unknown; edit?:
     <Field label={m.label} hint={m.hint} help={m.help}>
       <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => commit(e.target.value)}>
         {!props.required ? (
-          <option value="">(default)</option>
+          <option value="">{t("forms.default")}</option>
         ) : (
           cur === "" && (
             <option value="" disabled>
-              (choose…)
+              {t("forms.choose")}
             </option>
           )
         )}
@@ -304,7 +320,8 @@ export function modelSelectState(cur: string): { selectValue: string; showCustom
 
 /** `edit` overrides the default `textEdit(path)` write, same as `SelectField`'s. */
 export function ModelField(props: EditProps & { path: JSONPath; value: unknown; edit?: (input: string) => string }) {
-  const m = fieldMeta(props.path);
+  const { t, lang } = useT();
+  const m = fieldMeta(props.path, lang);
   const cur = fieldText(props.value);
   const [forceCustom, setForceCustom] = useState(false);
   useEffect(() => setForceCustom(false), [props.text]);
@@ -323,15 +340,15 @@ export function ModelField(props: EditProps & { path: JSONPath; value: unknown; 
           commit(e.target.value);
         }}
       >
-        <option value="">(default)</option>
+        <option value="">{t("forms.default")}</option>
         {KNOWN_MODELS.map((m) => (
           <option key={m} value={m}>
             {m}
           </option>
         ))}
-        <option value={CUSTOM}>custom…</option>
+        <option value={CUSTOM}>{t("forms.custom")}</option>
       </select>
-      {showCustom && <input className={`${INPUT} mt-1`} placeholder="model name" value={cur} onChange={(e) => commit(e.target.value)} />}
+      {showCustom && <input className={`${INPUT} mt-1`} placeholder={t("forms.modelName")} value={cur} onChange={(e) => commit(e.target.value)} />}
     </Field>
   );
 }
@@ -342,10 +359,11 @@ const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "ob
 
 /** The step's Escalation editor: a model + effort pick per difficulty, wired to `escalateEdit`'s nested cleanup. */
 function EscalateGroup(props: EditProps & { i: number; step: Record<string, unknown> }) {
+  const { t } = useT();
   const escalate = asRecord(props.step.escalate);
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Escalation</h4>
+      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">{t("forms.escalation")}</h4>
       <div className="flex flex-col gap-3">
         {DIFFICULTIES.map((d) => {
           const row = asRecord(escalate[d]);
@@ -369,11 +387,12 @@ function EscalateGroup(props: EditProps & { i: number; step: Record<string, unkn
  * committed on blur (a blank key is dropped); removing the last row removes `env`.
  */
 function EnvField(props: EditProps & { i: number; env: unknown }) {
+  const { t, lang } = useT();
   const initial = envRows(props.env);
   const [rows, setRows] = useState(initial);
   const key = JSON.stringify(initial);
   useEffect(() => setRows(initial), [key]);
-  const m = fieldMeta(stepPath(props.i, "env"));
+  const m = fieldMeta(stepPath(props.i, "env"), lang);
   const commit = (next: [string, string][]) => props.onEdit(envEdit(props.text, props.i, next));
   const change = (idx: number, col: 0 | 1, value: string) => {
     const next = rows.map((r) => [...r] as [string, string]);
@@ -390,17 +409,17 @@ function EnvField(props: EditProps & { i: number; env: unknown }) {
       <ul className="flex flex-col gap-1">
         {rows.map(([k, v], idx) => (
           <li key={idx} className="flex items-center gap-1">
-            <input className={INPUT} aria-label="variable name" placeholder="NAME" value={k} onChange={(e) => change(idx, 0, e.target.value)} onBlur={() => commit(rows)} />
-            <input className={INPUT} aria-label="variable value" placeholder="value or ${VAR}" value={v} onChange={(e) => change(idx, 1, e.target.value)} onBlur={() => commit(rows)} />
-            <button type="button" className={ICON_BUTTON} aria-label="remove variable" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
-              remove
+            <input className={INPUT} aria-label={t("forms.env.name")} placeholder={t("forms.env.namePlaceholder")} value={k} onChange={(e) => change(idx, 0, e.target.value)} onBlur={() => commit(rows)} />
+            <input className={INPUT} aria-label={t("forms.env.value")} placeholder={t("forms.env.valuePlaceholder")} value={v} onChange={(e) => change(idx, 1, e.target.value)} onBlur={() => commit(rows)} />
+            <button type="button" className={ICON_BUTTON} aria-label={t("forms.env.remove")} onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+              {t("forms.remove")}
             </button>
           </li>
         ))}
       </ul>
       <div>
         <button type="button" className={BUTTON} onClick={() => setRows([...rows, ["", ""]])}>
-          add variable
+          {t("forms.env.add")}
         </button>
       </div>
     </div>
@@ -413,11 +432,12 @@ function EnvField(props: EditProps & { i: number; env: unknown }) {
  * removes `pricing`. Same shape as the step `env` editor.
  */
 function PricingField(props: EditProps & { pricing: unknown }) {
+  const { t, lang } = useT();
   const initial = pricingRows(props.pricing);
   const [rows, setRows] = useState(initial);
   const key = JSON.stringify(initial);
   useEffect(() => setRows(initial), [key]);
-  const m = fieldMeta(["pricing"]);
+  const m = fieldMeta(["pricing"], lang);
   const commit = (next: PricingRow[]) => props.onEdit(pricingEdit(props.text, next));
   const change = (idx: number, col: keyof PricingRow, value: string) => setRows(rows.map((r, j) => (j === idx ? { ...r, [col]: value } : r)));
   return (
@@ -430,22 +450,22 @@ function PricingField(props: EditProps & { pricing: unknown }) {
       <ul className="flex flex-col gap-1">
         {rows.map((r, idx) => (
           <li key={idx} className="flex flex-wrap items-center gap-1" data-pricing-row={idx}>
-            <input className={INPUT} aria-label="model pattern" placeholder="qwen3.8*" value={r.pattern} onChange={(e) => change(idx, "pattern", e.target.value)} onBlur={() => commit(rows)} />
+            <input className={INPUT} aria-label={t("forms.pricing.pattern")} placeholder="qwen3.8*" value={r.pattern} onChange={(e) => change(idx, "pattern", e.target.value)} onBlur={() => commit(rows)} />
             {PRICING_RATES.map((k) => {
-              const f = fieldMeta(["pricing", "*", k]);
+              const f = fieldMeta(["pricing", "*", k], lang);
               return (
-                <input key={k} className={`${INPUT} w-24`} inputMode="decimal" aria-label={f.label} title={f.help} placeholder={k === "input" || k === "output" ? f.label : `${f.label} (opt.)`} value={r[k]} onChange={(e) => change(idx, k, e.target.value)} onBlur={() => commit(rows)} />
+                <input key={k} className={`${INPUT} w-24`} inputMode="decimal" aria-label={f.label} title={f.help} placeholder={k === "input" || k === "output" ? f.label : t("forms.pricing.optional", { label: f.label })} value={r[k]} onChange={(e) => change(idx, k, e.target.value)} onBlur={() => commit(rows)} />
               );
             })}
-            <button type="button" className={ICON_BUTTON} aria-label="remove model" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
-              remove
+            <button type="button" className={ICON_BUTTON} aria-label={t("forms.pricing.remove")} onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+              {t("forms.remove")}
             </button>
           </li>
         ))}
       </ul>
       <div>
         <button type="button" className={BUTTON} data-add-pricing onClick={() => setRows([...rows, { pattern: "", input: "", output: "", cacheRead: "", cacheWrite: "" }])}>
-          add model
+          {t("forms.pricing.add")}
         </button>
       </div>
     </div>
@@ -454,10 +474,11 @@ function PricingField(props: EditProps & { pricing: unknown }) {
 
 /** `lite.descriptionHeadings`: add / remove / reorder rows. A new heading stays a local draft until it is non-blank. */
 function LiteHeadingsField(props: EditProps & { i: number; headings: string[] }) {
+  const { t, lang } = useT();
   const [draft, setDraft] = useState("");
   const [rows, setRows] = useState(props.headings);
   useEffect(() => setRows(props.headings), [props.headings]);
-  const m = fieldMeta([...stepPath(props.i, "lite"), "descriptionHeadings"]);
+  const m = fieldMeta([...stepPath(props.i, "lite"), "descriptionHeadings"], lang);
   const commit = (next: string[]) => props.onEdit(liteHeadingsEdit(props.text, props.i, next));
   const add = () => {
     const h = draft.trim();
@@ -488,7 +509,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
             <button
               type="button"
               className={ICON_BUTTON}
-              aria-label="move heading up"
+              aria-label={t("forms.heading.up")}
               disabled={idx === 0}
               onClick={() => {
                 const next = [...rows];
@@ -501,7 +522,7 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
             <button
               type="button"
               className={ICON_BUTTON}
-              aria-label="move heading down"
+              aria-label={t("forms.heading.down")}
               disabled={idx === rows.length - 1}
               onClick={() => {
                 const next = [...rows];
@@ -511,16 +532,16 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
             >
               ↓
             </button>
-            <button type="button" className={ICON_BUTTON} aria-label="remove heading" onClick={() => commit(rows.filter((_, j) => j !== idx))}>
-              remove
+            <button type="button" className={ICON_BUTTON} aria-label={t("forms.heading.remove")} onClick={() => commit(rows.filter((_, j) => j !== idx))}>
+              {t("forms.remove")}
             </button>
           </li>
         ))}
       </ul>
       <div className="flex items-center gap-1">
-        <input className={INPUT} placeholder="add heading" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} />
+        <input className={INPUT} placeholder={t("forms.heading.add")} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} />
         <button type="button" className={`${BUTTON} shrink-0`} disabled={!draft.trim()} onClick={add}>
-          add heading
+          {t("forms.heading.add")}
         </button>
       </div>
     </div>
@@ -529,13 +550,14 @@ function LiteHeadingsField(props: EditProps & { i: number; headings: string[] })
 
 /** The step's Lite-mode editor: the heading list plus a model + effort pick, wired to `liteEdit`/`liteHeadingsEdit`. */
 function LiteGroup(props: EditProps & { i: number; step: Record<string, unknown> }) {
+  const { t } = useT();
   const lite = asRecord(props.step.lite);
   const headings = Array.isArray(lite.descriptionHeadings) ? lite.descriptionHeadings.map((h) => (typeof h === "string" ? h : String(h))) : [];
   const modelPath: JSONPath = [...stepPath(props.i, "lite"), "model"];
   const effortPath: JSONPath = [...stepPath(props.i, "lite"), "effort"];
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Lite mode</h4>
+      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">{t("forms.liteMode")}</h4>
       <div className={FIELD_GRID_3}>
         <LiteHeadingsField text={props.text} onEdit={props.onEdit} i={props.i} headings={headings} />
         <ModelField text={props.text} onEdit={props.onEdit} path={modelPath} value={lite.model} edit={(input) => liteEdit(props.text, props.i, "model", input)} />
@@ -547,14 +569,15 @@ function LiteGroup(props: EditProps & { i: number; step: Record<string, unknown>
 
 /** `label` is the tracker-neutral ROLE_LABEL; the help comes from the tracker's own stage key's schema entry. */
 function StageField(props: EditProps & { label: string; stageKey: string; path: JSONPath; value: unknown; stages: StagesState | null }) {
-  const help = fieldMeta(props.path).help;
+  const { t, lang } = useT();
+  const help = fieldMeta(props.path, lang).help;
   const cur = fieldText(props.value);
   const src = props.stages?.source ?? { kind: "loading" as const };
   if (src.kind !== "list") {
     return (
       <Field label={props.label} hint={props.stageKey} help={help}>
         <input className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))} />
-        <span className="text-xs text-[var(--color-muted)]">{src.kind === "loading" ? "loading stages…" : src.hint}</span>
+        <span className="text-xs text-[var(--color-muted)]">{src.kind === "loading" ? t("forms.stage.loading") : src.hint}</span>
       </Field>
     );
   }
@@ -562,13 +585,13 @@ function StageField(props: EditProps & { label: string; stageKey: string; path: 
   return (
     <Field label={props.label} hint={props.stageKey} help={help}>
       <select className={INPUT} name={props.path.join(".")} value={cur} onChange={(e) => props.onEdit(textEdit(props.text, props.path, e.target.value))}>
-        <option value="">(none)</option>
+        <option value="">{t("forms.stage.none")}</option>
         {src.stages.map((s) => (
           <option key={s.id} value={s.id}>
             {s.label}
           </option>
         ))}
-        {offBoard && <option value={cur}>{cur} (not on board)</option>}
+        {offBoard && <option value={cur}>{t("forms.stage.offBoard", { value: cur })}</option>}
       </select>
     </Field>
   );
@@ -584,7 +607,7 @@ const labelFor = (id: string, list: StageOption[] | null): string => list?.find(
  * `advancedCount` (from `advancedSet`), when > 0, appends "+N advanced"; 0/omitted leaves the
  * summary unchanged from before the Advanced section existed.
  */
-export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null, stageList: StageOption[] | null, advancedCount = 0): string {
+export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null, stageList: StageOption[] | null, advancedCount = 0, lang = "en"): string {
   const parts: string[] = [];
   const kind = fieldText(s.kind);
   if (kind) parts.push(kind);
@@ -602,15 +625,16 @@ export function summarizeStep(s: Record<string, unknown>, keys: StageKeys | null
     const v = fieldText(s[k]);
     if (v) parts.push(v);
   }
-  if (advancedCount > 0) parts.push(`+${advancedCount} advanced`);
+  if (advancedCount > 0) parts.push(translate(lang, "forms.summary.advanced", { count: advancedCount }));
   return parts.join(" · ");
 }
 
-const SANDBOX_TYPE_OPTIONS = [
-  { value: "", label: "Off" },
-  { value: "docker", label: "Docker" },
-  { value: "podman", label: "Podman" },
-] as const;
+// Off is translated; Docker / Podman are product names.
+const SANDBOX_TYPE_OPTIONS: readonly { value: "" | "docker" | "podman"; label: MessageKey | null; name: string }[] = [
+  { value: "", label: "forms.sandbox.off", name: "" },
+  { value: "docker", label: null, name: "Docker" },
+  { value: "podman", label: null, name: "Podman" },
+];
 
 /**
  * The Basics form's Sandbox group: a backend select (Off removes the whole `sandbox` block) and,
@@ -618,20 +642,21 @@ const SANDBOX_TYPE_OPTIONS = [
  * gets an inline warning; static help points at `agenthook doctor --fix` and docs/sandbox.md.
  */
 function SandboxGroup(props: EditProps & { sandbox: Record<string, unknown> | undefined; profile: string }) {
+  const { t, lang } = useT();
   const edit = { text: props.text, onEdit: props.onEdit };
-  const typeMeta = fieldMeta(["sandbox", "type"]);
+  const typeMeta = fieldMeta(["sandbox", "type"], lang);
   const cur = fieldText(props.sandbox?.type);
   const egressRaw = props.sandbox?.egress;
   const egress = egressRaw && typeof egressRaw === "object" && !Array.isArray(egressRaw) ? (egressRaw as Record<string, unknown>) : undefined;
   return (
     <div className="col-span-full flex flex-col gap-2">
-      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Sandbox</h4>
+      <h4 className="text-xs uppercase tracking-wide text-[var(--color-muted)]">{t("forms.sandbox.title")}</h4>
       <div className={FIELD_GRID}>
         <Field label={typeMeta.label} hint={typeMeta.hint} help={typeMeta.help}>
           <select className={INPUT} name="sandbox.type" value={cur} onChange={(e) => props.onEdit(sandboxTypeEdit(props.text, e.target.value as "" | "docker" | "podman"))}>
             {SANDBOX_TYPE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {o.label ? t(o.label) : o.name}
               </option>
             ))}
           </select>
@@ -648,20 +673,25 @@ function SandboxGroup(props: EditProps & { sandbox: Record<string, unknown> | un
         )}
       </div>
       {props.sandbox !== undefined && egress?.mode === "open" && (
-        <p className="text-xs text-status-held">unrestricted network: a hijacked agent can send data anywhere</p>
+        <p className="text-xs text-status-held">{t("forms.sandbox.openWarning")}</p>
       )}
       {props.sandbox !== undefined && <SandboxReadinessCard profile={props.profile} type={cur} />}
       <p className={NOTE}>
-        A sandboxed claude step needs <span className="font-mono">CLAUDE_CODE_OAUTH_TOKEN</span> (from{" "}
-        <span className="font-mono">claude setup-token</span>) or <span className="font-mono">ANTHROPIC_API_KEY</span> in this profile's{" "}
-        <span className="font-mono">.env</span>, and the agent image: run <span className="font-mono">agenthook doctor --fix</span>. See{" "}
-        <span className="font-mono">docs/sandbox.md</span>.
+        {rich(t("forms.sandbox.note"), {
+          token: <span className="font-mono">CLAUDE_CODE_OAUTH_TOKEN</span>,
+          setup: <span className="font-mono">claude setup-token</span>,
+          apiKey: <span className="font-mono">ANTHROPIC_API_KEY</span>,
+          env: <span className="font-mono">.env</span>,
+          doctor: <span className="font-mono">agenthook doctor --fix</span>,
+          doc: <span className="font-mono">docs/sandbox.md</span>,
+        })}
       </p>
     </div>
   );
 }
 
-type ReadinessState = { kind: "loading" } | { kind: "ok"; body: SandboxReadiness } | { kind: "error"; why: string };
+/** `status` is the HTTP status of a failed fetch, `null` when the request itself failed. */
+type ReadinessState = { kind: "loading" } | { kind: "ok"; body: SandboxReadiness } | { kind: "error"; status: number | null };
 
 /**
  * "Sandbox readiness": GET /api/sandbox-readiness for the form's backend — the runtime, the agent
@@ -669,6 +699,7 @@ type ReadinessState = { kind: "loading" } | { kind: "ok"; body: SandboxReadiness
  * Read-only; fetched on mount, on a backend change and on Refresh (no polling).
  */
 export function SandboxReadinessCard(props: { profile: string; type: string }) {
+  const { t } = useT();
   const [state, setState] = useState<ReadinessState>({ kind: "loading" });
   const seq = useRef(0);
   const load = () => {
@@ -681,28 +712,30 @@ export function SandboxReadinessCard(props: { profile: string; type: string }) {
       .then((res) =>
         res.ok
           ? res.json().then((body: SandboxReadiness) => land({ kind: "ok", body }))
-          : land({ kind: "error", why: res.status === 404 ? "no config published for this profile" : `status ${res.status}` }),
+          : land({ kind: "error", status: res.status }),
       )
-      .catch(() => land({ kind: "error", why: "request failed" }));
+      .catch(() => land({ kind: "error", status: null }));
   };
   useEffect(load, [props.profile, props.type]);
   const rows = state.kind === "ok" ? state.body.rows : [];
+  const why = (status: number | null) =>
+    status === null ? t("forms.readiness.requestFailed") : status === 404 ? t("forms.readiness.noConfig") : t("forms.readiness.status", { status });
   return (
     <div className="flex flex-col gap-1.5 rounded border border-[var(--color-border)] p-2" data-sandbox-readiness>
       <div className="flex items-center gap-2">
-        <h5 className="text-xs font-medium">Sandbox readiness</h5>
+        <h5 className="text-xs font-medium">{t("forms.readiness.title")}</h5>
         <button type="button" className={BUTTON} disabled={state.kind === "loading"} onClick={load}>
-          Refresh
+          {t("forms.readiness.refresh")}
         </button>
-        {state.kind === "loading" && <span className={NOTE}>checking…</span>}
-        {state.kind === "error" && <span className="text-xs text-status-failed">couldn't check ({state.why})</span>}
+        {state.kind === "loading" && <span className={NOTE}>{t("forms.readiness.checking")}</span>}
+        {state.kind === "error" && <span className="text-xs text-status-failed">{t("forms.readiness.failed", { why: why(state.status) })}</span>}
       </div>
-      {state.kind === "ok" && !state.body.enabled && <p className={NOTE}>pick a sandbox backend to check it</p>}
+      {state.kind === "ok" && !state.body.enabled && <p className={NOTE}>{t("forms.readiness.pick")}</p>}
       {rows.length > 0 && (
         <ul className="flex flex-col gap-1">
           {rows.map((r) => (
             <li key={r.id} className="flex items-start gap-1.5 text-xs" data-readiness-row={r.id} data-ok={r.ok}>
-              <span className={r.ok ? "text-status-done" : "text-status-failed"} aria-label={r.ok ? "ok" : "missing"}>
+              <span className={r.ok ? "text-status-done" : "text-status-failed"} aria-label={r.ok ? t("forms.readiness.ok") : t("forms.readiness.missing")}>
                 {r.ok ? "✓" : "✗"}
               </span>
               <span className="flex min-w-0 flex-col">
@@ -720,25 +753,49 @@ export function SandboxReadinessCard(props: { profile: string; type: string }) {
   );
 }
 
+/**
+ * A translated message as a component, so a hook-free caller (BasicsForm — its tests call it as a
+ * plain function) can still render through `t`; `nodes` fill `{name}` slots with React nodes.
+ */
+function Msg(props: { k: MessageKey; vars?: Vars; nodes?: Record<string, React.ReactNode> }) {
+  const { t } = useT();
+  const text = t(props.k, props.vars);
+  return <>{props.nodes ? rich(text, props.nodes) : text}</>;
+}
+
+/** `Field` with its label/help from `fieldMeta(path)` in the current language; the child is the control. */
+function MetaField(props: { path: JSONPath; children: React.ReactNode }) {
+  const { lang } = useT();
+  const m = fieldMeta(props.path, lang);
+  return (
+    <Field label={m.label} hint={m.hint} help={m.help}>
+      {props.children}
+    </Field>
+  );
+}
+
+/** Hook-free (its tests call it as a plain function): the translated parts are `Msg` / `MetaField`. */
 export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }) {
   const b = readBasics(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
-  const name = fieldMeta(["name"]);
+  const advancedCount = (["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length;
   return (
     <div className="@container max-w-5xl rounded border border-[var(--color-border)] p-3">
       <div className={FIELD_GRID}>
         <div className="col-span-full flex flex-col gap-1">
-          <Field label={name.label} hint={name.hint} help={name.help}>
+          <MetaField path={["name"]}>
             <input
               className={INPUT}
               name="name"
               value={fieldText(b.name)}
               onChange={(e) => props.onEdit(renameEdit(props.text, e.target.value, props.stateKey))}
             />
-          </Field>
+          </MetaField>
           <p className="text-xs text-[var(--color-muted)]">
-            Display label only. State stays in <span className="font-mono">~/.agenthook/{props.stateKey}/</span> (a rename adds{" "}
-            <span className="font-mono">stateId</span> to keep it there).
+            <Msg
+              k="forms.basics.nameNote"
+              nodes={{ dir: <span className="font-mono">~/.agenthook/{props.stateKey}/</span>, stateId: <span className="font-mono">stateId</span> }}
+            />
           </p>
         </div>
         <TextField {...edit} path={["trigger"]} value={b.trigger} />
@@ -750,18 +807,18 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <div className="col-span-full flex flex-col gap-1">
           <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
           <p className="text-xs text-status-held">
-            fullAuto runs agents with --dangerously-skip-permissions: a verified webhook runs unsandboxed code on this host.
+            <Msg k="forms.basics.fullAutoWarn" />
           </p>
           {b.fullAuto === true && b.sandbox === undefined && (
             <p className="text-xs text-status-held">
-              fullAuto without a sandbox: a verified webhook runs code on this host as your user. Enable the sandbox below.
+              <Msg k="forms.basics.noSandboxWarn" />
             </p>
           )}
         </div>
         <SandboxGroup {...edit} sandbox={b.sandbox} profile={props.stateKey} />
         <details className="col-span-full" data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
-            Advanced · {(["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length} set
+            <Msg k="forms.advancedSet" vars={{ count: advancedCount }} />
           </summary>
           <div className={`mt-2 ${FIELD_GRID}`}>
             <SelectField {...edit} path={["agent"]} value={b.agent} />
@@ -770,7 +827,7 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
             <div className="flex flex-col gap-1">
               <TextField {...edit} path={["stateId"]} value={b.stateId} readOnly />
               <p className={NOTE}>
-                Keys the state dir — change it with <span className="font-mono">agenthook rename --move</span>, not here.
+                <Msg k="forms.basics.stateIdNote" nodes={{ cmd: <span className="font-mono">agenthook rename --move</span> }} />
               </p>
             </div>
           </div>
@@ -786,13 +843,14 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
  * key again. The receiver reports it in its heartbeat, so a save shows up after its next restart.
  */
 export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emoji?: unknown } | undefined; stateKey: string }) {
+  const { t, lang } = useT();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const color = typeof props.ui?.color === "string" ? props.ui.color : undefined;
   const emoji = typeof props.ui?.emoji === "string" ? props.ui.emoji : undefined;
   const shown = resolveIdentity(props.stateKey, props.ui);
   const pick = (field: "color" | "emoji", v: string | undefined) => props.onEdit(identityEdit(props.text, field, v));
   const OPTION = "rounded border px-1.5 py-0.5 text-xs";
-  const [ui, colorMeta, emojiMeta] = [["ui"], ["ui", "color"], ["ui", "emoji"]].map(fieldMeta);
+  const [ui, colorMeta, emojiMeta] = [["ui"], ["ui", "color"], ["ui", "emoji"]].map((p) => fieldMeta(p, lang));
   const colorHelp = useId();
   const emojiHelp = useId();
   /** A sub-field's label + raw key + HelpTip (its control carries `aria-describedby` → `helpId`). */
@@ -812,11 +870,11 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
       <div className="flex items-center gap-3">
         <ProfileMark p={shown} />
         <span className="text-xs text-[var(--color-muted)]">
-          {color || emoji ? "custom" : "automatic"} · shows on Home and the app bar after the receiver restarts
+          {t("forms.appearance.restartNote", { mode: color || emoji ? t("forms.appearance.custom") : t("forms.appearance.automatic") })}
         </span>
       </div>
       {subLabel(colorMeta, colorHelp)}
-      <div role="radiogroup" aria-label="profile colour" aria-describedby={colorHelp} className="flex flex-wrap items-center gap-1.5">
+      <div role="radiogroup" aria-label={t("forms.appearance.colour")} aria-describedby={colorHelp} className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           role="radio"
@@ -824,7 +882,7 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
           className={`${OPTION} ${color === undefined ? "border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}
           onClick={() => pick("color", undefined)}
         >
-          automatic
+          {t("forms.appearance.automatic")}
         </button>
         {PROFILE_COLORS.map((c) => (
           <button
@@ -845,11 +903,11 @@ export function AppearanceFields(props: EditProps & { ui: { color?: unknown; emo
         <div className="flex items-center gap-2">
           {subLabel(emojiMeta, emojiHelp)}
           <button type="button" className={BUTTON} aria-expanded={emojiOpen} aria-describedby={emojiHelp} onClick={() => setEmojiOpen((o) => !o)}>
-            {emojiOpen ? "Hide emoji" : "Choose emoji"}
+            {emojiOpen ? t("forms.appearance.hideEmoji") : t("forms.appearance.chooseEmoji")}
           </button>
         </div>
         {emojiOpen && (
-          <div role="radiogroup" aria-label="profile emoji" aria-describedby={emojiHelp} className="grid max-h-56 max-w-md grid-cols-6 gap-1 overflow-y-auto @[28rem]:grid-cols-10 rounded border border-[var(--color-border-subtle)] p-1">
+          <div role="radiogroup" aria-label={t("forms.appearance.emoji")} aria-describedby={emojiHelp} className="grid max-h-56 max-w-md grid-cols-6 gap-1 overflow-y-auto @[28rem]:grid-cols-10 rounded border border-[var(--color-border-subtle)] p-1">
             {PROFILE_EMOJIS.map((e) => (
               <button
                 key={e}
@@ -902,6 +960,7 @@ export function PipelineForm(
     cards?: CardHooks;
   },
 ) {
+  const { t, lang } = useT();
   const steps = readSteps(props.raw);
   const tracker = (props.raw as any)?.tracker?.type;
   const keys = stageKeysFor(props.stages?.body ?? null, tracker);
@@ -948,17 +1007,15 @@ export function PipelineForm(
   return (
     <div className="@container flex flex-col gap-3" data-pipeline-form>
       <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-muted)]">
-        <span>
-          tracker <span className="font-mono">{fieldText(tracker) || "(unset)"}</span>
-        </span>
+        <span>{rich(t("forms.pipeline.tracker"), { type: <span className="font-mono">{fieldText(tracker) || t("forms.pipeline.unset")}</span> })}</span>
         <button className={BUTTON} disabled={props.stages?.source.kind === "loading"} onClick={props.onRefresh}>
-          Refresh stages
+          {t("forms.pipeline.refreshStages")}
         </button>
         <button className={BUTTON} data-expand-all disabled={!steps.length} onClick={() => setOpen(new Set(steps.map((_, i) => i)))}>
-          Expand all
+          {t("forms.pipeline.expandAll")}
         </button>
         <button className={BUTTON} data-collapse-all disabled={!steps.length} onClick={() => setOpen(new Set())}>
-          Collapse all
+          {t("forms.pipeline.collapseAll")}
         </button>
       </div>
       {steps.map((s, i) => {
@@ -968,6 +1025,8 @@ export function PipelineForm(
         const isOpen = open.has(i);
         const errs = errors.get(i) ?? [];
         const incomplete = errs.length > 0 && pristine.has(i);
+        const advancedCount = advancedSet(s, tracker, keys).length;
+        const summary = summarizeStep(s, keys, stageList, advancedCount, lang);
         return (
           <section
             key={i}
@@ -982,17 +1041,17 @@ export function PipelineForm(
           >
             {/* Wraps below `sm`: the summary may take its own line; ↑/↓/remove stay together. */}
             <div data-step-header className={`flex flex-wrap items-center gap-2 sm:flex-nowrap ${isOpen ? "mb-2" : ""}`}>
-              <button className={ICON_BUTTON} aria-label={isOpen ? "collapse step" : "expand step"} aria-expanded={isOpen} onClick={() => toggle(i)}>
+              <button className={ICON_BUTTON} aria-label={isOpen ? t("forms.step.collapse") : t("forms.step.expand")} aria-expanded={isOpen} onClick={() => toggle(i)}>
                 {isOpen ? "▾" : "▸"}
               </button>
               <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
-              <span className="font-mono text-sm">{fieldText(s.id) || "(no id)"}</span>
+              <span className="font-mono text-sm">{fieldText(s.id) || t("forms.step.noId")}</span>
               <span
                 data-step-summary
                 className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)]"
-                title={summarizeStep(s, keys, stageList, advancedSet(s, tracker, keys).length)}
+                title={summary}
               >
-                {summarizeStep(s, keys, stageList, advancedSet(s, tracker, keys).length) || "—"}
+                {summary || "—"}
               </span>
               {incomplete ? (
                 <span
@@ -1000,7 +1059,7 @@ export function PipelineForm(
                   title={errs.join("\n")}
                   className="shrink-0 rounded-full border border-status-held bg-status-held-bg px-1.5 text-xs text-status-held"
                 >
-                  incomplete
+                  {t("forms.incomplete")}
                 </span>
               ) : (
                 errs.length > 0 && (
@@ -1016,7 +1075,7 @@ export function PipelineForm(
               <span className="ml-auto flex shrink-0 gap-1">
                 <button
                   className={ICON_BUTTON}
-                  aria-label="move up"
+                  aria-label={t("forms.moveUp")}
                   disabled={i === 0}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, -1));
@@ -1028,7 +1087,7 @@ export function PipelineForm(
                 </button>
                 <button
                   className={ICON_BUTTON}
-                  aria-label="move down"
+                  aria-label={t("forms.moveDown")}
                   disabled={i === steps.length - 1}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, 1));
@@ -1041,7 +1100,12 @@ export function PipelineForm(
                 <button
                   className={ICON_BUTTON}
                   onClick={() =>
-                    ask({ title: `Remove step "${fieldText(s.id) || i + 1}"?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then((ok) => {
+                    ask({
+                      title: t("forms.step.removeTitle", { id: fieldText(s.id) || i + 1 }),
+                      body: t("forms.commentKeysGo"),
+                      confirmLabel: t("forms.removeConfirm"),
+                      destructive: true,
+                    }).then((ok) => {
                       if (!ok) return;
                       setOpen((prev) => openAfterRemove(prev, i));
                       props.cards?.onShifted("steps");
@@ -1049,7 +1113,7 @@ export function PipelineForm(
                     })
                   }
                 >
-                  remove
+                  {t("forms.remove")}
                 </button>
               </span>
             </div>
@@ -1071,30 +1135,30 @@ export function PipelineForm(
                     <CheckField {...edit} path={at("manual")} value={s.manual} />
                   </div>
                 </div>
-                <Group title="Triggers & lanes">
+                <Group title={t("forms.group.triggers")}>
                   {keys ? (
                     commonRoles.map((role) => (
-                      <StageField key={role} {...edit} label={ROLE_LABEL[role]} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
+                      <StageField key={role} {...edit} label={t(ROLE_LABEL[role])} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
                     ))
                   ) : (
-                    <span className="col-span-full text-xs text-[var(--color-muted)]">no stage fields for this tracker type — edit stage bindings in Raw</span>
+                    <span className="col-span-full text-xs text-[var(--color-muted)]">{t("forms.pipeline.noStageFields")}</span>
                   )}
                 </Group>
-                <Group title="Agent">
+                <Group title={t("forms.group.agent")}>
                   <ModelField {...edit} path={at("model")} value={s.model} />
                   <SelectField {...edit} path={at("effort")} value={s.effort} />
                   <TextField {...edit} path={at("instructionsFile")} value={s.instructionsFile} />
                 </Group>
-                <Group title="Limits">
+                <Group title={t("forms.group.limits")}>
                   <NumberField {...edit} path={at("maxAttempts")} value={s.maxAttempts} />
                 </Group>
-                <Group title="Worktree">
+                <Group title={t("forms.group.worktree")}>
                   <CheckField {...edit} path={at("createsWorktree")} value={s.createsWorktree} />
                   <CheckField {...edit} path={at("drainWorktree")} value={s.drainWorktree} />
                 </Group>
                 <details data-step-advanced>
                   <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
-                    Advanced · {advancedSet(s, tracker, keys).length} set
+                    {t("forms.advancedSet", { count: advancedCount })}
                   </summary>
                   <div className="mt-2 flex flex-col gap-3">
                     <div className={FIELD_GRID_3}>
@@ -1105,7 +1169,7 @@ export function PipelineForm(
                     {keys && advancedRoles.length > 0 && (
                       <div className={FIELD_GRID_3}>
                         {advancedRoles.map((role) => (
-                          <StageField key={role} {...edit} label={ROLE_LABEL[role]} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
+                          <StageField key={role} {...edit} label={t(ROLE_LABEL[role])} stageKey={keys[role]} path={at(keys[role])} value={s[keys[role]]} stages={props.stages} />
                         ))}
                       </div>
                     )}
@@ -1114,10 +1178,10 @@ export function PipelineForm(
                         <div className="flex flex-col gap-1">
                           <CheckField {...edit} path={at("completeOnMerge")} value={s.completeOnMerge} />
                           <span className="text-xs text-[var(--color-muted)]">
-                            Manual steps only; at most one step may set it.
+                            {t("forms.step.completeOnMergeNote")}
                             {(() => {
                               const owner = steps.findIndex((st, idx) => idx !== i && st.completeOnMerge === true);
-                              return owner >= 0 ? ` Already set on step "${fieldText(steps[owner].id) || owner + 1}".` : "";
+                              return owner >= 0 ? t("forms.step.completeOnMergeOwner", { id: fieldText(steps[owner].id) || owner + 1 }) : "";
                             })()}
                           </span>
                         </div>
@@ -1159,7 +1223,7 @@ export function PipelineForm(
             props.onEdit(addStep(props.text));
           }}
         >
-          + Add step
+          {t("forms.step.add")}
         </button>
       </div>
     </div>
@@ -1185,7 +1249,8 @@ export const isSecretPath = (path: JSONPath): boolean =>
  * the user acts. Saving a literal stays allowed.
  */
 function SecretField(props: EditProps & { path: JSONPath; value: unknown }) {
-  const m = fieldMeta(props.path);
+  const { t, lang } = useT();
+  const m = fieldMeta(props.path, lang);
   const at = props.path.join(".");
   const state = secretState(props.value);
   // What the user typed since the buffer last changed elsewhere; null = nothing typed.
@@ -1208,26 +1273,22 @@ function SecretField(props: EditProps & { path: JSONPath; value: unknown }) {
         autoComplete="off"
         spellCheck={false}
         value={shown}
-        placeholder={state === "literal" || state === "disabled" ? "replace with ${VAR}" : "${ENV_VAR}"}
+        placeholder={state === "literal" || state === "disabled" ? t("forms.secret.replacePlaceholder") : "${ENV_VAR}"}
         onChange={(e) => {
           setDraft(e.target.value);
           props.onEdit(textEdit(props.text, props.path, e.target.value));
         }}
       />
-      {state === "absent" && <span className="text-xs text-[var(--color-muted)]">Put the value in the .env beside the config and reference it here.</span>}
+      {state === "absent" && <span className="text-xs text-[var(--color-muted)]">{t("forms.secret.absent")}</span>}
       {(state === "literal" || state === "disabled") && (
         <span data-secret-state={state} className="flex items-center gap-2 text-xs text-status-held">
           {state === "literal" ? (
-            <span>
-              ⚠ literal secret in <span className="font-mono">{at}</span> — replace with a <span className="font-mono">{"${VAR}"}</span> ref
-            </span>
+            <span>{rich(t("forms.secret.literal"), { path: <span className="font-mono">{at}</span>, ref: <span className="font-mono">{"${VAR}"}</span> })}</span>
           ) : (
-            <span>
-              verification disabled (<span className="font-mono">false</span>)
-            </span>
+            <span>{rich(t("forms.secret.disabled"), { value: <span className="font-mono">false</span> })}</span>
           )}
           <button type="button" className={BUTTON} data-secret-clear onClick={clear}>
-            Clear
+            {t("forms.secret.clear")}
           </button>
         </span>
       )}
@@ -1258,6 +1319,7 @@ function SchemaFields(
     render?: (e: SchemaEntry, value: unknown) => React.ReactNode | undefined;
   },
 ) {
+  const { t } = useT();
   const one = (e: SchemaEntry) => {
     const value = props.block?.[e.path[1]];
     return <div key={e.path.join(".")}>{props.render?.(e, value) ?? <SchemaField text={props.text} onEdit={props.onEdit} entry={e} value={value} />}</div>;
@@ -1268,7 +1330,7 @@ function SchemaFields(
       {props.fields.advanced.length > 0 && (
         <details data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
-            Advanced · {setCount(props.block, props.fields.advanced)} set
+            {t("forms.advancedSet", { count: setCount(props.block, props.fields.advanced) })}
           </summary>
           <div className={`mt-2 ${FIELD_GRID}`}>{props.fields.advanced.map(one)}</div>
         </details>
@@ -1291,6 +1353,7 @@ const NOTE = "text-xs text-[var(--color-muted)]";
  * on it — change it in Raw), a picker only while absent; then the schema entries scoped to that type.
  */
 export function TrackerForm(props: EditProps & { raw: unknown }) {
+  const { t } = useT();
   const block = readBlock(props.raw, "tracker");
   const type = block?.type;
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1299,7 +1362,7 @@ export function TrackerForm(props: EditProps & { raw: unknown }) {
       {type !== undefined ? (
         <div className="flex flex-col gap-1">
           <TextField {...edit} path={["tracker", "type"]} value={type} readOnly />
-          <p className={NOTE}>Changing the tracker type invalidates every step's stage keys — do it in Raw.</p>
+          <p className={NOTE}>{t("forms.tracker.typeNote")}</p>
         </div>
       ) : (
         <SelectField {...edit} path={["tracker", "type"]} value={undefined} required />
@@ -1312,7 +1375,7 @@ export function TrackerForm(props: EditProps & { raw: unknown }) {
           e.path[1] === "assigneeFilter" ? (
             <div className="flex flex-col gap-1">
               <CheckField {...edit} path={e.path} value={value} defaultValue />
-              <p className="text-xs text-status-held">Unchecked, agents act on every item in the project — not only the ones assigned to you.</p>
+              <p className="text-xs text-status-held">{t("forms.tracker.assigneeWarn")}</p>
             </div>
           ) : undefined
         }
@@ -1326,40 +1389,42 @@ export function TrackerForm(props: EditProps & { raw: unknown }) {
  * that isn't one stays selectable and is flagged with the config-load rule.
  */
 function CiTargetField(props: EditProps & { raw: unknown; value: unknown }) {
+  const { t, lang } = useT();
   const path = ["forge", "ciTarget"];
-  const m = fieldMeta(path);
+  const m = fieldMeta(path, lang);
   const { ids, defaultId } = ciTargetOptions(props.raw);
   const cur = fieldText(props.value);
   const invalid = cur !== "" && !ids.includes(cur);
   return (
-    <Field label={m.label} hint={m.hint} help={m.help} error={invalid ? `"${cur}" must be an agent (non-manual) pipeline step id` : null}>
+    <Field label={m.label} hint={m.hint} help={m.help} error={invalid ? t("forms.ci.invalid", { value: cur }) : null}>
       <select className={INPUT} name="forge.ciTarget" value={cur} onChange={(e) => props.onEdit(textEdit(props.text, path, e.target.value))}>
-        <option value="">{defaultId ? `(default — the createsWorktree step: ${defaultId})` : "(default — no createsWorktree step)"}</option>
+        <option value="">{defaultId ? t("forms.ci.default", { id: defaultId }) : t("forms.ci.defaultNone")}</option>
         {ids.map((id) => (
           <option key={id} value={id}>
             {id}
           </option>
         ))}
-        {invalid && <option value={cur}>{cur} (not an agent step)</option>}
+        {invalid && <option value={cur}>{t("forms.ci.notAgent", { value: cur })}</option>}
       </select>
-      <span className={NOTE}>Must be an agent (non-manual) pipeline step id; unset = the createsWorktree step.</span>
+      <span className={NOTE}>{t("forms.ci.note")}</span>
     </Field>
   );
 }
 
 /** The optional `forge` block: Add (`{"type":"github"}`) when absent; its schema fields and Remove (confirmed) when present. */
 export function ForgeForm(props: EditProps & { raw: unknown }) {
+  const { t } = useT();
   const ask = useContext(ConfirmContext);
   const block = readBlock(props.raw, "forge");
   const edit = { text: props.text, onEdit: props.onEdit };
   if (!block) {
     return (
       <div className={PANEL} data-forge-form>
-        <p className="text-sm">No forge configured.</p>
-        <p className={NOTE}>A forge watches the agent PRs: a merged PR completes its task, red CI sends it back for changes.</p>
+        <p className="text-sm">{t("forms.forge.none")}</p>
+        <p className={NOTE}>{t("forms.forge.about")}</p>
         <div>
           <button className={BUTTON} data-add-forge onClick={() => props.onEdit(setPath(props.text, ["forge"], { type: "github" }))}>
-            Add GitHub forge
+            {t("forms.forge.add")}
           </button>
         </div>
       </div>
@@ -1380,14 +1445,14 @@ export function ForgeForm(props: EditProps & { raw: unknown }) {
           data-remove-forge
           onClick={() =>
             ask({
-              title: "Remove the forge block?",
-              body: "Every forge key (type, token, webhook secret, CI settings) is deleted.",
-              confirmLabel: "Remove",
+              title: t("forms.forge.removeTitle"),
+              body: t("forms.forge.removeBody"),
+              confirmLabel: t("forms.removeConfirm"),
               destructive: true,
             }).then((ok) => ok && props.onEdit(setPath(props.text, ["forge"], undefined)))
           }
         >
-          Remove forge block
+          {t("forms.forge.remove")}
         </button>
       </div>
     </div>
@@ -1399,6 +1464,7 @@ export function ForgeForm(props: EditProps & { raw: unknown }) {
  * (creating the block); switching type only changes which fields show — the other type's keys stay.
  */
 export function IngressForm(props: EditProps & { raw: unknown }) {
+  const { t } = useT();
   const block = readBlock(props.raw, "ingress");
   const type = ingressType(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1407,9 +1473,9 @@ export function IngressForm(props: EditProps & { raw: unknown }) {
     <div className={PANEL} data-ingress-form>
       <div className="flex flex-col gap-1">
         <SelectField {...edit} path={["ingress", "type"]} value={type} required />
-        {(block?.type === undefined || block.type === "") && <p className={NOTE}>No ingress type set — absent = manual.</p>}
+        {(block?.type === undefined || block.type === "") && <p className={NOTE}>{t("forms.ingress.noType")}</p>}
       </div>
-      {fields.common.length + fields.advanced.length === 0 && <p className={NOTE}>No form fields for ingress "{type}" — edit it in Raw.</p>}
+      {fields.common.length + fields.advanced.length === 0 && <p className={NOTE}>{t("forms.ingress.noFields", { type })}</p>}
       <SchemaFields
         {...edit}
         fields={fields}
@@ -1418,7 +1484,7 @@ export function IngressForm(props: EditProps & { raw: unknown }) {
           e.path[1] === "domain" ? (
             <div className="flex flex-col gap-1">
               <TextField {...edit} path={e.path} value={value} />
-              <p className={NOTE}>Unset = a new public URL on every start.</p>
+              <p className={NOTE}>{t("forms.ingress.domainNote")}</p>
             </div>
           ) : undefined
         }
@@ -1447,7 +1513,8 @@ function ErrorList(props: { errors: string[]; incomplete?: boolean }) {
  * lists that isn't offered is shown checked and kept. A non-array `events` is left to Raw.
  */
 function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
-  const m = fieldMeta(sinkPath(props.index, "events"));
+  const { t, lang } = useT();
+  const m = fieldMeta(sinkPath(props.index, "events"), lang);
   const helpId = useId();
   const ev = sinkEvents(props.value);
   return (
@@ -1458,18 +1525,18 @@ function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
         {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
         {ev.isDefault ? (
           <span data-sink-events-default-note className="ml-2">
-            default
+            {t("forms.events.default")}
           </span>
         ) : (
           <button type="button" className={`${BUTTON} ml-2`} data-sink-events-default onClick={() => props.onEdit(setPath(props.text, sinkPath(props.index, "events"), undefined))}>
-            Use default
+            {t("forms.events.useDefault")}
           </button>
         )}
       </span>
       {ev.invalid ? (
-        <span className={NOTE}>events is not a list of names — edit it in Raw.</span>
+        <span className={NOTE}>{t("forms.events.invalid")}</span>
       ) : (
-        <div role="group" aria-label="events" aria-describedby={m.help ? helpId : undefined} className="grid grid-cols-1 gap-x-3 gap-y-0.5 @[28rem]:grid-cols-2 @[44rem]:grid-cols-3">
+        <div role="group" aria-label={t("forms.events.group")} aria-describedby={m.help ? helpId : undefined} className="grid grid-cols-1 gap-x-3 gap-y-0.5 @[28rem]:grid-cols-2 @[44rem]:grid-cols-3">
           {ev.names.map((name) => (
             <label key={name} className="flex items-center gap-1.5 font-mono text-xs">
               <input
@@ -1483,7 +1550,7 @@ function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
           ))}
         </div>
       )}
-      {ev.isDefault && <span className={NOTE}>Unset: forwards {DEFAULT_SINK_EVENTS.join(", ")}.</span>}
+      {ev.isDefault && <span className={NOTE}>{t("forms.events.unset", { events: DEFAULT_SINK_EVENTS.join(", ") })}</span>}
     </div>
   );
 }
@@ -1494,6 +1561,7 @@ function SinkEventsField(props: EditProps & { index: number; value: unknown }) {
  * unknown type or a non-object entry is a read-only card — nothing in it is ever rewritten.
  */
 function SinkCard(props: EditProps & { index: number; count: number; sink: unknown; errors: string[]; cards?: CardHooks }) {
+  const { t } = useT();
   const ask = useContext(ConfirmContext);
   const i = props.index;
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1501,8 +1569,8 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
   const typeName = s ? String(s.type) : "";
   const unknownLabel =
     props.sink !== null && typeof props.sink === "object" && !Array.isArray(props.sink)
-      ? `unknown sink type ${JSON.stringify((props.sink as Record<string, unknown>).type ?? null)}`
-      : "not a sink object";
+      ? t("forms.sink.unknownType", { type: JSON.stringify((props.sink as Record<string, unknown>).type ?? null) })
+      : t("forms.sink.notObject");
   const incomplete = props.errors.length > 0 && !!props.cards?.pristine.sinks.has(i);
   return (
     <section
@@ -1516,13 +1584,13 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
         <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
         <span className="font-mono text-sm">{s ? typeName : "?"}</span>
         <span className="ml-auto flex shrink-0 gap-1">
-          <button className={ICON_BUTTON} aria-label="move sink up" disabled={i === 0} onClick={() => {
+          <button className={ICON_BUTTON} aria-label={t("forms.sink.up")} disabled={i === 0} onClick={() => {
               props.cards?.onShifted("sinks");
               props.onEdit(moveSink(props.text, i, -1));
             }}>
             ↑
           </button>
-          <button className={ICON_BUTTON} aria-label="move sink down" disabled={i === props.count - 1} onClick={() => {
+          <button className={ICON_BUTTON} aria-label={t("forms.sink.down")} disabled={i === props.count - 1} onClick={() => {
               props.cards?.onShifted("sinks");
               props.onEdit(moveSink(props.text, i, 1));
             }}>
@@ -1532,7 +1600,12 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
             className={ICON_BUTTON}
             data-remove-sink
             onClick={() =>
-              ask({ title: `Remove sink #${i + 1}${s ? ` (${typeName})` : ""}?`, body: "Its comment keys go with it.", confirmLabel: "Remove", destructive: true }).then(
+              ask({
+                title: s ? t("forms.sink.removeTitleType", { n: i + 1, type: typeName }) : t("forms.sink.removeTitle", { n: i + 1 }),
+                body: t("forms.commentKeysGo"),
+                confirmLabel: t("forms.removeConfirm"),
+                destructive: true,
+              }).then(
                 (ok) => {
                   if (!ok) return;
                   props.cards?.onShifted("sinks");
@@ -1541,14 +1614,12 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
               )
             }
           >
-            remove
+            {t("forms.remove")}
           </button>
         </span>
       </div>
       {!s ? (
-        <p className={NOTE}>
-          <span className="font-mono">{unknownLabel}</span> — edit in Raw.
-        </p>
+        <p className={NOTE}>{rich(t("forms.editInRaw"), { what: <span className="font-mono">{unknownLabel}</span> })}</p>
       ) : (
         <>
           <div className={FIELD_GRID}>
@@ -1576,6 +1647,7 @@ function SinkCard(props: EditProps & { index: number; count: number; sink: unkno
  * `overlapGuard` opt-in. Each group lists its own client checks; the server's 422 stays authoritative.
  */
 export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: CardHooks }) {
+  const { t } = useT();
   const sinks = readSinks(props.raw);
   const digest = readDigest(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1591,8 +1663,8 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
   return (
     <div className={FORM_WRAP} data-integrations-form>
       <div className={PANEL} data-sinks>
-        <h3 className="text-sm font-semibold">Sinks</h3>
-        <p className={NOTE}>Forward lifecycle events to Slack, Telegram or a webhook. Best-effort: a sink never blocks the pipeline.</p>
+        <h3 className="text-sm font-semibold">{t("forms.sinks.title")}</h3>
+        <p className={NOTE}>{t("forms.sinks.about")}</p>
         {sinkErrs.length > 0 && sinks.length === 0 && <ErrorList errors={sinkErrs} />}
         {sinks.map((s, i) => (
           <SinkCard key={i} {...edit} index={i} count={sinks.length} sink={s} errors={errorsForSink(sinkErrs, i)} cards={props.cards} />
@@ -1606,19 +1678,19 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
               props.onEdit(addSink(props.text));
             }}
           >
-            + Add sink
+            {t("forms.sinks.add")}
           </button>
         </div>
       </div>
       <div className={PANEL} data-digest>
-        <h3 className="text-sm font-semibold">Digest</h3>
+        <h3 className="text-sm font-semibold">{t("forms.digest.title")}</h3>
         <div className={FIELD_GRID}>
           <TextField {...digestEdit} path={["digest", "soul"]} value={digest?.soul} />
           <SelectField {...digestEdit} path={["digest", "access"]} value={digest?.access} />
           <ModelField {...digestEdit} path={["digest", "model"]} value={digest?.model} />
         </div>
         <details data-advanced>
-          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {setCount(digest, [budget])} set</summary>
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">{t("forms.advancedSet", { count: setCount(digest, [budget]) })}</summary>
           <div className={`mt-2 ${FIELD_GRID}`}>
             <NumberField {...digestEdit} path={["digest", "maxBudgetUsd"]} value={digest?.maxBudgetUsd} />
           </div>
@@ -1626,19 +1698,15 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
         <ErrorList errors={digestErrors(raw?.digest)} />
       </div>
       <div className={PANEL} data-pricing-panel>
-        <h3 className="text-sm font-semibold">Pricing</h3>
-        <p className={NOTE}>
-          An agent that reports no dollars (Cursor, Hermes, OpenCode, a local model) gets an API-equivalent estimate, shown as{" "}
-          <span className="font-mono">~$x est.</span> and never added to reported cost. Claude models are built in; map any other model here.
-        </p>
+        <h3 className="text-sm font-semibold">{t("forms.pricing.title")}</h3>
+        <p className={NOTE}>{rich(t("forms.pricing.about"), { est: <span className="font-mono">~$x est.</span> })}</p>
         <PricingField {...edit} pricing={raw?.pricing} />
         <ErrorList errors={pricingErrors(raw?.pricing)} />
       </div>
       <div className={PANEL} data-energy-panel>
-        <h3 className="text-sm font-semibold">Energy</h3>
+        <h3 className="text-sm font-semibold">{t("forms.energy.title")}</h3>
         <p className={NOTE}>
-          Steps that set <span className="font-mono">energy</span> record their runs&apos; electricity, shown as{" "}
-          <span className="font-mono">energy $x (y Wh)</span> beside the cost or estimate and never added to it. Gross draw incl. idle; hwmon reads the GPU only.
+          {rich(t("forms.energy.about"), { energy: <span className="font-mono">energy</span>, readout: <span className="font-mono">energy $x (y Wh)</span> })}
         </p>
         <div className={FIELD_GRID}>
           <NumberField {...energyEdits} path={["energy", "usdPerKwh"]} value={energy?.usdPerKwh} />
@@ -1650,11 +1718,8 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
         <ErrorList errors={energyErrors(raw?.energy)} />
       </div>
       <div className={PANEL} data-quota-panel>
-        <h3 className="text-sm font-semibold">Quota pacing</h3>
-        <p className={NOTE}>
-          Claude runs report the subscription quota (5-hour and weekly windows). Set a threshold to pause new runs at or above it; they resume by
-          themselves when that window resets. Running agents always finish; your own pause or resume wins. Unset = never pauses.
-        </p>
+        <h3 className="text-sm font-semibold">{t("forms.quota.title")}</h3>
+        <p className={NOTE}>{t("forms.quota.about")}</p>
         <div className={FIELD_GRID}>
           <NumberField {...quotaEdit} path={["quota", "pauseAboveSevenDay"]} value={quota?.pauseAboveSevenDay} />
           <NumberField {...quotaEdit} path={["quota", "pauseAboveFiveHour"]} value={quota?.pauseAboveFiveHour} />
@@ -1662,12 +1727,10 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
         <ErrorList errors={quotaErrors(raw?.quota)} />
       </div>
       <div className={PANEL} data-overlap-guard>
-        <h3 className="text-sm font-semibold">Overlap guard</h3>
+        <h3 className="text-sm font-semibold">{t("forms.overlap.title")}</h3>
         <CheckField {...edit} path={["overlapGuard"]} value={raw?.overlapGuard} />
         <p className={NOTE}>
-          A worktree step whose triage-predicted paths overlap another in-flight task's lock waits in its source stage (emits{" "}
-          <span className="font-mono">overlap_held</span>), and is re-offered when that task drains, fails or merges (
-          <span className="font-mono">overlap_released</span>).
+          {rich(t("forms.overlap.about"), { held: <span className="font-mono">overlap_held</span>, released: <span className="font-mono">overlap_released</span> })}
         </p>
       </div>
     </div>
@@ -1680,7 +1743,8 @@ export function IntegrationsForm(props: EditProps & { raw: unknown; cards?: Card
  * is left to Raw instead of being rewritten.
  */
 function StringListField(props: EditProps & { path: JSONPath; value: unknown }) {
-  const m = fieldMeta(props.path);
+  const { t, lang } = useT();
+  const m = fieldMeta(props.path, lang);
   const [draft, setDraft] = useState("");
   const invalid = stringListInvalid(props.value);
   const list = invalid ? [] : Array.isArray(props.value) ? (props.value as string[]) : [];
@@ -1692,7 +1756,7 @@ function StringListField(props: EditProps & { path: JSONPath; value: unknown }) 
   return (
     <Field label={m.label} hint={m.hint} help={m.help}>
       {invalid ? (
-        <span className={NOTE}>not a list of strings — edit in Raw.</span>
+        <span className={NOTE}>{t("forms.list.invalid")}</span>
       ) : (
         <div className="flex flex-col gap-1">
           {list.length > 0 && (
@@ -1700,7 +1764,7 @@ function StringListField(props: EditProps & { path: JSONPath; value: unknown }) 
               {list.map((v) => (
                 <span key={v} className="flex items-center gap-1 rounded border border-[var(--color-border)] px-1.5 py-0.5 font-mono text-xs">
                   {v}
-                  <button type="button" className={`${TOUCH} inline-flex items-center justify-center`} aria-label={`remove ${v}`} onClick={() => props.onEdit(stringListRemove(props.text, props.path, props.value, v))}>
+                  <button type="button" className={`${TOUCH} inline-flex items-center justify-center`} aria-label={t("forms.list.removeItem", { value: v })} onClick={() => props.onEdit(stringListRemove(props.text, props.path, props.value, v))}>
                     ×
                   </button>
                 </span>
@@ -1711,7 +1775,7 @@ function StringListField(props: EditProps & { path: JSONPath; value: unknown }) 
             className={INPUT}
             name={props.path.join(".")}
             value={draft}
-            placeholder="add…"
+            placeholder={t("forms.list.add")}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === ",") {
@@ -1735,6 +1799,7 @@ const anyRepoErrors = (errors: string[], repos: unknown[]): string[] => errors.f
  * worktreePrefix under Advanced. ↑/↓/remove in the header; a non-object element is a read-only card.
  */
 function RepoCard(props: EditProps & { index: number; count: number; repos: unknown[]; repo: unknown; errors: string[]; cards?: CardHooks }) {
+  const { t, lang } = useT();
   const ask = useContext(ConfirmContext);
   const i = props.index;
   const edit = { text: props.text, onEdit: props.onEdit };
@@ -1754,13 +1819,13 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
         <span className="text-xs text-[var(--color-muted)]">#{i + 1}</span>
         <span className="font-mono text-sm">{label}</span>
         <span className="ml-auto flex shrink-0 gap-1">
-          <button className={ICON_BUTTON} aria-label="move repo up" disabled={i === 0} onClick={() => {
+          <button className={ICON_BUTTON} aria-label={t("forms.repo.up")} disabled={i === 0} onClick={() => {
               props.cards?.onShifted("repos");
               props.onEdit(moveRepo(props.text, i, -1));
             }}>
             ↑
           </button>
-          <button className={ICON_BUTTON} aria-label="move repo down" disabled={i === props.count - 1} onClick={() => {
+          <button className={ICON_BUTTON} aria-label={t("forms.repo.down")} disabled={i === props.count - 1} onClick={() => {
               props.cards?.onShifted("repos");
               props.onEdit(moveRepo(props.text, i, 1));
             }}>
@@ -1770,7 +1835,11 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
             className={ICON_BUTTON}
             data-remove-repo
             onClick={() =>
-              ask({ title: `Remove repo #${i + 1}${r ? ` (${label})` : ""}?`, confirmLabel: "Remove", destructive: true }).then(
+              ask({
+                title: r ? t("forms.repo.removeTitleLabel", { n: i + 1, label }) : t("forms.repo.removeTitle", { n: i + 1 }),
+                confirmLabel: t("forms.removeConfirm"),
+                destructive: true,
+              }).then(
                 (ok) => {
                   if (!ok) return;
                   props.cards?.onShifted("repos");
@@ -1779,12 +1848,12 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
               )
             }
           >
-            remove
+            {t("forms.remove")}
           </button>
         </span>
       </div>
       {!r ? (
-        <p className={NOTE}>not an object — edit in Raw.</p>
+        <p className={NOTE}>{t("forms.repo.notObject")}</p>
       ) : (
         <>
           <div className={FIELD_GRID}>
@@ -1800,14 +1869,14 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
                   onChange={(e) => props.onEdit(repoDefaultEdit(props.text, props.repos, i, e.target.checked))}
                 />
                 <span className="text-xs">
-                  {fieldMeta(repoFieldPath(i, "default")).label}
+                  {fieldMeta(repoFieldPath(i, "default"), lang).label}
                   <span className="ml-1 font-mono opacity-70 text-[var(--color-muted)]">default</span>
                 </span>
               </label>
             </div>
           </div>
           <details data-advanced>
-            <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {advancedCount} set</summary>
+            <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">{t("forms.advancedSet", { count: advancedCount })}</summary>
             <div className={`mt-2 ${FIELD_GRID}`}>
               <TextField {...edit} path={repoFieldPath(i, "instructionsFile")} value={r.instructionsFile} />
               <TextField {...edit} path={repoFieldPath(i, "worktreePrefix")} value={r.worktreePrefix} />
@@ -1827,6 +1896,7 @@ function RepoCard(props: EditProps & { index: number; count: number; repos: unkn
  * `repos` block, a note and "+ Add repo".
  */
 export function ReposForm(props: EditProps & { raw: unknown; cards?: CardHooks }) {
+  const { t } = useT();
   const repos = readRepos(props.raw);
   const raw = props.raw as Record<string, unknown> | null;
   const hasRepos = Array.isArray(raw?.repos);
@@ -1839,25 +1909,21 @@ export function ReposForm(props: EditProps & { raw: unknown; cards?: CardHooks }
       <div className={PANEL} data-repos-top>
         <TextField {...edit} path={["repoPath"]} value={raw?.repoPath} />
         {hasRepos && (
-          <p className={NOTE}>
-            Legacy: with <span className="font-mono">repos</span> set, repoPath only names the default repo when no card below is marked default.
-          </p>
+          <p className={NOTE}>{rich(t("forms.repos.legacy"), { repos: <span className="font-mono">repos</span> })}</p>
         )}
         <details data-advanced>
-          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">Advanced · {wtpSet} set</summary>
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">{t("forms.advancedSet", { count: wtpSet })}</summary>
           <div className={`mt-2 ${FIELD_GRID}`}>
             <TextField {...edit} path={["worktreePrefix"]} value={raw?.worktreePrefix} />
           </div>
         </details>
       </div>
       <div className={PANEL} data-repos-list>
-        <h3 className="text-sm font-semibold">Repositories</h3>
+        <h3 className="text-sm font-semibold">{t("forms.repos.title")}</h3>
         {!hasRepos ? (
           <>
-            <p className={NOTE}>Single repo: agents work in repoPath.</p>
-            <p className={NOTE}>
-              Declaring repos nests worktrees under <span className="font-mono">worktreePrefix/&lt;id&gt;/</span> — finish or drain in-flight tickets first.
-            </p>
+            <p className={NOTE}>{t("forms.repos.single")}</p>
+            <p className={NOTE}>{rich(t("forms.repos.declaring"), { path: <span className="font-mono">worktreePrefix/&lt;id&gt;/</span> })}</p>
           </>
         ) : (
           <>
@@ -1877,7 +1943,7 @@ export function ReposForm(props: EditProps & { raw: unknown; cards?: CardHooks }
               props.onEdit(addRepo(props.text));
             }}
           >
-            + Add repo
+            {t("forms.repos.add")}
           </button>
         </div>
       </div>

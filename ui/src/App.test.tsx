@@ -1,8 +1,12 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProfileView } from "./contract";
 import { ProfileNameCell } from "./ProfileNameCell";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
+import { mount } from "./domHarness";
 
 const base: ProfileView = {
   name: "k",
@@ -59,5 +63,19 @@ describe("ProfileNameCell", () => {
     expect(pill({ ...base, paused: true })).toBe(true);
     expect(pill({ ...base, paused: false })).toBe(false);
     expect(pill({ ...base, up: false, paused: null })).toBe(false);
+  });
+});
+
+describe("ProfileNameCell in Spanish", () => {
+  afterEach(() => setLangSetting("en", []));
+
+  it("renders its badges in Spanish", async () => {
+    setLangSetting("es", []);
+    const m = await mount(createElement(I18nProvider, null, createElement(ProfileNameCell, { p: { ...base, ghost: true, paused: true, configPath: null } })));
+    const html = m.root.innerHTML;
+    await m.unmount();
+    expect(html).toContain(">en pausa</span>");
+    expect(html).toContain("creado el 2026-04-05");
+    expect(html).toContain("pausa del operador");
   });
 });

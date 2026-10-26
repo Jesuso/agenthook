@@ -47,7 +47,7 @@ describe("fetchEpics / fetchEpic", () => {
     expect(await fetchEpics("dev", reply(503, { error: "receiver not running" }))).toMatchObject({ status: 503, message: "The receiver isn't running." });
     expect(await fetchEpics("dev", reply(504, { error: "receiver timed out" }))).toMatchObject({ status: 504, message: "The tracker read timed out — try Refresh." });
     const down = (async () => Promise.reject(new Error("offline"))) as unknown as typeof fetch;
-    expect(await fetchEpics("dev", down)).toEqual({ kind: "error", status: 0, message: "Dashboard unreachable." });
+    expect(await fetchEpics("dev", down)).toEqual({ kind: "error", status: 0, error: null, message: "Dashboard unreachable." });
     expect(epicsError(500, null, false)).toBe("Couldn't load epics (status 500).");
   });
 });
@@ -84,6 +84,8 @@ describe("epic numbers", () => {
     expect(perDayLabel(null)).toBe("—");
     expect(perDayLabel(0.4285)).toBe("0.4/day");
     expect(perDayLabel(12.6)).toBe("13/day");
+    expect(perDayLabel(0.4285, "es")).toBe("0.4/día");
+    expect(etaLabel({ days: 4, date: "2026-10-20" }, "es")).toMatch(/^~4 d · 20 oct/);
     expect(safeUrl("https://x.y/1")).toBe("https://x.y/1");
     expect(safeUrl("javascript:alert(1)")).toBeNull();
     expect(safeUrl("")).toBeNull();

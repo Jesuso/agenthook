@@ -4,6 +4,8 @@ import { formatModel, formatRelative, formatTicketSpend, profileLabel, ticketTit
 import { filterTickets, pageLimit, prNumber, showMore, sortTickets, statusCounts, ticketEpics, PAGE_SIZE, STATUS_ORDER } from "./tickets";
 import type { Page, StatusFilter } from "./tickets";
 import { Segmented, StatusBadge, Tooltip } from "./components";
+import { useT } from "./i18n/react";
+import type { MessageKey } from "./i18n";
 
 // Full class strings so Tailwind's scanner sees them: the pinned rows' low-alpha tint.
 const PINNED_TINT: Partial<Record<TicketStatus, string>> = {
@@ -12,9 +14,9 @@ const PINNED_TINT: Partial<Record<TicketStatus, string>> = {
   interrupted: "bg-status-failed-bg/40",
 };
 
-const STATUS_TITLE: Partial<Record<TicketStatus, string>> = {
-  interrupted: "receiver is down — this run was interrupted",
-  stalled: "receiver is down — will resume when it restarts",
+const STATUS_TITLE: Partial<Record<TicketStatus, MessageKey>> = {
+  interrupted: "tickets.interruptedTitle",
+  stalled: "tickets.stalledTitle",
 };
 
 const CELL = "px-2 py-1";
@@ -45,6 +47,7 @@ export type TicketsTableProps = {
 
 /** The dashboard's tickets section: a one-row filter toolbar over a paged table in its own scroll region. */
 export function TicketsTable(props: TicketsTableProps) {
+  const { t: tr } = useT();
   const { tickets, profiles, now, profileFilter, statusFilter, epicFilter, showAll, open } = props;
   const forges = new Set(profiles.filter((p) => p.forge).map((p) => p.name));
   const base = { profile: profileFilter || null, epic: epicFilter || null, showAll, now, forges };
@@ -59,24 +62,24 @@ export function TicketsTable(props: TicketsTableProps) {
   const remaining = rows.length - shown.length;
 
   const chips: { value: string; label: React.ReactNode }[] = [
-    { value: "", label: <ChipLabel text="all" count={counts.all} /> },
-    { value: "needs-you", label: <ChipLabel text="needs you" count={counts["needs-you"]} /> },
-    ...STATUS_ORDER.filter((s) => counts[s] > 0 || statusFilter === s).map((s) => ({ value: s, label: <ChipLabel text={s} count={counts[s]} /> })),
+    { value: "", label: <ChipLabel text={tr("tickets.all")} count={counts.all} /> },
+    { value: "needs-you", label: <ChipLabel text={tr("home.needsYou")} count={counts["needs-you"]} /> },
+    ...STATUS_ORDER.filter((s) => counts[s] > 0 || statusFilter === s).map((s) => ({ value: s, label: <ChipLabel text={tr(`status.${s}`)} count={counts[s]} /> })),
   ];
 
   return (
     <>
       {/* The All tickets summary above is the visible heading; this keeps the outline for screen readers. */}
-      <h2 className="sr-only">All tickets</h2>
+      <h2 className="sr-only">{tr("overview.allTickets")}</h2>
       <div className="flex flex-wrap items-center gap-3 mb-2 text-sm" data-tickets-toolbar>
         {!props.lockProfile && (
         <select
-          aria-label="profile"
+          aria-label={tr("tickets.profile")}
           className="border border-border rounded px-1.5 py-0.5 bg-transparent"
           value={profileFilter}
           onChange={(e) => props.onProfileFilter(e.target.value)}
         >
-          <option value="">all profiles</option>
+          <option value="">{tr("tickets.allProfiles")}</option>
           {profiles.map((p) => (
             <option key={p.name} value={p.name}>
               {profileLabel(p)}
@@ -86,13 +89,13 @@ export function TicketsTable(props: TicketsTableProps) {
         )}
         {(epics.length > 0 || epicFilter) && (
           <select
-            aria-label="epic"
+            aria-label={tr("tickets.epic")}
             data-epic-filter
             className="max-w-48 border border-border rounded px-1.5 py-0.5 bg-transparent"
             value={epicFilter}
             onChange={(e) => props.onEpicFilter(e.target.value)}
           >
-            <option value="">All epics</option>
+            <option value="">{tr("tickets.allEpics")}</option>
             {epicFilter && !epics.some((e) => e.ref === epicFilter) && <option value={epicFilter}>{epicFilter}</option>}
             {epics.map((e) => (
               <option key={e.ref} value={e.ref}>
@@ -104,27 +107,27 @@ export function TicketsTable(props: TicketsTableProps) {
         <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={showAll} onChange={(e) => props.onShowAll(e.target.checked)} />
-          show all
+          {tr("tickets.showAll")}
         </label>
         <span className="text-muted">
-          {shown.length} shown / {tickets.length} total
+          {tr("tickets.shownTotal", { shown: shown.length, total: tickets.length })}
         </span>
       </div>
       <div className="max-h-[60vh] overflow-auto rounded-lg border border-border mb-6" data-tickets-scroll>
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-surface shadow-[inset_0_-1px_0_var(--color-border)]">
             <tr className="text-left text-muted">
-              <th className={NOWRAP}>id</th>
-              <th className={NOWRAP}>title</th>
-              <th className={NOWRAP}>profile</th>
-              <th className={NOWRAP}>step</th>
-              <th className={NOWRAP}>status</th>
-              <th className={NOWRAP}>model</th>
-              <th className={NOWRAP}>started</th>
-              <th className={NOWRAP}>cost</th>
-              <th className={NOWRAP}>held reason</th>
+              <th className={NOWRAP}>{tr("tickets.col.id")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.title")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.profile")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.step")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.status")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.model")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.started")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.cost")}</th>
+              <th className={NOWRAP}>{tr("tickets.col.heldReason")}</th>
               <th className={NOWRAP}>PR</th>
-              <th className={NOWRAP} aria-label="actions"></th>
+              <th className={NOWRAP} aria-label={tr("tickets.col.actions")}></th>
             </tr>
           </thead>
           <tbody>
@@ -140,7 +143,7 @@ export function TicketsTable(props: TicketsTableProps) {
               className="rounded-md border border-border px-3 py-1 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
               onClick={() => setPage(showMore(page, key))}
             >
-              show {PAGE_SIZE} more ({remaining} remaining)
+              {tr("tickets.showMore", { size: PAGE_SIZE, remaining })}
             </button>
           </div>
         )}
@@ -158,7 +161,8 @@ function ChipLabel({ text, count }: { text: string; count: number }) {
 }
 
 function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; now: number; selected: boolean; onOpen: TicketsTableProps["onOpen"]; onDismiss: TicketsTableProps["onDismiss"]; onEpic: (ref: string) => void }) {
-  const title = ticketTitle(t);
+  const { t: tr, lang } = useT();
+  const title = ticketTitle(t, lang);
   const model = formatModel(t.model);
   const pr = prNumber(t.prUrl);
   return (
@@ -186,7 +190,7 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
           <button
             type="button"
             data-epic-chip={t.epic.ref}
-            title={`epic: ${t.epic.name} — show only its tickets`}
+            title={tr("tickets.epicTitle", { name: t.epic.name })}
             className="mb-0.5 block max-w-48 truncate rounded-full border border-border bg-surface-raised px-2 text-meta text-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
             onClick={() => onEpic(t.epic!.ref)}
           >
@@ -209,13 +213,13 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
       </td>
       <td className={`${NOWRAP} font-mono`}>{t.profile}</td>
       <td className={NOWRAP}>{t.step ?? "—"}</td>
-      <td className={NOWRAP} title={STATUS_TITLE[t.status]}>
+      <td className={NOWRAP} title={STATUS_TITLE[t.status] && tr(STATUS_TITLE[t.status]!)}>
         <StatusBadge status={t.status} />
       </td>
       <td className={NOWRAP} title={model.title}>
         {model.text}
       </td>
-      <td className={NOWRAP}>{formatRelative(t.startedAt, now)}</td>
+      <td className={NOWRAP}>{formatRelative(t.startedAt, now, lang)}</td>
       <td className={NOWRAP}>{formatTicketSpend(t)}</td>
       <td className={CELL}>
         {t.heldReason ? (
@@ -239,12 +243,12 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
         {(t.status === "failed" || t.status === "cancelled") && (
           <button
             type="button"
-            aria-label={`Dismiss ${t.displayId}`}
-            title="Acknowledge: stop counting this ticket as needing you (the ticket itself is untouched)"
+            aria-label={tr("overview.dismissAria", { id: t.displayId })}
+            title={tr("tickets.dismissTitle")}
             className="rounded-md border border-border px-2 py-0.5 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
             onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}
           >
-            Dismiss
+            {tr("overview.dismiss")}
           </button>
         )}
       </td>

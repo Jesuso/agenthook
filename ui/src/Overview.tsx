@@ -342,7 +342,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
-          const reason = kind === "failed" ? failureSummary(item.reason) : item.reason;
+          const reason = kind === "failed" ? failureSummary(item.reason, lang) : item.reason;
           // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
           const sub = t.plain ?? reason ?? t.summary;
           const subTitle = t.plain ? (item.reason ?? t.summary ?? undefined) : (reason ?? t.summary ?? undefined);

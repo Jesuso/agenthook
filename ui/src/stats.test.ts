@@ -37,6 +37,7 @@ describe("date labels", () => {
   it("reads a YYYY-MM-DD as a calendar date, never shifted by the timezone", () => {
     expect(weekdayLetter("2026-10-15")).toBe("T"); // a Thursday
     expect(weekdayLetter("2026-10-18")).toBe("S"); // a Sunday
+    expect([weekdayLetter("2026-10-12", "es"), weekdayLetter("2026-10-14", "es"), weekdayLetter("2026-10-18", "es")]).toEqual(["L", "X", "D"]); // es: lunes, miércoles, domingo
     expect(shortDate("2026-10-14")).toBe("Oct 14");
   });
 });

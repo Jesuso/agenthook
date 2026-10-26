@@ -8,6 +8,7 @@ import { digestErrors } from "../../src/digest-config.js";
 import { reposErrors } from "../../src/repos-config.js";
 import { pricingErrors } from "../../src/pricing.js";
 import { quotaErrors } from "../../src/quota.js";
+import { translate } from "./i18n";
 
 /**
  * The Basics / Pipeline forms' text side (docs/web-ui.md § v3). Every form change is a minimal
@@ -115,11 +116,11 @@ export function textEdit(text: string, path: JSONPath, input: string): string {
 }
 
 /** Number input: empty removes the key; a non-numeric input is not applied. */
-export function numberEdit(text: string, path: JSONPath, input: string): { ok: true; text: string } | { ok: false; error: string } {
+export function numberEdit(text: string, path: JSONPath, input: string, lang = "en"): { ok: true; text: string } | { ok: false; error: string } {
   const s = input.trim();
   if (s === "") return { ok: true, text: setPath(text, path, undefined) };
   const n = Number(s);
-  if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s) || !Number.isFinite(n)) return { ok: false, error: "not a number" };
+  if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s) || !Number.isFinite(n)) return { ok: false, error: translate(lang, "configHelp.notANumber") };
   return { ok: true, text: setPath(text, path, n) };
 }
 
@@ -387,22 +388,25 @@ export function stepErrors(raw: unknown, serverErrors: string[]): Map<number, st
 export type StageSource = { kind: "loading" } | { kind: "list"; stages: StageOption[] } | { kind: "text"; hint: string };
 
 /** 200 with stages → a picker; 503 → type it (receiver down); anything else → couldn't list. `status` 0 = network error. */
-export function stageSource(status: number, body: Discover | null): StageSource {
+export function stageSource(status: number, body: Discover | null, lang = "en"): StageSource {
   if (status === 200 && body && Array.isArray(body.stages)) return { kind: "list", stages: body.stages };
-  if (status === 503) return { kind: "text", hint: "receiver not running — type the value" };
+  if (status === 503) return { kind: "text", hint: translate(lang, "configHelp.stages.typeIt") };
+  const detail = (body as any)?.error;
   const why =
     status === 200
-      ? "the tracker has no stage list"
+      ? translate(lang, "configHelp.stages.noList")
       : status === 0
-        ? "network error"
+        ? translate(lang, "configHelp.stages.network")
         : status === 404
-          ? "unknown profile"
+          ? translate(lang, "configHelp.stages.unknownProfile")
           : status === 504
-            ? "receiver timed out"
+            ? translate(lang, "configHelp.stages.timedOut")
             : status === 502
-              ? `receiver error${typeof (body as any)?.error === "string" ? `: ${(body as any).error}` : ""}`
-              : `status ${status}`;
-  return { kind: "text", hint: `couldn't list stages (${why})` };
+              ? typeof detail === "string"
+                ? translate(lang, "configHelp.stages.receiverErrorDetail", { error: detail })
+                : translate(lang, "configHelp.stages.receiverError")
+              : translate(lang, "configHelp.stages.status", { status });
+  return { kind: "text", hint: translate(lang, "configHelp.stages.failed", { why }) };
 }
 
 export function discoverUrl(profile: string): string {

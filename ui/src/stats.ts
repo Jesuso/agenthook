@@ -70,10 +70,12 @@ export function summarizeStats(days: DayStats[]): StatsSummary {
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
-/** "M" / "T" / … for a local YYYY-MM-DD (parsed as a calendar date, so no timezone shift). */
-export function weekdayLetter(date: string): string {
+/** "M" / "T" / … for a local YYYY-MM-DD (parsed as a calendar date, so no timezone shift); "L" / "X" / … in es. */
+export function weekdayLetter(date: string, lang = "en"): string {
   const [y, m, d] = date.split("-").map(Number);
-  return WEEKDAYS[new Date(y, m - 1, d).getDay()] ?? "";
+  const day = new Date(y, m - 1, d);
+  if (lang !== "en") return day.toLocaleDateString(lang, { weekday: "narrow" });
+  return WEEKDAYS[day.getDay()] ?? "";
 }
 
 /** "Oct 14" for a local YYYY-MM-DD; "14 oct" in es. */

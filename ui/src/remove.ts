@@ -1,4 +1,5 @@
 import type { ProfileView } from "./contract";
+import { translate } from "./i18n";
 
 // The Remove… action's pure half (POST /api/profile/remove, src/ui/server.js): the confirm gate,
 // the guarded request, and the status → outcome / text mapping. RemoveProfile.tsx drives it.
@@ -32,19 +33,18 @@ export function classifyRemoveResponse(status: number): "archived" | "pending" |
   return "error";
 }
 
-/** The modal's inline error; `body` is the parsed response (`{error}`) or null. */
-export function removeErrorText(status: number, body: unknown): string {
+/** The modal's inline error; `body` is the parsed response (`{error}`) or null, its `error` shown as written. */
+export function removeErrorText(status: number, body: unknown, lang = "en"): string {
   const err = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : null;
-  if (status === 0) return "Remove failed (network error)";
-  if (status === 404) return "Profile not found — it may already be removed.";
-  if (status === 504) return "The receiver did not answer in time — nothing was changed; try again.";
-  if (classifyRemoveResponse(status) === "refused") return `Remove refused: ${err ?? `status ${status}`}`;
-  return err ? `Remove failed (status ${status}): ${err}` : `Remove failed (status ${status})`;
+  if (status === 0) return translate(lang, "remove.error.network");
+  if (status === 404) return translate(lang, "remove.error.notFound");
+  if (status === 504) return translate(lang, "remove.error.timeout");
+  if (classifyRemoveResponse(status) === "refused") return translate(lang, "remove.error.refused", { error: err ?? translate(lang, "remove.error.statusN", { status }) });
+  return err ? translate(lang, "remove.error.failedDetail", { status, error: err }) : translate(lang, "remove.error.failed", { status });
 }
 
 /** The profile row's text while a decommission is pending, from its live view. */
-export function pendingText(p: Pick<ProfileView, "up" | "active">): string {
-  if (!p.up) return "receiver stopped — archiving… (if this stays, the archive failed — see receiver.log)";
-  const n = p.active ?? 0;
-  return `removing when idle (${n === 1 ? "1 agent" : `${n} agents`} running)…`;
+export function pendingText(p: Pick<ProfileView, "up" | "active">, lang = "en"): string {
+  if (!p.up) return translate(lang, "remove.archiving");
+  return translate(lang, "remove.whenIdle", { count: p.active ?? 0 });
 }

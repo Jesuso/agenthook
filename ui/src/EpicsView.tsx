@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { EpicResponse, EpicStats, EpicsResponse, ProfileView, TicketRow } from "./contract";
 import type { ReleaseOutcome } from "./config";
-import { REFETCH_DEBOUNCE_MS, progressOf, etaLabel, fetchEpic, fetchEpics, splitCompleted } from "./epics";
+import { REFETCH_DEBOUNCE_MS, progressOf, epicsError, etaLabel, fetchEpic, fetchEpics, splitCompleted } from "./epics";
 import type { Loaded } from "./epics";
 import { EpicStageBar, StageKey, segCounts } from "./EpicStageBar";
 import type { Seg } from "./EpicStageBar";
@@ -11,6 +11,7 @@ import { CopyCommand, EmptyState, Pill, ProfileMark, ShortcutSheet, ShortcutsBut
 import { profileLabel } from "./format";
 import { hashFor } from "./route";
 import { EPICS_SHORTCUTS, epicsAction, shortcutsEnabled } from "./shortcuts";
+import { rich, useT } from "./i18n/react";
 
 type Ref = { profile: string; ref: string };
 
@@ -23,6 +24,7 @@ const QUIET = "rounded-md px-2 py-1 text-label text-muted hover:bg-surface-raise
  * under the error. No timer polling. One profile at a time (ADR 0001).
  */
 export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, onRelease, onRetry, onDismiss, dismissing }: { profile: ProfileView; epic?: string; rows: TicketRow[]; ticketsNonce: number; onOpen: (t: Ref) => void; onRelease?: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry?: (t: Ref) => Promise<ReleaseOutcome>; onDismiss?: (t: Ref) => void; dismissing?: ReadonlySet<string> }) {
+  const { t, lang } = useT();
   // Tagged with the route it answers, so a previous route's response (the list, another epic) never renders under this one.
   const [data, setData] = useState<{ route: string; result: Loaded<EpicsResponse | EpicResponse> } | null>(null);
   const [good, setGood] = useState<{ route: string; body: EpicsResponse | EpicResponse } | null>(null);
@@ -59,8 +61,8 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
   const firstNonce = useRef(ticketsNonce);
   useEffect(() => {
     if (ticketsNonce === firstNonce.current) return;
-    const t = setTimeout(() => setReload((n) => n + 1), REFETCH_DEBOUNCE_MS);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setReload((n) => n + 1), REFETCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [ticketsNonce]);
 
   const shown = data?.route === route ? data.result : null;
@@ -69,11 +71,11 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
   const epicName = body && "epic" in body ? body.epic?.name : undefined;
 
   useEffect(() => {
-    document.title = `${epicName ? `${epicName} · ` : ""}Epics · ${profileLabel(profile)} · agenthook`;
+    document.title = `${epicName ? `${epicName} · ` : ""}${t("epics.title")} · ${profileLabel(profile)} · agenthook`;
     return () => {
       document.title = "agenthook";
     };
-  }, [epicName, profile]);
+  }, [epicName, profile, t]);
 
   useEpicsKeys(setHelp, epic !== undefined ? listHref : null);
 
@@ -90,10 +92,10 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
         <h1 className="text-title font-semibold">
           {epic !== undefined ? (
             <a className="rounded-sm text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-accent" href={listHref} aria-keyshortcuts="u">
-              Epics
+              {t("epics.title")}
             </a>
           ) : (
-            "Epics"
+            t("epics.title")
           )}{" "}
           <span className="font-normal text-muted">· {profileLabel(profile)}</span>
         </h1>
@@ -106,36 +108,36 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
             className="rounded-md border border-border px-3 py-1 text-label hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
             onClick={refresh}
           >
-            {loading && manual ? "Refreshing…" : "Refresh"}
+            {loading && manual ? t("epics.refreshing") : t("epics.refresh")}
           </button>
         </span>
       </div>
       <p className="sr-only" role="status" data-epics-status>
-        {!body && !error ? "Loading epics…" : loading && manual ? "Refreshing epics…" : ""}
+        {!body && !error ? t("epics.loading") : loading && manual ? t("epics.refreshingEpics") : ""}
       </p>
       {!body && !error && (
         <p className="text-label text-muted" aria-hidden="true">
-          Loading epics…
+          {t("epics.loading")}
         </p>
       )}
       {error && (
         <div className="flex flex-col gap-2 rounded-lg border border-status-failed/40 bg-surface px-3 py-2" role="alert" data-epics-error={error.status}>
           <p className="flex flex-wrap items-baseline gap-x-3 text-label text-status-failed">
-            {error.message}
-            {body && <span className="text-muted">Showing what loaded last.</span>}
+            {epicsError(error.status, error.error, epic !== undefined, lang)}
+            {body && <span className="text-muted">{t("epics.stale")}</span>}
             <button type="button" className={`${QUIET} ml-auto`} onClick={refresh}>
-              Try again
+              {t("epics.tryAgain")}
             </button>
           </p>
           {error.status === 503 && !profile.configMissing && (
             <div className="flex flex-col gap-1">
-              <p className="text-label text-muted">Start it, then try again:</p>
+              <p className="text-label text-muted">{t("epics.startIt")}</p>
               <CopyCommand command={`agenthook start${cfg}`} />
             </div>
           )}
           {error.status === 404 && epic !== undefined && (
             <a className="self-start rounded-sm text-label text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent" href={listHref}>
-              Back to all epics
+              {t("epics.backToAll")}
             </a>
           )}
         </div>
@@ -146,7 +148,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
         ) : (
           <EpicsList body={body} profile={profile.name} focusRef={cameFrom} />
         ))}
-      {help && <ShortcutSheet rows={EPICS_SHORTCUTS} onClose={() => setHelp(false)} />}
+      {help && <ShortcutSheet rows={EPICS_SHORTCUTS.map((s) => ({ keys: s.keys, what: t(s.what) }))} onClose={() => setHelp(false)} />}
     </div>
   );
 }
@@ -191,6 +193,7 @@ function useEpicsKeys(setHelp: (open: boolean) => void, upHref: string | null) {
  * focus back on return, opening Closed first when its row is in there.
  */
 export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; profile: string; focusRef?: string }) {
+  const { t } = useT();
   const { open, completed } = body.supported ? splitCompleted(body.epics) : { open: [], completed: [] };
   const [closedOpen, setClosedOpen] = useDisclosure(`${profile}:closed`, open.length === 0);
   const back = focusRef ? completed.some((e) => e.ref === focusRef) : false;
@@ -202,14 +205,14 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
     returned.current = focusRef;
     document.querySelector<HTMLElement>(`[data-epic-row="${CSS.escape(focusRef)}"] [data-epic-nav]`)?.focus();
   }, [focusRef, back, closedOpen]);
-  if (!body.supported) return <EmptyState title="This tracker has no epics" />;
+  if (!body.supported) return <EmptyState title={t("epics.unsupported")} />;
   // Optional columns take room only when some open epic fills them.
   const needCol = open.some((e) => e.needsYou.length > 0);
   const noteCol = open.some((e) => e.readyToClose || e.eta || paceOf(e).stalled);
   return (
     <div className="flex flex-col gap-3">
       {!body.live && <LiveNote />}
-      {body.epics.length === 0 && <EmptyState title="No epics yet" hint={body.live ? undefined : "Only epics a ticket here has run under appear while the receiver is down."} />}
+      {body.epics.length === 0 && <EmptyState title={t("epics.none")} hint={body.live ? undefined : t("epics.noneDownHint")} />}
       {open.length > 0 && (
         <div className="flex flex-col gap-2">
           <ul className="rounded-lg border border-border bg-surface" data-epics-open>
@@ -225,14 +228,14 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
       )}
       {open.length === 0 && completed.length > 0 && (
         <p className="px-3 text-muted" data-no-open-epics>
-          No open epics.
+          {t("epics.noOpen")}
         </p>
       )}
       {completed.length > 0 && (
         <details className="group rounded-lg border border-border bg-surface" data-epics-completed open={closedOpen} onToggle={(e) => setClosedOpen(e.currentTarget.open)}>
           <summary className="flex cursor-pointer list-none items-baseline gap-2 rounded-lg px-3 py-2 text-body font-semibold select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent">
             <Chevron />
-            Closed
+            {t("epics.closed")}
             <Count n={completed.length} noun="epic" />
           </summary>
           <ul className="border-t border-border-subtle">
@@ -253,6 +256,7 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
  * muted ticket count, so closed epics never outweigh open ones.
  */
 function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profile: string; closed?: boolean; needCol?: boolean; noteCol?: boolean }) {
+  const { t } = useT();
   const href = hashFor({ kind: "profile", profile, view: "epics", epic: e.ref });
   const need = e.needsYou.length;
   // The link is what j/k focus and a screen reader names: it carries the row's state by reference.
@@ -266,7 +270,7 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
     >
       {needCol && (
         <span id={`${id}-need`} className="w-24 shrink-0" data-needs-you={need || undefined}>
-          {need > 0 && <Pill tone="held">needs you {need}</Pill>}
+          {need > 0 && <Pill tone="held">{t("epics.needsYouPill", { count: need })}</Pill>}
         </span>
       )}
       <a
@@ -282,20 +286,14 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
         {!closed && e.status && (
           <span className="shrink-0 text-label font-normal text-muted" data-tracker-status>
             <span aria-hidden="true">· </span>
-            <span className="sr-only">tracker status </span>
+            <span className="sr-only">{`${t("epics.trackerStatus")} `}</span>
             {e.status}
           </span>
         )}
       </a>
       {closed ? (
         <span id={`${id}-count`} className="shrink-0 text-label text-muted" data-closed-count>
-          {total === 0 ? (
-            "no tickets"
-          ) : (
-            <>
-              <span className="font-mono">{`${done}/${total}`}</span> finished
-            </>
-          )}
+          {total === 0 ? t("epics.noTickets") : rich(t("epics.closedCount", { count: done }), { n: <span className="font-mono">{`${done}/${total}`}</span> })}
         </span>
       ) : (
         <>
@@ -313,14 +311,15 @@ function EpicRow({ e, profile, closed, needCol, noteCol }: { e: EpicStats; profi
 
 /** The note slot: closing is the human's job (neutral, not an all-good green), else the ETA, else a stall. */
 function RowNote({ e }: { e: EpicStats }) {
-  if (e.readyToClose) return <Pill title="All tickets finished: close this epic on the tracker">ready to close</Pill>;
-  const eta = etaLabel(e.eta);
+  const { t, lang } = useT();
+  if (e.readyToClose) return <Pill title={t("epics.readyToCloseTitle")}>{t("epics.readyToClose")}</Pill>;
+  const eta = etaLabel(e.eta, lang);
   if (eta) return <>{eta}</>;
-  const pace = paceOf(e);
+  const pace = paceOf(e, lang);
   if (pace.stalled)
     return (
-      <span className="font-medium text-fg" data-stalled title="Nothing in this epic has finished lately">
-        {pace.since === null ? "no finishes yet" : `stalled ${pace.since} d`}
+      <span className="font-medium text-fg" data-stalled title={t("epics.stalledTitle")}>
+        {pace.since === null ? t("epics.noFinishes") : t("epics.stalledDays", { days: pace.since })}
       </span>
     );
   return null;

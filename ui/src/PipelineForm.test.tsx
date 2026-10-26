@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PipelineForm } from "./ConfigForms";
 import { click, mount } from "./domHarness";
 import type { Mounted } from "./domHarness";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 
 /** Set a `<select>`'s value and fire the native `change` React listens for. */
 const setSelect = (el: HTMLSelectElement, value: string) =>
@@ -351,5 +353,24 @@ describe("PipelineForm Advanced: provider", () => {
     const provider = cards(m)[0].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.0.provider"]');
     expect(provider).not.toBeNull();
     expect(provider!.value).toBe("custom");
+  });
+});
+
+describe("PipelineForm in Spanish (#562)", () => {
+  afterEach(async () => {
+    await m?.unmount();
+    m = null;
+    setLangSetting("en", []);
+  });
+
+  it("renders the toolbar, card controls and group titles in Spanish", async () => {
+    setLangSetting("es", []);
+    m = await mount(createElement(I18nProvider, null, form()));
+    expect(m.root.textContent).toContain("Actualizar etapas");
+    expect(m.root.textContent).toContain("+ Agregar paso");
+    await click(cards(m)[1].querySelector('[aria-label="expandir paso"]')!);
+    const titles = [...cards(m)[1].querySelectorAll("h4")].map((h) => h.textContent);
+    expect(titles).toContain("Disparadores y carriles");
+    expect(cards(m)[1].querySelector("[data-step-advanced] summary")!.textContent).toBe("Avanzado · 0 definidos");
   });
 });

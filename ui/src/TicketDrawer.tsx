@@ -28,6 +28,7 @@ import { chronological, isBounce, stepOrder, storyBlocks, timeScale } from "./ru
 import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
 import { IconButton, Pill, StatusBadge } from "./components";
+import { useT } from "./i18n/react";
 
 const LINE_H = 18;
 const FRAME_TYPES: LogFrame["type"][] = ["init", "append", "reset"];
@@ -76,6 +77,7 @@ type RunsState = { kind: "loading" } | { kind: "error"; status: number } | { kin
  */
 export function TicketDrawer(props: { profile: string; ticketRef: string; ticket: TicketRow | undefined; runsNonce: number; onClose: () => void }) {
   const { profile, ticketRef, ticket, runsNonce } = props;
+  const { t, lang } = useT();
   const [runs, setRuns] = useState<RunsState>({ kind: "loading" });
   const [picked, setPicked] = useState<string | null>(null);
   const onClose = useRef(props.onClose);
@@ -124,7 +126,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         data-drawer
         role="dialog"
         aria-modal="true"
-        aria-label={`Ticket ${label}`}
+        aria-label={t("drawer.aria", { id: label })}
         className="fixed inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-xl outline-none md:w-[720px]"
       >
         <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-3">
@@ -137,12 +139,12 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
           )}
           <h2 className="min-w-0 flex-1 basis-40 truncate text-title font-semibold" title={ticket?.title ?? undefined}>
             {ticket ? (
-              ticketTitle(ticket).unknown ? (
+              ticketTitle(ticket, lang).unknown ? (
                 <>
-                  {label} <span className="text-muted">{ticketTitle(ticket).text}</span>
+                  {label} <span className="text-muted">{ticketTitle(ticket, lang).text}</span>
                 </>
               ) : (
-                ticketTitle(ticket).text
+                ticketTitle(ticket, lang).text
               )
             ) : (
               <span className="text-muted">—</span>
@@ -156,18 +158,18 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             </a>
           )}
           {ticket && (
-            <span className="text-label text-muted" title="total cost: the sum of run_end costs still in the events tail (an approximation); ~est. = rate-table estimate for runs with no reported cost">
+            <span className="text-label text-muted" title={t("drawer.costTitle")}>
               {formatTicketSpend(ticket)}
             </span>
           )}
-          <IconButton label="Close" onClick={props.onClose}>
+          <IconButton label={t("drawer.close")} onClick={props.onClose}>
             ×
           </IconButton>
         </header>
         {/* Why it needs you, in full: the Needs-you row only has room for one truncated line. */}
         {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
           <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
-            <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? "Why it failed" : "What the agent is asking"}</p>
+            <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? t("drawer.whyFailed") : t("drawer.agentAsks")}</p>
             {ticket.plain && <p data-drawer-plain className="mb-1 text-body text-fg">{ticket.plain}</p>}
             <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
           </div>
@@ -178,11 +180,11 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
           </p>
         )}
         <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
-          {runs.kind === "loading" && <p className="text-label text-muted">Loading runs…</p>}
-          {runs.kind === "error" && <p className="text-label text-status-failed">Failed to load runs (status {runs.status}).</p>}
-          {runs.kind === "ok" && list.length === 0 && <p className="text-label text-muted">No run logs for this ticket.</p>}
+          {runs.kind === "loading" && <p className="text-label text-muted">{t("drawer.loadingRuns")}</p>}
+          {runs.kind === "error" && <p className="text-label text-status-failed">{t("drawer.runsError", { status: runs.status })}</p>}
+          {runs.kind === "ok" && list.length === 0 && <p className="text-label text-muted">{t("drawer.noRuns")}</p>}
           {list.length > 0 && (
-            <section aria-label="Runs by step over time" className="mb-3 shrink-0 rounded-md border border-border bg-bg px-3 pt-2 pb-1.5">
+            <section aria-label={t("drawer.runsByStep")} className="mb-3 shrink-0 rounded-md border border-border bg-bg px-3 pt-2 pb-1.5">
               <div className="relative">
                 {order.map((s) => (
                   <div key={s} className="grid grid-cols-[72px_minmax(0,1fr)] items-center border-b border-border-subtle last:border-b-0">
@@ -198,8 +200,8 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
                               key={r.run}
                               type="button"
                               aria-pressed={on}
-                              aria-label={`${r.step} ${formatOutcome(r)}, ${formatRelative(r.startedAt, now)}, ${formatDuration(runDurationMs(r, now))}`}
-                              title={`${r.step} · ${formatOutcome(r)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r)}`}
+                              aria-label={`${r.step} ${formatOutcome(r, lang)}, ${formatRelative(r.startedAt, now, lang)}, ${formatDuration(runDurationMs(r, now))}`}
+                              title={`${r.step} · ${formatOutcome(r, lang)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r, lang)}`}
                               onClick={() => setPicked(r.run)}
                               className={`absolute top-1/2 h-3.5 min-w-2 -translate-y-1/2 rounded-sm ${RUN_BG[outcomeTone(r)]} ${r.running ? "animate-status-pulse" : ""} ${on ? "z-10 ring-2 ring-fg ring-offset-2 ring-offset-bg" : "opacity-60 hover:opacity-100"}`}
                               style={{ left: `${span.x(a)}%`, width: `${span.x(runEndMs(r, now)) - span.x(a)}%` }}
@@ -239,7 +241,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               <div className="relative mt-1 ml-[72px] h-3.5 font-mono text-meta text-muted">
                 {!span.breaks.some((b) => b.x < 16) && <span className="absolute left-0">{clock(span.t0)}</span>}
                 {span.breaks.map((b) => (
-                  <span key={b.x} title="idle time, squeezed on this axis" className="absolute -translate-x-1/2 bg-bg px-1 whitespace-nowrap" style={{ left: `${b.x}%` }}>
+                  <span key={b.x} title={t("drawer.idleBreak")} className="absolute -translate-x-1/2 bg-bg px-1 whitespace-nowrap" style={{ left: `${b.x}%` }}>
                     +{formatDuration(b.ms)}
                   </span>
                 ))}
@@ -250,18 +252,18 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
           {selected && (
             <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
               <span className="font-medium text-fg">{selected.step}</span>
-              <Pill tone={outcomeTone(selected)}>{formatOutcome(selected)}</Pill>
+              <Pill tone={outcomeTone(selected)}>{formatOutcome(selected, lang)}</Pill>
               <span className="font-mono text-muted">{formatDuration(runDurationMs(selected, now))}</span>
-              <span className="font-mono text-muted">{formatRunCost(selected)}</span>
+              <span className="font-mono text-muted">{formatRunCost(selected, lang)}</span>
               <span className="text-muted" title={selected.startedAt}>
-                started {formatRelative(selected.startedAt, now)}
+                {t("drawer.started", { when: formatRelative(selected.startedAt, now, lang) })}
               </span>
               {seq.some(isBounce) && (
                 <span className="ml-auto inline-flex items-center gap-1.5 text-meta text-muted">
                   <svg aria-hidden="true" width="18" height="6" className="stroke-status-held">
                     <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" strokeDasharray="4 3" />
                   </svg>
-                  sent back
+                  {t("drawer.sentBack")}
                 </span>
               )}
             </div>
@@ -281,6 +283,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
  * and `content-visibility:auto` skips laying out the off-screen ones.
  */
 function LogView({ profile, run, running }: { profile: string; run: string; running: boolean }) {
+  const { t, lang } = useT();
   const buf = useRef(emptyLog());
   const box = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -340,8 +343,8 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
 
   useEffect(() => {
     if (!copied) return;
-    const t = setTimeout(() => setCopied(null), 1500);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setCopied(null), 1500);
+    return () => clearTimeout(timer);
   }, [copied]);
 
   const total = lineCount(buf.current);
@@ -369,7 +372,7 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
   };
 
   const partialOnly = buf.current.truncated || buf.current.dropped > 0;
-  const live = liveIndicator(status, running, everOpened);
+  const live = liveIndicator(status, running, everOpened, lang);
 
   let body;
   if (view === "story") {
@@ -398,22 +401,22 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label text-muted">
-        <span className={`inline-flex items-center gap-1.5 ${DOT_TEXT[live.tone]}`} data-live={live.label}>
+        <span className={`inline-flex items-center gap-1.5 ${DOT_TEXT[live.tone]}`} data-live={liveIndicator(status, running, everOpened).label}>
           <span aria-hidden="true" className={`size-1.5 rounded-full bg-current ${live.pulse ? "animate-status-pulse" : ""}`} />
           {live.label}
         </span>
         <span className="truncate font-mono text-meta" title={run}>
           {run}
         </span>
-        <span>{total} lines</span>
-        {partialOnly && <span>(earlier output not shown)</span>}
+        <span>{t("drawer.lines", { count: total })}</span>
+        {partialOnly && <span>{t("drawer.partialLog")}</span>}
         <span className="ml-auto flex items-center gap-2">
           {!following && (
             <button type="button" className="rounded-md border border-border px-2 text-fg hover:bg-surface-raised" onClick={jumpToEnd}>
-              Jump to end ↓
+              {t("drawer.jumpToEnd")}
             </button>
           )}
-          <span role="tablist" aria-label="Log view" className="inline-flex rounded-md border border-border p-px">
+          <span role="tablist" aria-label={t("drawer.logView")} className="inline-flex rounded-md border border-border p-px">
             {(["story", "raw"] as const).map((v) => (
               <button
                 key={v}
@@ -427,7 +430,7 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
                   writeLogView(v);
                 }}
               >
-                {v === "story" ? "Story" : "Raw"}
+                {v === "story" ? t("drawer.story") : t("drawer.raw")}
               </button>
             ))}
           </span>
@@ -440,15 +443,15 @@ function LogView({ profile, run, running }: { profile: string; run: string; runn
                 writeWrap(e.target.checked);
               }}
             />
-            wrap
+            {t("drawer.wrap")}
           </label>
           <button
             type="button"
             className="rounded-md border border-border px-2 text-fg hover:bg-surface-raised"
-            title={partialOnly ? "copies the loaded portion only — earlier output isn't loaded" : "copy the log"}
+            title={partialOnly ? t("drawer.copyPartial") : t("drawer.copyLog")}
             onClick={copy}
           >
-            {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy"}
+            {copied === "ok" ? t("copy.copied") : copied === "fail" ? t("copy.failed") : t("copy.copy")}
           </button>
         </span>
       </div>
@@ -498,6 +501,7 @@ const BEAT_FOLD = 12;
  * third-party ticket content: react-markdown escapes raw HTML, never add rehype-raw.
  */
 const RunStory = memo(function RunStory({ buf, total, running }: { buf: LogBuffer; gen: number; total: number; tail: string; running: boolean }) {
+  const { t } = useT();
   const [unfold, setUnfold] = useState(false);
   const blocks = useMemo(() => {
     const lines: string[] = [];
@@ -508,7 +512,7 @@ const RunStory = memo(function RunStory({ buf, total, running }: { buf: LogBuffe
   const beatIdx = blocks.flatMap((b, i) => (b.kind === "beat" ? [i] : []));
   const fold = !unfold && beatIdx.length > BEAT_FOLD ? new Set(beatIdx.slice(3, beatIdx.length - 6)) : new Set<number>();
   const lastBeat = beatIdx[beatIdx.length - 1];
-  if (blocks.length === 0) return <p className="p-3 text-label text-muted">{running ? "Waiting for the agent's first message…" : "The agent wrote nothing to this log."}</p>;
+  if (blocks.length === 0) return <p className="p-3 text-label text-muted">{running ? t("drawer.waitingFirst") : t("drawer.wroteNothing")}</p>;
   const out: React.ReactNode[] = [];
   let folded = false;
   blocks.forEach((b: StoryBlock, i) => {
@@ -519,7 +523,7 @@ const RunStory = memo(function RunStory({ buf, total, running }: { buf: LogBuffe
           <li key={`fold-${i}`} className="relative pb-2 pl-5">
             <span aria-hidden="true" className="absolute top-2 left-[5px] h-px w-[7px] bg-border-strong" />
             <button type="button" className="text-label text-accent hover:underline" onClick={() => setUnfold(true)}>
-              Show {fold.size} more steps
+              {t("drawer.showMore", { count: fold.size })}
             </button>
           </li>,
         );

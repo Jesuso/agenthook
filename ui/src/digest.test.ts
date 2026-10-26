@@ -37,3 +37,11 @@ describe("eventsSince", () => {
     expect(eventsSince(feed, "garbage")).toBe(0);
   });
 });
+
+describe("digestOutcome in Spanish", () => {
+  it("translates its own errors, not the agent's", () => {
+    expect(digestOutcome(503, null, "es")).toEqual({ ok: false, error: "el receptor no está en ejecución" });
+    expect(digestOutcome(500, null, "es")).toEqual({ ok: false, error: "el resumen falló (estado 500)" });
+    expect(digestOutcome(502, { error: "boom" }, "es")).toEqual({ ok: false, error: "boom" });
+  });
+});

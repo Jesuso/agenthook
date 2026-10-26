@@ -6,6 +6,8 @@ import InstructionsView from "./InstructionsView";
 import { answerConfirm, click, confirmDialog, mount, until } from "./domHarness";
 import type { Mounted } from "./domHarness";
 import type { ProfileView } from "./contract";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 
 // #370: the Instructions editor's discard / overwrite prompts go through the in-app ConfirmModal.
 
@@ -100,5 +102,30 @@ describe("InstructionsView in-app confirms", () => {
     await click(overwrite());
     await answerConfirm(true);
     await until(() => puts.length === 1);
+  });
+});
+
+describe("InstructionsView in Spanish", () => {
+  afterEach(() => setLangSetting("en", []));
+
+  it("renders its chrome, group labels and discard confirm in Spanish", async () => {
+    setLangSetting("es", []);
+    m = await mount(createElement(I18nProvider, null, view()));
+    const editor = (await until(() => m!.root.querySelector<HTMLElement>(".cm-editor")))!;
+    const root = m.root;
+    expect(root.textContent).toContain("pasos");
+    expect(root.textContent).toContain("Vista previa");
+    expect(root.textContent).toContain("Sin cambios");
+    await click([...root.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent?.includes("Lo que ve el agente"))!);
+    await until(() => root.textContent!.includes("no hay vista previa para este paso"));
+    await act(async () => {
+      const ev = EditorView.findFromDOM(editor)!;
+      ev.dispatch({ changes: { from: ev.state.doc.length, insert: " mundo" } });
+    });
+    await until(() => root.textContent!.includes("● modificado"));
+    const other = [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("review.md"))!;
+    await click(other);
+    expect(confirmDialog()?.textContent).toContain("¿Descartar los cambios sin guardar del archivo de instrucciones abierto?");
+    await answerConfirm(false);
   });
 });

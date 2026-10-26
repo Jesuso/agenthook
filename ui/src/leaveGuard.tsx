@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useConfirm } from "./Modal";
+import { useT } from "./i18n/react";
 import { hashFor, parseHash, sameRoute } from "./route";
 import type { Route } from "./route";
 
@@ -15,6 +16,9 @@ export function useLeaveGuard(guard: { route: () => Route; prompt: (from: Route)
   const g = useRef(guard);
   g.current = guard;
   const [ask, element] = useConfirm();
+  const { t } = useT();
+  const tr = useRef(t);
+  tr.current = t;
   const pending = useRef<Route | null>(null);
   useEffect(() => {
     const onHash = () => {
@@ -27,7 +31,8 @@ export function useLeaveGuard(guard: { route: () => Route; prompt: (from: Route)
       const asking = pending.current !== null;
       pending.current = next;
       if (asking) return;
-      ask({ title: "Unsaved changes", body: prompt, confirmLabel: "Discard", cancelLabel: "Stay", destructive: true }).then((ok) => {
+      const t = tr.current;
+      ask({ title: t("leave.title"), body: prompt, confirmLabel: t("leave.discard"), cancelLabel: t("leave.stay"), destructive: true }).then((ok) => {
         const target = pending.current;
         pending.current = null;
         if (!ok || !target) return;

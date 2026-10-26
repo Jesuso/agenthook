@@ -4,6 +4,10 @@ import { act, createElement } from "react";
 import { TicketDrawer } from "./TicketDrawer";
 import type { RunView } from "./contract";
 import { click, mount } from "./domHarness";
+import { ReleasePanel } from "./ReleasePanel";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
+import type { TicketRow } from "./contract";
 
 const run = (step: string, startedAt: string, endedAt: string | null, outcome: string | null, extra: Partial<RunView> = {}): RunView => ({
   run: `${startedAt}-step-${step}-CAHUI-263.log`,
@@ -104,5 +108,45 @@ describe("TicketDrawer runs", () => {
     expect(plain.textContent).toBe("Two doc links are broken; sent back to fix them.");
     expect(plain.className).not.toContain("font-mono");
     await unmount();
+  });
+});
+
+describe("TicketDrawer in Spanish", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ runs: RUNS }) })));
+    vi.stubGlobal("EventSource", FakeSource);
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    localStorage.clear();
+    setLangSetting("es", []);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setLangSetting("en", []);
+  });
+
+  it("renders the drawer and log chrome in Spanish; step ids and verdicts stay as written", async () => {
+    const m = await mount(createElement(I18nProvider, null, createElement(TicketDrawer, { profile: "cahui", ticketRef: "CAHUI-263", ticket: undefined, runsNonce: 0, onClose: () => {} })));
+    await act(async () => {});
+    const { root } = m;
+    expect(document.querySelector('[role="dialog"]')!.getAttribute("aria-label")).toBe("Ticket CAHUI-263");
+    expect(root.querySelector('section[aria-label="Ejecuciones por paso a lo largo del tiempo"]')).toBeTruthy();
+    expect(root.querySelector('button[aria-label="Cerrar"]')).toBeTruthy();
+    expect(root.querySelector("[data-run-caption]")!.textContent).toMatch(/^qaen curso/);
+    expect(root.querySelector("[data-run-caption]")!.textContent).toContain("iniciada ");
+    expect(root.querySelector('button[aria-label^="review changes"]')).toBeTruthy();
+    expect(root.textContent).toContain("Relato");
+    expect(root.textContent).toContain("0 líneas");
+    await act(async () => FakeSource.last!.emit("init", { text: "# CAHUI-263  docs\n", truncated: false, size: 18 }));
+    expect(root.textContent).toContain("Esperando el primer mensaje del agente…");
+    await m.unmount();
+  });
+
+  it("renders the release panel in Spanish", async () => {
+    const t = { profile: "cahui", ref: "CAHUI-263", step: "review" } as TicketRow;
+    const m = await mount(createElement(I18nProvider, null, createElement(ReleasePanel, { ticket: t, onRelease: async () => ({ ok: true }) as never, onClose: () => {} })));
+    expect(m.root.textContent).toContain("Respuesta para el agente (opcional) — se agrega a su prompt cuando reejecute el paso review");
+    expect(m.root.textContent).toContain("Liberar");
+    expect(m.root.textContent).toContain("Cancelar");
+    await m.unmount();
   });
 });

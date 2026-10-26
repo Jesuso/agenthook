@@ -1,12 +1,14 @@
 import { createContext, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useT } from "./i18n/react";
 
 // Shared by the Instructions and Config editors.
 
 export function DiffLegend() {
+  const { t } = useT();
   return (
     <div className="mb-1 flex text-xs text-[var(--color-muted)]">
-      <span className="flex-1">on disk</span>
-      <span className="flex-1">your buffer</span>
+      <span className="flex-1">{t("modal.onDisk")}</span>
+      <span className="flex-1">{t("modal.yourBuffer")}</span>
     </div>
   );
 }
@@ -37,6 +39,7 @@ function useEscape(onEscape: () => void) {
  * back to whatever had it.
  */
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const { t } = useT();
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
   useEscape(props.onClose);
@@ -57,7 +60,7 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
             {props.title}
           </h2>
           <button type="button" data-modal-close className="shrink-0 rounded-md px-2 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent" onClick={props.onClose}>
-            Close
+            {t("modal.close")}
           </button>
         </div>
         {/* The body scrolls inside the dialog; a DiffView (flex-1, min-h-0) shrinks and scrolls in its own box first. */}
@@ -114,6 +117,7 @@ function trapTab(e: React.KeyboardEvent, box: HTMLElement | null) {
  * Escape / a backdrop click cancel, and focus returns to whatever had it on close.
  */
 export function ConfirmModal(props: ConfirmOptions & { onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useT();
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -140,7 +144,7 @@ export function ConfirmModal(props: ConfirmOptions & { onConfirm: () => void; on
         )}
         <div className="mt-3 flex justify-end gap-2">
           <button ref={cancel} data-confirm-cancel className="rounded border border-[var(--color-border)] px-3 py-1" onClick={props.onCancel}>
-            {props.cancelLabel ?? "Cancel"}
+            {props.cancelLabel ?? t("modal.cancel")}
           </button>
           <button
             data-confirm-ok

@@ -1,4 +1,5 @@
 import type { StageKeys, StageOption } from "./configEdit";
+import { translate } from "./i18n";
 
 /**
  * Pure derivation of the Config pipeline graph (docs/web-ui.md § v3 "Pipeline graph") from the
@@ -173,7 +174,7 @@ export function quadAt(a: Point, c: Point, b: Point, t: number): Point {
 /** Where an edge's endpoints are: a step index, or a stage node. */
 type End = { step: number } | { stage: StageNode };
 
-export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys | null, stages?: StageOption[] | null, defaultAgent?: unknown): PipelineLayout {
+export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys | null, stages?: StageOption[] | null, defaultAgent?: unknown, lang = "en"): PipelineLayout {
   const ids = steps.map((s, i) => str(s.id) ?? `step-${i}`);
   const manual = steps.map((s) => s.manual === true);
   const success = keys ? steps.map((s) => str(s[keys.success])) : steps.map(() => undefined);
@@ -229,7 +230,7 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
 
   steps.forEach((s, i) => {
     if (manual[i] || i === 0 || str(s.kind) !== "review") return;
-    add({ from: ids[i], to: ids[i - 1], type: "changes", label: "changes (default target)" }, { step: i }, { step: i - 1 });
+    add({ from: ids[i], to: ids[i - 1], type: "changes", label: translate(lang, "graph.edge.changesDefault") }, { step: i }, { step: i - 1 });
   });
 
   // --- Geometry. Built left-aligned at x = MARGIN, then shifted so the leftmost node sits at MARGIN.

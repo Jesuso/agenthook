@@ -1,5 +1,6 @@
 import type { DigestView } from "./contract";
 import type { FeedEntry } from "./feed";
+import { translate } from "./i18n";
 
 const guarded = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json", "X-AH-UI": "1" }, body: JSON.stringify(body) });
 
@@ -15,14 +16,14 @@ export function digestUrl(profile: string): string {
 
 export type DigestOutcome = { ok: true; digest: DigestView } | { ok: false; error: string };
 
-/** Map `POST /api/digest`'s status + body (0 = network error) to its outcome. */
-export function digestOutcome(status: number, body: any): DigestOutcome {
+/** Map `POST /api/digest`'s status + body (0 = network error) to its outcome; the error reads in `lang`. */
+export function digestOutcome(status: number, body: any, lang = "en"): DigestOutcome {
   if (status === 200 && body && typeof body.text === "string") return { ok: true, digest: body as DigestView };
-  if (status === 502) return { ok: false, error: typeof body?.error === "string" ? body.error : "the digest agent failed" };
-  if (status === 503) return { ok: false, error: "the receiver is not running" };
-  if (status === 504) return { ok: false, error: "the digest took too long — try again" };
-  if (status === 0) return { ok: false, error: "network error" };
-  return { ok: false, error: `digest failed (status ${status})` };
+  if (status === 502) return { ok: false, error: typeof body?.error === "string" ? body.error : translate(lang, "shell.digest.agentFailed") };
+  if (status === 503) return { ok: false, error: translate(lang, "shell.digest.down") };
+  if (status === 504) return { ok: false, error: translate(lang, "shell.digest.timeout") };
+  if (status === 0) return { ok: false, error: translate(lang, "shell.digest.network") };
+  return { ok: false, error: translate(lang, "shell.digest.status", { status }) };
 }
 
 /** Meaningful live events (run_end, failed, blocked, pipeline_done, merged) since the digest was written. */

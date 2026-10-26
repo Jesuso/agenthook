@@ -37,12 +37,12 @@ export function isUndoKey(e: KeyLike & { shiftKey: boolean }): boolean {
 
 export type EpicsAction = "next" | "prev" | "up" | "help";
 
-/** The Epics view's sheet: read-only keys (nothing here writes; Release and Re-run stay buttons). */
-export const EPICS_SHORTCUTS: { keys: string; what: string }[] = [
-  { keys: "j / k", what: "Move to the next / previous epic (on an epic's page: ticket)" },
-  { keys: "Enter", what: "Open the focused epic or ticket" },
-  { keys: "u", what: "Back to the epics list" },
-  { keys: "?", what: "Show this list (Esc closes it)" },
+/** The Epics view's sheet: read-only keys (nothing here writes; Release and Re-run stay buttons). `what` is a dictionary key, translated by EpicsView. */
+export const EPICS_SHORTCUTS: { keys: string; what: MessageKey }[] = [
+  { keys: "j / k", what: "shortcuts.epics.move" },
+  { keys: "Enter", what: "shortcuts.epics.open" },
+  { keys: "u", what: "shortcuts.epics.up" },
+  { keys: "?", what: "shortcuts.overview.help" },
 ];
 
 const EPIC_KEYS: Record<string, EpicsAction> = { j: "next", k: "prev", u: "up", "?": "help" };

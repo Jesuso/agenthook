@@ -34,9 +34,9 @@ describe("dictionary parity", () => {
     expect(parityErrors(en.messages, { ...es.messages, "home.lastSeen": "visto {when} {who}" })).toHaveLength(1);
   });
 
-  it("metadata: English is complete, Spanish is partial until #562", () => {
+  it("metadata: English and Spanish are complete", () => {
     expect(en.meta).toEqual({ lang: "en", name: "English", complete: true });
-    expect(es.meta).toEqual({ lang: "es", name: "Español", complete: false });
+    expect(es.meta).toEqual({ lang: "es", name: "Español", complete: true });
     for (const [lang, d] of Object.entries(DICTIONARIES)) expect(d.meta.lang).toBe(lang);
   });
 
@@ -66,11 +66,11 @@ describe("t", () => {
   it("picks the plural form for vars.count; a missing category falls back to other", () => {
     expect(translate("en", "overview.freeSlots", { count: 1 })).toBe("1 free slot");
     expect(translate("en", "overview.freeSlots", { count: 2 })).toBe("2 free slots");
-    expect(t("overview.freeSlots", { count: 1 })).toBe("1 hueco libre");
-    expect(t("overview.freeSlots", { count: 3 })).toBe("3 huecos libres");
+    expect(t("overview.freeSlots", { count: 1 })).toBe("1 espacio libre");
+    expect(t("overview.freeSlots", { count: 3 })).toBe("3 espacios libres");
     // es has a "many" category (1000000) that our dictionary leaves to `other`.
     expect(new Intl.PluralRules("es").select(1000000)).toBe("many");
-    expect(t("overview.freeSlots", { count: 1000000 })).toBe("1000000 huecos libres");
+    expect(t("overview.freeSlots", { count: 1000000 })).toBe("1000000 espacios libres");
     // No count: `other`.
     expect(t("overview.needYou")).toBe("te necesitan");
   });
@@ -98,14 +98,15 @@ describe("resolveLang", () => {
   it("auto takes the first browser language with a complete dictionary, else English", () => {
     expect(resolveLang("auto", ["en-GB"])).toBe("en");
     expect(resolveLang("auto", [])).toBe("en");
-    // Spanish is partial: Auto never picks it.
-    expect(resolveLang("auto", ["es-MX", "es"])).toBe("en");
-    DICTIONARIES.es.meta.complete = true;
+    expect(resolveLang("auto", ["es-MX", "en"])).toBe("es");
+    expect(resolveLang("auto", ["fr-FR", "ES-mx", "en"])).toBe("es");
+    expect(resolveLang("auto", ["en-US", "es"])).toBe("en");
+    // A partial dictionary is never what Auto picks.
+    DICTIONARIES.es.meta.complete = false;
     try {
-      expect(resolveLang("auto", ["fr-FR", "ES-mx", "en"])).toBe("es");
-      expect(resolveLang("auto", ["en-US", "es"])).toBe("en");
+      expect(resolveLang("auto", ["es-MX", "es"])).toBe("en");
     } finally {
-      DICTIONARIES.es.meta.complete = false;
+      DICTIONARIES.es.meta.complete = true;
     }
   });
 });
@@ -123,9 +124,11 @@ describe("language store", () => {
     expect(attrs.get("lang")).toBe("es");
     setLangSetting("es", [], root);
     expect(calls).toBe(1);
-    expect(setLangSetting("auto", ["es-MX"], root)).toBe("en");
+    expect(setLangSetting("auto", ["en-US"], root)).toBe("en");
     expect(attrs.get("lang")).toBe("en");
     expect(calls).toBe(2);
+    expect(setLangSetting("auto", ["es-MX"], root)).toBe("es");
+    expect(calls).toBe(3);
     off();
   });
 });

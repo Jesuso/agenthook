@@ -1,4 +1,5 @@
 import { externalChange, isDirty } from "./instructions";
+import { translate } from "./i18n";
 import type { InstructionsEvent, OpenFile } from "./instructions";
 
 /**
@@ -130,14 +131,12 @@ export function classifySaveResponse(status: number): "ok" | "conflict" | "inval
   return status === 200 ? "ok" : status === 409 ? "conflict" : status === 422 ? "invalid" : "error";
 }
 
-export function saveErrorText(status: number): string {
-  return status === 0 ? "Save failed (network error)" : `Save failed (status ${status})`;
+export function saveErrorText(status: number, lang = "en"): string {
+  return status === 0 ? translate(lang, "save.error.network") : translate(lang, "save.error.status", { status });
 }
 
 /** Instructions are re-read at every spawn, so a save is live with no restart. */
-export function liveEffectNote(agentsRunning: number): { text: string; warn: boolean } {
-  const base = "Takes effect on the next agent run";
-  if (agentsRunning <= 0) return { text: `${base}.`, warn: false };
-  const agents = agentsRunning === 1 ? "1 agent" : `${agentsRunning} agents`;
-  return { text: `${base} — ${agents} currently running on steps using this file.`, warn: true };
+export function liveEffectNote(agentsRunning: number, lang = "en"): { text: string; warn: boolean } {
+  if (agentsRunning <= 0) return { text: translate(lang, "save.liveNote"), warn: false };
+  return { text: translate(lang, "save.liveNoteRunning", { count: agentsRunning }), warn: true };
 }

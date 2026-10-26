@@ -113,3 +113,11 @@ describe("queueToggleText", () => {
     expect(queueToggleText("pause", "P", 403, null)).toBe("Pause failed (status 403)");
   });
 });
+
+describe("queueToggleText in Spanish", () => {
+  it("reads in Spanish with the receiver's detail as written", () => {
+    expect(queueToggleText("pause", "P", 200, { paused: true }, "es")).toBe("Se pausaron las ejecuciones nuevas en P");
+    expect(queueToggleText("resume", "P", 502, { error: "nope" }, "es")).toBe("El receptor rechazó reanudar: nope");
+    expect(queueToggleText("pause", "P", 403, null, "es")).toBe("No se pudo pausar (estado 403)");
+  });
+});

@@ -6,6 +6,8 @@ import ConfigView from "./ConfigView";
 import { answerConfirm, click, confirmDialog, mount, pressEnter, until } from "./domHarness";
 import type { Mounted } from "./domHarness";
 import type { ProfileView } from "./contract";
+import { I18nProvider } from "./i18n/react";
+import { setLangSetting } from "./i18n";
 
 const config = {
   name: "demo",
@@ -310,5 +312,20 @@ describe("ConfigView revert + in-app confirms", () => {
     await makeDirty(m.root);
     expect(add.mock.calls.some(([t]) => t === "beforeunload")).toBe(true);
     add.mockRestore();
+  });
+});
+
+describe("ConfigView in Spanish", () => {
+  afterEach(() => setLangSetting("en", []));
+
+  it("renders the shell, tabs and banner in Spanish", async () => {
+    setLangSetting("es", []);
+    m = await mount(createElement(I18nProvider, null, view()));
+    await until(() => m!.root.querySelector("[data-step-card]"));
+    expect(tabs(m.root).map((t) => t.textContent)).toEqual(["básicos", "pipeline", "tracker", "forge", "ingress", "integraciones", "repos", "raw"]);
+    expect(m.root.querySelector("[data-save]")?.textContent).toBe("Guardar");
+    expect(m.root.querySelector("[data-revert]")?.textContent).toBe("Revertir");
+    expect(m.root.querySelector("[data-config-banner]")?.textContent).toBe("✓ válido (servidor: según la última carga)");
+    expect(m.root.textContent).toContain("Grafo del pipeline");
   });
 });

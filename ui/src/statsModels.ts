@@ -18,8 +18,8 @@ export const OTHER_STEPS = "other";
 
 type Frame = { plot: { left: number; right: number; top: number; bottom: number }; centers: number[]; xTicks: Tick[]; bandwidth: number; x: (date: string) => number };
 
-/** Shared x layout: one band per day, thinned day labels (~34 px each). */
-function frame(days: DayStats[], width: number, height: number): Frame {
+/** Shared x layout: one band per day, thinned day labels (~34 px each) in `lang`. */
+function frame(days: DayStats[], width: number, height: number, lang = "en"): Frame {
   const left = M.left;
   const right = Math.max(left + 1, width - M.right);
   const top = M.top;
@@ -27,7 +27,7 @@ function frame(days: DayStats[], width: number, height: number): Frame {
   const x = scaleBand<string>().domain(days.map((d) => d.date)).range([left, right]).paddingInner(0.25).paddingOuter(0.1);
   const centers = days.map((d) => (x(d.date) ?? left) + x.bandwidth() / 2);
   const every = Math.max(1, Math.ceil(days.length / Math.max(1, Math.floor((right - left) / 34))));
-  const xTicks = days.flatMap((d, i) => (i % every === (days.length - 1) % every ? [{ pos: centers[i], label: days.length <= 14 ? weekdayLetter(d.date) : shortDate(d.date) }] : []));
+  const xTicks = days.flatMap((d, i) => (i % every === (days.length - 1) % every ? [{ pos: centers[i], label: days.length <= 14 ? weekdayLetter(d.date, lang) : shortDate(d.date, lang) }] : []));
   return { plot: { left, right, top, bottom }, centers, xTicks, bandwidth: x.bandwidth(), x: (date) => x(date) ?? left };
 }
 
@@ -69,8 +69,8 @@ function spend(d: DayStats, series: string, shown: string[], part: Part = "costU
 /** Stack key of a step's estimated part: never a step id (those can't hold a NUL). */
 const estKey = (s: string) => `${s}\u0000est`;
 
-export function stackedModel(days: DayStats[], width: number, height: number): StackedModel {
-  const f = frame(days, width, height);
+export function stackedModel(days: DayStats[], width: number, height: number, lang = "en"): StackedModel {
+  const f = frame(days, width, height, lang);
   const series = rankSteps(days);
   const shown = series.filter((s) => s !== OTHER_STEPS);
   // Each step stacks its reported spend, then its estimate right above it in the same hue.
@@ -103,8 +103,8 @@ export type Outcome = (typeof UP)[number] | (typeof DOWN)[number];
 export type OutcomeSegment = { date: string; outcome: Outcome; x: number; y: number; w: number; h: number; value: number };
 export type DivergingModel = Frame & { segments: OutcomeSegment[]; baseline: number; yTicks: Tick[] };
 
-export function divergingModel(days: DayStats[], width: number, height: number): DivergingModel {
-  const f = frame(days, width, height);
+export function divergingModel(days: DayStats[], width: number, height: number, lang = "en"): DivergingModel {
+  const f = frame(days, width, height, lang);
   const keys: Outcome[] = [...UP, ...DOWN];
   const rows = days.map((d) => ({ date: d.date, advance: d.outcomes.advance, changes: -d.outcomes.changes, hold: -d.outcomes.hold, fail: -d.outcomes.fail }) as Record<string, number | string>);
   const layers = stack<Record<string, number | string>>().keys(keys).value((r, k) => Number(r[k])).offset(stackOffsetDiverging)(rows);
@@ -172,8 +172,8 @@ export type RangePoint = { date: string; x: number; yLow: number; yMid: number; 
 export type RangeModel = Frame & { points: RangePoint[]; yTicks: Tick[]; trend: string | null };
 
 /** p10–p90 spread and median of what the tickets finished each day cost; days with none are gaps. */
-export function rangeModel(days: DayStats[], width: number, height: number): RangeModel {
-  const f = frame(days, width, height);
+export function rangeModel(days: DayStats[], width: number, height: number, lang = "en"): RangeModel {
+  const f = frame(days, width, height, lang);
   const hi = max(days, (d) => d.ticketCost?.p90 ?? 0) ?? 0;
   const y = scaleLinear().domain([0, Math.max(0.01, hi)]).nice(3).range([f.plot.bottom, f.plot.top]);
   const points: RangePoint[] = days.flatMap((d, i) => (d.ticketCost ? [{ date: d.date, x: f.centers[i], yLow: y(d.ticketCost.p10), yMid: y(d.ticketCost.p50), yHigh: y(d.ticketCost.p90), n: d.ticketCost.n }] : []));

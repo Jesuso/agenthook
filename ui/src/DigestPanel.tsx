@@ -43,8 +43,8 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
     setError(null);
     const { url, init } = digestRequest(profile);
     const out = await fetch(url, init)
-      .then((res) => res.json().then((b) => digestOutcome(res.status, b), () => digestOutcome(res.status, null)))
-      .catch(() => digestOutcome(0, null));
+      .then((res) => res.json().then((b) => digestOutcome(res.status, b, lang), () => digestOutcome(res.status, null, lang)))
+      .catch(() => digestOutcome(0, null, lang));
     setBusy(false);
     if (out.ok) setDigest(out.digest);
     else setError(out.error);

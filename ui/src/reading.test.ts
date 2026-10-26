@@ -86,12 +86,12 @@ describe("reading settings", () => {
     expect(store.data.has("ah-reading")).toBe(false);
   });
 
-  it("language: Auto, then every dictionary by its own name, an incomplete one flagged partial; stored only when chosen", () => {
+  it("language: Auto, then every dictionary by its own name (none partial today); stored only when chosen", () => {
     const lang = READING_SETTINGS.find((s) => s.key === "lang")!;
     expect(lang.options).toEqual([
       { value: "auto", label: "reading.auto" },
       { value: "en", text: "English", partial: false },
-      { value: "es", text: "Español", partial: true },
+      { value: "es", text: "Español", partial: false },
     ]);
     const store = memory();
     writeReading(DEFAULTS, store);

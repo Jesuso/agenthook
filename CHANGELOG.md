@@ -21,6 +21,14 @@ All notable changes to this project are documented here. The format is based on
   remaining views follow (#562) it stays English and Español is marked "(partial)". The spend,
   energy and quota readouts stay English (they are shared with the CLI). Adding a language is one
   dictionary file; see docs/web-ui.md § Languages (#561).
+- The whole dashboard now speaks Spanish: Epics and the epic page, Stats, the Tickets table, the
+  ticket drawer (including the run-log viewer's chrome), Config with every form label and help
+  line, Instructions, the pipeline graph, and every dialog, empty state and error message. Español
+  is complete, so Auto picks it on a Spanish browser and the reading panel no longer marks it
+  "(partial)". Spanish wording is neutral Latin American ("costo", "espacios", "centavos"). Config
+  labels and help are translated by a UI-side overlay, so `src/config-schema.js` and the CLI stay
+  English, and a test fails a new config key until it is translated; another test fails any
+  hard-coded English text added to a view (#562).
 - Every agent run now ends with one plain sentence for a human (`summary.plain`): the outcome and,
   on a hold or fail, what you must decide. The dashboard shows it in place of the raw reason on
   Needs you and Now rows and at the top of the ticket drawer (the full reason stays in the tooltip

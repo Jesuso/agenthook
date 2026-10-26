@@ -38,9 +38,9 @@ export function axisDollars(n: number): string {
 
 /**
  * Everything the SVG needs, computed with d3 scales and shapes (no DOM): finished tickets as bars on
- * the left scale, cost per finished ticket as a line on the right one. Pure.
+ * the left scale, cost per finished ticket as a line on the right one. Day labels follow `lang`. Pure.
  */
-export function chartModel(days: DayStats[], width: number, height: number): ChartModel {
+export function chartModel(days: DayStats[], width: number, height: number, lang = "en"): ChartModel {
   const left = MARGIN.left;
   const right = Math.max(left + 1, width - MARGIN.right);
   const top = MARGIN.top;
@@ -68,7 +68,7 @@ export function chartModel(days: DayStats[], width: number, height: number): Cha
 
   // Thin the day labels so they never touch: ~34 px per label.
   const every = Math.max(1, Math.ceil(days.length / Math.max(1, Math.floor((right - left) / 34))));
-  const xTicks = days.flatMap((d, i) => (i % every === (days.length - 1) % every ? [{ pos: centers[i], label: days.length <= 14 ? weekdayLetter(d.date) : shortDate(d.date) }] : []));
+  const xTicks = days.flatMap((d, i) => (i % every === (days.length - 1) % every ? [{ pos: centers[i], label: days.length <= 14 ? weekdayLetter(d.date, lang) : shortDate(d.date, lang) }] : []));
 
   return {
     bars,

@@ -1,5 +1,6 @@
 import type { LogFrame, RunView, TicketStatus, UiEvent } from "./contract";
 import { formatCost } from "./format";
+import { translate } from "./i18n";
 import { formatEnergy } from "../../src/energy.js";
 
 /** Retained-line cap: the oldest lines drop past this so a huge log can't exhaust memory. */
@@ -92,9 +93,9 @@ export function logStreamUrl(profile: string, run: string): string {
   return `/api/log/stream?${new URLSearchParams({ profile, run })}`;
 }
 
-/** "advance" / "running" / "—" */
-export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
-  return r.outcome ?? (r.running ? "running" : "—");
+/** "advance" / "running" / "—" — a verdict stays as the agent wrote it (a protocol word, like a step id). */
+export function formatOutcome(r: Pick<RunView, "outcome" | "running">, lang = "en"): string {
+  return r.outcome ?? (r.running ? translate(lang, "status.running") : "—");
 }
 
 /**
@@ -102,15 +103,15 @@ export function formatOutcome(r: Pick<RunView, "outcome" | "running">): string {
  * for a non-Claude agent or a local model; else "unpriced" (no real cost and no rate), "—" when none.
  * A measured run (src/energy.js) appends " · energy $0.00029 (1.9 Wh)" — beside, never added.
  */
-export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial<Pick<RunView, "estUsd" | "energyKwh" | "energyUsd">>): string {
+export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial<Pick<RunView, "estUsd" | "energyKwh" | "energyUsd">>, lang = "en"): string {
   const cost =
     !r.unpriced && r.costUsd
-      ? formatCost(r.costUsd)
+      ? formatCost(r.costUsd, lang)
       : typeof r.estUsd === "number" && r.estUsd > 0
-        ? `~${formatCost(r.estUsd)} est.`
+        ? translate(lang, "runlog.estimate", { cost: formatCost(r.estUsd, lang) })
         : r.unpriced
-          ? "unpriced"
-          : formatCost(r.costUsd ?? 0);
+          ? translate(lang, "runlog.unpriced")
+          : formatCost(r.costUsd ?? 0, lang);
   const energy = formatEnergy(r);
   return energy ? `${cost} · ${energy}` : cost;
 }
@@ -162,10 +163,11 @@ export function liveIndicator(
   status: StreamStatus,
   running: boolean,
   everOpened: boolean,
+  lang = "en",
 ): { label: string; tone: TicketStatus; pulse: boolean } {
-  if (status === "closed") return { label: "disconnected", tone: "failed", pulse: false };
-  if (status === "connecting") return { label: everOpened ? "reconnecting…" : "connecting…", tone: "held", pulse: false };
-  return running ? { label: "live", tone: "running", pulse: true } : { label: "ended", tone: "idle", pulse: false };
+  if (status === "closed") return { label: translate(lang, "runlog.disconnected"), tone: "failed", pulse: false };
+  if (status === "connecting") return { label: translate(lang, everOpened ? "runlog.reconnecting" : "runlog.connecting"), tone: "held", pulse: false };
+  return running ? { label: translate(lang, "runlog.live"), tone: "running", pulse: true } : { label: translate(lang, "runlog.ended"), tone: "idle", pulse: false };
 }
 
 const WRAP_KEY = "ah.log.wrap";
