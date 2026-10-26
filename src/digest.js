@@ -174,8 +174,8 @@ export function readSoul(file) {
   return DEFAULT_SOUL;
 }
 
-/** @param {{ soul: string, snapshot: object, profile: string }} o */
-export function buildDigestPrompt({ soul, snapshot, profile }) {
+/** @param {{ soul: string, snapshot: object, profile: string, language?: string }} o */
+export function buildDigestPrompt({ soul, snapshot, profile, language }) {
   return [
     `# Your role\n${soul}`,
     `# Task\nWrite a short digest (plain markdown, under 200 words) of the "${profile}" profile from the snapshot below. ` +
@@ -185,6 +185,7 @@ export function buildDigestPrompt({ soul, snapshot, profile }) {
       `needsYou tickets or progress worth noting, and lead with its needsYou tickets; state progress as progressPct; ` +
       `give an ETA only when snapshot.epics[].eta is present, and never estimate one yourself. An epic with ` +
       `readyToClose is fully finished — close it?`,
+    ...(language ? [`Write the digest in language "${language}" (BCP-47).`] : []),
     `=== SNAPSHOT ===\n${JSON.stringify(snapshot, null, 1)}\n=== END SNAPSHOT ===`,
   ].join("\n\n");
 }
@@ -262,7 +263,7 @@ export function createDigester({ cfg, emit, run = defaultRunClaude, now = Date.n
     }
     const snapshot = buildSnapshot(cfg.stateDir, { repository, now: t, epics, pricing: cfg.pricing });
     const soul = readSoul(cfg.digest?.soul);
-    const prompt = buildDigestPrompt({ soul, snapshot, profile: cfg.name });
+    const prompt = buildDigestPrompt({ soul, snapshot, profile: cfg.name, language: cfg.language });
     emit?.("digest_start", "", "");
     // A throwaway cwd outside $HOME: from under it (e.g. the state dir) claude still loaded the
     // owner's user-level CLAUDE.md even with project-only settings (seen live: a spoken-summary line).

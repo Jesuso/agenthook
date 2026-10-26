@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- An optional profile `language` (a BCP-47 tag such as `es`): agents write their human-facing
+  text (verdict reason, the one plain sentence, tracker comments, held questions) and the Digest in
+  that language. Code, commits and PRs are unaffected. Unset keeps today's behaviour (#564).
 - A reading panel: the app bar's **Aa** button sets text size, letter-and-word spacing (one
   control, widened together), a shorter line for rendered prose, and a warm background. Settings
   are per browser and prose only (ids, logs, code, editors and diffs are untouched); nothing

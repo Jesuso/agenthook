@@ -659,6 +659,7 @@
  * @property {string} trigger
  * @property {number} maxConcurrent
  * @property {boolean} [overlapGuard]  opt-in (default false); hold a createsWorktree step while its predicted paths overlap another in-flight ref's lock
+ * @property {string} [language]    optional BCP-47 tag (e.g. "es"); human-facing text agents write (verdict reason/summary.plain, tracker comments, held questions, the Digest) is written in it. Unset = no instruction. Code, commits, PR titles/bodies and identifiers are unaffected.
  * @property {boolean} [fullAuto]   opt-in; adds the agent CLI's skip-permissions flag (code exec from a webhook, on the host unless `sandbox` is set). Default false = headless agents can't prompt: privileged tool calls are denied unless an allow rule (repo `.claude/settings.json` or a step `allow` policy) permits them (claude runs are pinned to dontAsk).
  * @property {string} repoPath     the default repo's path (else the first declared) — ops readers use it; dispatch goes through `repos`
  * @property {RepoConfig[]} repos    always populated: the declared `repos`, or one synthesized `default` repo from repoPath

@@ -356,6 +356,12 @@ test("dispatch: a hold verdict writes held.json[ref]; the next run of any step c
   assert.equal(store.getHeld("42"), undefined);
 });
 
+test("dispatch: cfg.language reaches the step prompt via ctx.language", async () => {
+  const { runStep } = heldHarness({ cfg: { language: "es" } });
+  const prompt = await runStep("code", { outcome: "advance" });
+  assert.match(prompt, /Write all human-facing text[\s\S]*"es"/);
+});
+
 test("dispatch: a new agent run drops a learned refmeta.prState (a re-run's finish is ready again)", async () => {
   const { store, runStep } = heldHarness();
   store.setRefMeta("42", { pr: 7, prState: "closed" });
