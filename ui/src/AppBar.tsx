@@ -1,6 +1,6 @@
 import { CONNECTION_LABEL } from "./connection";
 import type { ConnectionState } from "./connection";
-import { Pill, ProfileMark } from "./components";
+import { Pill, ProfileMark, ReadingPanel } from "./components";
 import { VIEWS } from "./route";
 import type { View } from "./route";
 import type { ProfileView } from "./contract";
@@ -37,8 +37,9 @@ export type ProfileNav = {
 };
 
 /**
- * Brand + version and the connection dot. On Home that is all; inside a profile the bar also
- * carries `‹ Home`, a profile switcher and the Overview · Instructions · Config tabs. `nav`
+ * Brand + version, the `Aa` reading settings and the connection dot. On Home that is all; inside
+ * a profile the bar also carries `‹ Home`, a profile switcher and the Overview · Instructions ·
+ * Config tabs. `nav`
  * absent (Home, loading / error screens) → no profile controls. Below `lg` a forced line break
  * (a `basis-full lg:hidden` spacer) keeps DOM/reading order (brand · profile · tabs · quota ·
  * connection) intact across both rows instead of letting the tabs wrap behind the quota readout
@@ -106,7 +107,8 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
           )}
         </>
       )}
-      <div className="ml-auto shrink-0">
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <ReadingPanel />
         <ConnectionDot state={connection} />
       </div>
     </header>

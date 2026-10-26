@@ -152,6 +152,77 @@
   }
 }
 
+/*
+ * Reading panel (#559, src/reading.ts): each setting is a `data-ah-<key>` attribute on <html>,
+ * absent by default, so none of these rules applies until a reader picks something. Prose only:
+ * monospace (`.font-mono`, code, the CodeMirror editors, the diff) keeps its size and spacing.
+ */
+html[data-ah-text="1"] {
+  --ah-text-scale: 1.15;
+}
+html[data-ah-text="2"] {
+  --ah-text-scale: 1.3;
+}
+html[data-ah-text="3"] {
+  --ah-text-scale: 1.5;
+}
+html[data-ah-text] {
+  --text-body: calc(13px * var(--ah-text-scale, 1));
+  --text-body--line-height: calc(20px * var(--ah-text-scale, 1));
+  --text-label: calc(12px * var(--ah-text-scale, 1));
+  --text-label--line-height: calc(16px * var(--ah-text-scale, 1));
+  --text-meta: calc(11px * var(--ah-text-scale, 1));
+  --text-meta--line-height: calc(14px * var(--ah-text-scale, 1));
+  --text-title: calc(15px * var(--ah-text-scale, 1));
+  --text-title--line-height: calc(22px * var(--ah-text-scale, 1));
+  --text-heading: calc(20px * var(--ah-text-scale, 1));
+  --text-heading--line-height: calc(28px * var(--ah-text-scale, 1));
+}
+/* Custom properties inherit as computed values, so monospace gets the base tokens redeclared. */
+html[data-ah-text] :is(.font-mono, code, pre, .cm-editor, [data-diff]) {
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-meta: 11px;
+  --text-meta--line-height: 14px;
+  --text-title: 15px;
+  --text-title--line-height: 22px;
+  --text-heading: 20px;
+  --text-heading--line-height: 28px;
+}
+
+/* One control widens letter and word spacing together. */
+html[data-ah-spacing="wide"] body {
+  letter-spacing: 0.06em;
+  word-spacing: 0.16em;
+}
+html[data-ah-spacing="wider"] body {
+  letter-spacing: 0.12em;
+  word-spacing: 0.32em;
+}
+html[data-ah-spacing] :is(.font-mono, code, pre, .cm-editor, [data-diff]) {
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+/* A shorter line for rendered prose: the digest, the run story, the Instructions preview. */
+html[data-ah-measure="narrow"] .md-preview {
+  max-width: 60ch;
+}
+
+/* Warm page and panel backgrounds; every text tier keeps AA on them (tokens.test.ts). */
+html[data-ah-bg="warm"] {
+  --color-bg: #12100c;
+  --color-surface: #1a1712;
+}
+@media (prefers-color-scheme: light) {
+  html[data-ah-bg="warm"] {
+    --color-bg: #f8f1e3;
+    --color-surface: #fdf8ee;
+  }
+}
+
 /* The running dot's pulse; none at all under reduced motion. */
 @keyframes status-pulse {
   0%,

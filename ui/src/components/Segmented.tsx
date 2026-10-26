@@ -3,13 +3,16 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  label,
 }: {
   value: T;
   options: { value: T; label: React.ReactNode }[];
   onChange: (v: T) => void;
+  /** The group's accessible name, where no surrounding text already names it. */
+  label?: string;
 }) {
   return (
-    <div role="radiogroup" className="inline-flex rounded-md border border-border p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-md border border-border p-0.5">
       {options.map((o) => (
         <button
           key={o.value}

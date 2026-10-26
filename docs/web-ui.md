@@ -727,6 +727,25 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
 ![Epics list](img/ui-epics.png)
 ![One epic](img/ui-epic.png)
 
+### Reading panel (built)
+The app bar's **Aa** button (#559, on Home and every profile page) opens a small non-modal popover
+of reading settings for prose. Nothing changes until a reader picks something.
+- **Text size** (100 / 115 / 130 / 150%): scales the body, label, meta, title and heading type
+  tokens and their line heights. Stat numbers stay as they are.
+- **Spacing** (Off / Wide / Wider): one control widens letter and word spacing together.
+- **Line width** (Default / Narrow): caps rendered markdown (the digest, the run story, the
+  Instructions preview) at 60 characters.
+- **Background** (Default / Warm): a warmer page and panel background in both dark and light.
+  Every text tier keeps AA contrast on it (`tokens.test.ts`).
+- **Reset** returns to the defaults.
+
+Monospace is excluded: ticket ids, logs, code, the editors and the diff keep their size and
+spacing. The settings are per browser, in localStorage under `ah-reading`, and are applied in
+`main.tsx` before the first render, so there is no flash. Each one is a `data-ah-<key>` attribute
+on `<html>` (absent at its default) and `index.css` styles only those attributes. To add a
+setting, add one entry to `READING_SETTINGS` in `ui/src/reading.ts` and its CSS rule in
+`index.css`. While the popover is open, the single-key shortcuts are off.
+
 ### Build order
 (Steps 1–3 are built.)
 1. Hash routing + app bar + plain Home cards. 2. `ui.color`/`ui.emoji` end to end (config schema,

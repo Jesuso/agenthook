@@ -52,6 +52,16 @@ describe("AppBar", () => {
     expect(html).toMatch(/<option value="ops">🦊 Ops \(ops\)<\/option>/);
   });
 
+  it("shows the Aa reading settings on Home and inside a profile, just before the connection dot", () => {
+    for (const html of [
+      renderToStaticMarkup(createElement(AppBar, { connection: "connected" })),
+      renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: nav("overview") })),
+    ]) {
+      expect(html).toMatch(/<button[^>]*aria-label="Reading settings"[^>]*aria-expanded="false"[^>]*>Aa<\/button>/);
+      expect(html.indexOf("data-reading-trigger")).toBeLessThan(html.indexOf("data-connection"));
+    }
+  });
+
   it("keeps a switcher entry for a profile that is not in the list (removed / loading)", () => {
     const html = renderToStaticMarkup(createElement(AppBar, { connection: "connected", nav: { ...nav("overview"), profile: "gone" } }));
     expect(html).toContain('<option value="gone"');
