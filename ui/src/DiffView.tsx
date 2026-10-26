@@ -26,5 +26,5 @@ export function DiffView(props: { a: string; b: string; language?: Extension }) 
     return () => view.destroy();
   }, [props.a, props.b]);
 
-  return <div ref={host} className="min-h-0 flex-1 overflow-auto rounded border border-[var(--color-border)] text-sm" />;
+  return <div ref={host} data-diff className="min-h-0 flex-1 overflow-auto rounded border border-[var(--color-border)] text-sm" />;
 }
