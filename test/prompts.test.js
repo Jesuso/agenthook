@@ -245,3 +245,13 @@ test("triage and implement prompts do not carry the review revert-proof-test rul
     assert.doesNotMatch(p, /name the production change that would make it fail/);
   }
 });
+
+test("every step kind's verdict footer asks for a plain one-sentence summary (#563)", () => {
+  for (const kind of ["triage", "implement", "change", "review"]) {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.match(p, /"summary": \{"plain": "<one sentence for a human>"\}/, kind);
+    assert.match(p, /at most ~25 words, no code, file paths, ids or jargon/, kind);
+    assert.match(p, /when holding or failing, what the human must decide/, kind);
+    assert.match(p, /counts toward the 300-char summary limit/, kind);
+  }
+});

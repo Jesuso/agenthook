@@ -114,6 +114,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} displayId           refmeta.displayId, else ref
  * @property {string|null} title
  * @property {string|null} summary        refmeta.summary: what the ticket is about, one plain-text paragraph (≤240 chars); null until a run has fetched the ticket
+ * @property {string|null} plain          the newest run_end's `plain` (the agent's one-sentence summary.plain, agent-authored — untrusted), only while it describes the status: held ↔ hold, failed ↔ fail, done ↔ advance, running/queued ↔ any; null otherwise
  * @property {string|null} step           current / last step id
  * @property {TicketStatus} status
  * @property {string|null} model          from running.json, else the last run_start
@@ -176,6 +177,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} startedAt           ISO, from the log's filename stamp
  * @property {string|null} endedAt        run_end.ts; null while it runs or once run_end left the tail
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
+ * @property {string} [plain]             run_end.plain: the agent's one-sentence summary.plain (agent-authored — untrusted); absent when none
  * @property {number|null} costUsd
  * @property {boolean} unpriced           run_end.unpriced: no real cost (non-Claude agent or local model; costUsd null)
  * @property {number|null} estUsd         rate-table estimate (src/pricing.js `costOf`) when nothing was reported; never in costUsd

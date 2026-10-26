@@ -590,3 +590,45 @@ test("buildRows: summary comes from refmeta, is bounded, and is null for non-str
   assert.equal(by.c, null);
   assert.equal(by.d, null);
 });
+
+test("buildRows: plain is the newest run_end's sentence only while its outcome matches the status (#563)", () => {
+  const end = (/** @type {string} */ ref, /** @type {string} */ outcome, /** @type {string} */ ts, plain = `${ref} ${outcome}`) => ({ ts, event: "run_end", ref, step: "code", outcome, plain });
+  const rows = buildRows(
+    "p",
+    state({
+      running: { run: { stepId: "review", startedAt: "t" } },
+      queue: [{ kind: "pipeline", ref: "q", stepId: "review", dedupKey: "k" }],
+      held: { h: { stepId: "code", reason: "which db?" }, hx: { stepId: "code", reason: "cap" }, none: { stepId: "code" } },
+      events: [
+        end("run", "advance", "a"),
+        end("q", "changes", "a"),
+        end("h", "advance", "a", "older"),
+        end("h", "hold", "b"),
+        end("hx", "changes", "a"), // the changes cap turned it into a hold
+        end("f", "fail", "a"),
+        { ts: "b", event: "failed", ref: "f", step: "code", reason: "tests red" },
+        end("fc", "fail", "a"),
+        { ts: "b", event: "failed", ref: "fc", step: "code", reason: "cancelled by operator" },
+        end("d", "advance", "a"),
+        { ts: "b", event: "pipeline_done", ref: "d", step: "code" },
+        end("dx", "advance", "a"),
+        { ts: "b", event: "failed", ref: "dx", step: "code", reason: "move refused" },
+        end("i", "advance", "a"),
+        { ts: "a", event: "run_end", ref: "none", step: "code", outcome: "hold" },
+      ],
+    }),
+  );
+  assert.equal(row(rows, "run").plain, "run advance", "running: the previous step's sentence");
+  assert.equal(row(rows, "q").plain, "q changes", "queued: any outcome");
+  assert.equal(row(rows, "h").plain, "h hold", "the newest run_end wins");
+  assert.equal(row(rows, "hx").plain, null, "held, but the run said changes");
+  assert.equal(row(rows, "f").plain, "f fail");
+  assert.equal(row(rows, "fc").status, "cancelled");
+  assert.equal(row(rows, "fc").plain, null, "cancelled shows none");
+  assert.equal(row(rows, "d").plain, "d advance");
+  assert.equal(row(rows, "dx").plain, null, "failed, but the run said advance");
+  assert.equal(row(rows, "i").status, "idle");
+  assert.equal(row(rows, "i").plain, null, "idle shows none");
+  assert.equal(row(rows, "none").status, "held");
+  assert.equal(row(rows, "none").plain, null, "a matching run_end with no plain");
+});

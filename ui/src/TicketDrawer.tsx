@@ -168,6 +168,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
           <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
             <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? "Why it failed" : "What the agent is asking"}</p>
+            {ticket.plain && <p data-drawer-plain className="mb-1 text-body text-fg">{ticket.plain}</p>}
             <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
           </div>
         )}
@@ -265,6 +266,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               )}
             </div>
           )}
+          {selected?.plain && <p data-run-plain className="mb-1 text-body text-fg">{selected.plain}</p>}
           {selected && <LogView key={selected.run} profile={profile} run={selected.run} running={selected.running} />}
         </div>
       </aside>

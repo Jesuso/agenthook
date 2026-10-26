@@ -1333,6 +1333,18 @@ test("dispatch: a bad summary is dropped with the outcome kept; a changes verdic
   assert.equal(store.getSummaries("42")?.review?.outcome, "changes");
 });
 
+test("run_end carries summary.plain whitespace-collapsed; absent when missing, blank or not a string (#563)", async () => {
+  const { events, runStep } = summaryHarness();
+  const ends = () => events.filter((e) => e.event === "run_end");
+  await runStep("review", { outcome: "hold", summary: { plain: "  Needs a call\n on  the API name. ", tier: "low" } });
+  assert.equal(ends().at(-1).plain, "Needs a call on the API name.");
+  for (const summary of [undefined, { tier: "low" }, { plain: "   " }, { plain: 3 }]) {
+    await runStep("review", { outcome: "advance", ...(summary ? { summary } : {}) });
+    assert.equal("plain" in ends().at(-1), false, JSON.stringify(summary));
+  }
+  assert.deepEqual(ends().at(-1), { event: "run_end", outcome: "advance" }, "a verdict without plain emits run_end as before");
+});
+
 // --- run_end of an unpriced (local-model) run: no costUsd, unpriced:true ---
 
 const RESULT_LINE = JSON.stringify({ type: "result", total_cost_usd: 0.75, usage: { input_tokens: 10, output_tokens: 5 }, modelUsage: { "claude-opus-4-8": {} } });
