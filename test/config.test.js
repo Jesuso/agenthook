@@ -152,6 +152,15 @@ test("a non-boolean overlapGuard is rejected", () => {
   assert.throws(load([{ id: "code" }], { overlapGuard: "yes" }), /"overlapGuard" must be true or false/);
 });
 
+test("language: rejects empty string, non-string and a malformed tag; accepts BCP-47 tags", () => {
+  for (const bad of ["", 42, "not a tag!"]) {
+    assert.throws(load([{ id: "code" }], { language: bad }), /"language" must be a BCP-47 language tag/);
+  }
+  for (const ok of ["es", "en", "pt-BR"]) {
+    assert.equal(load([{ id: "code" }], { language: ok })().language, ok);
+  }
+});
+
 // --- peekConfig: identity without secrets (read-only commands: `agents`, bare `status`) ---
 
 /** A config whose tokens reference a var that is certainly unset in the test shell. */

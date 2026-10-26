@@ -182,6 +182,7 @@ export function createStep(ctx) {
       findings,
       resumeComment: job.comment,
       overlapGuard: cfg.overlapGuard,
+      language: cfg.language,
       nonce: newNonce(),
       ...(cfg.multiRepo ? { repo: { id: repo.id, path: repo.path } } : {}),
     });

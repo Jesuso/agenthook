@@ -745,6 +745,7 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <NumberField {...edit} path={["maxConcurrent"]} value={b.maxConcurrent} />
         <NumberField {...edit} path={["port"]} value={b.port} />
         <TextField {...edit} path={["instructionsFile"]} value={b.instructionsFile} />
+        <TextField {...edit} path={["language"]} value={b.language} />
         <AppearanceFields text={props.text} onEdit={props.onEdit} ui={b.ui} stateKey={props.stateKey} />
         <div className="col-span-full flex flex-col gap-1">
           <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
