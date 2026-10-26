@@ -768,7 +768,7 @@ With it on, a 🔊 button (`SpeakButton`) appears:
 Markdown is turned into speech first (`speechText` in `ui/src/speech.ts`): a fenced code block is
 read as "code block", links and images by their text, a bare URL as "link", and HTML and markdown
 syntax are dropped. Each line gets a pause. The utterance uses the Speed setting,
-`lang` = `<html lang>` (else `en`), and the first system voice in that language (the default
+`lang` = `<html lang>` (else `en`, so it follows the Language setting below), and the first system voice in that language (the default
 voice first, then an on-device one), picked at speak time because voices load late.
 
 Pressing a 🔊 stops any other speech and reads its own text; pressing it again while it plays stops
@@ -780,6 +780,48 @@ as its row button. Entries are tracked by `dismissKey` (profile + ref) from page
 setting: the first list seen for each profile is its baseline and is never spoken, and an entry
 that leaves and comes back (an undone dismiss, a re-hold) is not read again until the page reloads.
 New entries join the browser's speech queue, so they never cut off speech already playing.
+
+### Languages (built)
+The reading panel's **Language** setting (#561) is Auto / English / Español. It is stored with
+the other settings in `ah-reading`, Reset returns it to Auto, and at Auto nothing is stored.
+`main.tsx` sets `<html lang>` before the first render (`index.html` ships `lang="en"`); a change
+in the panel re-renders the app in place through `I18nProvider` (in `App.tsx`) and updates
+`<html lang>`, with no reload.
+- **Auto** picks the first of the browser's languages (`navigator.languages`, by base subtag:
+  `es-MX` → `es`) whose dictionary is marked `complete: true`, else English. A partial
+  dictionary is only ever an explicit choice, and its option says "(partial)". Completeness is
+  that flag, not a key count: the parity test makes every dictionary's keys equal.
+- English and Español are endonyms and never translated; "Auto" and "(partial)" are.
+- Translated so far: the app shell and app bar, Home, the Overview (Needs you, Now, the digest
+  panel's chrome, Progress and its history strip) and every shared component. The Tickets table,
+  ticket drawer, Epics, Stats, Instructions and Config views are still English (#562), and so
+  are ticket ids, code, logs and anything an agent wrote (the digest body, reasons, summaries).
+- **Known gap:** the spend, energy and quota readouts come from `src/pricing.js`,
+  `src/energy.js` and `src/quota.js`, which the CLI shares, so they stay English in every
+  language.
+
+The code is `ui/src/i18n/`, with no dependency: `en.ts` is the source of truth, a flat map of
+dotted keys (`overview.now`) to a string with `{name}` placeholders or plural forms
+(`{ one?, few?, many?, other }`, picked by `Intl.PluralRules` from `count`; a missing category
+falls back to `other`). Components call `const { t, lang } = useT()`; a key missing from a
+dictionary falls back to English, then to the key itself. The pure helpers in `format.ts`,
+`stats.ts` and `statsModels.ts` take a trailing `lang` (default `"en"`). At `"en"` they keep
+their hand-built English, so output never depends on the browser's ICU; other languages use
+`Intl.RelativeTimeFormat` (narrow), `Intl.NumberFormat` (USD) and `toLocaleDateString`.
+
+**Adding a language:**
+1. Copy `ui/src/i18n/en.ts` to `ui/src/i18n/<lang>.ts`, type its messages as
+   `Record<MessageKey, Message>` (as `es.ts` does), and translate every value. Keep each
+   `{var}` and each plural/string shape. Add plural forms your language needs (`few`, `many`).
+2. Use the glossary: every binding term in `CONTEXT.md` gets a `_<Language>_:` line, and the
+   dictionary uses exactly those words (Spanish: Perfil, Ticket, Épica, Terminado, Fusionado,
+   Te necesita, Listo para cerrar, Resumen, Servicio, SOUL).
+3. Register it in `DICTIONARIES` in `ui/src/i18n/index.ts`. The reading panel lists it by its
+   `meta.name`.
+4. Set `meta.complete: true` only once every view renders through it; until then Auto skips it.
+5. Run `npm run typecheck:ui` and `npm run test:ui`. The parity test (`i18n.test.ts`) fails on a
+   missing or extra key, a differing `{var}` set in any plural form, or a plural where English has
+   a string.
 
 ### Build order
 (Steps 1–3 are built.)

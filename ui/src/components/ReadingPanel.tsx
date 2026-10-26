@@ -2,16 +2,21 @@ import { useEffect, useId, useRef, useState } from "react";
 import { IconButton } from "./IconButton";
 import { Segmented } from "./Segmented";
 import { READING_SETTINGS, readingDefaults, setReading } from "../reading";
+import type { ReadingOption } from "../reading";
 import { useReading } from "../useReading";
+import { setLangSetting } from "../i18n";
+import { useT } from "../i18n/react";
 
 /**
  * The app bar's `Aa` reading settings (#559): a non-modal popover with one segmented control per
  * `READING_SETTINGS` entry and a Reset. A change goes through the shared store (`setReading`): it is
  * persisted, applied to <html> and seen at once by every `useReading()`, the read-aloud buttons too.
  * Escape or an outside click closes it (Escape returns focus to the trigger), as in Menu. While
- * it is open its `role="dialog"` holds off the Overview / Epics single-key shortcuts.
+ * it is open its `role="dialog"` holds off the Overview / Epics single-key shortcuts. The language
+ * setting also goes to the i18n store, which re-renders the app in it (#561).
  */
 export function ReadingPanel() {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const values = useReading();
   const root = useRef<HTMLDivElement>(null);
@@ -37,13 +42,24 @@ export function ReadingPanel() {
     trigger.current?.focus();
   };
 
-  const change = (key: string, value: string) => setReading({ ...values, [key]: value });
+  const change = (key: string, value: string) => {
+    setReading({ ...values, [key]: value });
+    if (key === "lang") setLangSetting(value);
+  };
+
+  const reset = () => {
+    const next = readingDefaults();
+    setReading(next);
+    setLangSetting(next.lang);
+  };
+
+  const optionLabel = (o: ReadingOption) => ("text" in o ? `${o.text}${o.partial ? ` ${t("reading.partial")}` : ""}` : t(o.label));
 
   return (
     <div ref={root} className="relative inline-block" onKeyDown={onKeyDown}>
       <IconButton
         ref={trigger}
-        label="Reading settings"
+        label={t("reading.settings")}
         aria-expanded={open}
         aria-controls={id}
         data-reading-trigger
@@ -57,7 +73,7 @@ export function ReadingPanel() {
           ref={panel}
           id={id}
           role="dialog"
-          aria-label="Reading settings"
+          aria-label={t("reading.settings")}
           data-reading-panel
           className="absolute right-0 z-30 mt-1 flex w-max flex-col gap-3 rounded-md border border-border-strong bg-overlay p-3 shadow-lg"
         >
@@ -65,12 +81,12 @@ export function ReadingPanel() {
           {READING_SETTINGS.filter((s) => s.available?.() ?? true).map((s) => (
             <div key={s.key} className="flex flex-col gap-1">
               <span aria-hidden="true" className="text-label text-muted">
-                {s.label}
+                {t(s.label)}
               </span>
               <Segmented
-                label={s.label}
+                label={t(s.label)}
                 value={values[s.key]}
-                options={s.options}
+                options={s.options.map((o) => ({ value: o.value, label: optionLabel(o) }))}
                 disabled={!!s.requires && values[s.requires.key] !== s.requires.value}
                 onChange={(v) => change(s.key, v)}
               />
@@ -80,9 +96,9 @@ export function ReadingPanel() {
             type="button"
             data-reading-reset
             className="self-start rounded-md px-2 py-1 text-label font-medium text-muted hover:bg-surface-raised hover:text-fg"
-            onClick={() => setReading(readingDefaults())}
+            onClick={reset}
           >
-            Reset
+            {t("reading.reset")}
           </button>
         </div>
       )}

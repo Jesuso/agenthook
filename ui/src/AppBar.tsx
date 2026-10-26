@@ -1,10 +1,15 @@
-import { CONNECTION_LABEL } from "./connection";
+import { connectionLabel } from "./connection";
 import type { ConnectionState } from "./connection";
 import { Pill, ProfileMark, ReadingPanel } from "./components";
 import { VIEWS } from "./route";
 import type { View } from "./route";
 import type { ProfileView } from "./contract";
 import { formatQuota, profileLabel } from "./format";
+import { useT } from "./i18n/react";
+import type { MessageKey } from "./i18n";
+
+// Lowercase like the view ids: the tabs capitalize by CSS.
+const VIEW_LABEL: Record<View, MessageKey> = { overview: "view.overview", stats: "view.stats", epics: "view.epics", instructions: "view.instructions", config: "view.config" };
 
 const DOT_CLASS: Record<ConnectionState, string> = {
   connected: "bg-muted",
@@ -15,7 +20,8 @@ const DOT_CLASS: Record<ConnectionState, string> = {
 /** The UI's own live-stream health — not a receiver's: a quiet grey dot while updates flow, amber reconnecting
  * (also before the first open), red closed. Green is kept for "receiver up" so the two never read alike. */
 export function ConnectionDot({ state }: { state: ConnectionState }) {
-  const label = CONNECTION_LABEL[state];
+  const { lang } = useT();
+  const label = connectionLabel(state, lang);
   return (
     <span role="status" data-connection={state} title={label} aria-label={label} className="flex items-center gap-1.5 text-label text-muted">
       <span aria-hidden="true" className={`size-2 rounded-full ${DOT_CLASS[state]}`} />
@@ -48,13 +54,14 @@ export type ProfileNav = {
  * `lg` up the spacer collapses and it is one 44px row.
  */
 export function AppBar({ connection, nav }: { connection: ConnectionState; nav?: ProfileNav }) {
+  const { t } = useT();
   const current = nav?.profiles.find((p) => p.name === nav.profile);
   const quota = current?.quota ? formatQuota(current.quota, nav?.now ?? Date.now()) : "";
   return (
     <header className="sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-1.5 lg:h-11 lg:flex-nowrap lg:gap-x-6 lg:py-0">
       <div className="flex shrink-0 items-center gap-2">
         <span className="text-title font-semibold tracking-tight">agenthook</span>
-        <Pill title="agenthook version">v{__APP_VERSION__}</Pill>
+        <Pill title={t("appBar.version")}>v{__APP_VERSION__}</Pill>
       </div>
       {nav && (
         <>
@@ -65,11 +72,11 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
               className="rounded-md px-2 py-1 text-label font-medium text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
               onClick={nav.onHome}
             >
-              ‹ Home
+              {t("appBar.home")}
             </button>
             {current && <ProfileMark p={current} size="sm" />}
             <select
-              aria-label="switch profile"
+              aria-label={t("appBar.switchProfile")}
               data-profile-switcher
               className="min-w-0 max-w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-label font-medium"
               value={nav.profile}
@@ -84,7 +91,7 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
             </select>
           </div>
           <span aria-hidden="true" className="h-0 shrink-0 basis-full lg:hidden" />
-          <nav aria-label="views" className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto">
+          <nav aria-label={t("appBar.views")} className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto">
             {VIEWS.map((v) => (
               <button
                 key={v}
@@ -96,12 +103,12 @@ export function AppBar({ connection, nav }: { connection: ConnectionState; nav?:
                 }`}
                 onClick={() => nav.onView(v)}
               >
-                {v}
+                {t(VIEW_LABEL[v])}
               </button>
             ))}
           </nav>
           {quota && (
-            <span data-appbar-quota className="min-w-0 truncate text-label text-muted" title="Claude subscription quota, as of the last Claude run">
+            <span data-appbar-quota className="min-w-0 truncate text-label text-muted" title={t("appBar.quotaTitle")}>
               {quota}
             </span>
           )}

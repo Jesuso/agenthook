@@ -6,6 +6,7 @@ import { hashFor } from "./route";
 import { FullAutoShield, Menu, Pill, ProfileMark, ReceiverStatus } from "./components";
 import { accentStyle } from "./identity";
 import type { MenuItem } from "./components";
+import { rich, useT } from "./i18n/react";
 
 export type HomePageProps = {
   snapshot: Snapshot;
@@ -18,19 +19,20 @@ export type HomePageProps = {
 
 /** Home: one card per profile led by its Needs-you number; down profiles fold into a muted strip. */
 export function HomePage({ snapshot, now, menuItems, note }: HomePageProps) {
+  const { t } = useT();
   const { active, inactive } = buildHome(snapshot, now);
   const displayId = (p: ProfileView) => (p.lastEvent ? snapshot.tickets.find((t) => t.profile === p.name && t.ref === p.lastEvent?.ref)?.displayId ?? null : null);
 
   if (!snapshot.profiles.length)
     return (
       <p className="text-body text-muted">
-        No profiles yet. Run <code className="font-mono">agenthook init</code> in a project to create one.
+        {rich(t("home.empty"), { cmd: <code className="font-mono">agenthook init</code> })}
       </p>
     );
 
   return (
     <div className="mx-auto max-w-6xl">
-      <h1 className="mb-4 text-title font-semibold">Profiles</h1>
+      <h1 className="mb-4 text-title font-semibold">{t("home.profiles")}</h1>
       {active.length > 0 && (
         <div data-home-grid className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {active.map((c) => (
@@ -40,7 +42,7 @@ export function HomePage({ snapshot, now, menuItems, note }: HomePageProps) {
       )}
       {inactive.length > 0 && (
         <section data-inactive className={active.length ? "mt-8" : ""}>
-          <h2 className="mb-2 text-label font-semibold uppercase tracking-wide text-muted">Inactive ({inactive.length})</h2>
+          <h2 className="mb-2 text-label font-semibold uppercase tracking-wide text-muted">{t("home.inactive", { count: inactive.length })}</h2>
           <ul className="divide-y divide-border-subtle rounded-lg border border-border bg-surface">
             {inactive.map((c) => (
               <InactiveRow key={c.profile.name} p={c.profile} now={now} items={menuItems(c.profile)} note={note(c.profile)} />
@@ -55,12 +57,13 @@ export function HomePage({ snapshot, now, menuItems, note }: HomePageProps) {
 
 /** The card's headline: how many tickets need a human; red when any failed, amber when only held. */
 function NeedsYou({ n, hasFailed }: { n: number; hasFailed: boolean }) {
+  const { t } = useT();
   const tone = n === 0 ? "text-muted" : hasFailed ? "text-status-failed" : "text-status-held";
   return (
     <div data-needs-you={n}>
-      <div className="text-label uppercase tracking-wide text-muted">needs you</div>
+      <div className="text-label uppercase tracking-wide text-muted">{t("home.needsYou")}</div>
       {n === 0 ? (
-        <div className="text-title leading-8 text-muted">all clear</div>
+        <div className="text-title leading-8 text-muted">{t("home.allClear")}</div>
       ) : (
         <div className={`font-mono text-stat font-semibold tabular-nums ${tone}`}>{n}</div>
       )}
@@ -69,9 +72,10 @@ function NeedsYou({ n, hasFailed }: { n: number; hasFailed: boolean }) {
 }
 
 function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel; now: number; lastEventId: string | null; items: MenuItem[]; note: string }) {
+  const { t, lang } = useT();
   const { profile: p, summary, hasFailed } = card;
-  const badge = profileBadge(p);
-  const last = formatLastEvent(p.lastEvent, lastEventId, now);
+  const badge = profileBadge(p, lang);
+  const last = formatLastEvent(p.lastEvent, lastEventId, now, lang);
   return (
     <article
       data-profile-card={p.name}
@@ -92,13 +96,13 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             <ReceiverStatus p={p} />
             {p.paused === true && (
-              <Pill tone="held" title="operator pause: no new runs start; running agents finish (a restart clears it)">
-                paused
+              <Pill tone="held" title={t("home.pausedTitle")}>
+                {t("home.paused")}
               </Pill>
             )}
             {p.quotaPaused && (
-              <Pill tone="held" title={quotaPausedTitle(p.quotaPaused)}>
-                quota paused
+              <Pill tone="held" title={quotaPausedTitle(p.quotaPaused, lang)}>
+                {t("home.quotaPaused")}
               </Pill>
             )}
             {badge && (
@@ -110,7 +114,7 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
           </div>
         </div>
         <div className="relative z-10">
-          <Menu label={`${p.label || p.name} actions`} items={items} />
+          <Menu label={t("common.actions", { name: p.label || p.name })} items={items} />
         </div>
       </div>
 
@@ -119,9 +123,9 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
       </div>
 
       <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">
-        <Stat label="agents">{formatAgents(p)}</Stat>
-        <Stat label="queued">{p.queued ?? "—"}</Stat>
-        {summary.costToday + summary.estToday > 0 && <Stat label="cost today">{formatSpend({ reported: summary.costToday, est: summary.estToday })}</Stat>}
+        <Stat label={t("common.agents")}>{formatAgents(p)}</Stat>
+        <Stat label={t("common.queued")}>{p.queued ?? "—"}</Stat>
+        {summary.costToday + summary.estToday > 0 && <Stat label={t("home.costToday")}>{formatSpend({ reported: summary.costToday, est: summary.estToday })}</Stat>}
       </dl>
 
       {p.lastEvent && (
@@ -144,7 +148,8 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
 }
 
 function InactiveRow({ p, now, items, note }: { p: ProfileView; now: number; items: MenuItem[]; note: string }) {
-  const badge = profileBadge(p);
+  const { t, lang } = useT();
+  const badge = profileBadge(p, lang);
   return (
     <li data-inactive-row={p.name} className="relative flex items-center gap-3 px-3 py-2 text-body text-muted hover:bg-surface-raised">
       <ProfileMark p={p} size="sm" />
@@ -157,10 +162,10 @@ function InactiveRow({ p, now, items, note }: { p: ProfileView; now: number; ite
           {badge.text}
         </Pill>
       )}
-      <span className="text-label">last seen {formatRelative(p.lastSeenAt, now)}</span>
+      <span className="text-label">{t("home.lastSeen", { when: formatRelative(p.lastSeenAt, now, lang) })}</span>
       {note && <span className="text-label text-status-held">{note}</span>}
       <div className="relative z-10 ml-auto">
-        <Menu label={`${p.label || p.name} actions`} items={items} />
+        <Menu label={t("common.actions", { name: p.label || p.name })} items={items} />
       </div>
     </li>
   );

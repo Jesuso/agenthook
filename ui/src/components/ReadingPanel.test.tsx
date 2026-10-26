@@ -45,7 +45,7 @@ describe("ReadingPanel", () => {
   it("leaves out the read-aloud rows where the browser can't speak", async () => {
     await click(trigger());
     const groups = [...dialog()!.querySelectorAll("[role=radiogroup]")].map((g) => g.getAttribute("aria-label"));
-    expect(groups).toEqual(["Text size", "Spacing", "Line width", "Background"]);
+    expect(groups).toEqual(["Text size", "Spacing", "Line width", "Background", "Language"]);
   });
 
   it("with speech: Read aloud, then Speed and Read new Needs you disabled until it is on; Reset returns all three", async () => {
@@ -55,7 +55,7 @@ describe("ReadingPanel", () => {
       m = await mount(createElement(ReadingPanel));
       await click(trigger());
       const groups = [...dialog()!.querySelectorAll("[role=radiogroup]")].map((g) => g.getAttribute("aria-label"));
-      expect(groups).toEqual(["Text size", "Spacing", "Line width", "Background", "Read aloud", "Speed", "Read new Needs you"]);
+      expect(groups).toEqual(["Text size", "Spacing", "Line width", "Background", "Language", "Read aloud", "Speed", "Read new Needs you"]);
       expect(radio("Read aloud", "Off").getAttribute("aria-checked")).toBe("true");
       expect(radio("Speed", "1×").getAttribute("aria-checked")).toBe("true");
       for (const g of ["Speed", "Read new Needs you"]) for (const b of dialog()!.querySelectorAll<HTMLButtonElement>(`[aria-label="${g}"] button`)) expect(b.disabled, g).toBe(true);

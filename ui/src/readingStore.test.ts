@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { getReading, setReading, subscribeReading } from "./reading";
 
-const DEFAULTS = { text: "0", spacing: "off", measure: "default", bg: "default", readaloud: "off", rate: "1", autoread: "off" };
+const DEFAULTS = { text: "0", spacing: "off", measure: "default", bg: "default", lang: "auto", readaloud: "off", rate: "1", autoread: "off" };
 
 describe("reading store", () => {
   it("setReading persists, applies and notifies every subscriber; the last unsubscribe drops the copy", () => {
