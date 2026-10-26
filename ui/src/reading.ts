@@ -1,9 +1,21 @@
 // The reading panel's settings (#559): a registry of per-browser display options for prose. Each
 // setting is one `data-ah-<key>` attribute on <html>, styled only by index.css; its default value
 // removes the attribute, so with nothing chosen the page is exactly as it was. Adding a setting is
-// one entry here plus its CSS.
+// one entry here plus its CSS. `available` hides a row the browser can't support; `requires` shows
+// it disabled until another setting has a given value (read aloud, #560, needs no CSS).
 
-export type ReadingSetting = { key: string; label: string; options: { value: string; label: string }[]; default: string };
+import { speechSupported } from "./speech";
+
+export type ReadingSetting = {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+  default: string;
+  /** False hides the row (e.g. no `speechSynthesis`). */
+  available?: () => boolean;
+  /** The row is disabled unless setting `key` has `value`. */
+  requires?: { key: string; value: string };
+};
 
 export const READING_SETTINGS: ReadingSetting[] = [
   {
@@ -44,6 +56,40 @@ export const READING_SETTINGS: ReadingSetting[] = [
       { value: "warm", label: "Warm" },
     ],
     default: "default",
+  },
+  {
+    key: "readaloud",
+    label: "Read aloud",
+    options: [
+      { value: "off", label: "Off" },
+      { value: "on", label: "On" },
+    ],
+    default: "off",
+    available: speechSupported,
+  },
+  {
+    key: "rate",
+    label: "Speed",
+    options: [
+      { value: "0.75", label: "0.75×" },
+      { value: "1", label: "1×" },
+      { value: "1.25", label: "1.25×" },
+      { value: "1.5", label: "1.5×" },
+    ],
+    default: "1",
+    available: speechSupported,
+    requires: { key: "readaloud", value: "on" },
+  },
+  {
+    key: "autoread",
+    label: "Read new Needs you",
+    options: [
+      { value: "off", label: "Off" },
+      { value: "on", label: "On" },
+    ],
+    default: "off",
+    available: speechSupported,
+    requires: { key: "readaloud", value: "on" },
   },
 ];
 
@@ -107,4 +153,31 @@ export function resetReading(store: Pick<Storage, "setItem" | "removeItem"> | un
   writeReading(values, store);
   applyReading(values, root);
   return values;
+}
+
+// The shared store (#560): one in-memory copy of the settings that the panel writes and every
+// `useReading()` (useReading.ts) follows, so a change shows everywhere at once. Once the last
+// subscriber leaves it is dropped, and the next read goes back to storage.
+let current: ReadingValues | null = null;
+const listeners = new Set<() => void>();
+
+/** The current settings: the store's copy, else storage. */
+export function getReading(): ReadingValues {
+  return (current ??= readReading());
+}
+
+/** Persist, apply to <html> and notify every subscriber. */
+export function setReading(values: ReadingValues): void {
+  current = values;
+  writeReading(values);
+  applyReading(values);
+  for (const fn of [...listeners]) fn();
+}
+
+export function subscribeReading(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+    if (!listeners.size) current = null;
+  };
 }

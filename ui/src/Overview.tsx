@@ -10,7 +10,7 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, TicketId } from "./components";
+import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, SpeakButton, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -18,6 +18,8 @@ import { ReleasePanel } from "./ReleasePanel";
 import { dismissKey } from "./deferredDismiss";
 import { failureSummary } from "./failure";
 import { OVERVIEW_SHORTCUTS, overviewAction, shortcutsEnabled } from "./shortcuts";
+import { newEntries, speak, speechSupported, speechText } from "./speech";
+import { useReading } from "./useReading";
 
 type Ref = { profile: string; ref: string };
 
@@ -66,6 +68,7 @@ export function Overview(props: OverviewProps) {
   const filtered = props.statusFilter !== "" || props.epicFilter !== "";
   const ticketsShown = ticketsOpen || filtered;
   useNeedsYouKeys(setHelp);
+  useAutoRead(profile.name, needs);
   // A background tab or a side screen still shows whether anything needs you.
   useEffect(() => {
     document.title = `${needs.length ? `(${needs.length}) ` : ""}${profile.label} · agenthook`;
@@ -292,6 +295,50 @@ const headlineTone = (items: NeedsItem[]) =>
 
 type Retry = { state: "busy" | "started" } | { state: "error"; error: string };
 
+/** A row's second line: the agent's plain sentence, else the (short) reason, else the summary. */
+function needsSub(item: NeedsItem) {
+  const reason = item.kind === "failed" ? failureSummary(item.reason) : item.reason;
+  return { reason, sub: item.ticket.plain ?? reason ?? item.ticket.summary };
+}
+
+const needsTitle = (t: TicketRow) => {
+  const title = ticketTitle(t);
+  return { title, titleText: title.unknown ? "(untitled)" : title.text };
+};
+
+/** What a row's 🔊 (and auto-read) says: its title, then its full second line. */
+function needsSpeech(item: NeedsItem): string {
+  const { sub } = needsSub(item);
+  const { titleText } = needsTitle(item.ticket);
+  return sub ? `${titleText}. ${sub}` : titleText;
+}
+
+// Every Needs you entry seen since page load (`dismissKey`), whatever the setting, and the profiles
+// whose first list (the baseline, never spoken) has been taken.
+const heardNeeds = new Set<string>();
+const baselined = new Set<string>();
+
+/**
+ * Read new Needs you (#560): with Read aloud and auto-read on, an entry that arrives after the
+ * profile's first list is spoken once, queued behind whatever is playing (never cutting it off).
+ * One that leaves and comes back (an undone dismiss, a re-hold) is not read again this page load.
+ */
+function useAutoRead(profile: string, needs: NeedsItem[]) {
+  const reading = useReading();
+  const keys = needs.map((n) => dismissKey(n.ticket));
+  const on = reading.readaloud === "on" && reading.autoread === "on";
+  useEffect(() => {
+    const fresh = new Set(newEntries(heardNeeds, keys));
+    if (!baselined.has(profile)) {
+      baselined.add(profile);
+      return;
+    }
+    if (!on || !speechSupported()) return;
+    for (const n of needs) if (fresh.has(dismissKey(n.ticket))) speak(speechText(needsSpeech(n)), { rate: Number(reading.rate) || 1, interrupt: false });
+    // The keys stand for `needs`: re-run when the list changes, not on every render.
+  }, [profile, keys.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"] }) {
   const [releasing, setReleasing] = useState<string | null>(null);
   // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
@@ -335,13 +382,11 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
-          const reason = kind === "failed" ? failureSummary(item.reason) : item.reason;
           // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
-          const sub = t.plain ?? reason ?? t.summary;
+          const { reason, sub } = needsSub(item);
           const subTitle = t.plain ? (item.reason ?? t.summary ?? undefined) : (reason ?? t.summary ?? undefined);
           const said = t.plain ?? reason;
-          const title = ticketTitle(t);
-          const titleText = title.unknown ? "(untitled)" : title.text;
+          const { title, titleText } = needsTitle(t);
           const rerun = retries[t.ref];
           const pr = prNumber(t.prUrl);
           return (
@@ -351,6 +396,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
               <div className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1">
                 <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
+                <SpeakButton text={needsSpeech(item)} label={`Read aloud ${t.displayId}`} className="shrink-0" />
                 <button
                   type="button"
                   data-needs-open

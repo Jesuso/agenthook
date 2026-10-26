@@ -3,7 +3,7 @@ import type { DigestView } from "./contract";
 import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatRelative } from "./format";
-import { ShowHide } from "./components";
+import { ShowHide, SpeakButton } from "./components";
 
 // react-markdown ships in the same lazy chunk as the Instructions preview, not the main bundle.
 const DigestMarkdown = lazy(() => import("./DigestMarkdown"));
@@ -66,6 +66,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
           </p>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {digest && showBody && <SpeakButton text={digest.text} label="Read the digest aloud" />}
           {stale && (
             <ShowHide open={expanded} onToggle={() => setExpanded(!expanded)} controls={bodyId} label="digest" data-digest-toggle />
           )}

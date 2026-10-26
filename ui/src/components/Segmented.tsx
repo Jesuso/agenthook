@@ -4,23 +4,27 @@ export function Segmented<T extends string>({
   options,
   onChange,
   label,
+  disabled,
 }: {
   value: T;
   options: { value: T; label: React.ReactNode }[];
   onChange: (v: T) => void;
   /** The group's accessible name, where no surrounding text already names it. */
   label?: string;
+  /** Disables every option. */
+  disabled?: boolean;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-md border border-border p-0.5">
+    <div role="radiogroup" aria-label={label} aria-disabled={disabled || undefined} className={`inline-flex rounded-md border border-border p-0.5 ${disabled ? "opacity-50" : ""}`}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={o.value === value}
+          disabled={disabled}
           className={`rounded-[calc(var(--radius-md)-2px)] px-2 py-0.5 text-label font-medium ${
-            o.value === value ? "bg-accent text-accent-fg" : "text-muted hover:text-fg"
+            o.value === value ? "bg-accent text-accent-fg" : `text-muted ${disabled ? "" : "hover:text-fg"}`
           }`}
           onClick={() => onChange(o.value)}
         >

@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format is based on
   control, widened together), a shorter line for rendered prose, and a warm background. Settings
   are per browser and prose only (ids, logs, code, editors and diffs are untouched); nothing
   changes until you pick something (#559).
+- Read aloud, in the same panel: with **Read aloud** on (only offered where the browser has
+  `speechSynthesis`), a 🔊 button reads the Digest, each Needs you row and the ticket drawer's
+  plain lines in the page's language, at a chosen **Speed**. **Read new Needs you** speaks entries
+  that arrive after the page loaded, queued behind any speech already playing. Escape stops speech.
+  Off by default, no dependency (#560).
 - Every agent run now ends with one plain sentence for a human (`summary.plain`): the outcome and,
   on a hold or fail, what you must decide. The dashboard shows it in place of the raw reason on
   Needs you and Now rows and at the top of the ticket drawer (the full reason stays in the tooltip
