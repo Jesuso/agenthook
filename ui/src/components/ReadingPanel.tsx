@@ -1,14 +1,16 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { IconButton } from "./IconButton";
 import { Segmented } from "./Segmented";
-import { READING_SETTINGS, applyReading, readReading, resetReading, writeReading } from "../reading";
-import type { ReadingOption, ReadingValues } from "../reading";
+import { READING_SETTINGS, readingDefaults, setReading } from "../reading";
+import type { ReadingOption } from "../reading";
+import { useReading } from "../useReading";
 import { setLangSetting } from "../i18n";
 import { useT } from "../i18n/react";
 
 /**
  * The app bar's `Aa` reading settings (#559): a non-modal popover with one segmented control per
- * `READING_SETTINGS` entry and a Reset. A change is persisted and applied to <html> at once.
+ * `READING_SETTINGS` entry and a Reset. A change goes through the shared store (`setReading`): it is
+ * persisted, applied to <html> and seen at once by every `useReading()`, the read-aloud buttons too.
  * Escape or an outside click closes it (Escape returns focus to the trigger), as in Menu. While
  * it is open its `role="dialog"` holds off the Overview / Epics single-key shortcuts. The language
  * setting also goes to the i18n store, which re-renders the app in it (#561).
@@ -16,7 +18,7 @@ import { useT } from "../i18n/react";
 export function ReadingPanel() {
   const { t } = useT();
   const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<ReadingValues>(() => readReading());
+  const values = useReading();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -41,16 +43,13 @@ export function ReadingPanel() {
   };
 
   const change = (key: string, value: string) => {
-    const next = { ...values, [key]: value };
-    setValues(next);
-    writeReading(next);
-    applyReading(next);
+    setReading({ ...values, [key]: value });
     if (key === "lang") setLangSetting(value);
   };
 
   const reset = () => {
-    const next = resetReading();
-    setValues(next);
+    const next = readingDefaults();
+    setReading(next);
     setLangSetting(next.lang);
   };
 
@@ -78,12 +77,19 @@ export function ReadingPanel() {
           data-reading-panel
           className="absolute right-0 z-30 mt-1 flex w-max flex-col gap-3 rounded-md border border-border-strong bg-overlay p-3 shadow-lg"
         >
-          {READING_SETTINGS.map((s) => (
+          {/* A row the browser can't support is left out; one whose `requires` is unmet is disabled. */}
+          {READING_SETTINGS.filter((s) => s.available?.() ?? true).map((s) => (
             <div key={s.key} className="flex flex-col gap-1">
               <span aria-hidden="true" className="text-label text-muted">
                 {t(s.label)}
               </span>
-              <Segmented label={t(s.label)} value={values[s.key]} options={s.options.map((o) => ({ value: o.value, label: optionLabel(o) }))} onChange={(v) => change(s.key, v)} />
+              <Segmented
+                label={t(s.label)}
+                value={values[s.key]}
+                options={s.options.map((o) => ({ value: o.value, label: optionLabel(o) }))}
+                disabled={!!s.requires && values[s.requires.key] !== s.requires.value}
+                onChange={(v) => change(s.key, v)}
+              />
             </div>
           ))}
           <button

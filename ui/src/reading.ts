@@ -4,11 +4,23 @@
 // one entry here plus its CSS. Labels are dictionary keys (i18n/en.ts), translated when rendered;
 // an option with `text` instead (a percentage, a language's own name) is never translated. `lang`
 // (#561) has no CSS rule: ReadingPanel and main.tsx also hand it to the i18n store, which sets <html lang>.
+// `available` hides a row the browser can't support; `requires` shows it disabled until another
+// setting has a given value (read aloud, #560, needs no CSS).
 import { DICTIONARIES } from "./i18n";
 import type { MessageKey } from "./i18n";
+import { speechSupported } from "./speech";
 
 export type ReadingOption = { value: string; label: MessageKey } | { value: string; text: string; partial?: boolean };
-export type ReadingSetting = { key: string; label: MessageKey; options: ReadingOption[]; default: string };
+export type ReadingSetting = {
+  key: string;
+  label: MessageKey;
+  options: ReadingOption[];
+  default: string;
+  /** False hides the row (e.g. no `speechSynthesis`). */
+  available?: () => boolean;
+  /** The row is disabled unless setting `key` has `value`. */
+  requires?: { key: string; value: string };
+};
 
 export const READING_SETTINGS: ReadingSetting[] = [
   {
@@ -60,6 +72,40 @@ export const READING_SETTINGS: ReadingSetting[] = [
       ...Object.values(DICTIONARIES).map((d) => ({ value: d.meta.lang, text: d.meta.name, partial: !d.meta.complete })),
     ],
     default: "auto",
+  },
+  {
+    key: "readaloud",
+    label: "reading.readaloud",
+    options: [
+      { value: "off", label: "reading.off" },
+      { value: "on", label: "reading.on" },
+    ],
+    default: "off",
+    available: speechSupported,
+  },
+  {
+    key: "rate",
+    label: "reading.rate",
+    options: [
+      { value: "0.75", text: "0.75×" },
+      { value: "1", text: "1×" },
+      { value: "1.25", text: "1.25×" },
+      { value: "1.5", text: "1.5×" },
+    ],
+    default: "1",
+    available: speechSupported,
+    requires: { key: "readaloud", value: "on" },
+  },
+  {
+    key: "autoread",
+    label: "reading.autoread",
+    options: [
+      { value: "off", label: "reading.off" },
+      { value: "on", label: "reading.on" },
+    ],
+    default: "off",
+    available: speechSupported,
+    requires: { key: "readaloud", value: "on" },
   },
 ];
 
@@ -123,4 +169,31 @@ export function resetReading(store: Pick<Storage, "setItem" | "removeItem"> | un
   writeReading(values, store);
   applyReading(values, root);
   return values;
+}
+
+// The shared store (#560): one in-memory copy of the settings that the panel writes and every
+// `useReading()` (useReading.ts) follows, so a change shows everywhere at once. Once the last
+// subscriber leaves it is dropped, and the next read goes back to storage.
+let current: ReadingValues | null = null;
+const listeners = new Set<() => void>();
+
+/** The current settings: the store's copy, else storage. */
+export function getReading(): ReadingValues {
+  return (current ??= readReading());
+}
+
+/** Persist, apply to <html> and notify every subscriber. */
+export function setReading(values: ReadingValues): void {
+  current = values;
+  writeReading(values);
+  applyReading(values);
+  for (const fn of [...listeners]) fn();
+}
+
+export function subscribeReading(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+    if (!listeners.size) current = null;
+  };
 }

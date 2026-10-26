@@ -62,6 +62,12 @@ export const messages: Record<MessageKey, Message> = {
   "reading.auto": "Automático",
   "reading.partial": "(parcial)",
   "reading.reset": "Restablecer",
+  "reading.readaloud": "Leer en voz alta",
+  "reading.rate": "Velocidad",
+  "reading.autoread": "Leer lo nuevo de Te necesita",
+  "reading.on": "Sí",
+  "speak.digest": "Leer el resumen en voz alta",
+  "speak.needsRow": "Leer en voz alta {id}",
 
   // Shared words
   "common.agents": "agentes",
@@ -481,6 +487,9 @@ export const messages: Record<MessageKey, Message> = {
   "drawer.close": "Cerrar",
   "drawer.whyFailed": "Por qué falló",
   "drawer.agentAsks": "Qué pregunta el agente",
+  "drawer.readReason": "Leer el motivo en voz alta",
+  "drawer.readSummary": "Leer la síntesis en voz alta",
+  "drawer.readRunSummary": "Leer en voz alta la síntesis de esta ejecución",
   "drawer.loadingRuns": "Cargando ejecuciones…",
   "drawer.runsError": "No se pudieron cargar las ejecuciones (estado {status}).",
   "drawer.noRuns": "No hay registros de ejecución para este ticket.",

@@ -27,7 +27,7 @@ import {
 import { chronological, isBounce, stepOrder, storyBlocks, timeScale } from "./runlog";
 import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
-import { IconButton, Pill, StatusBadge } from "./components";
+import { IconButton, Pill, SpeakButton, StatusBadge } from "./components";
 import { useT } from "./i18n/react";
 
 const LINE_H = 18;
@@ -170,13 +170,17 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
           <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
             <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? t("drawer.whyFailed") : t("drawer.agentAsks")}</p>
-            {ticket.plain && <p data-drawer-plain className="mb-1 text-body text-fg">{ticket.plain}</p>}
+            {ticket.plain && (
+              <p data-drawer-plain className="mb-1 text-body text-fg">
+                {ticket.plain}<SpeakButton text={ticket.plain} label={t("drawer.readReason")} className="ml-1 align-middle" />
+              </p>
+            )}
             <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
           </div>
         )}
         {ticket?.summary && (
           <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
-            {ticket.summary}
+            {ticket.summary}<SpeakButton text={ticket.summary} label={t("drawer.readSummary")} className="ml-1 align-middle" />
           </p>
         )}
         <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
@@ -268,7 +272,11 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               )}
             </div>
           )}
-          {selected?.plain && <p data-run-plain className="mb-1 text-body text-fg">{selected.plain}</p>}
+          {selected?.plain && (
+            <p data-run-plain className="mb-1 text-body text-fg">
+              {selected.plain}<SpeakButton text={selected.plain} label={t("drawer.readRunSummary")} className="ml-1 align-middle" />
+            </p>
+          )}
           {selected && <LogView key={selected.run} profile={profile} run={selected.run} running={selected.running} />}
         </div>
       </aside>

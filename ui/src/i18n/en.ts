@@ -60,6 +60,12 @@ export const messages = {
   "reading.auto": "Auto",
   "reading.partial": "(partial)",
   "reading.reset": "Reset",
+  "reading.readaloud": "Read aloud",
+  "reading.rate": "Speed",
+  "reading.autoread": "Read new Needs you",
+  "reading.on": "On",
+  "speak.digest": "Read the digest aloud",
+  "speak.needsRow": "Read aloud {id}",
 
   // Shared words
   "common.agents": "agents",
@@ -479,6 +485,9 @@ export const messages = {
   "drawer.close": "Close",
   "drawer.whyFailed": "Why it failed",
   "drawer.agentAsks": "What the agent is asking",
+  "drawer.readReason": "Read the reason aloud",
+  "drawer.readSummary": "Read the summary aloud",
+  "drawer.readRunSummary": "Read the run summary aloud",
   "drawer.loadingRuns": "Loading runs…",
   "drawer.runsError": "Failed to load runs (status {status}).",
   "drawer.noRuns": "No run logs for this ticket.",
