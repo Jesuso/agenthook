@@ -28,6 +28,7 @@ function verdictFooter(verdictFile, outcomeLines, pathsLines = []) {
     `(also passed to you as the env var $AGENTHOOK_VERDICT_FILE). Schema:`,
     `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>", "findings": "<optional, changes only: full Markdown review findings>", "summary": {<optional small JSON object (≤300 chars) — a summary for supervisors, stored as-is>} }`,
     `Always include "summary": {"plain": "<one sentence for a human>"} — at most ~25 words, no code, file paths, ids or jargon; say the outcome and, when holding or failing, what the human must decide. It does not count toward the 300-char summary limit (other summary keys are still allowed).`,
+    `Only when holding with a question that genuinely has 2-4 discrete answers, you may add "options": ["<short answer>", ...] to summary (each <= 80 chars, no code or ids). Never invent a false choice. Leave it out when the answer is open-ended. It does not count toward the 300-char limit.`,
     ...pathsLines,
     `Valid outcomes for THIS stage:`,
     ...outcomeLines,

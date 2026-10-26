@@ -16,7 +16,7 @@ const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, estUsd: 0, trackerUrl: null,
-  prUrl: null, summary: null, plain: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
+  prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
 const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProps> = {}) =>

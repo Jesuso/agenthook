@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TicketDrawer } from "./TicketDrawer";
 import type { TicketRow } from "./contract";
+import type { ReleaseOutcome } from "./config";
 
 const row: TicketRow = {
   profile: "agenthook",
@@ -16,7 +17,7 @@ const row: TicketRow = {
   costUsd: 1.25, estUsd: 0,
   trackerUrl: "https://github.com/Jesuso/agenthook/issues/221",
   prUrl: "https://github.com/Jesuso/agenthook/pull/230",
-  summary: null, plain: null, heldReason: null,
+  summary: null, plain: null, options: null, heldReason: null,
   heldAt: null,
   failReason: null,
   prState: null,
@@ -38,6 +39,17 @@ describe("TicketDrawer", () => {
     const html = render({ ...row, status: "held", heldReason: "Which DB? Postgres or SQLite (see src/db.js:12)", plain: "It needs you to pick a database." });
     expect(html).toMatch(/data-drawer-reason[\s\S]*What the agent is asking<\/p><p data-drawer-plain="true" class="mb-1 text-body text-fg">It needs you to pick a database\.<\/p><p class="[^"]*font-mono[^"]*">Which DB\? Postgres or SQLite \(see src\/db\.js:12\)<\/p>/);
     expect(render({ ...row, status: "held", heldReason: "Which DB?" })).not.toContain("data-drawer-plain");
+  });
+
+  it("shows answer-option buttons under the held reason only when options + onRelease are both set (#565)", () => {
+    const held = { ...row, status: "held" as const, heldReason: "Which DB?", options: ["Postgres", "SQLite"] };
+    const withRelease = renderToStaticMarkup(createElement(TicketDrawer, { profile: "agenthook", ticketRef: "221", ticket: held, runsNonce: 0, onClose: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }) }));
+    expect(withRelease).toContain("data-drawer-answer");
+    expect(withRelease).toContain("data-answer-options");
+    expect(withRelease).toContain("Postgres");
+    expect(render(held)).not.toContain("data-drawer-answer"); // no onRelease: no answer form
+    expect(render({ ...row, status: "held", heldReason: "Which DB?" })).not.toContain("data-drawer-answer"); // no options
+    expect(render(row)).not.toContain("data-drawer-answer"); // not held
   });
 
   it("shows the ticket's summary under the header, and nothing when it has none", () => {

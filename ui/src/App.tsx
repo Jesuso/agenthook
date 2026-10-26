@@ -424,6 +424,7 @@ export default function App() {
           ticket={snapshot.tickets.find((t) => t.profile === open.profile && t.ref === open.ref)}
           runsNonce={runsNonce}
           onClose={() => setOpen(null)}
+          onRelease={release}
         />
       )}
       {removing && (

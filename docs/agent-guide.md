@@ -96,7 +96,7 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 (a local-model, Cursor or Hermes run has `"unpriced":true` and no `costUsd`; when its model has a
 rate it carries `"estUsd"` and `"costBasis":"rate-table"` instead — a reported run has `"costBasis":"reported"`;
 a step with `energy:true` adds measured `"energyKwh"`, `"energyUsd"`, `"energySource"` — electricity, never part of either dollar figure;
-an optional `"plain"` is the agent's one-sentence `summary.plain`, whitespace-collapsed and clipped to 200 chars — absent when it wrote none);
+an optional `"plain"` is the agent's one-sentence `summary.plain`, whitespace-collapsed and clipped to 200 chars — absent when it wrote none; an optional `"options"` is `summary.options` — 2-4 short discrete answers, only on a hold);
 `reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
@@ -107,7 +107,10 @@ tier — its shape is whatever the project's instructions ask for); it appears o
 wrote it, and only while it is that step's latest summary for the ref. Every step's prompt asks for
 `summary.plain`: one plain sentence (≤ ~25 words, no code or ids) saying the outcome and, on a
 hold or fail, what the human must decide. It is measured apart from the 300-char cap (clipped to 300 on its own) and also rides on the
-run's `run_end` event as `plain`.
+run's `run_end` event as `plain`. On a hold with a question that genuinely has 2-4 discrete
+answers, the agent may also write `summary.options`: 2-4 short strings (≤ 80 chars each), also
+measured apart from the cap. It rides on `run_end` as `options`, but only while the ref is still
+held on that run.
 
 `prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt,mine?}]}`. `ci` is
 `success | failure | pending | none | unknown`; **only `success` is green**. `cancelled` and
@@ -153,7 +156,9 @@ loop:
 `runs {ref, tail: 80}`. If you can answer from your own context, `release {ref, comment}`. If it
 needs a human (product decision, credentials), surface it to the user and do **not** guess.
 `release` appends your comment to the resumed agent's prompt exactly like an owner's `@agent`
-reply, so write it as an instruction: concrete, self-contained, no secrets. A `why` of
+reply, so write it as an instruction: concrete, self-contained, no secrets. When the held run's
+`run_end` carries `options`, you (or the dashboard's human) can answer by passing one option
+verbatim as `release`'s `comment` — same gate, same resume, no new mechanism. A `why` of
 `"no valid verdict"` means the agent exited cleanly without a usable verdict file (likely cut
 mid-edit, or a weak/local `bin` that didn't finish the work) — read the run's tail first;
 `release` re-runs the step, or `run {ref, force:true}` to re-enter it from scratch.

@@ -115,6 +115,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} title
  * @property {string|null} summary        refmeta.summary: what the ticket is about, one plain-text paragraph (≤240 chars); null until a run has fetched the ticket
  * @property {string|null} plain          the newest run_end's `plain` (the agent's one-sentence summary.plain, agent-authored — untrusted), only while it describes the status: held ↔ hold, failed ↔ fail, done ↔ advance, running/queued ↔ any; null otherwise
+ * @property {string[]|null} options      2-4 short discrete answers (agent-authored — untrusted) from the newest run_end, only while the row is `held` and that run_end's outcome is `hold`; null otherwise
  * @property {string|null} step           current / last step id
  * @property {TicketStatus} status
  * @property {string|null} model          from running.json, else the last run_start

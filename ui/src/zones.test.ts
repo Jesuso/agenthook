@@ -4,7 +4,7 @@ import type { TicketRow } from "./contract";
 
 const t = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "p", ref, displayId: ref, title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null,
-  summary: null, plain: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
+  summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
 // Local time on purpose: "today" is the browser's local day.

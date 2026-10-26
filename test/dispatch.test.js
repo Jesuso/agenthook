@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict, NO_VALID_VERDICT } from "../src/dispatch.js";
+import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict, NO_VALID_VERDICT, MAX_OPTION_CHARS, MAX_SUMMARY_CHARS } from "../src/dispatch.js";
 
 // --- parseVerdict: requireVerdict x {valid, missing, garbage, unknown outcome, non-zero exit} ---
 
@@ -1346,6 +1346,36 @@ test("parseSummary: plain is measured apart from the cap — clipped on its own,
   assert.deepEqual(parseSummary({ risk: "low", plain: 3 }), { risk: "low" });
 });
 
+test("parseSummary: options is measured apart from the cap — 2-4 short strings kept, cleaned, never counted (#565)", () => {
+  const withOptions = { risk: "low", options: Array.from({ length: 4 }, (_, i) => "x".repeat(MAX_OPTION_CHARS - 1) + i) };
+  assert.ok(JSON.stringify(withOptions).length > MAX_SUMMARY_CHARS, "fixture: 4x80-char options alone would exceed the cap");
+  const kept = parseSummary(withOptions);
+  assert.deepEqual(kept, withOptions, "kept — options didn't count toward the cap");
+
+  const collapsed = parseSummary({ options: ["  Postgres ", "SQLite\nnow", "MySQL", "none"] });
+  assert.deepEqual(collapsed?.options, ["Postgres", "SQLite now", "MySQL", "none"]);
+});
+
+test("parseSummary: drops options alone (rest of summary survives) when not 2-4 short non-empty strings (#565)", () => {
+  /** @type {string[]} */
+  const lines = [];
+  const log = console.log;
+  console.log = (/** @type {string} */ l) => lines.push(l);
+  try {
+    const base = { risk: "low" };
+    assert.deepEqual(parseSummary({ ...base, options: ["only one"] }), base, "1 entry dropped");
+    assert.deepEqual(parseSummary({ ...base, options: ["a", "b", "c", "d", "e"] }), base, "5 entries dropped");
+    assert.deepEqual(parseSummary({ ...base, options: ["ok", ""] }), base, "empty entry dropped");
+    assert.deepEqual(parseSummary({ ...base, options: ["ok", "  "] }), base, "whitespace-only entry dropped");
+    assert.deepEqual(parseSummary({ ...base, options: ["ok", 3] }), base, "non-string entry dropped");
+    assert.deepEqual(parseSummary({ ...base, options: ["ok", "x".repeat(MAX_OPTION_CHARS + 1)] }), base, "oversize entry dropped");
+    assert.deepEqual(parseSummary({ ...base, options: "not an array" }), base, "non-array dropped");
+    assert.ok(lines.length >= 7 && lines.every((l) => l === "[verdict] dropping summary.options (not 2-4 short strings)"));
+  } finally {
+    console.log = log;
+  }
+});
+
 test("run_end carries summary.plain whitespace-collapsed; absent when missing, blank or not a string (#563)", async () => {
   const { events, runStep } = summaryHarness();
   const ends = () => events.filter((e) => e.event === "run_end");
@@ -1356,6 +1386,22 @@ test("run_end carries summary.plain whitespace-collapsed; absent when missing, b
     assert.equal("plain" in ends().at(-1), false, JSON.stringify(summary));
   }
   assert.deepEqual(ends().at(-1), { event: "run_end", outcome: "advance" }, "a verdict without plain emits run_end as before");
+});
+
+test("run_end carries summary.options only on a hold with valid options (#565)", async () => {
+  const { events, runStep } = summaryHarness();
+  const ends = () => events.filter((e) => e.event === "run_end");
+  await runStep("review", { outcome: "hold", summary: { options: ["Postgres", "SQLite"], tier: "low" } });
+  assert.deepEqual(ends().at(-1).options, ["Postgres", "SQLite"], "hold + valid options → carried");
+
+  await runStep("review", { outcome: "advance", summary: { options: ["Postgres", "SQLite"] } });
+  assert.equal("options" in ends().at(-1), false, "advance with options → dropped (not a hold)");
+
+  await runStep("review", { outcome: "hold" });
+  assert.equal("options" in ends().at(-1), false, "hold without options → absent");
+
+  await runStep("review", { outcome: "hold", summary: { options: ["only one"] } });
+  assert.equal("options" in ends().at(-1), false, "hold with invalid options → dropped");
 });
 
 // --- run_end of an unpriced (local-model) run: no costUsd, unpriced:true ---
