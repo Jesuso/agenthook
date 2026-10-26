@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "../i18n/react";
 
 /**
  * A shell command in a code box with a Copy button inside it, docs-style. The "$" prompt is
@@ -6,6 +7,7 @@ import { useEffect, useState } from "react";
  * readers hear it.
  */
 export function CopyCommand({ command }: { command: string }) {
+  const { t } = useT();
   const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
   useEffect(() => {
     if (state === "idle") return;
@@ -22,11 +24,11 @@ export function CopyCommand({ command }: { command: string }) {
       </code>
       <button
         type="button"
-        aria-label={`Copy command: ${command}`}
+        aria-label={t("copy.aria", { command })}
         onClick={() => void copy()}
         className="min-w-16 shrink-0 rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"
       >
-        <span aria-live="polite">{state === "ok" ? "Copied" : state === "fail" ? "Copy failed" : "Copy"}</span>
+        <span aria-live="polite">{state === "ok" ? t("copy.copied") : state === "fail" ? t("copy.failed") : t("copy.copy")}</span>
       </button>
     </div>
   );

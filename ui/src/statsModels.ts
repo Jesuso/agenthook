@@ -129,8 +129,9 @@ const CAL_LEFT = 26;
 const CAL_TOP = 16;
 const GAP = 2;
 
-/** GitHub-style grid: a column per week (Sunday first), a row per weekday; cell opacity ~ √(finished). */
-export function calendarModel(days: DayStats[], width: number): CalendarModel {
+/** GitHub-style grid: a column per week (Sunday first), a row per weekday; cell opacity ~ √(finished).
+ * Month and weekday labels follow `lang` (#561); English keeps its fixed labels. */
+export function calendarModel(days: DayStats[], width: number, lang = "en"): CalendarModel {
   if (!days.length) return { cells: [], months: [], weekdays: [], width, height: CAL_TOP, size: 0, max: 0 };
   const parts = (date: string) => date.split("-").map(Number) as [number, number, number];
   const dow = (date: string) => {
@@ -157,11 +158,11 @@ export function calendarModel(days: DayStats[], width: number): CalendarModel {
   for (const c of cells) {
     const [, m, dd] = parts(c.date);
     if (m !== last && dd <= 7) {
-      months.push({ pos: c.x, label: new Date(2000, m - 1, 1).toLocaleDateString("en-US", { month: "short" }) });
+      months.push({ pos: c.x, label: new Date(2000, m - 1, 1).toLocaleDateString(lang === "en" ? "en-US" : lang, { month: "short" }) });
       last = m;
     }
   }
-  const weekdays: Tick[] = [1, 3, 5].map((r) => ({ pos: CAL_TOP + r * (size + GAP) + size / 2, label: ["", "M", "", "W", "", "F", ""][r] }));
+  const weekdays: Tick[] = [1, 3, 5].map((r) => ({ pos: CAL_TOP + r * (size + GAP) + size / 2, label: lang === "en" ? ["", "M", "", "W", "", "F", ""][r] : new Date(2000, 0, 2 + r).toLocaleDateString(lang, { weekday: "narrow" }) }));
   return { cells, months, weekdays, width: CAL_LEFT + weeks * (size + GAP), height: CAL_TOP + 7 * (size + GAP), size, max: peak };
 }
 

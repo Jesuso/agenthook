@@ -61,6 +61,17 @@ function resumeSection(comment, meta, nonce) {
 }
 
 /**
+ * One line instructing the agent to write human-facing text in `cfg.language` (BCP-47), or
+ * `""` when unset — code, commits, PR titles/bodies, review findings, branch names and
+ * identifiers are untouched either way.
+ * @param {string|undefined} language
+ */
+export function languageLine(language) {
+  if (!language) return "";
+  return `Write all human-facing text (the verdict "reason" and "summary.plain", tracker comments, and any question you ask a human) in language "${language}" (BCP-47). Code, commit messages, PR titles/bodies, review findings, branch names and identifiers follow the repo's conventions.`;
+}
+
+/**
  * The overlapGuard `paths` field, documented only when the guard is on. A step with no
  * worktree (triage) PREDICTS the files; a worktree step reports the files it TOUCHED.
  * @param {boolean|undefined} overlapGuard @param {boolean} hasWorktree
@@ -87,7 +98,7 @@ function pathsLines(overlapGuard, hasWorktree) {
  * @param {import('./types.js').Task} task
  * @param {import('./types.js').AdapterMeta} meta
  * @param {import('./types.js').Step} step
- * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string, overlapGuard?: boolean, repo?: { id: string, path: string }, nonce?: string }} ctx
+ * @param {{ worktree?: string, branch?: string, verdictFile?: string, findings?: { text: string, fromStep: string }, resumeComment?: string, overlapGuard?: boolean, repo?: { id: string, path: string }, nonce?: string, language?: string }} ctx
  *   `repo` is passed only for multi-repo profiles — it names the routed checkout so the agent can report a mis-route
  */
 export function stepPrompt(task, meta, step, ctx) {
@@ -105,6 +116,8 @@ export function stepPrompt(task, meta, step, ctx) {
   const nonce = ctx.nonce || newNonce();
   const resume = resumeSection(ctx.resumeComment, meta, nonce);
   const paths = pathsLines(ctx.overlapGuard, !!ctx.worktree);
+  const lang = languageLine(ctx.language);
+  const language = lang ? [``, lang] : [];
 
   // Held tasks re-enter with only the body; the human's answer lives in the comments. An
   // `ownerHint` names the owner when the agent may post as another account (a GitHub App run
@@ -141,6 +154,7 @@ export function stepPrompt(task, meta, step, ctx) {
       `- If it is ready, optionally add a short comment enriching scope/acceptance so the coding`,
       `  stage has what it needs, then set outcome "advance".`,
       `- Do NOT move the ${N} between sections yourself — the receiver moves it per your verdict below.`,
+      ...language,
       ...resume,
       verdictFooter(ctx.verdictFile, [
         `- "advance": clear, in-scope, actionable — hand it to the coding queue.`,
@@ -185,6 +199,7 @@ export function stepPrompt(task, meta, step, ctx) {
       ...head,
       ``,
       findDiff,
+      ...language,
       ...resume,
       verdictFooter(ctx.verdictFile, [
         `- "advance": the diff is correct and safe, every acceptance criterion is met, and no blocking finding remains — move it on for approval.`,
@@ -234,6 +249,7 @@ export function stepPrompt(task, meta, step, ctx) {
     deliverLine,
     commentLine,
     `- Do NOT move the ${N} between sections yourself — the receiver moves it per your verdict below.`,
+    ...language,
     ...resume,
     verdictFooter(ctx.verdictFile, [
       advanceLine,

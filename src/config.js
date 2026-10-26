@@ -425,6 +425,18 @@ export function validateRawConfig(raw) {
     errors.push(`config: "overlapGuard" must be true or false.`);
   }
 
+  if (cfg.language != null) {
+    let valid = typeof cfg.language === "string" && cfg.language.trim() !== "";
+    if (valid) {
+      try {
+        Intl.getCanonicalLocales(cfg.language);
+      } catch (e) {
+        if (e instanceof RangeError) valid = false;
+      }
+    }
+    if (!valid) errors.push(`config: "language" must be a BCP-47 language tag (e.g. "es").`);
+  }
+
   const pipeline = Array.isArray(tracker?.pipeline) && tracker.pipeline.length ? tracker.pipeline : null;
   if (!pipeline) {
     errors.push(`config: "tracker.pipeline" is required (a non-empty array of steps).`);

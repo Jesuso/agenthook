@@ -29,7 +29,7 @@ import {
 import { chronological, isBounce, stepOrder, storyBlocks, timeScale } from "./runlog";
 import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
-import { IconButton, Pill, StatusBadge } from "./components";
+import { IconButton, Pill, SpeakButton, StatusBadge } from "./components";
 
 const LINE_H = 18;
 const FRAME_TYPES: LogFrame["type"][] = ["init", "append", "reset"];
@@ -182,7 +182,11 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         {ticket && (ticket.status === "failed" ? ticket.failReason : ticket.status === "held" ? ticket.heldReason : null) && (
           <div data-drawer-reason className={`border-b border-border-subtle px-4 py-3 text-body ${ticket.status === "failed" ? "bg-status-failed-bg" : "bg-status-held-bg"}`}>
             <p className={`font-semibold ${ticket.status === "failed" ? "text-status-failed" : "text-status-held"}`}>{ticket.status === "failed" ? "Why it failed" : "What the agent is asking"}</p>
-            {ticket.plain && <p data-drawer-plain className="mb-1 text-body text-fg">{ticket.plain}</p>}
+            {ticket.plain && (
+              <p data-drawer-plain className="mb-1 text-body text-fg">
+                {ticket.plain}<SpeakButton text={ticket.plain} label="Read the reason aloud" className="ml-1 align-middle" />
+              </p>
+            )}
             <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
             {ticket.status === "held" && ticket.options && ticket.options.length > 0 && onRelease && (
               <div data-drawer-answer className="mt-2">
@@ -198,7 +202,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         )}
         {ticket?.summary && (
           <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
-            {ticket.summary}
+            {ticket.summary}<SpeakButton text={ticket.summary} label="Read the summary aloud" className="ml-1 align-middle" />
           </p>
         )}
         <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
@@ -290,7 +294,11 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               )}
             </div>
           )}
-          {selected?.plain && <p data-run-plain className="mb-1 text-body text-fg">{selected.plain}</p>}
+          {selected?.plain && (
+            <p data-run-plain className="mb-1 text-body text-fg">
+              {selected.plain}<SpeakButton text={selected.plain} label="Read the run summary aloud" className="ml-1 align-middle" />
+            </p>
+          )}
           {selected && <LogView key={selected.run} profile={profile} run={selected.run} running={selected.running} />}
         </div>
       </aside>

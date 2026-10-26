@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { Modal } from "../Modal";
 import { setShortcutsEnabled, shortcutsEnabled } from "../shortcuts";
+import { useT } from "../i18n/react";
 
 /** The "?" button that opens a view's shortcut sheet: the way back in when the keys are off. */
 export function ShortcutsButton({ onClick }: { onClick: () => void }) {
+  const { t } = useT();
   return (
     <button
       type="button"
       data-shortcuts-open
-      aria-label="Keyboard shortcuts"
+      aria-label={t("shortcuts.button")}
       aria-keyshortcuts="?"
-      title="Keyboard shortcuts (?)"
+      title={t("shortcuts.buttonTitle")}
       className="rounded-md px-2 py-1 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
       onClick={onClick}
     >
@@ -21,9 +23,10 @@ export function ShortcutsButton({ onClick }: { onClick: () => void }) {
 
 /** A view's keyboard shortcuts, with the switch that turns all single-key shortcuts off. */
 export function ShortcutSheet({ rows, onClose }: { rows: { keys: string; what: string }[]; onClose: () => void }) {
+  const { t } = useT();
   const [on, setOn] = useState(shortcutsEnabled);
   return (
-    <Modal title="Keyboard shortcuts" onClose={onClose}>
+    <Modal title={t("shortcuts.title")} onClose={onClose}>
       <label className="mb-3 flex items-center gap-2 text-body">
         <input
           type="checkbox"
@@ -35,7 +38,7 @@ export function ShortcutSheet({ rows, onClose }: { rows: { keys: string; what: s
           }}
           className="size-4 accent-[var(--color-accent)]"
         />
-        Single-key shortcuts on
+        {t("shortcuts.toggle")}
       </label>
       <dl data-shortcuts className={`grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body ${on ? "" : "opacity-60"}`}>
         {rows.map((s) => (
@@ -47,7 +50,7 @@ export function ShortcutSheet({ rows, onClose }: { rows: { keys: string; what: s
           </div>
         ))}
       </dl>
-      {!on && <p className="mt-3 text-label text-muted">Off: single keys do nothing. The ? button still opens this list.</p>}
+      {!on && <p className="mt-3 text-label text-muted">{t("shortcuts.off")}</p>}
     </Modal>
   );
 }

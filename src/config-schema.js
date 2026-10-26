@@ -65,6 +65,7 @@ export const CONFIG_SCHEMA = [
   entry("agentProvider", "string", "Agent provider", "basics", "Default inference provider for steps (hermes --provider); a step's provider overrides it.", { advanced: true }),
   entry("claudeBin", "string", "Claude binary", "basics", "The claude CLI agents are spawned with: a name on PATH or an absolute path.", { advanced: true, sensitive: true, default: "claude" }),
   entry("instructionsFile", "string", "Default instructions file", "basics", "Standing instructions for steps that set none; relative to the config file.", { default: "./INSTRUCTIONS.md" }),
+  entry("language", "string", "Agent language", "basics", "BCP-47 tag (e.g. es) agents write human-facing text in: reasons, comments, questions, the Digest.", { placeholder: "en" }),
   entry("ui", "object", "Appearance", "basics", "The profile's colour and emoji in the web UI; unset values derive from the state key."),
   entry("ui.color", "string", "Colour", "basics", "A palette colour for the profile's Home card and app-bar chip; automatic when unset."),
   entry("ui.emoji", "string", "Emoji", "basics", "An emoji from the curated list for the profile; automatic when unset."),

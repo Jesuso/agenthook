@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepPrompt } from "../src/prompts.js";
+import { stepPrompt, languageLine } from "../src/prompts.js";
 
 const task = { ref: "1", name: "T", url: "http://x/1", description: "body" };
 const meta = {
@@ -46,6 +46,31 @@ test("review prompt unchanged by readCommentsHowTo", () => {
   const a = stepPrompt(task, meta, step("review"), ctx);
   const b = stepPrompt(task, { ...meta, readCommentsHowTo: undefined }, step("review"), ctx);
   assert.equal(a, b);
+});
+
+for (const kind of ["triage", "review", "implement", "change"]) {
+  test(`${kind} prompt: unset language is byte-identical to no key at all`, () => {
+    const a = stepPrompt(task, meta, step(kind), ctx);
+    const b = stepPrompt(task, meta, step(kind), { ...ctx, language: undefined });
+    assert.equal(a, b);
+    assert.doesNotMatch(a, /BCP-47/);
+  });
+
+  test(`${kind} prompt: language "es" adds one instruction line outside fences, removable byte-for-byte`, () => {
+    const withLang = stepPrompt(task, meta, step(kind), { ...ctx, language: "es" });
+    const without = stepPrompt(task, meta, step(kind), ctx);
+    const line = languageLine("es");
+    const count = withLang.split(line).length - 1;
+    assert.equal(count, 1);
+    assert.equal(withLang.replace(`\n\n${line}`, ""), without);
+  });
+}
+
+test("languageLine: empty when unset, one line naming the tag when set", () => {
+  assert.equal(languageLine(undefined), "");
+  assert.equal(languageLine(""), "");
+  assert.match(languageLine("es"), /"es"/);
+  assert.equal(languageLine("es").includes("\n"), false);
 });
 
 test("stepPrompt renders findings block only when ctx.findings set", () => {

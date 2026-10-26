@@ -76,6 +76,7 @@ export type Basics = {
   trigger?: unknown;
   ui?: { color?: unknown; emoji?: unknown };
   instructionsFile?: unknown;
+  language?: unknown;
   agent?: unknown;
   agentProvider?: unknown;
   claudeBin?: unknown;
@@ -85,8 +86,8 @@ export type Basics = {
 
 export function readBasics(raw: unknown): Basics {
   if (!isObj(raw)) return {};
-  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, agent, agentProvider, claudeBin, stateId, sandbox } = raw;
-  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, agent, agentProvider, claudeBin, stateId, sandbox: isObj(sandbox) ? sandbox : undefined };
+  const { name, maxConcurrent, fullAuto, port, trigger, ui, instructionsFile, language, agent, agentProvider, claudeBin, stateId, sandbox } = raw;
+  return { name, maxConcurrent, fullAuto, port, trigger, ui: isObj(ui) ? ui : undefined, instructionsFile, language, agent, agentProvider, claudeBin, stateId, sandbox: isObj(sandbox) ? sandbox : undefined };
 }
 
 /**

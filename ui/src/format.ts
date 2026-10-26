@@ -4,14 +4,20 @@ import { formatSpend } from "../../src/pricing.js";
 import { formatEnergy } from "../../src/energy.js";
 import { formatQuota } from "../../src/quota.js";
 import type { QuotaTrip } from "./contract";
+import { translate } from "./i18n";
+import type { MessageKey } from "./i18n";
+
+// Every helper that makes words takes a trailing `lang` (#561), default "en" so untranslated views and
+// tests are unchanged. English keeps its hand-built path verbatim (never ICU-dependent); other languages
+// use Intl and the dictionaries. The re-exported src/ formatters are shared with the CLI and stay English.
 
 /** "$12.40 + ~$3.10 est." — reported and estimated spend side by side, never summed (src/pricing.js). */
 export { formatSpend };
 
 /** "up" / "down" — the profile row's liveness cell; pid and port only in its tooltip. */
-export function formatUp(p: Pick<ProfileView, "up" | "pid" | "port">): { text: string; title?: string } {
+export function formatUp(p: Pick<ProfileView, "up" | "pid" | "port">, lang = "en"): { text: string; title?: string } {
   const parts = [p.up && p.pid ? `pid ${p.pid}` : null, p.port ? `port ${p.port}` : null].filter(Boolean);
-  return { text: p.up ? "up" : "down", title: parts.length ? parts.join(" · ") : undefined };
+  return { text: translate(lang, p.up ? "format.up" : "format.down"), title: parts.length ? parts.join(" · ") : undefined };
 }
 
 /** The profile's display name: its label, "label (stateKey)" when they differ. `name` stays the key. */
@@ -19,7 +25,7 @@ export function profileLabel(p: Pick<ProfileView, "name" | "label">): string {
   return p.label && p.label !== p.name ? `${p.label} (${p.name})` : p.name;
 }
 
-const LAST_EVENT_VERB: Record<string, string> = { pipeline: "picked up", merge: "merged", ci: "CI failed" };
+const LAST_EVENT_VERB: Record<string, MessageKey> = { pipeline: "lastEvent.pipeline", merge: "lastEvent.merge", ci: "lastEvent.ci" };
 
 /** Long refs (e.g. a 16-digit Asana gid) shorten to "…" + the last 6 chars, with the full ref as a tooltip. */
 export function shortRef(ref: string): { text: string; title?: string } {
@@ -28,9 +34,9 @@ export function shortRef(ref: string): { text: string; title?: string } {
 }
 
 /** "<verb> <id> · <step> · <relative>" / "—" — the profile row's last-event cell. */
-export function formatLastEvent(e: ProfileView["lastEvent"], displayId: string | null, now: number): { text: string; title?: string } {
+export function formatLastEvent(e: ProfileView["lastEvent"], displayId: string | null, now: number, lang = "en"): { text: string; title?: string } {
   if (!e) return { text: "—" };
-  const verb = e.kind ? LAST_EVENT_VERB[e.kind] ?? e.kind : "event";
+  const verb = e.kind ? (LAST_EVENT_VERB[e.kind] ? translate(lang, LAST_EVENT_VERB[e.kind]) : e.kind) : translate(lang, "lastEvent.event");
   let id = "?";
   let title: string | undefined;
   if (e.ref) {
@@ -43,13 +49,13 @@ export function formatLastEvent(e: ProfileView["lastEvent"], displayId: string |
     }
   }
   const step = e.step ? ` · ${e.step}` : "";
-  return { text: `${verb} ${id}${step} · ${formatRelative(e.at, now)}`, title };
+  return { text: `${verb} ${id}${step} · ${formatRelative(e.at, now, lang)}`, title };
 }
 
 /** The title cell's text + whether it's a placeholder for a title not yet cached. */
-export function ticketTitle(t: Pick<TicketRow, "title">): { text: string; unknown: boolean } {
+export function ticketTitle(t: Pick<TicketRow, "title">, lang = "en"): { text: string; unknown: boolean } {
   if (t.title) return { text: t.title, unknown: false };
-  return { text: "(title unknown — appears after its next run)", unknown: true };
+  return { text: translate(lang, "ticket.titleUnknown"), unknown: true };
 }
 
 /** "opus 5.5" from "claude-opus-5-5", "sonnet 5" from "claude-sonnet-5"; bare aliases ("opus") and
@@ -65,14 +71,15 @@ export function formatAgents(p: Pick<ProfileView, "active" | "maxConcurrent">): 
   return `${p.active ?? "—"} / ${p.maxConcurrent ?? "—"}`;
 }
 
-/** "5m ago" / "3h ago" / "2d ago" / "—" for null, invalid, or future-skewed timestamps. */
-export function formatRelative(iso: string | null, now: number): string {
+/** "5m ago" / "3h ago" / "2d ago" / "—" for null, invalid, or future-skewed timestamps; "hace 5 min" in es. */
+export function formatRelative(iso: string | null, now: number, lang = "en"): string {
   if (!iso) return "—";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "—";
   const diffMs = now - t;
   if (diffMs < 0) return "—";
   const mins = Math.floor(diffMs / 60000);
+  if (lang !== "en") return intlRelative(mins, lang);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
@@ -81,9 +88,19 @@ export function formatRelative(iso: string | null, now: number): string {
   return `${days}d ago`;
 }
 
-/** "$0.57" / "—" for zero or non-finite. */
-export function formatCost(n: number): string {
+function intlRelative(mins: number, lang: string): string {
+  if (mins < 1) return translate(lang, "time.justNow");
+  const rtf = new Intl.RelativeTimeFormat(lang, { style: "narrow", numeric: "always" });
+  if (mins < 60) return rtf.format(-mins, "minute");
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return rtf.format(-hours, "hour");
+  return rtf.format(-Math.floor(hours / 24), "day");
+}
+
+/** "$0.57" / "—" for zero or non-finite; "0,57 US$" in es. */
+export function formatCost(n: number, lang = "en"): string {
   if (!Number.isFinite(n) || n === 0) return "—";
+  if (lang !== "en") return new Intl.NumberFormat(lang, { style: "currency", currency: "USD" }).format(n);
   return `$${n.toFixed(2)}`;
 }
 
@@ -106,15 +123,16 @@ export function formatDate(iso: string | null): string {
 /** The provenance badge under a profile's name: a ghost wins over a missing config; else none. */
 export function profileBadge(
   p: Pick<ProfileView, "name" | "label" | "ghost" | "configMissing" | "configPath" | "createdAt">,
+  lang = "en",
 ): { kind: "ghost" | "missing"; text: string; title: string } | null {
   if (p.ghost) {
     return {
       kind: "ghost",
-      text: "never ran",
-      title: `created ${formatDate(p.createdAt)} by a command that read a config named ${p.label || p.name}; safe to remove`,
+      text: translate(lang, "badge.ghost"),
+      title: translate(lang, "badge.ghostTitle", { date: formatDate(p.createdAt), name: p.label || p.name }),
     };
   }
-  if (p.configMissing) return { kind: "missing", text: "config missing", title: `${p.configPath ?? "the config file"} no longer exists` };
+  if (p.configMissing) return { kind: "missing", text: translate(lang, "badge.missing"), title: translate(lang, "badge.missingTitle", { path: p.configPath ?? translate(lang, "badge.theConfigFile") }) };
   return null;
 }
 
@@ -132,7 +150,7 @@ export function formatDuration(ms: number | null): string {
 export { formatQuota };
 
 /** The "quota paused" badge's tooltip. */
-export function quotaPausedTitle(t: QuotaTrip): string {
-  const win = t.window === "sevenDay" ? "weekly" : "5-hour";
-  return `quota pacer: ${win} use ${Math.round(t.utilization * 100)}% ≥ ${Math.round(t.threshold * 100)}% — no new runs start until it resets (${t.resetsAt}); running agents finish. Resume overrides it.`;
+export function quotaPausedTitle(t: QuotaTrip, lang = "en"): string {
+  const win = translate(lang, t.window === "sevenDay" ? "quota.weekly" : "quota.fiveHour");
+  return translate(lang, "quota.pausedTitle", { window: win, used: Math.round(t.utilization * 100), threshold: Math.round(t.threshold * 100), resetsAt: t.resetsAt });
 }

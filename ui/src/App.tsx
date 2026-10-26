@@ -28,6 +28,7 @@ import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
 import type { MenuItem } from "./components";
+import { I18nProvider, useT } from "./i18n/react";
 import { Overview } from "./Overview";
 
 // CodeMirror + react-markdown load only when the Instructions / Config tab is opened.
@@ -38,7 +39,16 @@ const EpicsView = lazy(() => import("./EpicsView"));
 
 type LoadState = { kind: "loading" } | { kind: "unauthorized" } | { kind: "error"; status: number } | { kind: "ok"; snapshot: Snapshot };
 
+/** The dashboard under the language provider: a reading-panel language change re-renders it in place. */
 export default function App() {
+  return (
+    <I18nProvider>
+      <Dashboard />
+    </I18nProvider>
+  );
+}
+
+function Dashboard() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [connected, setConnected] = useState(false);
   // CLOSED means the EventSource gave up for good (e.g. a 401) — the browser
@@ -477,6 +487,7 @@ export default function App() {
 
 /** The app bar over the page; `nav` absent (Home, loading / error screens) → no profile controls. */
 function Shell({ children, ...bar }: { children: React.ReactNode; connection: ConnectionState; nav?: ProfileNav }) {
+  const { t } = useT();
   return (
     <div className="min-h-screen bg-bg text-fg font-sans">
       {/* The router owns the hash, so the skip link focuses <main> itself instead of navigating. */}
@@ -489,7 +500,7 @@ function Shell({ children, ...bar }: { children: React.ReactNode; connection: Co
         }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-1 focus:text-label focus:text-fg"
       >
-        Skip to content
+        {t("shell.skip")}
       </a>
       <AppBar {...bar} />
       <main id="main" tabIndex={-1} className="p-4 focus:outline-none">

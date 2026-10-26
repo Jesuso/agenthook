@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { ReadingPanel } from "./ReadingPanel";
 import { mount, click } from "../domHarness";
 import type { Mounted } from "../domHarness";
+import { installSpeech, uninstallSpeech } from "../speechMock";
 
 const html = document.documentElement;
 const trigger = () => document.querySelector<HTMLButtonElement>("[data-reading-trigger]")!;
@@ -39,6 +40,42 @@ describe("ReadingPanel", () => {
     expect(t.getAttribute("aria-controls")).toBe(d.id);
     expect(d.contains(document.activeElement)).toBe(true);
     for (const g of ["Text size", "Spacing", "Line width", "Background"]) expect(d.querySelector(`[role="radiogroup"][aria-label="${g}"]`), g).toBeTruthy();
+  });
+
+  it("leaves out the read-aloud rows where the browser can't speak", async () => {
+    await click(trigger());
+    const groups = [...dialog()!.querySelectorAll("[role=radiogroup]")].map((g) => g.getAttribute("aria-label"));
+    expect(groups).toEqual(["Text size", "Spacing", "Line width", "Background", "Language"]);
+  });
+
+  it("with speech: Read aloud, then Speed and Read new Needs you disabled until it is on; Reset returns all three", async () => {
+    await m.unmount();
+    installSpeech();
+    try {
+      m = await mount(createElement(ReadingPanel));
+      await click(trigger());
+      const groups = [...dialog()!.querySelectorAll("[role=radiogroup]")].map((g) => g.getAttribute("aria-label"));
+      expect(groups).toEqual(["Text size", "Spacing", "Line width", "Background", "Language", "Read aloud", "Speed", "Read new Needs you"]);
+      expect(radio("Read aloud", "Off").getAttribute("aria-checked")).toBe("true");
+      expect(radio("Speed", "1×").getAttribute("aria-checked")).toBe("true");
+      for (const g of ["Speed", "Read new Needs you"]) for (const b of dialog()!.querySelectorAll<HTMLButtonElement>(`[aria-label="${g}"] button`)) expect(b.disabled, g).toBe(true);
+      expect(radio("Read aloud", "On").disabled).toBe(false);
+
+      await click(radio("Read aloud", "On"));
+      expect(radio("Speed", "1.5×").disabled).toBe(false);
+      await click(radio("Speed", "1.5×"));
+      await click(radio("Read new Needs you", "On"));
+      expect(JSON.parse(localStorage.getItem("ah-reading")!)).toEqual({ readaloud: "on", rate: "1.5", autoread: "on" });
+
+      await click(document.querySelector("[data-reading-reset]")!);
+      expect(localStorage.getItem("ah-reading")).toBeNull();
+      expect(radio("Read aloud", "Off").getAttribute("aria-checked")).toBe("true");
+      expect(radio("Speed", "1×").getAttribute("aria-checked")).toBe("true");
+      expect(radio("Read new Needs you", "Off").getAttribute("aria-checked")).toBe("true");
+      expect(radio("Speed", "1×").disabled).toBe(true);
+    } finally {
+      uninstallSpeech();
+    }
   });
 
   it("Escape closes it and returns focus to the trigger", async () => {
