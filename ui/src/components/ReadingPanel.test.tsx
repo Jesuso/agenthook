@@ -87,4 +87,12 @@ describe("ReadingPanel", () => {
     await click(trigger());
     expect(radio("Line width", "Narrow").getAttribute("aria-checked")).toBe("true");
   });
+
+  it("opening focuses the first setting's chosen option, not its first button", async () => {
+    await m.unmount();
+    localStorage.setItem("ah-reading", JSON.stringify({ text: "2" }));
+    m = await mount(createElement(ReadingPanel));
+    await click(trigger());
+    expect(document.activeElement).toBe(radio("Text size", "130%"));
+  });
 });

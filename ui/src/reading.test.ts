@@ -52,6 +52,23 @@ describe("reading settings", () => {
     expect(readReading(throwing)).toEqual(DEFAULTS);
   });
 
+  it("default storage: a browser where touching localStorage throws reads defaults and writes nothing, without throwing", () => {
+    const desc = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError: storage blocked");
+      },
+    });
+    try {
+      expect(readReading()).toEqual(DEFAULTS);
+      expect(() => writeReading({ ...DEFAULTS, text: "1" })).not.toThrow();
+    } finally {
+      if (desc) Object.defineProperty(globalThis, "localStorage", desc);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
   it("drop corrupt JSON, unknown keys and invalid values", () => {
     expect(readReading(memory({ "ah-reading": "{not json" }))).toEqual(DEFAULTS);
     expect(readReading(memory({ "ah-reading": "null" }))).toEqual(DEFAULTS);

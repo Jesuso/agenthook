@@ -20,7 +20,8 @@ export function ReadingPanel() {
 
   useEffect(() => {
     if (!open) return;
-    panel.current?.querySelector<HTMLButtonElement>('[aria-checked="true"], button')?.focus();
+    // The first setting's chosen option; a selector list would match the first button in document order.
+    (panel.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? panel.current?.querySelector<HTMLButtonElement>("button"))?.focus();
     const onDown = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };

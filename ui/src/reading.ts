@@ -52,11 +52,20 @@ export type ReadingValues = Record<string, string>;
 
 const KEY = "ah-reading";
 
+/** `localStorage`, or undefined where merely touching it throws (storage blocked by the browser). */
+function local(): Storage | undefined {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 export const readingDefaults = (): ReadingValues => Object.fromEntries(READING_SETTINGS.map((s) => [s.key, s.default]));
 
 /** The stored settings over the defaults; unknown keys and invalid values are dropped, and missing,
  * throwing or corrupt storage reads as all defaults. */
-export function readReading(store: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): ReadingValues {
+export function readReading(store: Pick<Storage, "getItem"> | undefined = local()): ReadingValues {
   const out = readingDefaults();
   try {
     const raw = store?.getItem(KEY);
@@ -73,7 +82,7 @@ export function readReading(store: Pick<Storage, "getItem"> | undefined = global
 }
 
 /** Persist the non-default values; all defaults removes the key. Best effort. */
-export function writeReading(values: ReadingValues, store: Pick<Storage, "setItem" | "removeItem"> | undefined = globalThis.localStorage): void {
+export function writeReading(values: ReadingValues, store: Pick<Storage, "setItem" | "removeItem"> | undefined = local()): void {
   const changed = Object.fromEntries(READING_SETTINGS.filter((s) => values[s.key] !== undefined && values[s.key] !== s.default).map((s) => [s.key, values[s.key]]));
   try {
     if (Object.keys(changed).length) store?.setItem(KEY, JSON.stringify(changed));
@@ -93,7 +102,7 @@ export function applyReading(values: ReadingValues, root: Element = document.doc
 }
 
 /** Back to the defaults: storage cleared, attributes removed. */
-export function resetReading(store: Pick<Storage, "setItem" | "removeItem"> | undefined = globalThis.localStorage, root: Element = document.documentElement): ReadingValues {
+export function resetReading(store: Pick<Storage, "setItem" | "removeItem"> | undefined = local(), root: Element = document.documentElement): ReadingValues {
   const values = readingDefaults();
   writeReading(values, store);
   applyReading(values, root);
