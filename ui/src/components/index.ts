@@ -18,3 +18,4 @@ export { ReceiverStatus } from "./ReceiverStatus";
 export { CopyCommand } from "./CopyCommand";
 export { ShowHide } from "./ShowHide";
 export { ShortcutSheet, ShortcutsButton } from "./ShortcutSheet";
+export { ReadingPanel } from "./ReadingPanel";

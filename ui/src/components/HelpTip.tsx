@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useT } from "../i18n/react";
 
 /**
  * A "?" button with a help bubble that works by mouse, keyboard and touch — never hover-only.
@@ -23,6 +24,7 @@ export function tipShift(anchorLeft: number, width: number, viewport: number, ma
 }
 
 export function HelpTip({ label, help, id }: { label: string; help: string; id?: string }) {
+  const { t } = useT();
   const own = useId();
   const tipId = id ?? own;
   const [open, setOpen] = useState(false);
@@ -52,7 +54,7 @@ export function HelpTip({ label, help, id }: { label: string; help: string; id?:
       <button
         type="button"
         data-helptip
-        aria-label={`Help: ${label}`}
+        aria-label={t("helpTip.aria", { label })}
         aria-expanded={open}
         aria-describedby={tipId}
         className="inline-flex size-4 items-center justify-center rounded-full border border-[var(--color-border)] text-meta leading-none text-[var(--color-muted)] hover:text-[var(--color-fg)] focus-visible:outline-2 focus-visible:outline-accent"

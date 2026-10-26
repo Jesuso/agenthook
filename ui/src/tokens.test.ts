@@ -6,9 +6,9 @@ import { readFileSync } from "node:fs";
 // Comments are stripped first: they mention `@theme` too.
 const css = readFileSync(new URL("./index.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** The `{…}` body that follows `head`, brace-matched. */
-function block(head: string): string {
-  const at = css.indexOf(head);
+/** The `{…}` body that follows `head` (its first occurrence at or after `from`), brace-matched. */
+function block(head: string, from = 0): string {
+  const at = css.indexOf(head, from);
   if (at === -1) throw new Error(`no ${head} in index.css`);
   const open = css.indexOf("{", at);
   let depth = 0;
@@ -27,7 +27,11 @@ function vars(body: string): Record<string, string> {
 
 const dark = vars(block("@theme"));
 const light = { ...dark, ...vars(block("@media (prefers-color-scheme: light)")) };
-const SCHEMES = { dark, light };
+// The reading panel's warm background (#559): bg + surface over each scheme, the light one in
+// its own media block after the original light one.
+const WARM = 'html[data-ah-bg="warm"]';
+const warmLight = vars(block(WARM, css.indexOf(WARM) + WARM.length));
+const SCHEMES = { dark, light, "dark warm": { ...dark, ...vars(block(WARM)) }, "light warm": { ...light, ...warmLight } };
 
 function color(tokens: Record<string, string>, name: string): string {
   let v = tokens[name];
@@ -106,6 +110,14 @@ describe("design tokens", () => {
       });
     });
   }
+
+  it("give the warm background a dark and a light pair, the light one under the light media query", () => {
+    expect(vars(block(WARM))).toEqual({ "--color-bg": "#12100c", "--color-surface": "#1a1712" });
+    expect(warmLight).toEqual({ "--color-bg": "#f8f1e3", "--color-surface": "#fdf8ee" });
+    const lightWarm = css.lastIndexOf("@media (prefers-color-scheme: light)");
+    expect(lightWarm).toBeGreaterThan(css.indexOf("@media (prefers-color-scheme: light)"));
+    expect(block("@media (prefers-color-scheme: light)", lightWarm)).toContain(WARM);
+  });
 
   it("turn the running pulse off under reduced motion", () => {
     expect(dark["--animate-status-pulse"]).toMatch(/status-pulse/);

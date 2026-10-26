@@ -4,6 +4,7 @@ import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatRelative } from "./format";
 import { ShowHide } from "./components";
+import { useT } from "./i18n/react";
 
 // react-markdown ships in the same lazy chunk as the Instructions preview, not the main bundle.
 const DigestMarkdown = lazy(() => import("./DigestMarkdown"));
@@ -14,6 +15,7 @@ const DigestMarkdown = lazy(() => import("./DigestMarkdown"));
  * is fetched once per profile; the stale hint counts live events since it was written.
  */
 export function DigestPanel({ profile, up, feed, now }: { profile: string; up: boolean; feed: FeedEntry[]; now: number }) {
+  const { t, lang } = useT();
   const [digest, setDigest] = useState<DigestView | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,7 +51,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
   };
 
   const since = digest ? eventsSince(feed, digest.generatedAt) : 0;
-  const button = digest ? "Refresh digest" : "Write a digest";
+  const button = digest ? t("digest.refresh") : t("digest.write");
   const stale = digestStale(digest, now);
   const showBody = loaded && (!stale || expanded);
   const bodyId = `digest-body-${profile}`;
@@ -57,32 +59,32 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
   return (
     <section data-digest>
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 className="text-label font-semibold uppercase tracking-wide text-muted">Catch me up</h2>
+        <h2 className="text-label font-semibold uppercase tracking-wide text-muted">{t("digest.title")}</h2>
         {digest && (
           <p className="text-label text-muted" data-digest-meta>
-            snapshot from {formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)))}
-            {digest.costUsd !== undefined && ` · cost ${formatCost(digest.costUsd)}`}
-            {since > 0 && <span className="text-fg"> · {since} new {since === 1 ? "event" : "events"} since</span>}
+            {t("digest.snapshotFrom", { when: formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)), lang) })}
+            {digest.costUsd !== undefined && ` · ${t("digest.cost", { cost: formatCost(digest.costUsd, lang) })}`}
+            {since > 0 && <span className="text-fg"> · {t("digest.newEvents", { count: since })}</span>}
           </p>
         )}
         <div className="ml-auto flex items-center gap-2">
           {stale && (
-            <ShowHide open={expanded} onToggle={() => setExpanded(!expanded)} controls={bodyId} label="digest" data-digest-toggle />
+            <ShowHide open={expanded} onToggle={() => setExpanded(!expanded)} controls={bodyId} label={t("digest.label")} data-digest-toggle />
           )}
           {/* Down: say why in words, not in a tooltip on a dead button keyboard and touch can't reach. */}
           {!up ? (
             <span className="text-label text-muted" data-digest-down>
-              Start the receiver to write a digest
+              {t("digest.down")}
             </span>
           ) : (
           <button
             type="button"
             disabled={busy}
-            title="Runs a short, tool-less agent over this profile's activity (costs a few cents)"
+            title={t("digest.buttonTitle")}
             onClick={() => void generate()}
             className="rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:hover:bg-transparent"
           >
-            {busy ? "Writing…" : button}
+            {busy ? t("digest.writing") : button}
           </button>
           )}
         </div>
@@ -99,7 +101,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
               <DigestMarkdown text={digest.text} />
             </Suspense>
           ) : (
-            <p className="text-body text-muted">No digest yet. An agent will read this profile's activity and tell you what needs you.</p>
+            <p className="text-body text-muted">{t("digest.empty")}</p>
           )}
         </div>
       )}
