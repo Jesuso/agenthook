@@ -115,7 +115,7 @@ export function PromptPreview(props: {
         ) : (
           <>
             {text.slice(0, markerAt)}
-            <div className="my-2 border-t border-dashed border-[var(--color-border)] text-center text-xs text-[var(--color-muted)]">=== TICKET ===</div>
+            <span className="my-2 block border-t border-dashed border-border text-center text-xs text-muted">=== TICKET ===</span>
             {text.slice(markerAt + TICKET_MARKER.length)}
           </>
         )}

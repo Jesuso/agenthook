@@ -42,7 +42,7 @@ export const highlight = HighlightStyle.define([
  * `onSave` and always swallows the browser's "save page". `language` defaults to markdown (the
  * Config view passes `json()`).
  */
-export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void; language?: Extension }) {
+export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void; language?: Extension; /** Accessible name for the editing surface. */ label?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const onChange = useRef(props.onChange);
   onChange.current = props.onChange;
@@ -74,6 +74,7 @@ export function MarkdownEditor(props: { initial: string; onChange: (doc: string)
           props.language ?? markdown(),
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
+          ...(props.label ? [EditorView.contentAttributes.of({ "aria-label": props.label })] : []),
           theme,
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChange.current(u.state.doc.toString());

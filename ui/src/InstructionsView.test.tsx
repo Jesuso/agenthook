@@ -118,7 +118,7 @@ describe("InstructionsView save confirm", () => {
     expect(save.disabled).toBe(false);
     await click(save);
     await until(() => puts.length === 1);
-    await until(() => document.querySelector('[role="status"]')?.textContent?.includes("Saved code.md"));
+    await until(() => [...document.querySelectorAll('[role="status"]')].some((n) => n.textContent?.includes("Saved code.md")));
     expect(root.textContent).toMatch(/Saved \d/);
   });
 
@@ -134,6 +134,30 @@ describe("InstructionsView save confirm", () => {
     expect(save.disabled).toBe(false);
     await click(save);
     await until(() => puts.length === 1);
+  });
+});
+
+describe("InstructionsView accessibility", () => {
+  it("names its controls and the page, and keeps a not-created file reachable", async () => {
+    const files = [file("/a/code.md"), { ...file("/a/SOUL.md"), scope: "soul", exists: false }];
+    (fetch as any).mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/instructions/file")) return new Response(JSON.stringify({ content: "hello", hash: "h" }), { status: 200 });
+      return new Response(JSON.stringify({ configPath: null, files }), { status: 200 });
+    });
+    m = await mount(view());
+    const root = m.root;
+    await until(() => root.querySelector(".cm-content"));
+    expect(root.querySelector("h1")!.textContent).toBe("Instructions");
+    expect(root.querySelector("select")!.getAttribute("aria-label")).toBe("Profile");
+    expect(root.querySelector('[role="radiogroup"]')!.getAttribute("aria-label")).toBe("Side panel");
+    expect(root.querySelector(".cm-content")!.getAttribute("aria-label")).toBe("Instructions for code.md");
+    expect(document.title).toBe("code.md · Instructions · demo · agenthook");
+    const soul = [...root.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent?.includes("SOUL.md"))!;
+    expect(soul.disabled).toBe(false);
+    expect(soul.getAttribute("aria-disabled")).toBe("true");
+    expect(soul.title).toContain("doesn't exist yet");
+    await click(soul);
+    expect(fetched("/api/instructions/file?profile=demo&path=%2Fa%2FSOUL.md")).toBe(false);
   });
 });
 

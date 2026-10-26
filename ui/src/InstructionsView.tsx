@@ -226,6 +226,14 @@ export default function InstructionsView(props: {
   useEffect(() => {
     props.onDirtyChange(dirty);
   }, [dirty]);
+  const profileName = props.profiles.find((p) => p.name === profile);
+  useEffect(() => {
+    const name = open ? `${baseName(open.path)} · ` : "";
+    document.title = `${dirty ? "● " : ""}${name}${t("instructions.title")} · ${profileName ? profileLabel(profileName) : profile} · agenthook`;
+    return () => {
+      document.title = "agenthook";
+    };
+  }, [dirty, open?.path, profileName, profile, t]);
   useEffect(() => () => props.onDirtyChange(false), []);
   useEffect(() => {
     if (!dirty) return;
@@ -263,7 +271,9 @@ export default function InstructionsView(props: {
   return (
     <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
       <div className="mb-3 flex min-w-0 items-center gap-3 text-sm">
+        <h1 className="shrink-0 text-title font-semibold">{t("instructions.title")}</h1>
         <select
+          aria-label={t("instructions.profileLabel")}
           className="shrink-0 border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
           value={profile}
           onChange={(e) => pickProfile(e.target.value)}
@@ -316,10 +326,13 @@ export default function InstructionsView(props: {
                   {g.files.map((f) => (
                     <li key={f.path}>
                       <button
-                        className={`w-full rounded px-2 py-1 text-left disabled:cursor-not-allowed disabled:opacity-60 ${open?.path === f.path ? "bg-surface-raised" : ""}`}
-                        disabled={!f.exists}
+                        // Not `disabled`: a file that isn't created yet stays focusable so keyboard and
+                        // screen-reader users reach it and hear why it can't open.
+                        className={`w-full rounded px-2 py-1 text-left aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${open?.path === f.path ? "bg-surface-raised" : ""}`}
+                        aria-disabled={!f.exists || undefined}
+                        aria-current={open?.path === f.path || undefined}
                         title={f.exists ? f.path : t("instructions.missingTitle", { path: f.path })}
-                        onClick={() => pickFile(f.path)}
+                        onClick={() => f.exists && pickFile(f.path)}
                       >
                         <div className="truncate font-mono">{baseName(f.path)}</div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted">
@@ -367,6 +380,7 @@ export default function InstructionsView(props: {
                   dirty && <span className="shrink-0 font-medium text-fg">{t("instructions.modified")}</span>
                 )}
                 <Segmented
+                  label={t("instructions.sidePanel")}
                   value={side}
                   options={[
                     { value: "none", label: t("instructions.tab.editor") },
@@ -417,7 +431,7 @@ export default function InstructionsView(props: {
               {/* Below lg a side panel stacks under the editor instead of squeezing beside it. */}
               <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
                 <div className="min-h-0 min-w-0 flex-1">
-                  <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
+                  <MarkdownEditor key={editorKey} label={t("instructions.editorLabel", { name: baseName(open.path) })} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
                 </div>
                 {side === "preview" && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.
@@ -523,5 +537,9 @@ function InlineLiveEffect(props: { agentsRunning: number }) {
   const { lang } = useT();
   const note = liveEffectNote(props.agentsRunning, lang);
   // Running agents are state, so they take the running hue; no warning glyph (nothing is wrong).
-  return <span className={`text-label ${note.warn ? "text-status-running" : "text-muted"}`}>{note.text}</span>;
+  return (
+    <span role="status" className={`text-label ${note.warn ? "text-status-running" : "text-muted"}`}>
+      {note.text}
+    </span>
+  );
 }
