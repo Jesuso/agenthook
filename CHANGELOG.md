@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- The Digest agent now writes a short, listen-friendly spoken version in the same run as the
+  markdown digest (no second model call): the read-aloud 🔊 on the Digest speaks it instead of the
+  full markdown, falling back to the markdown on an older digest that has none (#575).
 - Ticket summaries and the Digest in the dashboard's language. The ticket drawer shows the quick
   extract of the description at once, then swaps in a short summary written in the UI language by
   a cheap tool-less `claude -p` (`summaries.model`, default `claude-haiku-5-5`;

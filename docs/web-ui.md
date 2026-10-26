@@ -785,7 +785,9 @@ browser has no `speechSynthesis` (or `SpeechSynthesisUtterance`), the three rows
 panel and no 🔊 renders. With Read aloud off (the default) nothing is added to the page.
 
 With it on, a 🔊 button (`SpeakButton`) appears:
-- in the Digest header, beside Refresh, while a digest is shown (reads its markdown);
+- in the Digest header, beside Refresh, while a digest is shown (reads the Digest agent's own
+  short spoken version, `digest.spoken`, written in the same run as the markdown; falls back to
+  the markdown on an older record that has none);
 - on each Needs you row, right after the ticket id (reads the title, then the row's full second
   line, not the truncated one);
 - in the ticket drawer, after the agent's plain sentence, the summary, and the selected run's
