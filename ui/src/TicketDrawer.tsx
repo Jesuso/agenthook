@@ -97,6 +97,13 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   const dialog = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    if (ticket?.status !== "held") {
+      setAnswerBusy(false);
+      setAnswerError(null);
+    }
+  }, [ticket?.status]);
+
+  useEffect(() => {
     let live = true;
     fetch(runsUrl(profile, ticketRef))
       .then((res) => (res.ok ? res.json().then((b: { runs: RunView[] }) => live && setRuns({ kind: "ok", runs: b.runs })) : live && setRuns({ kind: "error", status: res.status })))

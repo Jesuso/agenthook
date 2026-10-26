@@ -109,8 +109,7 @@ wrote it, and only while it is that step's latest summary for the ref. Every ste
 hold or fail, what the human must decide. It is measured apart from the 300-char cap (clipped to 300 on its own) and also rides on the
 run's `run_end` event as `plain`. On a hold with a question that genuinely has 2-4 discrete
 answers, the agent may also write `summary.options`: 2-4 short strings (≤ 80 chars each), also
-measured apart from the cap. It rides on `run_end` as `options`, but only while the ref is still
-held on that run.
+measured apart from the cap. It rides on `run_end` as `options`, only on a `hold` outcome.
 
 `prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt,mine?}]}`. `ci` is
 `success | failure | pending | none | unknown`; **only `success` is green**. `cancelled` and

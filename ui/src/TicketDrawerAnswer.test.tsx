@@ -59,4 +59,48 @@ describe("TicketDrawer answer flow", () => {
     await click(m.root.querySelector("[data-answer-confirm-send]")!);
     expect(m.root.querySelector("[data-drawer-answer] [role='alert']")?.textContent).toBe("the receiver is not running");
   });
+
+  it("re-enables the option buttons once a successful release leaves held, even if it holds again with new options (#565 rework)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runs: [] }), { status: 200 })));
+    m = await mount(
+      createElement(TicketDrawer, {
+        profile: "agenthook",
+        ticketRef: "221",
+        ticket: row,
+        runsNonce: 0,
+        onClose: () => {},
+        onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
+      }),
+    );
+    await click(m.root.querySelector("[data-drawer-answer] [data-answer-options] button")!);
+    await click(m.root.querySelector("[data-answer-confirm-send]")!);
+
+    const running: TicketRow = { ...row, status: "running", heldReason: null, options: null };
+    await m.rerender(
+      createElement(TicketDrawer, {
+        profile: "agenthook",
+        ticketRef: "221",
+        ticket: running,
+        runsNonce: 0,
+        onClose: () => {},
+        onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
+      }),
+    );
+
+    const heldAgain: TicketRow = { ...row, heldReason: "Which region?", options: ["us-east", "eu-west"] };
+    await m.rerender(
+      createElement(TicketDrawer, {
+        profile: "agenthook",
+        ticketRef: "221",
+        ticket: heldAgain,
+        runsNonce: 0,
+        onClose: () => {},
+        onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
+      }),
+    );
+
+    const buttons = m.root.querySelectorAll<HTMLButtonElement>("[data-drawer-answer] [data-answer-options] button");
+    expect(buttons.length).toBe(2);
+    buttons.forEach((b) => expect(b.disabled).toBe(false));
+  });
 });
