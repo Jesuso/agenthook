@@ -24,7 +24,7 @@ function ticket(overrides: Partial<TicketRow> & { ref: string }): TicketRow {
     costUsd: 0, estUsd: 0,
     trackerUrl: null,
     prUrl: null,
-    summary: null, plain: null, heldReason: null,
+    summary: null, plain: null, options: null, heldReason: null,
     heldAt: null,
     failReason: null,
     prState: null,

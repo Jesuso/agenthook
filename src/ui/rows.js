@@ -214,6 +214,15 @@ const PLAIN_OUTCOME = { held: "hold", failed: "fail", done: "advance", running: 
 /** @param {any} v */
 const str = (v) => (typeof v === "string" && v ? v : null);
 
+/** Agent-authored, untrusted: re-validate `run_end.options` defensively — an array of 2-4
+ * non-empty strings, each sliced to 80 chars; anything else → null.
+ * @param {any} v @returns {string[]|null} */
+const cleanRowOptions = (v) => {
+  if (!Array.isArray(v) || v.length < 2 || v.length > 4) return null;
+  const cleaned = v.map((o) => (typeof o === "string" && o ? o.slice(0, 80) : null));
+  return cleaned.every((o) => o) ? /** @type {string[]} */ (cleaned) : null;
+};
+
 /**
  * refmeta.epic → TicketRow.epic: an object with a non-empty string `ref`, else null; `name`
  * falls back to `ref`, `url` survives only as http(s) (like `trackerUrl`).
@@ -332,6 +341,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     // outcome that differs from the run's (changes cap, CI bounce, cancel) shows none.
     const want = PLAIN_OUTCOME[status];
     const plain = lastEnd && (want === "*" || lastEnd.outcome === want) ? str(lastEnd.plain)?.slice(0, 300) ?? null : null;
+    const options = status === "held" && lastEnd?.outcome === "hold" ? cleanRowOptions(lastEnd.options) : null;
     const pr = meta.pr;
     const trackerUrl = str(meta.url);
     rows.push({
@@ -341,6 +351,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       title: str(meta.title) ?? lastName,
       summary: str(meta.summary)?.slice(0, 300) ?? null,
       plain,
+      options,
       step: str(run?.stepId) ?? str(queued?.stepId) ?? str(held?.stepId) ?? lastStep,
       status,
       model: run ? str(run.model) : str(lastStart?.model),

@@ -524,6 +524,8 @@ export const messages: Record<MessageKey, Message> = {
   "release.answerStep": "Respuesta para el agente (opcional) — se agrega a su prompt cuando reejecute el paso {step}",
   "release.releasing": "Liberando…",
   "release.release": "Liberar",
+  "release.sendAnswer": "Enviar esta respuesta y liberar:",
+  "release.confirm": "Confirmar",
   "release.cancel": "Cancelar",
   "release.hint": "⌘/Ctrl + Enter para liberar",
 

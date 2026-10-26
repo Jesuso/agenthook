@@ -127,9 +127,12 @@ export function createFinish(ctx) {
     const tokens = result ? { ...(usage.model ? { model: usage.model } : {}), input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheCreate: usage.cacheCreate } : {};
     // The agent's one plain sentence for a human (summary.plain), whitespace-collapsed; absent when none.
     const plain = typeof verdict.summary?.plain === "string" ? verdict.summary.plain.replace(/\s+/g, " ").trim() : "";
+    // 2-4 short discrete answers (summary.options), only on a hold — parseSummary already validated them.
+    const options = verdict.outcome === "hold" && Array.isArray(verdict.summary?.options) ? verdict.summary.options : undefined;
     emit?.("run_end", job.ref, step.id, {
       outcome: verdict.outcome,
       ...(plain ? { plain } : {}),
+      ...(options ? { options } : {}),
       ...(costUsd !== undefined ? { costUsd } : {}),
       ...(unpriced ? { unpriced: true } : {}),
       ...(usage.costBasis ? { costBasis: usage.costBasis } : {}),

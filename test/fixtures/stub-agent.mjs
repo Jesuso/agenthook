@@ -5,7 +5,8 @@
 //   STUB_SCRIPT — a JSON file `{ "<ref>": { "<step>": [entry, …] } }`. Entry i is used on the
 //                 step's i-th run (the last one repeats); a per-(ref,step) counter lives in
 //                 `<script>.counts.json`. An entry is "advance"|"changes"|"hold"|"fail"|"exit1",
-//                 or `{outcome, target?}` to send `changes` to an explicit step.
+//                 or `{outcome, target?, summary?}` to send `changes` to an explicit step or
+//                 attach a verdict `summary` (e.g. `{options: [...]}`).
 // "exit1" exits 1 with no verdict; anything else writes `{outcome, reason:"stub"}`.
 import fs from "node:fs";
 import path from "node:path";
@@ -37,7 +38,7 @@ try {
 } catch {}
 fs.writeFileSync(countsFile, String(run + 1));
 const entry = entries[Math.min(run, entries.length - 1)];
-const { outcome, target } = typeof entry === "string" ? { outcome: entry, target: undefined } : entry;
+const { outcome, target, summary } = typeof entry === "string" ? { outcome: entry, target: undefined, summary: undefined } : entry;
 
 // In a linked worktree (`.git` is a file there), leave a trivial commit like a real code step.
 // CI has no git identity, so pass one inline.
@@ -48,4 +49,4 @@ if (fs.statSync(".git", { throwIfNoEntry: false })?.isFile()) {
 }
 
 if (outcome === "exit1") process.exit(1);
-fs.writeFileSync(verdictFile, JSON.stringify({ outcome, ...(target ? { target } : {}), reason: "stub" }));
+fs.writeFileSync(verdictFile, JSON.stringify({ outcome, ...(target ? { target } : {}), ...(summary ? { summary } : {}), reason: "stub" }));

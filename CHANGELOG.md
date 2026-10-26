@@ -38,6 +38,11 @@ All notable changes to this project are documented here. The format is based on
   on a hold or fail, what you must decide. The dashboard shows it in place of the raw reason on
   Needs you and Now rows and at the top of the ticket drawer (the full reason stays in the tooltip
   and drawer); it also rides on `run_end` as `plain`. A run without one renders as before (#563).
+- Answer a held ticket by clicking an option instead of typing: when a hold has 2-4 real answers,
+  the agent can offer them (`summary.options`); they show as buttons with a confirm step in the
+  Release panel and the ticket drawer. Confirming sends the chosen text through the existing
+  `release` op, exactly like a typed answer — no tracker comment, no new adapter method. A held
+  ticket without options renders as before (#565).
 
 ## [0.12.0] — 2026-10-24
 

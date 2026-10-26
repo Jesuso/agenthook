@@ -446,6 +446,7 @@ function Dashboard() {
           ticket={snapshot.tickets.find((x) => x.profile === open.profile && x.ref === open.ref)}
           runsNonce={runsNonce}
           onClose={() => setOpen(null)}
+          onRelease={release}
         />
       )}
       {removing && (

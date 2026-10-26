@@ -522,6 +522,8 @@ export const messages = {
   "release.answerStep": "Answer for the agent (optional) — added to its prompt when it re-runs {step}",
   "release.releasing": "Releasing…",
   "release.release": "Release",
+  "release.sendAnswer": "Send this answer and release:",
+  "release.confirm": "Confirm",
   "release.cancel": "Cancel",
   "release.hint": "⌘/Ctrl + Enter to release",
 
