@@ -781,10 +781,10 @@ test("mapProjectEpics: only epic Issue cards, Status (null when unset), complete
 
 test("mapProjectEpicTickets: same/other repo refs, on-board Status, no-Status → '', off-board → null", () => {
   const children = [
-    { id: "I_20", number: 20, title: "same on board", state: "OPEN", repository: { nameWithOwner: "ACME/Repo" } },
-    { id: "I_21", number: 21, title: "same off board", state: "CLOSED", repository: { nameWithOwner: REPO } },
-    { id: "I_X5", number: 5, title: "other on board", state: "OPEN", repository: { nameWithOwner: "acme/other" } },
-    { id: "I_22", number: 22, title: "same no status", state: "OPEN", repository: { nameWithOwner: REPO } },
+    { id: "I_20", number: 20, title: "same on board", state: "OPEN", repository: { nameWithOwner: "ACME/Repo" }, url: "https://github.com/ACME/Repo/issues/20" },
+    { id: "I_21", number: 21, title: "same off board", state: "CLOSED", repository: { nameWithOwner: REPO }, url: "https://github.com/acme/repo/issues/21" },
+    { id: "I_X5", number: 5, title: "other on board", state: "OPEN", repository: { nameWithOwner: "acme/other" }, url: "https://github.com/acme/other/issues/5" },
+    { id: "I_22", number: 22, title: "same no status", state: "OPEN", repository: { nameWithOwner: REPO }, url: "https://github.com/acme/repo/issues/22" },
   ];
   const stages = new Map([
     ["I_20", "In Review"],
@@ -792,10 +792,10 @@ test("mapProjectEpicTickets: same/other repo refs, on-board Status, no-Status �
     ["I_22", null],
   ]);
   assert.deepEqual(mapProjectEpicTickets(children, REPO, stages), [
-    { ref: "20", displayId: "#20", name: "same on board", completed: false, stage: "In Review" },
-    { ref: "21", displayId: "#21", name: "same off board", completed: true, stage: null },
-    { ref: "acme/other#5", displayId: "acme/other#5", name: "other on board", completed: false, stage: "Todo" },
-    { ref: "22", displayId: "#22", name: "same no status", completed: false, stage: "" },
+    { ref: "20", displayId: "#20", name: "same on board", completed: false, stage: "In Review", url: "https://github.com/ACME/Repo/issues/20" },
+    { ref: "21", displayId: "#21", name: "same off board", completed: true, stage: null, url: "https://github.com/acme/repo/issues/21" },
+    { ref: "acme/other#5", displayId: "acme/other#5", name: "other on board", completed: false, stage: "Todo", url: "https://github.com/acme/other/issues/5" },
+    { ref: "22", displayId: "#22", name: "same no status", completed: false, stage: "", url: "https://github.com/acme/repo/issues/22" },
   ]);
 });
 

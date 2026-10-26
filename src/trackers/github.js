@@ -133,7 +133,7 @@ export function mapEpicTickets(items, repoApiUrl, stageLabels) {
         }
       }
     }
-    out.push({ ref, displayId, name: it.title, completed: it.state === "closed", stage });
+    out.push({ ref, displayId, name: it.title, completed: it.state === "closed", stage, url: it.html_url ?? null });
   }
   return out;
 }

@@ -44,7 +44,7 @@ export type EpicActions = {
  * pace line, Needs you (reason, step and age, the action by kind), Running, Awaiting merge (finished
  * tickets whose PR is recorded and not merged, each with its PR link: only on that evidence), Backlog,
  * tickets not on the board, then the rest of finished and merged folded, remembered per tab. A ticket that ran here opens the drawer; one
- * that didn't opens on its tracker when its URL can be derived from the epic's, or says it can't.
+ * that didn't opens on its tracker when it carries its own URL, or says it can't.
  */
 export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }: { body: EpicResponse; profile: string; rows: TicketRow[]; onOpen: (t: Ref) => void; actions?: EpicActions }) {
   const epic = body.epic;
@@ -57,7 +57,7 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
   const now = Date.now();
   const pace = paceOf(epic);
   const open = (t: EpicDetailTicket) => onOpen({ profile, ref: t.ref });
-  const hrefOf = (t: EpicDetailTicket) => ticketUrl(url, epic.ref, t.ref);
+  const hrefOf = (t: EpicDetailTicket) => safeUrl(t.url);
   // Awaiting merge only on evidence (a recorded, unmerged PR); a finished ticket without one is just finished.
   const awaiting = groups.finished.filter((t) => openPr(rowBy.get(t.ref)));
   const finishedRest = groups.finished.filter((t) => !openPr(rowBy.get(t.ref)));
@@ -156,13 +156,6 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
       )}
     </div>
   );
-}
-
-/** A ticket's tracker URL derived from its epic's (same tracker, the ref swapped at the end); null when the epic URL doesn't end in its ref. */
-export function ticketUrl(epicUrl: string | null, epicRef: string, ref: string): string | null {
-  if (!epicUrl) return null;
-  const base = epicUrl.replace(/\/$/, "");
-  return base.endsWith(epicRef) ? base.slice(0, base.length - epicRef.length) + encodeURIComponent(ref) : null;
 }
 
 /** Days the server needs work finished on before it estimates (src/epics.js `activeDays >= 3`). */

@@ -702,8 +702,8 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   the toast), **Review PR**, or the tracker when it never ran here; the name opens the drawer. Writes
   are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only tickets with a recorded, unmerged PR, each with its
   PR link); Backlog; "Not on the board"; and the rest folded, titled by what it holds ("Finished and
-  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when its URL
-  derives from the epic's (`ticketUrl`), marked "tracker ↗" and announced as a new tab, else a row
+  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when the ticket
+  carries its own URL (`EpicTicket.url`), marked "tracker ↗" and announced as a new tab, else a row
   that says "never ran here, no link".
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or
   malformed, `url` only http(s)) puts an epic chip on the row; clicking it filters the table to that

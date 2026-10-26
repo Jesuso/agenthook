@@ -123,11 +123,12 @@ describe("EpicPage", () => {
     expect(linked).toContain('href="https://app.asana.com/0/1/E1"');
   });
 
-  it("every ticket goes somewhere: drawer when it ran here, the tracker when its URL derives from the epic's", () => {
+  it("every ticket goes somewhere: drawer when it ran here, the tracker when it carries its own URL", () => {
     const out = page({ epic: detail }, [row("r1")]);
     expect(out).toMatch(/data-epic-ticket="r1"><button/);
     expect(out).toMatch(/data-epic-ticket="b1"><div/);
-    const linked = page({ epic: { ...detail, url: "https://acme.atlassian.net/browse/E1" } }, [row("r1")]);
+    const withUrl = { ...detail, tickets: detail.tickets.map((t) => (t.ref === "b1" ? { ...t, url: "https://acme.atlassian.net/browse/b1" } : t)) };
+    const linked = page({ epic: withUrl }, [row("r1")]);
     expect(linked).toMatch(/data-epic-ticket="b1"><a[^>]*href="https:\/\/acme.atlassian.net\/browse\/b1"/);
   });
 
@@ -235,15 +236,23 @@ describe("EpicPage actions and pace", () => {
     expect(down).not.toContain("Re-run");
   });
   it("a Needs-you ticket that never ran here says so and links the tracker", () => {
-    const out = needs(page({ epic: { ...detail, url: "https://acme.atlassian.net/browse/E1" } }));
+    const withUrl = { ...detail, tickets: detail.tickets.map((t) => (t.ref === "n1" ? { ...t, url: "https://acme.atlassian.net/browse/n1" } : t)) };
+    const out = needs(page({ epic: withUrl }));
     expect(out).toContain("it never ran here");
     expect(out).toContain('href="https://acme.atlassian.net/browse/n1"');
   });
   it("a dead row says why on the row itself; tracker links announce the new tab", () => {
-    const out = page({ epic: { ...detail, url: "" } });
+    const out = page({ epic: detail });
     expect(out).toContain("never ran here, no link");
-    const linked = page({ epic: { ...detail, url: "https://acme.atlassian.net/browse/E1" } });
+    const withUrl = { ...detail, tickets: detail.tickets.map((t) => (t.ref === "n1" ? { ...t, url: "https://acme.atlassian.net/browse/n1" } : t)) };
+    const linked = page({ epic: withUrl });
     expect(linked).toContain("(new tab)");
+  });
+  it("a non-http ticket url (e.g. javascript:) is treated as no link", () => {
+    const withBadUrl = { ...detail, tickets: detail.tickets.map((t) => (t.ref === "n1" ? { ...t, url: "javascript:alert(1)" } : t)) };
+    const out = needs(page({ epic: withBadUrl }));
+    expect(out).not.toContain("Open on the tracker");
+    expect(out).not.toContain("javascript:");
   });
   it("pace counts tickets, and gives the real reason when there is no estimate", () => {
     const base = { byStage: { backlog: 2, running: 0, needsYou: 0, finished: 0, merged: 0, untracked: 0 }, total: 2, completed: false, eta: null };

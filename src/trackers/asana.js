@@ -111,6 +111,7 @@ export function mapEpicTickets(data, projectGid, displayIdField) {
       name: t.name,
       completed: t.completed === true,
       stage: membership.section?.name ?? null,
+      url: t.permalink_url ?? null,
     });
   }
   return out;
@@ -605,7 +606,7 @@ export function createAsanaAdapter(cfg, store) {
       if (!(await findEpicTypeGid())) return [];
       try {
         const res = await api(
-          `/tasks/${epicRef}/subtasks?opt_fields=name,completed,custom_fields.name,custom_fields.display_value,memberships.project.gid,memberships.section.name&limit=100`,
+          `/tasks/${epicRef}/subtasks?opt_fields=name,completed,permalink_url,custom_fields.name,custom_fields.display_value,memberships.project.gid,memberships.section.name&limit=100`,
         );
         if (!res.ok) throw new Error(`subtasks ${res.status}`);
         return mapEpicTickets((await json(res)).data, pc.projectGid, pc.displayIdField);

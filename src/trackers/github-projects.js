@@ -121,6 +121,7 @@ export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
       name: c.title,
       completed: String(c.state).toUpperCase() === "CLOSED",
       stage: onBoard ? (stageByIssueId.get(c.id) ?? "") : null,
+      url: c.url ?? null,
     });
   }
   return out;
