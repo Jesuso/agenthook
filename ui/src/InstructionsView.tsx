@@ -10,12 +10,13 @@ import { DiffLegend, Modal, useConfirm } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
-import { EmptyState, Pill, Segmented } from "./components";
+import { EmptyState, FullAutoShield, Pill, Segmented } from "./components";
 import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
 type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
 type Side = "none" | "preview" | "agent";
+type Toast = { kind: "error" | "ok"; text: string };
 
 /** `localStorage` key for the last file opened in a profile, so re-opening the tab lands there. */
 const lastFileKey = (profile: string) => `ah.instructions.last:${profile}`;
@@ -44,7 +45,9 @@ export default function InstructionsView(props: {
   const [editorKey, setEditorKey] = useState(0);
   const [side, setSide] = useState<Side>("none");
   const [diff, setDiff] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  // The last successful save, so a glance at the toolbar confirms it landed after the toast fades.
+  const [savedAt, setSavedAt] = useState<{ path: string; at: Date } | null>(null);
   const [ask, confirmModal] = useConfirm();
   // Only the latest file load may land. `fileRef` is written with every update (not at render),
   // so async callbacks and chained actions always see the newest state.
@@ -160,15 +163,19 @@ export default function InstructionsView(props: {
     };
     const fail = (status: number) => {
       settle({ type: "failed" });
-      setToast(saveErrorText(status, lang));
+      setToast({ kind: "error", text: saveErrorText(status, lang) });
     };
     fetch(url, init)
       .then((res) => {
         const kind = classifySaveResponse(res.status);
         if (kind === "error" || kind === "invalid") return fail(res.status);
-        return res.json().then((b: { hash: string; content?: string }) =>
-          settle(kind === "ok" ? { type: "saved", hash: b.hash } : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
-        );
+        return res.json().then((b: { hash: string; content?: string }) => {
+          if (kind === "conflict") return settle({ type: "conflict", hash: b.hash, content: b.content ?? "" });
+          settle({ type: "saved", hash: b.hash });
+          // The file is written whichever file is open now, so the acknowledgement always shows.
+          setSavedAt({ path: target.path, at: new Date() });
+          setToast({ kind: "ok", text: t("instructions.saved", { name: baseName(target.path) }) });
+        });
       })
       .catch(() => fail(0));
   };
@@ -189,10 +196,10 @@ export default function InstructionsView(props: {
     fetch(instructionFileUrl(target.profile, target.path))
       .then((res) => {
         if (res.status === 404) return settle({ type: "disk", disk: null });
-        if (!res.ok) return setToast(t("instructions.diskLoadFailed", { status: res.status }));
+        if (!res.ok) return setToast({ kind: "error", text: t("instructions.diskLoadFailed", { status: res.status }) });
         return res.json().then((b: { content: string; hash: string }) => settle({ type: "disk", disk: b }));
       })
-      .catch(() => setToast(t("instructions.diskLoadNetwork")));
+      .catch(() => setToast({ kind: "error", text: t("instructions.diskLoadNetwork") }));
   };
 
   // Mod-s anywhere in the view (the editor's own binding stops propagation when it has focus).
@@ -345,7 +352,13 @@ export default function InstructionsView(props: {
                 />
                 <span className="ml-auto flex shrink-0 items-center gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
-                  {!dirty && phase === "editing" && <span className="text-label text-muted">{t("instructions.noChanges")}</span>}
+                  {!dirty && phase === "editing" && (
+                    <span className="text-label text-muted">
+                      {savedAt?.path === open.path
+                        ? t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })
+                        : t("instructions.noChanges")}
+                    </span>
+                  )}
                   <button
                     className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!dirty || phase !== "editing"}
@@ -396,17 +409,15 @@ export default function InstructionsView(props: {
       </div>
       {doc?.phase.kind === "confirming" && (
         <Modal title={t("instructions.saveConfirmTitle", { name: baseName(doc.open.path) })} onClose={() => act({ type: "cancel" })}>
-          <LiveEffect agentsRunning={agentsRunning} />
-          <DiffLegend />
-          <DiffView a={doc.open.content} b={doc.buffer} />
-          <div className="mt-3 flex justify-end gap-2">
-            <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => act({ type: "cancel" })}>
-              {t("instructions.cancel")}
-            </button>
-            <button className="rounded border border-[var(--color-accent)] px-3 py-1 text-[var(--color-accent)]" onClick={() => put("confirm")}>
-              {t("instructions.save")}
-            </button>
-          </div>
+          <ConfirmSave
+            agentsRunning={agentsRunning}
+            fullAuto={!!props.profiles.find((p) => p.name === profile)?.fullAuto}
+            onCancel={() => act({ type: "cancel" })}
+            onSave={() => put("confirm")}
+          >
+            <DiffLegend />
+            <DiffView a={doc.open.content} b={doc.buffer} />
+          </ConfirmSave>
         </Modal>
       )}
       {diff && doc?.phase.kind === "conflict" && (
@@ -424,8 +435,11 @@ export default function InstructionsView(props: {
         </Modal>
       )}
       {toast && (
-        <div role="alert" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded border border-[var(--color-err)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-err)] shadow">
-          {toast}
+        <div
+          role={toast.kind === "error" ? "alert" : "status"}
+          className={`fixed bottom-4 right-4 z-50 flex max-w-md items-center gap-3 rounded border bg-[var(--color-bg)] px-3 py-2 text-sm shadow ${toast.kind === "error" ? "border-[var(--color-err)] text-[var(--color-err)]" : "border-success text-fg"}`}
+        >
+          {toast.text}
           <button aria-label={t("instructions.dismiss")} onClick={() => setToast(null)}>
             ×
           </button>
@@ -436,10 +450,46 @@ export default function InstructionsView(props: {
   );
 }
 
-function LiveEffect(props: { agentsRunning: number }) {
-  const { lang } = useT();
-  const note = liveEffectNote(props.agentsRunning, lang);
-  return <p className={`mb-2 text-sm ${note.warn ? "text-[var(--color-warn)]" : "text-[var(--color-muted)]"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</p>;
+/**
+ * The save confirm's body. Saving changes what agents run (unsandboxed under fullAuto), so the
+ * consequence sits above the diff, and while agents are running on the file the Save needs an
+ * explicit acknowledgement first. Mounted per confirm, so the acknowledgement never carries over;
+ * an agent starting mid-confirm re-locks Save.
+ */
+function ConfirmSave(props: { agentsRunning: number; fullAuto: boolean; onCancel: () => void; onSave: () => void; children: React.ReactNode }) {
+  const { t, lang } = useT();
+  const [ack, setAck] = useState(false);
+  const live = props.agentsRunning > 0;
+  const locked = live && !ack;
+  return (
+    <>
+      <div className="mb-3 space-y-1 text-sm text-muted">
+        {props.fullAuto && (
+          <p className="flex items-center gap-1.5 text-fg">
+            <FullAutoShield />
+            {t("instructions.fullAutoNote")}
+          </p>
+        )}
+        {!live && <p>{liveEffectNote(0, lang).text}</p>}
+        <p>{t("instructions.backupNote")}</p>
+      </div>
+      {props.children}
+      {live && (
+        <label className="mt-3 flex items-start gap-2 rounded border border-status-running bg-status-running-bg px-3 py-2 text-sm text-fg">
+          <input type="checkbox" className="mt-0.5 accent-[var(--color-accent)]" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+          <span>{t("instructions.runningAck", { count: props.agentsRunning })}</span>
+        </label>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={props.onCancel}>
+          {t("instructions.cancel")}
+        </button>
+        <button className="rounded bg-accent px-3 py-1 font-medium text-accent-fg disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={props.onSave}>
+          {t("instructions.saveForNextRun")}
+        </button>
+      </div>
+    </>
+  );
 }
 
 /** The same note, inline beside Save rather than inside the confirm modal. */

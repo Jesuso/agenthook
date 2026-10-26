@@ -188,9 +188,14 @@ describe("classifySaveResponse", () => {
     for (const status of [0, 400, 401, 403, 404, 413, 415, 500, 502]) expect(classifySaveResponse(status)).toBe("error");
   });
 
-  it("names the status in the error text", () => {
-    expect(saveErrorText(413)).toBe("Save failed (status 413)");
-    expect(saveErrorText(0)).toBe("Save failed (network error)");
+  it("names the status and the next step in the error text", () => {
+    expect(saveErrorText(0)).toMatch(/can't reach the ah ui server.*your edits are still here/);
+    expect(saveErrorText(403)).toMatch(/status 403.*reload the page/);
+    expect(saveErrorText(404)).toMatch(/status 404.*no longer editable/);
+    expect(saveErrorText(413)).toMatch(/status 413.*256 KB limit/);
+    expect(saveErrorText(415)).toMatch(/status 415.*rejected/);
+    expect(saveErrorText(500)).toMatch(/status 500.*your edits are still here/);
+    expect(saveErrorText(500, "es")).toMatch(/estado 500/);
   });
 });
 

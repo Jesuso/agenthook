@@ -131,8 +131,14 @@ export function classifySaveResponse(status: number): "ok" | "conflict" | "inval
   return status === 200 ? "ok" : status === 409 ? "conflict" : status === 422 ? "invalid" : "error";
 }
 
+/** What failed and what to do next. Nothing was written, and the buffer is kept on every path. */
 export function saveErrorText(status: number, lang = "en"): string {
-  return status === 0 ? translate(lang, "save.error.network") : translate(lang, "save.error.status", { status });
+  if (status === 0) return translate(lang, "save.error.network");
+  if (status === 403) return translate(lang, "save.error.forbidden");
+  if (status === 404) return translate(lang, "save.error.gone");
+  if (status === 413) return translate(lang, "save.error.tooLarge");
+  if (status === 400 || status === 415) return translate(lang, "save.error.rejected", { status });
+  return translate(lang, "save.error.status", { status });
 }
 
 /** Instructions are re-read at every spawn, so a save is live with no restart. */

@@ -15,7 +15,8 @@ const profiles = [
   { name: "demo", label: "demo", up: false },
   { name: "other", label: "other", up: false },
 ] as unknown as ProfileView[];
-const file = (path: string) => ({ path, scope: "step", ids: ["code"], hash: "h", bytes: 5, mtime: null, exists: true, agentsRunning: 0 });
+let running = 0;
+const file = (path: string) => ({ path, scope: "step", ids: ["code"], hash: "h", bytes: 5, mtime: null, exists: true, agentsRunning: running });
 
 let m: Mounted | null = null;
 const puts: string[] = [];
@@ -23,6 +24,7 @@ const sink: { current: ((ev: any) => void) | null } = { current: null };
 
 beforeEach(() => {
   puts.length = 0;
+  running = 0;
   localStorage.clear();
   vi.stubGlobal(
     "fetch",
@@ -101,6 +103,36 @@ describe("InstructionsView in-app confirms", () => {
     expect(puts).toEqual([]);
     await click(overwrite());
     await answerConfirm(true);
+    await until(() => puts.length === 1);
+  });
+});
+
+describe("InstructionsView save confirm", () => {
+  const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+
+  it("saves straight through when no agent runs on the file, then acknowledges the save", async () => {
+    const root = await dirtyView();
+    await click(button("Save")!);
+    const save = (await until(() => button("Save for next run")))!;
+    expect(document.body.textContent).toContain("backed up in the profile's state directory");
+    expect(save.disabled).toBe(false);
+    await click(save);
+    await until(() => puts.length === 1);
+    await until(() => document.querySelector('[role="status"]')?.textContent?.includes("Saved code.md"));
+    expect(root.textContent).toMatch(/Saved \d/);
+  });
+
+  it("locks Save until the running agents are acknowledged", async () => {
+    running = 2;
+    await dirtyView();
+    await click(button("Save")!);
+    const save = (await until(() => button("Save for next run")))!;
+    expect(save.disabled).toBe(true);
+    const ack = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(ack.closest("label")!.textContent).toContain("2 agents are running on steps that use this file");
+    await click(ack);
+    expect(save.disabled).toBe(false);
+    await click(save);
     await until(() => puts.length === 1);
   });
 });
