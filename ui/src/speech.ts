@@ -17,11 +17,13 @@ export function speechText(md: string): string {
   const lines = md
     .replace(/\r\n?/g, "\n")
     // Fenced code (``` or ~~~); an unclosed fence runs to the end, as markdown renders it.
-    .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\1[ \t]*(?=\n|$)|(?![\s\S]))/gm, "\ncode block\n")
+    // The body is optional (lazily, so an empty fence closes on the very next line).
+    .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n(?:[\s\S]*?\n)??[ \t]*\1[ \t]*(?=\n|$)|[\s\S]*)/gm, "\ncode block\n")
     // Inline code keeps its text, untouched by the syntax stripping below.
     .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_, _ticks, text: string) => `\u0000${code.push(text.trim()) - 1}\u0000`)
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    // A link target may hold one level of balanced parens and a quoted title.
+    .replace(/!\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\)/g, "$1")
+    .replace(/\[([^\]]+)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\)/g, "$1")
     .replace(/<https?:\/\/[^>\s]+>/g, "link")
     .replace(/https?:\/\/[^\s<>()]+/g, "link")
     .replace(/<\/?[a-zA-Z][^>]*>/g, "")
@@ -38,7 +40,8 @@ export function speechText(md: string): string {
       .replace(/^\s*\|/, "")
       .replace(/\|\s*$/, "")
       .replace(/\s*\|\s*/g, ", ")
-      .replace(/\*+/g, "")
+      // Emphasis only as a flanked pair, so `2*3*4` and `a * b` keep their stars.
+      .replace(/(^|[^\w*])(\*{1,3})(?=\S)(.*?\S)\2(?![\w*])/g, "$1$3")
       .replace(/~~/g, "")
       .replace(/(^|[^\w])_+([^_\n]+?)_+(?=[^\w]|$)/g, "$1$2")
       .replace(/\u0000(\d+)\u0000/g, (_, i: string) => code[Number(i)])

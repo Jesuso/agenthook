@@ -9,6 +9,9 @@ describe("speechText", () => {
     expect(speechText("Before\n\n```js\nconst a = 1;\n```\n\nAfter")).toBe("Before. code block. After.");
     expect(speechText("~~~\nrm -rf /\n~~~")).toBe("code block.");
     expect(speechText("Look:\n```\nnever closed\nstill code")).toBe("Look: code block.");
+    expect(speechText("A\n```\n```\nB after empty fence")).toBe("A. code block. B after empty fence.");
+    expect(speechText("x\n```js\n```\n\nTail text")).toBe("x. code block. Tail text.");
+    expect(speechText("```\n```\nmid\n```\ncode\n```\nend")).toBe("code block. mid. code block. end.");
   });
 
   it("keeps inline code's text without the backticks, untouched by the syntax stripping", () => {
@@ -19,6 +22,7 @@ describe("speechText", () => {
   it("reads a link and an image by their text, a bare URL as 'link'", () => {
     expect(speechText("See [the PR](https://github.com/x/y/pull/1) and ![a chart](c.png)")).toBe("See the PR and a chart.");
     expect(speechText("Logs at https://example.com/a?b=1 and <https://example.com>")).toBe("Logs at link and link.");
+    expect(speechText('[x](https://a.b/(paren)) and [y](u "title")')).toBe("x and y.");
   });
 
   it("drops HTML tags and markdown syntax: headings, emphasis, lists, quotes, tables", () => {
@@ -28,6 +32,8 @@ describe("speechText", () => {
     expect(speechText("| id | state |\n|---|:--:|\n| #1 | held |")).toBe("id, state. #1, held.");
     expect(speechText("a <b>bold</b> word<br/>")).toBe("a bold word.");
     expect(speechText("snake_case_name stays")).toBe("snake_case_name stays.");
+    expect(speechText("2*3*4 and 2 * 3")).toBe("2*3*4 and 2 * 3.");
+    expect(speechText("***both*** and **x** y*")).toBe("both and x y*.");
     expect(speechText("---\n# Title #")).toBe("Title.");
   });
 
