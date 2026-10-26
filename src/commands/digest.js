@@ -47,7 +47,7 @@ export async function digest(args, deps = {}) {
   /** @type {any} */
   let rec;
   try {
-    rec = await digester.request();
+    rec = await digester.request({ lang: cfg.language });
   } catch (e) {
     console.error(e.message);
     process.exitCode = 1;

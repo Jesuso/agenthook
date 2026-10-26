@@ -100,7 +100,11 @@ test.before(async () => {
     await fakeControl(RELEASE_SLOW.sockPath, (s, req) => setTimeout(() => s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, queued: true } }) + "\n"), RESTART_MS * 3)),
     await fakeControl(DIGESTED.sockPath, (s, req) => {
       calls.digest.push(req);
-      s.write(JSON.stringify({ id: req.id, ok: true, result: { text: "All quiet.", generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 0, needsYou: 0 } }) + "\n");
+      const result =
+        req.cmd === "summary"
+          ? { ref: req.args.ref, lang: req.args.lang, text: "Resumen corto.", generatedAt: "2026-10-15T12:00:00Z" }
+          : { text: "All quiet.", generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 0, needsYou: 0 };
+      s.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
     }),
     // Mimics src/ops.js: pause → paused; resume → the locked reply (ok:true + a note).
     await fakeControl(TOGGLED.sockPath, (s, req) => {
@@ -502,6 +506,48 @@ test("POST /api/digest: guards, validation, then {cmd:'digest', args:{actor:'ui'
   fs.writeFileSync(path.join(DIGESTED.dir, "digest.json"), JSON.stringify({ text: "Hi", generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 1, needsYou: 0 }));
   assert.equal(JSON.parse((await request("GET", "/api/digest?profile=digested", undefined, {})).body).digest.text, "Hi");
   assert.equal((await request("GET", "/api/digest?profile=nope", undefined, {})).status, 404);
+});
+
+test("POST /api/digest {lang}: forwarded canonical; a bad lang is 400; GET ?lang= reads that language's entry, legacy flat = en", async () => {
+  const post = (/** @type {any} */ body) => request("POST", "/api/digest", JSON.stringify(body), {});
+  const n = calls.digest.length;
+  assert.equal((await post({ profile: "digested", lang: "not a tag!" })).status, 400);
+  assert.equal((await post({ profile: "digested", lang: 7 })).status, 400);
+  assert.equal(calls.digest.length, n);
+  assert.equal((await post({ profile: "digested", lang: "ES" })).status, 200);
+  assert.deepEqual(calls.digest.at(-1).args, { actor: "ui", lang: "es" });
+
+  const get = async (/** @type {string} */ q) => request("GET", `/api/digest?profile=digested${q}`, undefined, {});
+  fs.writeFileSync(path.join(DIGESTED.dir, "digest.json"), JSON.stringify({ text: "Hi", generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 1, needsYou: 0 }));
+  assert.equal(JSON.parse((await get("&lang=en")).body).digest.text, "Hi", "a legacy flat digest reads as en");
+  assert.equal(JSON.parse((await get("&lang=es")).body).digest, null);
+  const view = { generatedAt: "2026-10-15T12:00:00Z", basedOnEvents: 1, needsYou: 0 };
+  fs.writeFileSync(path.join(DIGESTED.dir, "digest.json"), JSON.stringify({ byLang: { en: { ...view, text: "Hi", lang: "en" }, es: { ...view, text: "Hola", lang: "es" } } }));
+  assert.equal(JSON.parse((await get("&lang=es")).body).digest.text, "Hola");
+  assert.equal(JSON.parse((await get("")).body).digest.text, "Hi", "no lang = en");
+  assert.equal((await get("&lang=%3Cx%3E")).status, 400);
+});
+
+test("POST /api/summary: guards, validation, then {cmd:'summary', args:{ref, lang, actor:'ui'}}; POST only", async () => {
+  const post = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/summary", JSON.stringify(body), h);
+  const ok = { profile: "digested", ref: "42", lang: "es" };
+  const n = calls.digest.length;
+  assert.equal((await post(ok, { cookie: null })).status, 401);
+  assert.equal((await post(ok, { origin: "http://evil.example" })).status, 403);
+  assert.equal((await post(ok, { "x-ah-ui": null })).status, 403);
+  assert.equal((await post({ ...ok, profile: 7 })).status, 400);
+  assert.equal((await post({ ...ok, ref: "" })).status, 400);
+  assert.equal((await post({ ...ok, lang: undefined })).status, 400);
+  assert.equal((await post({ ...ok, lang: "español!" })).status, 400);
+  assert.equal((await post({ ...ok, profile: "nope" })).status, 404);
+  assert.equal(calls.digest.length, n, "nothing reached the receiver");
+  const res = await post({ ...ok, lang: "ES" });
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).text, "Resumen corto.");
+  assert.equal(calls.digest.at(-1).cmd, "summary");
+  assert.deepEqual(calls.digest.at(-1).args, { ref: "42", lang: "es", actor: "ui" });
+  assert.equal((await post({ ...ok, profile: "down" })).status, 503);
+  assert.equal((await request("GET", "/api/summary?profile=digested", undefined, {})).status, 405);
 });
 
 test("GET /api/stats: cookie-only, validates days/tz, buckets the whole events history", async () => {

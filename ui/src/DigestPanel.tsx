@@ -11,8 +11,9 @@ const DigestMarkdown = lazy(() => import("./DigestMarkdown"));
 
 /**
  * "Catch me up": the profile's latest Digest (docs/web-ui.md § Digest agent) and the button that
- * asks the receiver for a fresh one. Never automatic — an agent run costs money. The cached text
- * is fetched once per profile; the stale hint counts live events since it was written.
+ * asks the receiver for a fresh one. Never automatic — an agent run costs money. The digest is per
+ * UI language: the cached text is fetched once per profile and language; the stale hint counts live
+ * events since it was written.
  */
 export function DigestPanel({ profile, up, feed, now }: { profile: string; up: boolean; feed: FeedEntry[]; now: number }) {
   const { t, lang } = useT();
@@ -28,7 +29,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
     setLoaded(false);
     setError(null);
     setExpanded(false);
-    fetch(digestUrl(profile))
+    fetch(digestUrl(profile, lang))
       .then((r) => (r.ok ? r.json() : null))
       .then((b) => live && setDigest(b?.digest ?? null))
       .catch(() => {})
@@ -36,12 +37,12 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
     return () => {
       live = false;
     };
-  }, [profile]);
+  }, [profile, lang]);
 
   const generate = async () => {
     setBusy(true);
     setError(null);
-    const { url, init } = digestRequest(profile);
+    const { url, init } = digestRequest(profile, lang);
     const out = await fetch(url, init)
       .then((res) => res.json().then((b) => digestOutcome(res.status, b, lang), () => digestOutcome(res.status, null, lang)))
       .catch(() => digestOutcome(0, null, lang));

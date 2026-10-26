@@ -580,6 +580,13 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
 - Now rows: a muted second line. Needs-you rows: the reason (held/failed) takes the second line, the
   summary otherwise; either way the summary is in the title tooltip. The drawer shows it under the
   header; the All-tickets table has it as a tooltip. Full descriptions stay in the tracker (the id links there).
+- In the UI language (#573): the drawer shows that extract at once, then `POST /api/summary`
+  `{profile, ref, lang}` (the `summary` control op, `src/summarize.js`) swaps in a short summary
+  written in the UI language by a tool-less `claude -p` (`summaries.model`, default
+  `claude-haiku-5-5`). It is cached per ticket, language and description hash in
+  `<stateDir>/ticket-summaries.json`, refetched when the language or ticket changes, and only for a
+  tracked ticket assigned to us (never an epic). Any failure keeps the extract with no error shown.
+  Rows and the table tooltip keep the extract: no per-row requests.
 
 ### One plain sentence per run (built)
 - Every step's verdict prompt asks the agent for `summary.plain`: one sentence, ≤ ~25 words, no
@@ -642,8 +649,11 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
 - **SOUL**: markdown file, `digest.soul` in config (default `SOUL.md` beside the config), added to the
   instructions allowlist so the Instructions tab edits it through the existing hash/backup/audit path.
   Missing file means a built-in neutral default.
-- **Result**: only the latest per profile, written by the receiver to `<stateDir>/digest.json`
-  (`text, generatedAt, costUsd, model, basedOnEventOffset`) and pushed to the UI by SSE. The Overview
+- **Language**: the panel sends the UI language (`lang`) on POST and GET; the digest is written in
+  it (else the profile's `language`, else English) and runs on `digest.model`, else `summaries.model`
+  (default `claude-haiku-5-5`).
+- **Result**: the latest per profile and language, written by the receiver to `<stateDir>/digest.json`
+  (`{ byLang: { <lang>: {text, generatedAt, costUsd, model, lang, …} } }`; an older flat file reads as English). The Overview
   panel shows age, an "N events since" stale hint and a Refresh button.
 - **Epics**: the snapshot's `epics` (top 5, ranked by needs-you then activity, needs-you refs only,
   no raw `velocity.days`/tickets/url) comes from the live `epics` op while the receiver is up, else

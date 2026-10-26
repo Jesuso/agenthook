@@ -254,12 +254,13 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  */
 
 /**
- * `GET /api/digest` body (src/digest.js): the profile's latest Digest, or `{ digest: null }`
- * before the first one. `basedOnEvents` = runs in the last 24 h it saw; `needsYou` = tickets it
+ * `GET /api/digest?lang=` body (src/digest.js): the profile's latest Digest in that language, or
+ * `{ digest: null }` before the first one. `basedOnEvents` = runs in the last 24 h it saw; `needsYou` = tickets it
  * flagged. The UI compares `generatedAt` with the live feed to say how stale it is.
  * @typedef {object} DigestView
  * @property {string} text                markdown written by the digest agent
  * @property {string} generatedAt         ISO
+ * @property {string} [lang]              BCP-47 tag it was written in (absent on a legacy, pre per-language record)
  * @property {number} [costUsd]
  * @property {string} [model]
  * @property {number} basedOnEvents

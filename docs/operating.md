@@ -140,7 +140,7 @@ See [events.md](events.md) for every field; this just says what to do.
 | `overlap_held` | wait for `overlap_released`, or reprioritise the blocker |
 | `epic_changed` | re-read `epics` — the cached read was dropped |
 
-`epic_changed` is **hidden by default** (like `coalesced`/`digest_start`/`digest_end`) — name it
+`epic_changed` is **hidden by default** (like `coalesced`/`digest_start`/`digest_end`/`summary_end`) — name it
 explicitly in `--event`/`types` or you won't see it.
 
 ### What the bus can't see

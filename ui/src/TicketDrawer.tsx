@@ -31,6 +31,7 @@ import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
 import { IconButton, Pill, SpeakButton, StatusBadge } from "./components";
 import { useT } from "./i18n/react";
+import { summaryRequest, summaryText } from "./ticketSummary";
 
 const LINE_H = 18;
 const FRAME_TYPES: LogFrame["type"][] = ["init", "append", "reset"];
@@ -104,6 +105,26 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
       setAnswerError(null);
     }
   }, [ticket?.status]);
+
+  // The summary shows the regex extract at once, then the receiver's summary in the UI language
+  // once it arrives (cached there). Any failure keeps the extract, with no error shown.
+  const [localized, setLocalized] = useState<{ lang: string; text: string } | null>(null);
+  const hasSummary = !!ticket?.summary;
+  useEffect(() => {
+    if (!hasSummary) return;
+    let live = true;
+    const { url, init } = summaryRequest(profile, ticketRef, lang);
+    fetch(url, init)
+      .then((res) => res.json().then((b) => summaryText(res.status, b), () => null))
+      .catch(() => null)
+      .then((text) => {
+        if (live && text) setLocalized({ lang, text });
+      });
+    return () => {
+      live = false;
+    };
+  }, [profile, ticketRef, lang, hasSummary]);
+  const summary = localized?.lang === lang ? localized.text : ticket?.summary;
 
   useEffect(() => {
     let live = true;
@@ -209,9 +230,9 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             )}
           </div>
         )}
-        {ticket?.summary && (
+        {ticket?.summary && summary && (
           <p data-drawer-summary className="border-b border-border-subtle px-4 py-3 text-body text-muted">
-            {ticket.summary}<SpeakButton text={ticket.summary} label={t("drawer.readSummary")} className="ml-1 align-middle" />
+            {summary}<SpeakButton text={summary} label={t("drawer.readSummary")} className="ml-1 align-middle" />
           </p>
         )}
         <div data-drawer-runs className="flex min-h-0 flex-1 flex-col p-4">
