@@ -210,6 +210,12 @@ test("compactEvent: move_refused keeps outcome, reason and detail", () => {
   assert.deepEqual(c, { ts: "t", e: "move_refused", ref: "1", step: "code", outcome: "advance", reason: "owner_check_failed", detail: "refused to move 1: owner check failed" });
 });
 
+
+test("compactEvent: run_end keeps its plain sentence, clipped (#563)", () => {
+  const c = compactEvent({ ts: "t", event: "run_end", ref: "1", step: "code", outcome: "hold", plain: "It needs you to pick a database." });
+  assert.deepEqual(c, { ts: "t", e: "run_end", ref: "1", step: "code", outcome: "hold", plain: "It needs you to pick a database." });
+  assert.ok(compactEvent({ ts: "t", event: "run_end", ref: "1", plain: "p".repeat(400) }).plain.length <= 200);
+});
 test("readRuns / readRunLogTail: newest run log tail, step filter, unknown ref", () => {
   const reg = registry();
   const dir = profile(reg, "p");

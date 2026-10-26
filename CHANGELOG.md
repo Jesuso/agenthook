@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Every agent run now ends with one plain sentence for a human (`summary.plain`): the outcome and,
+  on a hold or fail, what you must decide. The dashboard shows it in place of the raw reason on
+  Needs you and Now rows and at the top of the ticket drawer (the full reason stays in the tooltip
+  and drawer); it also rides on `run_end` as `plain`. A run without one renders as before (#563).
+
 ## [0.12.0] — 2026-10-24
 
 ### Added

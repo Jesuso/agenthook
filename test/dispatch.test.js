@@ -1333,6 +1333,31 @@ test("dispatch: a bad summary is dropped with the outcome kept; a changes verdic
   assert.equal(store.getSummaries("42")?.review?.outcome, "changes");
 });
 
+test("parseSummary: plain is measured apart from the cap — clipped on its own, dropped when not a string (#563)", () => {
+  const files = Array.from({ length: 8 }, (_, i) => `src/some/dir/file-${i}.js`);
+  const near = { verdict: "feature", files: files.slice(0, 7) };
+  assert.ok(JSON.stringify(near).length <= 300);
+  const withPlain = { ...near, plain: "Ready for coding: agents will write one plain sentence per run, shown in place of the reason." };
+  assert.ok(JSON.stringify(withPlain).length > 300, "fixture: plain pushes it past the cap");
+  assert.equal(parseSummary(withPlain), withPlain, "kept whole");
+  const long = parseSummary({ risk: "low", plain: "x".repeat(500) });
+  assert.equal(long?.plain.length, 300);
+  assert.ok(long?.plain.endsWith("…"));
+  assert.deepEqual(parseSummary({ risk: "low", plain: 3 }), { risk: "low" });
+});
+
+test("run_end carries summary.plain whitespace-collapsed; absent when missing, blank or not a string (#563)", async () => {
+  const { events, runStep } = summaryHarness();
+  const ends = () => events.filter((e) => e.event === "run_end");
+  await runStep("review", { outcome: "hold", summary: { plain: "  Needs a call\n on  the API name. ", tier: "low" } });
+  assert.equal(ends().at(-1).plain, "Needs a call on the API name.");
+  for (const summary of [undefined, { tier: "low" }, { plain: "   " }, { plain: 3 }]) {
+    await runStep("review", { outcome: "advance", ...(summary ? { summary } : {}) });
+    assert.equal("plain" in ends().at(-1), false, JSON.stringify(summary));
+  }
+  assert.deepEqual(ends().at(-1), { event: "run_end", outcome: "advance" }, "a verdict without plain emits run_end as before");
+});
+
 // --- run_end of an unpriced (local-model) run: no costUsd, unpriced:true ---
 
 const RESULT_LINE = JSON.stringify({ type: "result", total_cost_usd: 0.75, usage: { input_tokens: 10, output_tokens: 5 }, modelUsage: { "claude-opus-4-8": {} } });

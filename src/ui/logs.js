@@ -133,6 +133,7 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
       step: r.step,
       startedAt: r.startedAt,
       outcome,
+      ...(end && typeof end.plain === "string" && end.plain ? { plain: end.plain.slice(0, 300) } : {}),
       costUsd: end && typeof end.costUsd === "number" && Number.isFinite(end.costUsd) ? end.costUsd : null,
       unpriced: !!end && end.unpriced === true,
       estUsd: c.estUsd ?? null,

@@ -581,6 +581,20 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   summary otherwise; either way the summary is in the title tooltip. The drawer shows it under the
   header; the All-tickets table has it as a tooltip. Full descriptions stay in the tracker (the id links there).
 
+### One plain sentence per run (built)
+- Every step's verdict prompt asks the agent for `summary.plain`: one sentence, ≤ ~25 words, no
+  code, paths, ids or jargon, saying the outcome and, on a hold or fail, what the human must decide.
+  It rides on the run's `run_end` event as `plain` (no new state file, no config key).
+- `TicketRow.plain` is the ref's newest `run_end.plain`, set only while it describes the row: held ↔
+  `hold`, failed ↔ `fail`, done ↔ `advance`, running/queued ↔ any (the previous step's sentence);
+  null otherwise, so a sentence never shows when the applied outcome differed (changes cap, CI
+  bounce, timeout, cancel). `RunView.plain` is each run's own.
+- Needs-you rows: `plain` takes the second line in place of the reason / summary, and the full
+  reason (else the summary) moves to its tooltip. Now rows: `plain` takes the second line in place
+  of the summary, which stays in the title tooltip. Drawer: `plain` leads the reason block above the
+  unchanged full reason, and the selected run's `plain` sits under its caption. All prose, not
+  monospace. A run without `plain` renders exactly as before.
+
 ### Run history in the drawer (built)
 - **Swimlanes** replace the run table: one lane per step in the order this ticket's `advance`
   verdicts imply (`stepOrder`, `ui/src/runlog.ts`), time left to right, one bar per run in its

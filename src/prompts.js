@@ -27,6 +27,7 @@ function verdictFooter(verdictFile, outcomeLines, pathsLines = []) {
     `  ${verdictFile}`,
     `(also passed to you as the env var $AGENTHOOK_VERDICT_FILE). Schema:`,
     `  { "outcome": "<one of the below>", "target": "<stepId — only for changes>", "reason": "<one short line>", "findings": "<optional, changes only: full Markdown review findings>", "summary": {<optional small JSON object (≤300 chars) — a summary for supervisors, stored as-is>} }`,
+    `Always include "summary": {"plain": "<one sentence for a human>"} — at most ~25 words, no code, file paths, ids or jargon; say the outcome and, when holding or failing, what the human must decide. It does not count toward the 300-char summary limit (other summary keys are still allowed).`,
     ...pathsLines,
     `Valid outcomes for THIS stage:`,
     ...outcomeLines,
