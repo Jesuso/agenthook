@@ -324,8 +324,8 @@ export default function InstructionsView(props: {
                         <div className="truncate font-mono">{baseName(f.path)}</div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted">
                           {f.ids.length ? f.ids.map((id) => <Pill key={id}>{id}</Pill>) : <span>—</span>}
-                          <span>· {f.exists ? formatBytes(f.bytes) : <span className="text-status-failed">{t("instructions.missing")}</span>}</span>
-                          {f.agentsRunning > 0 && <span className="text-status-held">· {t("instructions.running", { count: f.agentsRunning })}</span>}
+                          <span>· {f.exists ? formatBytes(f.bytes) : t("instructions.missing")}</span>
+                          {f.agentsRunning > 0 && <span className="text-status-running">· {t("instructions.running", { count: f.agentsRunning })}</span>}
                         </div>
                       </button>
                     </li>
@@ -364,7 +364,7 @@ export default function InstructionsView(props: {
                 {phase === "saving" ? (
                   <span className="shrink-0 text-muted">{t("instructions.saving")}</span>
                 ) : (
-                  dirty && <span className="shrink-0 text-status-held">{t("instructions.modified")}</span>
+                  dirty && <span className="shrink-0 font-medium text-fg">{t("instructions.modified")}</span>
                 )}
                 <Segmented
                   value={side}
@@ -398,15 +398,15 @@ export default function InstructionsView(props: {
                 <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
                   {phase === "deleted" ? t("instructions.deletedBanner") : t("instructions.changedBanner")}
                   <span className="ml-auto flex gap-2">
-                    <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
+                    <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={() => load(open.profile, open.path)}>
                       {t("instructions.reload")}
                     </button>
                     {phase === "conflict" && (
                       <>
-                        <button className="rounded border border-status-held px-2 py-0.5" onClick={showDiff}>
+                        <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={showDiff}>
                           {t("instructions.diff")}
                         </button>
-                        <button className="rounded border border-status-held px-2 py-0.5" onClick={overwrite}>
+                        <button className="rounded border border-status-failed bg-surface px-2 py-0.5 text-status-failed hover:bg-status-failed-bg" onClick={overwrite}>
                           {t("instructions.overwrite")}
                         </button>
                       </>
@@ -454,7 +454,7 @@ export default function InstructionsView(props: {
             <button className="rounded border border-[var(--color-border)] px-3 py-1" onClick={() => setDiff(false)}>
               {t("instructions.close")}
             </button>
-            <button className="rounded border border-[var(--color-warn)] px-3 py-1 text-[var(--color-warn)]" onClick={overwrite}>
+            <button className="rounded border border-status-failed px-3 py-1 text-status-failed hover:bg-status-failed-bg" onClick={overwrite}>
               {t("instructions.overwrite")}
             </button>
           </div>
@@ -522,5 +522,6 @@ function ConfirmSave(props: { agentsRunning: number; fullAuto: boolean; onCancel
 function InlineLiveEffect(props: { agentsRunning: number }) {
   const { lang } = useT();
   const note = liveEffectNote(props.agentsRunning, lang);
-  return <span className={`text-label ${note.warn ? "text-status-held" : "text-muted"}`}>{note.warn ? `⚠ ${note.text}` : note.text}</span>;
+  // Running agents are state, so they take the running hue; no warning glyph (nothing is wrong).
+  return <span className={`text-label ${note.warn ? "text-status-running" : "text-muted"}`}>{note.text}</span>;
 }
