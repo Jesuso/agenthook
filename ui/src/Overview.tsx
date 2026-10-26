@@ -18,6 +18,8 @@ import { ReleasePanel } from "./ReleasePanel";
 import { dismissKey } from "./deferredDismiss";
 import { failureSummary } from "./failure";
 import { OVERVIEW_SHORTCUTS, overviewAction, shortcutsEnabled } from "./shortcuts";
+import { useT } from "./i18n/react";
+import type { MessageKey } from "./i18n";
 
 type Ref = { profile: string; ref: string };
 
@@ -56,6 +58,7 @@ export type OverviewProps = {
  */
 export function Overview(props: OverviewProps) {
   const { profile, snapshot, now, feed, onOpen } = props;
+  const { t } = useT();
   const scoped = scopeToProfile(snapshot, profile.name);
   const forge = !!profile.forge;
   const needs = needsYouItems(scoped.tickets, forge).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
@@ -94,7 +97,7 @@ export function Overview(props: OverviewProps) {
           <div className="ml-auto flex items-center gap-2">
             {props.note && <span className="text-label text-status-held">{props.note}</span>}
             <ShortcutsButton onClick={() => setHelp(true)} />
-            <Menu label="profile actions" items={props.menuItems} />
+            <Menu label={t("overview.profileActions")} items={props.menuItems} />
           </div>
         </div>
 
@@ -106,10 +109,10 @@ export function Overview(props: OverviewProps) {
             <>
               <span className="inline-flex items-center gap-2">
                 <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
-                agents
+                {t("common.agents")}
               </span>
               <span>
-                <span className="font-mono text-fg">{profile.queued ?? 0}</span> queued
+                <span className="font-mono text-fg">{profile.queued ?? 0}</span> {t("common.queued")}
               </span>
             </>
           )}
@@ -121,7 +124,7 @@ export function Overview(props: OverviewProps) {
 
       {/* Screen readers hear the headline change (a ticket arrives or is handled), not every re-render. */}
       <p className="sr-only" aria-live="polite" data-needs-live>
-        {needs.length === 0 ? "All clear, nothing needs you" : `${needs.length} ${needs.length === 1 ? "ticket needs" : "tickets need"} you`}
+        {needs.length === 0 ? t("overview.liveAllClear") : t("overview.liveNeeds", { count: needs.length })}
       </p>
 
       <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} />
@@ -137,9 +140,9 @@ export function Overview(props: OverviewProps) {
         <section data-all-tickets data-open={ticketsShown} className="rounded-lg border border-border bg-surface">
           <div className="flex items-center justify-between gap-2 px-3 py-2">
             <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
-              All tickets <span className="font-mono normal-case">{scoped.tickets.length}</span>
+              {t("overview.allTickets")} <span className="font-mono normal-case">{scoped.tickets.length}</span>
             </h2>
-            {!filtered && <ShowHide open={ticketsOpen} onToggle={() => setTicketsOpen(!ticketsOpen)} controls="all-tickets" label="all tickets" data-tickets-toggle />}
+            {!filtered && <ShowHide open={ticketsOpen} onToggle={() => setTicketsOpen(!ticketsOpen)} controls="all-tickets" label={t("overview.allTicketsLabel")} data-tickets-toggle />}
           </div>
           {ticketsShown && (
           <div id="all-tickets" className="px-3 pb-3">
@@ -167,7 +170,7 @@ export function Overview(props: OverviewProps) {
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
 
-      {help && <ShortcutSheet rows={OVERVIEW_SHORTCUTS} onClose={() => setHelp(false)} />}
+      {help && <ShortcutSheet rows={OVERVIEW_SHORTCUTS.map((s) => ({ keys: s.keys, what: t(s.what) }))} onClose={() => setHelp(false)} />}
     </div>
   );
 }
@@ -186,12 +189,14 @@ function Tile({ label, title, children }: { label: string; title?: string; child
  * two commands that recover (start, then reconcile to fire tickets that moved while it was down).
  */
 function StoppedBanner({ profile }: { profile: ProfileView }) {
+  const { t } = useT();
   const cfg = profile.configPath ? ` --config ${profile.configPath}` : "";
   return (
     <div data-stopped-banner className="rounded-lg border border-status-held/40 bg-status-held-bg px-3 py-2 text-body">
-      <p className="font-semibold text-status-held">The receiver is stopped, so no agents will run.</p>
+      <p className="font-semibold text-status-held">{t("overview.stopped")}</p>
       <p className="text-fg">
-        Tickets moved on the board wait in their stage.{!profile.configMissing && " Start it, then pick up what moved meanwhile:"}
+        {t("overview.stoppedWait")}
+        {!profile.configMissing && ` ${t("overview.stoppedStart")}`}
       </p>
       {!profile.configMissing && (
         <div className="mt-2 flex flex-col gap-1.5">
@@ -205,9 +210,10 @@ function StoppedBanner({ profile }: { profile: ProfileView }) {
 
 /** One pip per slot: filled while an agent runs in it, dashed while free; "—" when the receiver is down. */
 function SlotPips({ active, max, up }: { active: number; max: number; up: boolean }) {
+  const { t } = useT();
   if (!up || max <= 0) return <span className="font-mono text-muted">—</span>;
   return (
-    <span className="inline-flex items-center gap-2" title={`${active} of ${max} slots in use`}>
+    <span className="inline-flex items-center gap-2" title={t("overview.slotsTitle", { active, max })}>
       <span className="inline-flex gap-1" aria-hidden="true">
         {Array.from({ length: max }, (_, i) => (
           <span key={i} data-slot={i < active ? "busy" : "free"} className={`size-2.5 rounded-full ${i < active ? "bg-status-running" : "border border-dashed border-border-strong"}`} />
@@ -232,10 +238,10 @@ function Zone({ title, count, children }: { title: string; count?: number; child
   );
 }
 
-const KIND: Record<NeedsItem["kind"], { text: string; tone: "failed" | "held" | "done" }> = {
-  failed: { text: "failed", tone: "failed" },
-  held: { text: "held", tone: "held" },
-  pr: { text: "PR ready", tone: "done" },
+const KIND: Record<NeedsItem["kind"], { text: MessageKey; tone: "failed" | "held" | "done" }> = {
+  failed: { text: "needs.failed", tone: "failed" },
+  held: { text: "needs.held", tone: "held" },
+  pr: { text: "needs.pr", tone: "done" },
 };
 
 /** Hover (or keyboard focus) reveals a row's actions; touch screens always show them. */
@@ -293,6 +299,7 @@ const headlineTone = (items: NeedsItem[]) =>
 type Retry = { state: "busy" | "started" } | { state: "error"; error: string };
 
 function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"] }) {
+  const { t: tr, lang } = useT();
   const [releasing, setReleasing] = useState<string | null>(null);
   // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
   const [retries, setRetries] = useState<Record<string, Retry>>({});
@@ -313,10 +320,10 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
               ✓
             </span>
           )}{" "}
-          <span className="text-stat font-semibold">{up ? "All clear" : "Nothing needs you"}</span>
+          <span className="text-stat font-semibold">{up ? tr("overview.allClear") : tr("overview.nothingNeedsYou")}</span>
         </h2>
         <p className="text-label text-muted">
-          {up ? "Held questions, failed runs and PRs ready to merge show up here." : "Until the receiver is started again, nothing new can arrive here."}
+          {up ? tr("overview.allClearHint") : tr("overview.downHint")}
         </p>
       </section>
     );
@@ -326,10 +333,10 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="flex items-baseline gap-2">
           <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>{" "}
-          <span className="text-title font-semibold">{items.length === 1 ? "needs you" : "need you"}</span>
+          <span className="text-title font-semibold">{tr("overview.needYou", { count: items.length })}</span>
         </h2>
         <p className="ml-auto text-label text-muted max-sm:hidden" data-keys-hint>
-          <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">?</kbd> shortcuts
+          <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> {tr("overview.keysMove")} · <kbd className="font-mono">?</kbd> {tr("overview.keysShortcuts")}
         </p>
       </div>
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
@@ -340,8 +347,9 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
           const sub = t.plain ?? reason ?? t.summary;
           const subTitle = t.plain ? (item.reason ?? t.summary ?? undefined) : (reason ?? t.summary ?? undefined);
           const said = t.plain ?? reason;
-          const title = ticketTitle(t);
-          const titleText = title.unknown ? "(untitled)" : title.text;
+          const title = ticketTitle(t, lang);
+          const titleText = title.unknown ? tr("ticket.untitled") : title.text;
+          const kindText = tr(KIND[kind].text);
           const rerun = retries[t.ref];
           const pr = prNumber(t.prUrl);
           return (
@@ -349,14 +357,14 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
               {/* Below sm (a half-width window, a phone) the row stacks: kind, id, age and the action on
                   one line, the title and its reason full width underneath, instead of squeezing to "…". */}
               <div className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1">
-                <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{KIND[kind].text}</Pill></span>
+                <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{kindText}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
                 <button
                   type="button"
                   data-needs-open
-                  aria-label={`${t.displayId} ${titleText}, ${KIND[kind].text}${said ? `: ${said}` : ""}`}
+                  aria-label={`${t.displayId} ${titleText}, ${kindText}${said ? `: ${said}` : ""}`}
                   className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full"
-                  title={t.summary ? `${t.summary} — open details` : "open details"}
+                  title={t.summary ? tr("overview.titleOpenDetails", { title: t.summary }) : tr("overview.openDetails")}
                   onClick={() => onOpen({ profile: t.profile, ref: t.ref })}
                 >
                   <span className={title.unknown ? "text-muted" : ""}>{titleText}</span>
@@ -364,44 +372,44 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                 </button>
                 <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
                   {t.step ? `${t.step} · ` : ""}
-                  {formatRelative(since, now)}
+                  {formatRelative(since, now, lang)}
                 </span>
                 {/* One primary action per row, always visible, in a fixed-width slot so the columns line
                     up; a failed row adds the quieter Dismiss before it. A PR link on a held/failed row
                     lives in the drawer header; the title opens the drawer. */}
                 <span className="flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto">
                   {kind === "failed" && (
-                    <button type="button" data-needs-dismiss aria-label={`Dismiss ${t.displayId}`} aria-keyshortcuts="d" className={QUIET} title="acknowledge: it stops counting as needing you" onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
-                      Dismiss
+                    <button type="button" data-needs-dismiss aria-label={tr("overview.dismissAria", { id: t.displayId })} aria-keyshortcuts="d" className={QUIET} title={tr("overview.dismissTitle")} onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
+                      {tr("overview.dismiss")}
                     </button>
                   )}
                   <span data-needs-primary>
                     {kind === "held" ? (
                       releasing !== t.ref && (
-                        <button type="button" data-release-open aria-label={`Release ${t.displayId}…`} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
-                          Release…
+                        <button type="button" data-release-open aria-label={tr("overview.releaseAria", { id: t.displayId })} aria-keyshortcuts="r" className={ACTION} onClick={() => setReleasing(t.ref)}>
+                          {tr("overview.release")}
                         </button>
                       )
                     ) : kind === "failed" && up ? (
                       <button
                         type="button"
                         data-needs-retry
-                        aria-label={`Re-run ${t.displayId}${t.step ? ` (${t.step})` : ""}`}
+                        aria-label={t.step ? tr("overview.rerunAriaStep", { id: t.displayId, step: t.step }) : tr("overview.rerunAria", { id: t.displayId })}
                         aria-keyshortcuts="r"
                         disabled={rerun?.state === "busy" || rerun?.state === "started"}
                         className={`${ACTION} disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent`}
-                        title={t.step ? `run the ${t.step} step again` : "run the failed step again"}
+                        title={t.step ? tr("overview.rerunStepTitle", { step: t.step }) : tr("overview.rerunTitle")}
                         onClick={() => retry(t)}
                       >
-                        {rerun?.state === "busy" ? "Re-running…" : rerun?.state === "started" ? "Started" : "Re-run"}
+                        {rerun?.state === "busy" ? tr("overview.rerunning") : rerun?.state === "started" ? tr("overview.started") : tr("overview.rerun")}
                       </button>
                     ) : kind === "failed" ? (
                       // Down, nothing can re-run it: the drawer has the full reason and the run log.
-                      <button type="button" data-needs-log aria-label={`Open log for ${t.displayId}`} className={ACTION} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-                        Open log
+                      <button type="button" data-needs-log aria-label={tr("overview.openLogAria", { id: t.displayId })} className={ACTION} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+                        {tr("overview.openLog")}
                       </button>
                     ) : t.prUrl ? (
-                      <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer" aria-label={`Open PR ${pr ? `#${pr}` : ""} for ${t.displayId} (new tab)`}>
+                      <a className={ACTION} href={t.prUrl} target="_blank" rel="noreferrer" aria-label={tr("overview.openPrAria", { pr: pr ? `#${pr}` : "", id: t.displayId })}>
                         PR {pr ? `#${pr}` : ""} ↗
                       </a>
                     ) : null}
@@ -410,7 +418,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
               </div>
               {rerun?.state === "error" && (
                 <p role="alert" data-retry-error className="px-3 pb-2 text-label text-status-failed">
-                  Couldn't re-run {t.displayId}: {rerun.error}
+                  {tr("overview.retryError", { id: t.displayId, error: rerun.error })}
                 </p>
               )}
               {kind === "held" && releasing === t.ref && <ReleasePanel ticket={item.ticket} onRelease={onRelease} onClose={() => setReleasing(null)} />}
@@ -423,15 +431,16 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
 }
 
 function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpen: (r: Ref) => void; queuedAt?: number }) {
-  const title = ticketTitle(t);
+  const { t: tr, lang } = useT();
+  const title = ticketTitle(t, lang);
   const model = formatModel(t.model);
   const elapsed = t.startedAt ? formatDuration(now - Date.parse(t.startedAt)) : "—";
   return (
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
       <TicketId id={t.displayId} url={t.trackerUrl} />
-      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? "open details" : `${title.text}${t.summary ? ` — ${t.summary}` : ""} — open details`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-        <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? "(untitled)" : title.text}</span>
+      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? tr("overview.openDetails") : tr("overview.titleOpenDetails", { title: `${title.text}${t.summary ? ` — ${t.summary}` : ""}` })} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+        <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? tr("ticket.untitled") : title.text}</span>
         {(t.plain ?? t.summary) && <span className="block truncate text-label text-muted" data-now-sub>{t.plain ?? t.summary}</span>}
       </button>
       {t.step && <Pill>{t.step}</Pill>}
@@ -439,10 +448,10 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
         <>
           {/* Narrow: model and cost go (the drawer has both); elapsed stays, it is the progress signal. */}
           <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
-          <span className="font-mono text-label" title="elapsed">{elapsed}</span>
-          <span className="font-mono text-label text-muted max-sm:hidden" title="cost so far (approx.)">{formatTicketSpend(t)}</span>
+          <span className="font-mono text-label" title={tr("overview.elapsed")}>{elapsed}</span>
+          <span className="font-mono text-label text-muted max-sm:hidden" title={tr("overview.costSoFar")}>{formatTicketSpend(t)}</span>
           <button type="button" className={`${LINK} ${REVEAL} max-sm:hidden`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-            Follow log
+            {tr("overview.followLog")}
           </button>
         </>
       )}
@@ -451,25 +460,26 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
 }
 
 function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileView; running: TicketRow[]; queued: TicketRow[]; now: number; onOpen: (t: Ref) => void }) {
+  const { t } = useT();
   const max = profile.maxConcurrent ?? 0;
   const free = profile.up ? Math.max(0, max - running.length) : 0;
   return (
-    <Zone title="Now" count={running.length}>
+    <Zone title={t("overview.now")} count={running.length}>
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
         {running.length > 0 && <ul className="divide-y divide-border-subtle">{running.map((t) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} />)}</ul>}
         {/* Idle capacity is one quiet line, not a row per slot: rows are for work. */}
         {free > 0 && (
           <p data-free-slots={free} className={`flex items-center gap-3 px-3 py-2 text-label text-muted ${running.length ? "border-t border-border-subtle" : ""}`}>
             <span aria-hidden="true" className="size-2 rounded-full border border-dashed border-border-strong" />
-            {running.length === 0 ? "Nothing running · " : ""}
-            {free} free slot{free === 1 ? "" : "s"}
+            {running.length === 0 ? t("overview.nothingRunning") : ""}
+            {t("overview.freeSlots", { count: free })}
           </p>
         )}
-        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">Nothing is running.</p>}
+        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">{t("overview.nothingIsRunning")}</p>}
         {queued.length > 0 && (
           <div className="border-t border-border-subtle">
             <div className="px-3 pt-2 text-label text-muted">
-              Queued · <span className="font-mono">{queued.length}</span>
+              {t("overview.queuedHeading")} · <span className="font-mono">{queued.length}</span>
             </div>
             <ul className="divide-y divide-border-subtle">{queued.map((t, i) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} queuedAt={i + 1} />)}</ul>
           </div>
@@ -479,29 +489,29 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
   );
 }
 
-const delta = (today: number, yesterday: number) => (yesterday === 0 && today === 0 ? "" : `yesterday ${yesterday}`);
-
 function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string; feed: FeedEntry[] }) {
+  const { t, lang } = useT();
+  const delta = (today: number, yesterday: number) => (yesterday === 0 && today === 0 ? "" : t("overview.yesterday", { value: yesterday }));
   const rate = prog.reworkRate;
   return (
-    <Zone title="Progress">
+    <Zone title={t("overview.progress")}>
       <dl data-progress className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <Tile label="finished today">
+        <Tile label={t("overview.finishedToday")}>
           <span className="font-mono">{prog.finishedToday}</span> <span className="text-label font-normal text-muted">{delta(prog.finishedToday, prog.finishedYesterday)}</span>
         </Tile>
-        <Tile label="cost today (approx.)">
-          <span className="font-mono">{formatSpend({ reported: prog.costToday, est: prog.estToday }) || formatCost(0)}</span>{" "}
-          <span className="text-label font-normal text-muted">{prog.costYesterday || prog.estYesterday ? `yesterday ${formatSpend({ reported: prog.costYesterday, est: prog.estYesterday })}` : ""}</span>
+        <Tile label={t("overview.costToday")}>
+          <span className="font-mono">{formatSpend({ reported: prog.costToday, est: prog.estToday }) || formatCost(0, lang)}</span>{" "}
+          <span className="text-label font-normal text-muted">{prog.costYesterday || prog.estYesterday ? t("overview.yesterday", { value: formatSpend({ reported: prog.costYesterday, est: prog.estYesterday }) }) : ""}</span>
         </Tile>
-        <Tile label="rework · 48 h" title="share of agent runs that ended in a rework loop (changes), over the last ~48 h of events">
+        <Tile label={t("overview.rework")} title={t("overview.reworkTitle")}>
           {rate === null ? (
-            <span className="text-label font-normal text-muted">needs {MIN_RUNS_FOR_RATES}+ runs ({prog.runs} so far)</span>
+            <span className="text-label font-normal text-muted">{t("overview.needsRuns", { min: MIN_RUNS_FOR_RATES, runs: prog.runs })}</span>
           ) : (
             <span className="font-mono">{Math.round(rate * 100)}%</span>
           )}
         </Tile>
       </dl>
-      <p className="mt-1 text-meta leading-4 text-muted">Today, yesterday and rework come from the last ~48 h of events; History below covers the chosen range.</p>
+      <p className="mt-1 text-meta leading-4 text-muted">{t("overview.progressFoot")}</p>
       <StatsStrip profile={profile} feed={feed} />
     </Zone>
   );

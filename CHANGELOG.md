@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format is based on
   control, widened together), a shorter line for rendered prose, and a warm background. Settings
   are per browser and prose only (ids, logs, code, editors and diffs are untouched); nothing
   changes until you pick something (#559).
+- The dashboard speaks Spanish: the reading panel's new **Language** setting (Auto / English /
+  Español) re-renders the app shell, Home, the Overview and the shared components in place and
+  sets `<html lang>`. Auto only picks a language whose translation is complete, so until the
+  remaining views follow (#562) it stays English and Español is marked "(partial)". The spend,
+  energy and quota readouts stay English (they are shared with the CLI). Adding a language is one
+  dictionary file; see docs/web-ui.md § Languages (#561).
 - Every agent run now ends with one plain sentence for a human (`summary.plain`): the outcome and,
   on a hold or fail, what you must decide. The dashboard shows it in place of the raw reason on
   Needs you and Now rows and at the top of the ticket drawer (the full reason stays in the tooltip

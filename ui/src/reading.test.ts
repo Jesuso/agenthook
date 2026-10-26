@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { READING_SETTINGS, applyReading, readReading, readingDefaults, resetReading, writeReading } from "./reading";
 
-const DEFAULTS = { text: "0", spacing: "off", measure: "default", bg: "default" };
+const DEFAULTS = { text: "0", spacing: "off", measure: "default", bg: "default", lang: "auto" };
 
 /** An in-memory Storage subset. */
 function memory(init: Record<string, string> = {}) {
@@ -40,8 +40,8 @@ const throwing = {
 };
 
 describe("reading settings", () => {
-  it("register text, spacing, line width and background, each default one of its options", () => {
-    expect(READING_SETTINGS.map((s) => s.key)).toEqual(["text", "spacing", "measure", "bg"]);
+  it("register text, spacing, line width, background and language, each default one of its options", () => {
+    expect(READING_SETTINGS.map((s) => s.key)).toEqual(["text", "spacing", "measure", "bg", "lang"]);
     for (const s of READING_SETTINGS) expect(s.options.map((o) => o.value), s.key).toContain(s.default);
     expect(readingDefaults()).toEqual(DEFAULTS);
   });
@@ -84,6 +84,22 @@ describe("reading settings", () => {
     expect(readReading(store)).toEqual({ ...DEFAULTS, text: "2", bg: "warm" });
     writeReading(DEFAULTS, store);
     expect(store.data.has("ah-reading")).toBe(false);
+  });
+
+  it("language: Auto, then every dictionary by its own name, an incomplete one flagged partial; stored only when chosen", () => {
+    const lang = READING_SETTINGS.find((s) => s.key === "lang")!;
+    expect(lang.options).toEqual([
+      { value: "auto", label: "reading.auto" },
+      { value: "en", text: "English", partial: false },
+      { value: "es", text: "Español", partial: true },
+    ]);
+    const store = memory();
+    writeReading(DEFAULTS, store);
+    expect(store.data.has("ah-reading")).toBe(false);
+    writeReading({ ...DEFAULTS, lang: "es" }, store);
+    expect(JSON.parse(store.data.get("ah-reading")!)).toEqual({ lang: "es" });
+    expect(readReading(store).lang).toBe("es");
+    expect(readReading(memory({ "ah-reading": JSON.stringify({ lang: "fr" }) })).lang).toBe("auto");
   });
 
   it("write best effort: throwing or absent storage is not an error", () => {
