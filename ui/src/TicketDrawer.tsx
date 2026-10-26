@@ -1,8 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { LogFrame, RunView, TicketRow, TicketStatus } from "./contract";
+import type { ReleaseOutcome } from "./config";
 import { formatDuration, formatRelative, formatTicketSpend, ticketTitle } from "./format";
 import { prNumber } from "./tickets";
+import { AnswerOptions } from "./AnswerOptions";
 import {
   applyFrame,
   chunkRanges,
@@ -74,13 +76,32 @@ type RunsState = { kind: "loading" } | { kind: "error"; status: number } | { kin
  * of the selected run. The newest run is selected until the user picks one. The parent keys it
  * by ticket, so a different ticket starts fresh.
  */
-export function TicketDrawer(props: { profile: string; ticketRef: string; ticket: TicketRow | undefined; runsNonce: number; onClose: () => void }) {
-  const { profile, ticketRef, ticket, runsNonce } = props;
+export function TicketDrawer(props: { profile: string; ticketRef: string; ticket: TicketRow | undefined; runsNonce: number; onClose: () => void; onRelease?: (t: { profile: string; ref: string }, comment: string) => Promise<ReleaseOutcome> }) {
+  const { profile, ticketRef, ticket, runsNonce, onRelease } = props;
   const [runs, setRuns] = useState<RunsState>({ kind: "loading" });
   const [picked, setPicked] = useState<string | null>(null);
+  const [answerBusy, setAnswerBusy] = useState(false);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+  const sendAnswer = async (comment: string) => {
+    if (!onRelease) return;
+    setAnswerBusy(true);
+    setAnswerError(null);
+    const out = await onRelease({ profile, ref: ticketRef }, comment);
+    if (!out.ok) {
+      setAnswerBusy(false);
+      setAnswerError(out.error);
+    }
+  };
   const onClose = useRef(props.onClose);
   onClose.current = props.onClose;
   const dialog = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (ticket?.status !== "held") {
+      setAnswerBusy(false);
+      setAnswerError(null);
+    }
+  }, [ticket?.status]);
 
   useEffect(() => {
     let live = true;
@@ -174,6 +195,16 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               </p>
             )}
             <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
+            {ticket.status === "held" && ticket.options && ticket.options.length > 0 && onRelease && (
+              <div data-drawer-answer className="mt-2">
+                <AnswerOptions options={ticket.options} busy={answerBusy} onSend={sendAnswer} />
+                {answerError && (
+                  <p role="alert" className="mt-1 text-label text-status-failed">
+                    {answerError}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
         {ticket?.summary && (

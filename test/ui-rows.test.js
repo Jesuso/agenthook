@@ -632,3 +632,38 @@ test("buildRows: plain is the newest run_end's sentence only while its outcome m
   assert.equal(row(rows, "none").status, "held");
   assert.equal(row(rows, "none").plain, null, "a matching run_end with no plain");
 });
+
+test("buildRows: options is the newest run_end's options only while held with a hold outcome; re-validated defensively (#565)", () => {
+  const end = (/** @type {string} */ ref, /** @type {string} */ outcome, /** @type {any} */ options) => ({ ts: "a", event: "run_end", ref, step: "code", outcome, options });
+  const rows = buildRows(
+    "p",
+    state({
+      held: {
+        h: { stepId: "code", reason: "which db?" },
+        hx: { stepId: "code", reason: "cap" },
+        hbad: { stepId: "code", reason: "x" },
+        hnone: { stepId: "code", reason: "x" },
+      },
+      events: [
+        end("h", "hold", ["Postgres", "SQLite"]),
+        end("hx", "changes", ["Postgres", "SQLite"]), // the changes cap turned it into a hold without a matching run_end
+        end("d", "advance", ["Postgres", "SQLite"]),
+        end("hbad", "hold", ["only one"]),
+        end("hbad2", "hold", "not an array"),
+        end("hlong", "hold", ["x".repeat(90), "y".repeat(90)]),
+      ],
+    }),
+  );
+  assert.deepEqual(row(rows, "h").options, ["Postgres", "SQLite"], "held + hold outcome → kept");
+  assert.equal(row(rows, "hx").status, "held");
+  assert.equal(row(rows, "hx").options, null, "held, but the newest run_end outcome is \"changes\", not \"hold\" → null");
+  assert.equal(row(rows, "d").status, "idle");
+  assert.equal(row(rows, "d").options, null, "not held → null even with a hold-shaped run_end elsewhere");
+  assert.equal(row(rows, "hnone").options, null, "held, no run_end options → null");
+  assert.equal(row(rows, "hbad").options, null, "held, but options is 1 entry → null (re-validated)");
+  assert.equal(row(rows, "hbad2").status, "idle", "no held record for this ref");
+  assert.equal(row(rows, "hbad2").options, null, "not held → null regardless of the malformed run_end options");
+
+  const longRows = buildRows("p", state({ held: { hlong: { stepId: "code", reason: "x" } }, events: [end("hlong", "hold", ["x".repeat(90), "y".repeat(90)])] }));
+  assert.deepEqual(row(longRows, "hlong").options, ["x".repeat(80), "y".repeat(80)], "each entry sliced to 80 chars");
+});

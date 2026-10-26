@@ -17,12 +17,29 @@ export const MAX_SUMMARY_CHARS = 300;
 /** Cap for `summary.plain`, the one-sentence human summary: clipped, never counted toward MAX_SUMMARY_CHARS. */
 export const MAX_PLAIN_CHARS = 300;
 
+/** Cap for each `summary.options` entry (a short discrete answer the human can click instead of typing). */
+export const MAX_OPTION_CHARS = 80;
+
+/**
+ * Validate `summary.options`: kept only as a whitespace-collapsed, trimmed array of 2–4
+ * non-empty strings each ≤ MAX_OPTION_CHARS. Anything else (wrong length, non-string or
+ * empty/oversize entry) is dropped whole.
+ * @param {unknown} raw
+ * @returns {string[]|undefined}
+ */
+function cleanOptions(raw) {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 4) return undefined;
+  const cleaned = raw.map((o) => (typeof o === "string" ? o.replace(/\s+/g, " ").trim() : null));
+  if (cleaned.some((o) => !o || o.length > MAX_OPTION_CHARS)) return undefined;
+  return /** @type {string[]} */ (cleaned);
+}
+
 /**
  * The verdict's optional `summary`: a small plain object, stored as-is (never interpreted)
  * for supervisors. Anything else — non-object, array, null, or over MAX_SUMMARY_CHARS
- * serialised — is dropped with one log line; it never affects the outcome. `plain` is measured
- * on its own (clipped to MAX_PLAIN_CHARS, dropped when not a string), so adding the one-sentence
- * summary never pushes an otherwise-valid summary over the cap.
+ * serialised — is dropped with one log line; it never affects the outcome. `plain` and
+ * `options` are each measured on their own (dropped/clipped independently), so neither pushes
+ * an otherwise-valid summary over the cap.
  * @param {unknown} raw
  * @returns {Record<string, unknown>|undefined}
  */
@@ -32,15 +49,25 @@ export function parseSummary(raw) {
     console.log("[verdict] dropping summary (non-object)");
     return undefined;
   }
-  const { plain, ...rest } = /** @type {Record<string, unknown>} */ (raw);
+  const { plain, options, ...rest } = /** @type {Record<string, unknown>} */ (raw);
   const n = JSON.stringify(rest).length; // raw came from JSON.parse — always serialisable
   if (n > MAX_SUMMARY_CHARS) {
     console.log(`[verdict] dropping summary (oversize ${n} chars)`);
     return undefined;
   }
-  if (plain === undefined || (typeof plain === "string" && plain.length <= MAX_PLAIN_CHARS)) return /** @type {Record<string, unknown>} */ (raw);
-  if (typeof plain !== "string") return rest;
-  return { ...rest, plain: plain.slice(0, MAX_PLAIN_CHARS - 1).trimEnd() + "…" };
+  if (options === undefined) {
+    // No options: unchanged from before — return `raw` itself when nothing needs clipping/dropping.
+    if (plain === undefined || (typeof plain === "string" && plain.length <= MAX_PLAIN_CHARS)) return /** @type {Record<string, unknown>} */ (raw);
+    if (typeof plain !== "string") return rest;
+    return { ...rest, plain: plain.slice(0, MAX_PLAIN_CHARS - 1).trimEnd() + "…" };
+  }
+  const cleanedOptions = cleanOptions(options);
+  if (!cleanedOptions) console.log("[verdict] dropping summary.options (not 2-4 short strings)");
+  /** @type {Record<string, unknown>} */
+  const out = { ...rest };
+  if (plain !== undefined && typeof plain === "string") out.plain = plain.length <= MAX_PLAIN_CHARS ? plain : plain.slice(0, MAX_PLAIN_CHARS - 1).trimEnd() + "…";
+  if (cleanedOptions) out.options = cleanedOptions;
+  return out;
 }
 
 const MAX_FINDINGS = 20000;

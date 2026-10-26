@@ -280,3 +280,15 @@ test("every step kind's verdict footer asks for a plain one-sentence summary (#5
     assert.match(p, /does not count toward the 300-char summary limit/, kind);
   }
 });
+
+test("every step kind's verdict footer offers summary.options, scoped to a hold with discrete answers (#565)", () => {
+  for (const kind of ["triage", "implement", "change", "review"]) {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.match(p, /Only when holding with a question that genuinely has 2-4 discrete answers/, kind);
+    assert.match(p, /"options": \["<short answer>", \.\.\.\]/, kind);
+    assert.match(p, /each <= 80 chars, no code or ids/, kind);
+    assert.match(p, /Never invent a false choice/, kind);
+    assert.match(p, /Leave it out when the answer is open-ended/, kind);
+    assert.match(p, /does not count toward the 300-char limit/, kind);
+  }
+});

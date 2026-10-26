@@ -595,6 +595,22 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   unchanged full reason, and the selected run's `plain` sits under its caption. All prose, not
   monospace. A run without `plain` renders exactly as before.
 
+### Answer by choosing an option (built)
+- On a hold with a question that genuinely has 2-4 discrete answers, the agent may add
+  `summary.options` to its verdict: 2-4 short strings (≤ 80 chars each), measured apart from the
+  300-char summary cap like `plain` (`src/dispatch/verdict.js` `parseSummary`). It rides on the
+  run's `run_end` event as `options`, only for a `hold` outcome.
+- `TicketRow.options` is the ref's newest `run_end.options`, set only while the row is `held` and
+  that run_end's outcome is `hold`; null otherwise (re-validated defensively on the way in,
+  `src/ui/rows.js`).
+- The shared Release panel (`ui/src/ReleasePanel.tsx`, used by Needs you and the epic page) and
+  the ticket drawer's held-reason block (`ui/src/TicketDrawer.tsx`) both render the options as
+  plain-prose buttons above the free-text fallback (`ui/src/AnswerOptions.tsx`, so the two can't
+  drift apart). Clicking one shows an inline confirmation with the exact text ("Send this answer
+  and release: «…»"); only Confirm sends it, as the `release` op's `comment` — the same path a
+  typed answer takes, so no server, ops or tracker change was needed. Cancel returns to the list
+  without sending anything. A held ticket without `options` renders exactly as before everywhere.
+
 ### Run history in the drawer (built)
 - **Swimlanes** replace the run table: one lane per step in the order this ticket's `advance`
   verdicts imply (`stepOrder`, `ui/src/runlog.ts`), time left to right, one bar per run in its
