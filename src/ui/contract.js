@@ -117,7 +117,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} plain          the newest run_end's `plain` (the agent's one-sentence summary.plain, agent-authored — untrusted), only while it describes the status: held ↔ hold, failed ↔ fail, done ↔ advance, running/queued ↔ any; null otherwise
  * @property {string[]|null} options      2-4 short discrete answers (agent-authored — untrusted) from the newest run_end, only while the row is `held` and that run_end's outcome is `hold`; null otherwise
  * @property {string|null} step           current / last step id
- * @property {TicketStatus} status        `done` = the board says done (a `board_done` — the done flag or the terminal stage — or a legacy `pipeline_done` since the last re-run; ADR 0008), never a merged PR alone
+ * @property {TicketStatus} status        `done` = the board's own done flag (a flag `board_done` since the last re-run; ADR 0008), never the terminal stage (`pipeline_done`) or a merged PR
  * @property {string|null} model          from running.json, else the last run_start
  * @property {string|null} startedAt
  * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)

@@ -249,8 +249,10 @@ before the hold it forces; a `blocked` event follows), `blocked {reason}` (task 
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
 `pipeline_done` (ticket finished, PR ready), `board_done {via}` (the ticket is done on the board:
-`via:"flag"` = its tracker done flag flipped — issue closed, task completed, done status; `via:"stage"`
-= it entered a manual step; a signal only, nothing runs or moves), `ci_red {action}`, `ci_green {pr, sha, mergeable,
+`via:"flag"` = its tracker done flag flipped — issue closed, task completed, done status — or the
+ticket entered a manual step with that flag already set; a signal only, nothing runs or moves.
+Entering the terminal stage alone is `pipeline_done`, a handoff, never done. Older logs may hold
+`via:"stage"` events; they never meant done), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
 Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,

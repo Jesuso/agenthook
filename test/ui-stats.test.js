@@ -34,22 +34,24 @@ test("dailyStats: finished counts board_done once per ref per done transition (A
   const events = [
     ev("2026-10-14T09:00:00Z", "run_start", { ref: "A" }),
     ev("2026-10-14T10:00:00Z", "run_end", { ref: "A", costUsd: 2 }),
-    ev("2026-10-14T11:00:00Z", "board_done", { ref: "A", via: "stage" }),
-    ev("2026-10-15T08:00:00Z", "board_done", { ref: "A", via: "flag" }), // the stage + flag pair: one transition, not a second day
+    ev("2026-10-14T11:00:00Z", "board_done", { ref: "A", via: "flag" }),
+    ev("2026-10-15T08:00:00Z", "board_done", { ref: "A", via: "flag" }), // a duplicate delivery: one transition, not a second day
     ev("2026-10-14T09:00:00Z", "run_end", { ref: "B", costUsd: 1 }),
     ev("2026-10-15T09:00:00Z", "board_done", { ref: "B", via: "flag" }),
     ev("2026-10-15T09:30:00Z", "run_start", { ref: "B" }), // re-run…
     ev("2026-10-15T10:00:00Z", "board_done", { ref: "B", via: "flag" }), // …then done again: same day, still one ticket
-    ev("2026-10-15T11:00:00Z", "pipeline_done", { ref: "L" }), // a legacy history (before board_done) still counts
+    ev("2026-10-15T07:00:00Z", "pipeline_done", { ref: "L" }), // after the first flag board_done: a handoff, no longer a finish
     ev("2026-10-15T12:00:00Z", "run_start", { ref: "M" }),
     ev("2026-10-15T12:30:00Z", "merged", { ref: "M" }), // a merge is a forge fact, never finished
     ev("2026-10-15T13:00:00Z", "board_done", { ref: "U", via: "flag" }), // closed on the board, never run here
-    ev("2026-10-15T13:00:00Z", "board_done", { ref: "S", via: "stage" }), // entered the terminal stage: the pipeline routed it
+    ev("2026-10-15T12:00:00Z", "run_end", { ref: "S", costUsd: 0 }),
+    ev("2026-10-15T13:00:00Z", "pipeline_done", { ref: "S" }), // entered the terminal stage after the flag era began: a handoff, not done
+    ev("2026-10-15T13:00:01Z", "board_done", { ref: "S", via: "stage" }), // an interim receiver's stage signal: not done either
   ];
   const [y, t] = dailyStats(events, { now: NOW, days: 2 });
   assert.equal(y.finished, 1);
   assert.deepEqual(y.ticketCost, { n: 1, p10: 2, p50: 2, p90: 2 }, "the cost resets on the done signal");
-  assert.equal(t.finished, 3, "B, L, S — not A again, not M, not U");
+  assert.equal(t.finished, 1, "B — not A again, not L, not M, not U, not S");
   assert.equal(t.merged, 1);
   assert.deepEqual(t.ticketCost, { n: 1, p10: 1, p50: 1, p90: 1 }, "B's spend counted once, on its first done");
 });

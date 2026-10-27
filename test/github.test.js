@@ -1018,9 +1018,9 @@ test("mapEpicTickets: in-pipeline stage, no-pipeline-label same-repo, other-repo
     stageLabels,
   );
   assert.deepEqual(tickets, [
-    { ref: "10", displayId: "#10", name: "in pipeline", completed: false, stage: "agent:review", terminal: false, url: "https://github.com/o/r/issues/10" },
-    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: "", terminal: false, url: "https://github.com/o/r/issues/11" },
-    { ref: "o/other#12", displayId: "o/other#12", name: "other repo", completed: true, stage: null, terminal: false, url: "https://github.com/o/other/issues/12" },
+    { ref: "10", displayId: "#10", name: "in pipeline", completed: false, stage: "agent:review", url: "https://github.com/o/r/issues/10" },
+    { ref: "11", displayId: "#11", name: "no stage", completed: false, stage: "", url: "https://github.com/o/r/issues/11" },
+    { ref: "o/other#12", displayId: "o/other#12", name: "other repo", completed: true, stage: null, url: "https://github.com/o/other/issues/12" },
   ]);
   assert.equal(ticketBucket(tickets[1], null, [], false), "backlog");
   const openOtherRepo = mapEpicTickets(
@@ -1029,15 +1029,6 @@ test("mapEpicTickets: in-pipeline stage, no-pipeline-label same-repo, other-repo
     stageLabels,
   )[0];
   assert.equal(ticketBucket(openOtherRepo, null, [], false), "untracked");
-});
-
-test("mapEpicTickets: terminal = the matched label is a manual step's sourceLabel (normalized)", () => {
-  const stageLabels = new Map([["agent:review", "agent:review"], ["agent:done", "Agent:Done"]]);
-  const repoApiUrl = "https://api.github.com/repos/o/r";
-  const issue = (/** @type {number} */ n, /** @type {string} */ label) => ({ number: n, title: String(n), state: "open", repository_url: repoApiUrl, labels: [{ name: label }] });
-  const tickets = mapEpicTickets([issue(1, " agent:DONE "), issue(2, "agent:review"), issue(3, "bug")], repoApiUrl, stageLabels, new Set(["agent:done"]));
-  assert.deepEqual(tickets.map((t) => [t.ref, t.stage, t.terminal]), [["1", "Agent:Done", true], ["2", "agent:review", false], ["3", "", false]]);
-  assert.equal(ticketBucket(tickets[0], null, [], false), "done", "resting in the terminal stage is done on the board");
 });
 
 test("fetchTask: no parent_issue_url makes exactly 1 call and sets no epic", async () => {

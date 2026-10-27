@@ -96,12 +96,10 @@ export function mapEpics(data, epicType) {
     }));
 }
 
-/** Subtasks resting in `projectGid`, mapped to EpicTicket[]. `terminal` = the subtask rests in
- * one of `terminalSections` (the manual steps' source section gids). Pure — drives listEpicTickets.
+/** Subtasks resting in `projectGid`, mapped to EpicTicket[]. Pure — drives listEpicTickets.
  * @param {any[]} data @param {string | undefined} projectGid @param {string | undefined} displayIdField
- * @param {Set<string>} [terminalSections]
  * @returns {import('../types.js').EpicTicket[]} */
-export function mapEpicTickets(data, projectGid, displayIdField, terminalSections = new Set()) {
+export function mapEpicTickets(data, projectGid, displayIdField) {
   /** @type {import('../types.js').EpicTicket[]} */
   const out = [];
   for (const t of Array.isArray(data) ? data : []) {
@@ -113,7 +111,6 @@ export function mapEpicTickets(data, projectGid, displayIdField, terminalSection
       name: t.name,
       completed: t.completed === true,
       stage: membership.section?.name ?? null,
-      terminal: typeof membership.section?.gid === "string" && terminalSections.has(membership.section.gid),
       url: t.permalink_url ?? null,
     });
   }
@@ -613,11 +610,10 @@ export function createAsanaAdapter(cfg, store) {
       if (!(await findEpicTypeGid())) return [];
       try {
         const res = await api(
-          `/tasks/${epicRef}/subtasks?opt_fields=name,completed,permalink_url,custom_fields.name,custom_fields.display_value,memberships.project.gid,memberships.section.gid,memberships.section.name&limit=100`,
+          `/tasks/${epicRef}/subtasks?opt_fields=name,completed,permalink_url,custom_fields.name,custom_fields.display_value,memberships.project.gid,memberships.section.name&limit=100`,
         );
         if (!res.ok) throw new Error(`subtasks ${res.status}`);
-        const terminal = new Set((pipeline || []).flatMap((st) => (st.manual && st.sourceSectionGid ? [st.sourceSectionGid] : [])));
-        return mapEpicTickets((await json(res)).data, pc.projectGid, pc.displayIdField, terminal);
+        return mapEpicTickets((await json(res)).data, pc.projectGid, pc.displayIdField);
       } catch (e) {
         console.warn(`[epics] listEpicTickets(${epicRef}) failed: ${e.message} — returning []`);
         return [];

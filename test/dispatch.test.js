@@ -671,22 +671,28 @@ test("dispatch: an epic skips an @agent (trigger:) resume job too", async () => 
 
 // --- done signal (#585): entering ANY manual step emits board_done (via "stage") ---
 
-test("dispatch: a manual step without drainWorktree emits board_done (via stage) and no pipeline_done; nothing moves", async () => {
+test("dispatch: a manual step without drainWorktree emits nothing (the terminal stage is not done, ADR 0008); nothing moves", async () => {
   const notEpic = { fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", url: "u", completed: false, assignedToUs: true }) };
   const { advanced, events, runStep } = epicHarness([{ id: "code" }, { id: "done", manual: true }], notEpic);
   const result = await runStep("done");
   assert.equal(result.code, 0);
   assert.equal(advanced.length, 0);
-  assert.deepEqual(events, [{ event: "board_done", ref: "42", step: "done", via: "stage", name: "t", url: "u" }]);
+  assert.deepEqual(events, []);
 });
 
-test("dispatch: a drainWorktree manual step emits pipeline_done unchanged, then board_done (via stage)", async () => {
+test("dispatch: a manual step whose ticket is already closed on the board emits board_done (via flag)", async () => {
+  const closed = { fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", url: "u", completed: true, assignedToUs: true }) };
+  const { events, runStep } = epicHarness([{ id: "code" }, { id: "done", manual: true }], closed);
+  await runStep("done");
+  assert.deepEqual(events, [{ event: "board_done", ref: "42", step: "done", via: "flag", name: "t", url: "u" }]);
+});
+
+test("dispatch: a drainWorktree manual step emits pipeline_done unchanged and no board_done", async () => {
   const notEpic = { fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", url: "u", completed: false, assignedToUs: true }) };
   const { events, runStep } = epicHarness([{ id: "code" }, { id: "done", manual: true, drainWorktree: true }], notEpic);
   await runStep("done");
   assert.deepEqual(events, [
     { event: "pipeline_done", ref: "42", step: "done", name: "t", url: "u" },
-    { event: "board_done", ref: "42", step: "done", via: "stage", name: "t", url: "u" },
   ]);
 });
 

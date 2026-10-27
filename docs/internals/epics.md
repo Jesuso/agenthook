@@ -10,12 +10,9 @@
   `url`; Jira: `${baseUrl}/browse/${key}`). `localEpics` carries it through from `refmeta[ref].url`
   (dispatch records the tracker's `task.url` there per run). The UI (`ui/src/EpicPage.tsx`) links a
   ticket row straight off `t.url` through `safeUrl`.
-- Each `EpicTicket` also carries `terminal` (ADR 0008): it rests in a manual step's source stage, the
-  pipeline's terminal stage — done on the board. The adapter passes the manual steps' source stages
-  into its pure mapper: Asana by section **gid** (`memberships.section.gid`; `stage` is the section
-  name), Jira and GitHub Projects v2 by status name, GitHub by the matched pipeline label.
-  `ticketBucket` counts a ticket `done` only on the board's word (`completed`, `terminal`, a `done`
-  row, or a history ending `board_done`/`pipeline_done`) — a merged PR never is; PR facts only add
+- `ticketBucket` counts a ticket `done` only on the board's flag (ADR 0008): `completed`, a `done`
+  row, or a history ending in a flag `board_done`. The pipeline's terminal stage (`pipeline_done`)
+  is a handoff, never done, and a merged PR never is; PR facts only add
   Needs-you reasons (`TicketRow.prNeeds`).
 - `src/epic-changed.js` — emits a read-only `{kind:'epic_changed', ref:<epic>}` signal outside the
   queue (GitHub only today — see [trackers.md](trackers.md)), dropping ops' epics cache.

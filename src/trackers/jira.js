@@ -74,11 +74,9 @@ export function mapEpics(issues, baseUrl) {
 }
 
 /** An epic's children (search of `parent = KEY`) → EpicTicket[]. Subtasks (hierarchy level < 0)
- * are dropped; stage = the issue's status name; `terminal` = that status is one of
- * `terminalStatuses` (the manual steps' source statuses). Pure.
- * @param {any[]} issues @param {string} baseUrl @param {Set<string>} [terminalStatuses]
- * @returns {import('../types.js').EpicTicket[]} */
-export function mapEpicTickets(issues, baseUrl, terminalStatuses = new Set()) {
+ * are dropped; stage = the issue's status name. Pure.
+ * @param {any[]} issues @param {string} baseUrl @returns {import('../types.js').EpicTicket[]} */
+export function mapEpicTickets(issues, baseUrl) {
   /** @type {import('../types.js').EpicTicket[]} */
   const out = [];
   for (const it of Array.isArray(issues) ? issues : []) {
@@ -89,7 +87,6 @@ export function mapEpicTickets(issues, baseUrl, terminalStatuses = new Set()) {
       name: it.fields?.summary ?? it.key,
       completed: it.fields?.status?.statusCategory?.key === "done",
       stage: it.fields?.status?.name ?? null,
-      terminal: typeof it.fields?.status?.name === "string" && terminalStatuses.has(it.fields.status.name),
       url: `${baseUrl}/browse/${it.key}`,
     });
   }
@@ -650,8 +647,7 @@ export function createJiraAdapter(cfg, store) {
     async listEpicTickets(epicRef) {
       if (!ISSUE_KEY_RE.test(epicRef)) return [];
       try {
-        const terminal = new Set((pipeline || []).flatMap((s) => (s.manual && s.sourceStatus ? [s.sourceStatus] : [])));
-        return mapEpicTickets(await searchAll(`parent = "${epicRef}" ORDER BY created ASC`, "summary,status,issuetype"), baseUrl, terminal);
+        return mapEpicTickets(await searchAll(`parent = "${epicRef}" ORDER BY created ASC`, "summary,status,issuetype"), baseUrl);
       } catch (e) {
         console.warn(`[epics] listEpicTickets(${epicRef}) failed: ${e.message} — returning []`);
         return [];

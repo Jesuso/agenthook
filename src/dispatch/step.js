@@ -79,8 +79,9 @@ export function createStep(ctx) {
         leavePipeline(job.ref);
         emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
-      // A manual step's source stage is terminal: entering it is done on the board, drain or not.
-      emit?.("board_done", job.ref, step.id, { via: "stage", name: task.name, url: task.url });
+      // The stage itself is agenthook's handoff, not done (ADR 0008). The board's own flag is
+      // read here because some trackers never deliver it (GitHub Projects v2) or have none (local).
+      if (task.completed) emit?.("board_done", job.ref, step.id, { via: "flag", name: task.name, url: task.url });
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
 

@@ -49,6 +49,7 @@ test("buildRows: one status per source, with precedence running > queued > board
         { ts: "b", event: "run_end", ref: "r4", step: "code", outcome: "fail" },
         { ts: "c", event: "failed", ref: "r4", step: "code", reason: "x", name: "Four" },
         { ts: "d", event: "pipeline_done", ref: "r5", step: "done", name: "Five" },
+        { ts: "d", event: "board_done", ref: "r5", step: "", name: "Five" },
         { ts: "e", event: "merged", ref: "r8", step: "", name: "Eight" },
       ],
     }),
@@ -82,7 +83,7 @@ test("buildRows: up:false reads running as interrupted and queued as stalled; he
     running: { r1: { stepId: "code", startedAt: "t" } },
     queue: [{ kind: "pipeline", ref: "r2", stepId: "review", dedupKey: "k" }],
     held: { r3: { stepId: "triage", reason: "?", heldAt: "t" } },
-    events: [{ ts: "a", event: "pipeline_done", ref: "r5", step: "done", name: "Five" }],
+    events: [{ ts: "a", event: "pipeline_done", ref: "r5", step: "done", name: "Five" }, { ts: "b", event: "board_done", ref: "r5", step: "" }],
   });
   const down = buildRows("p", s, { up: false });
   assert.equal(row(down, "r1").status, "interrupted");
@@ -474,6 +475,7 @@ test("buildRows: an operator cancel reads cancelled, not failed; dismissed clear
         { ts: "6", event: "dismissed", ref: "cd", step: "", by: "operator" },
         { ts: "7", event: "dismissed", ref: "dn", step: "" },
         { ts: "8", event: "pipeline_done", ref: "dn", step: "done" },
+        { ts: "8", event: "board_done", ref: "dn", step: "" },
         { ts: "9", event: "failed", ref: "again", step: "code", reason: "exit 1" },
         { ts: "10", event: "dismissed", ref: "again", step: "" },
         { ts: "11", event: "failed", ref: "again", step: "code", reason: "exit 2" },
@@ -508,16 +510,19 @@ test("buildRows: prState is a PR fact whatever the status; finishedAt is the fir
       running: { running: { stepId: "code", startedAt: "t" } },
       events: [
         { ts: "2026-10-08T09:00:00.000Z", event: "pipeline_done", ref: "ready", step: "done" },
-        { ts: "2026-10-08T09:00:01.000Z", event: "board_done", ref: "ready", step: "done", via: "stage" },
+        { ts: "2026-10-08T09:00:00.000Z", event: "board_done", ref: "ready", step: "" },
+        { ts: "2026-10-08T09:00:01.000Z", event: "board_done", ref: "ready", step: "done", via: "flag" },
         { ts: "2026-10-08T07:00:00.000Z", event: "run_start", ref: "merged", step: "code" },
         { ts: "2026-10-08T08:00:00.000Z", event: "board_done", ref: "merged", step: "", via: "flag" },
         { ts: "2026-10-08T10:00:00.000Z", event: "merged", ref: "merged", step: "" },
         { ts: "2026-10-08T07:00:00.000Z", event: "merged", ref: "merge-only", step: "" },
         { ts: "2026-10-08T06:00:00.000Z", event: "pipeline_done", ref: "rerun", step: "done" },
+        { ts: "2026-10-08T06:00:00.000Z", event: "board_done", ref: "rerun", step: "" },
         { ts: "2026-10-08T06:30:00.000Z", event: "merged", ref: "rerun", step: "" },
         { ts: "2026-10-08T07:00:00.000Z", event: "run_start", ref: "rerun", step: "code" },
         { ts: "2026-10-08T07:30:00.000Z", event: "failed", ref: "bad", step: "code", reason: "tests red" },
         { ts: "2026-10-08T07:30:00.000Z", event: "pipeline_done", ref: "nopr", step: "done" },
+        { ts: "2026-10-08T07:30:00.000Z", event: "board_done", ref: "nopr", step: "" },
       ],
     }),
   );
@@ -544,7 +549,7 @@ test("buildRows: board_done gives done and outranks a held entry and a failed ev
       held: { h: { stepId: "code", reason: "which db?", heldAt: "t" }, r: { stepId: "code" }, q: { stepId: "code" } },
       events: [
         run("h"), done("h"),
-        run("f"), { ts: "2026-10-08T08:30:00.000Z", event: "failed", ref: "f", step: "code", reason: "x" }, done("f", "stage"),
+        run("f"), { ts: "2026-10-08T08:30:00.000Z", event: "failed", ref: "f", step: "code", reason: "x" }, done("f"),
         run("f2"), done("f2"), { ts: "2026-10-08T09:30:00.000Z", event: "failed", ref: "f2", step: "code", reason: "late" },
         run("r"), done("r"),
         run("q"), done("q"),
@@ -596,7 +601,7 @@ test("buildRows: prNeeds — the PR reasons where code and board disagree, only 
         ...ran("await"),
         ...ran("mergedOpen"), { ts: "3", event: "merged", ref: "mergedOpen", step: "" },
         ...ran("closed"),
-        ...ran("onDone"), { ts: "3", event: "board_done", ref: "onDone", step: "done", via: "stage" },
+        ...ran("onDone"), { ts: "3", event: "board_done", ref: "onDone", step: "done", via: "flag" },
         ...ran("mergedDone"), { ts: "3", event: "board_done", ref: "mergedDone", step: "", via: "flag" },
         ...ran("held"),
         ...ran("failed"), { ts: "3", event: "failed", ref: "failed", step: "code", reason: "x" },
@@ -620,12 +625,12 @@ test("buildRows: prNeeds — the PR reasons where code and board disagree, only 
 });
 
 test("buildRows: refmeta.prState merged/closed overrides an event-derived ready; absent → still ready", () => {
-  const done = (/** @type {string} */ ref) => ({ ts: "2026-10-08T09:00:00.000Z", event: "pipeline_done", ref, step: "done" });
+  const done = (/** @type {string} */ ref) => ({ ts: "2026-10-08T09:00:00.000Z", event: "board_done", ref, step: "" });
   const rows = buildRows(
     "p",
     state({
       refmeta: { m: { pr: 1, prState: "merged" }, c: { pr: 2, prState: "closed" }, r: { pr: 3 }, odd: { pr: 4, prState: "weird" }, idle: { pr: 5, prState: "merged" } },
-      events: [done("m"), done("c"), done("r"), done("odd")],
+      events: ["m", "c", "r", "odd"].flatMap((ref) => [{ ts: "2026-10-08T08:00:00.000Z", event: "run_start", ref, step: "code" }, done(ref)]),
     }),
   );
   assert.deepEqual(["m", "c", "r", "odd"].map((ref) => row(rows, ref).prState), ["merged", "closed", "ready", "ready"]);
@@ -641,6 +646,7 @@ test("buildRows: refmeta.prState closed overrides an event-derived merged too �
       refmeta: { T1: { pr: 1, prState: "closed" } },
       events: [
         { ts: "1", event: "pipeline_done", ref: "T1", step: "done" },
+        { ts: "1", event: "board_done", ref: "T1", step: "" },
         { ts: "2", event: "merged", ref: "T1", step: "" },
       ],
     }),
@@ -655,6 +661,7 @@ test("buildRows: a CI job's enqueued (kind ci) does not reset a finished ticket'
       refmeta: { T1: { pr: 42, prState: "merged" } },
       events: [
         { ts: "1", event: "pipeline_done", ref: "T1", step: "review" },
+        { ts: "1", event: "board_done", ref: "T1", step: "review" },
         { ts: "2", event: "enqueued", ref: "T1", step: "", kind: "ci" },
         { ts: "3", event: "ci_red", ref: "T1", step: "", action: "rerun" },
         { ts: "4", event: "enqueued", ref: "T1", step: "", kind: "ci" },
@@ -677,8 +684,10 @@ test("buildRows: a pipeline job's enqueued (kind pipeline, or no kind with a non
     state({
       events: [
         { ts: "1", event: "pipeline_done", ref: "tagged", step: "review" },
+        { ts: "1", event: "board_done", ref: "tagged", step: "review" },
         { ts: "2", event: "enqueued", ref: "tagged", step: "review", kind: "pipeline" },
         { ts: "1", event: "pipeline_done", ref: "legacy", step: "review" },
+        { ts: "1", event: "board_done", ref: "legacy", step: "review" },
         { ts: "2", event: "enqueued", ref: "legacy", step: "review" },
       ],
     }),
@@ -762,6 +771,7 @@ test("buildRows: plain is the newest run_end's sentence only while its outcome m
         { ts: "b", event: "failed", ref: "fc", step: "code", reason: "cancelled by operator" },
         end("d", "advance", "a"),
         { ts: "b", event: "pipeline_done", ref: "d", step: "code" },
+        { ts: "b", event: "board_done", ref: "d", step: "code" },
         end("dx", "advance", "a"),
         { ts: "b", event: "failed", ref: "dx", step: "code", reason: "move refused" },
         end("i", "advance", "a"),
@@ -824,6 +834,7 @@ test("buildRows: a board_done alone makes no row; after a run it changes nothing
     { ts: "2026-10-27T00:00:00Z", event: "board_done", ref: "9", step: "", via: "flag" },
     { ts: "2026-10-27T00:00:00Z", event: "run_start", ref: "1", step: "code" },
     { ts: "2026-10-27T00:01:00Z", event: "pipeline_done", ref: "1", step: "done", name: "One" },
+    { ts: "2026-10-27T00:01:00Z", event: "board_done", ref: "1", step: "", name: "One" },
     { ts: "2026-10-27T00:02:00Z", event: "board_done", ref: "1", step: "", via: "flag" },
   ];
   const rows = buildRows("p", state({ events }));

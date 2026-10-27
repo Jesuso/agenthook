@@ -3,6 +3,7 @@
 // into progress-by-bucket, needs-you, and velocity/ETA numbers. The receiver's `epics` op (ops.js)
 // and the `ah ui` receiver-down fallback (`localEpics`, from refmeta.epic) both join through here.
 import { dailyStats } from "./ui/stats.js";
+import { isBoardDone } from "./board-done.js";
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -56,15 +57,15 @@ function groupByRef(events) {
 }
 
 /**
- * Is the ticket done on the board (ADR 0008): the tracker's done flag or its terminal stage
- * (`ticket.completed`/`terminal`), a local row the board made `done`, or — with no row or an
- * idle one — a history that ends board-done.
+ * Is the ticket done on the board (ADR 0008): the tracker's done flag (`ticket.completed`), a
+ * local row the board made `done`, or — with no row or an idle one — a history that ends
+ * board-done. The pipeline's terminal stage is a handoff, never done.
  * @param {import('./types.js').EpicTicket} ticket
  * @param {import('./ui/contract.js').TicketRow|null} row
  * @param {Record<string, any>[]|undefined} refEvents
  */
 function boardDone(ticket, row, refEvents) {
-  return ticket.completed || ticket.terminal === true || row?.status === "done" || ((!row || row.status === "idle") && historicallyDone(refEvents));
+  return ticket.completed || row?.status === "done" || ((!row || row.status === "idle") && historicallyDone(refEvents));
 }
 
 /**
@@ -164,13 +165,13 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
 }
 
 /** Did the board say done per the event history (no live row, e.g. older than the rows tail), with
- * no later re-run? `board_done` (any `via`) or a legacy `pipeline_done`; a merge never counts.
+ * no later re-run? Only the board's done flag (`isBoardDone`); a merge or a `pipeline_done` never counts.
  * @param {Record<string, any>[]|undefined} refEvents */
 function historicallyDone(refEvents) {
   if (!refEvents) return false;
   let done = false;
   for (const e of refEvents) {
-    if (e.event === "board_done" || e.event === "pipeline_done") done = true;
+    if (isBoardDone(e)) done = true;
     else if (e.event === "run_start") done = false;
   }
   return done;

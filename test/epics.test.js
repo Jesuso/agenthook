@@ -35,15 +35,16 @@ test("isNeedsYou: held/failed always; a PR reason (prNeeds) only with forge", ()
 
 // ADR 0008's table, end to end: the events + refmeta a profile would hold → buildRows → epicStats.
 // Board open = the agents' last step advanced into a stage with no step (an idle row whose run is
-// in the tail); done by flag = the tracker's done flag (+ `completed`); done by stage = entering a
-// manual step's source stage (+ `terminal`).
+// in the tail); done by flag = the tracker's done flag (+ `completed`); "stage" = the ticket entered
+// the pipeline's terminal stage (agenthook's handoff: `pipeline_done`, plus a `via:"stage"` event an
+// interim receiver wrote) with the board's flag still open — never done, same as an open board.
 test("epicStats: the board × PR grid — bucket, needsYou membership and prNeeds per ADR 0008", () => {
   const PR = { none: {}, open: { pr: 7 }, merged: { pr: 7 }, closed: { pr: 7, prState: "closed" } };
   /** @type {Record<string, Record<string, [string, boolean, string|null]>>} board → PR → [bucket, in needsYou[], prNeeds] */
   const want = {
     open: { none: ["backlog", false, null], open: ["needsYou", true, "awaitingMerge"], merged: ["needsYou", true, "mergedOpen"], closed: ["needsYou", true, "closedUnmerged"] },
     flag: { none: ["done", false, null], open: ["done", true, "openOnDone"], merged: ["done", false, null], closed: ["done", false, null] },
-    stage: { none: ["done", false, null], open: ["done", true, "openOnDone"], merged: ["done", false, null], closed: ["done", false, null] },
+    stage: { none: ["backlog", false, null], open: ["needsYou", true, "awaitingMerge"], merged: ["needsYou", true, "mergedOpen"], closed: ["needsYou", true, "closedUnmerged"] },
   };
   for (const [board, byPr] of Object.entries(want)) {
     for (const [pr, [bucket, listed, prNeeds]] of Object.entries(byPr)) {
@@ -51,11 +52,11 @@ test("epicStats: the board × PR grid — bucket, needsYou membership and prNeed
       const events = [ev("2026-10-15T10:00:00Z", "run_start"), ev("2026-10-15T10:30:00Z", "run_end", { outcome: "advance" })];
       if (pr === "merged") events.push(ev("2026-10-15T11:00:00Z", "merged"));
       if (board === "flag") events.push(ev("2026-10-15T12:00:00Z", "board_done", { step: "", via: "flag" }));
-      if (board === "stage") events.push(ev("2026-10-15T12:00:00Z", "board_done", { step: "done", via: "stage" }));
+      if (board === "stage") events.push(ev("2026-10-15T11:59:00Z", "pipeline_done", { step: "done" }), ev("2026-10-15T12:00:00Z", "board_done", { step: "done", via: "stage" }));
       const state = { running: {}, queue: [], held: {}, refmeta: { 1: /** @type {Record<string, any>} */ (PR[/** @type {keyof typeof PR} */ (pr)]) }, events, quota: null };
       const rows = buildRows("p", state, { repository: "o/r" });
       assert.equal(rows[0].prNeeds, prNeeds, `${label}: prNeeds`);
-      const t = ticket({ stage: board === "stage" ? "Done" : "Review", completed: board === "flag", terminal: board === "stage" });
+      const t = ticket({ stage: board === "stage" ? "Done" : "Review", completed: board === "flag" });
       const s = epicStats(epic, [t], { rows, events, forge: true, now: NOW, live: true });
       assert.equal(Object.entries(s.byStage).find(([, n]) => n === 1)?.[0], bucket, `${label}: bucket`);
       assert.deepEqual(s.needsYou, listed ? ["1"] : [], `${label}: needsYou`);
@@ -91,7 +92,7 @@ test("epicStats: bucket precedence — needsYou (board open), running, done (boa
     ticket({ ref: "queued1" }), // queued -> running bucket
     ticket({ ref: "donerow1" }), // a row the board made done
     ticket({ ref: "trackercompleted1", stage: "Done", completed: true }), // tracker done flag, no row
-    ticket({ ref: "terminal1", stage: "Done", terminal: true }), // resting in the terminal stage, no row
+    ticket({ ref: "terminal1", stage: "Done" }), // resting in the terminal stage, flag open: a handoff, not done -> backlog
     ticket({ ref: "backlog1" }), // idle, has stage -> backlog
     ticket({ ref: "untracked1", stage: null }), // idle, no stage -> untracked
   ];
@@ -105,22 +106,22 @@ test("epicStats: bucket precedence — needsYou (board open), running, done (boa
     row({ ref: "backlog1", status: "idle" }),
   ];
   const s = epicStats(epic, tickets, { rows, events: [], forge: true, now: NOW });
-  assert.deepEqual(s.byStage, { backlog: 2, running: 2, needsYou: 1, done: 4, untracked: 1 });
+  assert.deepEqual(s.byStage, { backlog: 3, running: 2, needsYou: 1, done: 3, untracked: 1 });
   assert.equal(s.total, 10);
   assert.deepEqual(s.needsYou, ["held2"]);
 });
 
-test("epicStats: history fallback — board_done/pipeline_done make a ticket older than the rows tail done; merged doesn't; a later run_start voids it", () => {
+test("epicStats: history fallback — a flag board_done makes a ticket older than the rows tail done; pipeline_done and merged don't; a later run_start voids it", () => {
   const tickets = [ticket({ ref: "old1" }), ticket({ ref: "old2" }), ticket({ ref: "old3" }), ticket({ ref: "old4" })];
   const events = [
-    ev("2026-09-01T00:00:00Z", "pipeline_done", { ref: "old1" }),
-    ev("2026-09-01T00:00:00Z", "pipeline_done", { ref: "old2" }),
+    ev("2026-09-01T00:00:00Z", "board_done", { ref: "old1", via: "flag" }),
+    ev("2026-09-01T00:00:00Z", "board_done", { ref: "old2", via: "flag" }),
     ev("2026-09-02T00:00:00Z", "run_start", { ref: "old2" }), // re-run voids the earlier done
-    ev("2026-09-01T00:00:00Z", "board_done", { ref: "old3", via: "flag" }),
+    ev("2026-09-01T00:00:00Z", "pipeline_done", { ref: "old3" }), // the terminal stage: a handoff, not done
     ev("2026-09-01T00:00:00Z", "merged", { ref: "old4" }),
   ];
   const s = epicStats(epic, tickets, { rows: [], events, forge: false, now: NOW });
-  assert.deepEqual(s.byStage, { backlog: 2, running: 0, needsYou: 0, done: 2, untracked: 0 });
+  assert.deepEqual(s.byStage, { backlog: 3, running: 0, needsYou: 0, done: 1, untracked: 0 });
 });
 
 test("epicStats: an idle row whose history left the events tail — a learned merge is not done, the board decides", () => {
@@ -164,9 +165,9 @@ test("epicStats: a startedAt inside the window shortens spanDays and raises perD
     rows: [],
     events: [
       ev("2026-10-13T00:00:00Z", "run_start", { ref: "t0" }), // startedAt, 3 days before now
-      ev("2026-10-13T00:00:00Z", "pipeline_done", { ref: "t0" }),
-      ev("2026-10-14T00:00:00Z", "pipeline_done", { ref: "t1" }),
-      ev("2026-10-15T00:00:00Z", "pipeline_done", { ref: "t2" }),
+      ev("2026-10-13T00:00:00Z", "run_end", { ref: "t0" }), ev("2026-10-13T00:00:00Z", "board_done", { ref: "t0" }),
+      ev("2026-10-14T00:00:00Z", "run_end", { ref: "t1" }), ev("2026-10-14T00:00:00Z", "board_done", { ref: "t1" }),
+      ev("2026-10-15T00:00:00Z", "run_end", { ref: "t2" }), ev("2026-10-15T00:00:00Z", "board_done", { ref: "t2" }),
     ],
     forge: false,
     now: NOW,
@@ -199,9 +200,9 @@ test("epicStats: startedAt is the earliest member run_start, null when none; non
 test("epicStats: velocity counts member finishes only, dedups repeated pipeline_done, 14 zero-filled days", () => {
   const tickets = [ticket({ ref: "a" }), ticket({ ref: "b" })];
   const events = [
-    ev("2026-10-15T01:00:00Z", "pipeline_done", { ref: "a" }),
-    ev("2026-10-15T01:00:02Z", "pipeline_done", { ref: "a" }), // dup burst: counts once
-    ev("2026-10-15T02:00:00Z", "pipeline_done", { ref: "notamember" }), // ignored
+    ev("2026-10-15T01:00:00Z", "run_end", { ref: "a" }), ev("2026-10-15T01:00:00Z", "board_done", { ref: "a" }),
+    ev("2026-10-15T01:00:02Z", "run_end", { ref: "a" }), ev("2026-10-15T01:00:02Z", "board_done", { ref: "a" }), // dup burst: counts once
+    ev("2026-10-15T02:00:00Z", "run_end", { ref: "notamember" }), ev("2026-10-15T02:00:00Z", "board_done", { ref: "notamember" }), // ignored
   ];
   const s = epicStats(epic, tickets, { rows: [], events, forge: false, now: NOW });
   assert.equal(s.velocity.days.length, 14);
@@ -216,8 +217,8 @@ test("epicStats: eta null unless >=3 finished in 14d AND >=3 active days AND rem
   const few = epicStats(epic, tickets, {
     rows: [],
     events: [
-      ev("2026-10-13T00:00:00Z", "pipeline_done", { ref: "t0" }),
-      ev("2026-10-13T00:00:01Z", "pipeline_done", { ref: "t1" }),
+      ev("2026-10-13T00:00:00Z", "run_end", { ref: "t0" }), ev("2026-10-13T00:00:00Z", "board_done", { ref: "t0" }),
+      ev("2026-10-13T00:00:01Z", "run_end", { ref: "t1" }), ev("2026-10-13T00:00:01Z", "board_done", { ref: "t1" }),
     ],
     forge: false,
     now: NOW,
@@ -227,9 +228,9 @@ test("epicStats: eta null unless >=3 finished in 14d AND >=3 active days AND rem
   const oneDay = epicStats(epic, tickets, {
     rows: [],
     events: [
-      ev("2026-10-13T00:00:00Z", "pipeline_done", { ref: "t0" }),
-      ev("2026-10-13T00:00:01Z", "pipeline_done", { ref: "t1" }),
-      ev("2026-10-13T00:00:02Z", "pipeline_done", { ref: "t2" }),
+      ev("2026-10-13T00:00:00Z", "run_end", { ref: "t0" }), ev("2026-10-13T00:00:00Z", "board_done", { ref: "t0" }),
+      ev("2026-10-13T00:00:01Z", "run_end", { ref: "t1" }), ev("2026-10-13T00:00:01Z", "board_done", { ref: "t1" }),
+      ev("2026-10-13T00:00:02Z", "run_end", { ref: "t2" }), ev("2026-10-13T00:00:02Z", "board_done", { ref: "t2" }),
     ],
     forge: false,
     now: NOW,
@@ -239,9 +240,9 @@ test("epicStats: eta null unless >=3 finished in 14d AND >=3 active days AND rem
   const noRemaining = epicStats({ ...epic }, tickets.slice(0, 3), {
     rows: [],
     events: [
-      ev("2026-10-13T00:00:00Z", "pipeline_done", { ref: "t0" }),
-      ev("2026-10-14T00:00:00Z", "pipeline_done", { ref: "t1" }),
-      ev("2026-10-15T00:00:00Z", "pipeline_done", { ref: "t2" }),
+      ev("2026-10-13T00:00:00Z", "run_end", { ref: "t0" }), ev("2026-10-13T00:00:00Z", "board_done", { ref: "t0" }),
+      ev("2026-10-14T00:00:00Z", "run_end", { ref: "t1" }), ev("2026-10-14T00:00:00Z", "board_done", { ref: "t1" }),
+      ev("2026-10-15T00:00:00Z", "run_end", { ref: "t2" }), ev("2026-10-15T00:00:00Z", "board_done", { ref: "t2" }),
     ],
     forge: false,
     now: NOW,
@@ -251,9 +252,9 @@ test("epicStats: eta null unless >=3 finished in 14d AND >=3 active days AND rem
   const positive = epicStats(epic, tickets, {
     rows: [],
     events: [
-      ev("2026-10-13T00:00:00Z", "pipeline_done", { ref: "t0" }),
-      ev("2026-10-14T00:00:00Z", "pipeline_done", { ref: "t1" }),
-      ev("2026-10-15T00:00:00Z", "pipeline_done", { ref: "t2" }),
+      ev("2026-10-13T00:00:00Z", "run_end", { ref: "t0" }), ev("2026-10-13T00:00:00Z", "board_done", { ref: "t0" }),
+      ev("2026-10-14T00:00:00Z", "run_end", { ref: "t1" }), ev("2026-10-14T00:00:00Z", "board_done", { ref: "t1" }),
+      ev("2026-10-15T00:00:00Z", "run_end", { ref: "t2" }), ev("2026-10-15T00:00:00Z", "board_done", { ref: "t2" }),
     ],
     forge: false,
     now: NOW,
@@ -281,13 +282,13 @@ test("ticketBucket: the per-ticket decision epicStats counts (needs you on an op
   assert.equal(ticketBucket(ticket({}), row({ status: "held" }), undefined, false), "needsYou");
   assert.equal(ticketBucket(ticket({ completed: true }), row({ status: "held" }), undefined, false), "done", "the board outranks a stale hold");
   assert.equal(ticketBucket(ticket({}), row({ status: "stalled" }), undefined, false), "running");
-  assert.equal(ticketBucket(ticket({ terminal: true }), row({ status: "running" }), undefined, false), "running", "live work outranks the board");
+  assert.equal(ticketBucket(ticket({ completed: true }), row({ status: "running" }), undefined, false), "running", "live work outranks the board");
   assert.equal(ticketBucket(ticket({}), row({ status: "done", prState: "ready" }), undefined, false), "done");
   assert.equal(ticketBucket(ticket({}), row({ status: "done", prState: "ready", prUrl: "https://x/pull/1", prNeeds: "openOnDone" }), undefined, true), "done");
   assert.equal(ticketBucket(ticket({ completed: true }), null, undefined, false), "done");
-  assert.equal(ticketBucket(ticket({ terminal: true }), null, undefined, false), "done");
-  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "pipeline_done")], false), "done");
-  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "board_done", { via: "stage" })], false), "done");
+  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "board_done", { via: "flag" })], false), "done");
+  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "pipeline_done")], false), "backlog", "the terminal stage is a handoff, not done (ADR 0008)");
+  assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "board_done", { via: "stage" })], false), "backlog", "an interim via:stage event is not done either");
   assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "merged")], false), "backlog");
   assert.equal(ticketBucket(ticket({}), null, [ev("2026-10-14T00:00:00Z", "pipeline_done"), ev("2026-10-14T01:00:00Z", "run_start")], false), "backlog");
   assert.equal(ticketBucket(ticket({ stage: null }), null, undefined, false), "untracked");

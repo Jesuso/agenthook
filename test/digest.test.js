@@ -24,6 +24,7 @@ function stateDir() {
     { ts: ago(190), event: "failed", ref: "2", step: "code", reason: "tests red" },
     { ts: ago(100), event: "run_end", ref: "4", step: "review", outcome: "advance", costUsd: 1.234 },
     { ts: ago(99), event: "pipeline_done", ref: "4", step: "review" },
+    { ts: ago(99), event: "board_done", ref: "4", step: "review" },
   ].map((e) => JSON.stringify(e)).join("\n") + "\n");
   return dir;
 }
@@ -198,6 +199,7 @@ function epicStateDir() {
   w("events.jsonl", [
     { ts: ago(50), event: "run_start", ref: "11", step: "code" },
     { ts: ago(40), event: "pipeline_done", ref: "11", step: "review" },
+    { ts: ago(40), event: "board_done", ref: "11", step: "review" },
   ].map((e) => JSON.stringify(e)).join("\n") + "\n");
   return dir;
 }

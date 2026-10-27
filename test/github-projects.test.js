@@ -792,13 +792,11 @@ test("mapProjectEpicTickets: same/other repo refs, on-board Status, no-Status �
     ["I_22", null],
   ]);
   assert.deepEqual(mapProjectEpicTickets(children, REPO, stages), [
-    { ref: "20", displayId: "#20", name: "same on board", completed: false, stage: "In Review", terminal: false, url: "https://github.com/ACME/Repo/issues/20" },
-    { ref: "21", displayId: "#21", name: "same off board", completed: true, stage: null, terminal: false, url: "https://github.com/acme/repo/issues/21" },
-    { ref: "acme/other#5", displayId: "acme/other#5", name: "other on board", completed: false, stage: "Todo", terminal: false, url: "https://github.com/acme/other/issues/5" },
-    { ref: "22", displayId: "#22", name: "same no status", completed: false, stage: "", terminal: false, url: "https://github.com/acme/repo/issues/22" },
+    { ref: "20", displayId: "#20", name: "same on board", completed: false, stage: "In Review", url: "https://github.com/ACME/Repo/issues/20" },
+    { ref: "21", displayId: "#21", name: "same off board", completed: true, stage: null, url: "https://github.com/acme/repo/issues/21" },
+    { ref: "acme/other#5", displayId: "acme/other#5", name: "other on board", completed: false, stage: "Todo", url: "https://github.com/acme/other/issues/5" },
+    { ref: "22", displayId: "#22", name: "same no status", completed: false, stage: "", url: "https://github.com/acme/repo/issues/22" },
   ]);
-  const terminal = mapProjectEpicTickets(children, REPO, stages, new Set(["in review"]));
-  assert.deepEqual(terminal.map((t) => [t.ref, t.terminal]), [["20", true], ["21", false], ["acme/other#5", false], ["22", false]], "Status matched case-insensitively; off board / no Status → false");
 });
 
 test("fetchTask: typed / labelled epic → isEpic; plain parent → false", async () => {

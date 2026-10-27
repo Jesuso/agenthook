@@ -8,6 +8,7 @@ import { registryDir } from "../config.js";
 import { listProfiles } from "../heartbeat.js";
 import { tildify } from "../profile.js";
 import { CANCELLED_REASON } from "../events.js";
+import { isBoardDone } from "../board-done.js";
 import { resolveIdentity } from "../identity.js";
 import { costOf, pricingOf } from "../pricing.js";
 import { normalizeQuota, normalizeTrip } from "../quota.js";
@@ -242,7 +243,7 @@ const OPEN_BOARD_PR_NEEDS = { ready: "awaitingMerge", merged: "mergedOpen", clos
 
 /**
  * One TicketRow per ref. Status precedence (ADR 0008: only the board says done): running >
- * queued > done (a `board_done`, any `via`, or a legacy `pipeline_done` in the tail) > held >
+ * queued > done (the board's flag: a `board_done` that isn't `via:"stage"`, see isBoardDone) > held >
  * the last failed event (failed, or cancelled when the reason is an operator cancel) > idle. The
  * board outranks a stale held/failed state, never live work. A done/failed event followed by a
  * later `enqueued`/`run_start` for the ref no longer counts (it was re-run), nor does a
@@ -328,11 +329,10 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
         rerunSeen = true;
         finishedAt = null;
         failReason = null;
-      } else if (e.event === "board_done" || e.event === "pipeline_done") {
-        // pipeline_done is emitted only on entering a manual (terminal) stage, and is the only
-        // done signal in histories older than board_done.
+      } else if (isBoardDone(e)) {
+        // Only the board's own done flag; `pipeline_done` (the terminal stage) is a handoff.
         boardDone = true;
-        finishedAt = finishedAt ?? str(e.ts); // the first done since the last run, so a later stage/flag pair doesn't move it
+        finishedAt = finishedAt ?? str(e.ts); // the first done since the last run, so a duplicate delivery doesn't move it
       } else if (e.event === "merged") mergedEvent = true;
       else if (e.event === "failed") {
         terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
