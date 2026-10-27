@@ -317,7 +317,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               )}
               <span className="font-mono text-muted">{formatRunCost(selected, lang)}</span>
               <span className="text-muted" title={selected.startedAt}>
-                {t("drawer.started", { when: startedAgo })}
+                {selected.running && !selected.endedAt ? t("drawer.startedAt", { time: clock(Date.parse(selected.startedAt)) }) : t("drawer.started", { when: startedAgo })}
               </span>
               {seq.some(isBounce) && (
                 <span className="ml-auto inline-flex items-center gap-1.5 text-meta text-muted">

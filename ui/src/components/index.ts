@@ -20,4 +20,4 @@ export { ShowHide } from "./ShowHide";
 export { ShortcutSheet, ShortcutsButton } from "./ShortcutSheet";
 export { ReadingPanel } from "./ReadingPanel";
 export { SpeakButton } from "./SpeakButton";
-export { Ago, Elapsed, LiveContext, useAgo, useTicking } from "./LiveTime";
+export { Ago, Elapsed, LIVE_GRACE_MS, LiveContext, useAgo, useLive, useReducedMotion, useTicking } from "./LiveTime";

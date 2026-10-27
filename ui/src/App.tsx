@@ -27,7 +27,7 @@ import { useLeaveGuard } from "./leaveGuard";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
-import { LiveContext } from "./components";
+import { LiveContext, useLive } from "./components";
 import type { MenuItem } from "./components";
 import { I18nProvider, rich, useT } from "./i18n/react";
 import { Overview } from "./Overview";
@@ -501,6 +501,7 @@ function Dashboard() {
 /** The app bar over the page; `nav` absent (Home, loading / error screens) → no profile controls. */
 function Shell({ children, ...bar }: { children: React.ReactNode; connection: ConnectionState; nav?: ProfileNav }) {
   const { t } = useT();
+  const live = useLive(bar.connection);
   return (
     <div className="min-h-screen bg-bg text-fg font-sans">
       {/* The router owns the hash, so the skip link focuses <main> itself instead of navigating. */}
@@ -517,8 +518,8 @@ function Shell({ children, ...bar }: { children: React.ReactNode; connection: Co
       </a>
       <AppBar {...bar} />
       <main id="main" tabIndex={-1} className="p-4 focus:outline-none">
-        {/* Time labels tick only while the stream is live; down, they hold their last reading (#579). */}
-        <LiveContext.Provider value={bar.connection === "connected"}>{children}</LiveContext.Provider>
+        {/* Time labels tick only while the stream is live (a short reconnect still counts); down, they hold their last reading (#579). */}
+        <LiveContext.Provider value={live}>{children}</LiveContext.Provider>
       </main>
     </div>
   );
