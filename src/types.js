@@ -15,6 +15,7 @@
  * @property {string} dedupKey  unique per source event; one key → at most one run
  * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  * @property {CiRun} [ci]       ci jobs only: the red run
+ * @property {boolean} [boardCloses]  merge jobs only: the board closes this ticket itself on merge; dispatch doesn't bridge
  */
 
 /** A red CI run on a ref's agent branch (the `ci` job payload). Receiver-trusted
@@ -582,6 +583,7 @@
  * @property {boolean} [redCi]          react to red CI on agent PRs (re-run once, then bounce with `changes`). Default on; false disables
  * @property {boolean} [greenCi]        emit a `ci_green` event when an agent PR's checks all pass (a supervisor signal; moves nothing). Default on; false disables
  * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)
+ * @property {boolean} [boardClosesOnMerge]  the board closes its own tickets on merge (e.g. Jira/Linear with a dev-tool integration): every merge job is self-closing, so dispatch doesn't bridge it. Default false
  */
 
 /** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
@@ -611,6 +613,7 @@
  * @property {number} pr
  * @property {string} ref        the task ref (branch minus `agent/`)
  * @property {string} mergedAt   ISO timestamp
+ * @property {boolean} [boardCloses]  the board closes the ticket itself (see `Job.boardCloses`); absent when not
  */
 
 /** One open agent PR as `listAgentPrs` reports it.

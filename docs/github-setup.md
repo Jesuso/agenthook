@@ -131,6 +131,8 @@ was blocking:
 `blocked_by` dependencies and want a finished blocker to auto-release them. Otherwise leave it off:
 the normal flow closes the issue when its **PR merges** (the agent puts `Closes #<issue>` in the PR
 body), which keeps the issue open — work visible — until the change is actually integrated.
+With `Closes #<issue>` in a PR merged into the default branch, agenthook leaves the close to
+GitHub: the forge's merge job doesn't also move the issue into the `completeOnMerge` step.
 `closeIssue: true` closes the issue the moment it reaches `done`, i.e. while its PR is still open, so
 turn it on only when auto-release is worth that early close.
 

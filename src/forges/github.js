@@ -1,7 +1,8 @@
 // GitHub forge adapter — the PR side of the pipeline. A tracker says where work comes
 // from; a forge says what happened to the code. This one listens for a merged pull
 // request on a receiver-made `agent/<ref>` branch and emits a `merge` job, which
-// dispatch turns into "move the task to done + mark it completed" on the tracker.
+// dispatch bridges to a board that can't hear merges ("move the task to done + mark it
+// completed"); a same-repo github tracker whose PR says `Closes #<ref>` closes itself.
 // It also listens for a red Actions `workflow_run` on such a branch and emits a `ci`
 // job, which dispatch turns into "re-run the failed jobs once, then bounce to code".
 //
@@ -52,6 +53,25 @@ export function refFromBranch(branch) {
   if (typeof branch !== "string" || !branch.startsWith(BRANCH_PREFIX)) return null;
   const ref = branch.slice(BRANCH_PREFIX.length);
   return ref || null;
+}
+
+// GitHub's closing keywords, then `#<n>` or `<owner>/<repo>#<n>` (https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
+const CLOSES_RE = /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)(?::\s*|\s+)(?:([\w.-]+\/[\w.-]+))?#(\d+)\b/gi;
+
+/** Does this merged PR close issue `ref` of `repository` by itself? True when it merged into
+ * the default branch and its body names the issue after a GitHub closing keyword (`Closes #12`,
+ * `fixes: owner/repo#12`; `#12` never matches `#123`). Pure.
+ * @param {{body?: string|null, baseRef?: string|null, defaultBranch?: string|null}} pr
+ * @param {string} ref  the task ref (an issue number)
+ * @param {string} repository  "owner/name" the issue lives in
+ * @returns {boolean} */
+export function prClosesIssue({ body, baseRef, defaultBranch }, ref, repository) {
+  if (typeof body !== "string" || !body || !baseRef || baseRef !== defaultBranch) return false;
+  const repoLc = String(repository).toLowerCase();
+  for (const m of body.matchAll(CLOSES_RE)) {
+    if (m[2] === String(ref) && (!m[1] || m[1].toLowerCase() === repoLc)) return true;
+  }
+  return false;
 }
 
 /** Parse a git remote URL into "owner/name", or null for anything that isn't a
@@ -111,6 +131,15 @@ export function createGithubForge(cfg, store) {
   const fc = cfg.forge || /** @type {import('../types.js').ForgeConfig} */ ({ type: "github" });
   const auth = createGithubAuth(fc); // a token, or a GitHub App's installation token
   const [owner, repo] = fc.repository ? String(fc.repository).split("/") : [fc.owner, fc.repo];
+  // A github tracker on this same repo closes the issue itself when the PR says `Closes #<ref>`
+  // (#588): the merge job then carries `boardCloses` and dispatch doesn't bridge it.
+  const tc = cfg.tracker;
+  const issueRepo = cfg.provider === "github" ? (tc?.repository ?? (tc?.owner && tc?.repo ? `${tc.owner}/${tc.repo}` : null)) : null;
+  const sameRepoTracker = !!issueRepo && String(issueRepo).toLowerCase() === `${owner}/${repo}`.toLowerCase();
+  /** @param {any} p a PR object (webhook or list response) @param {string} ref @param {string} [fallbackDefault] */
+  const boardCloses = (p, ref, fallbackDefault) =>
+    sameRepoTracker &&
+    prClosesIssue({ body: p?.body, baseRef: p?.base?.ref, defaultBranch: p?.base?.repo?.default_branch ?? fallbackDefault }, ref, `${owner}/${repo}`);
   /** @param {string} p @param {RequestInit} [init] */
   const api = (p, init = {}) =>
     githubFetch(auth, `https://api.github.com${p}`, {
@@ -315,8 +344,9 @@ export function createGithubForge(cfg, store) {
         return [];
       }
       const step = cfg.pipeline?.find((s) => s.completeOnMerge);
-      console.log(`[forge] PR #${pr.number} merged (${pr.head.ref}) → complete ${ref}`);
-      return [{ kind: "merge", ref, stepId: step?.id || "", dedupKey: `merged:${pr.number}` }];
+      const closes = boardCloses(pr, ref, ev?.repository?.default_branch);
+      console.log(`[forge] PR #${pr.number} merged (${pr.head.ref}) → ${closes ? `GitHub closes #${ref} itself` : `complete ${ref}`}`);
+      return [{ kind: "merge", ref, stepId: step?.id || "", dedupKey: `merged:${pr.number}`, ...(closes ? { boardCloses: true } : {}) }];
     },
 
     // Scrub our old hooks, then create one on `pull_request` + `workflow_run`. A 403/404 (token lacks
@@ -389,10 +419,10 @@ export function createGithubForge(cfg, store) {
     // Agent-branch PRs merged after `since` (backs the explicit merge catch-up — reconcile /
     // reconcile-on-boot only). Closed PRs by most recently updated, paged until a page reaches
     // one updated before `since` (merged_at <= updated_at, so nothing older can qualify); up to
-    // 5 x 100. Same branch rule as the live `merged` webhook.
+    // 5 x 100. Same branch rule (and `boardCloses` rule) as the live `merged` webhook.
     async listMergedAgentPrs(since) {
       const sinceMs = Date.parse(since);
-      /** @type {{pr: number, ref: string, mergedAt: string}[]} */
+      /** @type {import('../types.js').MergedAgentPr[]} */
       const out = [];
       for (let page = 1; page <= 5; page++) {
         const res = await api(`${repoPath()}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);
@@ -400,7 +430,8 @@ export function createGithubForge(cfg, store) {
         const batch = (await json(res)) || [];
         for (const p of batch) {
           const ref = refFromBranch(p.head?.ref);
-          if (ref && p.merged_at && Date.parse(p.merged_at) > sinceMs) out.push({ pr: p.number, ref, mergedAt: String(p.merged_at) });
+          if (!(ref && p.merged_at && Date.parse(p.merged_at) > sinceMs)) continue;
+          out.push({ pr: p.number, ref, mergedAt: String(p.merged_at), ...(boardCloses(p, ref) ? { boardCloses: true } : {}) });
         }
         if (batch.length < 100 || batch.some((/** @type {any} */ p) => Date.parse(p.updated_at) < sinceMs)) break;
       }

@@ -132,7 +132,10 @@ export function renderAuthoring(cfg) {
   const first = steps.find((s) => !s.manual) ?? steps[0];
   const val = (/** @type {any} */ s, /** @type {string} */ k) => (s?.[k] == null || s[k] === "" ? "—" : String(s[k]));
   const rows = steps.map((s) => `| ${s.id}${s.manual ? " (manual)" : ""} | ${val(s, p.keys.source)} | ${val(s, p.keys.success)} | ${val(s, p.keys.hold)} | ${val(s, p.keys.failure)} | ${val(s, p.keys.queue)} |`);
-  const closers = steps.filter((s) => /** @type {any} */ (s).closeIssue || /** @type {any} */ (s).completeTask || s.completeOnMerge).map((s) => s.id);
+  // completeOnMerge is the bridge for boards that can't hear merges: a merged agent PR moves the task into that step.
+  const closers = steps
+    .filter((s) => /** @type {any} */ (s).closeIssue || /** @type {any} */ (s).completeTask || s.completeOnMerge)
+    .map((s) => (s.completeOnMerge ? `${s.id} (merge bridge: a merged agent PR moves the task here unless the board closes it itself)` : s.id));
   const repos = (cfg.repos ?? []).length > 1 ? cfg.repos.map((r) => `${r.id}: ${r.path}${r.default ? " (default)" : ""}`).join("; ") : cfg.repoPath;
   const lines = [
     `## authoring`,

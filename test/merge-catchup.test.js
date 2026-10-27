@@ -98,6 +98,17 @@ test("merge catch-up: a PR merged after the watermark for an open, ours task →
   assert.equal(h.store.getRefMeta("7")?.prState, "merged");
 });
 
+test("merge catch-up: a PR's boardCloses is carried onto the queued job, and running it doesn't bridge", async () => {
+  const h = harness();
+  const forge = fakeForge([{ pr: 42, ref: "7", mergedAt: "2026-10-20T10:00:00Z", boardCloses: true }]);
+  await runMergeCatchup(h.cfg, { store: h.store, adapter: h.adapter, forge: /** @type {any} */ (forge), intake: h.intake, log: h.log });
+  assert.deepEqual(h.jobs, [{ kind: "merge", ref: "7", stepId: "done", dedupKey: "merged:42", boardCloses: true }]);
+  const run = createDispatcher(h.cfg, h.adapter, undefined, h.store, () => {});
+  await run(h.jobs[0]);
+  assert.deepEqual(h.calls, ["fetch 7", "fetch 7"], "no enterStage, no complete");
+  assert.equal(h.store.getRefMeta("7")?.prState, "merged");
+});
+
 test("merge catch-up: no watermark → looks back 7 days; PRs replay oldest first", async () => {
   const h = harness();
   const now = Date.parse("2026-10-21T00:00:00Z");

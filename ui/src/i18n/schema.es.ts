@@ -136,7 +136,7 @@ export const SCHEMA_ES: SchemaOverlay = {
 
   // Pipeline steps — common + advanced
   "tracker.pipeline.*.maxConcurrent": { label: "Máximo de ejecuciones simultáneas", help: "Ejecuciones de este paso a la vez, contadas dentro del límite global; sin definir = solo ese límite." },
-  "tracker.pipeline.*.completeOnMerge": { label: "Completar al fusionar", help: "Solo pasos manuales, como máximo uno: un PR del agente fusionado mueve la tarea a este paso." },
+  "tracker.pipeline.*.completeOnMerge": { label: "Completar al fusionar", help: "Solo pasos manuales, como máximo uno: el puente para tableros que no se enteran de las fusiones; un PR del agente fusionado mueve la tarea aquí." },
   "tracker.pipeline.*.closeIssue": { label: "Cerrar issue", help: "Entrar en este paso (terminal) cierra el issue y libera los issues que bloqueaba." },
   "tracker.pipeline.*.completeTask": { label: "Completar tarea", help: "Entrar en este paso (terminal) marca la tarea como completada y libera las tareas que bloqueaba." },
   "tracker.pipeline.*.lite": { label: "Modo lite", help: "Un modelo/esfuerzo más barato cuando la descripción tiene una línea que empieza con cada encabezado listado." },
@@ -175,6 +175,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "forge.webhookSecret": { label: "Secreto del webhook", help: "Secreto de firma; omítelo para que agenthook genere uno. Siempre se verifica." },
   "forge.redCi": { label: "Reaccionar al CI en rojo", help: "Con CI en rojo en un PR del agente, lo reejecuta una vez y luego devuelve la tarea con changes." },
   "forge.greenCi": { label: "Informar CI en verde", help: "Emite un evento ci_green cuando todos los checks de un PR del agente pasan (no mueve nada)." },
+  "forge.boardClosesOnMerge": { label: "El tablero cierra al fusionar", help: "El tablero cierra sus propios tickets al fusionar (p. ej. Jira/Linear con una integración de GitHub/GitLab); agenthook no hace de puente." },
   "forge.ciTarget": { label: "Paso destino del CI en rojo", help: "Paso al que vuelve un rebote por CI en rojo; sin definir = el paso que crea el worktree." },
 
   // Integrations
