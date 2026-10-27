@@ -404,12 +404,16 @@ export function createAsanaAdapter(cfg, store) {
           // The completed task itself needn't be ours — a human completing a blocker should
           // still release the bot's dependents. We re-read `completed` live (an un-complete
           // also delivers `changed`), so only a task that IS completed releases anything.
+          // Completion is also the board's done flag: a task of OURS yields a signal-only
+          // `board_done` job, which the engine emits outside the queue (src/board-done.js).
           const gid = ev.resource.gid;
           if (!gid || (ev.change?.field && ev.change.field !== "completed")) continue;
           try {
-            const res = await api(`/tasks/${gid}?opt_fields=completed`);
+            const res = await api(`/tasks/${gid}?opt_fields=completed,assignee.gid`);
             if (!res.ok) throw new Error(`task fetch ${res.status}`);
-            if ((await json(res)).data?.completed !== true) continue;
+            const live = (await json(res)).data;
+            if (live?.completed !== true) continue;
+            if (isOurs(live.assignee?.gid)) jobs.push({ kind: "board_done", ref: gid, stepId: "", dedupKey: `done:${gid}:${ev.created_at ?? ""}` });
             for (const dep of await dependents(gid)) {
               if (!dep?.gid || dep.completed) continue; // a dependent already completed: never fire an agent on it
               if (!isOurs(dep.assignee?.gid)) continue; // a dependent that isn't ours: untouched

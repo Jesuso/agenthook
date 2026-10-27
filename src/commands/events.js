@@ -12,7 +12,7 @@ import { neverStarted } from "../profile.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
 import { formatEnergy } from "../energy.js";
 
-const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed", "coalesced", "epic_changed"]);
+const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed", "coalesced", "epic_changed", "board_done"]);
 
 /**
  * Parse an event line as JSON; return null on failure.

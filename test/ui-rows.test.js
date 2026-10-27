@@ -722,3 +722,16 @@ test("buildRows: options is the newest run_end's options only while held with a 
   const longRows = buildRows("p", state({ held: { hlong: { stepId: "code", reason: "x" } }, events: [end("hlong", "hold", ["x".repeat(90), "y".repeat(90)])] }));
   assert.deepEqual(row(longRows, "hlong").options, ["x".repeat(80), "y".repeat(80)], "each entry sliced to 80 chars");
 });
+
+test("buildRows: a board_done alone makes no row; after a run it changes nothing (#585)", () => {
+  const events = [
+    { ts: "2026-10-27T00:00:00Z", event: "board_done", ref: "9", step: "", via: "flag" },
+    { ts: "2026-10-27T00:00:00Z", event: "run_start", ref: "1", step: "code" },
+    { ts: "2026-10-27T00:01:00Z", event: "pipeline_done", ref: "1", step: "done", name: "One" },
+    { ts: "2026-10-27T00:02:00Z", event: "board_done", ref: "1", step: "", via: "flag" },
+  ];
+  const rows = buildRows("p", state({ events }));
+  assert.deepEqual(rows.map((r) => r.ref), ["1"]);
+  assert.equal(row(rows, "1").status, "done");
+  assert.equal(row(rows, "1").step, "done");
+});

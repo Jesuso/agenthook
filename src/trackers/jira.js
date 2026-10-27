@@ -436,8 +436,10 @@ export function createJiraAdapter(cfg, store) {
     //   jira:issue_created → the step whose sourceStatus the new issue sits in.
     //   jira:issue_updated → only when the changelog carries a `status` change;
     //                        route to the step matching the NEW status (changelog
-    //                        `toString`), deduped by the unique changelog id.
-    //   comment_created    → the `@agent` resume of a held issue (resumeFromComment;
+    //                        `toString`), deduped by the unique changelog id. A move
+    //                        into a done-category status also yields a signal-only
+    //                        `board_done` (key `done:<changelog.id>`), step or not.
+    //   comment_created   → the `@agent` resume of a held issue (resumeFromComment;
     //                        key `trigger:<comment.id>`). Gated by its own strict
     //                        author + fresh assignee checks, so it runs before the
     //                        payload-assignee gate (a comment payload may omit it).
@@ -472,12 +474,16 @@ export function createJiraAdapter(cfg, store) {
       if (ev.webhookEvent === "jira:issue_updated") {
         const item = (ev.changelog?.items || []).find((/** @type {any} */ i) => i.field === "status" || i.fieldId === "status");
         if (!item) return epicJobs; // an update that didn't change status — ignore
-        const step = stepByStatus(item.toString);
-        if (!step) return epicJobs;
         // changelog.id is unique per change → dedups webhook retries yet lets a later
         // re-entry into the same status fire again (different changelog id).
-        const dedupKey = `secmove:${ev.changelog?.id ?? `${key}:${norm(item.toString)}`}`;
-        return [...epicJobs, { kind: "pipeline", ref: key, stepId: step.id, dedupKey }];
+        const changeId = ev.changelog?.id ?? `${key}:${norm(item.toString)}`;
+        // The board's done flag (a done-category status) is a signal-only `board_done`,
+        // emitted by the engine outside the queue (src/board-done.js) — bound step or not.
+        /** @type {import('../types.js').Job[]} */
+        const doneJobs = issue.fields?.status?.statusCategory?.key === "done" ? [{ kind: "board_done", ref: key, stepId: "", dedupKey: `done:${changeId}` }] : [];
+        const step = stepByStatus(item.toString);
+        if (!step) return [...epicJobs, ...doneJobs];
+        return [...epicJobs, ...doneJobs, { kind: "pipeline", ref: key, stepId: step.id, dedupKey: `secmove:${changeId}` }];
       }
       return epicJobs;
     },

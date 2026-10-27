@@ -3,6 +3,9 @@
 // `/forge` goes to the forge (when one is configured); everything else to the tracker.
 import { isForgePath } from "../forges/index.js";
 
+/** Job kinds that are signals, never queued work. */
+const SIGNAL_KINDS = new Set(["ci_green", "epic_changed", "board_done"]);
+
 /**
  * @param {{
  *   adapter: import('../types.js').Adapter,
@@ -10,10 +13,11 @@ import { isForgePath } from "../forges/index.js";
  *   intake: (jobs: import('../types.js').Job[]) => unknown,
  *   ciGreen: (job: import('../types.js').Job) => unknown,
  *   epicChanged: (job: import('../types.js').Job) => unknown,
+ *   boardDone: (job: import('../types.js').Job) => unknown,
  * }} deps
  * @returns {import('node:http').RequestListener}
  */
-export function createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged }) {
+export function createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone }) {
   return (req, res) => {
     if (req.method !== "POST") {
       res.writeHead(200);
@@ -53,13 +57,14 @@ export function createRequestHandler({ adapter, forge, intake, ciGreen, epicChan
       res.end();
       Promise.resolve(source.processEvents(ctx))
         .then((jobs) => {
-          // `ci_green` / `epic_changed` are signals, not work: skip the queue (see
-          // src/ci-green.js, src/epic-changed.js).
+          // `ci_green` / `epic_changed` / `board_done` are signals, not work: skip the queue
+          // (see src/ci-green.js, src/epic-changed.js, src/board-done.js).
           for (const j of jobs || []) {
             if (j.kind === "ci_green") ciGreen(j);
             else if (j.kind === "epic_changed") epicChanged(j);
+            else if (j.kind === "board_done") boardDone(j);
           }
-          return intake((jobs || []).filter((j) => j.kind !== "ci_green" && j.kind !== "epic_changed"));
+          return intake((jobs || []).filter((j) => !SIGNAL_KINDS.has(j.kind)));
         }).catch((e) => console.error("[events]", e.message));
     });
   };

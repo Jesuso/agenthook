@@ -39,6 +39,7 @@ import { createForge } from "../forges/index.js";
 import { createSandbox } from "../sandbox/index.js";
 import { createCiGreen } from "../ci-green.js";
 import { createEpicChanged } from "../epic-changed.js";
+import { createBoardDone } from "../board-done.js";
 import { createQueue } from "../queue.js";
 import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
@@ -90,6 +91,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   /** ops' epics-cache reset, handed over via `onEpicChanged` (never an own property of ops — that would be a control op). @type {(() => void) | undefined} */
   let resetEpics;
   const epicChanged = createEpicChanged({ store, emit, invalidate: () => resetEpics?.() });
+  const boardDone = createBoardDone({ store, emit });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, {
     sandbox,
     // A Claude run's quota reading: persisted (readable with the receiver down), shown, paced.
@@ -174,7 +176,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     archiveOnExit: false,
     finished: false,
     control: null,
-    server: http.createServer(createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged })),
+    server: http.createServer(createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone })),
   };
 
   // Opt-in quota pacer (src/quota.js; `quota` config, default off).

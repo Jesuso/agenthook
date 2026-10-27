@@ -529,6 +529,9 @@ export function createGithubAdapter(cfg, store) {
     //                              arrives after the issue left that label is a no-op
     //                              (event-based key `secmove:<delivery>` — a later
     //                              re-add of the same label fires again; retries dedup).
+    //   closed                   → close-release of unblocked dependents, plus a signal-only
+    //                              `board_done` for the closed issue when it is ours (key
+    //                              `done:<delivery>`).
     //   issue_comment created    → the `@agent` resume of the issue's held step
     //                              (key `trigger:<comment.id>`; see resumeFromComment).
     //   sub_issues (all actions),
@@ -563,9 +566,15 @@ export function createGithubAdapter(cfg, store) {
       // that are now fully unblocked and resting in a step's source label. The closed
       // issue itself needn't be ours — a human closing a blocker should still release the
       // bot's dependents. (Gated AFTER our-ness, empty-blockedBy, and resting checks below.)
+      // The close is also the board's done flag: an issue of OURS yields a signal-only
+      // `board_done` job, which the engine emits outside the queue (src/board-done.js).
       if (ev.action === "closed") {
         /** @type {import('../types.js').Job[]} */
         const jobs = [];
+        if (await issueIsOurs(issue)) {
+          const delivery = Array.isArray(headers["x-github-delivery"]) ? headers["x-github-delivery"][0] : headers["x-github-delivery"];
+          jobs.push({ kind: "board_done", ref, stepId: "", dedupKey: `done:${delivery || `${ref}:${issue.closed_at ?? ""}`}` });
+        }
         for (const dep of await blocking(ref)) {
           const depRef = String(dep.number);
           if (dep.state !== "open") continue; // a dependent already closed itself: never fire an agent on it

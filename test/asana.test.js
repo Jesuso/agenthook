@@ -1021,3 +1021,32 @@ test("registerWebhook: a non-2xx (list or create, JSON or HTML body) throws an E
   assert.equal(notFound.status, 404);
   assert.equal(notFound.message, 'Asana: [{"message":"Not a recognized ID: P1"}]');
 });
+
+// --- done signal (#585): fetchTask().completed is the native flag; a completion of ours → board_done ---
+
+test("fetchTask().completed: task completed true → true, false/absent → false", async () => {
+  for (const [completed, want] of [[true, true], [false, false], [undefined, false]]) {
+    const task = await withFetch(() => ok({ data: { name: "t", notes: "", permalink_url: "u", completed, custom_fields: [] } }), () => routed().fetchTask("G9"));
+    assert.equal(task.completed, want, String(completed));
+  }
+});
+
+test("board_done: completing a task of ours yields one board_done (keyed by event created_at) alongside the unblock jobs; not ours → none", async () => {
+  const ev = JSON.stringify({ events: [{ action: "changed", created_at: "2026-10-27T10:00:00.000Z", resource: { resource_type: "task", gid: "B1" }, change: { field: "completed", action: "changed" } }] });
+  /** @param {string} assignee */
+  const stub = (assignee) => (/** @type {string} */ u) => {
+    if (u.includes("/tasks/B1?")) {
+      assert.ok(u.includes("assignee.gid"), "the live re-read requests the assignee");
+      return ok({ data: { completed: true, assignee: { gid: assignee } } });
+    }
+    return releaseStub(true, [])(u);
+  };
+  const a = withPipeline(releasePipeline, { assigneeFilter: true, userGid: "U" });
+  const ours = await withFetch(stub("U"), () => a.processEvents(/** @type {any} */ ({ rawBody: ev })));
+  assert.deepEqual(ours, [
+    { kind: "board_done", ref: "B1", stepId: "", dedupKey: "done:B1:2026-10-27T10:00:00.000Z" },
+    { kind: "pipeline", ref: "D1", stepId: "code", dedupKey: "unblock:B1:D1" },
+  ]);
+  const theirs = await withFetch(stub("OTHER"), () => a.processEvents(/** @type {any} */ ({ rawBody: ev })));
+  assert.deepEqual(theirs, [{ kind: "pipeline", ref: "D1", stepId: "code", dedupKey: "unblock:B1:D1" }]);
+});

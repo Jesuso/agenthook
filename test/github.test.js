@@ -587,7 +587,8 @@ test("close-release: closing a blocker fires only its now-unblocked, resting, ow
     return null; // 37 (and any other) blocked_by → empty 200 = unblocked
   });
   try {
-    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    // The close-release jobs only (#36 is ours here, so a `board_done` rides along).
+    const jobs = (await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })))).filter((j) => j.kind === "pipeline");
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].ref, "37");
     assert.equal(jobs[0].stepId, "code");
@@ -605,7 +606,8 @@ test("close-release: a dependent that is itself CLOSED is never fired (no agent 
       : null,
   );
   try {
-    const jobs = await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    // The close-release jobs only (#36 is ours here, so a `board_done` rides along).
+    const jobs = (await adapter().processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })))).filter((j) => j.kind === "pipeline");
     assert.equal(jobs.length, 0);
   } finally {
     restore();
@@ -628,7 +630,8 @@ test("close-release: a dependent resting in a manual/terminal step is not fired 
       : null,
   );
   try {
-    const jobs = await a.processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })));
+    // The close-release jobs only (#36 is ours here, so a `board_done` rides along).
+    const jobs = (await a.processEvents(/** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [] } })))).filter((j) => j.kind === "pipeline");
     assert.equal(jobs.length, 0);
   } finally {
     restore();
@@ -1405,4 +1408,34 @@ test("App auth init discovery lists the installation's repos (GET /installation/
   }
   assert.deepEqual(choices, [{ title: "o/r", value: "o/r" }, { title: "o/s", value: "o/s" }]);
   assert.ok(!calls.some((c) => c.url.includes("/user/repos")));
+});
+
+// --- done signal (#585): fetchTask().completed is the native flag; a close of ours → board_done ---
+
+test("fetchTask().completed: open → false, closed → true", async () => {
+  for (const [state, completed] of [["open", false], ["closed", true]]) {
+    const restore = withDeps((u) => (u.endsWith("/issues/5") ? /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ title: "t", body: "", html_url: "u", state }) }) : null));
+    try {
+      assert.equal((await adapter().fetchTask("5")).completed, completed, state);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("board_done: closing an issue of ours yields one board_done (keyed by delivery), alongside the close-release; not ours → none", async () => {
+  const restore = withDeps(() => null); // no dependents
+  try {
+    const a = adapter({ assigneeFilter: true, assigneeLogin: "bot" });
+    const ours = await a.processEvents(
+      /** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [{ login: "bot" }] } }, { "x-github-delivery": "d-1" })),
+    );
+    assert.deepEqual(ours, [{ kind: "board_done", ref: "36", stepId: "", dedupKey: "done:d-1" }]);
+    const theirs = await a.processEvents(
+      /** @type {any} */ (evt({ action: "closed", issue: { number: 36, labels: [], assignees: [{ login: "someone" }] } }, { "x-github-delivery": "d-2" })),
+    );
+    assert.deepEqual(theirs, []);
+  } finally {
+    restore();
+  }
 });

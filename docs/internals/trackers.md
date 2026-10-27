@@ -73,3 +73,34 @@
   lazily and memoised; the assignee check reads the payload's `assigneeId`; fail-closed. No epics.
 
 See [epics.md](epics.md) for the cross-provider epic model this feeds into.
+
+## Done signal
+
+The board is the only source of Done (#583). A ticket is **board-done** when its tracker's native
+done flag is set, **or** when it enters a **terminal stage** — the source stage of a `manual: true`
+step. The terminal stage counts as done for **every** tracker. `fetchTask().completed` reports the
+**native flag only** (local, which has no flag, reports its terminal stage); a reader that wants
+board-done checks the stage separately.
+
+Both halves surface as one event, `board_done` (signal only — nothing runs, nothing moves):
+
+- `via: "flag"` — the tracker delivered the done flag flipping on a ticket that passes the adapter's
+  fail-closed ownership check. The adapter returns a `{kind:'board_done'}` job alongside whatever
+  jobs it already returns (close-release, unblock, step routing); `src/board-done.js` dedups it on
+  `seen` and emits it outside the run queue, like `epic_changed`. `step` is `""`.
+- `via: "stage"` — dispatch's manual branch (`src/dispatch/step.js`) emits it on every manual-step
+  entry, with or without `drainWorktree`. `step` = the manual step, plus `name`, `url`.
+  `pipeline_done` is unchanged (still `drainWorktree` only).
+
+One ticket can produce both (e.g. a GitHub `closeIssue` done step: the stage entry, then the close
+webhook); a counter dedups per ref. The dashboard never makes a row from a `board_done` alone
+(`src/ui/rows.js`): a flag signal can name an owned ticket the pipeline never touched.
+
+| Tracker | Native done flag | `fetchTask().completed` | Webhook when the flag flips → job | Terminal stage counts |
+|---|---|---|---|---|
+| Asana | task `completed` | `t.completed === true` | `task changed [completed]`: live re-read (`completed,assignee.gid`); completed + `isOurs` → `board_done` (`done:<gid>:<event created_at>`), plus the unblock jobs | yes |
+| Jira | status category `done` | `statusCategory.key === "done"` | `jira:issue_updated` with a status changelog item: after the `isOurs` gate, `fields.status.statusCategory.key === "done"` → `board_done` (`done:<changelog.id>`), whether or not a step matched | yes |
+| GitHub labels | issue `closed` | `issue.state === "closed"` | `issues closed`: `issueIsOurs(issue)` → `board_done` (`done:<x-github-delivery>`), plus the close-release jobs | yes — without `closeIssue` it is the only done agenthook itself produces (the issue stays open until a human or a `Closes #N` merge closes it) |
+| GitHub Projects v2 | issue `closed` | `norm(issue.state) === "closed"` | none — the org hook subscribes only `projects_v2_item` + `issue_comment`, so an issue close is never delivered. Done is observed through the terminal stage: a Status move into a manual step's status (e.g. GitHub's built-in "Item closed → Done" project workflow) | yes — the only observed done |
+| Linear | state type `completed` or `canceled` | `completed`/`canceled` | Issue `update` with `updatedFrom.stateId`: the new state's `type` (from `team().states`) is `completed`/`canceled` and `isOurs(assigneeId)` → `board_done` (`done:<id>:<updatedAt>`), whether or not a step matched | yes |
+| local | none (terminal stage only) | the stage is a manual step's `sourceStatus` (failure, hold and unbound stages are not) | no webhooks; a move into any step's source stage (manual included) is pushed via `onJobs` | yes — the only done |

@@ -172,9 +172,10 @@ export function createLocalAdapter(cfg, _store) {
       }
     return stages;
   };
-  /** Is this stage terminal: pipeline-bound but sourcing no non-manual step (done, failure, hold)?
-   * An unbound stage (e.g. `backlog`) is not — the item has not entered the pipeline yet. @param {string} stage */
-  const isTerminal = (stage) => !stepBySourceStage(stage) && boundStages().has(stage);
+  /** Is this stage done: the source stage of a manual (terminal) step? A local board has no native
+   * done flag, so this is it. Failure and hold stages are not done, and neither is an unbound stage
+   * (e.g. `backlog`) — the item has not entered the pipeline yet. @param {string|undefined} stage */
+  const isDoneStage = (stage) => !!stage && !!pipeline?.some((s) => s.manual && s.sourceStatus === stage);
 
   return {
     describe: () => ({
@@ -218,7 +219,7 @@ export function createLocalAdapter(cfg, _store) {
         name: it.name,
         description: it.description || "",
         url: it.url || `local://${ref}`,
-        completed: isTerminal(it.stage),
+        completed: isDoneStage(it.stage),
         assignedToUs: true,
         displayId: String(ref),
         routeKeys: extractRouteKeys(it, cfg.providerConfig?.routeField),
