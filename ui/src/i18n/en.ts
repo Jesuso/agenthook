@@ -9,6 +9,9 @@ export const meta: DictionaryMeta = { lang: "en", name: "English", complete: tru
 export const messages = {
   // format.ts
   "time.justNow": "just now",
+  "time.notLive": "As of {time} — live updates disconnected",
+  "time.elapsedSpoken": "running for {duration}",
+  "time.underMinute": "less than a minute",
   "format.up": "up",
   "format.down": "down",
   "lastEvent.pipeline": "picked up",
@@ -119,7 +122,7 @@ export const messages = {
   "overview.openLogAria": "Open log for {id}",
   "overview.openPrAria": "Open PR {pr} for {id} (new tab)",
   "overview.retryError": "Couldn't re-run {id}: {error}",
-  "overview.elapsed": "elapsed",
+  "overview.elapsed": "Elapsed",
   "overview.costSoFar": "cost so far (approx.)",
   "overview.followLog": "Follow log",
   "overview.now": "Now",
@@ -494,6 +497,7 @@ export const messages = {
   "drawer.runsByStep": "Runs by step over time",
   "drawer.idleBreak": "idle time, squeezed on this axis",
   "drawer.started": "started {when}",
+  "drawer.startedAt": "started at {time}",
   "drawer.sentBack": "sent back",
   "drawer.lines": { one: "{count} line", other: "{count} lines" },
   "drawer.partialLog": "(earlier output not shown)",

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProfileView, Snapshot, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatDuration, formatModel, formatRelative, formatSpend, formatTicketSpend, ticketTitle } from "./format";
+import { formatCost, formatModel, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
@@ -10,7 +10,7 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { CopyCommand, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, SpeakButton, TicketId } from "./components";
+import { Ago, CopyCommand, Elapsed, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, SpeakButton, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -419,7 +419,7 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                 </button>
                 <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
                   {t.step ? `${t.step} · ` : ""}
-                  {formatRelative(since, now, lang)}
+                  <Ago iso={since} seed={now} />
                 </span>
                 {/* One primary action per row, always visible, in a fixed-width slot so the columns line
                     up; a failed row adds the quieter Dismiss before it. A PR link on a held/failed row
@@ -481,7 +481,6 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
   const { t: tr, lang } = useT();
   const title = ticketTitle(t, lang);
   const model = formatModel(t.model);
-  const elapsed = t.startedAt ? formatDuration(now - Date.parse(t.startedAt)) : "—";
   return (
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
       {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
@@ -495,7 +494,7 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
         <>
           {/* Narrow: model and cost go (the drawer has both); elapsed stays, it is the progress signal. */}
           <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
-          <span className="font-mono text-label" title={tr("overview.elapsed")}>{elapsed}</span>
+          <Elapsed iso={t.startedAt} seed={now} className="text-label" />
           <span className="font-mono text-label text-muted max-sm:hidden" title={tr("overview.costSoFar")}>{formatTicketSpend(t)}</span>
           <button type="button" className={`${LINK} ${REVEAL} max-sm:hidden`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
             {tr("overview.followLog")}

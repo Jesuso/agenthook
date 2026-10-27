@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { ProfileView, TicketRow, TicketStatus } from "./contract";
-import { formatModel, formatRelative, formatTicketSpend, profileLabel, ticketTitle } from "./format";
+import { formatModel, formatTicketSpend, profileLabel, ticketTitle } from "./format";
 import { filterTickets, pageLimit, prNumber, showMore, sortTickets, statusCounts, ticketEpics, PAGE_SIZE, STATUS_ORDER } from "./tickets";
 import type { Page, StatusFilter } from "./tickets";
-import { Segmented, StatusBadge, Tooltip } from "./components";
+import { Ago, Segmented, StatusBadge, Tooltip } from "./components";
 import { useT } from "./i18n/react";
 import type { MessageKey } from "./i18n";
 
@@ -219,7 +219,9 @@ function Row({ t, now, selected, onOpen, onDismiss, onEpic }: { t: TicketRow; no
       <td className={NOWRAP} title={model.title}>
         {model.text}
       </td>
-      <td className={NOWRAP}>{formatRelative(t.startedAt, now, lang)}</td>
+      <td className={NOWRAP}>
+        <Ago iso={t.startedAt} seed={now} />
+      </td>
       <td className={NOWRAP}>{formatTicketSpend(t)}</td>
       <td className={CELL}>
         {t.heldReason ? (

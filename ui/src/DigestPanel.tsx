@@ -2,8 +2,8 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { DigestView } from "./contract";
 import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatRelative } from "./format";
-import { ShowHide, SpeakButton } from "./components";
+import { formatCost } from "./format";
+import { ShowHide, SpeakButton, useAgo } from "./components";
 import { useT } from "./i18n/react";
 
 // react-markdown ships in the same lazy chunk as the Instructions preview, not the main bundle.
@@ -54,6 +54,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
   const since = digest ? eventsSince(feed, digest.generatedAt) : 0;
   const button = digest ? t("digest.refresh") : t("digest.write");
   const stale = digestStale(digest, now);
+  const generatedAgo = useAgo(digest?.generatedAt ?? null, now);
   const showBody = loaded && (!stale || expanded);
   const bodyId = `digest-body-${profile}`;
 
@@ -63,7 +64,7 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
         <h2 className="text-label font-semibold uppercase tracking-wide text-muted">{t("digest.title")}</h2>
         {digest && (
           <p className="text-label text-muted" data-digest-meta>
-            {t("digest.snapshotFrom", { when: formatRelative(digest.generatedAt, Math.max(now, Date.parse(digest.generatedAt)), lang) })}
+            {t("digest.snapshotFrom", { when: generatedAgo })}
             {digest.costUsd !== undefined && ` · ${t("digest.cost", { cost: formatCost(digest.costUsd, lang) })}`}
             {since > 0 && <span className="text-fg"> · {t("digest.newEvents", { count: since })}</span>}
           </p>

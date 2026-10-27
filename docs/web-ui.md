@@ -517,7 +517,14 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - Zone 1 *Needs you* (hidden when empty): failed → held → PR rows, one-line reason (heldReason /
   verdict summary), inline Release / Dismiss / Open PR / Open ticket.
 - Zone 2 *Now*: running agents per step with elapsed, model, cost, follow-log; free slots as empty
-  pips; queue order below.
+  pips; queue order below. Elapsed is live (#579): `45s` ticking each second for the first minute,
+  then `4m` / `1h 04m` each minute (reduced motion: `<1m`, then minutes). Every time label — elapsed
+  and the "3m ago" ages across the dashboard — owns a local timer that fires only at its own next
+  boundary (no global clock, no network). While the event stream is down — `closed`, or
+  `reconnecting` for more than 15 s (the first open on load and a blip aren't outages) — they hold
+  their last reading marked `~` (`~12m`, `~3m ago`), elapsed muted with an "as of" title. Elapsed is a
+  `<time>` whose screen-reader text is words ("running for 4 minutes"), never `aria-live`. In the drawer a
+  running run shows "started at 14:02" beside its elapsed, not a second relative time.
 - Zone 3 *Progress*: today + last 48 h only (events tail range): finished today vs yesterday, cost,
   rework rate; hidden below ~10 runs. Longer ranges: see "Daily stats" below.
 - Activity feed: **collapsed bottom panel** with an unread count. Raw ticket table is an
