@@ -19,25 +19,27 @@ A large body of work made of several tickets, tracked as one group so a person c
 _Avoid_: Initiative, project, parent ticket
 _Español_: Épica
 
-**Finished**:
-A ticket whose agents reached the pipeline's terminal step. Means agents are done, not that the work shipped. "Done today" counts tickets finished since local midnight.
-_Avoid_: Done (ambiguous with merged), completed, shipped
+**Done**:
+A ticket whose board says it's done: the tracker's completed/closed flag, or the ticket sits in the pipeline's terminal stage. A merged PR or agents reaching their last step never make a ticket done — see [ADR 0008](adr/0008-done-comes-from-the-board.md). "Done today" counts board transitions to done since local midnight.
+_Avoid_: Finished, completed, shipped
 _Español_: Terminado
 
+_Finished is agenthook's internal pipeline event (agents reached the last step); it is not a user-facing term and has no Spanish entry here._
+
 **Merged**:
-A ticket's PR was merged. Only observable on a profile with a forge.
+A fact about a ticket's PR (the forge saw it merge), not a stage. Only observable on a profile with a forge, and never on its own makes a ticket done.
 _Avoid_: Shipped, landed
 _Español_: Fusionado
 
 **Needs you**:
-A ticket that is blocked on a human: held, failed, or a PR awaiting merge with a known PR (a ticket finished with no recorded PR is just finished). The headline number of a profile.
+A ticket that is blocked on a human: held, failed, or one of: a PR awaiting merge (board open, PR open); a PR merged but the ticket still open (the bridge didn't deliver); a PR closed unmerged (re-run or close); an open PR on a done ticket. The headline number of a profile.
 _Avoid_: Attention, alerts, pending
 _Español_: Te necesita
 
 **Ready to close**:
-An open epic whose tickets are all finished, waiting for a person to close it on the tracker. Shown
+An open epic whose tickets are all Done, waiting for a person to close it on the tracker. Shown
 on the epic only — never counted in the profile's headline Needs you.
-_Avoid_: Done, completed
+_Avoid_: completed
 _Español_: Listo para cerrar
 
 **Digest**:
