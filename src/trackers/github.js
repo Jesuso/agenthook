@@ -104,11 +104,13 @@ export function mapEpics(items, epicType, epicLabel) {
  * casing of the first pipeline label (source/success/failure/hold/queue of any step) it
  * carries, else "" (in this tracker's view, no pipeline label yet → backlog). Other-repo
  * sub-issue: ref/displayId `<owner>/<repo>#<n>`, stage always null (outside this tracker's
- * view → untracked; also never joins a local row with the same bare number). Pure — drives
- * listEpicTickets.
+ * view → untracked; also never joins a local row with the same bare number). `terminal` = the
+ * matched label is one of `terminalLabels` (the manual steps' source labels, normalized). Pure —
+ * drives listEpicTickets.
  * @param {any[]} items @param {string} repoApiUrl @param {Map<string,string>} stageLabels
+ * @param {Set<string>} [terminalLabels]
  * @returns {import('../types.js').EpicTicket[]} */
-export function mapEpicTickets(items, repoApiUrl, stageLabels) {
+export function mapEpicTickets(items, repoApiUrl, stageLabels, terminalLabels = new Set()) {
   /** @type {import('../types.js').EpicTicket[]} */
   const out = [];
   for (const it of Array.isArray(items) ? items : []) {
@@ -118,6 +120,7 @@ export function mapEpicTickets(items, repoApiUrl, stageLabels) {
     let ref = n;
     let displayId = `#${n}`;
     let stage = null;
+    let terminal = false;
     if (!sameRepo) {
       const m = /\/repos\/([^/]+\/[^/]+)$/.exec(String(it.repository_url || ""));
       ref = displayId = `${m ? m[1] : "unknown/unknown"}#${n}`;
@@ -129,11 +132,12 @@ export function mapEpicTickets(items, repoApiUrl, stageLabels) {
         const hit = stageLabels.get(name.trim().toLowerCase());
         if (hit) {
           stage = hit;
+          terminal = terminalLabels.has(name.trim().toLowerCase());
           break;
         }
       }
     }
-    out.push({ ref, displayId, name: it.title, completed: it.state === "closed", stage, url: it.html_url ?? null });
+    out.push({ ref, displayId, name: it.title, completed: it.state === "closed", stage, terminal, url: it.html_url ?? null });
   }
   return out;
 }
@@ -861,7 +865,8 @@ export function createGithubAdapter(cfg, store) {
     async listEpicTickets(epicRef) {
       try {
         const items = await pagedIssues(`${repoPath()}/issues/${epicRef}/sub_issues`, "");
-        return mapEpicTickets(items, repoApiUrl(), pipelineLabels());
+        const terminal = new Set((pipeline || []).flatMap((s) => (s.manual && s.sourceLabel ? [norm(s.sourceLabel)] : [])));
+        return mapEpicTickets(items, repoApiUrl(), pipelineLabels(), terminal);
       } catch (e) {
         console.warn(`[epics] listEpicTickets(${epicRef}) failed:`, e instanceof Error ? e.message : e, "— returning []");
         return [];

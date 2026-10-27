@@ -54,13 +54,14 @@ test("buildSnapshot: last24h keeps rate-table estimates and no-estimate runs apa
   assert.equal(s.last24h.unestimatedRuns, 1, "the unknown model");
 });
 
-test("buildSnapshot: a finished ticket awaits merge only with a known PR", () => {
+test("buildSnapshot: a done ticket's PR needs you only when known, each item with its prNeeds kind; no forge → none", () => {
   const dir = stateDir();
   assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge, [], "no refmeta.pr → just finished");
   const meta = JSON.parse(fs.readFileSync(path.join(dir, "refmeta.json"), "utf8"));
   meta[4].pr = 9;
   fs.writeFileSync(path.join(dir, "refmeta.json"), JSON.stringify(meta));
-  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge.map((p) => p.pr), ["https://github.com/o/r/pull/9"]);
+  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge.map((p) => [p.pr, p.kind]), [["https://github.com/o/r/pull/9", "openOnDone"]]);
+  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW, forge: false }).needsYou.prAwaitingMerge, []);
 });
 
 test("buildSnapshot: an empty state dir is an all-zero snapshot, not a throw", () => {

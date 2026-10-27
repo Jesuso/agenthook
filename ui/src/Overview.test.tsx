@@ -16,7 +16,7 @@ const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, estUsd: 0, trackerUrl: null,
-  prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
+  prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
 const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProps> = {}) =>
@@ -103,14 +103,14 @@ describe("Overview", () => {
     const html = render(profile({ forge: "github" }), [
       ticket("r", { status: "running", summary: "Cap triage runs so they cannot take every slot." }),
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8), summary: "Held ticket summary." }),
-      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8", summary: "PR-ready summary." }),
+      ticket("p", { status: "done", prState: "ready", prNeeds: "openOnDone", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8", summary: "PR-ready summary." }),
     ]);
     const row = (attr: string) => html.slice(html.indexOf(attr), html.indexOf("</li>", html.indexOf(attr)));
     expect(row('data-now-row="r"')).toContain("Cap triage runs so they cannot take every slot.");
     expect(row('data-needs-row="h"')).toContain("which db?");
     expect(row('data-needs-row="h"')).toContain("Held ticket summary."); // tooltip only
     expect(row('data-needs-row="h"')).not.toMatch(/data-needs-sub[^>]*>Held ticket summary/);
-    expect(row('data-needs-row="p"')).toMatch(/data-needs-sub[^>]*>PR-ready summary\./);
+    expect(row('data-needs-row="p"')).toMatch(/data-needs-sub[^>]*>Open PR on a done ticket — merge or close</); // the PR reason, like held/failed
   });
 
   it("shows the agent's plain sentence in place of the reason / summary, with the full text in the tooltip (#563)", () => {
@@ -118,22 +118,22 @@ describe("Overview", () => {
     const html = render(profile({ forge: "github" }), [
       ticket("f", { status: "failed", failReason: raw, plain: "The tests failed; decide whether to re-run." }),
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8), summary: "Held ticket summary.", plain: "It needs you to pick a database." }),
-      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8", summary: "PR-ready summary.", plain: "The change is ready to merge." }),
+      ticket("p", { status: "done", prState: "ready", prNeeds: "openOnDone", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8", summary: "PR-ready summary.", plain: "The change is ready to merge." }),
       ticket("r", { status: "running", summary: "Cap triage runs.", plain: "Triage confirmed the bug." }),
     ]);
     const row = (attr: string) => html.slice(html.indexOf(attr), html.indexOf("</li>", html.indexOf(attr)));
     expect(row('data-needs-row="f"')).toContain(`data-needs-sub="true" title="${raw}">The tests failed; decide whether to re-run.</span>`);
     expect(row('data-needs-row="f"')).toContain('aria-label="#f Title f, failed: The tests failed; decide whether to re-run."');
     expect(row('data-needs-row="h"')).toContain('data-needs-sub="true" title="which db?">It needs you to pick a database.</span>');
-    expect(row('data-needs-row="p"')).toContain('data-needs-sub="true" title="PR-ready summary.">The change is ready to merge.</span>');
+    expect(row('data-needs-row="p"')).toContain('data-needs-sub="true" title="Open PR on a done ticket — merge or close">The change is ready to merge.</span>');
     expect(row('data-now-row="r"')).toMatch(/data-now-sub="true">Triage confirmed the bug\.</);
     expect(row('data-now-row="r"')).toContain('title="Title r — Cap triage runs. — open details"');
     for (const r of ['data-needs-row="f"', 'data-needs-row="h"', 'data-now-row="r"']) expect(row(r)).not.toMatch(/font-mono[^>]*data-(needs|now)-sub/);
   });
 
-  it("keeps each row's primary action visible in one fixed slot (PR link on PR ready, Release on held, Re-run on failed)", () => {
+  it("keeps each row's primary action visible in one fixed slot (PR link on a PR reason, Release on held, Re-run on failed)", () => {
     const html = render(profile({ forge: "github" }), [
-      ticket("p", { status: "done", prState: "ready", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8114" }),
+      ticket("p", { status: "done", prState: "ready", prNeeds: "openOnDone", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8114" }),
       ticket("n", { status: "done", prState: "ready", finishedAt: local(9), prUrl: null }),
       ticket("h", { status: "held", heldReason: "q?", heldAt: local(8) }),
       ticket("f", { status: "failed", failReason: "x" }),
@@ -143,7 +143,7 @@ describe("Overview", () => {
     expect(row("h")).toMatch(/data-needs-primary[^>]*><button[^>]*data-release-open/);
     expect(row("f")).toMatch(/data-needs-primary[^>]*><button[^>]*data-needs-retry[^>]*>Re-run</);
     expect(row("f")).toMatch(/data-needs-dismiss[^>]*>Dismiss</); // secondary, before the primary
-    expect(html).not.toContain('data-needs-row="n"'); // no PR known: Finished, not Needs you
+    expect(html).not.toContain('data-needs-row="n"'); // no PR known: Done, not Needs you
     for (const r of ["p", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
   });
 
@@ -164,8 +164,8 @@ describe("Overview", () => {
     expect(html).not.toContain("data-release-panel");
   });
 
-  it("counts a ready PR as Needs you only on a forge profile", () => {
-    const pr = ticket("p", { status: "done", prState: "ready", finishedAt: local(10), prUrl: "https://github.com/o/r/pull/7" });
+  it("counts a PR reason as Needs you only on a forge profile", () => {
+    const pr = ticket("p", { status: "idle", prState: "merged", prNeeds: "mergedOpen", finishedAt: null, prUrl: "https://github.com/o/r/pull/7" });
     expect(render(profile({ forge: "github" }), [pr])).toContain('data-kind="pr"');
     expect(render(profile({ forge: null }), [pr])).not.toContain("data-needs-you-zone");
   });

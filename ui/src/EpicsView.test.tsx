@@ -32,8 +32,8 @@ describe("EpicsView", () => {
 
 describe("EpicsList", () => {
   const epics = [
-    epicStats({ ref: "E1", name: "Checkout revamp", status: "On track", byStage: { merged: 2, finished: 1, running: 1, needsYou: 2, backlog: 4 }, needsYou: ["a", "b"], eta: { days: 5, date: "2026-10-21" } }),
-    epicStats({ ref: "E0", name: "Old epic", completed: true, byStage: { merged: 3 } }),
+    epicStats({ ref: "E1", name: "Checkout revamp", status: "On track", byStage: { done: 3, running: 1, needsYou: 2, backlog: 4 }, needsYou: ["a", "b"], eta: { days: 5, date: "2026-10-21" } }),
+    epicStats({ ref: "E0", name: "Old epic", completed: true, byStage: { done: 3 } }),
     epicStats({ ref: "E2", name: "Search", byStage: { backlog: 3 } }),
   ];
 
@@ -65,7 +65,7 @@ describe("EpicsList", () => {
   });
 
   it("open epics sort needs you, then running, then ready to close; the chip takes the ETA slot", () => {
-    const ready = epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { finished: 2 } });
+    const ready = epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { done: 2 } });
     const out = list({ epics: [...epics, ready] });
     expect(out).toContain("ready to close");
     const at = (r: string) => out.indexOf(`data-epic-row="${r}"`);
@@ -91,13 +91,13 @@ describe("EpicPage", () => {
     epicTicket("r1", "running", { status: "running" }),
     epicTicket("b1", "backlog"),
     epicTicket("n1", "needsYou", { status: "held", name: "Answer me" }),
-    epicTicket("f1", "finished", { status: "done" }),
-    epicTicket("m1", "merged"),
+    epicTicket("f1", "done", { status: "done" }),
+    epicTicket("m1", "done"),
     epicTicket("u1", "untracked", { name: "Orphan" }),
   ];
   const detail = epicDetail({ ref: "E1", name: "Checkout revamp", status: "At risk", url: "javascript:alert(1)", velocity: { days: velocityDays([0, 1, 0, 2]), finished14: 3, activeDays: 2, perDay: 0.25 } }, tickets);
 
-  it("attention order: Needs you, running, backlog, not on the board, then finished and merged folded", () => {
+  it("attention order: Needs you, running, backlog, not on the board, then done folded", () => {
     const out = page({ epic: detail });
     const at = (g: string) => out.indexOf(`data-group="${g}"`);
     expect(at("needsYou")).toBeGreaterThan(-1);
@@ -113,12 +113,12 @@ describe("EpicPage", () => {
     expect(out).not.toMatch(/<details[^>]*data-group="history"[^>]*\sopen/);
   });
 
-  it("header and summary: name, status, safe link only, stage bar named in finished, plain-language pace", () => {
+  it("header and summary: name, status, safe link only, stage bar named in done, plain-language pace", () => {
     const out = page({ epic: detail });
     expect(out).toMatch(/<h2[^>]*>Checkout revamp<\/h2>/);
     expect(out).toContain("Tracker status: At risk");
     expect(out).not.toContain("javascript:");
-    expect(out).toContain('aria-label="2 of 6 finished: 1 merged, 1 finished, 1 running, 1 needs you, 1 backlog, 1 not on the board"');
+    expect(out).toContain('aria-label="2 of 6 done: 2 done, 1 running, 1 needs you, 1 backlog, 1 not on the board"');
     expect(out).not.toContain('data-chart="epic-velocity"');
     expect(out).toContain("Stalled: nothing finished for 10 days.");
     expect(out).toContain('data-stalled="true"');
@@ -149,13 +149,13 @@ describe("EpicPage", () => {
   });
 
   it("closed epics read as closed: pace says so, an empty one says Closed with no tickets", () => {
-    const closed = epicDetail({ ref: "E7", completed: true }, [epicTicket("m1", "merged")]);
+    const closed = epicDetail({ ref: "E7", completed: true }, [epicTicket("m1", "done")]);
     expect(page({ epic: closed })).toContain("Closed with 1 of 1 finished.");
     expect(page({ epic: epicDetail({ ref: "E8", completed: true }, []) })).toContain("Closed with no tickets.");
   });
 
   it("readyToClose shows a banner saying finished, linking the tracker when safe", () => {
-    const ready = epicDetail({ ref: "E3", readyToClose: true, url: "https://app.asana.com/0/1/E3" }, [epicTicket("f1", "finished")]);
+    const ready = epicDetail({ ref: "E3", readyToClose: true, url: "https://app.asana.com/0/1/E3" }, [epicTicket("f1", "done")]);
     const out = page({ epic: ready });
     expect(out).toContain("data-ready-to-close");
     expect(out).toContain("All tickets finished.");
@@ -164,7 +164,7 @@ describe("EpicPage", () => {
     expect(out).not.toContain("shipped");
     expect(out).toContain('href="https://app.asana.com/0/1/E3"');
 
-    const unsafe = epicDetail({ ref: "E4", readyToClose: true, url: "javascript:alert(1)" }, [epicTicket("f1", "finished")]);
+    const unsafe = epicDetail({ ref: "E4", readyToClose: true, url: "javascript:alert(1)" }, [epicTicket("f1", "done")]);
     const outUnsafe = page({ epic: unsafe });
     expect(outUnsafe).toContain("data-ready-to-close");
     expect(outUnsafe).toContain("on the tracker");
@@ -183,27 +183,27 @@ describe("EpicStageBar", () => {
   const bar = (byStage: Record<string, number>, total: number, awaiting = 0) => html(createElement(EpicStageBar, { epic: { byStage, total } as never, awaiting }));
   const seg = (out: string, b: string) => out.match(new RegExp(`<span[^>]*data-seg="${b}"[^>]*>`))?.[0] ?? "";
   it("marks only the running segment so it slides (epic-seg-running)", () => {
-    const out = bar({ merged: 1, finished: 0, running: 2, needsYou: 0, backlog: 1, untracked: 0 }, 4);
+    const out = bar({ done: 1, running: 2, needsYou: 0, backlog: 1, untracked: 0 }, 4);
     expect(seg(out, "running")).toContain("epic-seg-running");
-    expect(seg(out, "merged")).not.toContain("epic-seg-running");
+    expect(seg(out, "done")).not.toContain("epic-seg-running");
     expect(seg(out, "backlog")).not.toContain("epic-seg-running");
   });
   it("has no animated segment when nothing is running", () => {
-    expect(bar({ merged: 2, finished: 0, running: 0, needsYou: 0, backlog: 2, untracked: 0 }, 4)).not.toContain("epic-seg-running");
+    expect(bar({ done: 2, running: 0, needsYou: 0, backlog: 2, untracked: 0 }, 4)).not.toContain("epic-seg-running");
   });
-  it("hollow awaiting merge only for the counted tickets with a known PR; the rest of finished stays solid", () => {
-    const out = bar({ merged: 2, finished: 3, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 5, 1);
-    expect(seg(out, "merged")).toContain("bg-status-done");
-    expect(seg(out, "finished")).not.toContain("ring-status-done");
+  it("one solid done segment; hollow awaiting merge only for the counted tickets with a known PR, carved out of done", () => {
+    const out = bar({ done: 5, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 5, 1);
+    expect(seg(out, "done")).toContain("bg-status-done");
+    expect(seg(out, "done")).not.toContain("ring-status-done");
     expect(seg(out, "awaiting")).toContain("ring-status-done");
-    expect(out).toContain("2 finished, 1 awaiting merge");
-    expect(bar({ merged: 0, finished: 2, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 2)).not.toContain("ring-status-done");
+    expect(out).toContain("4 done, 1 awaiting merge");
+    expect(bar({ done: 2, running: 0, needsYou: 0, backlog: 0, untracked: 0 }, 2)).not.toContain("ring-status-done");
   });
 });
 
 describe("EpicsList, second pass", () => {
   it("whole row is the link; closed rows drop the bar and status for a muted count", () => {
-    const out = list({ epics: [epicStats({ ref: "E1", status: "Done", completed: true, byStage: { merged: 7 } }), epicStats({ ref: "E2", byStage: { backlog: 1 } })] });
+    const out = list({ epics: [epicStats({ ref: "E1", status: "Done", completed: true, byStage: { done: 7 } }), epicStats({ ref: "E2", byStage: { backlog: 1 } })] });
     expect(out).toContain("after:absolute");
     const closed = out.slice(out.indexOf('data-epic-row="E1"'));
     expect(closed).toMatch(/<span class="font-mono">7\/7<\/span> finished/);
@@ -211,16 +211,16 @@ describe("EpicsList, second pass", () => {
     expect(closed).not.toContain(">Done<");
   });
   it("a swatch-only key under the open list; ready to close is neutral, a stall shows in the note slot", () => {
-    const out = list({ epics: [epicStats({ ref: "E1", readyToClose: true, byStage: { finished: 2 } }), epicStats({ ref: "E2", byStage: { backlog: 2 } })] });
+    const out = list({ epics: [epicStats({ ref: "E1", readyToClose: true, byStage: { done: 2 } }), epicStats({ ref: "E2", byStage: { backlog: 2 } })] });
     const key = out.slice(out.indexOf("data-stage-key"));
-    expect(key).toContain("finished");
+    expect(key).toContain("done");
     expect(key).toContain("backlog");
     expect(key).not.toContain('class="font-mono"');
     expect(out).not.toContain("bg-status-done-bg");
     expect(out.slice(out.indexOf('data-epic-row="E2"'))).toContain("no finishes yet");
   });
   it("no note column when nothing fills it", () => {
-    const out = list({ epics: [epicStats({ ref: "E2", byStage: { finished: 2 } })] });
+    const out = list({ epics: [epicStats({ ref: "E2", byStage: { done: 2 } })] });
     expect(out).not.toContain("data-eta");
   });
 });
@@ -260,7 +260,7 @@ describe("EpicPage actions and pace", () => {
     expect(out).not.toContain("javascript:");
   });
   it("pace counts tickets, and gives the real reason when there is no estimate", () => {
-    const base = { byStage: { backlog: 2, running: 0, needsYou: 0, finished: 0, merged: 0, untracked: 0 }, total: 2, completed: false, eta: null };
+    const base = { byStage: { backlog: 2, running: 0, needsYou: 0, done: 0, untracked: 0 }, total: 2, completed: false, eta: null };
     const none = paceOf({ ...base, velocity: { days: velocityDays([]), finished14: 0, activeDays: 0, perDay: null } });
     expect(none.eta).toBe("2 left. No estimate until something finishes.");
     const one = paceOf({ ...base, velocity: { days: velocityDays([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), finished14: 1, activeDays: 1, perDay: 0.07 } });
@@ -271,10 +271,10 @@ describe("EpicPage actions and pace", () => {
 });
 
 describe("Epics round 3", () => {
-  it("Awaiting merge only on evidence: a recorded, unmerged PR; finished without one is just finished (CONTEXT.md)", () => {
-    const tickets = [epicTicket("f1", "finished"), epicTicket("f2", "finished"), epicTicket("f3", "finished"), epicTicket("m1", "merged"), epicTicket("b1", "backlog")];
+  it("Awaiting merge only on evidence: a recorded, open PR with a reason; done without one is just done (CONTEXT.md)", () => {
+    const tickets = [epicTicket("f1", "done"), epicTicket("f2", "done"), epicTicket("f3", "done"), epicTicket("m1", "done"), epicTicket("b1", "backlog")];
     const detail = epicDetail({ ref: "E1" }, tickets);
-    const withPr = { ...row("f1"), prUrl: "https://github.com/o/r/pull/42", prState: "ready" } as TicketRow;
+    const withPr = { ...row("f1"), status: "done", prUrl: "https://github.com/o/r/pull/42", prState: "ready", prNeeds: "openOnDone" } as TicketRow;
     const mergedPr = { ...row("f3"), prUrl: "https://github.com/o/r/pull/43", prState: "merged" } as TicketRow;
     const out = page({ epic: detail }, [withPr, mergedPr]);
     const at = (g: string) => out.indexOf(`data-group="${g}"`);
@@ -288,21 +288,20 @@ describe("Epics round 3", () => {
     expect(awaiting).not.toContain('data-epic-ticket="f3"');
     expect(out).not.toContain("no PR recorded");
     const history = out.slice(at("history"));
-    expect(history).toContain(">Finished and merged<");
+    expect(history).toContain(">Done<");
     for (const r of ["f2", "f3", "m1"]) expect(history).toContain(`data-epic-ticket="${r}"`);
-    expect(out).toContain('aria-label="4 of 5 finished: 1 merged, 2 finished, 1 awaiting merge, 1 backlog"');
+    expect(out).toContain('aria-label="4 of 5 done: 3 done, 1 awaiting merge, 1 backlog"');
   });
-  it("a PR with no known state (its finish left the events tail) is not awaiting merge", () => {
-    const stale = { ...row("f1"), status: "idle", prUrl: "https://github.com/o/r/pull/42", prState: null } as TicketRow;
-    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished")]) }, [stale]);
+  it("a PR with no reason (its history left the events tail) is not awaiting merge", () => {
+    const stale = { ...row("f1"), status: "idle", prUrl: "https://github.com/o/r/pull/42", prState: "ready", prNeeds: null } as TicketRow;
+    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "done")]) }, [stale]);
     expect(out).not.toContain('data-group="awaiting"');
   });
-  it("no recorded PRs: no Awaiting merge section, nothing hollow, history titled by what it holds", () => {
-    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished"), epicTicket("m1", "merged")]) });
+  it("no recorded PRs: no Awaiting merge section, nothing hollow, history titled Done", () => {
+    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "done"), epicTicket("m1", "done")]) });
     expect(out).not.toContain('data-group="awaiting"');
     expect(out).not.toContain("ring-status-done");
-    expect(page({ epic: epicDetail({ ref: "E1" }, [epicTicket("m1", "merged")]) })).toContain(">Merged<");
-    expect(page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished")]) })).toContain(">Finished<");
+    expect(out).toContain(">Done<");
   });
   it("heading counts are read aloud with their noun", () => {
     const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("b1", "backlog"), epicTicket("b2", "backlog")]) });
@@ -319,7 +318,7 @@ describe("Epics round 3", () => {
     for (const id of ids) expect(out).toContain(`id="${id}"`);
   });
   it("no open epics: a plain line and Closed open by default", () => {
-    const out = list({ epics: [epicStats({ ref: "E0", completed: true, byStage: { merged: 1 } })] });
+    const out = list({ epics: [epicStats({ ref: "E0", completed: true, byStage: { done: 1 } })] });
     expect(out).toContain(">No open epics.<");
     expect(out).toMatch(/<details[^>]*data-epics-completed[^>]*\sopen/);
   });
@@ -327,7 +326,7 @@ describe("Epics round 3", () => {
 
 describe("Epics round 4 list polish", () => {
   it("closed rows show their outcome; an empty one says no tickets", () => {
-    const out = list({ epics: [epicStats({ ref: "E1", completed: true, byStage: { merged: 4, backlog: 2 } }), epicStats({ ref: "E2", completed: true })] });
+    const out = list({ epics: [epicStats({ ref: "E1", completed: true, byStage: { done: 4, backlog: 2 } }), epicStats({ ref: "E2", completed: true })] });
     expect(out).toMatch(/<span class="font-mono">4\/6<\/span> finished/);
     expect(out.slice(out.indexOf('data-epic-row="E2"'))).toContain(">no tickets<");
   });
@@ -343,12 +342,12 @@ describe("Epics PR #555 review fixes", () => {
     expect(page({ supported: false, epic: null })).toContain("This tracker has no epics");
   });
   it("untracked tickets count as left, as the server's remaining does", () => {
-    const e = epicStats({ ref: "E1", byStage: { finished: 4, untracked: 2 } });
+    const e = epicStats({ ref: "E1", byStage: { done: 4, untracked: 2 } });
     expect(html(createElement(EpicStageBar, { epic: e }))).toContain(" · 2 left");
     expect(paceOf(e).eta).toContain("2 left.");
   });
   it("a stall wins over 'this week': the page says Stalled when the list would", () => {
-    const e = epicStats({ ref: "E1", byStage: { backlog: 1, finished: 1 }, velocity: { days: velocityDays([0, 0, 0, 0, 0, 0, 0, 0, 1]), finished14: 1, activeDays: 1, perDay: null } });
+    const e = epicStats({ ref: "E1", byStage: { backlog: 1, done: 1 }, velocity: { days: velocityDays([0, 0, 0, 0, 0, 0, 0, 0, 1]), finished14: 1, activeDays: 1, perDay: null } });
     const p = paceOf(e);
     expect(p.stalled).toBe(true);
     expect(p.text).toMatch(/^Stalled: nothing finished for 5 days\./);
@@ -368,7 +367,7 @@ describe("Epics PR #555 review fixes", () => {
   });
   it("Review PR refuses a non-http PR URL", () => {
     const detail = epicDetail({ ref: "E1" }, [epicTicket("n1", "needsYou")]);
-    const bad = { ...row("n1"), status: "done", prState: "ready", prUrl: "javascript:alert(1)" } as TicketRow;
+    const bad = { ...row("n1"), status: "idle", prState: "ready", prNeeds: "awaitingMerge", prUrl: "javascript:alert(1)" } as TicketRow;
     expect(page({ epic: detail }, [bad])).not.toContain("javascript:");
   });
 });
@@ -387,21 +386,21 @@ describe("Epics in Spanish", () => {
 
   it("the list: closed fold, pills, counts, the stage bar and its key", async () => {
     const epics = [
-      epicStats({ ref: "E1", name: "Checkout revamp", status: "On track", byStage: { merged: 2, finished: 1, needsYou: 1, backlog: 3 }, needsYou: ["a"] }),
-      epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { finished: 2 } }),
-      epicStats({ ref: "E0", name: "Old epic", completed: true, byStage: { merged: 3 } }),
+      epicStats({ ref: "E1", name: "Checkout revamp", status: "On track", byStage: { done: 3, needsYou: 1, backlog: 3 }, needsYou: ["a"] }),
+      epicStats({ ref: "E9", name: "Ready one", readyToClose: true, byStage: { done: 2 } }),
+      epicStats({ ref: "E0", name: "Old epic", completed: true, byStage: { done: 3 } }),
     ];
     const out = await es(createElement(EpicsList, { body: { at: "t", live: false, supported: true, epics }, profile: "dev" }));
-    for (const s of ["Cerradas", " épica)", "te necesita 1", "listo para cerrar", " · faltan 4", "3/3</span> terminados", "Solo tickets conocidos", "fusionados", "estado en el tracker"]) expect(out).toContain(s);
-    expect(out).toContain('aria-label="3 de 7 terminados: 2 fusionados, 1 terminado, 1 te necesita, 3 backlog"');
+    for (const s of ["Cerradas", " épica)", "te necesita 1", "listo para cerrar", " · faltan 4", "3/3</span> terminados", "Solo tickets conocidos", "hechos", "estado en el tracker"]) expect(out).toContain(s);
+    expect(out).toContain('aria-label="3 de 7 hechos: 3 hechos, 1 te necesita, 3 backlog"');
     expect(out).not.toContain("needs you");
   });
 
   it("an epic's page: sections, pace, actions", async () => {
-    const tickets = [epicTicket("n1", "needsYou"), epicTicket("b1", "backlog"), epicTicket("m1", "merged")];
+    const tickets = [epicTicket("n1", "needsYou"), epicTicket("b1", "backlog"), epicTicket("m1", "done")];
     const failed = { profile: "dev", ref: "n1", status: "failed", failReason: null, startedAt: null, step: "build" } as unknown as TicketRow;
     const body = { at: "t", live: true, supported: true, epic: epicDetail({ ref: "E1", status: "At risk" }, tickets) };
     const out = await es(createElement(EpicPage, { body, profile: "dev", rows: [failed], onOpen: () => {}, actions: { up: true, onRetry: ok, onDismiss: () => {} } }));
-    for (const s of ["Estado en el tracker: At risk", ">Te necesita<", ">Backlog<", ">Fusionados<", " ticket)", "La ejecución falló sin un motivo.", ">Reejecutar…</button>", 'aria-label="Reejecutar n1 (build)…"', ">Descartar</button>", "Faltan 2. Sin estimación hasta que algo termine.", "nunca se ejecutó aquí, sin enlace"]) expect(out).toContain(s);
+    for (const s of ["Estado en el tracker: At risk", ">Te necesita<", ">Backlog<", ">Hechos<", " ticket)", "La ejecución falló sin un motivo.", ">Reejecutar…</button>", 'aria-label="Reejecutar n1 (build)…"', ">Descartar</button>", "Faltan 2. Sin estimación hasta que algo termine.", "nunca se ejecutó aquí, sin enlace"]) expect(out).toContain(s);
   });
 });

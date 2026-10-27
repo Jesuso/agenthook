@@ -10,7 +10,7 @@ import type { Mounted } from "./domHarness";
 
 const ticket = (over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref: "7", displayId: "#7", title: "t", step: "code", status: "held", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null,
-  prUrl: null, summary: null, plain: null, options: null, heldReason: "?", heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
+  prUrl: null, summary: null, plain: null, options: null, heldReason: "?", heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
 let m: Mounted | null = null;

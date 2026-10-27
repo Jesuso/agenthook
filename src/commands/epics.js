@@ -5,7 +5,7 @@ import { defaultProfileKey, pickProfile, readEpics } from "../agent-api.js";
 
 /** @param {Record<string, any>} e @returns {string} */
 function epicLine(e) {
-  const done = (e.byStage?.finished ?? 0) + (e.byStage?.merged ?? 0);
+  const done = e.byStage?.done ?? 0;
   let line = `${e.ref} "${e.name}" ${done}/${e.total}`;
   if (e.needsYou?.length) line += ` needs-you: ${e.needsYou.join(" ")}`;
   if (e.eta) line += ` eta ${e.eta.date}`;

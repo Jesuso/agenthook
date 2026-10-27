@@ -11,7 +11,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { readProfileState, buildRows } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
-import { localEpics, epicStats } from "./epics.js";
+import { localEpics, epicStats, isNeedsYou } from "./epics.js";
 import { sumCosts } from "./pricing.js";
 import { SUMMARIES_MODEL } from "./digest-config.js";
 export { digestErrors, DIGEST_ACCESS } from "./digest-config.js";
@@ -51,6 +51,7 @@ const clip = (v, n) => {
  */
 export function buildSnapshot(dir, { repository = null, now = Date.now(), epics, forge, pricing = null } = {}) {
   const state = readProfileState(dir);
+  const hasForge = typeof forge === "boolean" ? forge : !!repository;
   const recent = state.events.filter((e) => now - Date.parse(e.ts) <= WINDOW_MS);
   const rows = buildRows("digest", { ...state, events: recent }, { repository, up: true });
   /** @param {import('./ui/contract.js').TicketRow} r */
@@ -59,7 +60,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
 
   const held = rows.filter((r) => r.status === "held").map((r) => ({ ticket: id(r), step: r.step, why: clip(r.heldReason, REASON_MAX), waitingMin: since(r.heldAt) }));
   const failed = rows.filter((r) => r.status === "failed").map((r) => ({ ticket: id(r), step: r.step, why: clip(r.failReason, REASON_MAX) }));
-  const prWaiting = rows.filter((r) => r.status === "done" && r.prState === "ready" && r.prUrl).map((r) => ({ ticket: id(r), pr: r.prUrl, finishedMinAgo: since(r.finishedAt) }));
+  const prWaiting = rows.filter((r) => hasForge && r.prNeeds).map((r) => ({ ticket: id(r), pr: r.prUrl, kind: r.prNeeds, finishedMinAgo: since(r.finishedAt) }));
   const running = rows.filter((r) => r.status === "running").map((r) => ({ ticket: id(r), step: r.step, runningMin: since(r.startedAt) }));
   const queued = rows.filter((r) => r.status === "queued").length;
   const finished = rows.filter((r) => r.status === "done" && r.finishedAt && now - Date.parse(r.finishedAt) <= DAY_MS);
@@ -71,7 +72,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
 
   // Per-step verdict summaries the agents left, for the tickets that need a human.
   const summaries = readJsonObject(path.join(dir, "summaries.json"));
-  const needs = new Set([...rows.filter((r) => ["held", "failed"].includes(r.status) || (r.status === "done" && r.prState === "ready" && r.prUrl)).map((r) => r.ref)]);
+  const needs = new Set(rows.filter((r) => isNeedsYou(r, hasForge)).map((r) => r.ref));
   /** @type {Record<string, unknown>} */
   const notes = {};
   for (const r of rows) {
@@ -133,7 +134,7 @@ export function compactEpics(stats, rows) {
       a.name.localeCompare(b.name),
   );
   return kept.slice(0, EPIC_MAX).map((s) => {
-    const done = s.byStage.finished + s.byStage.merged;
+    const done = s.byStage.done;
     return {
       epic: `${s.displayId ?? s.ref} "${clip(s.name, 80)}"`,
       progressPct: s.total ? Math.round((done / s.total) * 100) : null,

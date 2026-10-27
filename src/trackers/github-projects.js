@@ -103,10 +103,12 @@ export function mapProjectEpics(items, epicType, epicLabel) {
  * case-insensitive): ref/displayId `<n>`/`#<n>`; other repo: both `owner/repo#<n>` (never
  * collides with a bare number). `stage` = the child's card Status on this board, looked up
  * by issue node id in `stageByIssueId` (a card with no Status → "" = backlog); a child not
- * on the board → null (untracked). Pure — drives listEpicTickets.
+ * on the board → null (untracked). `terminal` = that Status is one of `terminalStatuses` (the
+ * manual steps' source statuses, trimmed + lowercased). Pure — drives listEpicTickets.
  * @param {any[]} children @param {string|null|undefined} epicRepo @param {Map<string, string|null>} stageByIssueId
+ * @param {Set<string>} [terminalStatuses]
  * @returns {import('../types.js').EpicTicket[]} */
-export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
+export function mapProjectEpicTickets(children, epicRepo, stageByIssueId, terminalStatuses = new Set()) {
   /** @type {import('../types.js').EpicTicket[]} */
   const out = [];
   for (const c of Array.isArray(children) ? children : []) {
@@ -115,12 +117,14 @@ export function mapProjectEpicTickets(children, epicRepo, stageByIssueId) {
     const childRepo = c.repository?.nameWithOwner;
     const ref = sameRepo(childRepo, epicRepo) ? n : `${childRepo || "unknown/unknown"}#${n}`;
     const onBoard = stageByIssueId.has(c.id);
+    const status = onBoard ? stageByIssueId.get(c.id) : null;
     out.push({
       ref,
       displayId: ref === n ? `#${n}` : ref,
       name: c.title,
       completed: String(c.state).toUpperCase() === "CLOSED",
-      stage: onBoard ? (stageByIssueId.get(c.id) ?? "") : null,
+      stage: onBoard ? (status ?? "") : null,
+      terminal: typeof status === "string" && terminalStatuses.has(status.trim().toLowerCase()),
       url: c.url ?? null,
     });
   }
@@ -876,7 +880,8 @@ export function createGithubProjectsAdapter(cfg, store) {
           if (!conn.pageInfo?.hasNextPage) break;
           after = conn.pageInfo.endCursor;
         }
-        return mapProjectEpicTickets(children, epic.issue.repository?.nameWithOwner, stageByIssueId);
+        const terminal = new Set((pipeline || []).flatMap((s) => (s.manual && s.sourceStatus ? [norm(s.sourceStatus)] : [])));
+        return mapProjectEpicTickets(children, epic.issue.repository?.nameWithOwner, stageByIssueId, terminal);
       } catch (e) {
         console.warn(`[epics] listEpicTickets(${epicRef}) failed:`, e instanceof Error ? e.message : e, "— returning []");
         return [];

@@ -547,8 +547,10 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   rollup file would only become necessary if `events.jsonl` were ever rotated or pruned — it is not.
 - **Days** are cut at the browser's midnight (`tz` = `getTimezoneOffset()` is sent with the request),
   so they match the tiles' "today".
-- **Distinct tickets:** `finished`/`merged` count distinct refs per day, because a ticket can emit
-  `pipeline_done` several times within seconds (seen live). `runs`/`rework`/`failedRuns`/`cost` are
+- **Distinct tickets:** `finished`/`merged` count distinct refs per day. `finished` is the board's done
+  (ADR 0008): a ref's first `board_done` (any `via`; a stage + flag pair counts once) or legacy
+  `pipeline_done` since its last `run_start` — a flag `board_done` for a ref never run here doesn't
+  count, and a merge never does. `runs`/`rework`/`failedRuns`/`cost` are
   `run_end` counts and sums. Merged is only meaningful on a profile with a forge.
 - `GET /api/stats?profile=&days=&tz=` (cookie only, days ≤ 90) → `{ days: DayStats[], since }`.
   Refetched when a meaningful live event arrives (`run_end`, `pipeline_done`, `failed`, `blocked`, `merged`).
@@ -685,9 +687,10 @@ A **Digest** is an on-demand, agent-written summary of one profile ("Catch me up
 Live epic data for the UI (epic #304, ADR 0003). Only the receiver holds the tracker credential, so
 the tracker read is the receiver's `epics` control op (`src/ops.js`); the UI server only relays it.
 - `GET /api/epics?profile=&tz=` → `{ at, live, supported, epics: EpicStats[] }` — every epic with
-  `total`, `byStage` (backlog / running / needsYou / finished / merged / untracked), `needsYou` refs,
-  `velocity`, `eta` and `readyToClose` (`src/epics.js` `epicStats`). `readyToClose` is `true` only when
-  `live:true` and the epic is open with every ticket finished/merged and none needing you — closing it
+  `total`, `byStage` (backlog / running / needsYou / done / untracked — `done` is the board's word only,
+  ADR 0008), `needsYou` refs (a done ticket with an open PR is listed too), `velocity`, `eta` and
+  `readyToClose` (`src/epics.js` `epicStats`). `readyToClose` is `true` only when
+  `live:true` and the epic is open with every ticket done and none needing you — closing it
   is a person's call, never counted in the headline Needs you.
 - `GET /api/epics/<ref>?profile=&tz=` → `{ at, live, supported, epic }`, where `epic` is an
   `EpicStats` plus `tickets: (EpicTicket & { bucket, status })[]` — `status` is the ticket's local
@@ -720,11 +723,10 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   (`ShortcutSheet`, shared with the Overview, which gets the same "?" button) has a switch that turns
   every single-key shortcut off, per browser (WCAG 2.1.4). The shared `Modal` is named by its title,
   takes focus, keeps Tab inside, has a Close button and hands focus back on close.
-- **One stage bar** (`EpicStageBar.tsx`) on both pages, named "N of M finished: …" for screen
-  readers. Merged is the strongest fill, finished the same green lighter, and **awaiting merge** is a
-  hollow segment drawn only on evidence: a finished ticket whose PR is recorded and not merged (the
-  page knows it from local rows; the list never draws it). A finished ticket with no recorded PR is
-  just finished (CONTEXT.md). Every label comes from one map (`segLabel`: untracked reads "not on the
+- **One stage bar** (`EpicStageBar.tsx`) on both pages, named "N of M done: …" for screen
+  readers. Done is one solid fill, and **awaiting merge** is a hollow segment carved out of it, drawn
+  only on evidence: a done ticket whose PR is recorded and still open (`prNeeds`; the page knows it
+  from local rows; the list never draws it). A done ticket with no recorded PR is just done (CONTEXT.md). Every label comes from one map (`segLabel`: untracked reads "not on the
   board"). The key with counts
   (`StageKey`) sits under the bar on a page; the list has a swatch-only key under its open rows.
 - **List** (`EpicsView.tsx`): one row per epic, the whole row a link — needs-you count first (when any
@@ -747,9 +749,8 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   named as on the Overview: **Release…** (the answer box opens inline), **Re-run…** (asks once
   inline, naming the step; Open log while the receiver is down) with a quieter **Dismiss** (Undo in
   the toast), **Review PR**, or the tracker when it never ran here; the name opens the drawer. Writes
-  are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only tickets with a recorded, unmerged PR, each with its
-  PR link); Backlog; "Not on the board"; and the rest folded, titled by what it holds ("Finished and
-  merged", "Merged" or "Finished"). Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when the ticket
+  are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only done tickets with a recorded, open PR, each with its
+  PR link); Backlog; "Not on the board"; and the rest of done folded, titled "Done". Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when the ticket
   carries its own URL (`EpicTicket.url`), marked "tracker ↗" and announced as a new tab, else a row
   that says "never ran here, no link".
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or

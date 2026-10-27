@@ -13,16 +13,18 @@ import { costOf } from "../pricing.js";
 export const STATS_MAX_DAYS = 366;
 const READ_CAP_BYTES = 64 * 1024 * 1024; // a bigger history is read from its last 64 MB
 const DAY_MS = 24 * 3600 * 1000;
-const KEEP = new Set(["pipeline_done", "merged", "run_end", "run_start"]);
+const KEEP = new Set(["pipeline_done", "board_done", "merged", "run_end", "run_start"]);
 const OUTCOMES = ["advance", "changes", "hold", "fail"];
 
 /**
- * One calendar day. `finished`/`merged`/`failedTickets` count distinct tickets (a ref can emit
- * `pipeline_done` several times within seconds), `runs`/`rework`/`failedRuns` count `run_end`s.
+ * One calendar day. `finished`/`merged` count distinct tickets, `runs`/`rework`/`failedRuns`
+ * count `run_end`s.
  * @typedef {object} DayStats
  * @property {string} date          local YYYY-MM-DD
- * @property {number} finished      distinct tickets that reached the terminal step
- * @property {number} merged        distinct tickets whose PR merged (forge profiles only)
+ * @property {number} finished      distinct tickets the board made done this day (ADR 0008): their first done signal since
+ *           their last `run_start` — a `board_done` (the done flag or the terminal stage; a stage + flag pair counts once) or a
+ *           legacy `pipeline_done`. A flag `board_done` for a ticket with no earlier run in the history is not counted
+ * @property {number} merged        distinct tickets whose PR merged (forge profiles only) — a forge fact, never `finished`
  * @property {number} runs          agent runs that ended
  * @property {number} rework        of those, ended `changes`
  * @property {number} failedRuns    of those, ended `fail`
@@ -84,6 +86,10 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
   const sinceFinish = new Map();
   /** The same, estimated. @type {Map<string, number>} */
   const estSinceFinish = new Map();
+  /** Refs already done since their last `run_start` (a later signal is the same transition). @type {Set<string>} */
+  const doneSinceRun = new Set();
+  /** Refs with a `run_start`/`run_end` so far: a flag `board_done` alone never counts (src/ui/rows.js). @type {Set<string>} */
+  const ran = new Set();
   for (const e of events) {
     const ts = Date.parse(e.ts);
     if (Number.isNaN(ts)) continue;
@@ -94,10 +100,15 @@ export function dailyStats(events, { now = Date.now(), days = 14, tzOffset = 0, 
     if (cost) sinceFinish.set(ref, (sinceFinish.get(ref) ?? 0) + cost);
     if (est) estSinceFinish.set(ref, (estSinceFinish.get(ref) ?? 0) + est);
     const d = byDay.get(dayKey(ts, tzOffset));
-    if (e.event === "pipeline_done") {
+    if (e.event === "run_start") doneSinceRun.delete(ref);
+    if (e.event === "run_start" || e.event === "run_end") ran.add(ref);
+    if (e.event === "pipeline_done" || e.event === "board_done") {
+      if (doneSinceRun.has(ref)) continue; // a stage + flag pair, or a duplicate burst: one transition
+      if (e.event === "board_done" && e.via !== "stage" && !ran.has(ref)) continue;
+      doneSinceRun.add(ref);
       const spent = sinceFinish.get(ref) ?? 0;
       if (spent > 0) {
-        sinceFinish.set(ref, 0); // a burst of duplicate pipeline_done counts the ticket once
+        sinceFinish.set(ref, 0);
         d?._tc.push(spent);
       }
       const estSpent = estSinceFinish.get(ref) ?? 0;
@@ -272,6 +283,7 @@ export function readHistory(file) {
           if (!e || !KEEP.has(e.event)) continue;
           /** @type {Record<string, any>} */
           const kept = { ts: e.ts, event: e.event, ref: e.ref, step: e.step, outcome: e.outcome, costUsd: e.costUsd };
+          if (e.event === "board_done" && e.via !== undefined) kept.via = e.via;
           if (e.event === "run_end") {
             for (const f of [...TOKEN_FIELDS, "costBasis", ...ENERGY_FIELDS]) if (e[f] !== undefined) kept[f] = e[f];
             const reported = typeof e.costUsd === "number" && !e.unpriced;

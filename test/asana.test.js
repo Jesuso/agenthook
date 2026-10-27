@@ -892,8 +892,21 @@ test("mapEpicTickets keeps a subtask in the project (right stage + displayId + p
     },
   ];
   assert.deepEqual(mapEpicTickets(data, "P1", "ID"), [
-    { ref: "T1", displayId: "ID-1", name: "In project", completed: false, stage: "In progress", url: "https://app.asana.com/0/1/T1/f" },
+    { ref: "T1", displayId: "ID-1", name: "In project", completed: false, stage: "In progress", terminal: false, url: "https://app.asana.com/0/1/T1/f" },
   ]);
+});
+
+test("mapEpicTickets: terminal = resting in a manual step's source section, matched by section gid (not name)", () => {
+  const data = [
+    { gid: "T1", name: "Done", completed: false, memberships: [{ project: { gid: "P1" }, section: { gid: "SDONE", name: "Done" } }] },
+    { gid: "T2", name: "Doing", completed: false, memberships: [{ project: { gid: "P1" }, section: { gid: "S1", name: "SDONE" } }] },
+    { gid: "T3", name: "No gid", completed: false, memberships: [{ project: { gid: "P1" }, section: { name: "Done" } }] },
+  ];
+  assert.deepEqual(
+    mapEpicTickets(data, "P1", undefined, new Set(["SDONE"])).map((t) => [t.ref, t.terminal]),
+    [["T1", true], ["T2", false], ["T3", false]],
+  );
+  assert.equal(mapEpicTickets(data, "P1", undefined)[0].terminal, false, "no terminal set → false");
 });
 
 test("fetchTask returns epic and isEpic with no extra API call (opt_fields only)", async () => {
@@ -979,8 +992,24 @@ test("listEpicTickets maps the subtasks results once the Epic type is found, req
     },
     () => routed({ projectGid: "P1", workspaceGid: "WS" }).listEpicTickets?.("E1"),
   );
-  assert.deepEqual(tickets, [{ ref: "T1", displayId: undefined, name: "A ticket", completed: false, stage: "Doing", url: "https://app.asana.com/0/1/T1" }]);
-  assert.ok(urls.some((u) => u.includes("/tasks/E1/subtasks") && u.includes("permalink_url")));
+  assert.deepEqual(tickets, [{ ref: "T1", displayId: undefined, name: "A ticket", completed: false, stage: "Doing", terminal: false, url: "https://app.asana.com/0/1/T1" }]);
+  assert.ok(urls.some((u) => u.includes("/tasks/E1/subtasks") && u.includes("permalink_url") && u.includes("memberships.section.gid")));
+});
+
+test("listEpicTickets: terminal from the pipeline's manual steps' source section gids", async () => {
+  const providerConfig = { type: "asana", token: "t", assigneeFilter: false, projectGid: "P1", workspaceGid: "WS" };
+  const withDone = [...pipeline, { id: "done", manual: true, sourceSectionGid: "SDONE" }];
+  const a = createAsanaAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: withDone, providerConfig }), /** @type {any} */ (makeStore()));
+  const sub = (/** @type {string} */ gid, /** @type {string} */ section) => ({ gid, name: gid, completed: false, custom_fields: [], memberships: [{ project: { gid: "P1" }, section: { gid: section, name: section } }] });
+  const tickets = await withFetch(
+    (u) => {
+      if (u.includes("/custom_types")) return ok({ data: [{ gid: "CT1", name: "Epic" }] });
+      if (u.includes("/tasks/E1/subtasks")) return ok({ data: [sub("T1", "SDONE"), sub("T2", "S1")] });
+      throw new Error(`unexpected call: ${u}`);
+    },
+    () => a.listEpicTickets?.("E1"),
+  );
+  assert.deepEqual(tickets?.map((t) => [t.ref, t.terminal]), [["T1", true], ["T2", false]]);
 });
 
 test("listEpicTickets returns [] on a subtasks API error (fail-open)", async () => {

@@ -15,8 +15,8 @@ test("digest: list header + one line per epic, needs-you and eta", () => {
     live: true,
     supported: true,
     epics: [
-      { ref: "E1", name: "Epic one", total: 5, byStage: { finished: 2, merged: 1, backlog: 1, running: 1, needsYou: 0, untracked: 0 }, needsYou: [], eta: { days: 3, date: "2026-10-20" } },
-      { ref: "E2", name: "Epic two", total: 2, byStage: { finished: 0, merged: 0, backlog: 0, running: 0, needsYou: 2, untracked: 0 }, needsYou: ["9", "10"], eta: null },
+      { ref: "E1", name: "Epic one", total: 5, byStage: { done: 3, backlog: 1, running: 1, needsYou: 0, untracked: 0 }, needsYou: [], eta: { days: 3, date: "2026-10-20" } },
+      { ref: "E2", name: "Epic two", total: 2, byStage: { done: 0, backlog: 0, running: 0, needsYou: 2, untracked: 0 }, needsYou: ["9", "10"], eta: null },
     ],
   });
   const lines = out.split("\n");
@@ -30,7 +30,7 @@ test("digest: readyToClose appends ' ready-to-close' to the line", () => {
     at: "t",
     live: true,
     supported: true,
-    epics: [{ ref: "E1", name: "Epic one", total: 2, byStage: { finished: 2, merged: 0, backlog: 0, running: 0, needsYou: 0, untracked: 0 }, needsYou: [], eta: null, readyToClose: true }],
+    epics: [{ ref: "E1", name: "Epic one", total: 2, byStage: { done: 2, backlog: 0, running: 0, needsYou: 0, untracked: 0 }, needsYou: [], eta: null, readyToClose: true }],
   });
   assert.equal(out.split("\n")[1], 'E1 "Epic one" 2/2 ready-to-close');
 });
@@ -44,7 +44,7 @@ test("digest: --ref detail is the epic line then one line per ticket; unsupporte
       ref: "E1",
       name: "Epic one",
       total: 2,
-      byStage: { finished: 1, merged: 0, backlog: 0, running: 0, needsYou: 1, untracked: 0 },
+      byStage: { done: 1, backlog: 0, running: 0, needsYou: 1, untracked: 0 },
       needsYou: ["12"],
       eta: null,
       tickets: [

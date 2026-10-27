@@ -62,7 +62,7 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   job — the **bridge** for boards that can't hear merges. `boardCloses: true` (pure `prClosesIssue`: merged
   into the default branch, body says `Closes #<ref>` / `owner/repo#<ref>`, tracker `github` on the same repo)
   tells dispatch not to bridge; so do `forge.boardClosesOnMerge` (other boards' own integrations) and an
-  already-completed task. A bridge that didn't deliver surfaces as Needs-you (`prState:"merged"` on a
+  already-completed task. A bridge that didn't deliver surfaces as Needs-you (`prNeeds:"mergedOpen"`: `prState:"merged"` on a
   still-open ticket). Its hook path is `/forge` (**not** `/github`, which the github tracker's scrub deletes) and it
   always verifies `x-hub-signature-256` via the shared `src/hmac.js` `verifyHubSignature`. A red
   `workflow_run` on a same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attempt>'}`

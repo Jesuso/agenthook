@@ -4,7 +4,7 @@ import type { TicketRow } from "./contract";
 
 const t = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "p", ref, displayId: ref, title: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null,
-  summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null, ...over,
+  summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null, ...over,
 });
 
 // Local time on purpose: "today" is the browser's local day.
@@ -16,7 +16,7 @@ describe("needsYouItems", () => {
     const items = needsYouItems(
       [
         t("h-old", { status: "held", heldReason: "which db?", startedAt: local(8) }),
-        t("pr", { status: "done", prState: "ready", prUrl: "https://github.com/o/r/pull/1", finishedAt: local(11) }),
+        t("pr", { status: "done", prState: "ready", prNeeds: "openOnDone", prUrl: "https://github.com/o/r/pull/1", finishedAt: local(11) }),
         t("f", { status: "failed", failReason: "tests red", startedAt: local(9) }),
         t("h-new", { status: "held", summary: null, heldReason: null, startedAt: local(10) }),
         t("running", { status: "running" }),
@@ -25,7 +25,7 @@ describe("needsYouItems", () => {
     );
     expect(items.map((i) => i.ticket.ref)).toEqual(["f", "h-new", "h-old", "pr"]);
     expect(items.map((i) => i.kind)).toEqual(["failed", "held", "held", "pr"]);
-    expect(items.map((i) => i.reason)).toEqual(["tests red", null, "which db?", null]);
+    expect(items.map((i) => i.reason)).toEqual(["tests red", null, "which db?", "Open PR on a done ticket — merge or close"]);
     expect(items[3].since).toBe(local(11));
   });
 
@@ -36,15 +36,28 @@ describe("needsYouItems", () => {
     expect(b.since).toBe(local(9));
   });
 
-  it("leaves a ready PR out without a forge, and a merged one always", () => {
+  it("each PR reason reads as its sentence; none without a forge; no reason → not listed", () => {
     const prUrl = "https://github.com/o/r/pull/1";
-    const tickets = [t("a", { status: "done", prState: "ready", prUrl }), t("b", { status: "done", prState: "merged", prUrl }), t("c", { status: "done", prState: "closed", prUrl })];
+    const tickets = [
+      t("a", { status: "idle", prState: "ready", prNeeds: "awaitingMerge", prUrl, finishedAt: null }),
+      t("b", { status: "idle", prState: "merged", prNeeds: "mergedOpen", prUrl }),
+      t("c", { status: "idle", prState: "closed", prNeeds: "closedUnmerged", prUrl }),
+      t("d", { status: "done", prState: "ready", prNeeds: "openOnDone", prUrl }),
+      t("e", { status: "done", prState: "merged", prNeeds: null, prUrl }),
+    ];
     expect(needsYouItems(tickets, false)).toEqual([]);
-    expect(needsYouItems(tickets, true).map((i) => i.ticket.ref)).toEqual(["a"]);
+    const items = needsYouItems(tickets, true);
+    expect(items.map((i) => [i.ticket.ref, i.kind, i.reason])).toEqual([
+      ["a", "pr", "Awaiting merge"],
+      ["b", "pr", "PR merged — close the ticket"],
+      ["c", "pr", "PR closed without merging — re-run or close"],
+      ["d", "pr", "Open PR on a done ticket — merge or close"],
+    ]);
+    expect(needsYouItems([tickets[1]], true, "es")[0].reason).toBe("PR fusionado: cierra el ticket");
   });
 
-  it("leaves a finished ticket with no known PR out — it is just Finished", () => {
-    expect(needsYouItems([t("a", { status: "done", prState: "ready", prUrl: null })], true)).toEqual([]);
+  it("leaves a done ticket with no known PR out — it is just Done", () => {
+    expect(needsYouItems([t("a", { status: "done", prState: null, prUrl: null })], true)).toEqual([]);
   });
 });
 

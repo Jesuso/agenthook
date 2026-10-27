@@ -36,7 +36,7 @@ const row = (rows, ref) => {
   return r;
 };
 
-test("buildRows: one status per source, with precedence running > queued > held > terminal > idle", () => {
+test("buildRows: one status per source, with precedence running > queued > board done > held > failed > idle", () => {
   const rows = buildRows(
     "p",
     state({
@@ -68,7 +68,8 @@ test("buildRows: one status per source, with precedence running > queued > held 
   assert.equal(row(rows, "r4").title, "Four");
   assert.equal(row(rows, "r5").status, "done");
   assert.equal(row(rows, "r5").step, "done");
-  assert.equal(row(rows, "r8").status, "done");
+  assert.equal(row(rows, "r8").status, "idle", "a merged PR alone is never done (ADR 0008)");
+  assert.equal(row(rows, "r8").prState, "merged");
   assert.equal(row(rows, "r6").status, "running"); // running beats held
   assert.equal(row(rows, "r6").step, "review");
   assert.equal(row(rows, "r7").status, "idle");
@@ -499,28 +500,123 @@ test("profileView: colour / emoji come from the heartbeat's ui when valid, else 
   assert.equal(view({ ui: "nope" }).color, d.color);
 });
 
-test("buildRows: prState / finishedAt follow pipeline_done → merged, and a re-run clears them", () => {
+test("buildRows: prState is a PR fact whatever the status; finishedAt is the first board-done signal; a re-run clears both", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: { ready: { pr: 1 }, merged: { pr: 2 }, "merge-only": { pr: 3 }, rerun: { pr: 4 }, running: { pr: 5 } },
+      running: { running: { stepId: "code", startedAt: "t" } },
+      events: [
+        { ts: "2026-10-08T09:00:00.000Z", event: "pipeline_done", ref: "ready", step: "done" },
+        { ts: "2026-10-08T09:00:01.000Z", event: "board_done", ref: "ready", step: "done", via: "stage" },
+        { ts: "2026-10-08T07:00:00.000Z", event: "run_start", ref: "merged", step: "code" },
+        { ts: "2026-10-08T08:00:00.000Z", event: "board_done", ref: "merged", step: "", via: "flag" },
+        { ts: "2026-10-08T10:00:00.000Z", event: "merged", ref: "merged", step: "" },
+        { ts: "2026-10-08T07:00:00.000Z", event: "merged", ref: "merge-only", step: "" },
+        { ts: "2026-10-08T06:00:00.000Z", event: "pipeline_done", ref: "rerun", step: "done" },
+        { ts: "2026-10-08T06:30:00.000Z", event: "merged", ref: "rerun", step: "" },
+        { ts: "2026-10-08T07:00:00.000Z", event: "run_start", ref: "rerun", step: "code" },
+        { ts: "2026-10-08T07:30:00.000Z", event: "failed", ref: "bad", step: "code", reason: "tests red" },
+        { ts: "2026-10-08T07:30:00.000Z", event: "pipeline_done", ref: "nopr", step: "done" },
+      ],
+    }),
+  );
+  /** @param {string} ref */
+  const facts = (ref) => [row(rows, ref).status, row(rows, ref).prState, row(rows, ref).finishedAt];
+  // the done stays the first signal's ts: a stage + flag pair or a later merge doesn't move it
+  assert.deepEqual(facts("ready"), ["done", "ready", "2026-10-08T09:00:00.000Z"]);
+  assert.deepEqual(facts("merged"), ["done", "merged", "2026-10-08T08:00:00.000Z"]);
+  assert.deepEqual(facts("merge-only"), ["idle", "merged", null], "a merge is a PR fact, not done");
+  assert.deepEqual(facts("rerun"), ["idle", "ready", null], "the re-run voids the done and the merge; the PR itself stays");
+  assert.deepEqual(facts("running"), ["running", "ready", null], "an open PR shows while running too");
+  assert.deepEqual(facts("bad"), ["failed", null, null]);
+  assert.deepEqual(facts("nopr"), ["done", null, "2026-10-08T07:30:00.000Z"], "no PR → prState null");
+});
+
+test("buildRows: board_done gives done and outranks a held entry and a failed event, never running/queued", () => {
+  const done = (/** @type {string} */ ref, via = "flag") => ({ ts: "2026-10-08T09:00:00.000Z", event: "board_done", ref, step: "", via });
+  const run = (/** @type {string} */ ref) => ({ ts: "2026-10-08T08:00:00.000Z", event: "run_start", ref, step: "code" });
+  const rows = buildRows(
+    "p",
+    state({
+      running: { r: { stepId: "code", startedAt: "t" } },
+      queue: [{ kind: "pipeline", ref: "q", stepId: "code", dedupKey: "k" }],
+      held: { h: { stepId: "code", reason: "which db?", heldAt: "t" }, r: { stepId: "code" }, q: { stepId: "code" } },
+      events: [
+        run("h"), done("h"),
+        run("f"), { ts: "2026-10-08T08:30:00.000Z", event: "failed", ref: "f", step: "code", reason: "x" }, done("f", "stage"),
+        run("f2"), done("f2"), { ts: "2026-10-08T09:30:00.000Z", event: "failed", ref: "f2", step: "code", reason: "late" },
+        run("r"), done("r"),
+        run("q"), done("q"),
+      ],
+    }),
+  );
+  assert.equal(row(rows, "h").status, "done");
+  assert.equal(row(rows, "h").heldReason, "which db?", "the stale hold is still recorded, it just doesn't win");
+  assert.equal(row(rows, "f").status, "done");
+  assert.equal(row(rows, "f").failReason, null, "no fail reason on a done row");
+  assert.equal(row(rows, "f2").status, "done", "a failed event after the done doesn't undo the board");
+  assert.equal(row(rows, "r").status, "running");
+  assert.equal(row(rows, "q").status, "queued");
+  assert.equal(row(rows, "q").finishedAt, null);
+});
+
+test("buildRows: a re-run (run_start, or a pipeline job's enqueued) clears board-done", () => {
+  const done = (/** @type {string} */ ref) => ({ ts: "1", event: "board_done", ref, step: "", via: "flag" });
   const rows = buildRows(
     "p",
     state({
       events: [
-        { ts: "2026-10-08T09:00:00.000Z", event: "pipeline_done", ref: "ready", step: "done" },
-        { ts: "2026-10-08T08:00:00.000Z", event: "pipeline_done", ref: "merged", step: "done" },
-        { ts: "2026-10-08T10:00:00.000Z", event: "merged", ref: "merged", step: "" },
-        { ts: "2026-10-08T07:00:00.000Z", event: "merged", ref: "merge-only", step: "" },
-        { ts: "2026-10-08T06:00:00.000Z", event: "pipeline_done", ref: "rerun", step: "done" },
-        { ts: "2026-10-08T07:00:00.000Z", event: "run_start", ref: "rerun", step: "code" },
-        { ts: "2026-10-08T07:30:00.000Z", event: "failed", ref: "bad", step: "code", reason: "tests red" },
+        { ts: "0", event: "run_start", ref: "a", step: "code" }, done("a"), { ts: "2", event: "run_start", ref: "a", step: "code" },
+        { ts: "0", event: "run_start", ref: "b", step: "code" }, done("b"), { ts: "2", event: "enqueued", ref: "b", step: "code", kind: "pipeline" },
+        { ts: "0", event: "run_start", ref: "c", step: "code" }, done("c"), { ts: "2", event: "enqueued", ref: "c", step: "", kind: "ci" },
       ],
     }),
   );
-  assert.deepEqual([row(rows, "ready").prState, row(rows, "ready").finishedAt], ["ready", "2026-10-08T09:00:00.000Z"]);
-  // the finish stays the pipeline_done ts; the later merge only flips prState
-  assert.deepEqual([row(rows, "merged").prState, row(rows, "merged").finishedAt], ["merged", "2026-10-08T08:00:00.000Z"]);
-  assert.deepEqual([row(rows, "merge-only").prState, row(rows, "merge-only").finishedAt], ["merged", "2026-10-08T07:00:00.000Z"]);
-  const rerun = row(rows, "rerun");
-  assert.deepEqual([rerun.status, rerun.prState, rerun.finishedAt], ["idle", null, null]);
-  assert.deepEqual([row(rows, "bad").prState, row(rows, "bad").finishedAt], [null, null]);
+  assert.equal(row(rows, "a").status, "idle");
+  assert.equal(row(rows, "b").status, "idle");
+  assert.equal(row(rows, "c").status, "done", "a CI job is not a re-run");
+});
+
+test("buildRows: prNeeds — the PR reasons where code and board disagree, only with a prUrl, on a done or known-open idle row", () => {
+  const ran = (/** @type {string} */ ref) => [
+    { ts: "1", event: "run_start", ref, step: "code" },
+    { ts: "2", event: "run_end", ref, step: "code", outcome: "advance" },
+  ];
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: {
+        await: { pr: 1 }, mergedOpen: { pr: 2 }, closed: { pr: 3, prState: "closed" }, onDone: { pr: 4 }, mergedDone: { pr: 5, prState: "merged" },
+        held: { pr: 6 }, failed: { pr: 7 }, running: { pr: 8 }, old: { pr: 9, prState: "merged" }, oldOpen: { pr: 10 }, nopr: {},
+      },
+      held: { held: { stepId: "code" } },
+      running: { running: { stepId: "code" } },
+      events: [
+        ...ran("await"),
+        ...ran("mergedOpen"), { ts: "3", event: "merged", ref: "mergedOpen", step: "" },
+        ...ran("closed"),
+        ...ran("onDone"), { ts: "3", event: "board_done", ref: "onDone", step: "done", via: "stage" },
+        ...ran("mergedDone"), { ts: "3", event: "board_done", ref: "mergedDone", step: "", via: "flag" },
+        ...ran("held"),
+        ...ran("failed"), { ts: "3", event: "failed", ref: "failed", step: "code", reason: "x" },
+        ...ran("running"),
+        { ts: "3", event: "ci_green", ref: "oldOpen" }, // in the tail, but its last run isn't
+        ...ran("nopr"),
+      ],
+    }),
+    { repository: "o/r" },
+  );
+  /** @type {Record<string, string|null>} */
+  const want = {
+    await: "awaitingMerge", mergedOpen: "mergedOpen", closed: "closedUnmerged", onDone: "openOnDone", mergedDone: null,
+    held: null, failed: null, running: null, old: null, oldOpen: null, nopr: null,
+  };
+  for (const [ref, prNeeds] of Object.entries(want)) assert.equal(row(rows, ref).prNeeds, prNeeds, ref);
+  assert.equal(row(rows, "old").status, "idle");
+  assert.equal(row(rows, "old").prState, "merged", "an idle row with no tail events keeps its PR fact, but no reason");
+  // no repository → no prUrl → no reason, whatever the PR fact says
+  assert.equal(buildRows("p", state({ refmeta: { a: { pr: 1 } }, events: ran("a") })).find((r) => r.ref === "a")?.prNeeds, null);
 });
 
 test("buildRows: refmeta.prState merged/closed overrides an event-derived ready; absent → still ready", () => {
@@ -570,9 +666,9 @@ test("buildRows: a CI job's enqueued (kind ci) does not reset a finished ticket'
   const t1 = row(rows, "T1");
   assert.equal(t1.status, "done");
   assert.equal(t1.prState, "merged");
-  // the issue's full repro: a completed ticket with this row must land in the epic's "merged"
-  // bucket, not "Awaiting merge" (ticketBucket's first check is row.status === "done" && row.prState === "merged")
-  assert.equal(ticketBucket({ ref: "T1", completed: true, stage: null }, t1, [], false), "merged");
+  // a completed ticket with this row lands in the epic's one "done" bucket, not "Awaiting merge"
+  assert.equal(t1.prNeeds, null);
+  assert.equal(ticketBucket({ ref: "T1", completed: true, stage: null }, t1, [], false), "done");
 });
 
 test("buildRows: a pipeline job's enqueued (kind pipeline, or no kind with a non-empty step) still resets terminal state", () => {

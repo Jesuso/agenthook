@@ -21,7 +21,7 @@ const prof = (name: string) =>
     lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null }) as ProfileView;
 const t = (profile: string, ref: string, status: TicketRow["status"], extra: Partial<TicketRow> = {}): TicketRow => ({
   profile, ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null,
-  prUrl: null, summary: null, plain: null, options: null, heldReason: status === "held" ? "Which **API**?" : null, heldAt: null, failReason: status === "failed" ? "x" : null, prState: null, finishedAt: null, queuePos: null, epic: null,
+  prUrl: null, summary: null, plain: null, options: null, heldReason: status === "held" ? "Which **API**?" : null, heldAt: null, failReason: status === "failed" ? "x" : null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null,
   ...extra,
 });
 

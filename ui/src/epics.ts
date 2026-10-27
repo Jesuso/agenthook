@@ -58,21 +58,20 @@ export const fetchEpics = (profile: string, fetchImpl: typeof fetch = fetch) => 
 export const fetchEpic = (profile: string, ref: string, fetchImpl: typeof fetch = fetch) => load<EpicResponse>(epicsUrl(profile, ref), true, fetchImpl);
 
 /** The stage bar's segments, left to right: done work first, the untracked tail last. */
-export const BUCKET_ORDER: EpicBucket[] = ["merged", "finished", "running", "needsYou", "backlog", "untracked"];
+export const BUCKET_ORDER: EpicBucket[] = ["done", "running", "needsYou", "backlog", "untracked"];
 
-/** Each bucket's label as a dictionary key (merged/finished are plural forms: pass `count`). */
+/** Each bucket's label as a dictionary key (done is a plural form: pass `count`). */
 export const BUCKET_LABEL: Record<EpicBucket, MessageKey> = {
-  merged: "epics.bucket.merged",
-  finished: "epics.bucket.finished",
+  done: "epics.bucket.done",
   running: "epics.bucket.running",
   needsYou: "epics.bucket.needsYou",
   backlog: "epics.bucket.backlog",
   untracked: "epics.bucket.untracked",
 };
 
-/** N/M: N = finished + merged, M = every ticket. */
+/** N/M: N = done on the board, M = every ticket. */
 export function progressOf(e: Pick<EpicStats, "byStage" | "total">): { done: number; total: number } {
-  return { done: e.byStage.finished + e.byStage.merged, total: e.total };
+  return { done: e.byStage.done, total: e.total };
 }
 
 /** One stage-bar segment per non-empty bucket, `pct` of the epic's tickets (0 tickets → none). */
@@ -109,7 +108,7 @@ export const safeUrl = (url: string | null | undefined): string | null => (url &
 
 /** The epic's tickets per bucket, each keeping the server's order. */
 export function groupTickets(tickets: EpicDetailTicket[]): Record<EpicBucket, EpicDetailTicket[]> {
-  const out: Record<EpicBucket, EpicDetailTicket[]> = { backlog: [], running: [], needsYou: [], finished: [], merged: [], untracked: [] };
+  const out: Record<EpicBucket, EpicDetailTicket[]> = { backlog: [], running: [], needsYou: [], done: [], untracked: [] };
   for (const t of tickets) (out[t.bucket] ?? out.untracked).push(t);
   return out;
 }

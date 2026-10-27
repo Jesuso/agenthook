@@ -236,11 +236,18 @@ const ticketEpic = (e) => {
   return { ref, name: str(e.name) ?? ref, url: url && /^https?:\/\//i.test(url) ? url : null };
 };
 
+/** `prNeeds` per PR fact on a row whose board is known open (ADR 0008).
+ * @type {Record<'ready'|'merged'|'closed', import('./contract.js').PrNeeds>} */
+const OPEN_BOARD_PR_NEEDS = { ready: "awaitingMerge", merged: "mergedOpen", closed: "closedUnmerged" };
+
 /**
- * One TicketRow per ref. Status precedence: running > queued > held > the last terminal
- * event in the tail (pipeline_done/merged → done, failed → failed, or cancelled when the reason is
- * an operator cancel) > idle. A terminal event followed by a later `enqueued`/`run_start` for the
- * ref no longer counts (it was re-run), nor does a failed/cancelled one followed by `dismissed`.
+ * One TicketRow per ref. Status precedence (ADR 0008: only the board says done): running >
+ * queued > done (a `board_done`, any `via`, or a legacy `pipeline_done` in the tail) > held >
+ * the last failed event (failed, or cancelled when the reason is an operator cancel) > idle. The
+ * board outranks a stale held/failed state, never live work. A done/failed event followed by a
+ * later `enqueued`/`run_start` for the ref no longer counts (it was re-run), nor does a
+ * failed/cancelled one followed by `dismissed`. A merged PR is a forge fact (`prState`), never
+ * done; where it disagrees with the board it sets `prNeeds` instead.
  * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs; `estUsd`
  * sums the rate-table estimates of the runs with no reported cost (src/pricing.js `costOf`, the
  * profile's `pricing` overrides from its heartbeat), kept apart; `energyKwh`/`energyUsd` sum the
@@ -285,8 +292,12 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     const meta = isObj(metaRaw) ? metaRaw : {};
     const events = eventsByRef.get(ref) || [];
 
-    /** @type {'done'|'failed'|'cancelled'|null} */
+    /** @type {'failed'|'cancelled'|null} */
     let terminal = null;
+    let boardDone = false;
+    let mergedEvent = false;
+    /** The ref's last re-run is in the tail: everything since it (a board done included) is too. */
+    let rerunSeen = false;
     /** @type {Record<string, any>|null} */
     let lastStart = null;
     /** @type {string|null} */
@@ -298,8 +309,6 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let energyKwh = 0;
     let energyUsd = 0;
     let measured = false;
-    /** @type {'ready'|'merged'|'closed'|null} */
-    let prState = null;
     /** @type {string|null} */
     let finishedAt = null;
     /** @type {string|null} */
@@ -314,14 +323,18 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       const isRerun = e.event === "run_start" || (e.event === "enqueued" && (e.kind ? e.kind === "pipeline" : e.step !== ""));
       if (isRerun) {
         terminal = null;
-        prState = null; // a re-run: the earlier finish / PR no longer stands
+        boardDone = false; // a re-run: the earlier done / merge no longer stands
+        mergedEvent = false;
+        rerunSeen = true;
         finishedAt = null;
         failReason = null;
-      } else if (e.event === "pipeline_done" || e.event === "merged") {
-        terminal = "done";
-        prState = e.event === "merged" ? "merged" : "ready";
-        finishedAt = finishedAt ?? str(e.ts); // the first finish since the last run, so a later merge doesn't move it
-      } else if (e.event === "failed") {
+      } else if (e.event === "board_done" || e.event === "pipeline_done") {
+        // pipeline_done is emitted only on entering a manual (terminal) stage, and is the only
+        // done signal in histories older than board_done.
+        boardDone = true;
+        finishedAt = finishedAt ?? str(e.ts); // the first done since the last run, so a later stage/flag pair doesn't move it
+      } else if (e.event === "merged") mergedEvent = true;
+      else if (e.event === "failed") {
         terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
         failReason = str(e.reason);
       } else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
@@ -340,17 +353,25 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     }
 
     /** @type {import('./contract.js').TicketStatus} */
-    const status = run ? (up ? "running" : "interrupted") : queued ? (up ? "queued" : "stalled") : held ? "held" : terminal ?? "idle";
-    // A PR the receiver later learned is merged/closed (refmeta.prState, from the `prs` op or a
-    // merge job) outranks whatever the events say — no forge hook needed for it to leave Needs you,
-    // and a CI job's bookkeeping (terminal/prState reset above) must not hide a known merge.
-    if (meta.prState === "merged" || meta.prState === "closed") prState = meta.prState;
+    const status = run ? (up ? "running" : "interrupted") : queued ? (up ? "queued" : "stalled") : boardDone ? "done" : held ? "held" : terminal ?? "idle";
+    const pr = meta.pr;
+    const prUrl = repo && Number.isInteger(pr) && pr > 0 ? `https://github.com/${repo}/pull/${pr}` : null;
+    // The PR as a forge fact, whatever the status: what the receiver learned (refmeta.prState,
+    // from the `prs` op or a merge job — dropped on a re-run) outranks the events, so a CI job's
+    // bookkeeping can't hide a known merge; else a merge seen since the last run; else open
+    // while there is a PR at all.
+    /** @type {'ready'|'merged'|'closed'|null} */
+    const prState = meta.prState === "merged" || meta.prState === "closed" ? meta.prState : mergedEvent ? "merged" : Number.isInteger(pr) && pr > 0 ? "ready" : null;
+    // Where code and board disagree (ADR 0008). The board is known open only on an idle row whose
+    // last re-run is in the tail; an older idle row's board is unknown (it may have closed long
+    // ago), so it gets no reason — old merged tickets never flood Needs you.
+    /** @type {import('./contract.js').PrNeeds|null} */
+    const prNeeds = !prUrl || !prState ? null : status === "done" ? (prState === "ready" ? "openOnDone" : null) : status === "idle" && rerunSeen ? OPEN_BOARD_PR_NEEDS[prState] : null;
     // The newest run's plain sentence, only while it describes the row's state: an applied
     // outcome that differs from the run's (changes cap, CI bounce, cancel) shows none.
     const want = PLAIN_OUTCOME[status];
     const plain = lastEnd && (want === "*" || lastEnd.outcome === want) ? str(lastEnd.plain)?.slice(0, 300) ?? null : null;
     const options = status === "held" && lastEnd?.outcome === "hold" ? cleanRowOptions(lastEnd.options) : null;
-    const pr = meta.pr;
     const trackerUrl = str(meta.url);
     rows.push({
       profile,
@@ -368,14 +389,13 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       estUsd: Math.round(estUsd * 1e6) / 1e6,
       ...(measured ? { energyKwh: Math.round(energyKwh * 1e9) / 1e9, energyUsd: Math.round(energyUsd * 1e6) / 1e6 } : {}),
       trackerUrl: trackerUrl && /^https?:\/\//i.test(trackerUrl) ? trackerUrl : null,
-      prUrl: repo && Number.isInteger(pr) && pr > 0 ? `https://github.com/${repo}/pull/${pr}` : null,
+      prUrl,
       heldReason: str(held?.reason),
       heldAt: str(held?.heldAt),
-      failReason: !run && !queued && !held && (terminal === "failed" || terminal === "cancelled") ? failReason : null,
-      // An idle row whose finish fell out of the events tail still carries its learned merge/close
-      // (refmeta.prState is dropped on any re-run, so on an idle row it can only be that history).
-      prState: terminal === "done" && status === "done" ? prState : status === "idle" && (meta.prState === "merged" || meta.prState === "closed") ? meta.prState : null,
-      finishedAt: terminal === "done" && status === "done" ? finishedAt : null,
+      failReason: status === "failed" || status === "cancelled" ? failReason : null,
+      prState,
+      prNeeds,
+      finishedAt: status === "done" ? finishedAt : null,
       queuePos: queued ? state.queue.indexOf(queued) : null,
       epic: ticketEpic(meta.epic),
     });

@@ -389,10 +389,16 @@ test("mapEpics / mapEpicTickets: status, done-category completion, subtasks drop
       base,
     ),
     [
-      { ref: "A-2", displayId: "A-2", name: "S", completed: false, stage: "QA", url: `${base}/browse/A-2` },
-      { ref: "A-4", displayId: "A-4", name: "B", completed: true, stage: "Done", url: `${base}/browse/A-4` },
+      { ref: "A-2", displayId: "A-2", name: "S", completed: false, stage: "QA", terminal: false, url: `${base}/browse/A-2` },
+      { ref: "A-4", displayId: "A-4", name: "B", completed: true, stage: "Done", terminal: false, url: `${base}/browse/A-4` },
     ],
   );
+});
+
+test("mapEpicTickets: terminal = the status is a manual step's sourceStatus", () => {
+  const issue = (/** @type {string} */ key, /** @type {string} */ status) => ({ key, fields: { summary: key, issuetype: STORY, status: { name: status, statusCategory: { key: "indeterminate" } } } });
+  const tickets = mapEpicTickets([issue("A-2", "Shipped"), issue("A-3", "QA")], "https://acme.atlassian.net", new Set(["Shipped"]));
+  assert.deepEqual(tickets.map((t) => [t.ref, t.terminal]), [["A-2", true], ["A-3", false]]);
 });
 
 test("epicChangesFromEvent: parent association (to + from), created/deleted under an epic, retype, subtasks skipped", () => {

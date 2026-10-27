@@ -693,7 +693,7 @@ test("epics: one EpicStats per listed epic, total = its listEpicTickets length",
   assert.equal(r.live, true);
   assert.equal(r.supported, true);
   assert.deepEqual(r.epics.map((/** @type {any} */ e) => [e.ref, e.total]), [["E1", 2], ["E2", 1]]);
-  assert.deepEqual(r.epics[0].byStage, { backlog: 1, running: 0, needsYou: 0, finished: 1, merged: 0, untracked: 0 });
+  assert.deepEqual(r.epics[0].byStage, { backlog: 1, running: 0, needsYou: 0, done: 1, untracked: 0 });
   assert.equal(r.epics[1].status, "On track");
   assert.deepEqual(calls.listEpicTickets.sort(), ["E1", "E2"], "fans out to every epic");
 });
@@ -772,7 +772,7 @@ test("epics {ref}: per-ticket bucket + status; unknown ref → no epic; unsafe r
   const r = await ops.epics({ ref: "E1" });
   assert.equal(r.epic.ref, "E1");
   assert.equal(r.epic.total, 2);
-  assert.deepEqual(r.epic.tickets.map((/** @type {any} */ t) => [t.ref, t.bucket, t.status]), [["11", "running", "running"], ["12", "finished", null]]);
+  assert.deepEqual(r.epic.tickets.map((/** @type {any} */ t) => [t.ref, t.bucket, t.status]), [["11", "running", "running"], ["12", "done", null]]);
   await assert.rejects(ops.epics({ ref: "E9" }), /no epic E9/);
   const before = calls.listEpics;
   await assert.rejects(ops.epics({ ref: "../x" }), /invalid epic ref/);
