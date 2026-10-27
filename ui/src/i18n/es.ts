@@ -206,7 +206,7 @@ export const messages: Record<MessageKey, Message> = {
   "prNeeds.awaitingMerge": "Esperando fusión",
   "prNeeds.mergedOpen": "PR fusionado: cierra el ticket",
   "prNeeds.closedUnmerged": "PR cerrado sin fusionar: vuelve a ejecutarlo o cierra el ticket",
-  "prNeeds.openOnDone": "PR abierto en un ticket hecho: fusiónalo o ciérralo",
+  "prNeeds.openOnDone": "PR abierto en un ticket terminado: fusiónalo o ciérralo",
   "ticketId.title": "abrir en el tracker",
 
   // Pure helpers (epics.ts, failure.ts, remove.ts, save.ts, leaveGuard.tsx, ConfigForms fieldMeta)
@@ -336,7 +336,7 @@ export const messages: Record<MessageKey, Message> = {
   "shell.digest.status": "el resumen falló (estado {status})",
 
   // epics.ts
-  "epics.bucket.done": { one: "hecho", other: "hechos" },
+  "epics.bucket.done": { one: "terminado", other: "terminados" },
   "epics.bucket.running": "en curso",
   "epics.bucket.needsYou": "te necesita",
   "epics.bucket.backlog": "backlog",
@@ -344,8 +344,7 @@ export const messages: Record<MessageKey, Message> = {
   "epics.perDay": "{n}/día",
 
   // EpicStageBar.tsx
-  "stageBar.awaiting": "esperando fusión",
-  "stageBar.aria": "{done} de {total} hechos: {named}",
+  "stageBar.aria": "{done} de {total} terminados: {named}",
   "stageBar.left": { one: "falta {count}", other: "faltan {count}" },
   "stageBar.key": "Leyenda de la barra",
 

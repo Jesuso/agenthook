@@ -327,7 +327,7 @@ test("buildDigestPrompt: mentions epics guidance and the no-invented-ETA rule", 
   const p = buildDigestPrompt({ soul: "S", snapshot: { epics: [] }, profile: "dev" });
   assert.match(p, /snapshot\.epics/);
   assert.match(p, /never estimate one yourself/);
-  assert.match(p, /readyToClose is fully finished — close it\?/);
+  assert.match(p, /readyToClose is fully done — close it\?/);
 });
 
 test("digester: model falls back digest.model → summaries.model → claude-haiku-5-5; budget digest → summaries", async () => {
