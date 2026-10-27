@@ -19,7 +19,10 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
  *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red | ci_green
- *           (run_end: `outcome`, `costUsd?`; a local-model run — step `bin` or a non-Claude model — has
+ *           (enqueued: `kind?` = the job's kind ("pipeline" when omitted) — a CI/merge job's enqueue
+ *             does not start an agent, so readers (src/ui/rows.js `buildRows`) must not treat it as a
+ *             re-run of the ref's last pipeline step;
+ *           run_end: `outcome`, `costUsd?`; a local-model run — step `bin` or a non-Claude model — has
  *             `unpriced: true` and no `costUsd`, so it adds nothing to any reported spend sum. `costBasis?` =
  *             reported | rate-table; `estUsd?` = an API-equivalent rate-table estimate (src/pricing.js), never
  *             summed into `costUsd`; when the agent returned a result, also `model?`, `input`, `output`,

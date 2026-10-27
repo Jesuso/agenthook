@@ -536,6 +536,42 @@ test("buildRows: refmeta.prState merged/closed overrides an event-derived ready;
   assert.equal(row(rows, "idle").prState, null, "no finish → no PR state, whatever refmeta says");
 });
 
+test("buildRows: a CI job's enqueued (kind ci) does not reset a finished ticket's state; a merged PR wins via refmeta", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: { T1: { pr: 42, prState: "merged" } },
+      events: [
+        { ts: "1", event: "pipeline_done", ref: "T1", step: "review" },
+        { ts: "2", event: "enqueued", ref: "T1", step: "", kind: "ci" },
+        { ts: "3", event: "ci_red", ref: "T1", step: "", action: "rerun" },
+        { ts: "4", event: "enqueued", ref: "T1", step: "", kind: "ci" },
+        { ts: "5", event: "ci_red", ref: "T1", step: "", action: "skipped" },
+        { ts: "6", event: "ci_green", ref: "T1" },
+      ],
+    }),
+  );
+  const t1 = row(rows, "T1");
+  assert.equal(t1.status, "done");
+  assert.equal(t1.prState, "merged");
+});
+
+test("buildRows: a pipeline job's enqueued (kind pipeline, or no kind with a non-empty step) still resets terminal state", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      events: [
+        { ts: "1", event: "pipeline_done", ref: "tagged", step: "review" },
+        { ts: "2", event: "enqueued", ref: "tagged", step: "review", kind: "pipeline" },
+        { ts: "1", event: "pipeline_done", ref: "legacy", step: "review" },
+        { ts: "2", event: "enqueued", ref: "legacy", step: "review" },
+      ],
+    }),
+  );
+  assert.equal(row(rows, "tagged").status, "idle");
+  assert.equal(row(rows, "legacy").status, "idle");
+});
+
 test("buildRows: failReason only while failed/cancelled; queuePos is the place in queue.json", () => {
   const rows = buildRows(
     "p",

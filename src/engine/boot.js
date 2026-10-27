@@ -31,7 +31,7 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
   if (!keep.length) return;
   console.log(`[restore] ${keep.length} queued job(s) re-enqueued`);
   for (const j of keep) {
-    if (queue.enqueue(j)) emit("enqueued", j.ref, j.stepId, { restored: true });
+    if (queue.enqueue(j)) emit("enqueued", j.ref, j.stepId, { restored: true, kind: j.kind });
   }
 }
 

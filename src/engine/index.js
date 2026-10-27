@@ -142,7 +142,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       // Refused (coalesced/draining) → never ran, so don't leave a state key behind.
       else if (isStateDedupKey(job.dedupKey)) store.unmarkSeen(job.dedupKey);
       const ev = intakeEvent(ok, wasInflight);
-      if (ev) emit(ev, job.ref, job.stepId);
+      if (ev) emit(ev, job.ref, job.stepId, { kind: job.kind });
     }
     return accepted;
   }
