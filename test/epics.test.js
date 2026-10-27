@@ -67,6 +67,13 @@ test("epicStats: history fallback finishes a ticket older than the rows tail; a 
   assert.deepEqual(s.byStage, { backlog: 1, running: 0, needsYou: 0, finished: 1, merged: 0, untracked: 0 });
 });
 
+test("epicStats: an idle row whose finish left the events tail counts merged on its learned prState", () => {
+  const tickets = [ticket({ ref: "gone1", stage: "Done", completed: true }), ticket({ ref: "gone2", stage: "Done", completed: true })];
+  const rows = [row({ ref: "gone1", status: "idle", prState: "merged", prUrl: "https://github.com/o/r/pull/1" }), row({ ref: "gone2", status: "idle", prUrl: "https://github.com/o/r/pull/2" })];
+  const s = epicStats(epic, tickets, { rows, events: [], forge: true, now: NOW });
+  assert.deepEqual(s.byStage, { backlog: 0, running: 0, needsYou: 0, finished: 1, merged: 1, untracked: 0 });
+});
+
 test("epicStats: a cancelled row with an earlier pipeline_done stays backlog, not finished", () => {
   const tickets = [ticket({ ref: "c1" })];
   const events = [ev("2026-09-01T00:00:00Z", "pipeline_done", { ref: "c1" })];

@@ -129,7 +129,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} heldReason
  * @property {string|null} heldAt          when the hold was recorded (held.json), while held
  * @property {string|null} failReason     the last `failed` event's reason, while the ticket rests failed/cancelled
- * @property {'ready'|'merged'|'closed'|null} prState  once finished: `ready` after pipeline_done (PR awaiting merge), `merged` after a forge's merged event; a `ready` is overridden by refmeta.prState `merged`/`closed` (learned by the `prs` op / a merge job); null otherwise
+ * @property {'ready'|'merged'|'closed'|null} prState  once finished: `ready` after pipeline_done (PR awaiting merge), `merged` after a forge's merged event; a `ready` is overridden by refmeta.prState `merged`/`closed` (learned by the `prs` op / a merge job); on an idle row (its finish left the events tail) refmeta.prState `merged`/`closed` alone; null otherwise
  * @property {string|null} finishedAt      ts of the finish (pipeline_done, else merged) while status is `done` — what "finished today" counts
  * @property {number|null} queuePos        0-based place in queue.json while queued
  * @property {TicketEpic|null} epic       refmeta.epic: the epic the ticket belongs to (recorded per run); null when none or malformed

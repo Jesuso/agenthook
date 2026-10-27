@@ -369,7 +369,9 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       heldReason: str(held?.reason),
       heldAt: str(held?.heldAt),
       failReason: !run && !queued && !held && (terminal === "failed" || terminal === "cancelled") ? failReason : null,
-      prState: terminal === "done" && status === "done" ? prState : null,
+      // An idle row whose finish fell out of the events tail still carries its learned merge/close
+      // (refmeta.prState is dropped on any re-run, so on an idle row it can only be that history).
+      prState: terminal === "done" && status === "done" ? prState : status === "idle" && (meta.prState === "merged" || meta.prState === "closed") ? meta.prState : null,
       finishedAt: terminal === "done" && status === "done" ? finishedAt : null,
       queuePos: queued ? state.queue.indexOf(queued) : null,
       epic: ticketEpic(meta.epic),

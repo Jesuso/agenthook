@@ -292,6 +292,11 @@ describe("Epics round 3", () => {
     for (const r of ["f2", "f3", "m1"]) expect(history).toContain(`data-epic-ticket="${r}"`);
     expect(out).toContain('aria-label="4 of 5 finished: 1 merged, 2 finished, 1 awaiting merge, 1 backlog"');
   });
+  it("a PR with no known state (its finish left the events tail) is not awaiting merge", () => {
+    const stale = { ...row("f1"), status: "idle", prUrl: "https://github.com/o/r/pull/42", prState: null } as TicketRow;
+    const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished")]) }, [stale]);
+    expect(out).not.toContain('data-group="awaiting"');
+  });
   it("no recorded PRs: no Awaiting merge section, nothing hollow, history titled by what it holds", () => {
     const out = page({ epic: epicDetail({ ref: "E1" }, [epicTicket("f1", "finished"), epicTicket("m1", "merged")]) });
     expect(out).not.toContain('data-group="awaiting"');
