@@ -499,7 +499,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - One **large card per profile, ~3 per row**, ordered by Needs-you desc, then running, idle.
 - Card: emoji + color tile, name, status dot (up/down/paused/restarting), **Needs you N** as the
   headline (red if any failed, amber if only held/PR, calm "all clear" at 0), then
-  `agents · queued · cost today · finished today`, last activity, tracker pill, fullAuto shield, ⋯ menu
+  `agents · queued · cost today · done today`, last activity, tracker pill, fullAuto shield, ⋯ menu
   (restart when idle, pause/resume, remove — kept from today).
 - Down and ghost profiles collapse into a muted **Inactive** strip below; a down profile that still
   has held/failed tickets keeps a full card.
@@ -510,10 +510,10 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - New ticket row field `prState`: `pipeline_done` → `ready`, `merged` → `merged`; a `ready` is
   overridden by `refmeta.prState` `merged`/`closed`. A ready PR counts toward Needs you only on a
   profile with a forge (without one, merged-by-hand PRs can't be told apart) **and** only with a
-  `prUrl` (`refmeta.pr` known) — a ticket finished by hand on another branch is just Finished.
+  `prUrl` (`refmeta.pr` known) — a ticket done by hand on another branch is just Done.
 
 ### Profile Overview
-- Stat tiles: agents (slot pips), queued, cost today, **finished today**, pause/resume.
+- Stat tiles: agents (slot pips), queued, cost today, **done today**, pause/resume.
 - Zone 1 *Needs you* (hidden when empty): failed → held → PR rows, one-line reason (heldReason /
   verdict summary), inline Release / Dismiss / Open PR / Open ticket.
 - Zone 2 *Now*: running agents per step with elapsed, model, cost, follow-log; free slots as empty
@@ -525,7 +525,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   their last reading marked `~` (`~12m`, `~3m ago`), elapsed muted with an "as of" title. Elapsed is a
   `<time>` whose screen-reader text is words ("running for 4 minutes"), never `aria-live`. In the drawer a
   running run shows "started at 14:02" beside its elapsed, not a second relative time.
-- Zone 3 *Progress*: today + last 48 h only (events tail range): finished today vs yesterday, cost,
+- Zone 3 *Progress*: today + last 48 h only (events tail range): done today vs yesterday, cost,
   rework rate; hidden below ~10 runs. Longer ranges: see "Daily stats" below.
 - Activity feed: **collapsed bottom panel** with an unread count. Raw ticket table is an
   "All tickets" drill-down.
@@ -538,7 +538,7 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   (upload would break "the UI's only file writes are instructions and config").
 
 ### Daily stats (built)
-Day-by-day history under the Progress tiles: tickets finished and cost per day, 7 / 14 / 30 day range,
+Day-by-day history under the Progress tiles: tickets done and cost per day, 7 / 14 / 30 day range,
 plus total, per-day average, rework rate (from 10 runs) and best day.
 - **No rollup file, no engine write path.** `events.jsonl` is a complete append-only history (a busy profile's
   reaches back to July: 12k lines, 1.5 MB, first read ≈ 30 ms), so `src/ui/stats.js` derives the day
@@ -554,22 +554,22 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   `run_end` counts and sums. Merged is only meaningful on a profile with a forge.
 - `GET /api/stats?profile=&days=&tz=` (cookie only, days ≤ 90) → `{ days: DayStats[], since }`.
   Refetched when a meaningful live event arrives (`run_end`, `pipeline_done`, `failed`, `blocked`, `merged`).
-- **One chart, d3 for the maths:** finished tickets per day as bars (left axis) and spend per finished
-  ticket (day's cost ÷ tickets finished that day) as a line (right axis), with a hover tooltip.
+- **One chart, d3 for the maths:** done tickets per day as bars (left axis) and spend per done
+  ticket (day's cost ÷ tickets done that day) as a line (right axis), with a hover tooltip.
   `d3-scale`/`d3-shape`/`d3-array` compute scales and paths (`ui/src/statsChart.ts`, pure and tested);
   React renders the SVG (`StatsChart.tsx`), no d3 DOM manipulation. It loads as its own chunk (~12 KB
-  gzipped), so the main bundle is unchanged. The line breaks on days that finished nothing.
+  gzipped), so the main bundle is unchanged. The line breaks on days nothing got done.
 - **Stats view** (`#/p/<key>/stats`, the second tab): four charts over the same day buckets, each a pure
   d3 model (`ui/src/statsModels.ts`) drawn by `StatsView.tsx`, all in one lazy chunk (~6 KB gzipped on top
   of the shared d3 chunk). Range toggle 14 / 30 / 90 days for the time series; the calendar is always 26 weeks.
-  1. *Finished per day* — GitHub-style calendar heatmap, shade ∝ √tickets finished.
+  1. *Done per day* — GitHub-style calendar heatmap, shade ∝ √tickets done.
   2. *Spend by step* — stacked bars; steps ranked by total spend, beyond 8 folded into "other".
   3. *How runs ended* — diverging bars: advances above the baseline; changes, holds and failures below
      (same tones as the activity feed).
-  4. *What a finished ticket cost* — median and p10–p90 spread of the agent spend on the tickets finished
-     each day (spend since the ticket's previous finish, counted once even if `pipeline_done` repeats;
-     hand-finished tickets have no agent spend and are not sampled). A candlestick has no open/close in
-     our data, so this range chart stands in for it.
+  4. *What a done ticket cost* — median and p10–p90 spread of the agent spend on the tickets done
+     each day (spend since the ticket was previously marked done, counted once even if `pipeline_done`
+     repeats; hand-done tickets have no agent spend and are not sampled). A candlestick has no
+     open/close in our data, so this range chart stands in for it.
   Day payload (`DayStats`) gained `byStep`, `outcomes` and `ticketCost`; `days` may now be up to 366.
 - **Estimated spend** (#394): `DayStats` also carries `estUsd` (rate-table estimates, never in
   `costUsd`), `unestimatedRuns` (runs with neither), `byStep[step].estUsd` and `ticketEst` (the
@@ -724,9 +724,9 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   every single-key shortcut off, per browser (WCAG 2.1.4). The shared `Modal` is named by its title,
   takes focus, keeps Tab inside, has a Close button and hands focus back on close.
 - **One stage bar** (`EpicStageBar.tsx`) on both pages, named "N of M done: …" for screen
-  readers. Done is one solid fill, and **awaiting merge** is a hollow segment carved out of it, drawn
-  only on evidence: a done ticket whose PR is recorded and still open (`prNeeds`; the page knows it
-  from local rows; the list never draws it). A done ticket with no recorded PR is just done (CONTEXT.md). Every label comes from one map (`segLabel`: untracked reads "not on the
+  readers. Done is the board's own flag (ADR 0008) and the one solid fill, the only green — there is
+  no client-side split; a done ticket with an open PR still counts as done here and is surfaced
+  separately under Needs you. Every label comes from one map (`segLabel`: untracked reads "not on the
   board"). The key with counts
   (`StageKey`) sits under the bar on a page; the list has a swatch-only key under its open rows.
 - **List** (`EpicsView.tsx`): one row per epic, the whole row a link — needs-you count first (when any
@@ -735,24 +735,28 @@ The UI over the data above (#301). Per focused profile (ADR 0001), its own lazy 
   slot (only when some row fills it): a neutral "ready to close" chip, else the ETA, else "stalled N d".
   Open epics sort by what needs the human: most needs-you tickets, then any running, then ready to
   close (which is not Needs you), then the server's order. Closed epics sit last under a collapsed
-  "Closed (k)" as muted rows with their outcome ("6/6 finished", or "no tickets"), no bar and no status; with no open epics a
+  "Closed (k)" as muted rows with their outcome ("6/6 done", or "no tickets"), no bar and no status; with no open epics a
   line says so and Closed starts open. A row's link carries its state for screen readers
   (`aria-describedby`: needs-you, status, bar, note); heading counts read as "(3 tickets)". `supported:false` → "This tracker has no epics"; `live:false` → a "known tickets
   only — receiver down" note.
 - **Epic page** (`EpicPage.tsx`), in attention order: the epic name (the `heading` token, above the
   page title in size), id, tracker status and link (http(s) only); a "ready to close" banner phrased
   as the human's task; the bar with a count per stage; one pace line in words (`paceOf`: "4 tickets
-  finished this week, the latest 1 d ago", or "Stalled: nothing finished for 6 days" once 5+ days
+  done this week, the latest 1 d ago", or "Stalled: nothing done for 6 days" once 5+ days
   pass with work left; the ETA with its basis, "3 left at 0.3/day: ~10 d · Nov 4", or the real reason
-  there is none: nothing finished yet, or fewer than 3 days with finished work). Then **Needs you**:
-  each ticket's held question, fail reason or "PR ready to merge", its step and age, and its action
-  named as on the Overview: **Release…** (the answer box opens inline), **Re-run…** (asks once
-  inline, naming the step; Open log while the receiver is down) with a quieter **Dismiss** (Undo in
-  the toast), **Review PR**, or the tracker when it never ran here; the name opens the drawer. Writes
-  are accent-tinted buttons; reads (PR, tracker, log) are links or quiet buttons. Then Running; **Awaiting merge** (only done tickets with a recorded, open PR, each with its
-  PR link); Backlog; "Not on the board"; and the rest of done folded, titled "Done". Closing the Release box returns focus to its button. Every ticket goes somewhere: the drawer when it ran here, else the tracker when the ticket
-  carries its own URL (`EpicTicket.url`), marked "tracker ↗" and announced as a new tab, else a row
-  that says "never ran here, no link".
+  there is none: nothing done yet, or fewer than 3 days with work done). Then **Needs you**: each
+  held/failed/PR ticket's reason, step and age, and its action named as on the Overview: **Release…**
+  (the answer box opens inline), **Re-run…** (asks once inline, naming the step; Open log while the
+  receiver is down) with a quieter **Dismiss** (Undo in the toast), **Review PR**, or the tracker when
+  it never ran here; the name opens the drawer. A done ticket with a recorded, open PR lands here too
+  (ADR 0008: "Open PR on a done ticket — merge or close", with **Review PR**) — it still counts as
+  done in the bar above and is not listed again below. Writes are accent-tinted buttons; reads (PR,
+  tracker, log) are links or quiet buttons. Then Running; Backlog; "Not on the board"; and the rest of
+  done folded, titled "Done" — a row with a known PR (any state) carries a muted `#N ↗` link to it, a
+  fact rather than a reason. Closing the Release box returns focus to its button. Every ticket goes
+  somewhere: the drawer when it ran here, else the tracker when the ticket carries its own URL
+  (`EpicTicket.url`), marked "tracker ↗" and announced as a new tab, else a row that says "never ran
+  here, no link".
 - **Ticket rows:** `TicketRow.epic` (`{ref, name, url}` from `refmeta.epic`; null when absent or
   malformed, `url` only http(s)) puts an epic chip on the row; clicking it filters the table to that
   epic. The toolbar's epic select (shown once a row has an epic) does the same; status counts follow it.
@@ -930,7 +934,7 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   `finishedAt` (the first finish since the last run — a later merge doesn't move it), `failReason`,
   `heldAt`, `queuePos`. New profile fields: `forge` (heartbeat) and `recentRuns` (`run_end` outcomes,
   last 48 h). A ready PR counts as Needs you **only** on a profile with a forge and a known PR
-  (`prUrl`); `merged`/`closed` are Finished, with no PR action.
+  (`prUrl`); `merged`/`closed` are Done, with no PR action.
 - Needs-you rows show kind, id + title, the one-line reason, step and age; **Ticket ↗ / PR ↗ /
   Details / Dismiss** appear on hover or focus (always on touch). A held row has an always-visible
   **Release…** that opens an inline answer form (optional comment, added to the agent's prompt;

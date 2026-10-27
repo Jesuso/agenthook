@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { EpicDetail, EpicDetailTicket, EpicResponse, TicketRow } from "./contract";
 import type { ReleaseOutcome } from "./config";
 import { etaLabel, groupTickets, perDayLabel, progressOf, safeUrl } from "./epics";
-import { EpicStageBar, StageKey, segCounts, segLabel } from "./EpicStageBar";
+import { EpicStageBar, StageKey, segLabel } from "./EpicStageBar";
 import type { Seg } from "./EpicStageBar";
 import { ReleasePanel } from "./ReleasePanel";
 import { EmptyState, StatusBadge, useAgo } from "./components";
@@ -22,8 +22,11 @@ const titleOf = (s: Seg, lang: string) => {
   return l[0].toUpperCase() + l.slice(1);
 };
 
-/** A done ticket's PR when it is known and still open with a reason (`prNeeds`): the only evidence for "awaiting merge" (an idle row whose history left the events tail has no reason, which is not evidence). */
+/** A done ticket's PR when it is known and still open with a reason (`prNeeds`): a done ticket counts as Needs you only on this evidence (ADR 0008: "done + needs you"). */
 const openPr = (row: TicketRow | undefined): string | null => (row?.prUrl && row.prNeeds != null && row.prState === "ready" ? safeUrl(row.prUrl) : null);
+
+/** A done ticket's PR link, any state, for the muted link in the Done fold — a fact, not a reason. */
+const knownPr = (row: TicketRow | undefined): string | null => (row?.prUrl ? safeUrl(row.prUrl) : null);
 
 // Writes (Release…, Re-run) are accent-tinted buttons; reads (a PR, the tracker, the log) are links
 // or quiet buttons, so what changes something looks different from what only shows it.
@@ -44,10 +47,10 @@ export type EpicActions = {
 
 /**
  * One epic (docs/web-ui.md § Epics view), in attention order: header, stage bar with its key and a
- * pace line, Needs you (reason, step and age, the action by kind), Running, Awaiting merge (done
- * tickets whose PR is recorded and still open, each with its PR link: only on that evidence), Backlog,
- * tickets not on the board, then the rest of done folded, remembered per tab. A ticket that ran here opens the drawer; one
- * that didn't opens on its tracker when it carries its own URL, or says it can't.
+ * pace line, Needs you (reason, step and age, the action by kind — a done ticket with an open PR
+ * lands here too, per ADR 0008), Running, Backlog, tickets not on the board, then the rest of done
+ * folded (a known PR shown as a muted link), remembered per tab. A ticket that ran here opens the
+ * drawer; one that didn't opens on its tracker when it carries its own URL, or says it can't.
  */
 export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }: { body: EpicResponse; profile: string; rows: TicketRow[]; onOpen: (t: Ref) => void; actions?: EpicActions }) {
   const { t: tr, lang } = useT();
@@ -62,12 +65,11 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
   const pace = paceOf(epic, lang);
   const open = (t: EpicDetailTicket) => onOpen({ profile, ref: t.ref });
   const hrefOf = (t: EpicDetailTicket) => safeUrl(t.url);
-  // Awaiting merge only on evidence (a recorded, open PR); a done ticket without one is just done.
-  const awaiting = groups.done.filter((t) => openPr(rowBy.get(t.ref)));
+  // A done ticket with an open PR counts as done (green, in the Done fold's count) and is also
+  // listed under Needs you (ADR 0008) — never a separate "awaiting merge" split.
   const history = groups.done.filter((t) => !openPr(rowBy.get(t.ref)));
   const historyTitle = titleOf("done", lang);
-  const counts = segCounts(epic, awaiting.length);
-  const needs = groups.needsYou.filter((t) => !actions.dismissing?.has(dismissKey({ profile, ref: t.ref })));
+  const needs = [...groups.needsYou, ...groups.done.filter((t) => openPr(rowBy.get(t.ref)))].filter((t) => !actions.dismissing?.has(dismissKey({ profile, ref: t.ref })));
 
   return (
     <div className="flex flex-col gap-5" data-epic-page={epic.ref}>
@@ -88,8 +90,8 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
       {epic.readyToClose && <ReadyToCloseBanner url={url} />}
       {epic.tickets.length > 0 && (
         <div className="flex flex-col gap-2">
-          <EpicStageBar epic={epic} wide awaiting={awaiting.length} />
-          <StageKey counts={counts} />
+          <EpicStageBar epic={epic} wide />
+          <StageKey counts={epic.byStage} />
           <p className={`text-body ${pace.stalled ? "font-medium" : ""}`} data-pace data-stalled={pace.stalled || undefined}>
             {pace.text}
             {pace.eta && <span className="font-normal text-muted"> {pace.eta}</span>}
@@ -118,13 +120,6 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
           })}
         </Section>
       )}
-      {awaiting.length > 0 && (
-        <Section group="awaiting" count={awaiting.length}>
-          {awaiting.map((t) => (
-            <AwaitingItem key={t.ref} t={t} row={rowBy.get(t.ref)} href={hrefOf(t)} onOpen={() => open(t)} />
-          ))}
-        </Section>
-      )}
       {(["backlog", "untracked"] as const).map((b) =>
         groups[b].length > 0 ? (
           <Section key={b} group={b} count={groups[b].length}>
@@ -145,9 +140,7 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
           </summary>
           <ul className="border-t border-border-subtle p-1">
             {history.map((t) => (
-              <li key={t.ref} data-epic-ticket={t.ref}>
-                <TicketLine t={t} row={rowBy.get(t.ref)} href={hrefOf(t)} onOpen={() => open(t)} />
-              </li>
+              <DoneItem key={t.ref} t={t} row={rowBy.get(t.ref)} href={hrefOf(t)} onOpen={() => open(t)} />
             ))}
           </ul>
         </details>
@@ -282,13 +275,15 @@ function TicketLine({ t, row, href, onOpen, children }: { t: EpicDetailTicket; r
   );
 }
 
+const MUTED_PR = "inline-block shrink-0 rounded-sm px-1 py-0.5 text-label text-muted hover:underline focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
+
 /**
- * A finished ticket whose recorded PR is not merged yet: the ticket line, then its PR as a separate
- * link (never nested in the row's button).
+ * A done ticket: the ticket line, then — only when a PR is known (any state, a fact not a reason)
+ * — a muted link to it, as a sibling of the row's button, never nested inside it.
  */
-function AwaitingItem({ t, row, href, onOpen }: { t: EpicDetailTicket; row: TicketRow | undefined; href: string | null; onOpen: () => void }) {
+function DoneItem({ t, row, href, onOpen }: { t: EpicDetailTicket; row: TicketRow | undefined; href: string | null; onOpen: () => void }) {
   const { t: tr } = useT();
-  const pr = openPr(row);
+  const pr = knownPr(row);
   const num = prNumber(pr);
   const id = t.displayId ?? t.ref;
   return (
@@ -297,8 +292,8 @@ function AwaitingItem({ t, row, href, onOpen }: { t: EpicDetailTicket; row: Tick
         <TicketLine t={t} row={row} href={href} onOpen={onOpen} />
       </div>
       {pr && (
-        <a className={READ} href={pr} target="_blank" rel="noopener noreferrer" aria-label={num ? tr("epic.prAria", { num, id }) : tr("epic.prAriaNoNum", { id })} data-epic-pr>
-          PR{num ? ` #${num}` : ""}
+        <a className={MUTED_PR} href={pr} target="_blank" rel="noopener noreferrer" aria-label={num ? tr("epic.prAria", { num, id }) : tr("epic.prAriaNoNum", { id })} data-epic-pr>
+          {num ? `#${num}` : "PR"}
           <Ext />
         </a>
       )}
@@ -454,7 +449,7 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
   );
 }
 
-/** All tickets finished, epic still open: closing it is the human's job, said as an instruction (ADR 0003–0006). */
+/** All tickets done, epic still open: closing it is the human's job, said as an instruction (ADR 0003–0006). */
 function ReadyToCloseBanner({ url }: { url: string | null }) {
   const { t } = useT();
   return (
