@@ -1,9 +1,9 @@
 import type { ProfileView, Snapshot } from "./contract";
-import { formatAgents, formatLastEvent, formatSpend, formatRelative, profileBadge, profileLabel, quotaPausedTitle } from "./format";
+import { formatAgents, formatLastEvent, formatSpend, profileBadge, profileLabel, quotaPausedTitle } from "./format";
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
-import { FullAutoShield, Menu, Pill, ProfileMark, ReceiverStatus } from "./components";
+import { FullAutoShield, Menu, Pill, ProfileMark, ReceiverStatus, useAgo } from "./components";
 import { accentStyle } from "./identity";
 import type { MenuItem } from "./components";
 import { rich, useT } from "./i18n/react";
@@ -150,6 +150,7 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
 function InactiveRow({ p, now, items, note }: { p: ProfileView; now: number; items: MenuItem[]; note: string }) {
   const { t, lang } = useT();
   const badge = profileBadge(p, lang);
+  const lastSeen = useAgo(p.lastSeenAt, now);
   return (
     <li data-inactive-row={p.name} className="relative flex items-center gap-3 px-3 py-2 text-body text-muted hover:bg-surface-raised">
       <ProfileMark p={p} size="sm" />
@@ -162,7 +163,7 @@ function InactiveRow({ p, now, items, note }: { p: ProfileView; now: number; ite
           {badge.text}
         </Pill>
       )}
-      <span className="text-label">{t("home.lastSeen", { when: formatRelative(p.lastSeenAt, now, lang) })}</span>
+      <span className="text-label">{t("home.lastSeen", { when: lastSeen })}</span>
       {note && <span className="text-label text-status-held">{note}</span>}
       <div className="relative z-10 ml-auto">
         <Menu label={t("common.actions", { name: p.label || p.name })} items={items} />

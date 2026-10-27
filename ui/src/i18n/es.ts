@@ -11,6 +11,7 @@ export const meta: DictionaryMeta = { lang: "es", name: "Español", complete: tr
 export const messages: Record<MessageKey, Message> = {
   // format.ts
   "time.justNow": "ahora mismo",
+  "time.notLive": "A las {time} — actualizaciones en vivo desconectadas",
   "format.up": "activo",
   "format.down": "detenido",
   "lastEvent.pipeline": "tomó",

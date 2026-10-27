@@ -5,11 +5,10 @@ import { etaLabel, groupTickets, perDayLabel, progressOf, safeUrl } from "./epic
 import { EpicStageBar, StageKey, segCounts, segLabel } from "./EpicStageBar";
 import type { Seg } from "./EpicStageBar";
 import { ReleasePanel } from "./ReleasePanel";
-import { EmptyState, StatusBadge } from "./components";
+import { EmptyState, StatusBadge, useAgo } from "./components";
 import { dismissKey } from "./deferredDismiss";
 import { prNumber } from "./tickets";
 import { useDisclosure } from "./disclosure";
-import { formatRelative } from "./format";
 import { translate } from "./i18n";
 import type { MessageKey } from "./i18n";
 import { useT } from "./i18n/react";
@@ -351,7 +350,8 @@ function NeedItem({ t, row, href, onOpen, now, actions }: { t: EpicDetailTicket;
   const id = t.displayId ?? t.ref;
   const tone = n?.kind === "failed" ? "text-status-failed" : "text-status-held";
   const reason = n ? n.reason : row ? tr("epic.markedNeedsYou") : tr("epic.needsYouNeverRan");
-  const meta = [row?.step, n?.since ? formatRelative(n.since, now, lang) : null].filter(Boolean).join(" · ");
+  const since = useAgo(n?.since ?? null, now);
+  const meta = [row?.step, n?.since ? since : null].filter(Boolean).join(" · ");
   const retry = () => {
     if (!row || !actions.onRetry) return;
     setConfirming(false);

@@ -9,6 +9,7 @@ export const meta: DictionaryMeta = { lang: "en", name: "English", complete: tru
 export const messages = {
   // format.ts
   "time.justNow": "just now",
+  "time.notLive": "As of {time} — live updates disconnected",
   "format.up": "up",
   "format.down": "down",
   "lastEvent.pipeline": "picked up",

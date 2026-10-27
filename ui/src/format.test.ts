@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatModel, formatTicketSpend } from "./format";
+import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatElapsed, elapsedTickMs, relativeTickMs, formatModel, formatTicketSpend } from "./format";
 
 describe("formatUp", () => {
   it("reads up, with pid and port only in the tooltip", () => {
@@ -150,6 +150,51 @@ describe("formatDuration", () => {
     expect(formatDuration(-1)).toBe("—");
     expect(formatDuration(NaN)).toBe("—");
     expect(formatDuration(Infinity)).toBe("—");
+  });
+});
+
+describe("formatElapsed (#579)", () => {
+  it("seconds for the first minute, then whole minutes, then hours + padded minutes", () => {
+    expect(formatElapsed(0)).toBe("0s");
+    expect(formatElapsed(59_999)).toBe("59s");
+    expect(formatElapsed(60_000)).toBe("1m");
+    expect(formatElapsed(192_000)).toBe("3m");
+    expect(formatElapsed(3_599_999)).toBe("59m");
+    expect(formatElapsed(3_600_000)).toBe("1h 00m");
+    expect(formatElapsed(3_840_000)).toBe("1h 04m");
+  });
+  it("coarse (reduced motion) skips the seconds phase", () => {
+    expect(formatElapsed(12_000, true)).toBe("<1m");
+    expect(formatElapsed(60_000, true)).toBe("1m");
+  });
+  it("clock skew reads 0s; null / non-finite read —", () => {
+    expect(formatElapsed(-800)).toBe("0s");
+    expect(formatElapsed(null)).toBe("—");
+    expect(formatElapsed(NaN)).toBe("—");
+  });
+});
+
+describe("elapsedTickMs / relativeTickMs (#579)", () => {
+  it("elapsed: next second under a minute, next minute boundary after", () => {
+    expect(elapsedTickMs(0)).toBe(1000);
+    expect(elapsedTickMs(12_300)).toBe(700);
+    expect(elapsedTickMs(59_500)).toBe(500);
+    expect(elapsedTickMs(60_000)).toBe(60_000);
+    expect(elapsedTickMs(125_000)).toBe(55_000);
+    expect(elapsedTickMs(3_659_000)).toBe(1000);
+  });
+  it("elapsed coarse: the first change is at one minute", () => {
+    expect(elapsedTickMs(12_000, true)).toBe(48_000);
+  });
+  it("elapsed before the start waits for it, at most a second", () => {
+    expect(elapsedTickMs(-300)).toBe(300);
+    expect(elapsedTickMs(-5000)).toBe(1000);
+  });
+  it("relative: minute, then hour, then day boundaries", () => {
+    expect(relativeTickMs(10_000)).toBe(50_000);
+    expect(relativeTickMs(3_599_000)).toBe(1000);
+    expect(relativeTickMs(3_600_000 + 60_000)).toBe(3_540_000);
+    expect(relativeTickMs(86_400_000 + 1000)).toBe(86_399_000);
   });
 });
 

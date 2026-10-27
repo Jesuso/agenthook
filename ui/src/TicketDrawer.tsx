@@ -29,7 +29,7 @@ import {
 import { chronological, isBounce, stepOrder, storyBlocks, timeScale } from "./runlog";
 import type { StoryBlock } from "./runlog";
 import type { LogBuffer, StreamStatus } from "./logview";
-import { IconButton, Pill, SpeakButton, StatusBadge } from "./components";
+import { Elapsed, IconButton, Pill, SpeakButton, StatusBadge, useAgo } from "./components";
 import { useT } from "./i18n/react";
 import { summaryRequest, summaryText } from "./ticketSummary";
 
@@ -154,6 +154,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   // A user's pick sticks while that run is still listed; otherwise follow the newest.
   const selected = list.find((r) => r.run === picked) ?? list[0] ?? null;
   const now = Date.now();
+  const startedAgo = useAgo(selected?.startedAt ?? null, now);
   const label = ticket?.displayId ?? ticketRef;
   const pr = prNumber(ticket?.prUrl ?? null);
   const seq = chronological(list);
@@ -309,10 +310,14 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
               <span className="font-medium text-fg">{selected.step}</span>
               <Pill tone={outcomeTone(selected)}>{formatOutcome(selected, lang)}</Pill>
-              <span className="font-mono text-muted">{formatDuration(runDurationMs(selected, now))}</span>
+              {selected.running && !selected.endedAt ? (
+                <Elapsed iso={selected.startedAt} seed={now} className="text-muted" />
+              ) : (
+                <span className="font-mono text-muted">{formatDuration(runDurationMs(selected, now))}</span>
+              )}
               <span className="font-mono text-muted">{formatRunCost(selected, lang)}</span>
               <span className="text-muted" title={selected.startedAt}>
-                {t("drawer.started", { when: formatRelative(selected.startedAt, now, lang) })}
+                {t("drawer.started", { when: startedAgo })}
               </span>
               {seq.some(isBounce) && (
                 <span className="ml-auto inline-flex items-center gap-1.5 text-meta text-muted">

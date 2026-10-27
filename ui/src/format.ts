@@ -146,6 +146,34 @@ export function formatDuration(ms: number | null): string {
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
+/**
+ * A running agent's elapsed time, as precise as it is honest to tick (#579): "45s" each second for the
+ * first minute, then "4m" / "1h 04m" each minute. A small negative (clock skew against startedAt) is 0s.
+ * `coarse` (prefers-reduced-motion) skips the per-second phase: "<1m".
+ */
+export function formatElapsed(ms: number | null, coarse = false): string {
+  if (ms === null || !Number.isFinite(ms)) return "—";
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  if (secs < 60) return coarse ? "<1m" : `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+}
+
+/** Milliseconds until `formatElapsed(elapsed)` next changes: the next second for the first minute, then the next minute. */
+export function elapsedTickMs(elapsed: number, coarse = false): number {
+  if (elapsed < 0) return Math.min(-elapsed, 1000);
+  const step = elapsed < 60_000 && !coarse ? 1000 : 60_000;
+  return step - (elapsed % step);
+}
+
+/** Milliseconds until `formatRelative` next changes: the next minute, hour, then day boundary since `t`. */
+export function relativeTickMs(elapsed: number): number {
+  if (elapsed < 0) return Math.min(-elapsed, 60_000);
+  const step = elapsed < 3_600_000 ? 60_000 : elapsed < 86_400_000 ? 3_600_000 : 86_400_000;
+  return step - (elapsed % step);
+}
+
 /** The Claude quota readout, e.g. `weekly 65% · resets in 2d 4h · 5h 8% (as of 3m ago)` (src/quota.js). */
 export { formatQuota };
 

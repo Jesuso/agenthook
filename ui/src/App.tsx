@@ -27,6 +27,7 @@ import { useLeaveGuard } from "./leaveGuard";
 import type { Route, View } from "./route";
 import { connectionState } from "./connection";
 import type { ConnectionState } from "./connection";
+import { LiveContext } from "./components";
 import type { MenuItem } from "./components";
 import { I18nProvider, rich, useT } from "./i18n/react";
 import { Overview } from "./Overview";
@@ -516,7 +517,8 @@ function Shell({ children, ...bar }: { children: React.ReactNode; connection: Co
       </a>
       <AppBar {...bar} />
       <main id="main" tabIndex={-1} className="p-4 focus:outline-none">
-        {children}
+        {/* Time labels tick only while the stream is live; down, they hold their last reading (#579). */}
+        <LiveContext.Provider value={bar.connection === "connected"}>{children}</LiveContext.Provider>
       </main>
     </div>
   );
