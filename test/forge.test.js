@@ -18,6 +18,7 @@ import {
   forgeOffer,
   mergeStepCandidates,
   forgeBlock,
+  prClosesIssue,
 } from "../src/forges/github.js";
 import { createForge } from "../src/forges/index.js";
 import { resetGithubAuthCache } from "../src/github-auth.js";
@@ -187,6 +188,65 @@ test("a generated secret is persisted under forge:github:webhookSecret and verif
 test("merged PR on agent/<ref> → one merge job keyed merged:<n>, stepId = completeOnMerge step", async () => {
   const jobs = await forge().processEvents(ctx(merged()));
   assert.deepEqual(jobs, [{ kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77" }]);
+});
+
+// --- self-closing boards: `Closes #<ref>` (#588) ---
+
+const onMain = (/** @type {string|null|undefined} */ body) => ({ body, baseRef: "main", defaultBranch: "main" });
+
+test("prClosesIssue: every closing keyword, case-insensitive, optional colon", () => {
+  for (const kw of ["close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"]) {
+    for (const word of [kw, kw.toUpperCase(), kw[0].toUpperCase() + kw.slice(1)]) {
+      assert.equal(prClosesIssue(onMain(`${word} #12`), "12", "o/r"), true, word);
+      assert.equal(prClosesIssue(onMain(`text\n${word}: #12\nmore`), "12", "o/r"), true, `${word}:`);
+    }
+  }
+  assert.equal(prClosesIssue(onMain("See #12"), "12", "o/r"), false, "no keyword");
+  assert.equal(prClosesIssue(onMain("unfixes #12"), "12", "o/r"), false, "keyword inside a word");
+});
+
+test("prClosesIssue: #<ref> never prefix-matches #<ref>0; any later mention can match", () => {
+  assert.equal(prClosesIssue(onMain("Closes #120"), "12", "o/r"), false);
+  assert.equal(prClosesIssue(onMain("Closes #1"), "12", "o/r"), false);
+  assert.equal(prClosesIssue(onMain("Closes #120, fixes #12"), "12", "o/r"), true);
+});
+
+test("prClosesIssue: owner/repo#<ref> matches the same repo (any case) only", () => {
+  assert.equal(prClosesIssue(onMain("Closes O/R#12"), "12", "o/r"), true);
+  assert.equal(prClosesIssue(onMain("Closes other/r#12"), "12", "o/r"), false);
+});
+
+test("prClosesIssue: a non-default base, or an empty/missing body → false", () => {
+  assert.equal(prClosesIssue({ body: "Closes #12", baseRef: "dev", defaultBranch: "main" }, "12", "o/r"), false);
+  assert.equal(prClosesIssue({ body: "Closes #12", baseRef: "main" }, "12", "o/r"), false, "unknown default branch");
+  assert.equal(prClosesIssue(onMain(""), "12", "o/r"), false);
+  assert.equal(prClosesIssue(onMain(null), "12", "o/r"), false);
+  assert.equal(prClosesIssue(onMain(undefined), "12", "o/r"), false);
+});
+
+/** A merged `Closes #123` PR into the default branch. @param {any} [over] */
+const closing = (over = {}) => merged({ body: "Ships it.\n\nCloses #123", base: { ref: "main", repo: { default_branch: "main" } }, ...over });
+const ghTracker = { provider: "github", tracker: { type: "github", repository: "O/R" } };
+
+test("merged `Closes #<ref>` PR on a same-repo github tracker → merge job with boardCloses", async () => {
+  const jobs = await forge({}, pipeline, makeStore(), ghTracker).processEvents(ctx(closing()));
+  assert.deepEqual(jobs, [{ kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77", boardCloses: true }]);
+  // The base repo's default_branch may be absent: fall back to the event's repository.
+  const ev = { ...closing({ base: { ref: "main" } }), repository: { default_branch: "main" } };
+  assert.equal((await forge({}, pipeline, makeStore(), ghTracker).processEvents(ctx(ev)))[0].boardCloses, true);
+});
+
+test("merged `Closes #<ref>` PR on a non-github tracker, another repo, or a non-default base → no boardCloses", async () => {
+  const cases = [
+    [{ provider: "jira", tracker: { type: "jira" } }, closing()],
+    [{ provider: "github", tracker: { type: "github", repository: "o/other" } }, closing()],
+    [ghTracker, closing({ base: { ref: "dev", repo: { default_branch: "main" } } })],
+    [ghTracker, closing({ body: "Refs #123" })],
+  ];
+  for (const [over, ev] of cases) {
+    const jobs = await forge({}, pipeline, makeStore(), over).processEvents(ctx(ev));
+    assert.deepEqual(jobs, [{ kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77" }]);
+  }
 });
 
 test("merged PR with no completeOnMerge step → stepId is empty", async () => {
@@ -671,6 +731,28 @@ test("listMergedAgentPrs: only merged agent/* PRs merged after since; stops pagi
       { pr: 4, ref: "13", mergedAt: "2026-10-10T12:00:00.000Z" },
     ]);
     assert.equal(s.calls.length, 2, "page 2 reached updated_at < since — page 3 is never fetched");
+  } finally {
+    s.restore();
+  }
+});
+
+test("listMergedAgentPrs: boardCloses per PR on a same-repo github tracker", async () => {
+  const base = { ref: "main", repo: { default_branch: "main" } };
+  const at = "2026-10-11T00:00:00Z";
+  const s = stubFetch({
+    "GET /repos/o/r/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1": {
+      json: [
+        { number: 1, merged_at: at, updated_at: at, head: { ref: "agent/10" }, base, body: "Closes #10" },
+        { number: 2, merged_at: at, updated_at: at, head: { ref: "agent/11" }, base, body: "Closes #10" },
+      ],
+    },
+  });
+  try {
+    const out = await /** @type {any} */ (forge({}, pipeline, makeStore(), ghTracker)).listMergedAgentPrs("2026-10-10T00:00:00Z");
+    assert.deepEqual(out, [
+      { pr: 1, ref: "10", mergedAt: at, boardCloses: true },
+      { pr: 2, ref: "11", mergedAt: at },
+    ]);
   } finally {
     s.restore();
   }

@@ -832,7 +832,7 @@ test("resolveModelEffort: lite applies with fallback; escalate wins", () => {
 /**
  * A dispatcher over a recording stub adapter. `pipeline` defaults to one with a
  * completeOnMerge `done` step; repoPath is a temp dir so a direct drain is a no-op.
- * @param {{assignedToUs?: boolean, fetchThrows?: boolean, pipeline?: any[], enterStage?: boolean, complete?: boolean}} [o]
+ * @param {{assignedToUs?: boolean, fetchThrows?: boolean, pipeline?: any[], enterStage?: boolean, complete?: boolean, completed?: boolean, forge?: any, enterThrows?: boolean, completeThrows?: boolean}} [o]
  */
 function mergeHarness(o = {}) {
   /** @type {string[]} */
@@ -843,19 +843,27 @@ function mergeHarness(o = {}) {
     { id: "code", sourceSectionGid: "S1" },
     { id: "done", manual: true, completeOnMerge: true, drainWorktree: true, sourceSectionGid: "S9" },
   ];
-  const cfg = { pipeline, repoPath: fs.mkdtempSync(path.join(os.tmpdir(), "ah-merge-")) };
+  const cfg = { pipeline, repoPath: fs.mkdtempSync(path.join(os.tmpdir(), "ah-merge-")), ...(o.forge ? { forge: o.forge } : {}) };
   /** @type {any} */
   const adapter = {
     describe: () => ({ platform: "Stub", taskNoun: "task", trigger: "@agent", commentHowTo: "" }),
     fetchTask: async (ref) => {
       calls.push(`fetch ${ref}`);
       if (o.fetchThrows) throw new Error("boom");
-      return { ref, name: `Task ${ref}`, url: `u/${ref}`, completed: false, assignedToUs: o.assignedToUs ?? true };
+      return { ref, name: `Task ${ref}`, url: `u/${ref}`, completed: !!o.completed, assignedToUs: o.assignedToUs ?? true };
     },
     advance: async () => calls.push("advance"),
   };
-  if (o.enterStage !== false) adapter.enterStage = async (ref, stepId, opts) => calls.push(`enter ${ref} ${stepId} assign=${opts?.assign}`);
-  if (o.complete !== false) adapter.complete = async (ref) => calls.push(`complete ${ref}`);
+  if (o.enterStage !== false)
+    adapter.enterStage = async (ref, stepId, opts) => {
+      calls.push(`enter ${ref} ${stepId} assign=${opts?.assign}`);
+      if (o.enterThrows) throw new Error("move boom");
+    };
+  if (o.complete !== false)
+    adapter.complete = async (ref) => {
+      calls.push(`complete ${ref}`);
+      if (o.completeThrows) throw new Error("complete boom");
+    };
   const store = {
     clearAttempts: (ref) => calls.push(`clearAttempts ${ref}`),
     clearFindings: (ref) => calls.push(`clearFindings ${ref}`),
@@ -877,17 +885,17 @@ test("merge: moves into the completeOnMerge step (assign:false) BEFORE completin
   assert.equal(out.name, "Task G1");
 });
 
-test("merge: task not assigned to us → no tracker writes, no event", async () => {
+test("merge: task not assigned to us → no tracker writes, no event; records prState merged locally", async () => {
   const h = mergeHarness({ assignedToUs: false });
   await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, []);
 });
 
-test("merge: fetch error fails closed (skip)", async () => {
+test("merge: fetch error fails closed (skip); records prState merged locally", async () => {
   const h = mergeHarness({ fetchThrows: true });
   await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1"]);
+  assert.deepEqual(h.calls, ["fetch G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, []);
 });
 
@@ -926,6 +934,45 @@ test("merge: no complete() and nothing moved the task → logs the completeOnMer
     console.log = log;
   }
   assert.ok(lines.some((l) => l.includes("has no complete()") && l.includes("completeOnMerge")), "logs the remedy when nothing moved the task");
+});
+
+for (const [label, o, job] of /** @type {const} */ ([
+  ["job.boardCloses", {}, { boardCloses: true }],
+  ["forge.boardClosesOnMerge", { forge: { type: "github", boardClosesOnMerge: true } }, {}],
+  ["task already completed", { completed: true }, {}],
+])) {
+  test(`merge: self-closing board (${label}) → no enterStage/complete; direct cleanup + merged`, async () => {
+    const h = mergeHarness(o);
+    /** @type {string[]} */
+    const lines = [];
+    const log = console.log;
+    console.log = (/** @type {string} */ l) => lines.push(l);
+    try {
+      await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5", ...job });
+    } finally {
+      console.log = log;
+    }
+    assert.deepEqual(h.calls, ["fetch G1", "clearAttempts G1", "clearFindings G1", "clearDifficulty G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
+    assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
+    assert.ok(lines.some((l) => l.includes("board closes its own ticket on merge; not bridging")));
+  });
+}
+
+test("merge: self-closing still fails closed on the assignee (no tracker writes, no event)", async () => {
+  const h = mergeHarness({ assignedToUs: false });
+  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5", boardCloses: true });
+  assert.deepEqual(h.calls, ["fetch G1", 'refmeta G1 {"prState":"merged"}']);
+  assert.deepEqual(h.events, []);
+});
+
+test("merge: move failed with no complete(), or complete() threw → still records prState merged", async () => {
+  const a = mergeHarness({ enterThrows: true, complete: false });
+  await a.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.ok(a.calls.includes('refmeta G1 {"prState":"merged"}'));
+  assert.ok(a.calls.includes("clearAttempts G1"), "the failed move falls back to direct cleanup");
+  const b = mergeHarness({ completeThrows: true });
+  await b.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.deepEqual(b.calls, ["fetch G1", "enter G1 done assign=false", "complete G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
 });
 
 // --- ci jobs (forge red CI): re-run once, then comment + bounce to code; fail-closed ---

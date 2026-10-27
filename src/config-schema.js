@@ -182,7 +182,7 @@ export const CONFIG_SCHEMA = [
 
   // Pipeline steps — common + advanced
   step("maxConcurrent", "number", "Max concurrent runs", "Runs of this step at once, counted inside the global limit; unset = only that limit.", { min: 1, advanced: true }),
-  step("completeOnMerge", "boolean", "Complete on merge", "Manual steps only, at most one: a merged agent PR moves the task into this step.", { advanced: true }),
+  step("completeOnMerge", "boolean", "Complete on merge", "Manual steps only, at most one: the bridge for boards that can't hear merges; a merged agent PR moves the task here.", { advanced: true }),
   step("closeIssue", "boolean", "Close issue", "Entering this (terminal) step closes the issue, releasing the issues it blocked.", { scope: ["github"], advanced: true }),
   step("completeTask", "boolean", "Complete task", "Entering this (terminal) step marks the task completed, releasing the tasks it blocked.", { scope: ["asana"], advanced: true }),
   step("lite", "object", "Lite mode", "A cheaper model/effort when the description starts a line with every listed heading.", { advanced: true }),
@@ -221,6 +221,7 @@ export const CONFIG_SCHEMA = [
   entry("forge.webhookSecret", "string", "Webhook secret", "forge", "Signing secret; omit to let agenthook generate one. Always verified.", { sensitive: true, advanced: true }),
   entry("forge.redCi", "boolean", "React to red CI", "forge", "On red CI for an agent PR, re-run it once, then send the task back with changes.", { default: true }),
   entry("forge.greenCi", "boolean", "Report green CI", "forge", "Emit a ci_green event when an agent PR's checks all pass (moves nothing).", { default: true }),
+  entry("forge.boardClosesOnMerge", "boolean", "Board closes on merge", "forge", "The board closes its own tickets on merge (e.g. Jira/Linear with a GitHub/GitLab integration); agenthook doesn't bridge.", { advanced: true, default: false }),
   entry("forge.ciTarget", "string", "Red-CI target step", "forge", "Step a red-CI bounce returns to; unset = the step that creates the worktree.", { advanced: true }),
 
   // Integrations

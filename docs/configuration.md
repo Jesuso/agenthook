@@ -148,9 +148,16 @@ two forges, `github` and `gitlab` (see [GitLab forge setup](gitlab.md)):
 
 - `repository` (github) / `project` (gitlab) is **required** — the forge never falls back to the
   tracker's repo. A self-managed GitLab also sets `baseUrl` (default `https://gitlab.com`).
-- `completeOnMerge` lives on a **manual pipeline step**, not here (`Step.completeOnMerge`): a
-  merged PR moves the task into that step, which then marks it complete. No candidate step →
-  a merge still drains the worktree and cleans up, it just doesn't mark the tracker item done.
+- `completeOnMerge` lives on a **manual pipeline step**, not here (`Step.completeOnMerge`). It is
+  the bridge for boards that can't hear merges: a merged PR moves the task into that step, which
+  then marks it complete. No candidate step → a merge still drains the worktree and cleans up, it
+  just doesn't mark the tracker item done. A merge the bridge couldn't deliver shows in Needs-you
+  as "PR merged — close the ticket".
+- `boardClosesOnMerge` (default `false`): the board closes its own tickets when a PR merges (e.g.
+  Jira/Linear with a GitHub/GitLab integration), so agenthook doesn't carry the merge to it — every
+  merge only drains the worktree and cleans up. A `github` tracker needs no key: a PR into the
+  default branch whose body says `Closes #<issue>` is left to GitHub automatically. A task that is
+  already completed is never bridged either.
 - `redCi` / `greenCi` / `ciTarget` keep their defaults (react to red CI, emit a `ci_green`
   signal, bounce red CI to the `createsWorktree` step) unless overridden.
 

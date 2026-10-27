@@ -58,8 +58,12 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
   `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The
   engine routes POST `/forge[/]` to the forge (else the tracker). `github` turns a merged PR on an
-  `agent/<ref>` branch into a `{kind:'merge', ref, stepId:<completeOnMerge step|"">, dedupKey:'merged:<n>'}`
-  job; its hook path is `/forge` (**not** `/github`, which the github tracker's scrub deletes) and it
+  `agent/<ref>` branch into a `{kind:'merge', ref, stepId:<completeOnMerge step|"">, dedupKey:'merged:<n>', boardCloses?}`
+  job — the **bridge** for boards that can't hear merges. `boardCloses: true` (pure `prClosesIssue`: merged
+  into the default branch, body says `Closes #<ref>` / `owner/repo#<ref>`, tracker `github` on the same repo)
+  tells dispatch not to bridge; so do `forge.boardClosesOnMerge` (other boards' own integrations) and an
+  already-completed task. A bridge that didn't deliver surfaces as Needs-you (`prState:"merged"` on a
+  still-open ticket). Its hook path is `/forge` (**not** `/github`, which the github tracker's scrub deletes) and it
   always verifies `x-hub-signature-256` via the shared `src/hmac.js` `verifyHubSignature`. A red
   `workflow_run` on a same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attempt>'}`
   job (`forge.redCi:false` disables) — see [dispatch.md](dispatch.md) for how dispatch handles the
@@ -67,7 +71,7 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   **Missed merges:** a PR merged while the receiver was down never sends its webhook, so the
   optional `listMergedAgentPrs(since)` (github only: closed PRs by `updated` desc, paged until one
   predates `since`, ≤ 5 × 100) lets `runMergeCatchup` (`src/commands/reconcile.js`) replay the same
-  `merged:<n>` job — unforced, so a merge handled live stays deduped by `seen`. It runs **only**
+  `merged:<n>` job (carrying the same `boardCloses`) — unforced, so a merge handled live stays deduped by `seen`. It runs **only**
   from `reconcile` (CLI → `reconcile_merges` op on a webhook tracker; the `reconcile` op/MCP tool)
   and `--reconcile-on-boot` — never a plain boot or a timer — skips a task already `completed`, and
   keeps a `merge-watermark.json` (newest `mergedAt` listed, held below the oldest PR whose task

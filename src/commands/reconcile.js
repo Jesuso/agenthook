@@ -186,7 +186,7 @@ export async function runMergeCatchup(cfg, { store, adapter, forge, intake, log 
       skipped++;
       continue;
     }
-    if (intake([{ kind: "merge", ref: p.ref, stepId, dedupKey: `merged:${p.pr}` }]) > 0) {
+    if (intake([{ kind: "merge", ref: p.ref, stepId, dedupKey: `merged:${p.pr}`, ...(p.boardCloses ? { boardCloses: true } : {}) }]) > 0) {
       log(`[merge] queued ${p.ref} — PR #${p.pr} merged ${p.mergedAt}`);
       merged++;
     } else {

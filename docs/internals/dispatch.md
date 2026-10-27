@@ -17,9 +17,10 @@
   non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `hold` by
   default (`requireVerdict` defaults to `true`; set `false` on the step to advance instead).
   `changes` is capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A
-  `merge` job spawns no agent: fail-closed assignee check → `adapter.enterStage` into the
-  `completeOnMerge` (manual) step (its own webhook then drains + emits `pipeline_done`) → optional
-  `adapter.complete` (Asana: `completed:true`) → emit `merged`.
+  `merge` job spawns no agent; it is the **bridge** for boards that can't hear merges: fail-closed
+  assignee check → `adapter.enterStage` into the `completeOnMerge` (manual) step (its own webhook
+  then drains + emits `pipeline_done`) → optional `adapter.complete` (Asana: `completed:true`) → emit
+  `merged`. A self-closing board skips the move and `complete` (see below).
 - `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`, `hermes`, `opencode`). Interface
   `AgentAdapter` (`src/types.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
   file, not argv, e.g. hermes' `--query-file`; optional `policy: {allow, deny}` — which step policies the CLI
@@ -45,6 +46,17 @@ same-repo `agent/<ref>` branch becomes a `{kind:'ci', dedupKey:'ci:<run>:<attemp
 the log tail as a **PR comment only** (never into findings/prompts — the PR head controls it) and
 bounces `changes` → `forge.ciTarget` (default the `createsWorktree` step) through the shared
 `guardChanges` cap, parking it (`store.setCiRed`) while a step runs on the ref.
+
+`runMerge` is a **bridge** for boards that can't hear merges. It is skipped (no `enterStage`, no
+`complete`; only the direct drain + per-ref clears, `clearSummaries`, `prState:"merged"`,
+`leavePipeline` and the `merged` event) when the board closes the ticket itself: the job carries
+`boardCloses` (the `github` forge sets it when the PR merged into the default branch, its body says
+`Closes #<ref>` and the tracker is `github` on the same repo), `forge.boardClosesOnMerge` is set
+(Jira/Linear with a dev-tool integration), or the task is already `completed`. Where the bridge
+didn't deliver (not ours, fetch failed, the move failed with no `complete()`, `complete()` threw, or
+neither ran) the local `prState:"merged"` is still recorded (the not-ours/fetch-failed paths make no
+tracker call and emit nothing), so Needs-you surfaces **"PR merged — close the ticket"** rather than
+only a console line.
 
 ## The `@agent` resume gate
 
