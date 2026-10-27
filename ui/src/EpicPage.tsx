@@ -21,8 +21,8 @@ const titleOf = (s: Seg, lang: string) => {
   return l[0].toUpperCase() + l.slice(1);
 };
 
-/** A finished ticket's PR when it is known and not merged or closed: the only evidence for "awaiting merge". */
-const openPr = (row: TicketRow | undefined): string | null => (row?.prUrl && row.prState !== "merged" && row.prState !== "closed" ? safeUrl(row.prUrl) : null);
+/** A finished ticket's PR when it is known and still `ready`: the only evidence for "awaiting merge" (an idle row whose finish left the events tail has no state, which is not evidence). */
+const openPr = (row: TicketRow | undefined): string | null => (row?.prUrl && row.prState === "ready" ? safeUrl(row.prUrl) : null);
 
 // Writes (Release…, Re-run) are accent-tinted buttons; reads (a PR, the tracker, the log) are links
 // or quiet buttons, so what changes something looks different from what only shows it.

@@ -534,7 +534,8 @@ test("buildRows: refmeta.prState merged/closed overrides an event-derived ready;
   );
   assert.deepEqual(["m", "c", "r", "odd"].map((ref) => row(rows, ref).prState), ["merged", "closed", "ready", "ready"]);
   assert.equal(row(rows, "m").status, "done");
-  assert.equal(row(rows, "idle").prState, null, "no finish → no PR state, whatever refmeta says");
+  assert.equal(row(rows, "idle").prState, "merged", "a finish that left the events tail keeps its learned merge");
+  assert.equal(row(rows, "idle").status, "idle");
 });
 
 test("buildRows: refmeta.prState closed overrides an event-derived merged too — the override is unconditional", () => {

@@ -64,7 +64,7 @@ function groupByRef(events) {
  * @returns {EpicBucket}
  */
 export function ticketBucket(ticket, row, refEvents, forge) {
-  if (row && row.status === "done" && row.prState === "merged") return "merged";
+  if (row && (row.status === "done" || row.status === "idle") && row.prState === "merged") return "merged";
   if (row && isNeedsYou(row, forge)) return "needsYou";
   if (row && ["running", "queued", "interrupted", "stalled"].includes(row.status)) return "running";
   if (row && row.status === "done") return "finished";
