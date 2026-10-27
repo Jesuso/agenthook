@@ -59,6 +59,20 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Done comes only from the board** (ADR 0008, #583). A ticket is Done only when its tracker's own
+  completed/closed flag says so: never a merged PR, and never just because the agents reached the
+  pipeline's last stage (e.g. `agent:done`), which is now a handoff waiting for you. The dashboard
+  has one green for Done everywhere: the epic bar loses the lighter "finished" shade and the hollow
+  "awaiting merge" segment, and the copy says "done" instead of "finished". PR state only explains
+  why a ticket needs you: awaiting merge, PR merged but ticket still open, PR closed unmerged, or an
+  open PR on a done ticket. A new `board_done` event records the board's flag flipping (GitHub issue
+  closed, Asana task completed, Jira done-category status, Linear completed/canceled). Projects v2
+  and `local`, which never deliver that flag, report it when the ticket enters a manual step. Old
+  history still counts its `pipeline_done` finishes until the first `board_done` (#584–#587).
+- The merge bridge no longer moves or completes a ticket whose board closes it on merge by itself
+  (a `Closes #N` PR, `forge.boardClosesOnMerge`, or an already-completed task); it only drains the
+  worktree. If the merge can't reach the board, the ticket shows "PR merged — close the ticket"
+  under Needs you (#588).
 - **Behavior change:** the Digest follows the dashboard's language (falling back to `language`,
   then English) and is cached per language in `digest.json`; an older single-digest file is still
   read, not lost. With `digest.model` unset the Digest now runs on
