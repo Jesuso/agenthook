@@ -10,6 +10,7 @@ import { deriveIdentity } from "../src/identity.js";
 import { buildRows, buildSnapshot, profileView, readEventsTail, readProfileState, recentRuns, RECENT_COSTS_MS } from "../src/ui/rows.js";
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
+import { ticketBucket } from "../src/epics.js";
 import { uiPort, checkBundle, DEFAULT_PORT } from "../src/commands/ui.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-rows-"));
@@ -536,6 +537,20 @@ test("buildRows: refmeta.prState merged/closed overrides an event-derived ready;
   assert.equal(row(rows, "idle").prState, null, "no finish → no PR state, whatever refmeta says");
 });
 
+test("buildRows: refmeta.prState closed overrides an event-derived merged too — the override is unconditional", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: { T1: { pr: 1, prState: "closed" } },
+      events: [
+        { ts: "1", event: "pipeline_done", ref: "T1", step: "done" },
+        { ts: "2", event: "merged", ref: "T1", step: "" },
+      ],
+    }),
+  );
+  assert.equal(row(rows, "T1").prState, "closed", "refmeta wins even though the events alone say merged");
+});
+
 test("buildRows: a CI job's enqueued (kind ci) does not reset a finished ticket's state; a merged PR wins via refmeta", () => {
   const rows = buildRows(
     "p",
@@ -554,6 +569,9 @@ test("buildRows: a CI job's enqueued (kind ci) does not reset a finished ticket'
   const t1 = row(rows, "T1");
   assert.equal(t1.status, "done");
   assert.equal(t1.prState, "merged");
+  // the issue's full repro: a completed ticket with this row must land in the epic's "merged"
+  // bucket, not "Awaiting merge" (ticketBucket's first check is row.status === "done" && row.prState === "merged")
+  assert.equal(ticketBucket({ ref: "T1", completed: true, stage: null }, t1, [], false), "merged");
 });
 
 test("buildRows: a pipeline job's enqueued (kind pipeline, or no kind with a non-empty step) still resets terminal state", () => {

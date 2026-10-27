@@ -234,7 +234,9 @@ cap until the next restart (not persisted).
 ## events
 
 Names you will act on: `enqueued` (job accepted into the queue; fires once per accepted job —
-a duplicate webhook for the same ref+step coalesces away silently), `run_start`, `run_end
+a duplicate webhook for the same ref+step coalesces away silently; carries `kind` —
+`"pipeline"`/`"merge"`/`"ci"` — so a CI/merge job's enqueue isn't mistaken for a pipeline re-run),
+`run_start`, `run_end
 {outcome, costUsd}`, `verdict_missing {reason}` (a clean exit with no usable verdict file, right
 before the hold it forces; a `blocked` event follows), `blocked {reason}` (task now held),
 `failed {reason}`, `merged`,

@@ -1,8 +1,14 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import http from "node:http";
 import { intakeEvent, createPushSink } from "../src/engine.js";
 import { createQueue } from "../src/queue.js";
+import { createServe } from "../src/engine/boot.js";
+import { createStore } from "../src/store.js";
 
 const job = (ref, stepId = "s") => ({ kind: "pipeline", ref, stepId, dedupKey: `${ref}:${stepId}` });
 
@@ -139,4 +145,49 @@ test("queue.hasRef / whenRefFree: track queued + active jobs per ref; removing w
   await queue.onIdle();
   assert.equal(queue.hasRef("A"), false);
   assert.equal(fired, 3);
+});
+
+// ── boot's restoreQueued (src/engine/boot.js): must tag the re-enqueued `enqueued` with
+// the job's kind, or src/ui/rows.js buildRows can't tell a CI/merge re-enqueue apart from
+// a real pipeline re-run (issue #577) ──
+
+test("boot restoreQueued: a queued CI job re-enqueued at boot emits `enqueued` tagged with its kind", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-restore-queued-"));
+  try {
+    const cfg = /** @type {any} */ ({
+      name: "p", stateKey: "p", provider: "local", stateDir: dir, dataDir: dir, logDir: path.join(dir, "logs"), port: 0,
+      pipeline: [{ id: "code" }], publicUrlFile: path.join(dir, "public_url.txt"), pidFile: path.join(dir, "server.pid"), controlSock: path.join(dir, "c.sock"),
+    });
+    const store = createStore(dir);
+    store.addQueued({ kind: "ci", ref: "T1", stepId: "", dedupKey: "ci:T1:1" });
+
+    /** @type {any[]} */
+    const emitted = [];
+    const emit = (event, ref, step, extra) => emitted.push({ event, ref, step, ...extra });
+    const heartbeat = { update: () => {} };
+    const state = /** @type {any} */ ({ server: http.createServer(), control: null });
+    const ingress = { describe: () => ({ name: "manual", ephemeral: false }), up: async () => ({ url: "https://x" }), down: async () => {} };
+    const serve = createServe(/** @type {any} */ ({
+      cfg, state, store, sandbox: null, emit, startedAt: new Date().toISOString(), reconcileOnBoot: false,
+      adapter: { registerWebhook: async () => {}, unregisterWebhooks: async () => {}, advance: async () => {} },
+      forge: null,
+      ingress,
+      heartbeat,
+      queue: { enqueue: () => true },
+      puller: { pull: async () => {} },
+      quotaPacer: { reading: () => {} },
+      restart: async () => ({}), decommission: async () => ({}), ops: {}, shutdown: () => {},
+    }));
+    try {
+      await serve();
+      const enqueued = emitted.find((e) => e.event === "enqueued" && e.ref === "T1");
+      assert.ok(enqueued, "restoreQueued emitted an enqueued event for the restored job");
+      assert.equal(enqueued.kind, "ci", "the restored job's kind must survive onto the emitted event");
+    } finally {
+      state.control?.close?.();
+      state.server.close();
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
