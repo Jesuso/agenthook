@@ -66,6 +66,13 @@ All notable changes to this project are documented here. The format is based on
   `digest.maxBudgetUsd` unset it uses `summaries.maxBudgetUsd` when that is set. Set
   `digest.model` to keep the old model (#573).
 
+### Fixed
+
+- A ticket whose PR was already merged no longer sticks in the epic page's **Awaiting merge**
+  section when a CI job ran on its PR after the pipeline finished. The `enqueued` event now carries
+  the job's `kind`, and a CI/merge job's enqueue is no longer read as a re-run; a PR the receiver
+  knows is merged or closed now wins over the event history (#577).
+
 ## [0.12.0] — 2026-10-24
 
 ### Added

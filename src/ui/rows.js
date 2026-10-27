@@ -305,7 +305,11 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let lastEnd = null;
     for (const e of events) {
       if (e.event === "run_start") lastStart = e;
-      if (e.event === "run_start" || e.event === "enqueued") {
+      // A CI/merge-job `enqueued` (kind "ci"/"merge") never runs the agent and must not wipe a
+      // finished ticket's state; only a real re-run (run_start, or a pipeline job's enqueued)
+      // does. Old events predate the `kind` tag — an empty `step` stands in for "not pipeline".
+      const isRerun = e.event === "run_start" || (e.event === "enqueued" && (e.kind ? e.kind === "pipeline" : e.step !== ""));
+      if (isRerun) {
         terminal = null;
         prState = null; // a re-run: the earlier finish / PR no longer stands
         finishedAt = null;
@@ -335,8 +339,9 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     /** @type {import('./contract.js').TicketStatus} */
     const status = run ? (up ? "running" : "interrupted") : queued ? (up ? "queued" : "stalled") : held ? "held" : terminal ?? "idle";
     // A PR the receiver later learned is merged/closed (refmeta.prState, from the `prs` op or a
-    // merge job) outranks the event-derived `ready` — no forge hook needed for it to leave Needs you.
-    if (prState === "ready" && (meta.prState === "merged" || meta.prState === "closed")) prState = meta.prState;
+    // merge job) outranks whatever the events say — no forge hook needed for it to leave Needs you,
+    // and a CI job's bookkeeping (terminal/prState reset above) must not hide a known merge.
+    if (meta.prState === "merged" || meta.prState === "closed") prState = meta.prState;
     // The newest run's plain sentence, only while it describes the row's state: an applied
     // outcome that differs from the run's (changes cap, CI bounce, cancel) shows none.
     const want = PLAIN_OUTCOME[status];
