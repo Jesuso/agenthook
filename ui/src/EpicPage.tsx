@@ -7,6 +7,7 @@ import type { Seg } from "./EpicStageBar";
 import { ReleasePanel } from "./ReleasePanel";
 import { EmptyState, StatusBadge, useAgo } from "./components";
 import { dismissKey } from "./deferredDismiss";
+import { PR_NEEDS_TEXT } from "./zones";
 import { prNumber } from "./tickets";
 import { useDisclosure } from "./disclosure";
 import { translate } from "./i18n";
@@ -21,8 +22,8 @@ const titleOf = (s: Seg, lang: string) => {
   return l[0].toUpperCase() + l.slice(1);
 };
 
-/** A finished ticket's PR when it is known and still `ready`: the only evidence for "awaiting merge" (an idle row whose finish left the events tail has no state, which is not evidence). */
-const openPr = (row: TicketRow | undefined): string | null => (row?.prUrl && row.prState === "ready" ? safeUrl(row.prUrl) : null);
+/** A done ticket's PR when it is known and still open with a reason (`prNeeds`): the only evidence for "awaiting merge" (an idle row whose history left the events tail has no reason, which is not evidence). */
+const openPr = (row: TicketRow | undefined): string | null => (row?.prUrl && row.prNeeds != null && row.prState === "ready" ? safeUrl(row.prUrl) : null);
 
 // Writes (Release…, Re-run) are accent-tinted buttons; reads (a PR, the tracker, the log) are links
 // or quiet buttons, so what changes something looks different from what only shows it.
@@ -43,9 +44,9 @@ export type EpicActions = {
 
 /**
  * One epic (docs/web-ui.md § Epics view), in attention order: header, stage bar with its key and a
- * pace line, Needs you (reason, step and age, the action by kind), Running, Awaiting merge (finished
- * tickets whose PR is recorded and not merged, each with its PR link: only on that evidence), Backlog,
- * tickets not on the board, then the rest of finished and merged folded, remembered per tab. A ticket that ran here opens the drawer; one
+ * pace line, Needs you (reason, step and age, the action by kind), Running, Awaiting merge (done
+ * tickets whose PR is recorded and still open, each with its PR link: only on that evidence), Backlog,
+ * tickets not on the board, then the rest of done folded, remembered per tab. A ticket that ran here opens the drawer; one
  * that didn't opens on its tracker when it carries its own URL, or says it can't.
  */
 export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }: { body: EpicResponse; profile: string; rows: TicketRow[]; onOpen: (t: Ref) => void; actions?: EpicActions }) {
@@ -61,11 +62,10 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
   const pace = paceOf(epic, lang);
   const open = (t: EpicDetailTicket) => onOpen({ profile, ref: t.ref });
   const hrefOf = (t: EpicDetailTicket) => safeUrl(t.url);
-  // Awaiting merge only on evidence (a recorded, unmerged PR); a finished ticket without one is just finished.
-  const awaiting = groups.finished.filter((t) => openPr(rowBy.get(t.ref)));
-  const finishedRest = groups.finished.filter((t) => !openPr(rowBy.get(t.ref)));
-  const history = [...finishedRest, ...groups.merged];
-  const historyTitle = finishedRest.length && groups.merged.length ? tr("epic.historyBoth") : titleOf(groups.merged.length ? "merged" : "finished", lang);
+  // Awaiting merge only on evidence (a recorded, open PR); a done ticket without one is just done.
+  const awaiting = groups.done.filter((t) => openPr(rowBy.get(t.ref)));
+  const history = groups.done.filter((t) => !openPr(rowBy.get(t.ref)));
+  const historyTitle = titleOf("done", lang);
   const counts = segCounts(epic, awaiting.length);
   const needs = groups.needsYou.filter((t) => !actions.dismissing?.has(dismissKey({ profile, ref: t.ref })));
 
@@ -146,9 +146,7 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
           <ul className="border-t border-border-subtle p-1">
             {history.map((t) => (
               <li key={t.ref} data-epic-ticket={t.ref}>
-                <TicketLine t={t} row={rowBy.get(t.ref)} href={hrefOf(t)} onOpen={() => open(t)}>
-                  {finishedRest.length > 0 && groups.merged.length > 0 && <span className={`shrink-0 text-label ${t.bucket === "merged" ? "text-status-done" : "text-muted"}`}>{segLabel(t.bucket, lang, 1)}</span>}
-                </TicketLine>
+                <TicketLine t={t} row={rowBy.get(t.ref)} href={hrefOf(t)} onOpen={() => open(t)} />
               </li>
             ))}
           </ul>
@@ -165,7 +163,7 @@ export function EpicPage({ body, profile, rows, onOpen, actions = { up: true } }
 const ETA_ACTIVE_DAYS = 3;
 
 /**
- * Plain-language pace: what finished lately (finished and merged alike), a stall when nothing has
+ * Plain-language pace: what the board made done lately, a stall when nothing has
  * for 5 days, and an ETA only with its basis; when there is none, the real reason why.
  */
 export function paceOf(epic: Pick<EpicDetail, "velocity" | "byStage" | "total" | "completed" | "eta">, lang = "en"): { text: string; eta: string | null; stalled: boolean; since: number | null } {
@@ -173,7 +171,7 @@ export function paceOf(epic: Pick<EpicDetail, "velocity" | "byStage" | "total" |
   const { days, finished14, activeDays, perDay } = epic.velocity;
   const { done, total } = progressOf(epic);
   // Same as the server's `remaining` (src/epics.js): untracked tickets are still left to do.
-  const left = total - epic.byStage.finished - epic.byStage.merged;
+  const left = total - epic.byStage.done;
   let last: string | null = null;
   for (const d of days) if (d.finished > 0) last = d.date;
   const today = days.length ? days[days.length - 1].date : null;
@@ -313,7 +311,7 @@ function needOf(row: TicketRow | undefined, lang: string): { kind: "held" | "fai
   if (!row) return null;
   if (row.status === "held") return { kind: "held", reason: row.heldReason ?? translate(lang, "epic.heldNoReason"), since: row.heldAt ?? row.startedAt };
   if (row.status === "failed") return { kind: "failed", reason: row.failReason ?? translate(lang, "epic.failedNoReason"), since: row.startedAt };
-  if (row.status === "done" && row.prState === "ready" && row.prUrl) return { kind: "pr", reason: translate(lang, "epic.prReady"), since: row.finishedAt };
+  if (row.prNeeds && row.prUrl) return { kind: "pr", reason: translate(lang, PR_NEEDS_TEXT[row.prNeeds]), since: row.finishedAt };
   return null;
 }
 

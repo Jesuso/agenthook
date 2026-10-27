@@ -53,14 +53,14 @@ describe("fetchEpics / fetchEpic", () => {
 });
 
 describe("epic numbers", () => {
-  const e = epicStats({ ref: "E", byStage: { merged: 2, finished: 1, running: 1, needsYou: 1, backlog: 5 } });
+  const e = epicStats({ ref: "E", byStage: { done: 3, running: 1, needsYou: 1, backlog: 5 } });
 
-  it("N/M counts finished + merged over every ticket", () => {
+  it("N/M counts the done bucket over every ticket", () => {
     expect(progressOf(e)).toEqual({ done: 3, total: 10 });
   });
 
   it("stage segments: non-empty buckets in bar order, as % of total; none for an empty epic", () => {
-    expect(stageSegments(e).map((s) => [s.bucket, s.pct])).toEqual([["merged", 20], ["finished", 10], ["running", 10], ["needsYou", 10], ["backlog", 50]]);
+    expect(stageSegments(e).map((s) => [s.bucket, s.pct])).toEqual([["done", 30], ["running", 10], ["needsYou", 10], ["backlog", 50]]);
     expect(stageSegments(epicStats({ ref: "Z" }))).toEqual([]);
   });
 

@@ -117,7 +117,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} plain          the newest run_end's `plain` (the agent's one-sentence summary.plain, agent-authored — untrusted), only while it describes the status: held ↔ hold, failed ↔ fail, done ↔ advance, running/queued ↔ any; null otherwise
  * @property {string[]|null} options      2-4 short discrete answers (agent-authored — untrusted) from the newest run_end, only while the row is `held` and that run_end's outcome is `hold`; null otherwise
  * @property {string|null} step           current / last step id
- * @property {TicketStatus} status
+ * @property {TicketStatus} status        `done` = the board's own done flag (a flag `board_done` since the last re-run; ADR 0008), never the terminal stage (`pipeline_done`) or a merged PR
  * @property {string|null} model          from running.json, else the last run_start
  * @property {string|null} startedAt
  * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)
@@ -129,10 +129,18 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} heldReason
  * @property {string|null} heldAt          when the hold was recorded (held.json), while held
  * @property {string|null} failReason     the last `failed` event's reason, while the ticket rests failed/cancelled
- * @property {'ready'|'merged'|'closed'|null} prState  once finished: `ready` after pipeline_done (PR awaiting merge), `merged` after a forge's merged event; a `ready` is overridden by refmeta.prState `merged`/`closed` (learned by the `prs` op / a merge job); on an idle row (its finish left the events tail) refmeta.prState `merged`/`closed` alone; null otherwise
- * @property {string|null} finishedAt      ts of the finish (pipeline_done, else merged) while status is `done` — what "finished today" counts
+ * @property {'ready'|'merged'|'closed'|null} prState  a cached forge fact, whatever the status: refmeta.prState `merged`/`closed` (closed = unmerged; learned by the `prs` op / a merge job) when set, else `merged` after a forge's merged event since the last re-run, else `ready` (open / not known closed) while refmeta.pr is set; null with no PR
+ * @property {PrNeeds|null} prNeeds       the PR's Needs-you reason, where code and board disagree (ADR 0008): only with a `prUrl`, on a `done` row (open PR → `openOnDone`) or an `idle` one whose board is known open (its last re-run is in the events tail): open → `awaitingMerge`, merged → `mergedOpen`, closed → `closedUnmerged`; null otherwise. Counted only on forge profiles (isNeedsYou)
+ * @property {string|null} finishedAt      ts of the first board-done signal since the last re-run, while status is `done` — what "finished today" counts
  * @property {number|null} queuePos        0-based place in queue.json while queued
  * @property {TicketEpic|null} epic       refmeta.epic: the epic the ticket belongs to (recorded per run); null when none or malformed
+ */
+
+/**
+ * Why a ticket's PR needs a human (TicketRow.prNeeds): `awaitingMerge` — open PR, board open;
+ * `mergedOpen` — PR merged, board still open (the bridge didn't deliver); `closedUnmerged` — PR
+ * closed without merging, board open; `openOnDone` — PR still open on a done ticket.
+ * @typedef {'awaitingMerge'|'mergedOpen'|'closedUnmerged'|'openOnDone'} PrNeeds
  */
 
 /**

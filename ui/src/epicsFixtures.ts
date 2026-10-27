@@ -2,7 +2,7 @@
 import type { EpicBucket, EpicDetail, EpicDetailTicket, EpicStats } from "./contract";
 import { day } from "./statsFixtures";
 
-const ZERO: Record<EpicBucket, number> = { backlog: 0, running: 0, needsYou: 0, finished: 0, merged: 0, untracked: 0 };
+const ZERO: Record<EpicBucket, number> = { backlog: 0, running: 0, needsYou: 0, done: 0, untracked: 0 };
 
 /** 14 days ending 2026-10-16, `finished` per day from `counts` (zero-filled). */
 export const velocityDays = (counts: number[] = []) =>
@@ -30,7 +30,7 @@ export function epicStats(over: Partial<Omit<EpicStats, "byStage">> & { ref: str
 export const epicTicket = (ref: string, bucket: EpicBucket, over: Partial<EpicDetailTicket> = {}): EpicDetailTicket => ({
   ref,
   name: `Ticket ${ref}`,
-  completed: bucket === "finished" || bucket === "merged",
+  completed: bucket === "done",
   stage: bucket === "untracked" ? null : "In progress",
   bucket,
   status: null,

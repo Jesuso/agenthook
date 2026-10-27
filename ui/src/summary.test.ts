@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { summarize, scopeToProfile, NEEDS_YOU } from "./summary";
+import { summarize, scopeToProfile, NEEDS_YOU, isNeedsYou } from "./summary";
+import { isNeedsYou as serverIsNeedsYou } from "../../src/epics.js";
 import type { ProfileView, TicketRow } from "./contract";
 
 function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }): ProfileView {
@@ -33,7 +34,7 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
 }
 
 function ticket(ref: string, status: TicketRow["status"]): TicketRow {
-  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, finishedAt: null, queuePos: null, epic: null };
+  return { profile: "a", ref, displayId: ref, title: null, step: null, status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null };
 }
 
 // Local time on purpose: "today" is the browser's local day.
@@ -64,11 +65,29 @@ describe("summarize", () => {
     expect(s.needsYou).toBe(3);
   });
 
-  it("needsYou counts a finished ticket's ready PR only on a forge profile and only with a known PR", () => {
-    const done = (ref: string, over: Partial<TicketRow>): TicketRow => ({ ...ticket(ref, "done"), prState: "ready", ...over });
-    const tickets = [done("a", { prUrl: "https://github.com/o/r/pull/1" }), done("b", { prUrl: null }), done("c", { prState: "closed", prUrl: "https://github.com/o/r/pull/2" })];
-    expect(summarize({ profiles: [profile({ name: "a", up: true, forge: "github" })], tickets }, NOW).needsYou).toBe(1);
+  it("needsYou counts a PR reason (prNeeds) only on a forge profile", () => {
+    const pr = (ref: string, status: TicketRow["status"], over: Partial<TicketRow>): TicketRow => ({ ...ticket(ref, status), prUrl: "https://github.com/o/r/pull/1", prState: "ready", ...over });
+    const tickets = [
+      pr("a", "done", { prNeeds: "openOnDone" }),
+      pr("b", "idle", { prNeeds: "awaitingMerge" }),
+      pr("c", "idle", { prState: "merged", prNeeds: "mergedOpen" }),
+      pr("d", "idle", { prState: "closed", prNeeds: "closedUnmerged" }),
+      pr("e", "done", { prState: "merged", prNeeds: null }),
+      pr("f", "idle", { prNeeds: null }), // the board is unknown: no reason
+    ];
+    expect(summarize({ profiles: [profile({ name: "a", up: true, forge: "github" })], tickets }, NOW).needsYou).toBe(4);
     expect(summarize({ profiles: [profile({ name: "a", up: true, forge: null })], tickets }, NOW).needsYou).toBe(0);
+  });
+
+  it("isNeedsYou agrees with the server's (src/epics.js) on every status × prNeeds × forge", () => {
+    const statuses: TicketRow["status"][] = ["running", "queued", "held", "failed", "cancelled", "done", "idle", "interrupted", "stalled"];
+    const reasons: TicketRow["prNeeds"][] = [null, "awaitingMerge", "mergedOpen", "closedUnmerged", "openOnDone"];
+    for (const status of statuses)
+      for (const prNeeds of reasons)
+        for (const forge of [true, false]) {
+          const t = { ...ticket("x", status), prNeeds };
+          expect(isNeedsYou(t, forge), `${status} ${prNeeds} ${forge}`).toBe(serverIsNeedsYou(t, forge));
+        }
   });
 
   it("costToday sums every profile's costs since local midnight, down profiles included", () => {

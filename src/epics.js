@@ -3,6 +3,7 @@
 // into progress-by-bucket, needs-you, and velocity/ETA numbers. The receiver's `epics` op (ops.js)
 // and the `ah ui` receiver-down fallback (`localEpics`, from refmeta.epic) both join through here.
 import { dailyStats } from "./ui/stats.js";
+import { isBoardDone } from "./board-done.js";
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -10,7 +11,7 @@ const DAY_MS = 24 * 3600 * 1000;
 export const EPIC_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
- * @typedef {'backlog'|'running'|'needsYou'|'finished'|'merged'|'untracked'} EpicBucket
+ * @typedef {'backlog'|'running'|'needsYou'|'done'|'untracked'} EpicBucket
  */
 
 /**
@@ -31,12 +32,13 @@ export const EPIC_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
  */
 
 /**
- * Mirrors ui/src/summary.ts isNeedsYou — keep the two in sync.
- * @param {Pick<import('./ui/contract.js').TicketRow, 'status'|'prState'|'prUrl'>} row
+ * The one Needs-you predicate: held, failed, or a PR reason (`prNeeds`, where code and board
+ * disagree — ADR 0008) on a forge profile. Mirrors ui/src/summary.ts isNeedsYou — keep the two in sync.
+ * @param {Pick<import('./ui/contract.js').TicketRow, 'status'|'prNeeds'>} row
  * @param {boolean} forge
  */
 export function isNeedsYou(row, forge) {
-  return row.status === "held" || row.status === "failed" || (forge && row.status === "done" && row.prState === "ready" && !!row.prUrl);
+  return row.status === "held" || row.status === "failed" || (forge && row.prNeeds != null);
 }
 
 /** @param {number} ts @param {number} tzOffset */
@@ -55,8 +57,20 @@ function groupByRef(events) {
 }
 
 /**
- * The bucket one epic ticket counts in: the local row (when the ref ran here) outranks the
- * tracker's view; with no live row, the event history and then the tracker stage decide.
+ * Is the ticket done on the board (ADR 0008): the tracker's done flag (`ticket.completed`), a
+ * local row the board made `done`, or — with no row or an idle one — a history that ends
+ * board-done. The pipeline's terminal stage is a handoff, never done.
+ * @param {import('./types.js').EpicTicket} ticket
+ * @param {import('./ui/contract.js').TicketRow|null} row
+ * @param {Record<string, any>[]|undefined} refEvents
+ */
+function boardDone(ticket, row, refEvents) {
+  return ticket.completed || row?.status === "done" || ((!row || row.status === "idle") && historicallyDone(refEvents));
+}
+
+/**
+ * The bucket one epic ticket counts in: Needs you while the board is open, else live work, else
+ * done when the board says so, else the tracker stage decides. A merged PR is never done.
  * @param {import('./types.js').EpicTicket} ticket
  * @param {import('./ui/contract.js').TicketRow|null} row  the ref's local row, or null
  * @param {Record<string, any>[]|undefined} refEvents  the ref's events, in order
@@ -64,14 +78,23 @@ function groupByRef(events) {
  * @returns {EpicBucket}
  */
 export function ticketBucket(ticket, row, refEvents, forge) {
-  if (row && (row.status === "done" || row.status === "idle") && row.prState === "merged") return "merged";
-  if (row && isNeedsYou(row, forge)) return "needsYou";
+  const done = boardDone(ticket, row, refEvents);
+  if (row && !done && isNeedsYou(row, forge)) return "needsYou";
   if (row && ["running", "queued", "interrupted", "stalled"].includes(row.status)) return "running";
-  if (row && row.status === "done") return "finished";
-  if (ticket.completed) return "finished";
-  if ((!row || row.status === "idle") && historicallyFinished(refEvents)) return "finished";
+  if (done) return "done";
   if (ticket.stage !== null) return "backlog";
   return "untracked";
+}
+
+/**
+ * Whether a ticket is listed in the epic's `needsYou`: its bucket is, or it is done with a PR
+ * still open where the row knows it (ADR 0008's "done + needs you: open PR on a done ticket").
+ * @param {EpicBucket} bucket
+ * @param {import('./ui/contract.js').TicketRow|null} row
+ * @param {boolean} forge
+ */
+function listedNeedsYou(bucket, row, forge) {
+  return bucket === "needsYou" || (bucket === "done" && forge && row?.prNeeds != null && row.prState === "ready");
 }
 
 /**
@@ -87,14 +110,15 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
   const eventsByRef = groupByRef(memberEvents);
 
   /** @type {Record<EpicBucket, number>} */
-  const byStage = { backlog: 0, running: 0, needsYou: 0, finished: 0, merged: 0, untracked: 0 };
+  const byStage = { backlog: 0, running: 0, needsYou: 0, done: 0, untracked: 0 };
   /** @type {string[]} */
   const needsYou = [];
 
   for (const ticket of tickets) {
-    const bucket = ticketBucket(ticket, rowByRef.get(ticket.ref) ?? null, eventsByRef.get(ticket.ref), forge);
+    const row = rowByRef.get(ticket.ref) ?? null;
+    const bucket = ticketBucket(ticket, row, eventsByRef.get(ticket.ref), forge);
     byStage[bucket]++;
-    if (bucket === "needsYou") needsYou.push(ticket.ref);
+    if (listedNeedsYou(bucket, row, forge)) needsYou.push(ticket.ref);
   }
 
   let startedAt = /** @type {string|null} */ (null);
@@ -114,8 +138,8 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
   const perDay = finished14 > 0 ? finished14 / spanDays : null;
 
   const total = tickets.length;
-  const remaining = total - byStage.finished - byStage.merged;
-  const readyToClose = live && total > 0 && remaining === 0 && byStage.needsYou === 0 && epic.completed === false;
+  const remaining = total - byStage.done;
+  const readyToClose = live && total > 0 && remaining === 0 && needsYou.length === 0 && epic.completed === false;
   /** @type {{ days: number, date: string }|null} */
   let eta = null;
   if (finished14 >= 3 && activeDays >= 3 && remaining > 0 && perDay) {
@@ -140,16 +164,17 @@ export function epicStats(epic, tickets, { rows, events, forge, now = Date.now()
   };
 }
 
-/** Did the ref finish per the event history (no live row, e.g. older than the rows tail), with no
- * later re-run? @param {Record<string, any>[]|undefined} refEvents */
-function historicallyFinished(refEvents) {
+/** Did the board say done per the event history (no live row, e.g. older than the rows tail), with
+ * no later re-run? Only the board's done flag (`isBoardDone`); a merge or a `pipeline_done` never counts.
+ * @param {Record<string, any>[]|undefined} refEvents */
+function historicallyDone(refEvents) {
   if (!refEvents) return false;
-  let finished = false;
+  let done = false;
   for (const e of refEvents) {
-    if (e.event === "pipeline_done" || e.event === "merged") finished = true;
-    else if (e.event === "run_start") finished = false;
+    if (isBoardDone(e)) done = true;
+    else if (e.event === "run_start") done = false;
   }
-  return finished;
+  return done;
 }
 
 /**

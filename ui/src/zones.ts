@@ -1,12 +1,14 @@
-import type { ProfileView, TicketRow } from "./contract";
+import type { PrNeeds, ProfileView, TicketRow } from "./contract";
 import { isNeedsYou } from "./summary";
+import { translate } from "./i18n";
+import type { MessageKey } from "./i18n";
 
 /** One row of the Overview's Needs-you zone. */
 export type NeedsItem = {
   ticket: TicketRow;
-  /** `pr`: finished, its known PR (`prUrl`) awaits merge (forge profiles only). */
+  /** `pr`: its known PR (`prUrl`) and the board disagree — `prNeeds` (forge profiles only). */
   kind: "failed" | "held" | "pr";
-  /** The one-line why: the failure / hold reason, null when the agent gave none. */
+  /** The one-line why: the failure / hold reason (null when the agent gave none), or the PR reason. */
   reason: string | null;
   /** When it started needing you (ISO), for the age column. */
   since: string | null;
@@ -14,19 +16,27 @@ export type NeedsItem = {
 
 const KIND_RANK = { failed: 0, held: 1, pr: 2 } as const;
 
+/** Each PR reason's sentence (ADR 0008's table). */
+export const PR_NEEDS_TEXT: Record<PrNeeds, MessageKey> = {
+  awaitingMerge: "prNeeds.awaitingMerge",
+  mergedOpen: "prNeeds.mergedOpen",
+  closedUnmerged: "prNeeds.closedUnmerged",
+  openOnDone: "prNeeds.openOnDone",
+};
+
 const time = (iso: string | null) => {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(t) ? 0 : t;
 };
 
-/** The profile's Needs-you tickets, worst first: failed → held → PR awaiting merge, newest first within a kind. */
-export function needsYouItems(tickets: TicketRow[], forge: boolean): NeedsItem[] {
+/** The profile's Needs-you tickets, worst first: failed → held → PR, newest first within a kind. */
+export function needsYouItems(tickets: TicketRow[], forge: boolean, lang = "en"): NeedsItem[] {
   const items: NeedsItem[] = [];
   for (const t of tickets) {
     if (!isNeedsYou(t, forge)) continue;
     if (t.status === "failed") items.push({ ticket: t, kind: "failed", reason: t.failReason, since: t.startedAt });
     else if (t.status === "held") items.push({ ticket: t, kind: "held", reason: t.heldReason, since: t.heldAt ?? t.startedAt });
-    else items.push({ ticket: t, kind: "pr", reason: null, since: t.finishedAt });
+    else items.push({ ticket: t, kind: "pr", reason: t.prNeeds ? translate(lang, PR_NEEDS_TEXT[t.prNeeds]) : null, since: t.finishedAt });
   }
   return items.sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || time(b.since) - time(a.since) || a.ticket.ref.localeCompare(b.ticket.ref));
 }

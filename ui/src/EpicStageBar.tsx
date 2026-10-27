@@ -3,18 +3,17 @@ import { BUCKET_LABEL, BUCKET_ORDER, progressOf } from "./epics";
 import { translate } from "./i18n";
 import { useT } from "./i18n/react";
 
-/** A bar segment: a bucket, or `awaiting` — finished tickets with a known PR not merged yet. */
+/** A bar segment: a bucket, or `awaiting` — done tickets whose known PR is still open. */
 export type Seg = EpicBucket | "awaiting";
 
-const ORDER: Seg[] = BUCKET_ORDER.flatMap((b): Seg[] => (b === "finished" ? ["finished", "awaiting"] : [b]));
+const ORDER: Seg[] = BUCKET_ORDER.flatMap((b): Seg[] => (b === "done" ? ["done", "awaiting"] : [b]));
 
-// Full class strings so Tailwind's scanner sees them: status tokens only, no new colours. Merged,
-// the furthest state, is the strongest fill; finished is the same hue lighter; awaiting merge is
+// Full class strings so Tailwind's scanner sees them: status tokens only, no new colours. Done
+// (the board says so — ADR 0008) is the one solid fill; a done ticket whose PR is still open is
 // hollow (outlined), told apart by shape. It is drawn only on evidence (a recorded PR), never
-// for every finished ticket (CONTEXT.md: finished with no recorded PR is just finished).
+// for every done ticket (CONTEXT.md: done with no recorded PR is just done).
 const FILL: Record<Seg, string> = {
-  merged: "bg-status-done",
-  finished: "bg-status-done/55",
+  done: "bg-status-done",
   awaiting: "bg-status-done-bg ring-1 ring-inset ring-status-done",
   running: "bg-status-running epic-seg-running",
   needsYou: "bg-status-held",
@@ -28,16 +27,16 @@ export const segClass = (s: Seg) => FILL[s];
 /** A segment's name: the one map every label comes from. `count` picks the plural form (none = a category: `other`). */
 export const segLabel = (s: Seg, lang = "en", count?: number) => translate(lang, s === "awaiting" ? "stageBar.awaiting" : BUCKET_LABEL[s], count === undefined ? undefined : { count });
 
-/** Counts per segment: `awaiting` (≤ finished) is split out of finished. */
+/** Counts per segment: `awaiting` (≤ done) is split out of done. */
 export function segCounts(epic: Pick<EpicStats, "byStage">, awaiting = 0): Record<Seg, number> {
-  const a = Math.min(awaiting, epic.byStage.finished);
-  return { ...epic.byStage, finished: epic.byStage.finished - a, awaiting: a };
+  const a = Math.min(awaiting, epic.byStage.done);
+  return { ...epic.byStage, done: epic.byStage.done - a, awaiting: a };
 }
 
 /**
  * An epic's tickets as one stacked bar, the same on the list and the epic page, named "N of M
- * finished: …" for screen readers. `awaiting` (the page knows it from local PR data; the list does
- * not) splits finished into solid and hollow. `wide` fills its row; otherwise it is a fixed-width
+ * done: …" for screen readers. `awaiting` (the page knows it from local PR data; the list does
+ * not) splits done into solid and hollow. `wide` fills its row; otherwise it is a fixed-width
  * bar followed by `N/M` and what is left. The running segment slides (`epic-seg-running`, index.css).
  */
 export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<EpicStats, "byStage" | "total">; wide?: boolean; awaiting?: number; id?: string }) {
@@ -45,7 +44,7 @@ export function EpicStageBar({ epic, wide, awaiting = 0, id }: { epic: Pick<Epic
   const { done, total } = progressOf(epic);
   const counts = segCounts(epic, awaiting);
   const segs = ORDER.filter((s) => counts[s] > 0).map((s) => ({ seg: s, count: counts[s], pct: (counts[s] / epic.total) * 100 }));
-  const left = total - epic.byStage.finished - epic.byStage.merged; // the server's `remaining`
+  const left = total - epic.byStage.done; // the server's `remaining`
   const named = segs.map((s) => `${s.count} ${segLabel(s.seg, lang, s.count)}`).join(", ") || t("epics.noTickets");
   return (
     <div className={`flex min-w-0 items-center gap-2 ${wide ? "w-full" : ""}`} data-stage-bar>

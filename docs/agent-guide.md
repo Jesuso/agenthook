@@ -128,9 +128,15 @@ by the next review run, and is dropped on terminal fail/cancel and on merge. `ti
 `epics {ref?, fresh?}` → list: `{at, live, supported, epics:[{ref,name,url,displayId?,status,
 completed,readyToClose,total,byStage,needsYou,startedAt,velocity,eta}]}`; with `ref`, the detail shape instead:
 `{at, live, supported, epic:{…same stats…, tickets:[{ref,displayId?,name,completed,stage,url,bucket,status}]}}`.
-`byStage` buckets: `backlog`/`running`/`needsYou`/`finished`/`merged`/`untracked`. `readyToClose` is
-`true` when the epic is open but every ticket is finished/merged and none need you — a person has to
-close it on the tracker, agenthook never does; it's always `false` on a `live:false` read (the
+`byStage` buckets: `backlog`/`running`/`needsYou`/`done`/`untracked`; they sum to `total`. Only the
+**board** makes a ticket `done` (ADR 0008): the tracker's done flag, the ticket resting in a manual
+step's source stage (`EpicTicket.terminal`), or a `board_done`/legacy `pipeline_done` since its last run —
+never a merged PR. A PR adds a Needs-you reason (row field `prNeeds`, forge profiles only) where code and
+board disagree: `awaitingMerge` (open PR, board open), `mergedOpen` (PR merged, ticket still open — close
+it), `closedUnmerged` (PR closed without merging — re-run or close) and `openOnDone` (open PR on a done
+ticket — merge or close). An `openOnDone` ticket counts as `done` **and** is listed in `needsYou`, so
+`needsYou` can be longer than `byStage.needsYou`. `readyToClose` is `true` when the epic is open, every
+ticket is `done` and `needsYou` is empty — a person has to close it on the tracker, agenthook never does; it's always `false` on a `live:false` read (the
 fallback can't see the tracker's open/closed state). It is never folded into Needs you — an epic is
 not a ticket. `live:true` reads
 straight from the tracker (cached ~30 s; `fresh` bypasses); `live:false` means the receiver is down
@@ -243,8 +249,10 @@ before the hold it forces; a `blocked` event follows), `blocked {reason}` (task 
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
 `pipeline_done` (ticket finished, PR ready), `board_done {via}` (the ticket is done on the board:
-`via:"flag"` = its tracker done flag flipped — issue closed, task completed, done status; `via:"stage"`
-= it entered a manual step; a signal only, nothing runs or moves), `ci_red {action}`, `ci_green {pr, sha, mergeable,
+`via:"flag"` = its tracker done flag flipped — issue closed, task completed, done status — or the
+ticket entered a manual step with that flag already set; a signal only, nothing runs or moves.
+Entering the terminal stage alone is `pipeline_done`, a handoff, never done. Older logs may hold
+`via:"stage"` events; they never meant done), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
 Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,

@@ -18,15 +18,42 @@ test("dailyStats: zero-filled, oldest first, last bucket is today", () => {
 
 test("dailyStats: finished counts distinct tickets per day (repeated pipeline_done is one)", () => {
   const events = [
+    ev(at("2026-10-14T02:00:00Z"), "pipeline_done", { ref: "A" }),
+    ev(at("2026-10-15T01:00:00Z"), "run_start", { ref: "A" }), // re-run: the next done is a new transition
     ev(at("2026-10-15T01:28:29Z"), "pipeline_done", { ref: "A" }),
     ev(at("2026-10-15T01:28:31Z"), "pipeline_done", { ref: "A" }),
     ev(at("2026-10-15T01:28:32Z"), "pipeline_done", { ref: "A" }),
     ev(at("2026-10-15T02:00:00Z"), "pipeline_done", { ref: "B" }),
-    ev(at("2026-10-14T02:00:00Z"), "pipeline_done", { ref: "A" }), // same ticket, another day: counts there too
   ];
   const [y, t] = dailyStats(events, { now: NOW, days: 2 });
   assert.equal(t.finished, 2);
   assert.equal(y.finished, 1);
+});
+
+test("dailyStats: finished counts board_done once per ref per done transition (ADR 0008)", () => {
+  const events = [
+    ev("2026-10-14T09:00:00Z", "run_start", { ref: "A" }),
+    ev("2026-10-14T10:00:00Z", "run_end", { ref: "A", costUsd: 2 }),
+    ev("2026-10-14T11:00:00Z", "board_done", { ref: "A", via: "flag" }),
+    ev("2026-10-15T08:00:00Z", "board_done", { ref: "A", via: "flag" }), // a duplicate delivery: one transition, not a second day
+    ev("2026-10-14T09:00:00Z", "run_end", { ref: "B", costUsd: 1 }),
+    ev("2026-10-15T09:00:00Z", "board_done", { ref: "B", via: "flag" }),
+    ev("2026-10-15T09:30:00Z", "run_start", { ref: "B" }), // re-run…
+    ev("2026-10-15T10:00:00Z", "board_done", { ref: "B", via: "flag" }), // …then done again: same day, still one ticket
+    ev("2026-10-15T07:00:00Z", "pipeline_done", { ref: "L" }), // after the first flag board_done: a handoff, no longer a finish
+    ev("2026-10-15T12:00:00Z", "run_start", { ref: "M" }),
+    ev("2026-10-15T12:30:00Z", "merged", { ref: "M" }), // a merge is a forge fact, never finished
+    ev("2026-10-15T13:00:00Z", "board_done", { ref: "U", via: "flag" }), // closed on the board, never run here
+    ev("2026-10-15T12:00:00Z", "run_end", { ref: "S", costUsd: 0 }),
+    ev("2026-10-15T13:00:00Z", "pipeline_done", { ref: "S" }), // entered the terminal stage after the flag era began: a handoff, not done
+    ev("2026-10-15T13:00:01Z", "board_done", { ref: "S", via: "stage" }), // an interim receiver's stage signal: not done either
+  ];
+  const [y, t] = dailyStats(events, { now: NOW, days: 2 });
+  assert.equal(y.finished, 1);
+  assert.deepEqual(y.ticketCost, { n: 1, p10: 2, p50: 2, p90: 2 }, "the cost resets on the done signal");
+  assert.equal(t.finished, 1, "B — not A again, not L, not M, not U, not S");
+  assert.equal(t.merged, 1);
+  assert.deepEqual(t.ticketCost, { n: 1, p10: 1, p50: 1, p90: 1 }, "B's spend counted once, on its first done");
 });
 
 test("dailyStats: runs, rework, failed runs and cost from run_end; merged is distinct refs", () => {
@@ -126,6 +153,13 @@ test("readHistory: keeps run_start, and readStats output is unchanged by its pre
   assert.ok(h.events.some((e) => e.event === "run_start"));
 });
 
+test("readHistory: keeps board_done with its via, so readStats counts a board-done ticket", () => {
+  const f = file();
+  fs.writeFileSync(f, line(ev("2026-10-15T09:00:00Z", "run_start", { ref: "A" })) + line(ev("2026-10-15T10:00:00Z", "board_done", { ref: "A", via: "flag", name: "x" })));
+  assert.deepEqual(readHistory(f).events.find((e) => e.event === "board_done")?.via, "flag");
+  assert.equal(readStats(f, { now: NOW, days: 1 }).days[0].finished, 1);
+});
+
 test("quantile: linear interpolation on a sorted list; empty is 0", () => {
   assert.equal(quantile([], 0.5), 0);
   assert.equal(quantile([4], 0.9), 4);
@@ -158,7 +192,8 @@ test("dailyStats: ticketCost is what each finished ticket cost since its last fi
     ev("2026-10-14T11:00:00Z", "pipeline_done", { ref: "A" }), // A cost 5 to finish
     ev("2026-10-14T11:00:02Z", "pipeline_done", { ref: "A" }), // duplicate burst: not a second ticket cost
     ev("2026-10-14T12:00:00Z", "pipeline_done", { ref: "H" }), // finished by hand: no agent spend, no cost sample
-    ev("2026-10-15T09:00:00Z", "run_end", { ref: "A", costUsd: 1 }), // reopened and re-run
+    ev("2026-10-15T08:59:00Z", "run_start", { ref: "A" }), // reopened and re-run
+    ev("2026-10-15T09:00:00Z", "run_end", { ref: "A", costUsd: 1 }),
     ev("2026-10-15T09:30:00Z", "pipeline_done", { ref: "A" }),
     ev("2026-10-15T09:00:00Z", "run_end", { ref: "B", costUsd: 10 }),
     ev("2026-10-15T09:40:00Z", "pipeline_done", { ref: "B" }),

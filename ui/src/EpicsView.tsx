@@ -327,7 +327,7 @@ function RowNote({ e }: { e: EpicStats }) {
 
 /** Every open epic's tickets per segment, for the list's key. */
 function sumStages(epics: EpicStats[]): Record<Seg, number> {
-  const sum = segCounts({ byStage: { merged: 0, finished: 0, running: 0, needsYou: 0, backlog: 0, untracked: 0 } });
+  const sum = segCounts({ byStage: { done: 0, running: 0, needsYou: 0, backlog: 0, untracked: 0 } });
   for (const e of epics) for (const [k, v] of Object.entries(segCounts(e)) as [Seg, number][]) sum[k] += v;
   return sum;
 }

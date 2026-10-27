@@ -202,7 +202,11 @@ export const messages: Record<MessageKey, Message> = {
   "status.idle": "inactivo",
   "needs.failed": "fallido",
   "needs.held": "retenido",
-  "needs.pr": "PR listo",
+  "needs.pr": "PR",
+  "prNeeds.awaitingMerge": "Esperando fusión",
+  "prNeeds.mergedOpen": "PR fusionado: cierra el ticket",
+  "prNeeds.closedUnmerged": "PR cerrado sin fusionar: vuelve a ejecutarlo o cierra el ticket",
+  "prNeeds.openOnDone": "PR abierto en un ticket hecho: fusiónalo o ciérralo",
   "ticketId.title": "abrir en el tracker",
 
   // Pure helpers (epics.ts, failure.ts, remove.ts, save.ts, leaveGuard.tsx, ConfigForms fieldMeta)
@@ -332,8 +336,7 @@ export const messages: Record<MessageKey, Message> = {
   "shell.digest.status": "el resumen falló (estado {status})",
 
   // epics.ts
-  "epics.bucket.merged": { one: "fusionado", other: "fusionados" },
-  "epics.bucket.finished": { one: "terminado", other: "terminados" },
+  "epics.bucket.done": { one: "hecho", other: "hechos" },
   "epics.bucket.running": "en curso",
   "epics.bucket.needsYou": "te necesita",
   "epics.bucket.backlog": "backlog",
@@ -342,7 +345,7 @@ export const messages: Record<MessageKey, Message> = {
 
   // EpicStageBar.tsx
   "stageBar.awaiting": "esperando fusión",
-  "stageBar.aria": "{done} de {total} terminados: {named}",
+  "stageBar.aria": "{done} de {total} hechos: {named}",
   "stageBar.left": { one: "falta {count}", other: "faltan {count}" },
   "stageBar.key": "Leyenda de la barra",
 
@@ -375,7 +378,6 @@ export const messages: Record<MessageKey, Message> = {
   "epic.trackerStatus": "Estado en el tracker: {status}",
   "epic.openOnTracker": "Abrir en el tracker",
   "epic.newTab": "(pestaña nueva)",
-  "epic.historyBoth": "Terminados y fusionados",
   "epic.closedEmpty": "Cerrada sin tickets.",
   "epic.empty": "Aún no hay tickets en esta épica.",
   "epic.noun.ticket": { one: "ticket", other: "tickets" },
@@ -401,7 +403,6 @@ export const messages: Record<MessageKey, Message> = {
   "epic.prAriaNoNum": "PR de {id} (pestaña nueva)",
   "epic.heldNoReason": "Retenido para una decisión; el agente no dio motivo.",
   "epic.failedNoReason": "La ejecución falló sin un motivo.",
-  "epic.prReady": "PR listo para fusionar.",
   "epic.markedNeedsYou": "Marcado como Te necesita en el tracker.",
   "epic.needsYouNeverRan": "Te necesita en el tracker; nunca se ejecutó aquí.",
   "epic.reviewPr": "Revisar PR",

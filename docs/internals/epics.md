@@ -10,6 +10,10 @@
   `url`; Jira: `${baseUrl}/browse/${key}`). `localEpics` carries it through from `refmeta[ref].url`
   (dispatch records the tracker's `task.url` there per run). The UI (`ui/src/EpicPage.tsx`) links a
   ticket row straight off `t.url` through `safeUrl`.
+- `ticketBucket` counts a ticket `done` only on the board's flag (ADR 0008): `completed`, a `done`
+  row, or a history ending in a flag `board_done`. The pipeline's terminal stage (`pipeline_done`)
+  is a handoff, never done, and a merged PR never is; PR facts only add
+  Needs-you reasons (`TicketRow.prNeeds`).
 - `src/epic-changed.js` — emits a read-only `{kind:'epic_changed', ref:<epic>}` signal outside the
   queue (GitHub only today — see [trackers.md](trackers.md)), dropping ops' epics cache.
 

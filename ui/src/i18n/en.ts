@@ -200,7 +200,11 @@ export const messages = {
   "status.idle": "idle",
   "needs.failed": "failed",
   "needs.held": "held",
-  "needs.pr": "PR ready",
+  "needs.pr": "PR",
+  "prNeeds.awaitingMerge": "Awaiting merge",
+  "prNeeds.mergedOpen": "PR merged — close the ticket",
+  "prNeeds.closedUnmerged": "PR closed without merging — re-run or close",
+  "prNeeds.openOnDone": "Open PR on a done ticket — merge or close",
   "ticketId.title": "open on the tracker",
 
   // Pure helpers (epics.ts, failure.ts, remove.ts, save.ts, leaveGuard.tsx, ConfigForms fieldMeta)
@@ -330,8 +334,7 @@ export const messages = {
   "shell.digest.status": "digest failed (status {status})",
 
   // epics.ts
-  "epics.bucket.merged": { one: "merged", other: "merged" },
-  "epics.bucket.finished": { one: "finished", other: "finished" },
+  "epics.bucket.done": { one: "done", other: "done" },
   "epics.bucket.running": "running",
   "epics.bucket.needsYou": "needs you",
   "epics.bucket.backlog": "backlog",
@@ -340,7 +343,7 @@ export const messages = {
 
   // EpicStageBar.tsx
   "stageBar.awaiting": "awaiting merge",
-  "stageBar.aria": "{done} of {total} finished: {named}",
+  "stageBar.aria": "{done} of {total} done: {named}",
   "stageBar.left": { one: "{count} left", other: "{count} left" },
   "stageBar.key": "Bar key",
 
@@ -373,7 +376,6 @@ export const messages = {
   "epic.trackerStatus": "Tracker status: {status}",
   "epic.openOnTracker": "Open on the tracker",
   "epic.newTab": "(new tab)",
-  "epic.historyBoth": "Finished and merged",
   "epic.closedEmpty": "Closed with no tickets.",
   "epic.empty": "No tickets in this epic yet.",
   "epic.noun.ticket": { one: "ticket", other: "tickets" },
@@ -399,7 +401,6 @@ export const messages = {
   "epic.prAriaNoNum": "PR for {id} (new tab)",
   "epic.heldNoReason": "Held for a decision; the agent gave no reason.",
   "epic.failedNoReason": "The run failed without a reason.",
-  "epic.prReady": "PR ready to merge.",
   "epic.markedNeedsYou": "Marked Needs you on the tracker.",
   "epic.needsYouNeverRan": "Needs you on the tracker; it never ran here.",
   "epic.reviewPr": "Review PR",

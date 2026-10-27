@@ -24,6 +24,7 @@ function stateDir() {
     { ts: ago(190), event: "failed", ref: "2", step: "code", reason: "tests red" },
     { ts: ago(100), event: "run_end", ref: "4", step: "review", outcome: "advance", costUsd: 1.234 },
     { ts: ago(99), event: "pipeline_done", ref: "4", step: "review" },
+    { ts: ago(99), event: "board_done", ref: "4", step: "review" },
   ].map((e) => JSON.stringify(e)).join("\n") + "\n");
   return dir;
 }
@@ -54,13 +55,14 @@ test("buildSnapshot: last24h keeps rate-table estimates and no-estimate runs apa
   assert.equal(s.last24h.unestimatedRuns, 1, "the unknown model");
 });
 
-test("buildSnapshot: a finished ticket awaits merge only with a known PR", () => {
+test("buildSnapshot: a done ticket's PR needs you only when known, each item with its prNeeds kind; no forge → none", () => {
   const dir = stateDir();
   assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge, [], "no refmeta.pr → just finished");
   const meta = JSON.parse(fs.readFileSync(path.join(dir, "refmeta.json"), "utf8"));
   meta[4].pr = 9;
   fs.writeFileSync(path.join(dir, "refmeta.json"), JSON.stringify(meta));
-  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge.map((p) => p.pr), ["https://github.com/o/r/pull/9"]);
+  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge.map((p) => [p.pr, p.kind]), [["https://github.com/o/r/pull/9", "openOnDone"]]);
+  assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW, forge: false }).needsYou.prAwaitingMerge, []);
 });
 
 test("buildSnapshot: an empty state dir is an all-zero snapshot, not a throw", () => {
@@ -197,6 +199,7 @@ function epicStateDir() {
   w("events.jsonl", [
     { ts: ago(50), event: "run_start", ref: "11", step: "code" },
     { ts: ago(40), event: "pipeline_done", ref: "11", step: "review" },
+    { ts: ago(40), event: "board_done", ref: "11", step: "review" },
   ].map((e) => JSON.stringify(e)).join("\n") + "\n");
   return dir;
 }

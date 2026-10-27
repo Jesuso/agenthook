@@ -20,7 +20,7 @@ _Avoid_: Initiative, project, parent ticket
 _Español_: Épica
 
 **Done**:
-A ticket whose board says it's done: the tracker's completed/closed flag, or the ticket sits in the pipeline's terminal stage. A merged PR or agents reaching their last step never make a ticket done — see [ADR 0008](adr/0008-done-comes-from-the-board.md). "Done today" counts board transitions to done since local midnight.
+A ticket whose board says it's done: the tracker's own completed/closed flag, nothing else. The pipeline's terminal stage is a handoff (agents finished, PR awaiting a human), not done. A merged PR or agents reaching their last step never make a ticket done — see [ADR 0008](adr/0008-done-comes-from-the-board.md). "Done today" counts board transitions to done since local midnight.
 _Avoid_: Finished, completed, shipped
 _Español_: Terminado
 

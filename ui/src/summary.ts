@@ -4,13 +4,12 @@ import type { Snapshot, TicketRow, TicketStatus } from "./contract";
 export const NEEDS_YOU: TicketStatus[] = ["held", "failed"];
 
 /**
- * Whether a ticket is Needs you (CONTEXT.md): held, failed, or a finished ticket whose known PR
- * awaits merge. The PR clause needs `forge` — without one `merged` is never observed, so a PR merged
- * by hand would read as awaiting forever — and a `prUrl`: a ticket finished with no recorded PR
- * (work shipped by hand on another branch) is simply Finished.
+ * Whether a ticket is Needs you (CONTEXT.md): held, failed, or a PR reason where code and board
+ * disagree (`prNeeds`, server-computed — ADR 0008). The PR clause needs `forge`: without one no PR
+ * fact is ever observed, so the board alone decides. Mirrors src/epics.js isNeedsYou — keep the two in sync.
  */
-export function isNeedsYou(t: Pick<TicketRow, "status" | "prState" | "prUrl">, forge: boolean): boolean {
-  return NEEDS_YOU.includes(t.status) || (forge && t.status === "done" && t.prState === "ready" && !!t.prUrl);
+export function isNeedsYou(t: Pick<TicketRow, "status" | "prNeeds">, forge: boolean): boolean {
+  return NEEDS_YOU.includes(t.status) || (forge && t.prNeeds != null);
 }
 
 export type Summary = {

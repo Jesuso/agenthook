@@ -60,10 +60,10 @@ export type OverviewProps = {
  */
 export function Overview(props: OverviewProps) {
   const { profile, snapshot, now, feed, onOpen } = props;
-  const { t } = useT();
+  const { t, lang } = useT();
   const scoped = scopeToProfile(snapshot, profile.name);
   const forge = !!profile.forge;
-  const needs = needsYouItems(scoped.tickets, forge).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
+  const needs = needsYouItems(scoped.tickets, forge, lang).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
   const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);

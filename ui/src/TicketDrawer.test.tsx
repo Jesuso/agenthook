@@ -20,7 +20,7 @@ const row: TicketRow = {
   summary: null, plain: null, options: null, heldReason: null,
   heldAt: null,
   failReason: null,
-  prState: null,
+  prState: null, prNeeds: null,
   finishedAt: null,
   queuePos: null, epic: null,
 };
