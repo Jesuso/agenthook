@@ -59,6 +59,30 @@ export function displayPath(path: string, configPath: string | null): string {
   return dir && path.startsWith(dir) ? path.slice(dir.length) : path;
 }
 
+/** A pipeline step and the file its agent reads: its own, else the profile default. */
+export type StepNode = { id: string; file: InstructionFileView };
+
+/**
+ * The step bar's nodes in pipeline run order (`steps`, from the heartbeat). Steps the order doesn't
+ * name, or every step when an older receiver sends no order, follow: own-file steps, then the steps
+ * that fall back to the profile default.
+ */
+export function stepNodes(files: InstructionFileView[], steps: string[] | null = null): StepNode[] {
+  const all: StepNode[] = [];
+  for (const scope of ["step", "default"] as const) {
+    for (const f of files) if (f.scope === scope) for (const id of f.ids) all.push({ id, file: f });
+  }
+  if (!steps) return all;
+  const rank = new Map(steps.map((id, i) => [id, i]));
+  const at = (n: StepNode) => rank.get(n.id) ?? steps.length;
+  return all.map((n, i) => ({ n, i })).sort((a, b) => at(a.n) - at(b.n) || a.i - b.i).map(({ n }) => n);
+}
+
+/** Files no single step owns: repo files every step reads, and the Digest's SOUL. */
+export function sharedFiles(files: InstructionFileView[]): InstructionFileView[] {
+  return files.filter((f) => f.scope === "repo" || f.scope === "soul");
+}
+
 /** The shell command that creates a not-yet-created file, its path single-quoted when it needs it. */
 export function touchCommand(path: string): string {
   return /^[\w@%+=:,./-]+$/.test(path) ? `touch ${path}` : `touch '${path.replace(/'/g, "'\\''")}'`;

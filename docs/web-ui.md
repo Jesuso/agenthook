@@ -210,16 +210,21 @@ write allowlist.
 - External edits (your `$EDITOR`) reach open tabs as SSE `instructions` events (dir watch +
   hash), and the server suppresses the echo of its own write.
 
-**"What the agent sees" preview — from the last real prompt.** An exact preview needs the ticket,
-and fetching it needs tracker credentials the UI must not hold. Instead the receiver saves every
-run's assembled prompt beside its log (`<log>.prompt.md`, mode 0600). The preview takes the step's
-most recent prompt, splits it at `=== TICKET ===`, and substitutes the editor's live buffer for
-the standing part (repo instructions + step instructions, in dispatch order). Exact, credential-free,
-no control-socket commands. A step that never ran previews the standing part only.
+**Prompt sidecars.** The receiver saves every run's assembled prompt beside its log
+(`<log>.prompt.md`, mode 0600), served by `GET /api/prompt-preview` (the step's most recent prompt,
+split at `=== TICKET ===`). The Instructions tab no longer shows it (its "What the agent sees" panel
+was removed in favour of the single live editor below); the endpoint stays for other readers.
 
-**Editor UX.** CodeMirror 6 (markdown), rendered preview via `react-markdown` (no raw HTML),
-`@codemirror/merge` diff shown before every save, unsaved-changes guard, "changed on disk —
-reload / diff / overwrite" banner on 409 or an external edit.
+**Editor UX.** A step bar across the top runs the pipeline's steps in run order (the heartbeat's
+`pipelineSteps`; an older receiver without it falls back to own-file steps, then default-file
+steps); clicking a step loads the file its agent reads. Steps on the profile default are tagged
+"default", and a file more than one step reads says "Read by …" in the toolbar.
+Files no single step owns (repo instructions, the Digest's SOUL) sit after it under "Also read".
+One CodeMirror 6 editor in live-markdown mode (`ui/src/livePreview.ts`): headings, emphasis,
+inline code and links render in place and their markup shows only on the lines being edited, so
+there is no separate preview. GFM tables render in mono; a "Source" toggle shows raw markdown on
+every line. `@codemirror/merge` diff shown before every save, unsaved-changes
+guard, "changed on disk — reload / diff / overwrite" banner on 409 or an external edit.
 
 ### v3 — config editor
 

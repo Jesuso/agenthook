@@ -1,22 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
 import type { InstructionFileView, InstructionsView as InstructionsBody, ProfileView } from "./contract";
-import { baseName, discardPrompt, displayPath, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty, touchCommand } from "./instructions";
+import { baseName, discardPrompt, displayPath, initialFile, instructionFileUrl, instructionsUrl, isDirty, sharedFiles, stepNodes, touchCommand } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal, useConfirm } from "./Modal";
-import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
-import { CopyCommand, EmptyState, FullAutoShield, Pill, Segmented } from "./components";
+import { CopyCommand, EmptyState, FullAutoShield } from "./components";
 import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
 // `missing`: a listed file that isn't created yet, picked to see what it is and how to create it.
 type FileState = { kind: "none" } | { kind: "loading"; path: string } | { kind: "missing"; path: string } | { kind: "error"; path: string; status: number } | { kind: "ok"; doc: SaveState };
-type Side = "none" | "preview" | "agent";
 type Toast = { kind: "error" | "ok"; text: string };
 
 /** `localStorage` key for the last file opened in a profile, so re-opening the tab lands there. */
@@ -41,10 +38,11 @@ export default function InstructionsView(props: {
   const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);
+  // Raw markdown on every line instead of the live rendering.
+  const [source, setSource] = useState(false);
   const [file, setFileState] = useState<FileState>({ kind: "none" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
-  const [side, setSide] = useState<Side>("none");
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   // The last successful save, so a glance at the toolbar confirms it landed after the toast fades.
@@ -310,177 +308,88 @@ export default function InstructionsView(props: {
           </span>
         )}
       </div>
-      {/* Below md the file list folds into one select above the editor, so the editor keeps the width. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row md:gap-4">
+      {/* Steps run left to right across the top; the files every step also reads sit after a divider. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         {list.kind === "ok" && list.body.files.length > 0 && (
-          <select
-            aria-label={t("instructions.fileLabel")}
-            className="w-full shrink-0 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-1 font-mono text-sm md:hidden"
-            value={selectedPath ?? ""}
-            onChange={(e) => pickFile(e.target.value)}
-          >
-            {!selectedPath && (
-              <option value="" disabled>
-                {t("instructions.selectFile")}
-              </option>
-            )}
-            {groupFiles(list.body.files, lang).map((g) => (
-              <optgroup key={g.scope} label={g.label}>
-                {g.files.map((f) => (
-                  <option key={f.path} value={f.path}>
+          <div className="flex items-center gap-3 overflow-x-auto border-b border-border pb-2">
+            <ol aria-label={t("instructions.stepsNav")} className="flex shrink-0 items-center gap-0.5">
+              {stepNodes(list.body.files, list.body.steps ?? null).map((n, i) => (
+                <li key={`${n.id}:${n.file.path}`} className="flex items-center">
+                  {i > 0 && (
+                    <svg aria-hidden="true" className="mx-0.5 shrink-0 text-muted" width="18" height="8" viewBox="0 0 18 8">
+                      <path d="M0 4h15M12 1l3 3-3 3" stroke="currentColor" fill="none" />
+                    </svg>
+                  )}
+                  <button
+                    className={`flex flex-col items-start gap-px whitespace-nowrap rounded-md border px-2.5 py-1 ${selectedPath === n.file.path ? "bg-surface-raised text-fg" : "text-muted hover:bg-surface-raised hover:text-fg"} ${!n.file.exists ? "border-dashed border-muted" : selectedPath === n.file.path ? "border-border" : "border-transparent"}`}
+                    aria-current={selectedPath === n.file.path || undefined}
+                    title={n.file.exists ? n.file.path : t("instructions.missingTitle", { path: n.file.path })}
+                    onClick={() => pickFile(n.file.path)}
+                  >
+                    <span className="flex items-center gap-1.5 font-mono text-[13px] font-semibold">
+                      {n.id}
+                      {n.file.agentsRunning > 0 && (
+                        <span className="size-1.5 rounded-full bg-status-running" title={t("instructions.running", { count: n.file.agentsRunning })}>
+                          <span className="sr-only">, {t("instructions.running", { count: n.file.agentsRunning })}</span>
+                        </span>
+                      )}
+                      {dirty && open?.path === n.file.path && (
+                        <span>
+                          <span aria-hidden="true">●</span>
+                          <span className="sr-only">, {t("instructions.unsaved")}</span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-mono text-meta text-muted">
+                      {n.file.exists ? baseName(n.file.path) : t("instructions.missing")}
+                      {n.file.scope === "default" && ` · ${t("instructions.defaultTag")}`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+            {sharedFiles(list.body.files).length > 0 && (
+              <div className="ml-auto flex shrink-0 items-center gap-1.5 border-l border-border pl-3">
+                <span className="text-label text-muted">{t("instructions.alsoRead")}</span>
+                {sharedFiles(list.body.files).map((f) => (
+                  <button
+                    key={f.path}
+                    className={`rounded-full border px-2 py-0.5 font-mono text-label hover:bg-surface-raised hover:text-fg ${selectedPath === f.path ? "bg-surface-raised text-fg" : "text-muted"} ${!f.exists ? "border-dashed border-muted" : selectedPath === f.path ? "border-border" : "border-transparent"}`}
+                    aria-current={selectedPath === f.path || undefined}
+                    title={f.exists ? f.path : t("instructions.missingTitle", { path: f.path })}
+                    onClick={() => pickFile(f.path)}
+                  >
                     {baseName(f.path)}
-                    {!f.exists ? ` · ${t("instructions.missing")}` : f.agentsRunning > 0 ? ` · ${t("instructions.running", { count: f.agentsRunning })}` : ""}
-                  </option>
+                    {!f.exists && <span className="sr-only">, {t("instructions.missing")}</span>}
+                  </button>
                 ))}
-              </optgroup>
-            ))}
-          </select>
+              </div>
+            )}
+          </div>
         )}
-        <nav aria-label={t("instructions.filesNav")} className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48 max-md:hidden">
-          {list.kind === "loading" && <p className="text-muted">{t("instructions.loadingFiles")}</p>}
-          {list.kind === "ok" &&
-            groupFiles(list.body.files, lang).map((g) => (
-              <section key={g.scope} className="mb-3">
-                <h2 className="mb-1 text-xs uppercase tracking-wide text-muted">{g.label}</h2>
-                <ul>
-                  {g.files.map((f) => (
-                    <li key={f.path}>
-                      <button
-                        // A file that isn't created yet still opens: the pane says what it is and how to create it.
-                        className={`w-full rounded px-2 py-1 text-left hover:bg-surface-raised ${selectedPath === f.path ? "bg-surface-raised" : ""} ${f.exists ? "" : "text-muted"}`}
-                        aria-current={selectedPath === f.path || undefined}
-                        title={f.exists ? f.path : t("instructions.missingTitle", { path: f.path })}
-                        onClick={() => pickFile(f.path)}
-                      >
-                        <div className="truncate font-mono">
-                          {baseName(f.path)}
-                          {dirty && open?.path === f.path && (
-                            <>
-                              <span aria-hidden="true" className="ml-1.5 text-fg">●</span>
-                              <span className="sr-only">{` ${t("instructions.unsaved")}`}</span>
-                            </>
-                          )}
-                        </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted">
-                          {f.ids.length ? f.ids.map((id) => <Pill key={id}>{id}</Pill>) : <span>—</span>}
-                          <span>· {f.exists ? formatBytes(f.bytes) : t("instructions.missing")}</span>
-                          {f.agentsRunning > 0 && <span className="text-status-running">· {t("instructions.running", { count: f.agentsRunning })}</span>}
-                        </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-        </nav>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {list.kind === "error" && (
-            <EmptyState title={t("instructions.listError")} hint={list.status === 0 ? t("instructions.requestNetwork") : t("instructions.requestFailed", { status: list.status })} />
-          )}
-          {list.kind === "ok" && list.body.files.length === 0 && (
-            <EmptyState
-              title={t("instructions.noFiles")}
-              hint={t("instructions.noFilesHint")}
-            />
-          )}
-          {file.kind === "none" && list.kind === "ok" && list.body.files.length > 0 && (
-            <EmptyState title={t("instructions.selectFile")} hint={t("instructions.selectFileHint")} />
-          )}
-          {missingFile && <MissingFile file={missingFile} onReload={() => setListNonce((n) => n + 1)} />}
-          {file.kind === "loading" && <p className="text-sm">{t("instructions.loadingFile", { name: baseName(file.path) })}</p>}
-          {file.kind === "error" && (
-            <p className="text-sm text-status-failed">
-              {file.status === 404
-                ? t("instructions.fileGone", { path: file.path })
-                : t("instructions.fileFailed", { path: file.path, status: file.status })}
-            </p>
-          )}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col pt-3">
+          <FileStates list={list} file={file} missingFile={missingFile} onReloadList={() => setListNonce((n) => n + 1)} />
           {open && (
             <>
               <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
-                <span className="min-w-0 flex-1 basis-32 truncate font-mono" title={open.path}>
+                <span className="min-w-0 flex-1 basis-32 truncate font-mono text-muted" title={open.path}>
                   {displayPath(open.path, list.kind === "ok" ? list.body.configPath : null)}
                 </span>
-                {fullAuto && (
-                  <span title={t("fullAuto.title")} className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-raised px-2 text-label text-fg">
-                    <FullAutoShield />
-                    {t("instructions.fullAutoChip")}
-                  </span>
-                )}
-                <Segmented
-                  label={t("instructions.sidePanel")}
-                  value={side}
-                  options={[
-                    { value: "none", label: t("instructions.tab.editor") },
-                    { value: "preview", label: t("instructions.tab.preview") },
-                    { value: "agent", label: <><span className="lg:hidden">{t("instructions.tab.agent")}</span><span className="max-lg:hidden">{t("instructions.tab.agentLong")}</span></> },
-                  ]}
-                  onChange={setSide}
-                />
-                <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-                  <InlineLiveEffect agentsRunning={agentsRunning} show={dirty || agentsRunning > 0} />
-                  {/* One fixed-width slot for the buffer's state, so the first keystroke shifts nothing.
-                      Clean is already said by the disabled Save; only a fresh save earns a word. */}
-                  <span aria-live="polite" className="w-28 shrink-0 truncate text-right text-label">
-                    {phase === "saving" ? (
-                      <span className="text-muted">{t("instructions.saving")}</span>
-                    ) : dirty ? (
-                      <span className="font-medium text-fg">
-                        <span aria-hidden="true">● </span>
-                        {t("instructions.modified")}
-                      </span>
-                    ) : (
-                      phase === "editing" &&
-                      savedAt?.path === open.path && (
-                        <span className="text-muted">{t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}</span>
-                      )
-                    )}
-                  </span>
-                  <button
-                    className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!dirty || phase !== "editing"}
-                    title={t("instructions.saveTitle")}
-                    onClick={requestSave}
-                  >
-                    {t("instructions.save")}
-                  </button>
-                </span>
+                {list.kind === "ok" && <UsedBy file={list.body.files.find((f) => f.path === open.path)} />}
+                <button
+                  aria-pressed={source}
+                  title={t("instructions.sourceTitle")}
+                  className={`rounded border border-border px-2 py-0.5 text-label hover:bg-surface-raised ${source ? "bg-surface-raised text-fg" : "text-muted"}`}
+                  onClick={() => setSource((s) => !s)}
+                >
+                  {t("instructions.source")}
+                </button>
+                {fullAuto && <FullAutoChip />}
+                <SaveCluster dirty={dirty} phase={phase} savedAt={savedAt} openPath={open.path} agentsRunning={agentsRunning} onSave={requestSave} />
               </div>
-              {(phase === "conflict" || phase === "deleted") && (
-                <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
-                  {phase === "deleted" ? t("instructions.deletedBanner") : t("instructions.changedBanner")}
-                  <span className="ml-auto flex gap-2">
-                    <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={() => load(open.profile, open.path)}>
-                      {t("instructions.reload")}
-                    </button>
-                    {phase === "conflict" && (
-                      <>
-                        <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={showDiff}>
-                          {t("instructions.diff")}
-                        </button>
-                        {/* Secondary like its neighbours; "…" says a confirm follows, and that confirm carries the destructive styling. */}
-                        <button className="rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised" onClick={overwrite}>
-                          {t("instructions.overwrite")}…
-                        </button>
-                      </>
-                    )}
-                  </span>
-                </div>
-              )}
-              {/* Below lg a side panel stacks under the editor instead of squeezing beside it. */}
-              <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
-                <div className="min-h-0 min-w-0 flex-1">
-                  <MarkdownEditor key={editorKey} label={t("instructions.editorLabel", { name: baseName(open.path) })} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
-                </div>
-                {side === "preview" && doc && (
-                  // react-markdown escapes raw HTML by default; never add rehype-raw here.
-                  <div className="md-preview min-h-0 min-w-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm">
-                    <Markdown>{doc.buffer}</Markdown>
-                  </div>
-                )}
-                {side === "agent" && doc && list.kind === "ok" && openFileView && (
-                  <PromptPreview profile={profile} files={list.body.files} openFile={openFileView} buffer={doc.buffer} />
-                )}
+              <ChangedBanner phase={phase} onReload={() => load(open.profile, open.path)} onDiff={showDiff} onOverwrite={overwrite} />
+              <div className="min-h-0 flex-1">
+                <MarkdownEditor live={!source} key={editorKey} label={t("instructions.editorLabel", { name: baseName(open.path) })} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
               </div>
             </>
           )}
@@ -607,5 +516,102 @@ function MissingFile(props: { file: InstructionFileView; onReload: () => void })
         </div>
       }
     />
+  );
+}
+
+
+/** Everything the editor pane can say instead of an editor: load errors, empty, missing, loading. */
+function FileStates(props: { list: ListState; file: FileState; missingFile?: InstructionFileView; onReloadList: () => void }) {
+  const { t } = useT();
+  const { list, file } = props;
+  return (
+    <>
+      {list.kind === "loading" && <p className="text-sm text-muted">{t("instructions.loadingFiles")}</p>}
+      {list.kind === "error" && (
+        <EmptyState title={t("instructions.listError")} hint={list.status === 0 ? t("instructions.requestNetwork") : t("instructions.requestFailed", { status: list.status })} />
+      )}
+      {list.kind === "ok" && list.body.files.length === 0 && <EmptyState title={t("instructions.noFiles")} hint={t("instructions.noFilesHint")} />}
+      {file.kind === "none" && list.kind === "ok" && list.body.files.length > 0 && <EmptyState title={t("instructions.selectFile")} hint={t("instructions.selectFileHint")} />}
+      {props.missingFile && <MissingFile file={props.missingFile} onReload={props.onReloadList} />}
+      {file.kind === "loading" && <p className="text-sm">{t("instructions.loadingFile", { name: baseName(file.path) })}</p>}
+      {file.kind === "error" && (
+        <p role="alert" className="text-sm text-status-failed">
+          {file.status === 404 ? t("instructions.fileGone", { path: file.path }) : t("instructions.fileFailed", { path: file.path, status: file.status })}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The changed-on-disk / deleted banner with its recovery actions. */
+function ChangedBanner(props: { phase: string | null; onReload: () => void; onDiff: () => void; onOverwrite: () => void }) {
+  const { t } = useT();
+  if (props.phase !== "conflict" && props.phase !== "deleted") return null;
+  const secondary = "rounded border border-border bg-surface px-2 py-0.5 text-fg hover:bg-surface-raised";
+  return (
+    <div role="alert" className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
+      {props.phase === "deleted" ? t("instructions.deletedBanner") : t("instructions.changedBanner")}
+      <span className="ml-auto flex gap-2">
+        <button className={secondary} onClick={props.onReload}>
+          {t("instructions.reload")}
+        </button>
+        {props.phase === "conflict" && (
+          <>
+            <button className={secondary} onClick={props.onDiff}>
+              {t("instructions.diff")}
+            </button>
+            <button className={secondary} onClick={props.onOverwrite}>
+              {t("instructions.overwrite")}…
+            </button>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Which steps read the open file, when more than one does: an edit here changes all of them. */
+function UsedBy(props: { file?: InstructionFileView }) {
+  const { t } = useT();
+  const f = props.file;
+  if (!f || (f.scope !== "step" && f.scope !== "default") || f.ids.length < 2) return null;
+  return <span className="shrink-0 text-label text-muted">{t("instructions.usedBy", { steps: f.ids.join(", ") })}</span>;
+}
+
+/** The fullAuto marker beside the open file. */
+function FullAutoChip() {
+  const { t } = useT();
+  return (
+    <span title={t("fullAuto.title")} className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-raised px-2 text-label text-fg">
+      <FullAutoShield />
+      {t("instructions.fullAutoChip")}
+    </span>
+  );
+}
+
+/** Next-run note, the fixed-width buffer status, and Save. */
+function SaveCluster(props: { dirty: boolean; phase: string | null; savedAt: { path: string; at: Date } | null; openPath: string; agentsRunning: number; onSave: () => void }) {
+  const { t, lang } = useT();
+  const { dirty, phase, savedAt } = props;
+  return (
+    <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+      <InlineLiveEffect agentsRunning={props.agentsRunning} show={dirty || props.agentsRunning > 0} />
+      <span aria-live="polite" className="w-28 shrink-0 truncate text-right text-label">
+        {phase === "saving" ? (
+          <span className="text-muted">{t("instructions.saving")}</span>
+        ) : dirty ? (
+          <span className="font-medium text-fg">
+            <span aria-hidden="true">● </span>
+            {t("instructions.modified")}
+          </span>
+        ) : (
+          phase === "editing" &&
+          savedAt?.path === props.openPath && <span className="text-muted">{t("instructions.savedAt", { time: savedAt.at.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}</span>
+        )}
+      </span>
+      <button className="rounded bg-accent px-3 py-1 text-label font-medium text-accent-fg disabled:cursor-not-allowed disabled:opacity-50" disabled={!dirty || phase !== "editing"} title={t("instructions.saveTitle")} onClick={props.onSave}>
+        {t("instructions.save")}
+      </button>
+    </span>
   );
 }

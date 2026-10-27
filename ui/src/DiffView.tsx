@@ -9,7 +9,12 @@ import { highlight, theme } from "./MarkdownEditor";
 
 // Each side sizes to its content (the outer box scrolls); listed before `theme` so it wins over its `height: 100%`.
 const autoHeight = EditorView.theme({ "&": { height: "auto" } });
-const readOnly = (language: Extension) => [EditorState.readOnly.of(true), EditorView.editable.of(false), language, syntaxHighlighting(highlight), EditorView.lineWrapping, autoHeight, theme];
+// The merge view's default collapsed-lines bar and borders are light-theme; follow the tokens.
+const mergeTheme = EditorView.theme({
+  ".cm-collapsedLines": { background: "var(--color-surface-raised)", color: "var(--color-muted)" },
+  ".cm-collapsedLines:hover": { background: "var(--color-surface-raised)", color: "var(--color-fg)" },
+});
+const readOnly = (language: Extension) => [EditorState.readOnly.of(true), EditorView.editable.of(false), language, syntaxHighlighting(highlight), EditorView.lineWrapping, autoHeight, mergeTheme, theme];
 
 /** Read-only side-by-side diff: `a` (on disk) left, `b` (the buffer) right. Rebuilt when either changes. `language` defaults to markdown. */
 export function DiffView(props: { a: string; b: string; language?: Extension }) {

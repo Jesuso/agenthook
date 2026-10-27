@@ -257,3 +257,11 @@ test("createHeartbeat carries the sandbox backend next to fullAuto, null without
   assert.equal(hb.sandbox, "podman");
   assert.equal(hb.fullAuto, true);
 });
+
+test("createHeartbeat publishes the non-manual pipeline step ids in run order", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hb-steps-"));
+  const heartbeatFile = path.join(dir, "hb.json");
+  const pipeline = [{ id: "triage" }, { id: "gate", manual: true }, { id: "code" }];
+  createHeartbeat(/** @type {any} */ ({ name: "n", stateKey: "n", heartbeatFile, pipeline, repoPath: dir, instructionsFile: "/cfg/INSTRUCTIONS.md" }));
+  assert.deepEqual(JSON.parse(fs.readFileSync(heartbeatFile, "utf8")).pipelineSteps, ["triage", "code"]);
+});

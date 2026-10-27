@@ -150,8 +150,7 @@ describe("InstructionsView chrome", () => {
       ev.dispatch({ changes: { from: 0, insert: "x" } });
     });
     await until(() => m!.root.textContent!.includes("Takes effect on the next agent run."));
-    const nav = m.root.querySelector("nav")!;
-    expect(nav.textContent).toContain("unsaved edits");
+    expect(m.root.querySelector("ol")!.textContent).toContain(", unsaved edits");
     await click([...m.root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Save")!);
     const dialog = (await until(() => document.querySelector('[role="dialog"]')))!;
     expect(dialog.querySelector("[data-modal-body] > p")!.textContent).toContain("This profile runs fullAuto");
@@ -177,13 +176,16 @@ describe("InstructionsView accessibility", () => {
     await until(() => root.querySelector(".cm-content"));
     expect(root.querySelector("h1")!.textContent).toBe("Instructions");
     expect(root.querySelector("select")!.getAttribute("aria-label")).toBe("Profile");
-    expect(root.querySelector('[role="radiogroup"]')!.getAttribute("aria-label")).toBe("Side panel");
     expect(root.querySelector(".cm-content")!.getAttribute("aria-label")).toBe("Instructions for code.md");
     expect(document.title).toBe("code.md · Instructions · demo · agenthook");
-    const soul = [...root.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent?.includes("SOUL.md"))!;
-    expect(root.querySelector("nav")!.getAttribute("aria-label")).toBe("Instruction files");
-    expect([...root.querySelectorAll("nav h2")].map((h) => h.textContent)).toEqual(["steps", "digest SOUL"]);
+    const soul = [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent!.startsWith("SOUL.md"))!;
+    // Steps run along the bar; SOUL, which no step owns, sits after it under "Also read".
+    expect(root.querySelector("ol")!.getAttribute("aria-label")).toBe("Pipeline steps");
+    expect([...root.querySelectorAll("ol > li")].map((li) => li.textContent)).toEqual(["codecode.md"]);
+    expect(soul.parentElement!.textContent).toContain("Also read");
     expect(soul.title).toContain("doesn't exist yet");
+    // Not-created is in the chip's accessible name, not only its title and dashed border.
+    expect(soul.textContent).toBe("SOUL.md, not created");
     await click(soul);
     expect(fetched("/api/instructions/file?profile=demo&path=%2Fa%2FSOUL.md")).toBe(false);
     // The pane says what reads the file and how to create it; once it exists, Reload list opens it.
@@ -201,15 +203,12 @@ describe("InstructionsView accessibility", () => {
 describe("InstructionsView in Spanish", () => {
   afterEach(() => setLangSetting("en", []));
 
-  it("renders its chrome, group labels and discard confirm in Spanish", async () => {
+  it("renders its chrome and discard confirm in Spanish", async () => {
     setLangSetting("es", []);
     m = await mount(createElement(I18nProvider, null, view()));
     const editor = (await until(() => m!.root.querySelector<HTMLElement>(".cm-editor")))!;
     const root = m.root;
-    expect(root.textContent).toContain("pasos");
-    expect(root.textContent).toContain("Renderizado");
-    await click([...root.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent?.includes("Lo que ve el agente"))!);
-    await until(() => root.textContent!.includes("no hay vista previa para este paso"));
+    expect(root.querySelector("ol")!.getAttribute("aria-label")).toBe("Pasos del pipeline");
     await act(async () => {
       const ev = EditorView.findFromDOM(editor)!;
       ev.dispatch({ changes: { from: ev.state.doc.length, insert: " mundo" } });

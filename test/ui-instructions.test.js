@@ -53,6 +53,7 @@ fs.writeFileSync(
   JSON.stringify({
     name: "p",
     configPath: path.join(repo, "agenthook.config.json"),
+    pipelineSteps: ["triage", "code", "code-review", "docs", 7],
     instructions: [
       { path: CODE, scope: "step", ids: ["code"] },
       { path: DEFAULT, scope: "default", ids: ["triage", "code-review"] },
@@ -121,8 +122,12 @@ test("listInstructions: exactly the heartbeat allowlist, sha256/bytes/mtime/exis
   assert.equal(by[BIG].bytes, INSTRUCTIONS_MAX_BYTES + 1);
 });
 
+test("listInstructions: steps come from heartbeat.pipelineSteps, strings only", () => {
+  assert.deepEqual(listInstructions(registry, "p")?.steps, ["triage", "code", "code-review", "docs"]);
+});
+
 test("listInstructions: no heartbeat → files []; unknown profile → null", () => {
-  assert.deepEqual(listInstructions(registry, "bare"), { configPath: null, files: [] });
+  assert.deepEqual(listInstructions(registry, "bare"), { configPath: null, steps: null, files: [] });
   for (const profile of ["", "nope", "..", "p/../p"]) assert.equal(listInstructions(registry, profile), null, profile);
 });
 

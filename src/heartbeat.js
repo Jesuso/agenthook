@@ -101,6 +101,8 @@ export function createHeartbeat(cfg) {
     repoPath: cfg.repoPath,
     configPath: cfg.configPath,
     instructions: instructionTargets(cfg),
+    // Non-manual pipeline step ids in run order, so the UI's step bar can follow the pipeline.
+    pipelineSteps: (cfg.pipeline || []).filter((s) => !s.manual).map((s) => s.id),
     repos: reposOf(cfg).map((r) => ({ id: r.id, path: r.path })),
     repository: repositoryOf(cfg),
     startedAt: new Date().toISOString(),

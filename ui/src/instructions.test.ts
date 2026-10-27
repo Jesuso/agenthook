@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { InstructionFileView } from "./contract";
-import { displayPath, baseName, externalChange, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty, touchCommand } from "./instructions";
+import { displayPath, baseName, externalChange, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty, sharedFiles, stepNodes, touchCommand } from "./instructions";
 import type { InstructionsEvent, OpenFile } from "./instructions";
 
 function file(path: string, scope: InstructionFileView["scope"], ids: string[], exists = true): InstructionFileView {
@@ -128,4 +128,22 @@ describe("touchCommand", () => {
     expect(touchCommand("/home/me/repo/SOUL.md")).toBe("touch /home/me/repo/SOUL.md");
     expect(touchCommand("/home/me/my repo/it's.md")).toBe("touch '/home/me/my repo/it'\\''s.md'");
   });
+});
+
+describe("stepNodes / sharedFiles", () => {
+  const f = (path: string, scope: "step" | "default" | "repo" | "soul", ids: string[]) => ({ path, scope, ids, hash: null, bytes: 0, mtime: null, exists: true, agentsRunning: 0 });
+  const files = [f("/r/default.md", "default", ["ship"]), f("/r/triage.md", "step", ["triage"]), f("/r/code.md", "step", ["code"]), f("/r/app.md", "repo", ["app"]), f("/r/SOUL.md", "soul", ["digest"])];
+  it("lists steps with their own file first, then the ones on the default; repo and SOUL are shared", () => {
+    expect(stepNodes(files).map((n) => [n.id, n.file.path])).toEqual([["triage", "/r/triage.md"], ["code", "/r/code.md"], ["ship", "/r/default.md"]]);
+    expect(sharedFiles(files).map((x) => x.path)).toEqual(["/r/app.md", "/r/SOUL.md"]);
+  });
+});
+
+it("stepNodes follows the pipeline run order when the receiver sends one", () => {
+  const f = (path: string, scope: "step" | "default", ids: string[]) => ({ path, scope, ids, hash: "h", bytes: 1, mtime: null, exists: true, agentsRunning: 0 });
+  const files = [f("/c/triage.md", "step", ["triage"]), f("/c/review.md", "step", ["review"]), f("/c/INSTRUCTIONS.md", "default", ["code", "deploy"])];
+  expect(stepNodes(files).map((n) => n.id)).toEqual(["triage", "review", "code", "deploy"]);
+  expect(stepNodes(files, ["triage", "code", "review", "deploy"]).map((n) => n.id)).toEqual(["triage", "code", "review", "deploy"]);
+  // Ids the order doesn't name keep their fallback position, after the named ones.
+  expect(stepNodes(files, ["code", "triage"]).map((n) => n.id)).toEqual(["code", "triage", "review", "deploy"]);
 });

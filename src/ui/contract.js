@@ -217,6 +217,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * `GET /api/instructions` body.
  * @typedef {object} InstructionsView
  * @property {string|null} configPath     heartbeat.configPath
+ * @property {string[]|null} steps        heartbeat.pipelineSteps: non-manual step ids in run order (null from an older receiver)
  * @property {InstructionFileView[]} files
  */
 

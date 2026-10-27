@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { tags } from "@lezer/highlight";
+import { livePreview } from "./livePreview";
 
 // Colours come from the index.css tokens, so dark/light follows prefers-color-scheme with no
 // second theme.
@@ -42,15 +43,19 @@ export const highlight = HighlightStyle.define([
  * `onSave` and always swallows the browser's "save page". `language` defaults to markdown (the
  * Config view passes `json()`).
  */
-export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void; language?: Extension; /** Accessible name for the editing surface. */ label?: string }) {
+export function MarkdownEditor(props: { initial: string; onChange: (doc: string) => void; onSave?: () => void; language?: Extension; /** Accessible name for the editing surface. */ label?: string; /** Markdown rendered in place, markup shown only on the edited lines (`livePreview.ts`). */ live?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const onChange = useRef(props.onChange);
   onChange.current = props.onChange;
   const onSave = useRef(props.onSave);
   onSave.current = props.onSave;
+  const view = useRef<EditorView | null>(null);
+  // `live` toggles in place (undo history and selection survive); everything else is seeded once.
+  const rendering = useRef(new Compartment());
+  const styling = (live?: boolean) => (live ? livePreview : syntaxHighlighting(highlight));
 
   useEffect(() => {
-    const view = new EditorView({
+    const v = new EditorView({
       parent: host.current!,
       state: EditorState.create({
         doc: props.initial,
@@ -71,8 +76,9 @@ export function MarkdownEditor(props: { initial: string; onChange: (doc: string)
             ...defaultKeymap,
             ...historyKeymap,
           ]),
-          props.language ?? markdown(),
-          syntaxHighlighting(highlight),
+          // GFM, so tables and ~~strikethrough~~ parse.
+          props.language ?? markdown({ base: markdownLanguage }),
+          rendering.current.of(styling(props.live)),
           EditorView.lineWrapping,
           ...(props.label ? [EditorView.contentAttributes.of({ "aria-label": props.label })] : []),
           theme,
@@ -82,9 +88,17 @@ export function MarkdownEditor(props: { initial: string; onChange: (doc: string)
         ],
       }),
     });
-    return () => view.destroy();
+    view.current = v;
+    return () => {
+      v.destroy();
+      view.current = null;
+    };
     // Seeded once per mount by design — see the doc comment.
   }, []);
 
-  return <div ref={host} className="h-full min-h-0 overflow-hidden rounded border border-[var(--color-border)] text-sm" />;
+  useEffect(() => {
+    view.current?.dispatch({ effects: rendering.current.reconfigure(styling(props.live)) });
+  }, [props.live]);
+
+  return <div ref={host} className="h-full min-h-0 overflow-hidden rounded border border-[var(--color-border)] text-sm focus-within:outline-2 focus-within:outline-accent" />;
 }

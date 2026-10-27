@@ -56,7 +56,8 @@ export function listInstructions(registry, profile) {
       e.scope === "repo" ? running.length : running.filter((r) => typeof r.stepId === "string" && e.ids.includes(r.stepId)).length;
     files.push({ path: e.path, scope: e.scope, ids: e.ids, hash, bytes, mtime, exists: hash !== null, agentsRunning });
   }
-  return { configPath: isObj(hb) && typeof hb.configPath === "string" ? hb.configPath : null, files };
+  const steps = isObj(hb) && Array.isArray(hb.pipelineSteps) ? hb.pipelineSteps.filter((/** @type {any} */ s) => typeof s === "string") : null;
+  return { configPath: isObj(hb) && typeof hb.configPath === "string" ? hb.configPath : null, steps, files };
 }
 
 /**
