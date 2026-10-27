@@ -79,6 +79,8 @@ export function createStep(ctx) {
         leavePipeline(job.ref);
         emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
       }
+      // A manual step's source stage is terminal: entering it is done on the board, drain or not.
+      emit?.("board_done", job.ref, step.id, { via: "stage", name: task.name, url: task.url });
       return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
     }
 

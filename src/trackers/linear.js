@@ -247,6 +247,8 @@ export function createLinearAdapter(cfg, store) {
   }
 
   /** A pipeline job for an Issue create / state-change delivery, or [] when it isn't ours to run.
+   * A state change into a `completed`/`canceled` state (the board's done flag) also yields a
+   * signal-only `board_done` job, step or not — the engine emits it outside the queue.
    * @param {any} ev @returns {Promise<import('../types.js').Job[]>} */
   async function jobFromIssue(ev) {
     const d = ev.data || {};
@@ -257,15 +259,21 @@ export function createLinearAdapter(cfg, store) {
     const t = await team();
     if (d.teamId && d.teamId !== t.id) return [];
     const step = stepByStateId(t, d.stateId);
-    if (!step) return [];
+    const stateType = t.states.find((s) => s.id === d.stateId)?.type;
+    const done = stateChange && (stateType === "completed" || stateType === "canceled");
+    if (!step && !done) return [];
     if (!(await isOurs(d.assigneeId))) {
       console.log(`[assignee] skip ${ref} — not assigned to us`);
       return [];
     }
-    if (ev.action === "create") return [{ kind: "pipeline", ref, stepId: step.id, dedupKey: `step:${step.id}:${ref}` }];
+    if (ev.action === "create") return step ? [{ kind: "pipeline", ref, stepId: step.id, dedupKey: `step:${step.id}:${ref}` }] : [];
     // updatedAt moves with every change → dedups retries of THIS move yet lets a later
     // re-entry into the same state (the rework loop) fire again.
-    return [{ kind: "pipeline", ref, stepId: step.id, dedupKey: `secmove:${d.id}:${d.updatedAt ?? ev.webhookTimestamp}` }];
+    const at = d.updatedAt ?? ev.webhookTimestamp;
+    /** @type {import('../types.js').Job[]} */
+    const jobs = done ? [{ kind: "board_done", ref, stepId: "", dedupKey: `done:${d.id}:${at}` }] : [];
+    if (step) jobs.push({ kind: "pipeline", ref, stepId: step.id, dedupKey: `secmove:${d.id}:${at}` });
+    return jobs;
   }
 
   /** The `@agent` comment trigger. Emits a resume job only when ALL hold (anything uncertain

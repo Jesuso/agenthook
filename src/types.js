@@ -9,7 +9,7 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'pipeline'|'merge'|'ci'|'ci_green'|'epic_changed'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces; ci_green: a green run — a candidate for the `ci_green` event, handled by `src/ci-green.js` outside the queue; epic_changed: the tracker saw an epic's structure change — signal only, `ref` = the epic, handled by `src/epic-changed.js` outside the queue)
+ * @property {'pipeline'|'merge'|'ci'|'ci_green'|'epic_changed'|'board_done'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces; ci_green: a green run — a candidate for the `ci_green` event, handled by `src/ci-green.js` outside the queue; epic_changed: the tracker saw an epic's structure change — signal only, `ref` = the epic, handled by `src/epic-changed.js` outside the queue; board_done: the tracker saw the board's own done flag flip on a ticket of ours — signal only, handled by `src/board-done.js` outside the queue)
  * @property {string} ref       provider-native item id (Asana gid, …)
  * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or ""; ci: "")
  * @property {string} dedupKey  unique per source event; one key → at most one run

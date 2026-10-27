@@ -1177,3 +1177,17 @@ test("App auth init: the board is typed as org/number (no viewer listing)", () =
   assert.equal(typed.validate("acme/7"), true);
   assert.notEqual(typed.validate("acme"), true);
 });
+
+// --- done signal (#585): fetchTask().completed is the issue's native closed flag ---
+
+test("fetchTask().completed: OPEN → false, CLOSED → true", async () => {
+  for (const [state, want] of [["OPEN", false], ["CLOSED", true]]) {
+    const content = { __typename: "Issue", id: "I_42", number: 42, title: "t", body: "", url: "u", state, assignees: { nodes: [] } };
+    const { restore } = stubGraphql({ items: [{ id: "PVTI_42", content, status: { name: "In Progress" } }] });
+    try {
+      assert.equal((await adapter().fetchTask("42")).completed, want, state);
+    } finally {
+      restore();
+    }
+  }
+});

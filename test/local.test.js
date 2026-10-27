@@ -325,3 +325,21 @@ test("createTask: --step review lands in review; a manual or unknown step throws
   await assert.rejects(() => a.createTask({ name: "  " }), /needs a name/);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"))), ["1"]);
 });
+
+// ── Done signal (#585): completed = a manual step's source stage, nothing else ──
+
+test("fetchTask().completed: failure stage → false, hold stage → false, unbound → false, manual done stage → true", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "F", name: "f" }, { ref: "H", name: "h" }, { ref: "B", name: "b" }, { ref: "D", name: "d" }], "triage");
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  Object.assign(board.F, { stage: "blocked" });
+  Object.assign(board.H, { stage: "held" });
+  Object.assign(board.B, { stage: "backlog" });
+  Object.assign(board.D, { stage: "done" });
+  fs.writeFileSync(localBoardPath(cfg), JSON.stringify(board));
+  const a = adapter(cfg);
+  assert.equal((await a.fetchTask("F")).completed, false, "failure stage");
+  assert.equal((await a.fetchTask("H")).completed, false, "hold stage");
+  assert.equal((await a.fetchTask("B")).completed, false, "unbound stage");
+  assert.equal((await a.fetchTask("D")).completed, true, "manual step's source stage");
+});

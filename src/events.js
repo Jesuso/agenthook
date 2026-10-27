@@ -18,7 +18,12 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
- *   event — one of: enqueued | run_start | run_end | pipeline_done | blocked | failed | merged | pulled | ci_red | ci_green
+ *   event — one of: enqueued | run_start | run_end | pipeline_done | board_done | blocked | failed | merged | pulled | ci_red | ci_green
+ *           (board_done: the ticket is done on the board — signal only, nothing runs or moves. `via` = "flag"
+ *             (the tracker's own done flag flipped on a ticket of ours — GitHub close, Asana complete, Jira
+ *             done-category status, Linear completed/canceled state; step "", src/board-done.js) or "stage" (it
+ *             entered a manual step's source stage, with or without `drainWorktree`; step = that step, plus
+ *             `name`, `url`; src/dispatch/step.js). A `pipeline_done` on the same entry is unchanged)
  *           (enqueued: `kind?` = the job's kind ("pipeline" when omitted) — a CI/merge job's enqueue
  *             does not start an agent, so readers (src/ui/rows.js `buildRows`) must not treat it as a
  *             re-run of the ref's last pipeline step;

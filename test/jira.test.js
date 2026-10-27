@@ -617,3 +617,33 @@ test("registerWebhook's manual setup lists Comment → created", async () => {
   }
   assert.match(out.join("\n"), /Comment → created/);
 });
+
+// --- done signal (#585): a status move into a done-category status → board_done ---
+
+/** An issue_updated status move of PROJ-7 into `to` (statusCategory `cat`), assigned to `assignee`.
+ * @param {{to?: string, cat?: string, assignee?: string}} [o] */
+const doneEvt = ({ to = "Done", cat = "done", assignee = "acc-bot" } = {}) =>
+  /** @type {any} */ ({
+    rawBody: JSON.stringify({
+      webhookEvent: "jira:issue_updated",
+      issue: { key: "PROJ-7", fields: { assignee: { accountId: assignee }, status: { name: to, statusCategory: { key: cat } } } },
+      changelog: { id: "555", items: [{ field: "status", toString: to }] },
+    }),
+  });
+
+test("board_done: an owned issue moved to an unbound done-category status yields one board_done; not ours → none", async () => {
+  const a = routed({ assigneeFilter: true });
+  assert.deepEqual((await withJira({}, () => a.processEvents(doneEvt()))).result, [{ kind: "board_done", ref: "PROJ-7", stepId: "", dedupKey: "done:555" }]);
+  assert.deepEqual((await withJira({}, () => a.processEvents(doneEvt({ assignee: "acc-other" })))).result, []);
+});
+
+test("board_done: rides along with the step routing when the done-category status is bound; a non-done status yields none", async () => {
+  const a = routed({ assigneeFilter: true });
+  assert.deepEqual((await withJira({}, () => a.processEvents(doneEvt({ to: "To Do" })))).result, [
+    { kind: "board_done", ref: "PROJ-7", stepId: "", dedupKey: "done:555" },
+    { kind: "pipeline", ref: "PROJ-7", stepId: "code", dedupKey: "secmove:555" },
+  ]);
+  assert.deepEqual((await withJira({}, () => a.processEvents(doneEvt({ to: "To Do", cat: "new" })))).result, [
+    { kind: "pipeline", ref: "PROJ-7", stepId: "code", dedupKey: "secmove:555" },
+  ]);
+});

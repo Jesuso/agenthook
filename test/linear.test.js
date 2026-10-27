@@ -342,3 +342,39 @@ test("pipelineBindings adds holdStatus only when _holdStage was picked", () => {
     failureStatus: "Blocked",
   });
 });
+
+// --- done signal (#585): fetchTask().completed is the native flag; a move into a completed state → board_done ---
+
+test("fetchTask().completed: completed/canceled state types → true, started → false", async () => {
+  for (const [type, want] of [["completed", true], ["canceled", true], ["started", false], ["unstarted", false]]) {
+    const orig = globalThis.fetch;
+    // @ts-ignore - test stub
+    globalThis.fetch = async (_url, init) => {
+      const { query } = JSON.parse(init.body);
+      const data = query.includes("viewer{ id }")
+        ? { viewer: { id: US } }
+        : { issue: { identifier: "ENG-1", title: "t", url: "u", assignee: { id: US }, state: { name: type, type } } };
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ data }) });
+    };
+    try {
+      assert.equal((await adapter().fetchTask("ENG-1")).completed, want, type);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  }
+});
+
+test("board_done: OUR issue moved into an unbound completed state yields one board_done; not ours → none", async () => {
+  const s = stubFetch();
+  /** @param {string|null} assigneeId */
+  const toDone = (assigneeId) =>
+    signed({ action: "update", type: "Issue", data: { id: "uuid-ENG-1", identifier: "ENG-1", teamId: TEAM, stateId: "st-Done", assigneeId, updatedAt: "2026-10-27T10:00:00.000Z" }, updatedFrom: { stateId: "st-In Review" } });
+  try {
+    assert.deepEqual(await adapter().processEvents(toDone(US)), [{ kind: "board_done", ref: "ENG-1", stepId: "", dedupKey: "done:uuid-ENG-1:2026-10-27T10:00:00.000Z" }]);
+    assert.deepEqual(await adapter().processEvents(toDone(OTHER)), []);
+    // A move into a non-done source state still yields only its pipeline job.
+    assert.deepEqual((await adapter().processEvents(moved("ENG-1", US))).map((j) => j.kind), ["pipeline"]);
+  } finally {
+    s.restore();
+  }
+});

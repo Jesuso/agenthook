@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { createOps, ttlCache } from "../src/ops.js";
 import { createEpicChanged } from "../src/epic-changed.js";
+import { createLocalAdapter, seedBoard } from "../src/trackers/local.js";
 import { createStore } from "../src/store.js";
 import { createQueue } from "../src/queue.js";
 import { startControl } from "../src/control.js";
@@ -152,6 +153,23 @@ test("run: guards against a ref already in the pipeline, enters the first step, 
   assert.equal(entered.length, 3, "neither refusal reached enterStage");
   await s.ops.run({ ref: "done", force: true });
   assert.equal(entered.length, 4);
+});
+
+test("retry: a failed LOCAL ticket (resting in the failure stage) is not \"already completed\" — it re-enters the step (#585)", async () => {
+  const pipeline = [
+    { id: "code", sourceStatus: "code", successStatus: "done", failureStatus: "blocked" },
+    { id: "done", manual: true, sourceStatus: "done" },
+  ];
+  const boardCfg = /** @type {any} */ ({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-local-")), pipeline });
+  seedBoard(boardCfg, [{ ref: "7", name: "T" }], "blocked");
+  const s = setup({ adapter: createLocalAdapter(boardCfg, /** @type {any} */ ({})), pipeline });
+  fs.writeFileSync(
+    path.join(s.dir, "events.jsonl"),
+    [{ event: "run_start", ref: "7", step: "code" }, { event: "failed", ref: "7", step: "code", reason: "x" }].map((l) => JSON.stringify({ ts: "2026-10-25T00:00:00Z", ...l })).join("\n") + "\n",
+  );
+  const r = await s.ops.retry({ ref: "7" });
+  assert.equal(r.step, "code");
+  assert.equal(r.stage, "code");
 });
 
 test("retry: re-enters a failed ticket's failed step without assigning; refuses anything not failed or not ours", async () => {

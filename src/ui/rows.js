@@ -258,6 +258,9 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
   /** @type {Map<string, Record<string, any>[]>} */
   const eventsByRef = new Map();
   for (const e of state.events) {
+    // A `board_done` flag signal can name an owned ticket the pipeline never touched (closed on
+    // the board straight from the backlog): it alone never makes a row.
+    if (e.event === "board_done" && !eventsByRef.has(e.ref)) continue;
     const list = eventsByRef.get(e.ref);
     if (list) list.push(e);
     else eventsByRef.set(e.ref, [e]);
