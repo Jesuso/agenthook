@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-10-27
+
 ### Added
 
 - The Digest agent now writes a short, listen-friendly spoken version in the same run as the
@@ -57,6 +59,23 @@ All notable changes to this project are documented here. The format is based on
   `release` op, exactly like a typed answer — no tracker comment, no new adapter method. A held
   ticket without options renders as before (#565).
 
+- An Overview built around **Needs you**: held, failed and PR-ready tickets lead, each with its one
+  named action; the receiver's state is shown truthfully (up, reconnecting, down) and the page is
+  fully keyboard- and screen-reader-usable (#551).
+- **Re-run** a failed ticket from the dashboard: it goes back into its failed step's source stage
+  and the webhook fires it again, without reassigning. Also a `retry` control op, `POST /api/retry`
+  and a `retry` MCP tool (#552).
+- The ticket drawer shows run history as **swimlanes**, one lane per step with a bar per run, its
+  hand-offs and sends-back drawn between them, and the log gets a **Story** view (each agent message
+  a beat, the report as markdown) beside the raw tail (#554).
+- The epic page reads in attention order: Needs you (each ticket's reason and named action:
+  Release…, Re-run…, Review PR), then Running, Backlog, Not on the board, and Done folded. A pace
+  line in words replaces the sparkline (a stall warning after 5 idle days, an ETA only with its
+  basis), and the Epics list leads with what needs you (#555).
+- Elapsed times and "N ago" labels tick live: a running ticket's elapsed time counts seconds for
+  its first minute, then minutes; each label updates on its own boundary, and while the dashboard
+  is disconnected it holds its last reading, dimmed and marked `~` (#579).
+
 ### Changed
 
 - **Done comes only from the board** (ADR 0008, #583). A ticket is Done only when its tracker's own
@@ -69,6 +88,8 @@ All notable changes to this project are documented here. The format is based on
   closed, Asana task completed, Jira done-category status, Linear completed/canceled). Projects v2
   and `local`, which never deliver that flag, report it when the ticket enters a manual step. Old
   history still counts its `pipeline_done` finishes until the first `board_done` (#584–#587).
+  `pipeline_done` is still emitted on entering a `drainWorktree` step but no longer means done:
+  a script or supervisor that read it as "the ticket is done" should watch `board_done` instead.
 - The merge bridge no longer moves or completes a ticket whose board closes it on merge by itself
   (a `Closes #N` PR, `forge.boardClosesOnMerge`, or an already-completed task); it only drains the
   worktree. If the merge can't reach the board, the ticket shows "PR merged — close the ticket"
@@ -82,10 +103,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
-- A ticket whose PR was already merged no longer sticks in the epic page's **Awaiting merge**
-  section when a CI job ran on its PR after the pipeline finished. The `enqueued` event now carries
-  the job's `kind`, and a CI/merge job's enqueue is no longer read as a re-run; a PR the receiver
-  knows is merged or closed now wins over the event history (#577).
+- A finished ticket no longer drops back to idle in the dashboard when a CI-fix or merge job runs
+  on its PR afterwards. The `enqueued` event now carries the job's `kind`, a CI/merge job's
+  enqueue is no longer read as a re-run, and a PR the receiver knows is merged or closed now wins
+  over the event history (#577).
+- An epic's tickets link to their own tracker URL instead of one guessed from the epic's URL,
+  which broke for Asana permalinks ending in `/f`, for sub-issues from another GitHub repo, and
+  whenever the receiver was down (#556).
 
 ## [0.12.0] — 2026-10-24
 
@@ -835,7 +859,8 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Jesuso/agenthook/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Jesuso/agenthook/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Jesuso/agenthook/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Jesuso/agenthook/compare/v0.9.0...v0.10.0
