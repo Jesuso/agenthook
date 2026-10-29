@@ -9,7 +9,7 @@ const NOW = Date.parse("2026-10-15T18:00:00Z"); // UTC, tzOffset 0 unless noted
 
 /** @param {Partial<import('../src/ui/contract.js').TicketRow>} o */
 function row(o) {
-  return { profile: "p", ref: "1", displayId: "1", title: null, summary: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null, ...o };
+  return { profile: "p", ref: "1", displayId: "1", title: null, summary: null, step: null, status: "idle", model: null, startedAt: null, costUsd: 0, trackerUrl: null, prUrl: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null, ...o };
 }
 
 /** @param {Partial<import('../src/types.js').EpicTicket>} o */

@@ -13,7 +13,7 @@ import type { Mounted } from "./domHarness";
 
 const row: TicketRow = {
   profile: "agenthook", ref: "221", displayId: "#221", title: "t", step: "code", status: "running", model: null, startedAt: null, costUsd: 0, estUsd: 0,
-  trackerUrl: null, prUrl: null, summary: "Fix the login form.", plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null,
+  trackerUrl: null, prUrl: null, summary: "Fix the login form.", plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null,
 };
 
 let m: Mounted | null = null;

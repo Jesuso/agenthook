@@ -137,3 +137,32 @@ export function Elapsed({ iso, seed, className = "" }: { iso: string | null; see
     </time>
   );
 }
+
+/**
+ * A queued job's time waiting since `iso`, minute precision (nothing is progressing, so no
+ * per-second phase). Always muted. While the stream is down it holds its last reading, marked
+ * "~", same as `Elapsed`. Renders nothing when `iso` is null (a legacy queue entry with no stamp).
+ */
+export function Waiting({ iso, seed, className = "" }: { iso: string | null; seed: number; className?: string }) {
+  const { t, lang } = useT();
+  const live = useContext(LiveContext);
+  const start = parse(iso);
+  const now = useTicking(start, elapsedTickCoarse, seed);
+  if (!Number.isFinite(start)) return null;
+  const ms = now - start;
+  const text = t("overview.waiting", { duration: formatElapsed(ms, true) });
+  const spoken = t("time.waitingSpoken", { duration: spokenElapsed(ms, true, lang, t("time.underMinute")) });
+  const notLive = t("time.notLive", { time: new Date(now).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) });
+  return (
+    <time
+      data-waiting
+      data-live={live}
+      dateTime={`PT${Math.max(0, Math.floor(ms / 1000))}S`}
+      className={["font-mono tabular-nums text-muted", className].filter(Boolean).join(" ")}
+      title={live ? t("overview.waitingTitle") : notLive}
+    >
+      <span aria-hidden="true">{live ? text : `${STALE}${text}`}</span>
+      <span className="sr-only">{live ? spoken : `${spoken}, ${notLive}`}</span>
+    </time>
+  );
+}

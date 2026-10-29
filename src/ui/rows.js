@@ -397,6 +397,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       prNeeds,
       finishedAt: status === "done" ? finishedAt : null,
       queuePos: queued ? state.queue.indexOf(queued) : null,
+      queuedAt: queued ? str(queued.queuedAt) : null,
       epic: ticketEpic(meta.epic),
     });
   }

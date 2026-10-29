@@ -163,6 +163,20 @@ test("queue.json round-trips in insertion order and dedups by ref:stepId", () =>
   assert.deepEqual(s.listQueued().map((x) => `${x.ref}:${x.stepId}`), ["A:code", "A:review"]);
 });
 
+test("queue.json: addQueued stamps queuedAt on first add and keeps it on a dedup re-add", async () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  const job = { kind: "pipeline", ref: "A", stepId: "code", dedupKey: "A:code" };
+  s.addQueued(job);
+  const first = s.listQueued()[0].queuedAt;
+  assert.equal(typeof first, "string");
+  assert.ok(!Number.isNaN(Date.parse(first)));
+  await new Promise((r) => setTimeout(r, 5));
+  s.addQueued(job); // dedup (sameQueued) — must not restamp
+  assert.equal(s.listQueued()[0].queuedAt, first);
+  assert.equal(createStore(dir).listQueued()[0].queuedAt, first);
+});
+
 test("queue.json dedup includes kind: a merge job and its ref's pipeline job coexist", () => {
   const dir = tmpDir();
   const s = createStore(dir);

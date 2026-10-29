@@ -16,7 +16,7 @@ const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, estUsd: 0, trackerUrl: null,
-  prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null, ...over,
+  prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null, ...over,
 });
 
 const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProps> = {}) =>
@@ -180,6 +180,18 @@ describe("Overview", () => {
     expect(html).toMatch(/data-free-slots="2"[^>]*>[\s\S]*?2 free slots/);
     expect(html.indexOf('data-now-row="q1"')).toBeLessThan(html.indexOf('data-now-row="q2"'));
     expect(html.match(/data-slot="busy"/g)).toHaveLength(1);
+  });
+
+  it("shows waiting time on a queued row with a queuedAt stamp, and nothing with none", () => {
+    const html = render(profile({ active: 1, maxConcurrent: 3, queued: 2 }), [
+      ticket("q1", { status: "queued", queuePos: 0, queuedAt: new Date(NOW - 6 * 60_000).toISOString() }),
+      ticket("q2", { status: "queued", queuePos: 1, queuedAt: null }),
+    ]);
+    const q1 = html.slice(html.indexOf('data-now-row="q1"'), html.indexOf('data-now-row="q2"'));
+    const q2 = html.slice(html.indexOf('data-now-row="q2"'));
+    expect(q1).toContain("data-waiting");
+    expect(q1).toContain("waiting 6m");
+    expect(q2).not.toContain("data-waiting");
   });
 
   it("says a down receiver runs nothing and shows no free slots", () => {

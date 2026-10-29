@@ -136,7 +136,7 @@ export function createStore(dataDir) {
       /** @type {import("./types.js").Job[]} */
       const l = readJson(queueFile, []);
       if (l.some((j) => sameQueued(j, job))) return;
-      l.push(job);
+      l.push({ ...job, queuedAt: job.queuedAt ?? new Date().toISOString() });
       fs.writeFileSync(queueFile, JSON.stringify(l));
     },
     removeQueued: (job) => {

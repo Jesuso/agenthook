@@ -17,7 +17,7 @@ function ticket(overrides: Partial<TicketRow> & { profile: string; ref: string; 
     failReason: null,
     prState: null, prNeeds: null,
     finishedAt: null,
-    queuePos: null, epic: null,
+    queuePos: null, queuedAt: null, epic: null,
     ...overrides,
   };
 }
