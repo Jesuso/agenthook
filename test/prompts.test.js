@@ -42,10 +42,39 @@ for (const kind of ["implement", "change"]) {
   });
 }
 
-test("review prompt unchanged by readCommentsHowTo", () => {
-  const a = stepPrompt(task, meta, step("review"), ctx);
-  const b = stepPrompt(task, { ...meta, readCommentsHowTo: undefined }, step("review"), ctx);
-  assert.equal(a, b);
+test("review prompt includes the read-comments command when readCommentsHowTo is set", () => {
+  const p = stepPrompt(task, meta, step("review"), ctx);
+  assert.match(p, /gh issue view <number> --comments/);
+  assert.doesNotMatch(p, /do not hold again/);
+});
+
+test("review prompt omits the read-comments line when readCommentsHowTo is unset", () => {
+  const p = stepPrompt(task, { ...meta, readCommentsHowTo: undefined }, step("review"), ctx);
+  assert.doesNotMatch(p, /Also read the issue's comments/);
+});
+
+test("review prompt read-comments line respects meta.ownerHint (#474)", () => {
+  const p = stepPrompt(task, { ...meta, ownerHint: "@me" }, step("review"), ctx);
+  assert.match(p, /Only comments posted by @me \(the owner\)/);
+  assert.doesNotMatch(p, /the account you\s+are running as/);
+});
+
+test("review prompt (usesPR) tells the reviewer how to post a status comment, gated on the trigger", () => {
+  const p = stepPrompt(task, meta, step("review"), ctx);
+  assert.match(p, /post your outcome on the issue/);
+  assert.match(p, /post a comment/);
+  assert.match(p, /Do NOT start the comment with "@agent"/);
+});
+
+test("review prompt (usesPR: false) has no instruction to post on the tracker", () => {
+  const p = stepPrompt(task, { ...meta, usesPR: false }, step("review"), ctx);
+  assert.doesNotMatch(p, /post your outcome/);
+});
+
+test("review prompt holds when acceptance criteria can't be read, and never falls back to the PR body", () => {
+  const p = stepPrompt(task, meta, step("review"), ctx);
+  assert.match(p, /use "hold" and say so in "reason" —\s*\n?\s*never fall back to criteria in the PR body/);
+  assert.match(p, /- "hold": an acceptance criterion only a human can satisfy, you can't read the acceptance criteria at all/);
 });
 
 for (const kind of ["triage", "review", "implement", "change"]) {
@@ -91,7 +120,7 @@ for (const kind of ["triage", "implement", "review"]) {
   });
 }
 
-for (const kind of ["triage", "implement"]) {
+for (const kind of ["triage", "implement", "review"]) {
   test(`stepPrompt(${kind}) wraps the description in TICKET_DESCRIPTION fences`, () => {
     const p = stepPrompt(task, meta, step(kind), ctx);
     assert.match(p, /<<<UNTRUSTED TICKET_DESCRIPTION testnonce>>>\nbody\n<<<END UNTRUSTED TICKET_DESCRIPTION testnonce>>>/);
@@ -254,7 +283,7 @@ for (const usesPR of [true, false]) {
 
   test(`review prompt (usesPR: ${usesPR}) tells the reviewer to check acceptance criteria and when to hold`, () => {
     const p = stepPrompt(task, { ...meta, usesPR }, step("review"), ctx);
-    assert.match(p, /acceptance criteria.*at the URL above.*check each one/s);
+    assert.match(p, /acceptance criteria from the description below and its tracker comments.*check each one/s);
     assert.match(p, /If only a human can \(prod access, credentials, a\s*\n?\s*measurement you can't run\), use "hold"/);
   });
 
