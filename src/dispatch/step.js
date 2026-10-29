@@ -6,7 +6,7 @@ import path from "node:path";
 import { stepPrompt } from "../prompts.js";
 import { newNonce } from "../untrusted.js";
 import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
-import { ensureWorktree, drainWorktree, worktreePath } from "../worktree.js";
+import { ensureWorktree, drainWorktree, worktreePath, branchName } from "../worktree.js";
 import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
@@ -159,6 +159,7 @@ export function createStep(ctx) {
       console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch}${wt.base ? `, base ${wt.base.ref}@${wt.base.sha}` : ""})`);
     }
     const hasWorktree = fs.existsSync(worktree);
+    if (hasWorktree && !branch) branch = branchName(job.ref);
     const cwd = hasWorktree ? worktree : repo.path;
 
     // One verdict file per run, under the state dir. Clear any stale one first so a
