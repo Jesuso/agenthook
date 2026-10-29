@@ -23,7 +23,11 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             (the tracker's own done flag flipped on a ticket of ours — GitHub close, Asana complete, Jira
  *             done-category status, Linear completed/canceled state; step "", src/board-done.js) or "stage" (it
  *             entered a manual step's source stage, with or without `drainWorktree`; step = that step, plus
- *             `name`, `url`; src/dispatch/step.js). A `pipeline_done` on the same entry is unchanged)
+ *             `name`, `url`; src/dispatch/step.js) or "recheck" (an operator `recheck`, or the merge catch-up, asked
+ *             the tracker after the done webhook was missed and found the ticket completed; step "", src/recheck.js).
+ *             A `pipeline_done` on the same entry is unchanged)
+ *           (merged: the forge saw the ref's PR merge — `name`, `url`; `via: "recheck"` when a `recheck` asked the
+ *             forge after the webhook was missed instead (step "", no merge bridge ran))
  *           (enqueued: `kind?` = the job's kind ("pipeline" when omitted) — a CI/merge job's enqueue
  *             does not start an agent, so readers (src/ui/rows.js `buildRows`) must not treat it as a
  *             re-run of the ref's last pipeline step;
@@ -41,7 +45,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             the hold it forces; `reason` = "no valid verdict"; a `blocked` event follows)
  *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
  *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
- *           | dismissed (operator `dismiss`: a failed/cancelled ticket was acknowledged; not in the sinks' default set)
+ *           | dismissed (operator `dismiss`: a failed/cancelled ticket, or a PR row's `prNeeds`, was acknowledged until the
+ *             ref's next re-run; not in the sinks' default set)
  *           | digest_start | digest_end (an on-demand Digest ran, src/digest.js; ref/step ""; `digest_end` has `outcome` ok|fail, `lang`, `costUsd` or `reason`; hidden by default, not in the sinks' default set)
  *           | summary_end (a ticket summary ran — never on a cache hit, src/summarize.js; ref/step ""; `outcome` ok|fail, `lang`, `costUsd` or `reason`; hidden by default, not in the sinks' default set)
  *           | overlap_held | overlap_released (overlapGuard; not in the sinks' default set)

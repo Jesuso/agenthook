@@ -19,6 +19,7 @@
 //   agenthook catchup <ref> [--force]   replay a missed item through the live server
 //   agenthook run <ref> [stepId]   start work on an item: assign + enter the step's source stage
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
+//   agenthook recheck <ref>|--all  re-ask the tracker/forge about a Needs-you PR row (--all: every flagged row)
 //   agenthook ticket add "<title>" [--body <text>|--file <path>] [--step <id>]  add a ticket (local profiles)
 //   agenthook ticket ls [--json]   the local board
 //   agenthook doctor [--fix [--dry-run]]  preflight checks for this profile (--fix: apply safe local fixes)
@@ -48,6 +49,7 @@ import { register, unregister } from "../src/commands/webhook.js";
 import { catchup } from "../src/commands/catchup.js";
 import { run } from "../src/commands/run.js";
 import { reconcile } from "../src/commands/reconcile.js";
+import { recheck } from "../src/commands/recheck.js";
 import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
 import { usage } from "../src/commands/usage.js";
@@ -96,7 +98,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill };
+const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill };
 
 export const HELP = `agenthook — event-driven agentic development receiver
 
@@ -125,6 +127,8 @@ usage: agenthook <command> [args] [--config <path>]
   catchup <ref> [--force]   replay a missed item
   run <ref> [stepId] [--force]  start work: assign + enter the step's source stage (alias: kick)
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
+  recheck <ref> | --all     ask the tracker/forge again about a Needs-you PR row whose done/merge webhook was
+                            missed; records only the missed facts (--all: every row flagged with a PR reason)
   ticket add "<title>" [--body <text> | --file <path>] [--step <id>]
                             add a ticket to a local profile's board (the receiver fires it at once)
   ticket ls [--json]        a local profile's board: ref, stage, title
