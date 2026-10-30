@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Queued rows in the Overview's **Now** zone show how long they have been waiting (`waiting 6m`,
+  muted, minute precision on the same per-label clock as elapsed times). The ticket-row contract
+  gains `queuedAt`, stamped when the job is accepted into the queue and kept across a restart's
+  queue restore (#580).
+
 ## [0.13.0] — 2026-10-27
 
 ### Added
