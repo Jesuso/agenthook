@@ -213,6 +213,15 @@ scenario("happy: triage → code → review → done drains the worktree", async
   const board = JSON.parse(fs.readFileSync(path.join(stateDir, "local-board.json"), "utf8"));
   assert.equal(board.happy.stage, "done");
   assert.equal(fs.existsSync(path.join(worktrees, "happy")), false, "worktree removed");
+
+  // #596: review reuses the worktree `code` created, so it must get the real branch too.
+  const logsDir = path.join(stateDir, "logs");
+  const reviewLog = fs
+    .readdirSync(logsDir)
+    .find((f) => f.endsWith("-step-review-happy.log"));
+  const prompt = fs.readFileSync(promptPathFor(path.join(logsDir, /** @type {string} */ (reviewLog))), "utf8");
+  assert.ok(prompt.includes('branch "agent/happy"'), "review prompt names the real branch");
+  assert.ok(!prompt.includes("undefined"), "review prompt never renders branch undefined");
 });
 
 scenario("changes: review → code loop stops at the code step's maxAttempts", async () => {
