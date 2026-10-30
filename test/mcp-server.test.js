@@ -105,7 +105,7 @@ test("createTools: read-only hides and refuses every write tool; annotations mar
   const rw = createTools({});
   const ro = createTools({ readOnly: true });
   const names = (t) => t.list().map((x) => x.name);
-  for (const w of ["run", "cancel", "release", "retry", "dismiss", "pause", "resume", "set_concurrency", "reconcile", "pull", "restart"]) {
+  for (const w of ["run", "cancel", "release", "retry", "dismiss", "recheck", "close_on_board", "pause", "resume", "set_concurrency", "reconcile", "pull", "restart"]) {
     assert.ok(names(rw).includes(w), `${w} listed read-write`);
     assert.ok(!names(ro).includes(w), `${w} hidden read-only`);
     await assert.rejects(() => ro.call(w, { ref: "1" }, { signal: new AbortController().signal }), /read-only/);

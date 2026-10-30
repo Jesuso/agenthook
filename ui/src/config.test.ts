@@ -3,12 +3,16 @@ import type { ProfileView } from "./contract";
 import {
   RESTART_IDLE,
   bannerStatus,
+  closeOnBoardOutcome,
+  closeOnBoardRequest,
   configEventAsFile,
   configSaveRequest,
   configUrl,
   moveTarget,
   parseCheck,
   queueToggleRequest,
+  recheckOutcome,
+  recheckRequest,
   releaseOutcome,
   releaseRequest,
   restartErrorText,
@@ -66,6 +70,31 @@ describe("retry", () => {
     expect(retryOutcome("#42", 502, { error: "42 is not assigned to us" })).toEqual({ ok: false, error: "42 is not assigned to us" });
     expect(retryOutcome("#42", 503, null)).toMatchObject({ ok: false, error: expect.stringContaining("not running") });
     expect(retryOutcome("#42", 418, null)).toEqual({ ok: false, error: "re-run failed (status 418)" });
+  });
+});
+
+describe("recheck / close on board", () => {
+  it("POST /api/recheck with {profile, ref} or {profile, all:true}; POST /api/close-on-board with {profile, ref}", () => {
+    const one = recheckRequest("p", "42");
+    expect(one.url).toBe("/api/recheck");
+    expect(one.init.method).toBe("POST");
+    expect(JSON.parse(String(one.init.body))).toEqual({ profile: "p", ref: "42" });
+    expect(JSON.parse(String(recheckRequest("p", null).init.body))).toEqual({ profile: "p", all: true });
+    const close = closeOnBoardRequest("p", "42");
+    expect(close.url).toBe("/api/close-on-board");
+    expect(JSON.parse(String(close.init.body))).toEqual({ profile: "p", ref: "42" });
+  });
+
+  it("maps every status to an outcome: what was recorded, nothing new, or why not", () => {
+    expect(recheckOutcome("#42", 200, { ref: "42", changed: ["board_done", "merged"], unchanged: false })).toEqual({ ok: true, text: "#42: recorded board_done, merged" });
+    expect(recheckOutcome("#42", 200, { ref: "42", changed: [], unchanged: true })).toEqual({ ok: true, text: "#42: nothing new on the tracker or forge" });
+    expect(recheckOutcome("dev", 200, { rechecked: [{}, {}] })).toEqual({ ok: true, text: "Re-checked 2 flagged tickets" });
+    expect(recheckOutcome("dev", 200, { rechecked: [{}] })).toEqual({ ok: true, text: "Re-checked 1 flagged ticket" });
+    expect(recheckOutcome("#42", 502, { error: "42 is not assigned to us — nothing recorded" })).toEqual({ ok: false, error: "42 is not assigned to us — nothing recorded" });
+    expect(recheckOutcome("#42", 418, null)).toEqual({ ok: false, error: "re-check failed (status 418)" });
+    expect(closeOnBoardOutcome("#42", 200, { ref: "42", completed: true })).toEqual({ ok: true, text: "Closing #42 on the board" });
+    expect(closeOnBoardOutcome("#42", 503, null)).toMatchObject({ ok: false, error: expect.stringContaining("not running") });
+    expect(closeOnBoardOutcome("#42", 418, null)).toEqual({ ok: false, error: "close on board failed (status 418)" });
   });
 });
 

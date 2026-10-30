@@ -122,7 +122,7 @@ test("merge catch-up: no watermark → looks back 7 days; PRs replay oldest firs
   assert.equal(h.store.getMergeWatermark(), "2026-10-20T00:00:00Z");
 });
 
-test("merge catch-up: an already-seen merge is not re-enqueued; a completed task or a failed fetch is skipped", async () => {
+test("merge catch-up: an already-seen merge is not re-enqueued; a failed fetch is skipped; a completed task's merge is queued", async () => {
   const h = harness({ completed: { done1: true }, fetchThrows: ["gone"] });
   h.store.markSeen("merged:1"); // handled live
   const forge = fakeForge([
@@ -132,13 +132,39 @@ test("merge catch-up: an already-seen merge is not re-enqueued; a completed task
     { pr: 4, ref: "new", mergedAt: "2026-10-20T04:00:00Z" },
   ]);
   const r = await runMergeCatchup(h.cfg, { store: h.store, adapter: h.adapter, forge: /** @type {any} */ (forge), intake: h.intake, log: h.log });
-  assert.deepEqual(r, { merged: 1, skipped: 3 });
-  assert.deepEqual(h.jobs.map((j) => j.dedupKey), ["merged:4"]);
+  assert.deepEqual(r, { merged: 2, skipped: 2 });
+  assert.deepEqual(h.jobs.map((j) => j.dedupKey), ["merged:2", "merged:4"]);
   assert.ok(h.lines.some((l) => l.includes("PR #1") && l.includes("already handled")));
-  assert.ok(h.lines.some((l) => l.includes("PR #2") && l.includes("already completed")));
+  assert.ok(h.lines.some((l) => l.includes("[merge] queued done1") && l.includes("task already completed")));
+  assert.ok(!h.lines.some((l) => l.startsWith("[skip]") && l.includes("already completed")));
   assert.ok(h.lines.some((l) => l.includes("PR #3") && l.includes("fetch failed")));
   // The failed fetch holds the watermark just below PR #3, so the next scan lists it again.
   assert.equal(h.store.getMergeWatermark(), "2026-10-20T02:00:00Z");
+});
+
+test("merge catch-up: a completed task gets its merge job AND a board_done (via recheck), once; not ours or live work → no board_done (#598)", async () => {
+  const h = harness({ completed: { done1: true, mine: true, busy: true } });
+  h.adapter.fetchTask = async (/** @type {string} */ ref) => ({ ref, name: ref, url: "", completed: true, assignedToUs: ref !== "theirs" });
+  h.store.setRunning("busy", { stepId: "code", startedAt: "2026-10-20T00:00:00Z" });
+  fs.writeFileSync(path.join(h.dir, "events.jsonl"), JSON.stringify({ ts: "2026-10-19T00:00:00Z", event: "run_start", ref: "done1", step: "code" }) + "\n");
+  /** @type {any[]} */
+  const events = [];
+  const emit = (/** @type {string} */ e, /** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ x) => void events.push([e, ref, step, x]);
+  const prs = [
+    { pr: 2, ref: "done1", mergedAt: "2026-10-20T02:00:00Z" },
+    { pr: 3, ref: "theirs", mergedAt: "2026-10-20T03:00:00Z" },
+    { pr: 4, ref: "busy", mergedAt: "2026-10-20T04:00:00Z" },
+  ];
+  const r = await runMergeCatchup(h.cfg, { store: h.store, adapter: h.adapter, forge: /** @type {any} */ (fakeForge(prs)), intake: h.intake, emit, log: h.log });
+  assert.deepEqual(r, { merged: 3, skipped: 0 });
+  assert.deepEqual(h.jobs.map((j) => j.dedupKey), ["merged:2", "merged:3", "merged:4"], "the merge job self-closes on a completed task");
+  assert.deepEqual(events, [["board_done", "done1", "", { via: "recheck" }]], "not ours / running → no board_done");
+  // A second scan (the watermark reset): the merge dedups, the board_done does not repeat.
+  h.store.setMergeWatermark("2026-10-01T00:00:00Z");
+  const again = await runMergeCatchup(h.cfg, { store: h.store, adapter: h.adapter, forge: /** @type {any} */ (fakeForge(prs)), intake: h.intake, emit, log: h.log });
+  assert.deepEqual(again, { merged: 0, skipped: 3 });
+  assert.equal(events.length, 1);
+  assert.ok(h.lines.some((l) => l.includes("PR #2") && l.includes("merge already handled")));
 });
 
 test("merge catch-up: a failed fetch on the oldest PR leaves the watermark unchanged", async () => {
@@ -207,8 +233,8 @@ test("ops: a failing listMergedAgentPrs leaves reconcile's result intact", async
   assert.equal(h.store.getMergeWatermark(), null);
 });
 
-/** A boot over stubs (see engine-boot-retry.test.js) with a counting forge. @param {boolean} reconcileOnBoot @param {any} forge */
-async function boot(reconcileOnBoot, forge) {
+/** A boot over stubs (see engine-boot-retry.test.js) with a counting forge. @param {boolean} reconcileOnBoot @param {any} forge @param {Record<string, any>} [ops] */
+async function boot(reconcileOnBoot, forge, ops = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-merge-boot-"));
   const cfg = /** @type {any} */ ({
     name: "p", stateKey: "p", provider: "local", stateDir: dir, dataDir: dir, logDir: path.join(dir, "logs"), port: 0, pipeline,
@@ -231,7 +257,7 @@ async function boot(reconcileOnBoot, forge) {
     queue: { enqueue: () => true },
     puller: { pull: async () => {} },
     quotaPacer: { reading: () => {} },
-    restart: async () => ({}), decommission: async () => ({}), ops: {}, shutdown: () => {},
+    restart: async () => ({}), decommission: async () => ({}), ops, shutdown: () => {},
   }));
   const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
   const { log, error } = console;
@@ -261,6 +287,20 @@ test("boot: a plain boot never asks the forge for merged PRs; reconcile-on-boot 
   assert.equal(re.sinces.length, 1);
   assert.deepEqual(r.intaken, [{ kind: "merge", ref: "4", stepId: "done", dedupKey: "merged:3" }]);
   assert.ok(r.lines.includes("[boot] post-restart merge catch-up — 1 replayed, 0 skipped"));
+});
+
+test("boot: reconcile-on-boot re-checks the flagged rows once, after the merge catch-up; a plain boot never does; a failure does not abort boot", async () => {
+  /** @type {any[]} */
+  const asked = [];
+  const ops = { recheck: async (/** @type {any} */ a) => (asked.push(a), { rechecked: [{ ref: "1" }] }) };
+  await boot(false, fakeForge([]), ops);
+  assert.deepEqual(asked, []);
+  const r = await boot(true, fakeForge([]), ops);
+  assert.deepEqual(asked, [{ all: true, actor: "boot" }]);
+  const at = (/** @type {string} */ p) => r.lines.findIndex((l) => l.startsWith(p));
+  assert.ok(at("[boot] post-restart merge catch-up") < at("[boot] post-restart re-check — 1 flagged row(s)"));
+  const bad = await boot(true, fakeForge([]), { recheck: async () => { throw new Error("tracker 500"); } });
+  assert.ok(bad.lines.some((l) => l.includes("post-restart re-check failed") && l.includes("tracker 500")));
 });
 
 test("boot: a forge error during the reconcile-on-boot merge catch-up does not abort boot", async () => {

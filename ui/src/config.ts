@@ -34,7 +34,7 @@ export function queueToggleRequest(cmd: "pause" | "resume", profile: string): { 
   return { url: `/api/${cmd}`, init: guarded("POST", { profile }) };
 }
 
-/** Acknowledge a failed/cancelled ticket: the receiver records a `dismissed` event for it. */
+/** Acknowledge a failed/cancelled ticket or a PR row: the receiver records a `dismissed` event for it. */
 export function dismissRequest(profile: string, ref: string): { url: string; init: RequestInit } {
   return { url: "/api/dismiss", init: guarded("POST", { profile, ref }) };
 }
@@ -71,8 +71,32 @@ export function retryOutcome(label: string, status: number, body: any, lang = "e
   return { ok: false, error: refusal("retry.failed", status, body, lang) };
 }
 
-/** Why a release / re-run did not happen, from a non-200 status (0 = network error). */
-function refusal(failed: "release.outcome.failed" | "retry.failed", status: number, body: any, lang: string): string {
+/** Re-check a PR row (or, with `ref` null, every row flagged with a PR reason): the receiver asks the tracker and forge again. */
+export function recheckRequest(profile: string, ref: string | null): { url: string; init: RequestInit } {
+  return { url: "/api/recheck", init: guarded("POST", ref === null ? { profile, all: true } : { profile, ref }) };
+}
+
+/** Map `POST /api/recheck`'s status + body (0 = network error) to its outcome: what it recorded, or that nothing was new. */
+export function recheckOutcome(label: string, status: number, body: any, lang = "en"): ReleaseOutcome {
+  if (status !== 200) return { ok: false, error: refusal("recheck.failed", status, body, lang) };
+  if (Array.isArray(body?.rechecked)) return { ok: true, text: translate(lang, "recheck.all", { count: body.rechecked.length }) };
+  const changed: string[] = Array.isArray(body?.changed) ? body.changed.filter((c: unknown) => typeof c === "string") : [];
+  return { ok: true, text: changed.length ? translate(lang, "recheck.recorded", { label, facts: changed.join(", ") }) : translate(lang, "recheck.unchanged", { label }) };
+}
+
+/** Close a shipped PR row's ticket on the tracker; its own done webhook then clears the row. */
+export function closeOnBoardRequest(profile: string, ref: string): { url: string; init: RequestInit } {
+  return { url: "/api/close-on-board", init: guarded("POST", { profile, ref }) };
+}
+
+/** Map `POST /api/close-on-board`'s status + body (0 = network error) to its outcome. */
+export function closeOnBoardOutcome(label: string, status: number, body: any, lang = "en"): ReleaseOutcome {
+  if (status === 200) return { ok: true, text: translate(lang, "closeOnBoard.closing", { label }) };
+  return { ok: false, error: refusal("closeOnBoard.failed", status, body, lang) };
+}
+
+/** Why a release / re-run / re-check / close did not happen, from a non-200 status (0 = network error). */
+function refusal(failed: "release.outcome.failed" | "retry.failed" | "recheck.failed" | "closeOnBoard.failed", status: number, body: any, lang: string): string {
   if (status === 502) return typeof body?.error === "string" ? body.error : translate(lang, "release.outcome.refused");
   if (status === 503) return translate(lang, "release.outcome.notRunning");
   if (status === 504) return translate(lang, "release.outcome.timeout");

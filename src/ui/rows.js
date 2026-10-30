@@ -242,13 +242,32 @@ const ticketEpic = (e) => {
 const OPEN_BOARD_PR_NEEDS = { ready: "awaitingMerge", merged: "mergedOpen", closed: "closedUnmerged" };
 
 /**
+ * Is this event a re-run of its ref (the row's earlier done / merge / failure no longer stands)?
+ * A CI/merge-job `enqueued` (kind "ci"/"merge") never runs the agent and must not wipe a finished
+ * ticket's state; only a real re-run (run_start, or a pipeline job's enqueued) does. Old events
+ * predate the `kind` tag — an empty `step` stands in for "not pipeline".
+ * @param {Record<string, any>} e
+ */
+export function isRerunEvent(e) {
+  return e.event === "run_start" || (e.event === "enqueued" && (e.kind ? e.kind === "pipeline" : e.step !== ""));
+}
+
+/** The `ts` of the ref's last re-run in the events tail (isRerunEvent), else null.
+ * @param {Record<string, any>[]} events @param {string} ref @returns {string|null} */
+export function lastRerunAt(events, ref) {
+  for (let i = events.length - 1; i >= 0; i--) if (events[i].ref === ref && isRerunEvent(events[i])) return str(events[i].ts);
+  return null;
+}
+
+/**
  * One TicketRow per ref. Status precedence (ADR 0008: only the board says done): running >
  * queued > done (the board's flag: a `board_done` that isn't `via:"stage"`, see isBoardDone) > held >
  * the last failed event (failed, or cancelled when the reason is an operator cancel) > idle. The
  * board outranks a stale held/failed state, never live work. A done/failed event followed by a
  * later `enqueued`/`run_start` for the ref no longer counts (it was re-run), nor does a
  * failed/cancelled one followed by `dismissed`. A merged PR is a forge fact (`prState`), never
- * done; where it disagrees with the board it sets `prNeeds` instead.
+ * done; where it disagrees with the board it sets `prNeeds` instead — unless a `dismissed` came
+ * after the last re-run (the operator acknowledged it; the next re-run brings it back).
  * `costUsd` sums `run_end.costUsd` within the tail only — an approximation for old refs; `estUsd`
  * sums the rate-table estimates of the runs with no reported cost (src/pricing.js `costOf`, the
  * profile's `pricing` overrides from its heartbeat), kept apart; `energyKwh`/`energyUsd` sum the
@@ -299,6 +318,8 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let mergedEvent = false;
     /** The ref's last re-run is in the tail: everything since it (a board done included) is too. */
     let rerunSeen = false;
+    /** An operator `dismiss` since the last re-run: the PR reason is acknowledged. */
+    let prDismissed = false;
     /** @type {Record<string, any>|null} */
     let lastStart = null;
     /** @type {string|null} */
@@ -318,15 +339,12 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let lastEnd = null;
     for (const e of events) {
       if (e.event === "run_start") lastStart = e;
-      // A CI/merge-job `enqueued` (kind "ci"/"merge") never runs the agent and must not wipe a
-      // finished ticket's state; only a real re-run (run_start, or a pipeline job's enqueued)
-      // does. Old events predate the `kind` tag — an empty `step` stands in for "not pipeline".
-      const isRerun = e.event === "run_start" || (e.event === "enqueued" && (e.kind ? e.kind === "pipeline" : e.step !== ""));
-      if (isRerun) {
+      if (isRerunEvent(e)) {
         terminal = null;
         boardDone = false; // a re-run: the earlier done / merge no longer stands
         mergedEvent = false;
         rerunSeen = true;
+        prDismissed = false;
         finishedAt = null;
         failReason = null;
       } else if (isBoardDone(e)) {
@@ -337,7 +355,10 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       else if (e.event === "failed") {
         terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
         failReason = str(e.reason);
-      } else if (e.event === "dismissed" && (terminal === "failed" || terminal === "cancelled")) terminal = null; // operator acknowledged
+      } else if (e.event === "dismissed") {
+        if (terminal === "failed" || terminal === "cancelled") terminal = null; // operator acknowledged
+        prDismissed = true;
+      }
       if (e.event === "run_end") {
         lastEnd = e;
         if (typeof e.costUsd === "number" && Number.isFinite(e.costUsd)) costUsd += e.costUsd;
@@ -366,7 +387,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     // last re-run is in the tail; an older idle row's board is unknown (it may have closed long
     // ago), so it gets no reason — old merged tickets never flood Needs you.
     /** @type {import('./contract.js').PrNeeds|null} */
-    const prNeeds = !prUrl || !prState ? null : status === "done" ? (prState === "ready" ? "openOnDone" : null) : status === "idle" && rerunSeen ? OPEN_BOARD_PR_NEEDS[prState] : null;
+    const prNeeds = !prUrl || !prState || prDismissed ? null : status === "done" ? (prState === "ready" ? "openOnDone" : null) : status === "idle" && rerunSeen ? OPEN_BOARD_PR_NEEDS[prState] : null;
     // The newest run's plain sentence, only while it describes the row's state: an applied
     // outcome that differs from the run's (changes cap, CI bounce, cancel) shows none.
     const want = PLAIN_OUTCOME[status];

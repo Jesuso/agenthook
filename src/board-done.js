@@ -8,7 +8,7 @@
 
 /**
  * Is this event the board saying done (ADR 0008)? Only the tracker's own done flag
- * (`board_done`, via "flag"). A `via:"stage"` event (written by receivers between #585 and the
+ * (`board_done`, via "flag" — or "recheck", the same flag read on request, src/recheck.js). A `via:"stage"` event (written by receivers between #585 and the
  * flag-only decision) and `pipeline_done` are agenthook handing the ticket back, not done.
  * @param {Record<string, any>} e
  */

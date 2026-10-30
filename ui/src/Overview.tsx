@@ -50,6 +50,10 @@ export type OverviewProps = {
   onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>;
   /** Re-run a failed ticket's failed step (receiver up only); resolves with what happened. */
   onRetry: (t: Ref) => Promise<ReleaseOutcome>;
+  /** Re-check a PR row with the tracker and forge (receiver up only); `ref` null = every flagged row of `profile`. */
+  onRecheck?: (profile: string, ref: string | null) => Promise<ReleaseOutcome>;
+  /** Close a shipped PR row's ticket on the tracker (receiver up only). */
+  onCloseOnBoard?: (t: Ref) => Promise<ReleaseOutcome>;
 };
 
 /**
@@ -130,7 +134,7 @@ export function Overview(props: OverviewProps) {
         {needs.length === 0 ? t("overview.liveAllClear") : t("overview.liveNeeds", { count: needs.length })}
       </p>
 
-      <NeedsYouZone items={needs} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} />
+      <NeedsYouZone items={needs} profile={profile.name} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} onRecheck={props.onRecheck} onCloseOnBoard={props.onCloseOnBoard} />
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
@@ -346,7 +350,7 @@ function useAutoRead(profile: string, needs: NeedsItem[]) {
   }, [profile, keys.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }: { items: NeedsItem[]; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"] }) {
+function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, onRetry, onRecheck, onCloseOnBoard }: { items: NeedsItem[]; profile: string; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"]; onRecheck?: OverviewProps["onRecheck"]; onCloseOnBoard?: OverviewProps["onCloseOnBoard"] }) {
   const { t: tr, lang } = useT();
   const [releasing, setReleasing] = useState<string | null>(null);
   // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
@@ -357,6 +361,32 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
       setRetries((r) => ({ ...r, [t.ref]: out.ok ? { state: "started" } : { state: "error", error: out.error } })),
     );
   };
+  // A PR row's Re-check / Close on board refusal, shown under the row until the next try (key "" = Re-check all).
+  const [prErrors, setPrErrors] = useState<Record<string, string>>({});
+  const [checkingAll, setCheckingAll] = useState(false);
+  const prAction = (key: string, run: () => Promise<ReleaseOutcome>) => {
+    setPrErrors(({ [key]: _, ...rest }) => rest);
+    return run().then((out) => {
+      if (!out.ok) setPrErrors((e) => ({ ...e, [key]: out.error }));
+    });
+  };
+  const recheckAll = () => {
+    if (!onRecheck) return;
+    setCheckingAll(true);
+    void prAction("", () => onRecheck(profile, null)).finally(() => setCheckingAll(false));
+  };
+  const open = (url: string | null) => url && window.open(url, "_blank", "noopener,noreferrer");
+  // The ⋯ menu of a PR row (code and board disagree): Re-check leads; Close on board only where the code shipped.
+  const prMenu = (t: TicketRow): MenuItem[] => [
+    { label: tr("overview.recheck"), disabled: !up || !onRecheck, onSelect: () => void (onRecheck && prAction(t.ref, () => onRecheck(t.profile, t.ref))) },
+    ...(t.prNeeds === "mergedOpen" || t.prNeeds === "openOnDone"
+      ? [{ label: tr("overview.closeOnBoard"), disabled: !up || !onCloseOnBoard, onSelect: () => void (onCloseOnBoard && prAction(t.ref, () => onCloseOnBoard({ profile: t.profile, ref: t.ref }))) }]
+      : []),
+    { label: tr("overview.dismiss"), onSelect: () => onDismiss({ profile: t.profile, ref: t.ref }) },
+    { label: tr("overview.openPr"), disabled: !t.prUrl, onSelect: () => open(t.prUrl) },
+    { label: tr("overview.openTicket"), disabled: !t.trackerUrl, onSelect: () => open(t.trackerUrl) },
+  ];
+  const anyPr = items.some((i) => i.kind === "pr");
   if (items.length === 0) {
     return (
       // The calm verdict takes the same headline slot as "N need you": the second-screen glance has
@@ -386,7 +416,17 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
         <p className="ml-auto text-label text-muted max-sm:hidden" data-keys-hint>
           <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> {tr("overview.keysMove")} · <kbd className="font-mono">?</kbd> {tr("overview.keysShortcuts")}
         </p>
+        {anyPr && up && onRecheck && (
+          <button type="button" data-recheck-all disabled={checkingAll} className={`${QUIET} disabled:cursor-default max-sm:ml-auto`} title={tr("overview.recheckAllTitle")} onClick={recheckAll}>
+            {tr("overview.recheckAll")}
+          </button>
+        )}
       </div>
+      {prErrors[""] !== undefined && (
+        <p role="alert" data-recheck-all-error className="mb-2 text-label text-status-failed">
+          {prErrors[""]}
+        </p>
+      )}
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
@@ -425,6 +465,11 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                     up; a failed row adds the quieter Dismiss before it. A PR link on a held/failed row
                     lives in the drawer header; the title opens the drawer. */}
                 <span className="flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto">
+                  {kind === "pr" && (
+                    <span data-needs-pr-menu>
+                      <Menu label={tr("overview.prMenu", { id: t.displayId })} items={prMenu(t)} />
+                    </span>
+                  )}
                   {kind === "failed" && (
                     <button type="button" data-needs-dismiss aria-label={tr("overview.dismissAria", { id: t.displayId })} aria-keyshortcuts="d" className={QUIET} title={tr("overview.dismissTitle")} onClick={() => onDismiss({ profile: t.profile, ref: t.ref })}>
                       {tr("overview.dismiss")}
@@ -463,6 +508,11 @@ function NeedsYouZone({ items, up, now, onOpen, onDismiss, onRelease, onRetry }:
                   </span>
                 </span>
               </div>
+              {prErrors[t.ref] !== undefined && (
+                <p role="alert" data-pr-action-error className="px-3 pb-2 text-label text-status-failed">
+                  {tr("overview.prActionError", { id: t.displayId, error: prErrors[t.ref] })}
+                </p>
+              )}
               {rerun?.state === "error" && (
                 <p role="alert" data-retry-error className="px-3 pb-2 text-label text-status-failed">
                   {tr("overview.retryError", { id: t.displayId, error: rerun.error })}

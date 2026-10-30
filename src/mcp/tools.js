@@ -188,7 +188,22 @@ const TOOLS = {
   dismiss: {
     write: true,
     def: schema(
-      "Acknowledge a FAILED or CANCELLED task so the dashboard stops counting it as needing attention (writes a `dismissed` event; the ticket and board are untouched). Errors if the task is running, queued or held. A later run of the ref shows up normally.",
+      "Acknowledge a FAILED or CANCELLED task, or a PR row where code and board disagree (`prNeeds`), so the dashboard stops counting it as needing attention (writes a `dismissed` event; the ticket and board are untouched). Errors if the task is running, queued or held. A later run of the ref shows up normally.",
+      { profile: PROFILE, ref: REF },
+      ["ref"],
+    ),
+  },
+  recheck: {
+    write: true,
+    def: schema(
+      "Ask the tracker and forge again about a task whose done/merge webhook may have been missed (a PR row stuck in \"needs you\"): records `board_done` (via \"recheck\") if the ticket is completed on the board, and the PR's merged/closed state (plus a `merged` event) if the forge says so. Local facts only — nothing on the tracker changes. `all:true` re-checks every row already flagged with a PR reason (never the whole board). Returns `{ref, changed, unchanged}` per ref; nothing new is a no-op. Errors (records nothing) if the task is running, queued, or not assigned to us.",
+      { profile: PROFILE, ref: REF, all: { type: "boolean", description: "re-check every row flagged with a PR reason instead of one ref" } },
+    ),
+  },
+  close_on_board: {
+    write: true,
+    def: schema(
+      "Close a task on the tracker whose PR merged while its ticket stayed open (`prNeeds` mergedOpen or openOnDone). Nothing is recorded locally: the tracker's done webhook brings `board_done`. Errors if the row has no such PR reason, the tracker cannot close tickets, or the task is not assigned to us.",
       { profile: PROFILE, ref: REF },
       ["ref"],
     ),

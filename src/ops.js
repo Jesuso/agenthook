@@ -13,6 +13,7 @@ import path from "node:path";
 import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
 import { entryBlock } from "./commands/run.js";
 import { runMergeCatchup, runReconcile } from "./commands/reconcile.js";
+import { readRecheckState, recheckRef } from "./recheck.js";
 import { isStateDedupKey } from "./store.js";
 import { CANCELLED_REASON } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats } from "./epics.js";
@@ -286,6 +287,31 @@ export function createOps(deps) {
     return best ? { ...r, review: { ...best.summary, outcome: best.outcome, at: best.at } } : r;
   }
 
+  /**
+   * Re-check every row of this profile already flagged with `prNeeds` (none running or queued —
+   * those carry no PR reason), one at a time. A ref that fails (fetch error, not ours) is
+   * reported with its `error` and records nothing; the rest still run.
+   * @param {(msg: string) => void} [log]
+   */
+  async function recheckAll(log) {
+    const local = readRecheckState(cfg);
+    /** @type {Array<{ref: string, changed?: string[], unchanged?: boolean, prError?: string, error?: string}>} */
+    const rechecked = [];
+    for (const row of local.rows) {
+      if (row.prNeeds == null) continue;
+      try {
+        const r = await recheckRef({ store, adapter, forge, emit }, row.ref, { row, events: local.events });
+        rechecked.push(r);
+        log?.(r.unchanged ? `[recheck] ${row.ref} — nothing new` : `[recheck] ${row.ref} — recorded ${r.changed.join(", ")}`);
+      } catch (e) {
+        rechecked.push({ ref: row.ref, error: String(e.message).slice(0, 200) });
+        log?.(`[recheck] ${row.ref} — ${e.message}`);
+      }
+    }
+    log?.(`re-check done — ${rechecked.length} flagged row(s), ${rechecked.filter((r) => r.changed?.length).length} with new facts.`);
+    return { rechecked };
+  }
+
   /** @type {Record<string, (args: any) => Promise<any>>} */
   const commands = {
     // ---- reads that need the tracker / forge (cached ~30s; `fresh:true` bypasses) ----
@@ -386,6 +412,8 @@ export function createOps(deps) {
       }
       return { ref, killed, dequeued: dropped.map((j) => j.stepId), ...(held && !killed ? { releasedHold: true } : {}), ...outcome };
     }),
+    // Acknowledge a failed/cancelled ticket or a PR row (`prNeeds`): a `dismissed` event; the
+    // ticket and board are untouched. The next re-run brings a PR row back.
     dismiss: write("dismiss", async (args) => {
       const ref = needString(args.ref, "ref");
       if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to dismiss`);
@@ -393,6 +421,37 @@ export function createOps(deps) {
       if (store.getHeld(ref)) throw new Error(`${ref} is held — answer it with release, or abandon it with cancel`);
       emit("dismissed", ref, "", { by: "operator" });
       return { ref, dismissed: true };
+    }),
+    // Ask the tracker and forge again for a Needs-you PR row's missed facts (src/recheck.js):
+    // `{ref}`, or `{all:true}` = every row of this profile already flagged with `prNeeds` —
+    // never a board-wide poll. Records local facts only; fail-closed per ref.
+    recheck: write("recheck", async (args) => {
+      if (args.all === true) return recheckAll();
+      const ref = needString(args.ref, "ref");
+      if (ref in store.listRunning()) throw new Error(`${ref} is running — nothing to re-check`);
+      if (store.listQueued().some((j) => j.ref === ref)) throw new Error(`${ref} is queued — nothing to re-check`);
+      const { rows, events } = readRecheckState(cfg);
+      return recheckRef({ store, adapter, forge, emit }, ref, { row: rows.find((r) => r.ref === ref), events });
+    }),
+    // A PR row whose code shipped but whose ticket is still open: close it on the tracker. Emits
+    // nothing locally — the board's own done webhook records `board_done` (ADR 0008).
+    close_on_board: write("close_on_board", async (args) => {
+      const ref = needString(args.ref, "ref");
+      const row = readRecheckState(cfg).rows.find((r) => r.ref === ref);
+      if (row?.prNeeds !== "mergedOpen" && row?.prNeeds !== "openOnDone") {
+        throw new Error(`${ref} has no shipped PR waiting on its ticket${row?.prNeeds ? ` (${row.prNeeds})` : ""} — nothing to close`);
+      }
+      if (typeof adapter.complete !== "function") throw new Error(`tracker "${cfg.provider}" cannot close tickets — close ${ref} on the board`);
+      /** @type {import('./types.js').Task} */
+      let task;
+      try {
+        task = await adapter.fetchTask(ref);
+      } catch (e) {
+        throw new Error(`${ref} not found (${String(e.message).slice(0, 120)}). Check the ref.`);
+      }
+      if (!task.assignedToUs) throw new Error(`${ref} is not assigned to us — refusing to close it`);
+      await adapter.complete(ref);
+      return { ref, completed: true, note: "the tracker's done webhook records it; `recheck` if it does not" };
     }),
     run: write("run", async (args) => {
       const ref = needString(args.ref, "ref");
@@ -513,15 +572,17 @@ export function createOps(deps) {
     reconcile: write("reconcile", async () => {
       const lines = /** @type {string[]} */ ([]);
       const r = await runReconcile(cfg, { store, adapter, intake, log: (m) => lines.push(m) });
-      const { merged } = await runMergeCatchup(cfg, { store, adapter, forge, intake, log: (m) => lines.push(m) });
-      return { ...r, merged, log: lines.slice(-20) };
+      const { merged } = await runMergeCatchup(cfg, { store, adapter, forge, intake, emit, log: (m) => lines.push(m) });
+      const { rechecked } = await recheckAll((m) => lines.push(m));
+      return { ...r, merged, rechecked: rechecked.length, log: lines.slice(-20) };
     }),
-    // Just the merge catch-up: the CLI `reconcile` on a webhook tracker replays resting tasks
-    // over HTTP itself, then asks for this (it has no intake of its own).
+    // Just the merge catch-up (then the re-check of flagged rows): the CLI `reconcile` on a
+    // webhook tracker replays resting tasks over HTTP itself, then asks for this (it has no intake of its own).
     reconcile_merges: write("reconcile_merges", async () => {
       const lines = /** @type {string[]} */ ([]);
-      const r = await runMergeCatchup(cfg, { store, adapter, forge, intake, log: (m) => lines.push(m) });
-      return { ...r, log: lines.slice(-20) };
+      const r = await runMergeCatchup(cfg, { store, adapter, forge, intake, emit, log: (m) => lines.push(m) });
+      const { rechecked } = await recheckAll((m) => lines.push(m));
+      return { ...r, rechecked: rechecked.length, log: lines.slice(-20) };
     }),
     // The Digest (src/digest.js): a tool-less summary outside the slot pool. Waits for the result;
     // a request while one runs joins it. Never touches the board, so it is not a ticket write.

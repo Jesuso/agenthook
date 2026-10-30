@@ -7,10 +7,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { deriveIdentity } from "../src/identity.js";
-import { buildRows, buildSnapshot, profileView, readEventsTail, readProfileState, recentRuns, RECENT_COSTS_MS } from "../src/ui/rows.js";
+import { buildRows, buildSnapshot, isRerunEvent, lastRerunAt, profileView, readEventsTail, readProfileState, recentRuns, RECENT_COSTS_MS } from "../src/ui/rows.js";
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
-import { ticketBucket } from "../src/epics.js";
+import { isNeedsYou, ticketBucket } from "../src/epics.js";
 import { uiPort, checkBundle, DEFAULT_PORT } from "../src/commands/ui.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-rows-"));
@@ -622,6 +622,51 @@ test("buildRows: prNeeds — the PR reasons where code and board disagree, only 
   assert.equal(row(rows, "old").prState, "merged", "an idle row with no tail events keeps its PR fact, but no reason");
   // no repository → no prUrl → no reason, whatever the PR fact says
   assert.equal(buildRows("p", state({ refmeta: { a: { pr: 1 } }, events: ran("a") })).find((r) => r.ref === "a")?.prNeeds, null);
+});
+
+test("buildRows: a dismissed since the last re-run nulls prNeeds (both isNeedsYou false); a later run_start / pipeline enqueued brings it back (#598)", () => {
+  const ran = (/** @type {string} */ ref) => [
+    { ts: "1", event: "run_start", ref, step: "code" },
+    { ts: "2", event: "run_end", ref, step: "code", outcome: "advance" },
+  ];
+  const dismissed = (/** @type {string} */ ref) => ({ ts: "3", event: "dismissed", ref, step: "", by: "operator" });
+  const rows = buildRows(
+    "p",
+    state({
+      refmeta: { open: { pr: 1, prState: "merged" }, done: { pr: 2 }, back: { pr: 3 }, enq: { pr: 4 }, merge: { pr: 5 } },
+      events: [
+        ...ran("open"), dismissed("open"),
+        ...ran("done"), { ts: "3", event: "board_done", ref: "done", step: "", via: "flag" }, dismissed("done"),
+        ...ran("back"), dismissed("back"), { ts: "4", event: "run_start", ref: "back", step: "code" }, { ts: "5", event: "run_end", ref: "back", step: "code", outcome: "advance" },
+        ...ran("enq"), dismissed("enq"), { ts: "4", event: "enqueued", ref: "enq", step: "code", kind: "pipeline" },
+        ...ran("merge"), dismissed("merge"), { ts: "4", event: "enqueued", ref: "merge", step: "done", kind: "merge" }, // not a re-run
+      ],
+    }),
+    { repository: "o/r" },
+  );
+  assert.equal(row(rows, "open").prNeeds, null, "mergedOpen dismissed");
+  assert.equal(row(rows, "open").status, "idle");
+  assert.equal(row(rows, "done").prNeeds, null, "openOnDone dismissed");
+  assert.equal(row(rows, "done").status, "done", "dismiss never touches the board's done");
+  assert.equal(isNeedsYou(row(rows, "open"), true), false);
+  assert.equal(isNeedsYou(row(rows, "done"), true), false);
+  assert.equal(row(rows, "back").prNeeds, "awaitingMerge", "a run_start after the dismiss brings it back");
+  assert.equal(row(rows, "enq").prNeeds, "awaitingMerge", "a pipeline enqueued after the dismiss resets it");
+  assert.equal(row(rows, "merge").prNeeds, null, "a merge job's enqueued is not a re-run");
+});
+
+test("isRerunEvent / lastRerunAt: run_start and a pipeline enqueued are re-runs; a CI/merge enqueued is not", () => {
+  const events = [
+    { ts: "1", event: "run_start", ref: "a", step: "code" },
+    { ts: "2", event: "enqueued", ref: "a", step: "code", kind: "pipeline" },
+    { ts: "3", event: "enqueued", ref: "a", step: "done", kind: "merge" },
+    { ts: "4", event: "enqueued", ref: "a", step: "" }, // legacy, no kind, empty step → not pipeline
+    { ts: "5", event: "run_start", ref: "b", step: "code" },
+  ];
+  assert.equal(lastRerunAt(events, "a"), "2");
+  assert.equal(lastRerunAt(events, "b"), "5");
+  assert.equal(lastRerunAt(events, "none"), null);
+  assert.equal(isRerunEvent({ event: "enqueued", step: "code" }), true, "legacy pipeline enqueued (no kind, a step)");
 });
 
 test("buildRows: refmeta.prState merged/closed overrides an event-derived ready; absent → still ready", () => {
