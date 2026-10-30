@@ -266,13 +266,15 @@ test("ticketBody: --body or --file, never both", () => {
   assert.match(/** @type {any} */ (ticketBody({ body: "x".repeat(60 * 1024) })).error, /keep it under/);
 });
 
-test("ticketRows: refs ascending (numeric first), running/held marks", () => {
-  const board = { "10": { name: "ten", stage: "code" }, "2": { name: "two", stage: "review" }, E1: { name: "named", stage: "done" } };
-  assert.deepEqual(ticketRows(board, { "10": { stepId: "code" } }, { "2": { stepId: "review" } }), [
+test("ticketRows: refs ascending (numeric first), running/held/blocked marks", () => {
+  const board = { "10": { name: "ten", stage: "code", blockedBy: ["2", "E1"] }, "2": { name: "two", stage: "review" }, E1: { name: "named", stage: "done" } };
+  const cfg = /** @type {any} */ ({ pipeline: [{ id: "done", manual: true, sourceStatus: "done" }] });
+  assert.deepEqual(ticketRows(board, { "10": { stepId: "code" } }, { "2": { stepId: "review" } }, cfg), [
     { ref: "2", stage: "review", title: "two", held: "review" },
-    { ref: "10", stage: "code", title: "ten", running: "code" },
+    { ref: "10", stage: "code", title: "ten", running: "code", blockedBy: ["2"] },
     { ref: "E1", stage: "done", title: "named" },
   ]);
+  assert.deepEqual(ticketRows(board, {}, {})[1].blockedBy, ["2", "E1"], "without a pipeline every blocker counts as open");
 });
 
 test("ticket add on a non-local profile exits 1 with the board hint", async () => {
@@ -295,10 +297,11 @@ test("ticket add on a non-local profile exits 1 with the board hint", async () =
   assert.match(errs[0], /ticket add is for local profiles — add work on your GitHub board, then `agenthook run <ref>`/);
 });
 
-test("CLI: --body/--file/--step/--name are value flags; help lists ticket add|ls and init --local", () => {
-  const a = parse(["add", "fix it", "--body", "why", "--step", "review", "--file", "f.md", "--name", "n", "--yes"]);
-  assert.deepEqual(a, { _: ["add", "fix it"], body: "why", step: "review", file: "f.md", name: "n", yes: true });
+test("CLI: --body/--file/--step/--name/--blocked-by are value flags; help lists ticket add|ls and init --local", () => {
+  const a = parse(["add", "fix it", "--body", "why", "--step", "review", "--file", "f.md", "--name", "n", "--blocked-by", "3,7", "--yes"]);
+  assert.deepEqual(a, { _: ["add", "fix it"], body: "why", step: "review", file: "f.md", name: "n", "blocked-by": "3,7", yes: true });
   assert.match(HELP, /ticket add "<title>"/);
+  assert.match(HELP, /--blocked-by <ref,ref>/);
   assert.match(HELP, /ticket ls/);
   assert.match(HELP, /init --local/);
 });

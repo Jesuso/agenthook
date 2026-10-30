@@ -16,6 +16,12 @@
 // drop all PR language: the code step's worktree DIFF is the deliverable and review
 // reads it with `git diff`, never `gh pr`.
 //
+// Blockers (the block gate, mirroring github.js/asana.js): an item's `blockedBy` lists the
+// refs that must reach a done stage (a manual step's sourceStatus) before it runs. The gate is
+// dispatch's `openBlockers` re-check; the release is in-process — a move into a done stage
+// pushes an `unblock:` job for every dependent now unblocked and resting in a non-manual
+// step's source stage. `ticket add --blocked-by 3,7` sets the field.
+//
 // Implements the same interface as the other trackers (see asana.js / github.js for the
 // canonical doc-comments). No assignee scoping — a local board is single-tenant/trusted.
 import fs from "node:fs";
@@ -64,7 +70,7 @@ export function createdJob(cfg, ref, stage) {
   return step ? { kind: "pipeline", ref: String(ref), stepId: step.id, dedupKey: `step:${step.id}:${ref}` } : null;
 }
 
-/** @typedef {{ name: string, description?: string, url?: string, stage: string, [key: string]: any }} LocalItem */
+/** @typedef {{ name: string, description?: string, url?: string, stage: string, blockedBy?: string[], [key: string]: any }} LocalItem */
 
 /**
  * Raw route keys from the top-level key `routeField` of a board item: a string → [s],
@@ -78,6 +84,40 @@ export function extractRouteKeys(item, routeField) {
   const v = item?.[routeField];
   const vs = Array.isArray(v) ? v : [v];
   return vs.filter((x) => typeof x === "string" && x.trim() !== "");
+}
+
+/** Is `stage` done — the source stage of a manual (terminal) step? A local board has no native
+ * done flag, so this is it. Failure, hold and unbound stages (e.g. `backlog`) are not done.
+ * @param {import('../types.js').Config} cfg @param {string|undefined} stage */
+export const isDoneStage = (cfg, stage) => !!stage && !!cfg.pipeline?.some((s) => s.manual && s.sourceStatus === stage);
+
+/**
+ * Normalize a `blockedBy` value: a string (comma-separated) or an array → unique, trimmed,
+ * non-empty refs, in order. Unset/other → [].
+ * @param {unknown} v
+ * @returns {string[]}
+ */
+export function normalizeBlockedBy(v) {
+  const parts = Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : [];
+  /** @type {string[]} */
+  const out = [];
+  for (const p of parts) {
+    const r = typeof p === "string" ? p.trim().replace(/^#/, "") : "";
+    if (r && !out.includes(r)) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * The refs that still block `ref`: its `blockedBy` entries whose item is on the board and not in
+ * a done stage. A blocker missing from the board (reseeded, hand-edited) no longer blocks — this
+ * is a workflow gate, not a security boundary (fail-open, like github.js). Pure.
+ * @param {import('../types.js').Config} cfg @param {Record<string, LocalItem>} board @param {string} ref
+ * @returns {string[]}
+ */
+export function openBlockersOf(cfg, board, ref) {
+  const it = board[String(ref)];
+  return normalizeBlockedBy(it?.blockedBy).filter((b) => board[b] && !isDoneStage(cfg, board[b].stage));
 }
 
 /** Read the board (missing file → empty). @param {import('../types.js').Config} cfg
@@ -143,6 +183,8 @@ export function createLocalAdapter(cfg, _store) {
     const step = sink ? stepSourcing(cfg, stage) : undefined;
     /** @type {number|undefined} */
     let seq;
+    /** @type {import('../types.js').Job[]} the close-release of dependents, decided inside the write */
+    const released = [];
     await update((board) => {
       const it = board[String(ref)];
       if (!it) {
@@ -151,8 +193,21 @@ export function createLocalAdapter(cfg, _store) {
       }
       it.stage = stage;
       if (step) seq = nextSeq(cfg);
+      // Close-release (mirrors github.js `closed`): entering a done stage fires every dependent
+      // of ours that is now fully unblocked and resting in a non-manual step's source stage.
+      // Decided on the board state that holds this move, so a dependent's other blockers count.
+      if (sink && isDoneStage(cfg, stage)) {
+        for (const [depRef, dep] of Object.entries(board)) {
+          if (depRef === String(ref) || !normalizeBlockedBy(dep.blockedBy).includes(String(ref))) continue;
+          const depStep = stepBySourceStage(dep.stage); // resting in a non-manual source stage
+          if (!depStep || openBlockersOf(cfg, board, depRef).length) continue;
+          released.push({ kind: "pipeline", ref: depRef, stepId: depStep.id, dedupKey: `unblock:${ref}:${depRef}:${nextSeq(cfg)}` });
+        }
+      }
     });
     if (step && seq != null) sink?.([{ kind: "pipeline", ref: String(ref), stepId: step.id, dedupKey: `secmove:${seq}` }]);
+    for (const job of released) console.log(`[unblock] ${ref} done → firing ${job.ref} (${job.stepId})`);
+    if (released.length) sink?.(released);
   }
 
   /** @param {string} id */
@@ -172,11 +227,6 @@ export function createLocalAdapter(cfg, _store) {
       }
     return stages;
   };
-  /** Is this stage done: the source stage of a manual (terminal) step? A local board has no native
-   * done flag, so this is it. Failure and hold stages are not done, and neither is an unbound stage
-   * (e.g. `backlog`) — the item has not entered the pipeline yet. @param {string|undefined} stage */
-  const isDoneStage = (stage) => !!stage && !!pipeline?.some((s) => s.manual && s.sourceStatus === stage);
-
   return {
     describe: () => ({
       platform: "Local",
@@ -219,11 +269,18 @@ export function createLocalAdapter(cfg, _store) {
         name: it.name,
         description: it.description || "",
         url: it.url || `local://${ref}`,
-        completed: isDoneStage(it.stage),
+        completed: isDoneStage(cfg, it.stage),
         assignedToUs: true,
         displayId: String(ref),
         routeKeys: extractRouteKeys(it, cfg.providerConfig?.routeField),
       };
+    },
+
+    // The block gate (dispatch re-checks it before spawning): refs in the item's `blockedBy`
+    // not yet in a done stage. No network, so nothing to fail open on apart from a blocker
+    // missing from the board, which openBlockersOf drops.
+    async openBlockers(ref) {
+      return openBlockersOf(cfg, readBoard(cfg), String(ref));
     },
 
     // Move the task's stage per the verdict, mirroring the other trackers:
@@ -253,23 +310,33 @@ export function createLocalAdapter(cfg, _store) {
     // next free number, picked inside the serialized chain so two adds never share one. Lands in
     // the target step's source stage (default: the first non-manual step), then — once the write
     // is on disk — pushes that step's created-in-stage job when a sink is wired.
-    /** @param {{name: string, description?: string, stepId?: string}} t */
-    async createTask({ name, description, stepId }) {
+    // `blockedBy` (refs) must each exist on the board — a typo would otherwise never resolve. A
+    // blocker already in a done stage is kept (it reads as resolved). A blocked item is written
+    // but its job is NOT pushed: the close-release in moveTo fires it when the last blocker lands.
+    /** @param {{name: string, description?: string, stepId?: string, blockedBy?: string[]}} t */
+    async createTask({ name, description, stepId, blockedBy }) {
       if (typeof name !== "string" || !name.trim()) throw new Error("local: a task needs a name");
       const step = stepId ? stepById(stepId) : pipeline?.find((s) => !s.manual);
       if (!step) throw new Error(stepId ? `local: no step "${stepId}" in the pipeline` : "local: the pipeline has no non-manual step");
       if (step.manual) throw new Error(`local: step "${step.id}" is manual — a task can't be added there`);
       const stage = step.sourceStatus;
       if (!stage) throw new Error(`local: step "${step.id}" has no sourceStatus to add a task to`);
+      const blockers = normalizeBlockedBy(blockedBy);
       let ref = "";
+      /** @type {string[]} */
+      let open = [];
       await update((board) => {
+        const missing = blockers.filter((b) => !board[b]);
+        if (missing.length) throw new Error(`local: no task ${missing.map((b) => `"${b}"`).join(", ")} on the board to be blocked by`);
         const max = Math.max(0, ...Object.keys(board).map(Number).filter((n) => Number.isInteger(n)));
         ref = String(max + 1);
-        board[ref] = { name: name.trim(), description: description || "", url: `local://${ref}`, stage };
+        board[ref] = { name: name.trim(), description: description || "", url: `local://${ref}`, stage, ...(blockers.length && { blockedBy: blockers }) };
+        open = openBlockersOf(cfg, board, ref);
       });
-      const job = sink ? createdJob(cfg, ref, stage) : null;
+      const job = sink && !open.length ? createdJob(cfg, ref, stage) : null;
       if (job) sink?.([job]);
-      return { ref, stage, stepId: step.id };
+      else if (open.length) console.log(`[blocked] ${ref} blocked by ${open.join(", ")} — resting in ${stage}`);
+      return { ref, stage, stepId: step.id, ...(open.length && { blockedBy: open }) };
     },
 
     /** @param {string} ref @param {string} stepId */
@@ -304,14 +371,16 @@ export function createLocalAdapter(cfg, _store) {
       return jobs;
     },
 
-    // Tasks resting in the step's opt-in queueStatus, in board-file order. No
-    // assignee scoping (single-tenant). [] without the key.
+    // Tasks resting in the step's opt-in queueStatus, in board-file order, unblocked only (a
+    // pulled-then-rested item would waste the slot). No assignee scoping (single-tenant). []
+    // without the key.
     /** @param {string} stepId */
     async listQueued(stepId) {
       const step = stepById(stepId);
       if (!step?.queueStatus || step.manual) return [];
-      return Object.entries(readBoard(cfg))
-        .filter(([, it]) => it.stage === step.queueStatus)
+      const board = readBoard(cfg);
+      return Object.entries(board)
+        .filter(([ref, it]) => it.stage === step.queueStatus && !openBlockersOf(cfg, board, ref).length)
         .map(([ref]) => ref);
     },
 

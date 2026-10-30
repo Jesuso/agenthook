@@ -114,8 +114,8 @@ export const PROVIDERS = {
     scope: () => "the local board file",
     identity: () => "no assignee check (everything is ours)",
     epics: null,
-    blockers: null,
-    createHint: 'agenthook ticket add "<title>" [--body <text>] [--step <id>]',
+    blockers: { declare: "`agenthook ticket add … --blocked-by <ref,ref>` (refs already on the board; a `blockedBy` array on the board item)", release: "when the last blocker reaches a done stage (a manual step's sourceStatus) — the release is pushed in-process, no webhook" },
+    createHint: 'agenthook ticket add "<title>" [--body <text>] [--step <id>] [--blocked-by <ref,ref>]',
     assignHint: "none",
   },
 };

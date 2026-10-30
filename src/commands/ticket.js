@@ -1,8 +1,9 @@
 // `agenthook ticket add|ls` — the local tracker's board from the CLI (local profiles only; on a
 // SaaS tracker you add work on its board, then `agenthook run <ref>`).
 //
-// `ticket add "<title>" [--body <text> | --file <path>] [--step <id>]` puts ONE item on the board
-// at the step's source stage (default the first non-manual step) under the next numeric ref. The
+// `ticket add "<title>" [--body <text> | --file <path>] [--step <id>] [--blocked-by <ref,ref>]` puts
+// ONE item on the board at the step's source stage (default the first non-manual step) under the
+// next numeric ref; `--blocked-by` rests it until every listed ticket reaches a done stage. The
 // local adapter pushes the step's job in-process, so with the receiver up the add must happen
 // THERE — like `run`, it is sent over control.sock (the `ticket_add` op): that also keeps the
 // board write in the one process that serializes them. Receiver down → the adapter writes the
@@ -13,7 +14,7 @@ import fs from "node:fs";
 import { loadConfig } from "../config.js";
 import { createStore } from "../store.js";
 import { createAdapter } from "../trackers/index.js";
-import { localBoardPath } from "../trackers/local.js";
+import { localBoardPath, normalizeBlockedBy, openBlockersOf } from "../trackers/local.js";
 import { readProfile } from "../heartbeat.js";
 import { controlRequest } from "../ui/control-client.js";
 import { TICKET_BODY_MAX } from "../ops.js";
@@ -21,7 +22,7 @@ import { TICKET_BODY_MAX } from "../ops.js";
 /** @param {any} args */
 export async function ticket(args) {
   const sub = args._[0];
-  if (sub !== "add" && sub !== "ls") die(`usage: agenthook ticket add "<title>" [--body <text> | --file <path>] [--step <id>]\n       agenthook ticket ls [--json]`);
+  if (sub !== "add" && sub !== "ls") die(`usage: agenthook ticket add "<title>" [--body <text> | --file <path>] [--step <id>] [--blocked-by <ref,ref>]\n       agenthook ticket ls [--json]`);
   const cfg = loadConfig({ configPath: args.config });
   if (cfg.provider !== "local") {
     let platform = cfg.provider;
@@ -36,21 +37,25 @@ export async function ticket(args) {
 /** @param {import('../types.js').Config} cfg @param {any} args */
 async function add(cfg, args) {
   const title = args._.slice(1).join(" ").trim(); // quoted or not
-  if (!title) die(`usage: agenthook ticket add "<title>" [--body <text> | --file <path>] [--step <id>]`);
+  if (!title) die(`usage: agenthook ticket add "<title>" [--body <text> | --file <path>] [--step <id>] [--blocked-by <ref,ref>]`);
   const body = ticketBody(args);
   if (typeof body !== "string") die(body.error);
   const step = typeof args.step === "string" ? args.step : undefined;
+  if (args["blocked-by"] !== undefined && typeof args["blocked-by"] !== "string") die("ticket add: --blocked-by needs a comma-separated list of refs");
+  const blockedBy = normalizeBlockedBy(args["blocked-by"]);
+  if (args["blocked-by"] !== undefined && !blockedBy.length) die("ticket add: --blocked-by needs at least one ref");
 
   if (readProfile(cfg.stateKey).up) {
     let reply;
     try {
-      reply = await controlRequest(cfg.controlSock, "ticket_add", { title, ...(body && { body }), ...(step && { step }) }, { timeoutMs: 20000 });
+      reply = await controlRequest(cfg.controlSock, "ticket_add", { title, ...(body && { body }), ...(step && { step }), ...(blockedBy.length && { blockedBy }) }, { timeoutMs: 20000 });
     } catch (e) {
       die(`ticket add: ${e.code === "timeout" ? "timed out waiting for the receiver" : "receiver is down"} — retry, or stop it and add the ticket again.`);
     }
     if (!reply.ok) die(`ticket add: ${reply.error}`);
     const r = reply.result;
-    console.log(`#${r.ref} "${title}" -> step "${r.step}" (the running receiver fires it now)`);
+    if (r.blockedBy?.length) console.log(`#${r.ref} "${title}" -> step "${r.step}", blocked by ${refList(r.blockedBy)} (fires when they reach done)`);
+    else console.log(`#${r.ref} "${title}" -> step "${r.step}" (the running receiver fires it now)`);
     return;
   }
 
@@ -58,11 +63,12 @@ async function add(cfg, args) {
   if (typeof adapter.createTask !== "function") die(`tracker "${cfg.provider}" has no ticket add`);
   let r;
   try {
-    r = await adapter.createTask({ name: title, description: body, ...(step && { stepId: step }) });
+    r = await adapter.createTask({ name: title, description: body, ...(step && { stepId: step }), ...(blockedBy.length && { blockedBy }) });
   } catch (e) {
     die(`ticket add: ${String(e.message).replace(/^local: /, "")}`);
   }
-  console.log(`#${r.ref} "${title}" rests in stage "${r.stage}" (step "${r.stepId}").`);
+  const blocked = r.blockedBy?.length ? `, blocked by ${refList(r.blockedBy)}` : "";
+  console.log(`#${r.ref} "${title}" rests in stage "${r.stage}" (step "${r.stepId}")${blocked}.`);
   console.log(`No receiver running for "${cfg.name}" — start it (\`agenthook start --detach\`), then \`agenthook reconcile\` fires it.`);
 }
 
@@ -91,32 +97,41 @@ export function ticketBody(args) {
   return body;
 }
 
-/** @typedef {{ ref: string, stage: string, title: string, running?: string, held?: string }} TicketRow */
+/** `#3, #7` @param {string[]} refs */
+const refList = (refs) => refs.map((r) => `#${r}`).join(", ");
+
+/** @typedef {{ ref: string, stage: string, title: string, running?: string, held?: string, blockedBy?: string[] }} TicketRow */
 
 /**
  * Board items as rows, refs ascending (numeric first, then by name), each marked with its running
- * step / held step when the store has one. Pure.
- * @param {Record<string, {name?: string, stage?: string}>} board
+ * step / held step when the store has one, and with its still-open blockers. Pure.
+ * @param {Record<string, {name?: string, stage?: string, blockedBy?: string[]}>} board
  * @param {Record<string, {stepId?: string}>} running
  * @param {Record<string, {stepId?: string}>} held
+ * @param {import('../types.js').Config} [cfg]  the pipeline that decides which stages are done (absent: every blocker counts as open)
  * @returns {TicketRow[]}
  */
-export function ticketRows(board, running, held) {
+export function ticketRows(board, running, held, cfg) {
   const order = (/** @type {string} */ a, /** @type {string} */ b) => {
     const [na, nb] = [Number(a), Number(b)];
     if (Number.isInteger(na) && Number.isInteger(nb)) return na - nb;
     if (Number.isInteger(na) !== Number.isInteger(nb)) return Number.isInteger(na) ? -1 : 1;
     return a.localeCompare(b);
   };
+  const typed = /** @type {Record<string, import('../trackers/local.js').LocalItem>} */ (board);
   return Object.keys(board)
     .sort(order)
-    .map((ref) => ({
-      ref,
-      stage: board[ref]?.stage || "",
-      title: board[ref]?.name || "",
-      ...(running[ref] && { running: running[ref].stepId || "?" }),
-      ...(held[ref] && { held: held[ref].stepId || "?" }),
-    }));
+    .map((ref) => {
+      const open = openBlockersOf(cfg ?? /** @type {any} */ ({ pipeline: [] }), typed, ref);
+      return {
+        ref,
+        stage: board[ref]?.stage || "",
+        title: board[ref]?.name || "",
+        ...(running[ref] && { running: running[ref].stepId || "?" }),
+        ...(held[ref] && { held: held[ref].stepId || "?" }),
+        ...(open.length && { blockedBy: open }),
+      };
+    });
 }
 
 /** @param {import('../types.js').Config} cfg @param {any} args */
@@ -133,13 +148,13 @@ function ls(cfg, args) {
     const h = store.getHeld(ref);
     if (h) held[ref] = h;
   }
-  const rows = ticketRows(board, store.listRunning(), held);
+  const rows = ticketRows(board, store.listRunning(), held, cfg);
   if (args.json) return console.log(JSON.stringify(rows));
   if (!rows.length) return console.log(`no tickets on the board — add one with \`agenthook ticket add "<title>"\``);
   const w = Math.max(...rows.map((r) => r.ref.length + 1));
   const sw = Math.max(...rows.map((r) => r.stage.length));
   for (const r of rows) {
-    const marks = [r.running && `running ${r.running}`, r.held && `held at ${r.held}`].filter(Boolean);
+    const marks = [r.running && `running ${r.running}`, r.held && `held at ${r.held}`, r.blockedBy && `blocked by ${refList(r.blockedBy)}`].filter(Boolean);
     console.log(`${`#${r.ref}`.padEnd(w)}  ${r.stage.padEnd(sw)}  ${r.title}${marks.length ? `  [${marks.join(", ")}]` : ""}`);
   }
 }
