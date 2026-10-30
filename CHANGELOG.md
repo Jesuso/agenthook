@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `agenthook serve` is an alias of `start`, and a mistyped command now suggests the closest one
+  (`unknown command "strat" — did you mean \`agenthook start\`?`) (#549).
 - Queued rows in the Overview's **Now** zone show how long they have been waiting (`waiting 6m`,
   muted, minute precision on the same per-label clock as elapsed times). The ticket-row contract
   gains `queuedAt`, stamped when the job is accepted into the queue and kept across a restart's
@@ -23,6 +25,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- The review step reads the ticket's description and tracker comments for acceptance criteria and
+  can post its outcome back on the ticket, instead of grading against the PR body the coding stage
+  wrote. It holds when it cannot read the criteria at all (#597).
+- A step that reuses the worktree an earlier step created (review after code) now gets the real
+  branch name in its prompt instead of `undefined` (#596).
+- `agenthook start` on a port claimed by another profile no longer says "stop it" when that profile
+  is not running; it names the real cause (another process holds the port) (#548).
 - **Dismiss** now clears a PR row's Needs-you reason until the ticket's next run (#598).
 - The merge catch-up no longer skips a PR whose ticket was already completed (#598). It queues the
   self-closing merge job, so the merge is recorded, and it records the board's done.
