@@ -940,7 +940,7 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   looks up up to 20 known PRs missing from the open list per cache fill via `forge.prState(n)`;
   explicit call only, no timer),
   `finishedAt` (the first finish since the last run — a later merge doesn't move it), `failReason`,
-  `heldAt`, `queuePos`. New profile fields: `forge` (heartbeat) and `recentRuns` (`run_end` outcomes,
+  `heldAt`, `queuePos`, `queuedAt`. New profile fields: `forge` (heartbeat) and `recentRuns` (`run_end` outcomes,
   last 48 h). A ready PR counts as Needs you **only** on a profile with a forge and a known PR
   (`prUrl`); `merged`/`closed` are Done, with no PR action.
 - Needs-you rows show kind, id + title, the one-line reason, step and age; **Ticket ↗ / PR ↗ /
