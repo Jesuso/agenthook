@@ -87,6 +87,7 @@ export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
   /** @type {import('node:child_process').ChildProcess | null} */
   let child = null;
   let stopping = false; // down() or the startup timeout is killing the child: its exit is expected
+  let logClosed = Promise.resolve(); // resolves once the current run's log stream has closed (or errored)
   /** @type {((reason: string) => void) | null} */
   let exitListener = null;
 
@@ -113,6 +114,10 @@ export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
       const logPath = path.join(cfg.logDir, "cloudflared.log");
       const log = fs.createWriteStream(logPath, { flags: "a" });
       log.on("error", (e) => console.error(`[cloudflared] log write failed: ${e.message}`));
+      logClosed = new Promise((resolve) => {
+        log.on("close", resolve);
+        log.on("error", resolve);
+      });
 
       // Own process group: a terminal Ctrl-C reaches only the receiver, whose shutdown runs down().
       const proc = spawn(bin, args, { detached: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -184,6 +189,9 @@ export function createCloudflaredIngress(cfg, { timeoutMs = 30_000 } = {}) {
       if (!proc) return;
       stopping = true;
       await stop(proc);
+      // the log stream's close lags the child's exit (stdio drains, then `close` ends it) — wait
+      // for that too, bounded, so a caller reading the log right after down() sees it complete.
+      await Promise.race([logClosed, new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS))]);
     },
 
     wizardSteps: () => [

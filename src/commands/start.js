@@ -36,7 +36,10 @@ export async function start(args) {
     const claimant = claimedPorts({ exclude: { stateKey: cfg.stateKey } }).find((c) => c.port === cfg.port);
     if (claimant) {
       const running = readProfile(claimant.stateKey).up;
-      throw new Error(`port ${cfg.port} is in use — profile "${claimant.name}" is configured for it (running: ${running ? "yes" : "no"}); stop it or set a different "port"`);
+      if (running) {
+        throw new Error(`port ${cfg.port} is in use by profile "${claimant.name}" — stop it (agenthook stop, in its dir) or set a different "port"`);
+      }
+      throw new Error(`port ${cfg.port} is in use by another process; profile "${claimant.name}" is also configured for it — free the port or set a different "port" (both profiles can't share it)`);
     }
   }
 

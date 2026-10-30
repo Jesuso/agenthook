@@ -3,7 +3,7 @@
 //
 //   agenthook init                 scaffold agenthook.config.json in the current dir
 //   agenthook init --local [--yes] [--full-auto] [--name <n>] [--port <n>]  zero-setup local-board profile (no token, no tunnel)
-//   agenthook start [--detach]     boot this profile (ingress up → register → serve)
+//   agenthook start [--detach]     boot this profile (ingress up → register → serve) (alias: serve)
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
 //   agenthook rename <newName> [--move]  relabel this profile (--move: state dir follows)
 //   agenthook restart              restart the running receiver once idle
@@ -98,7 +98,43 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill };
+
+/**
+ * Levenshtein edit distance between two strings.
+ * @param {string} a
+ * @param {string} b
+ */
+function editDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+/**
+ * The closest command to a mistyped one, within edit distance 2, or null.
+ * Pure so it's unit-testable (`main()` runs on direct invocation only).
+ * @param {string} cmd
+ */
+export function suggestCommand(cmd) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const key of Object.keys(COMMANDS)) {
+    const dist = editDistance(cmd, key);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = key;
+    }
+  }
+  return bestDist <= 2 ? best : null;
+}
 
 export const HELP = `agenthook — event-driven agentic development receiver
 
@@ -110,7 +146,7 @@ usage: agenthook <command> [args] [--config <path>]
                             (fullAuto stays off unless --full-auto or an explicit yes)
                             port auto-picks from 4123, skipping ports listening or claimed by
                             another registered profile; --port <n> picks one explicitly
-  start [--detach]          boot this profile
+  start [--detach]          boot this profile (alias: serve)
   stop [--keep-hooks]       stop the receiver
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
                             --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
@@ -165,7 +201,9 @@ async function main() {
   }
   const fn = COMMANDS[cmd];
   if (!fn) {
-    console.error(`unknown command "${cmd}". Run \`agenthook help\`.`);
+    const suggestion = suggestCommand(cmd);
+    if (suggestion) console.error(`unknown command "${cmd}" — did you mean \`agenthook ${suggestion}\`? Run \`agenthook help\`.`);
+    else console.error(`unknown command "${cmd}". Run \`agenthook help\`.`);
     process.exit(1);
   }
   if (wantsHelp(rest)) {
