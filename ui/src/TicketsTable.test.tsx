@@ -29,7 +29,7 @@ function ticket(overrides: Partial<TicketRow> & { ref: string }): TicketRow {
     failReason: null,
     prState: null, prNeeds: null,
     finishedAt: null,
-    queuePos: null, epic: null,
+    queuePos: null, queuedAt: null, epic: null,
     ...overrides,
   };
 }

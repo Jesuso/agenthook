@@ -764,6 +764,22 @@ test("buildRows: failReason only while failed/cancelled; queuePos is the place i
   assert.deepEqual([row(rows, "q0").queuePos, row(rows, "q1").queuePos, row(rows, "f").queuePos], [0, 1, null]);
 });
 
+test("buildRows: queuedAt comes from the queue entry while queued; null otherwise and for a legacy entry with no stamp", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      queue: [
+        { kind: "pipeline", ref: "q0", stepId: "code", dedupKey: "a", queuedAt: "2026-10-08T07:00:00Z" },
+        { kind: "pipeline", ref: "q1", stepId: "code", dedupKey: "b" }, // legacy: no stamp
+      ],
+      events: [{ ts: "1", event: "failed", ref: "f", step: "code", reason: "x" }],
+    }),
+  );
+  assert.equal(row(rows, "q0").queuedAt, "2026-10-08T07:00:00Z");
+  assert.equal(row(rows, "q1").queuedAt, null);
+  assert.equal(row(rows, "f").queuedAt, null);
+});
+
 test("recentRuns: run_end within 48 h with its outcome, oldest first; garbage ts or other events are skipped", () => {
   const now = Date.parse("2026-10-08T12:00:00Z");
   const events = [

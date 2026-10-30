@@ -11,7 +11,7 @@ import type { Mounted } from "./domHarness";
 
 const row: TicketRow = {
   profile: "agenthook", ref: "221", displayId: "#221", title: "t", step: "code", status: "held", model: null, startedAt: null, costUsd: 0, estUsd: 0,
-  trackerUrl: null, prUrl: null, summary: null, plain: null, options: ["Postgres", "SQLite"], heldReason: "Which DB?", heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, epic: null,
+  trackerUrl: null, prUrl: null, summary: null, plain: null, options: ["Postgres", "SQLite"], heldReason: "Which DB?", heldAt: null, failReason: null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null,
 };
 
 let m: Mounted | null = null;

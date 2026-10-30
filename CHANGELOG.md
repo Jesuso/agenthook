@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Queued rows in the Overview's **Now** zone show how long they have been waiting (`waiting 6m`,
+  muted, minute precision on the same per-label clock as elapsed times). The ticket-row contract
+  gains `queuedAt`, stamped when the job is accepted into the queue and kept across a restart's
+  queue restore (#580).
 - Row actions for a ticket stuck in **Needs you** after its board closed or its PR merged (#598). The
   dashboard's ⋯ menu on a PR row offers **Re-check**: it asks the tracker and forge again and records
   only a missed `board_done`/merge (`via: "recheck"`), never writing the tracker. It also offers

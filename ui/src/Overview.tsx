@@ -10,7 +10,7 @@ import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { Ago, CopyCommand, Elapsed, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, SpeakButton, TicketId } from "./components";
+import { Ago, CopyCommand, Elapsed, Menu, Pill, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide, SpeakButton, TicketId, Waiting } from "./components";
 import type { MenuItem } from "./components";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
@@ -527,20 +527,20 @@ function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, o
   );
 }
 
-function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpen: (r: Ref) => void; queuedAt?: number }) {
+function NowRow({ t, now, onOpen, position }: { t: TicketRow; now: number; onOpen: (r: Ref) => void; position?: number }) {
   const { t: tr, lang } = useT();
   const title = ticketTitle(t, lang);
   const model = formatModel(t.model);
   return (
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
-      {queuedAt !== undefined ? <span className="w-5 font-mono text-label text-muted">{queuedAt}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
+      {position !== undefined ? <span className="w-5 font-mono text-label text-muted">{position}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
       <TicketId id={t.displayId} url={t.trackerUrl} />
       <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? tr("overview.openDetails") : tr("overview.titleOpenDetails", { title: `${title.text}${t.summary ? ` — ${t.summary}` : ""}` })} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
         <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? tr("ticket.untitled") : title.text}</span>
         {(t.plain ?? t.summary) && <span className="block truncate text-label text-muted" data-now-sub>{t.plain ?? t.summary}</span>}
       </button>
       {t.step && <Pill>{t.step}</Pill>}
-      {queuedAt === undefined && (
+      {position === undefined ? (
         <>
           {/* Narrow: model and cost go (the drawer has both); elapsed stays, it is the progress signal. */}
           <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
@@ -550,6 +550,8 @@ function NowRow({ t, now, onOpen, queuedAt }: { t: TicketRow; now: number; onOpe
             {tr("overview.followLog")}
           </button>
         </>
+      ) : (
+        <Waiting iso={t.queuedAt} seed={now} className="text-label" />
       )}
     </li>
   );
@@ -577,7 +579,7 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
             <div className="px-3 pt-2 text-label text-muted">
               {t("overview.queuedHeading")} · <span className="font-mono">{queued.length}</span>
             </div>
-            <ul className="divide-y divide-border-subtle">{queued.map((t, i) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} queuedAt={i + 1} />)}</ul>
+            <ul className="divide-y divide-border-subtle">{queued.map((t, i) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} position={i + 1} />)}</ul>
           </div>
         )}
       </div>

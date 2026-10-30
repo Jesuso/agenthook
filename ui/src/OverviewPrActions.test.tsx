@@ -18,7 +18,7 @@ const p = (up = true) =>
 const pr = (ref: string, prNeeds: PrNeeds): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: prNeeds === "openOnDone" ? "done" : "idle", model: null, startedAt: null, costUsd: 0, estUsd: 0,
   trackerUrl: `https://github.com/o/r/issues/${ref}`, prUrl: `https://github.com/o/r/pull/${ref}0`, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null,
-  prState: prNeeds === "mergedOpen" ? "merged" : prNeeds === "closedUnmerged" ? "closed" : "ready", prNeeds, finishedAt: null, queuePos: null, epic: null,
+  prState: prNeeds === "mergedOpen" ? "merged" : prNeeds === "closedUnmerged" ? "closed" : "ready", prNeeds, finishedAt: null, queuePos: null, queuedAt: null, epic: null,
 });
 
 let m: Mounted | null = null;

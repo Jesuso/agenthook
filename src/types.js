@@ -16,6 +16,7 @@
  * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  * @property {CiRun} [ci]       ci jobs only: the red run
  * @property {boolean} [boardCloses]  merge jobs only: the board closes this ticket itself on merge; dispatch doesn't bridge
+ * @property {string} [queuedAt]  persisted queue entries only: ISO timestamp of the first enqueue (stamped by `store.addQueued`, kept across a re-add/restart)
  */
 
 /** A red CI run on a ref's agent branch (the `ci` job payload). Receiver-trusted

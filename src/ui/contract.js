@@ -133,6 +133,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {PrNeeds|null} prNeeds       the PR's Needs-you reason, where code and board disagree (ADR 0008): only with a `prUrl`, on a `done` row (open PR → `openOnDone`) or an `idle` one whose board is known open (its last re-run is in the events tail): open → `awaitingMerge`, merged → `mergedOpen`, closed → `closedUnmerged`; null otherwise, and null after a `dismissed` since the last re-run. Counted only on forge profiles (isNeedsYou)
  * @property {string|null} finishedAt      ts of the first board-done signal since the last re-run, while status is `done` — what "finished today" counts
  * @property {number|null} queuePos        0-based place in queue.json while queued
+ * @property {string|null} queuedAt        ISO timestamp: queue.json entry's `queuedAt` while queued (null for a legacy entry with no stamp); null otherwise
  * @property {TicketEpic|null} epic       refmeta.epic: the epic the ticket belongs to (recorded per run); null when none or malformed
  */
 
