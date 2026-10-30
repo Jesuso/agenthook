@@ -28,3 +28,9 @@ npm-debug.log*
 
 # Frontend bundle — built in CI / prepublishOnly, never committed
 ui/dist/
+
+# Local agent tooling & design-tool output — maintainer-only, never shipped
+.agents/
+.codex/
+AGENTS.md
+.impeccable/critique/
