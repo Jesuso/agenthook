@@ -4,7 +4,8 @@
 //   startControl → write pidfile → (ephemeral) tracker.unregisterWebhooks → tracker.ensureLabels? →
 //   tracker.registerWebhook (retried: transient errors forever on a 5 s→5 min backoff, a 404 three
 //   times; SIGINT/SIGTERM abort the wait) → forge? (ephemeral scrub, register; best-effort) → sandbox?.reap() →
-//   recoverInterrupted → restoreQueued → puller.pull → reconcile + merge catch-up (reconcileOnBoot only) →
+//   recoverInterrupted → restoreQueued → puller.pull → reconcile + merge catch-up + re-check of flagged
+//   rows (reconcileOnBoot only) →
 //   SIGINT/SIGTERM handlers. A failure after ingress.up downs the ingress and closes control.
 import fs from "node:fs";
 import { ensurePrivateDir } from "../config.js";
@@ -208,10 +209,20 @@ export function createServe(deps) {
         // Then PRs merged in the gap (their forge webhook never arrived). Never throws by
         // contract; the try is belt-and-braces so it can't abort boot either.
         try {
-          const { merged, skipped } = await runMergeCatchup(cfg, { store, adapter, forge, intake, log: (m) => console.log(`[boot] ${m}`) });
+          const { merged, skipped } = await runMergeCatchup(cfg, { store, adapter, forge, intake, emit, log: (m) => console.log(`[boot] ${m}`) });
           console.log(`[boot] post-restart merge catch-up — ${merged} replayed, ${skipped} skipped`);
         } catch (e) {
           console.error("[boot] post-restart merge catch-up failed (continuing):", e.message);
+        }
+        // Then re-check the rows already flagged with `prNeeds` (src/recheck.js) — bounded to
+        // those, never the board. Through the op, so it is audited like an operator's.
+        if (typeof ops.recheck === "function") {
+          try {
+            const { rechecked } = await ops.recheck({ all: true, actor: "boot" });
+            console.log(`[boot] post-restart re-check — ${rechecked.length} flagged row(s)`);
+          } catch (e) {
+            console.error("[boot] post-restart re-check failed (continuing):", e.message);
+          }
         }
       }
     } catch (e) {

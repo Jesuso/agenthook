@@ -146,6 +146,14 @@ step's source stage. It never reassigns, and refuses a ticket that is not failed
 the receiver down the row offers **Open log** instead (the drawer, with the full failure reason).
 Dismiss stays as the quieter secondary action.
 
+A row with a PR reason (`prNeeds`) gets a **⋯** menu: **Re-check** (`POST /api/recheck`,
+`{profile, ref}` — the receiver's `recheck` op asks the tracker and forge again and records only a
+missed `board_done`/merge), **Close on board** (`mergedOpen`/`openOnDone` only: `POST
+/api/close-on-board` → the `close_on_board` op closes the ticket on the tracker; its own done webhook
+then clears the row), **Dismiss** (a `dismissed` event nulls the reason until the next run), **Open
+PR** and **Open ticket**. The zone header's **Re-check all** sends `{profile, all: true}`: every row
+already flagged with a PR reason, never the board. Same guard chain as dismiss.
+
 ## Stack
 
 | Layer | Choice | Why |

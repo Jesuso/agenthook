@@ -19,9 +19,11 @@
 // {when:'idle'}` over its socket; a stopped one has its state dir archived via src/archive.js —
 // the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
 // read side (config path, archive pattern, webhook hint). `POST /api/dismiss` (same guards) asks
-// the receiver over its socket to acknowledge a failed/cancelled ticket (a `dismissed` event the
+// the receiver over its socket to acknowledge a failed/cancelled ticket or a PR row (a `dismissed` event the
 // receiver itself writes). `POST /api/retry` (same guards) re-runs a failed ticket's failed step
-// (the receiver re-enters its source stage, only for a ticket that is failed and ours). `POST /api/release` (same guards) answers a held ticket: the receiver
+// (the receiver re-enters its source stage, only for a ticket that is failed and ours). `POST
+// /api/recheck` and `POST /api/close-on-board` (same guards) re-ask the tracker/forge about a
+// Needs-you PR row (or every flagged row), and close a shipped one's ticket on the tracker. `POST /api/release` (same guards) answers a held ticket: the receiver
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
 // reused as the MCP `release` tool). `GET /api/epics[/<ref>]` asks the receiver's `epics` op (the
 // tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic.
@@ -83,6 +85,8 @@ const RESTART = "/api/restart";
 const REMOVE = "/api/profile/remove";
 const DISMISS = "/api/dismiss";
 const RETRY = "/api/retry";
+const RECHECK = "/api/recheck";
+const CLOSE_ON_BOARD = "/api/close-on-board";
 const RELEASE = "/api/release";
 const DIGEST = "/api/digest";
 const SUMMARY = "/api/summary";
@@ -177,7 +181,7 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
 
   /**
    * The guard prelude shared by the two PUTs and every POST (`/api/restart`, `/api/pause`,
-   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/retry`, `/api/release`), in order: cookie (Host already checked) → 401;
+   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/retry`, `/api/recheck`, `/api/close-on-board`, `/api/release`), in order: cookie (Host already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -320,6 +324,51 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
       if (!sock) return send(res, 404);
       callControl(sock.sockPath, "retry", { ref, actor: "ui" }, releaseTimeoutMs).then(({ status, body: result }) => {
         appendAudit(sock.dir, { ts: new Date().toISOString(), action: "retry", profile, ref, status });
+        sendStatusJson(res, status, result);
+      });
+    });
+
+  /**
+   * `POST /api/recheck` — readGuardedJson, then `{profile, ref}` (ref a non-empty string) or
+   * `{profile, all: true}` → else 400; unknown profile → 404 (socket never contacted); else sends
+   * `{cmd:'recheck', args:{ref|all, actor:'ui'}}` and maps the reply via `callControl`. The
+   * receiver asks the tracker (and forge) about the ref, or every row already flagged with a PR
+   * reason, recording only missed facts; a ref not ours or a failed fetch → 502 `{error}`. It
+   * reads the tracker, so it shares release's longer timeout. Audits `{ts, action:'recheck',
+   * profile, ref|all, status}`.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postRecheck = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, ref, all } = body;
+      if (typeof profile !== "string") return send(res, 400);
+      const which = all === true && ref === undefined ? { all: true } : typeof ref === "string" && ref && all === undefined ? { ref } : null;
+      if (!which) return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "recheck", { ...which, actor: "ui" }, releaseTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "recheck", profile, ...which, status });
+        sendStatusJson(res, status, result);
+      });
+    });
+
+  /**
+   * `POST /api/close-on-board` — readGuardedJson, then `{profile, ref}` both strings (ref
+   * non-empty) → else 400; unknown profile → 404 (socket never contacted); else sends
+   * `{cmd:'close_on_board', args:{ref, actor:'ui'}}` and maps the reply via `callControl`. The
+   * receiver closes the ticket on the tracker only for a row whose PR shipped while the ticket
+   * stayed open, and only when it is ours → else 502 `{error}`. Audits `{ts,
+   * action:'close-on-board', profile, ref, status}`.
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postCloseOnBoard = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, ref } = body;
+      if (typeof profile !== "string" || typeof ref !== "string" || !ref) return send(res, 400);
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      callControl(sock.sockPath, "close_on_board", { ref, actor: "ui" }, releaseTimeoutMs).then(({ status, body: result }) => {
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "close-on-board", profile, ref, status });
         sendStatusJson(res, status, result);
       });
     });
@@ -520,12 +569,14 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     if (req.method === "POST" && p === REMOVE) return postRemove(req, res, host);
     if (req.method === "POST" && p === DISMISS) return postDismiss(req, res, host);
     if (req.method === "POST" && p === RETRY) return postRetry(req, res, host);
+    if (req.method === "POST" && p === RECHECK) return postRecheck(req, res, host);
+    if (req.method === "POST" && p === CLOSE_ON_BOARD) return postCloseOnBoard(req, res, host);
     if (req.method === "POST" && p === RELEASE) return postRelease(req, res, host);
     if (req.method === "POST" && p === DIGEST) return postDigest(req, res, host);
     if (req.method === "POST" && p === SUMMARY) return postSummary(req, res, host);
     if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
     if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
-    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RELEASE || p === PAUSE || p === RESUME || p === SUMMARY) {
+    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RECHECK || p === CLOSE_ON_BOARD || p === RELEASE || p === PAUSE || p === RESUME || p === SUMMARY) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }

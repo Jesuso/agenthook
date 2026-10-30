@@ -38,6 +38,7 @@ const RESTARTED = profile("restarted");
 const DISMISSED = profile("dismissed");
 const RELEASED = profile("released");
 const RETRIED = profile("retried");
+const RECHECKED = profile("rechecked");
 const RELEASE_REFUSED = profile("release-refused");
 const RELEASE_SLOW = profile("release-slow");
 const TOGGLED = profile("toggled");
@@ -66,8 +67,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[], retry: any[]}} */
-const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [], retry: [] };
+/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[], retry: any[], recheck: any[]}} */
+const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [], retry: [], recheck: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -89,6 +90,13 @@ test.before(async () => {
     await fakeControl(RETRIED.sockPath, (s, req) => {
       calls.retry.push(req);
       s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: req.args.ref, step: "code", stage: "agent:code" } }) + "\n");
+    }),
+    // Mimics src/ops.js: recheck {ref} → one result, {all} → rechecked[]; close_on_board → completed.
+    await fakeControl(RECHECKED.sockPath, (s, req) => {
+      calls.recheck.push(req);
+      const result =
+        req.cmd === "close_on_board" ? { ref: req.args.ref, completed: true } : req.args.all ? { rechecked: [] } : { ref: req.args.ref, changed: [], unchanged: true };
+      s.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
     }),
     await fakeControl(RELEASED.sockPath, (s, req) => {
       calls.release.push(req);
@@ -365,6 +373,51 @@ test("POST /api/retry: sends {cmd:'retry', args:{ref, actor:'ui'}}, audits it; r
   assert.equal((await postRetry({ profile: "release-slow", ref: "9" })).status, 200, "retry uses the long timeout");
   assert.equal((await postRetry({ profile: "down", ref: "42" })).status, 503);
   assert.equal((await request("GET", "/api/retry", undefined, {})).status, 405);
+});
+
+const postRecheck = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/recheck", JSON.stringify(body), h);
+const postCloseOnBoard = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/close-on-board", JSON.stringify(body), h);
+
+test("POST /api/recheck + /api/close-on-board: guards and validation never reach the socket", async () => {
+  const ok = { profile: "rechecked", ref: "1" };
+  for (const post of [postRecheck, postCloseOnBoard]) {
+    assert.equal((await post(ok, { cookie: null })).status, 401);
+    assert.equal((await post(ok, { origin: "http://evil.example" })).status, 403);
+    assert.equal((await post(ok, { "x-ah-ui": null })).status, 403);
+    assert.equal((await post({ profile: "rechecked" })).status, 400);
+    assert.equal((await post({ profile: "rechecked", ref: "" })).status, 400);
+    assert.equal((await post({ profile: "rechecked", ref: 5 })).status, 400);
+    assert.equal((await post({ profile: "nope", ref: "1" })).status, 404);
+  }
+  assert.equal((await postRecheck({ profile: "rechecked", all: "yes" })).status, 400);
+  assert.equal((await postRecheck({ profile: "rechecked", all: true, ref: "1" })).status, 400, "one ref or all, never both");
+  assert.equal((await postCloseOnBoard({ profile: "rechecked", all: true })).status, 400, "close-on-board is one ref only");
+  assert.equal(calls.recheck.length, 0);
+});
+
+test("POST /api/recheck {ref}|{all} and /api/close-on-board {ref}: forwarded with actor ui, audited; down → 503; GET → 405", async () => {
+  const one = await postRecheck({ profile: "rechecked", ref: "42" });
+  assert.equal(one.status, 200);
+  assert.deepEqual(JSON.parse(one.body), { ref: "42", changed: [], unchanged: true });
+  const all = await postRecheck({ profile: "rechecked", all: true });
+  assert.deepEqual(JSON.parse(all.body), { rechecked: [] });
+  const closed = await postCloseOnBoard({ profile: "rechecked", ref: "42" });
+  assert.deepEqual(JSON.parse(closed.body), { ref: "42", completed: true });
+  assert.deepEqual(calls.recheck.map((c) => [c.cmd, c.args]), [
+    ["recheck", { ref: "42", actor: "ui" }],
+    ["recheck", { all: true, actor: "ui" }],
+    ["close_on_board", { ref: "42", actor: "ui" }],
+  ]);
+  const lines = uiAuditLines(RECHECKED.dir).map((l) => ({ action: l.action, ref: l.ref, all: l.all, status: l.status }));
+  assert.deepEqual(lines, [
+    { action: "recheck", ref: "42", all: undefined, status: 200 },
+    { action: "recheck", ref: undefined, all: true, status: 200 },
+    { action: "close-on-board", ref: "42", all: undefined, status: 200 },
+  ]);
+  assert.equal((await postRecheck({ profile: "down", ref: "42" })).status, 503);
+  assert.equal((await postCloseOnBoard({ profile: "down", ref: "42" })).status, 503);
+  assert.equal((await request("GET", "/api/recheck", undefined, {})).status, 405);
+  assert.equal((await request("GET", "/api/close-on-board", undefined, {})).status, 405);
 });
 
 const postRelease = (/** @type {any} */ body, /** @type {Record<string, string|null>} */ h = {}) => request("POST", "/api/release", JSON.stringify(body), h);

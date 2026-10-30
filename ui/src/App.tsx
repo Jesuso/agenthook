@@ -13,7 +13,7 @@ import { isUndoKey } from "./shortcuts";
 import { affectsRuns } from "./logview";
 import { discardPrompt } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
-import { configDiscardPrompt, RESTART_IDLE, dismissRequest, queueToggleRequest, releaseOutcome, releaseRequest, restartRequest, restartText, retryOutcome, retryRequest } from "./config";
+import { closeOnBoardOutcome, closeOnBoardRequest, configDiscardPrompt, RESTART_IDLE, dismissRequest, queueToggleRequest, recheckOutcome, recheckRequest, releaseOutcome, releaseRequest, restartRequest, restartText, retryOutcome, retryRequest } from "./config";
 import type { ReleaseOutcome } from "./config";
 import type { ConfigSinkEvent } from "./config";
 import { RemoveProfile } from "./RemoveProfile";
@@ -314,6 +314,32 @@ function Dashboard() {
       .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
       .catch(() => settle(0, null));
   };
+  /** POST /api/recheck for a PR row (`ref` null = every flagged row of the profile), toasting what it recorded. */
+  const recheck = (profile: string, ref: string | null): Promise<ReleaseOutcome> => {
+    const { url, init } = recheckRequest(profile, ref);
+    const label = ref === null ? profile : displayIdFor(profile, ref) ?? ref;
+    const settle = (status: number, body: any) => {
+      const out = recheckOutcome(label, status, body, lang);
+      if (out.ok) setToast({ text: out.text, hint: null });
+      return out;
+    };
+    return fetch(url, init)
+      .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
+      .catch(() => settle(0, null));
+  };
+  /** POST /api/close-on-board for a shipped PR row, toasting the outcome. */
+  const closeOnBoard = (r: { profile: string; ref: string }): Promise<ReleaseOutcome> => {
+    const { url, init } = closeOnBoardRequest(r.profile, r.ref);
+    const label = displayIdFor(r.profile, r.ref) ?? r.ref;
+    const settle = (status: number, body: any) => {
+      const out = closeOnBoardOutcome(label, status, body, lang);
+      if (out.ok) setToast({ text: out.text, hint: null });
+      return out;
+    };
+    return fetch(url, init)
+      .then((res) => res.json().then((b) => settle(res.status, b), () => settle(res.status, null)))
+      .catch(() => settle(0, null));
+  };
   // The ⋯ menu: Home cards and the profile header share it. Pending states come from App's reducers.
   const menuItems = (p: ProfileView): MenuItem[] => {
     const pending = pendingRemoval[p.name] !== undefined;
@@ -429,6 +455,8 @@ function Dashboard() {
           note={noteFor(profile)}
           onRelease={release}
           onRetry={retry}
+          onRecheck={recheck}
+          onCloseOnBoard={closeOnBoard}
           dismissing={dismissal.pending}
           onDismiss={dismiss}
         />
