@@ -73,4 +73,4 @@ Notes:
 - The Activity rail (and the events it's built from) stays empty until `pulse.js` or a real
   receiver appends to `events.jsonl` — it shows live SSE events only, and the static seed never
   reaches it.
-- PNGs for a PR go under `docs/ui-screens/<issue>-{before,after}-{dark,light}.png`.
+- Before/after PNGs for a PR are attached to the PR itself, not committed to the repo.

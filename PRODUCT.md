@@ -69,7 +69,7 @@ a supervision surface that reduces information load, not a project-management to
 
 ## Evidence on Hand
 
-- Screenshots of the current UI: `docs/img/ui-*.png`, before/after captures in `docs/ui-screens/`.
+- Screenshots of the current UI: `docs/img/ui-*.png`.
 - Real run recording: `docs/img/quickstart.gif` / `.mp4`.
 - Design decisions: `docs/web-ui.md`, ADRs in `docs/adr/`.
 - No testimonials, user counts, benchmarks or case studies exist; do not fabricate them.

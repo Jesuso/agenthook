@@ -4,6 +4,3 @@
 #   !skills/em-loop/**
 *
 !.gitignore
-!skills/
-!skills/pre-release/
-!skills/pre-release/**
