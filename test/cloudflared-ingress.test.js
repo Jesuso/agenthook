@@ -190,6 +190,20 @@ test("down: kills only our child; idempotent and a no-op before up", async () =>
   }
 });
 
+test("down: the log is complete immediately after down() resolves (large buffered write still in flight at exit)", async () => {
+  const dir = tmp();
+  const marker = "REGRESSION-MARKER-4f8c2a91";
+  // A payload big enough that the write stream is still draining when the child exits.
+  const bigPayload = "x".repeat(4 * 1024 * 1024);
+  const stderr = QUICK_LOG + QUICK_REGISTERED + bigPayload + "\n" + marker + "\n";
+  await withBin(fake(dir, stderr), async () => {
+    const ing = createCloudflaredIngress(cfgFor(dir), { timeoutMs: 5000 });
+    await ing.up(4124);
+    await ing.down();
+    assert.match(fs.readFileSync(path.join(dir, "logs", "cloudflared.log"), "utf8"), new RegExp(marker));
+  });
+});
+
 test("doctor ingressChecks: cloudflared checks its binary and never demands ingress.url", () => {
   const has = () => true;
   assert.deepEqual(ingressChecks({ type: "cloudflared" }, has).map(({ ok, label }) => ({ ok, label })), [{ ok: true, label: "cloudflared binary on PATH" }]);

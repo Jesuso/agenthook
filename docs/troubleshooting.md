@@ -140,9 +140,12 @@ poll the hold lane.
 Older builds gave a re-dispatched agent only the task body, so a human's answer posted as a tracker
 comment was never seen and the agent re-asked and held again. The step prompt now tells the agent to
 read the task's newest comments first and treat answers as decisions (via the adapter's
-`readCommentsHowTo`; the `local` tracker has no comment channel). If you use a custom
-`instructionsFile`, say the same there (see `examples/*/INSTRUCTIONS_*.md`). Workaround on an older
-build: put the answer in the task body/description.
+`readCommentsHowTo`; the `local` tracker has no comment channel). The review prompt also reads
+tracker comments (for acceptance criteria and clarifications, not just a held-question answer) and
+can post its outcome back via `commentHowTo`, so it no longer has to grade against the PR body on
+trackers whose URL needs auth. If you use a custom `instructionsFile`, say the same there (see
+`examples/*/INSTRUCTIONS_*.md`). Workaround on an older build: put the answer in the task
+body/description.
 
 ## `agenthook start` refuses to boot
 
