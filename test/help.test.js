@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // check; importing the bin does not run `main()` (it's gated to direct invoke).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { wantsHelp } from "../bin/agenthook.js";
+import { wantsHelp, suggestCommand } from "../bin/agenthook.js";
 
 test("wantsHelp flags --help/-h anywhere in the post-command args", () => {
   assert.equal(wantsHelp(["--help"]), true);
@@ -19,4 +19,13 @@ test("wantsHelp is false for real flags and bare args", () => {
   assert.equal(wantsHelp(["--all"]), false); // agents --all
   assert.equal(wantsHelp(["--config", "x.json"]), false);
   assert.equal(wantsHelp(["19"]), false); // run <ref>
+});
+
+test("suggestCommand finds a close typo of a real command", () => {
+  assert.equal(suggestCommand("strat"), "start"); // typo of start
+  assert.equal(suggestCommand("serve"), "serve"); // serve is now a valid key (alias of start)
+});
+
+test("suggestCommand returns null for garbage far from any command", () => {
+  assert.equal(suggestCommand("zzzzzz"), null);
 });
