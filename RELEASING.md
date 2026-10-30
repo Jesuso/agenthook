@@ -6,10 +6,6 @@ Release when it's worth it — **at most weekly**. No release train, no deadline
 
 ## Checklist
 
-In Claude Code, `/pre-release` runs step 4's checks and more (static checks, changelog vs diff, upgrade
-and remedy review) and ends with a report and the exact publish commands; after you publish it verifies
-the registry tarball and cuts the GitHub release (`.claude/skills/pre-release/SKILL.md`).
-
 1. Move `[Unreleased]` entries in `CHANGELOG.md` into a new `## [x.y.z] — YYYY-MM-DD` heading, and
    update the compare link refs at the bottom: `[Unreleased]` becomes `vX.Y.Z...HEAD`, and add a new
    `[x.y.z]: vPREV...vX.Y.Z` line for the release.
