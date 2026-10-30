@@ -53,13 +53,14 @@ function listen() {
   });
 }
 
-test("start: a busy port claimed by another registered profile fails before boot, naming it (running: no)", async () => {
+test("start: a busy port claimed by a not-running registered profile fails before boot, without telling the user to stop it", async () => {
   const { server, port } = await listen();
   try {
     const name = claimant(port);
     const { file } = profileOn(port);
     await assert.rejects(() => start({ config: file }), (e) => {
-      assert.match(e.message, new RegExp(`profile "${name}" is configured for it \\(running: no\\)`));
+      assert.match(e.message, new RegExp(`profile "${name}" is also configured for it`));
+      assert.doesNotMatch(e.message, /stop it/);
       return true;
     });
   } finally {
@@ -67,13 +68,13 @@ test("start: a busy port claimed by another registered profile fails before boot
   }
 });
 
-test("start: names the claimant as running when its pidfile holds a live pid", async () => {
+test("start: names the claimant as running when its pidfile holds a live pid, and says to stop it", async () => {
   const { server, port } = await listen();
   try {
     const name = claimant(port, { live: true });
     const { file } = profileOn(port);
     await assert.rejects(() => start({ config: file }), (e) => {
-      assert.match(e.message, new RegExp(`profile "${name}" is configured for it \\(running: yes\\)`));
+      assert.match(e.message, new RegExp(`is in use by profile "${name}" — stop it`));
       return true;
     });
   } finally {
