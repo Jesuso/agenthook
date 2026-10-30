@@ -85,11 +85,11 @@ JSON, not just the exit code:
 
 ## 5. Report + hand off
 
-Publish the report as an Artifact (it goes to the user to decide on): verdict line first
-(**ready** / **ready with notes** / **blocked**), then a table of steps 1–4 with evidence (counts,
-smoke phase details, the pack diff), findings with what you did about each (PR #, issue #, or
-"needs you"), and the open-PR/bug list. Then hand off the exact commands, in order, for the user
-to run if they agree:
+Reply in chat — no Artifact, no document, no file. The report is a short message: verdict line
+first (**ready** / **ready with notes** / **blocked**), then the evidence for steps 1–4 in a few
+lines or a compact table (counts, smoke phase results, the pack diff), findings with what you did
+about each (PR #, issue #, or "needs you"), and the open-PR/bug list. Then hand off the exact
+commands, in order, for the user to run if they agree:
 
 ```bash
 # if the release PR isn't merged yet: CHANGELOG [Unreleased] → [NEXT] — date, version bump (RELEASING.md 1-3)
