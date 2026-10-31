@@ -277,6 +277,29 @@ test("ticketRows: refs ascending (numeric first), running/held/blocked marks", (
   assert.deepEqual(ticketRows(board, {}, {})[1].blockedBy, ["2", "E1"], "without a pipeline every blocker counts as open");
 });
 
+test("ticket add: a trailing --blocked-by with no value is refused (never a silently unblocked ticket)", async () => {
+  const dir = tmp("ah-ticket-bb-");
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({ name: "ah-ticket-bb", repoPath: dir, ingress: { type: "manual", url: "http://127.0.0.1:1" }, tracker: { type: "local", pipeline: [{ id: "code", sourceStatus: "code", successStatus: "done" }, { id: "done", manual: true, sourceStatus: "done" }] } }));
+  const { exit, error } = { exit: process.exit, error: console.error };
+  /** @type {string[]} */
+  const errs = [];
+  console.error = (/** @type {string} */ m) => errs.push(m);
+  process.exit = /** @type {any} */ (() => {
+    throw Object.assign(new Error("exit"), { code: 1 });
+  });
+  try {
+    for (const bad of [parse(["add", "x", "--blocked-by"]), { _: ["add", "x"], "blocked-by": " , " }, { _: ["add", "x"], "blocked-by": true }]) {
+      await assert.rejects(() => ticket({ ...bad, config: file }), (/** @type {any} */ e) => e.code === 1);
+    }
+  } finally {
+    Object.assign(process, { exit });
+    console.error = error;
+  }
+  assert.equal(errs.length, 3);
+  for (const m of errs) assert.match(m, /--blocked-by needs a comma-separated list of refs/);
+});
+
 test("ticket add on a non-local profile exits 1 with the board hint", async () => {
   const dir = tmp("ah-ticket-gh-");
   const file = path.join(dir, "agenthook.config.json");

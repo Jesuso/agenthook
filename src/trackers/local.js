@@ -153,8 +153,18 @@ export function seedBoard(cfg, tasks, stage) {
 }
 
 /** @type {import('../types.js').AdapterFactory} */
-export function createLocalAdapter(cfg, _store) {
+export function createLocalAdapter(cfg, store) {
   const pipeline = cfg.pipeline;
+
+  /** Does `ref` have a running or queued job? A release for such a ref would be parked by the
+   * push sink and flushed stale (after the ref advanced), running a step twice. @param {string} ref */
+  const inFlight = (ref) => {
+    try {
+      return !!store?.listRunning?.()[ref] || !!store?.listQueued?.().some((j) => j.ref === ref);
+    } catch {
+      return false;
+    }
+  };
 
   // The board is a single JSON file; concurrent advances (parallel agents in one run)
   // would race on read-modify-write and lose updates. Serialize every mutation through
@@ -196,11 +206,13 @@ export function createLocalAdapter(cfg, _store) {
       // Close-release (mirrors github.js `closed`): entering a done stage fires every dependent
       // of ours that is now fully unblocked and resting in a non-manual step's source stage.
       // Decided on the board state that holds this move, so a dependent's other blockers count.
+      // A dependent with a job already running/queued (a `reconcile` or `run --force` that the
+      // dispatch gate will let through now) is skipped: its own job runs the step.
       if (sink && isDoneStage(cfg, stage)) {
         for (const [depRef, dep] of Object.entries(board)) {
           if (depRef === String(ref) || !normalizeBlockedBy(dep.blockedBy).includes(String(ref))) continue;
           const depStep = stepBySourceStage(dep.stage); // resting in a non-manual source stage
-          if (!depStep || openBlockersOf(cfg, board, depRef).length) continue;
+          if (!depStep || openBlockersOf(cfg, board, depRef).length || inFlight(depRef)) continue;
           released.push({ kind: "pipeline", ref: depRef, stepId: depStep.id, dedupKey: `unblock:${ref}:${depRef}:${nextSeq(cfg)}` });
         }
       }
@@ -322,6 +334,7 @@ export function createLocalAdapter(cfg, _store) {
       const stage = step.sourceStatus;
       if (!stage) throw new Error(`local: step "${step.id}" has no sourceStatus to add a task to`);
       const blockers = normalizeBlockedBy(blockedBy);
+      if (blockers.length && !pipeline?.some((s) => s.manual && s.sourceStatus)) throw new Error("local: the pipeline has no manual (done) step, so a blocker could never resolve");
       let ref = "";
       /** @type {string[]} */
       let open = [];
@@ -357,7 +370,8 @@ export function createLocalAdapter(cfg, _store) {
 
     // Every task resting in a (non-manual) step's source stage, as a pipeline job for
     // that step. This IS the offline driver's work source (a webhook would normally
-    // deliver these). Manual/terminal stages are skipped — a task there is done.
+    // deliver these). Manual/terminal stages are skipped — a task there is done; so are
+    // blocked items (like github/asana: reconcile must not re-inject one).
     async listResting() {
       if (!pipeline) return [];
       const board = readBoard(cfg);
@@ -365,7 +379,7 @@ export function createLocalAdapter(cfg, _store) {
       const jobs = [];
       for (const [ref, it] of Object.entries(board)) {
         const step = stepBySourceStage(it.stage);
-        if (!step) continue;
+        if (!step || openBlockersOf(cfg, board, ref).length) continue;
         jobs.push({ kind: "pipeline", ref, stepId: step.id, dedupKey: `local:${step.id}:${ref}:${it.stage}` });
       }
       return jobs;

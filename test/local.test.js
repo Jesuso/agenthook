@@ -440,3 +440,32 @@ test("close-release: unwired (offline driver) nothing is pushed; listQueued skip
   await a.enterStage("1", "done");
   assert.deepEqual(await a.listQueued("code"), ["2", "3"]);
 });
+
+test("blockers: listResting skips blocked items (reconcile never re-injects one); unblocked and done-blocker items are listed", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }, { ref: "2", name: "b", blockedBy: ["1"] }, { ref: "3", name: "c", blockedBy: ["9"] }], "code");
+  const a = adapter(cfg);
+  assert.deepEqual((await a.listResting()).map((j) => j.ref), ["1", "3"], "3's blocker is off the board → not blocked");
+  await a.enterStage("1", "done");
+  assert.deepEqual((await a.listResting()).map((j) => j.ref), ["2", "3"]);
+});
+
+test("close-release skips a dependent that already has a running or queued job (its own job passes the gate)", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }, { ref: "2", name: "running dep", blockedBy: ["1"] }, { ref: "3", name: "queued dep", blockedBy: ["1"] }, { ref: "4", name: "idle dep", blockedBy: ["1"] }], "code");
+  const store = /** @type {any} */ ({ listRunning: () => ({ 2: { stepId: "code" } }), listQueued: () => [{ kind: "pipeline", ref: "3", stepId: "code", dedupKey: "local:code:3:code" }] });
+  const a = createLocalAdapter(cfg, store);
+  /** @type {any[]} */
+  const pushed = [];
+  a.onJobs?.((jobs) => pushed.push(...jobs));
+  await a.enterStage("1", "done");
+  assert.deepEqual(pushed.filter((j) => j.dedupKey.startsWith("unblock:")).map((j) => j.ref), ["4"]);
+});
+
+test("createTask --blocked-by on a pipeline with no manual step is refused (a blocker could never resolve)", async () => {
+  const cfg = /** @type {any} */ ({ ...makeCfg(), pipeline: pipeline.filter((s) => !s.manual) });
+  seedBoard(cfg, [{ ref: "1", name: "a" }], "code");
+  const a = /** @type {any} */ (adapter(cfg));
+  await assert.rejects(() => a.createTask({ name: "x", blockedBy: ["1"] }), /no manual \(done\) step/);
+  assert.equal((await a.createTask({ name: "x" })).ref, "2", "without blockers the add is fine");
+});

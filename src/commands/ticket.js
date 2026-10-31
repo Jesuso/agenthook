@@ -41,9 +41,10 @@ async function add(cfg, args) {
   const body = ticketBody(args);
   if (typeof body !== "string") die(body.error);
   const step = typeof args.step === "string" ? args.step : undefined;
-  if (args["blocked-by"] !== undefined && typeof args["blocked-by"] !== "string") die("ticket add: --blocked-by needs a comma-separated list of refs");
+  // `"blocked-by" in args`, not `!== undefined`: a trailing `--blocked-by` with no value parses to
+  // undefined and must not silently create an UNblocked ticket.
   const blockedBy = normalizeBlockedBy(args["blocked-by"]);
-  if (args["blocked-by"] !== undefined && !blockedBy.length) die("ticket add: --blocked-by needs at least one ref");
+  if ("blocked-by" in args && (typeof args["blocked-by"] !== "string" || !blockedBy.length)) die("ticket add: --blocked-by needs a comma-separated list of refs (e.g. --blocked-by 3,7)");
 
   if (readProfile(cfg.stateKey).up) {
     let reply;
