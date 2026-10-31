@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Blockers on the local board. `agenthook ticket add … --blocked-by <ref,ref>` writes a `blockedBy`
+  list on the item; it rests in its stage until every listed ticket reaches a done stage (a manual
+  step's `sourceStatus`), then the last blocker's move pushes its step in-process (an `unblock:` job),
+  the same gate Asana and GitHub dependencies give you. The local adapter implements `openBlockers`
+  (dispatch's re-check), `listQueued` skips blocked items, `ticket ls` shows `blocked by #n`, and the
+  `ticket_add` control op accepts `blockedBy`. Each ref must already be on the board.
+
 ## [0.14.0] — 2026-10-29
 
 ### Added

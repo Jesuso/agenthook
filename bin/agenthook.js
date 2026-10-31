@@ -20,7 +20,7 @@
 //   agenthook run <ref> [stepId]   start work on an item: assign + enter the step's source stage
 //   agenthook reconcile            replay tasks resting in pipeline sections (explicit poll)
 //   agenthook recheck <ref>|--all  re-ask the tracker/forge about a Needs-you PR row (--all: every flagged row)
-//   agenthook ticket add "<title>" [--body <text>|--file <path>] [--step <id>]  add a ticket (local profiles)
+//   agenthook ticket add "<title>" [--body <text>|--file <path>] [--step <id>] [--blocked-by <refs>]  add a ticket (local profiles)
 //   agenthook ticket ls [--json]   the local board
 //   agenthook doctor [--fix [--dry-run]]  preflight checks for this profile (--fix: apply safe local fixes)
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
@@ -68,7 +68,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "body", "file", "step", "name", "agent"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "body", "file", "step", "name", "agent", "blocked-by"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -165,8 +165,9 @@ usage: agenthook <command> [args] [--config <path>]
   reconcile                 replay tasks resting in pipeline sections (explicit poll)
   recheck <ref> | --all     ask the tracker/forge again about a Needs-you PR row whose done/merge webhook was
                             missed; records only the missed facts (--all: every row flagged with a PR reason)
-  ticket add "<title>" [--body <text> | --file <path>] [--step <id>]
-                            add a ticket to a local profile's board (the receiver fires it at once)
+  ticket add "<title>" [--body <text> | --file <path>] [--step <id>] [--blocked-by <ref,ref>]
+                            add a ticket to a local profile's board (the receiver fires it at once;
+                            --blocked-by rests it until those tickets reach done)
   ticket ls [--json]        a local profile's board: ref, stage, title
   doctor [--fix [--dry-run]]  preflight checks; --fix applies the safe local fixes, then re-checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`

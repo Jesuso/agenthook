@@ -18,8 +18,10 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   re-checks it at run time so a dependency added while a job waited in the local queue still gates it),
   optional `onJobs(emit)` (an in-process event source — `local` only, no webhooks: the engine wires a
   sink at boot; `createPushSink` parks a ref's pushed job until its current run settles), optional
-  `createTask({name, description?, stepId?})` (`local` only: add one item under the next numeric ref and push
-  its `step:<id>:<ref>` job — `agenthook ticket add`).
+  `createTask({name, description?, stepId?, blockedBy?})` (`local` only: add one item under the next numeric ref and push
+  its `step:<id>:<ref>` job — `agenthook ticket add`; a `blockedBy` item is written but not pushed, the local
+  adapter's in-process close-release — a move into a done stage — fires it with an `unblock:` job). `openBlockers`
+  is implemented by asana, github and local.
 - `src/ingress/*.js` + `index.js` — ingress adapters (`ngrok` managed/ephemeral, `cloudflared`
   managed — quick tunnel ephemeral, named tunnel (`tunnel` + `hostname`) stable; logs to
   `<logDir>/cloudflared.log` — `tailscale` stable — one-shot `tailscale funnel --bg --set-path

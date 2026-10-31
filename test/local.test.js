@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createLocalAdapter, seedBoard, localBoardPath, extractRouteKeys, createdJob } from "../src/trackers/local.js";
+import { createLocalAdapter, seedBoard, localBoardPath, extractRouteKeys, createdJob, normalizeBlockedBy, openBlockersOf } from "../src/trackers/local.js";
 import { createStore } from "../src/store.js";
 import { resolveRepo } from "../src/repos.js";
 
@@ -342,4 +342,130 @@ test("fetchTask().completed: failure stage → false, hold stage → false, unbo
   assert.equal((await a.fetchTask("H")).completed, false, "hold stage");
   assert.equal((await a.fetchTask("B")).completed, false, "unbound stage");
   assert.equal((await a.fetchTask("D")).completed, true, "manual step's source stage");
+});
+
+// ── Blockers: `blockedBy` on a board item, the openBlockers gate, the in-process close-release ──
+
+test("normalizeBlockedBy: comma string, array, '#'-prefixed, dedup, blanks; unset → []", () => {
+  assert.deepEqual(normalizeBlockedBy("3, #7,,3 "), ["3", "7"]);
+  assert.deepEqual(normalizeBlockedBy(["a", " ", "b", "a"]), ["a", "b"]);
+  assert.deepEqual(normalizeBlockedBy(undefined), []);
+  assert.deepEqual(normalizeBlockedBy(42), []);
+});
+
+test("openBlockers: a blocker in a done stage or missing from the board no longer blocks", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }, { ref: "2", name: "b" }, { ref: "3", name: "c", blockedBy: ["1", "2", "9"] }], "code");
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  board["1"].stage = "done";
+  board["2"].stage = "blocked"; // a failure stage is NOT done — still blocks
+  fs.writeFileSync(localBoardPath(cfg), JSON.stringify(board));
+  const a = /** @type {any} */ (adapter(cfg));
+  assert.deepEqual(await a.openBlockers("3"), ["2"]);
+  assert.deepEqual(await a.openBlockers("1"), []);
+  assert.deepEqual(await a.openBlockers("nope"), []);
+  assert.deepEqual(openBlockersOf(cfg, board, "3"), ["2"], "the pure helper agrees");
+});
+
+test("createTask --blocked-by: writes the field, pushes NOTHING while a blocker is open, echoes the open ones", async () => {
+  const cfg = makeCfg();
+  const { a, pushed } = wired(cfg);
+  const first = await /** @type {any} */ (a.createTask)({ name: "first", stepId: "code" });
+  assert.deepEqual(first, { ref: "1", stage: "code", stepId: "code" });
+  const second = await /** @type {any} */ (a.createTask)({ name: "second", stepId: "code", blockedBy: ["1"] });
+  assert.deepEqual(second, { ref: "2", stage: "code", stepId: "code", blockedBy: ["1"] });
+  assert.deepEqual(pushed.map((j) => j.ref), ["1"], "only the unblocked add pushed a job");
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  assert.deepEqual(board["2"].blockedBy, ["1"]);
+  assert.equal("blockedBy" in board["1"], false, "no empty blockedBy on an unblocked item");
+});
+
+test("createTask --blocked-by: an unknown ref throws and writes nothing; a done blocker is accepted and fires at once", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }], "done");
+  const { a, pushed } = wired(cfg);
+  await assert.rejects(() => /** @type {any} */ (a.createTask)({ name: "x", blockedBy: ["1", "8"] }), /no task "8" on the board to be blocked by/);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"))), ["1"]);
+  const r = await /** @type {any} */ (a.createTask)({ name: "x", stepId: "code", blockedBy: "1" });
+  assert.deepEqual(r, { ref: "2", stage: "code", stepId: "code" });
+  assert.deepEqual(pushed, [{ kind: "pipeline", ref: "2", stepId: "code", dedupKey: "step:code:2" }]);
+});
+
+test("close-release: the blocker reaching done pushes one unblock job per dependent now unblocked and resting in a source stage", async () => {
+  const cfg = makeCfg();
+  seedBoard(
+    cfg,
+    [
+      { ref: "1", name: "blocker" },
+      { ref: "2", name: "dep, only on 1", blockedBy: ["1"] },
+      { ref: "3", name: "dep, on 1 and 5", blockedBy: ["1", "5"] },
+      { ref: "4", name: "dep in a failure stage", blockedBy: ["1"] },
+      { ref: "5", name: "other blocker" },
+      { ref: "6", name: "dep already done", blockedBy: ["1"] },
+    ],
+    "code",
+  );
+  const board = JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"));
+  board["1"].stage = "review";
+  board["4"].stage = "blocked";
+  board["6"].stage = "done";
+  fs.writeFileSync(localBoardPath(cfg), JSON.stringify(board));
+  const { a, pushed } = wired(cfg);
+  await a.advance("1", "review", { outcome: "advance" }); // review → done (the terminal stage)
+  // secmove for the manual `done` step (drain) first, then the release.
+  assert.deepEqual(pushed[0], { kind: "pipeline", ref: "1", stepId: "done", dedupKey: "secmove:1" });
+  assert.deepEqual(pushed.slice(1), [{ kind: "pipeline", ref: "2", stepId: "code", dedupKey: "unblock:1:2:2" }]);
+  assert.equal(JSON.parse(fs.readFileSync(localBoardPath(cfg), "utf8"))["1"].stage, "done");
+});
+
+test("close-release: a chain fires one link at a time; a move that is not into done releases nothing", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }, { ref: "2", name: "b", blockedBy: ["1"] }, { ref: "3", name: "c", blockedBy: ["2"] }], "code");
+  const { a, pushed } = wired(cfg);
+  await a.advance("1", "code", { outcome: "advance" }); // → review: not done
+  assert.deepEqual(pushed.map((j) => j.ref), ["1"]);
+  await a.advance("1", "review", { outcome: "advance" }); // → done
+  assert.deepEqual(pushed.filter((j) => j.dedupKey.startsWith("unblock:")).map((j) => j.ref), ["2"], "3 still waits on 2");
+  await a.enterStage("2", "done");
+  assert.deepEqual(pushed.filter((j) => j.dedupKey.startsWith("unblock:")).map((j) => j.ref), ["2", "3"]);
+  assert.deepEqual(await /** @type {any} */ (a.openBlockers)("3"), []);
+});
+
+test("close-release: unwired (offline driver) nothing is pushed; listQueued skips blocked items", async () => {
+  const cfg = makeCfg();
+  const q = /** @type {any} */ ({ ...cfg, pipeline: [{ ...pipeline[1], queueStatus: "backlog" }, pipeline[2], pipeline[3]] });
+  seedBoard(q, [{ ref: "1", name: "a" }, { ref: "2", name: "b", blockedBy: ["1"] }, { ref: "3", name: "c" }], "backlog");
+  const a = /** @type {any} */ (adapter(q));
+  assert.deepEqual(await a.listQueued("code"), ["1", "3"]);
+  await a.enterStage("1", "done");
+  assert.deepEqual(await a.listQueued("code"), ["2", "3"]);
+});
+
+test("blockers: listResting skips blocked items (reconcile never re-injects one); unblocked and done-blocker items are listed", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }, { ref: "2", name: "b", blockedBy: ["1"] }, { ref: "3", name: "c", blockedBy: ["9"] }], "code");
+  const a = adapter(cfg);
+  assert.deepEqual((await a.listResting()).map((j) => j.ref), ["1", "3"], "3's blocker is off the board → not blocked");
+  await a.enterStage("1", "done");
+  assert.deepEqual((await a.listResting()).map((j) => j.ref), ["2", "3"]);
+});
+
+test("close-release skips a dependent that already has a running or queued job (its own job passes the gate)", async () => {
+  const cfg = makeCfg();
+  seedBoard(cfg, [{ ref: "1", name: "a" }, { ref: "2", name: "running dep", blockedBy: ["1"] }, { ref: "3", name: "queued dep", blockedBy: ["1"] }, { ref: "4", name: "idle dep", blockedBy: ["1"] }], "code");
+  const store = /** @type {any} */ ({ listRunning: () => ({ 2: { stepId: "code" } }), listQueued: () => [{ kind: "pipeline", ref: "3", stepId: "code", dedupKey: "local:code:3:code" }] });
+  const a = createLocalAdapter(cfg, store);
+  /** @type {any[]} */
+  const pushed = [];
+  a.onJobs?.((jobs) => pushed.push(...jobs));
+  await a.enterStage("1", "done");
+  assert.deepEqual(pushed.filter((j) => j.dedupKey.startsWith("unblock:")).map((j) => j.ref), ["4"]);
+});
+
+test("createTask --blocked-by on a pipeline with no manual step is refused (a blocker could never resolve)", async () => {
+  const cfg = /** @type {any} */ ({ ...makeCfg(), pipeline: pipeline.filter((s) => !s.manual) });
+  seedBoard(cfg, [{ ref: "1", name: "a" }], "code");
+  const a = /** @type {any} */ (adapter(cfg));
+  await assert.rejects(() => a.createTask({ name: "x", blockedBy: ["1"] }), /no manual \(done\) step/);
+  assert.equal((await a.createTask({ name: "x" })).ref, "2", "without blockers the add is fine");
 });

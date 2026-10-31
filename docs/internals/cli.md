@@ -23,8 +23,8 @@ node bin/agenthook.js unregister         # delete this profile's webhooks
 node bin/agenthook.js catchup <ref> [--force]  # replay one missed item through the live server
 node bin/agenthook.js reconcile          # replay tasks resting in pipeline sections + PRs merged while down (explicit poll)
 node bin/agenthook.js recheck <ref>|--all  # re-ask tracker/forge about a Needs-you PR row (--all: every flagged row), over control.sock
-node bin/agenthook.js ticket add "<title>" [--body <t>|--file <p>] [--step <id>]  # local profiles: add a ticket (receiver up → `ticket_add` op over control.sock)
-node bin/agenthook.js ticket ls [--json] # local profiles: the board (ref, stage, title)
+node bin/agenthook.js ticket add "<title>" [--body <t>|--file <p>] [--step <id>] [--blocked-by <ref,ref>]  # local profiles: add a ticket (receiver up → `ticket_add` op over control.sock); --blocked-by rests it until those refs reach done
+node bin/agenthook.js ticket ls [--json] # local profiles: the board (ref, stage, title, running/held/blocked-by marks)
 node bin/agenthook.js doctor             # preflight: token resolves, repo is git, port free, …
 node bin/agenthook.js doctor --fix [--dry-run]  # apply the safe local fixes (state-dir perms, stale pidfile/control.sock, missing instruction files, UI bundle, worktree base, `git worktree prune`), then re-check; --dry-run only plans
 node bin/agenthook.js alias [--remove]   # opt-in `ah` short command (symlink beside the agenthook bin)

@@ -64,6 +64,18 @@ The running receiver fires the `code` step at once. `--step review` adds a ticke
 review. If the receiver is stopped, the ticket rests in its stage; after `agenthook start`, run
 `agenthook reconcile` to fire it.
 
+**Chain tickets.** `--blocked-by <ref,ref>` rests a ticket until every listed ticket reaches `done`
+(the same *blocked by* gate Asana and GitHub dependencies give you). The last blocker reaching `done`
+fires it while the receiver is up (after a downtime, `agenthook reconcile` picks it up); `ticket ls`
+shows `blocked by #n` until then. A blocker stuck in `blocked`/`held` keeps its dependents waiting;
+to drop a dependency, edit the item's `blockedBy` list in the profile's `local-board.json`.
+
+```bash
+agenthook ticket add "add the User model"                     # #1
+agenthook ticket add "add the /users route" --blocked-by 1    # #2 waits for #1
+agenthook ticket add "add the users page" --blocked-by 2      # #3 waits for #2
+```
+
 ## 5. Watch it, then read the result
 
 ```bash

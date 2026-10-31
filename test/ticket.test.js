@@ -266,13 +266,38 @@ test("ticketBody: --body or --file, never both", () => {
   assert.match(/** @type {any} */ (ticketBody({ body: "x".repeat(60 * 1024) })).error, /keep it under/);
 });
 
-test("ticketRows: refs ascending (numeric first), running/held marks", () => {
-  const board = { "10": { name: "ten", stage: "code" }, "2": { name: "two", stage: "review" }, E1: { name: "named", stage: "done" } };
-  assert.deepEqual(ticketRows(board, { "10": { stepId: "code" } }, { "2": { stepId: "review" } }), [
+test("ticketRows: refs ascending (numeric first), running/held/blocked marks", () => {
+  const board = { "10": { name: "ten", stage: "code", blockedBy: ["2", "E1"] }, "2": { name: "two", stage: "review" }, E1: { name: "named", stage: "done" } };
+  const cfg = /** @type {any} */ ({ pipeline: [{ id: "done", manual: true, sourceStatus: "done" }] });
+  assert.deepEqual(ticketRows(board, { "10": { stepId: "code" } }, { "2": { stepId: "review" } }, cfg), [
     { ref: "2", stage: "review", title: "two", held: "review" },
-    { ref: "10", stage: "code", title: "ten", running: "code" },
+    { ref: "10", stage: "code", title: "ten", running: "code", blockedBy: ["2"] },
     { ref: "E1", stage: "done", title: "named" },
   ]);
+  assert.deepEqual(ticketRows(board, {}, {})[1].blockedBy, ["2", "E1"], "without a pipeline every blocker counts as open");
+});
+
+test("ticket add: a trailing --blocked-by with no value is refused (never a silently unblocked ticket)", async () => {
+  const dir = tmp("ah-ticket-bb-");
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({ name: "ah-ticket-bb", repoPath: dir, ingress: { type: "manual", url: "http://127.0.0.1:1" }, tracker: { type: "local", pipeline: [{ id: "code", sourceStatus: "code", successStatus: "done" }, { id: "done", manual: true, sourceStatus: "done" }] } }));
+  const { exit, error } = { exit: process.exit, error: console.error };
+  /** @type {string[]} */
+  const errs = [];
+  console.error = (/** @type {string} */ m) => errs.push(m);
+  process.exit = /** @type {any} */ (() => {
+    throw Object.assign(new Error("exit"), { code: 1 });
+  });
+  try {
+    for (const bad of [parse(["add", "x", "--blocked-by"]), { _: ["add", "x"], "blocked-by": " , " }, { _: ["add", "x"], "blocked-by": true }]) {
+      await assert.rejects(() => ticket({ ...bad, config: file }), (/** @type {any} */ e) => e.code === 1);
+    }
+  } finally {
+    Object.assign(process, { exit });
+    console.error = error;
+  }
+  assert.equal(errs.length, 3);
+  for (const m of errs) assert.match(m, /--blocked-by needs a comma-separated list of refs/);
 });
 
 test("ticket add on a non-local profile exits 1 with the board hint", async () => {
@@ -295,10 +320,11 @@ test("ticket add on a non-local profile exits 1 with the board hint", async () =
   assert.match(errs[0], /ticket add is for local profiles — add work on your GitHub board, then `agenthook run <ref>`/);
 });
 
-test("CLI: --body/--file/--step/--name are value flags; help lists ticket add|ls and init --local", () => {
-  const a = parse(["add", "fix it", "--body", "why", "--step", "review", "--file", "f.md", "--name", "n", "--yes"]);
-  assert.deepEqual(a, { _: ["add", "fix it"], body: "why", step: "review", file: "f.md", name: "n", yes: true });
+test("CLI: --body/--file/--step/--name/--blocked-by are value flags; help lists ticket add|ls and init --local", () => {
+  const a = parse(["add", "fix it", "--body", "why", "--step", "review", "--file", "f.md", "--name", "n", "--blocked-by", "3,7", "--yes"]);
+  assert.deepEqual(a, { _: ["add", "fix it"], body: "why", step: "review", file: "f.md", name: "n", "blocked-by": "3,7", yes: true });
   assert.match(HELP, /ticket add "<title>"/);
+  assert.match(HELP, /--blocked-by <ref,ref>/);
   assert.match(HELP, /ticket ls/);
   assert.match(HELP, /init --local/);
 });

@@ -33,7 +33,12 @@ const SCRIPT = {
   resting: { triage: ["advance"], code: ["advance"], review: ["advance"] },
   // #565: a hold with a clickable answer, then `release` resumes it with that answer as the comment.
   answer: { triage: [{ outcome: "hold", summary: { options: HELD_OPTIONS } }, "advance"], code: ["advance"], review: ["advance"] },
+  // Blockers: two tickets added through `ticket_add` (numeric refs 1 and 2), 2 blocked by 1.
+  1: { triage: ["advance"], code: ["advance"], review: ["advance"] },
+  2: { triage: ["advance"], code: ["advance"], review: ["advance"] },
 };
+/** Created by the chain scenario itself (ticket_add), never seeded or `run`. */
+const ADDED = new Set(["1", "2"]);
 // Seeded straight into triage before boot (a ticket added while the receiver was down): boot
 // never fires it — only an explicit `reconcile` does.
 const RESTING = "resting";
@@ -157,7 +162,7 @@ before(async () => {
   // The board, seeded before boot. `backlog` is bound by no step, so nothing fires until `run`.
   /** @type {Record<string, any>} */
   const board = {};
-  for (const ref of Object.keys(SCRIPT)) board[ref] = { name: `e2e ${ref}`, description: `scenario ${ref}`, stage: ref === RESTING ? "triage" : "backlog" };
+  for (const ref of Object.keys(SCRIPT).filter((r) => !ADDED.has(r))) board[ref] = { name: `e2e ${ref}`, description: `scenario ${ref}`, stage: ref === RESTING ? "triage" : "backlog" };
   fs.writeFileSync(path.join(stateDir, "local-board.json"), JSON.stringify(board, null, 2));
 
   /** @type {Record<string, string | undefined>} */
@@ -178,7 +183,7 @@ before(async () => {
   await waitForOutput(new RegExp(`agenthook \\[${NAME}\\] listening on 127\\.0\\.0\\.1:${port}`));
   sock = path.join(stateDir, "control.sock");
   // Enter every scenario up front; they run in parallel (maxConcurrent = #scenarios).
-  for (const ref of Object.keys(SCRIPT).filter((r) => r !== RESTING)) {
+  for (const ref of Object.keys(SCRIPT).filter((r) => r !== RESTING && !ADDED.has(r))) {
     const reply = await controlRequest(sock, "run", { ref });
     assert.equal(reply.ok, true, `run ${ref}: ${!reply.ok ? reply.error : ""}`);
   }
@@ -222,6 +227,30 @@ scenario("happy: triage → code → review → done drains the worktree", async
   const prompt = fs.readFileSync(promptPathFor(path.join(logsDir, /** @type {string} */ (reviewLog))), "utf8");
   assert.ok(prompt.includes('branch "agent/happy"'), "review prompt names the real branch");
   assert.ok(!prompt.includes("undefined"), "review prompt never renders branch undefined");
+});
+
+scenario("chain: ticket_add --blocked-by rests the dependent until the blocker reaches done, then fires it in-process", async () => {
+  const head = await controlRequest(sock, "ticket_add", { title: "chain head" });
+  assert.equal(head.ok, true, `ticket_add head: ${!head.ok ? head.error : ""}`);
+  assert.deepEqual(head.ok && head.result, { ref: "1", step: "triage", stage: "triage" });
+  const tail = await controlRequest(sock, "ticket_add", { title: "chain tail", blockedBy: ["1"] });
+  assert.equal(tail.ok, true, `ticket_add tail: ${!tail.ok ? tail.error : ""}`);
+  assert.deepEqual(tail.ok && tail.result, { ref: "2", step: "triage", stage: "triage", blockedBy: ["1"] });
+
+  const tailEvents = await eventsUntil("2", ["pipeline_done", "failed", "blocked"]);
+  assert.equal(tailEvents.at(-1)?.event, "pipeline_done");
+  assert.deepEqual(runEnds(tailEvents), ["triage:advance", "code:advance", "review:advance"]);
+  assert.match(output, /\[unblock\] 1 done → firing 2 \(triage\)/);
+  // Ordering: the tail's first run started only after the head's last agent step advanced it into
+  // `done` (the manual step's drain job runs alongside the released tail — pipeline_done may land later).
+  const all = fs.readFileSync(path.join(stateDir, "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const headDone = all.findIndex((e) => e.ref === "1" && e.event === "run_end" && e.step === "review");
+  const tailStart = all.findIndex((e) => e.ref === "2" && e.event === "run_start");
+  assert.ok(headDone >= 0 && tailStart > headDone, `tail started (idx ${tailStart}) before head reached done (idx ${headDone})`);
+  const board = JSON.parse(fs.readFileSync(path.join(stateDir, "local-board.json"), "utf8"));
+  assert.equal(board["1"].stage, "done");
+  assert.equal(board["2"].stage, "done");
+  assert.deepEqual(board["2"].blockedBy, ["1"]);
 });
 
 scenario("changes: review → code loop stops at the code step's maxAttempts", async () => {

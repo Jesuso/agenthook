@@ -792,6 +792,10 @@ test("ticket_add: creates the item through adapter.createTask; audit logs the bo
   const r = await s.ops.ticket_add({ actor: "cli", title: "  fix the thing ", body: "secret spec text", step: "review" });
   assert.deepEqual(r, { ref: "4", step: "review", stage: "review" });
   assert.deepEqual(created, [{ name: "fix the thing", description: "secret spec text", stepId: "review" }]);
+  // blockedBy: only strings pass through; the adapter's open blockers come back on the result.
+  const b = setup({ adapter: { createTask: async (/** @type {any} */ t) => (created.push(t), { ref: "5", stage: "code", stepId: "code", blockedBy: t.blockedBy }) } });
+  assert.deepEqual(await b.ops.ticket_add({ title: "dep", blockedBy: ["3", 7, "4"] }), { ref: "5", step: "code", stage: "code", blockedBy: ["3", "4"] });
+  assert.deepEqual(created.at(-1), { name: "dep", description: "", blockedBy: ["3", "4"] });
   const [line] = s.audit();
   assert.equal(line.cmd, "ticket_add");
   assert.equal(line.ok, true);

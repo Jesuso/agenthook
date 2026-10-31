@@ -141,6 +141,16 @@ The engine owns this resolution; an adapter only maps the final outcome → a bo
   `createTask` (local only) adds one item under the next numeric ref at a step's source stage and
   pushes its `step:<id>:<ref>` job — `agenthook ticket add`, via the `ticket_add` control op when
   the receiver is up.
+- **Blockers** (mirrors the GitHub/Asana block gate): an item's `blockedBy` (refs; `ticket add
+  --blocked-by 3,7`, each must exist on the board) keeps it resting while any is not in a done
+  stage (a manual step's `sourceStatus`; a pipeline without one refuses blockers). `openBlockers(ref)`
+  is dispatch's re-check; `listResting` and `listQueued` skip blocked items (reconcile/pull never
+  re-inject one); `createTask` pushes no job for a blocked item. The release is in-process:
+  a move into a done stage (`advance`, `enterStage`) pushes one `unblock:<ref>:<dep>:<n>` job per
+  dependent now fully unblocked and resting in a non-manual step's source stage — unless that
+  dependent already has a running/queued job (the push sink would park and flush it stale, running
+  the step twice; the existing job passes the gate itself). A blocker missing from the board no
+  longer blocks (fail-open, a workflow gate).
   Unwired (no engine), nothing is pushed: the offline driver `docs/experiments/run-sweep.mjs` still
   drives the pipeline by polling `listResting()`.
 

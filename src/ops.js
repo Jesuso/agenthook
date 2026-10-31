@@ -484,8 +484,9 @@ export function createOps(deps) {
       const title = needString(args.title, "title");
       if (typeof adapter.createTask !== "function") throw new Error(`tracker "${cfg.provider}" has no ticket add — add the item on its board, then \`run\` it`);
       const body = typeof args.body === "string" ? args.body.slice(0, TICKET_BODY_MAX) : "";
-      const created = await adapter.createTask({ name: title, description: body, ...(args.step ? { stepId: String(args.step) } : {}) });
-      return { ref: created.ref, step: created.stepId, stage: created.stage };
+      const blockedBy = Array.isArray(args.blockedBy) ? args.blockedBy.filter((/** @type {unknown} */ b) => typeof b === "string").slice(0, 100) : [];
+      const created = await adapter.createTask({ name: title, description: body, ...(args.step ? { stepId: String(args.step) } : {}), ...(blockedBy.length && { blockedBy }) });
+      return { ref: created.ref, step: created.stepId, stage: created.stage, ...(created.blockedBy?.length && { blockedBy: created.blockedBy }) };
     }),
     catchup: write("catchup", async (args) => {
       const ref = needString(args.ref, "ref");
