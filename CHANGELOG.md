@@ -31,7 +31,9 @@ All notable changes to this project are documented here. The format is based on
   red-CI bounce, operator `cancel`, restart recovery — before the task moves (a refused disable
   holds the task instead of reworking), and on a new commit pushed to the PR after approval
   (`pull_request` synchronize webhook). `tooLate: true` flags a PR that had already merged.
-  Not combinable with multi-repo `repos` yet.
+  Not combinable with multi-repo `repos` yet. The tier must come from a step after the
+  `createsWorktree` step (review, QA, …): config validation refuses a triage tier, or the code step
+  judging its own work.
 
 ## [0.14.0] — 2026-10-29
 

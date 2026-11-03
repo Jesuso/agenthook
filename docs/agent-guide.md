@@ -231,7 +231,11 @@ success. Use `catchup {ref, force?}` instead — it replays the forged event in-
 whether it actually `dispatched`.
 
 **Merge when green.** With `forge.autoMerge` set, a PR whose approving step advanced with an allowed
-tier merges itself (`auto_merge_enabled`); act only on `auto_merge_failed` and `auto_merge_skipped`. Otherwise, don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
+tier merges itself (`auto_merge_enabled`); act only on `auto_merge_failed` and `auto_merge_skipped`.
+A task held with "could not turn off auto-merge…" was bounced (`changes` or red CI) while GitHub
+refused to disable auto-merge, so the rework was not fired: turn it off (`gh pr merge <n>
+--disable-auto`), then `release` the task. An `auto_merge_disabled` with `tooLate: true` means the
+rejected code already merged: tell the human; don't revert on your own. Otherwise, don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
 carries `mergeable`/`mergeState`, so you can merge without another call (`mergeable:null` = GitHub hasn't
 computed it yet; re-read `prs`). It fires only once the last workflow finishes, and only for Actions
 workflows — a repo whose last check is an external app (no `workflow_run`) won't emit, so keep `prs` as the
