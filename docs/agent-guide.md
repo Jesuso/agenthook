@@ -97,7 +97,7 @@ stage that are not running/queued, i.e. waiting for a slot or missed), `prs`
 rate it carries `"estUsd"` and `"costBasis":"rate-table"` instead — a reported run has `"costBasis":"reported"`;
 a step with `energy:true` adds measured `"energyKwh"`, `"energyUsd"`, `"energySource"` — electricity, never part of either dollar figure;
 an optional `"plain"` is the agent's one-sentence `summary.plain`, whitespace-collapsed and clipped to 200 chars — absent when it wrote none; an optional `"options"` is `summary.options` — 2-4 short discrete answers, only on a hold);
-`reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. Result: `{events, cursor, more?,
+`reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. `auto_merge_enabled` carries `pr`, `tier`, `method` (and `mergedNow` when it merged at once); `auto_merge_failed` carries `tier`, `reason` and usually `pr`. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
 `runs {ref, tail?}` → `{runs:[{run,step,at,outcome,costUsd,estUsd?,costBasis?,energyKwh?,energyUsd?,running?,summary?}], log?}`. `tail:N` adds the
@@ -111,7 +111,7 @@ run's `run_end` event as `plain`. On a hold with a question that genuinely has 2
 answers, the agent may also write `summary.options`: 2-4 short strings (≤ 80 chars each), also
 measured apart from the cap. It rides on `run_end` as `options`, only on a `hold` outcome.
 
-`prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt,mine?}]}`. `ci` is
+`prs` → `{at, prs:[{number,ref,title,url,draft,mergeable,mergeState,ci,updatedAt,autoMerge?,mine?}]}` (`autoMerge:true` = GitHub auto-merge is on; GitHub merges it when the required checks pass). `ci` is
 `success | failure | pending | none | unknown`; **only `success` is green**. `cancelled` and
 `action_required` runs count as `failure`; `unknown` means the CI lookup itself failed (not "no CI").
 `mergeable:false` / `mergeState:"dirty"` = merge conflict. GitHub computes mergeability lazily; a
@@ -230,7 +230,12 @@ a stage it's already in, so no fresh transition fires and nothing happens even t
 success. Use `catchup {ref, force?}` instead — it replays the forged event in-process and tells you
 whether it actually `dispatched`.
 
-**Merge when green.** Don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
+**Merge when green.** With `forge.autoMerge` set, a PR whose approving step advanced with an allowed
+tier merges itself (`auto_merge_enabled`); act only on `auto_merge_failed` and `auto_merge_skipped`.
+A task held with "could not turn off auto-merge…" was bounced (`changes` or red CI) while GitHub
+refused to disable auto-merge, so the rework was not fired: turn it off (`gh pr merge <n>
+--disable-auto`), then `release` the task. An `auto_merge_disabled` with `tooLate: true` means the
+rejected code already merged: tell the human; don't revert on your own. Otherwise, don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
 carries `mergeable`/`mergeState`, so you can merge without another call (`mergeable:null` = GitHub hasn't
 computed it yet; re-read `prs`). It fires only once the last workflow finishes, and only for Actions
 workflows — a repo whose last check is an external app (no `workflow_run`) won't emit, so keep `prs` as the
@@ -262,7 +267,13 @@ ticket entered a manual step with that flag already set; `via:"recheck"` = a `re
 catch-up asked the tracker and found it done after its webhook was missed; a signal only, nothing runs or moves.
 Entering the terminal stage alone is `pipeline_done`, a handoff, never done. Older logs may hold
 `via:"stage"` events; they never meant done), `ci_red {action}`, `ci_green {pr, sha, mergeable,
-mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha), `pulled`
+mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha),
+`auto_merge_enabled {pr, tier, method}` / `auto_merge_failed {tier?, reason}` /
+`auto_merge_skipped {tier?, reason}` / `auto_merge_disabled {pr, reason, tooLate?}` (opt-in
+`forge.autoMerge`: the receiver turned on GitHub auto-merge after an approving step, could not (the
+PR still needs you), skipped it because the tier didn't qualify or the PR head moved since it was
+judged (the PR still needs you), or turned it off because the task bounced back or got a new commit;
+`tooLate` = the PR had already merged and the rejected code needs you), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
 Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,
 resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer stopped / restarted

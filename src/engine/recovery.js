@@ -2,6 +2,7 @@
 // running.json (never a board poll), the overlapGuard releaser and the `step:` dedup release.
 import { isStateDedupKey } from "../store.js";
 import { reportMoveFailure } from "../events.js";
+import { disableAutoMergeOnBounce } from "../auto-merge.js";
 
 /**
  * Pure record builder for a fatal crash — unit-testable without touching disk/process.
@@ -77,8 +78,9 @@ export function createOverlapReleaser(store, intake, emit) {
  * @param {import('../types.js').Adapter} adapter
  * @param {(event: string, ref: string, step: string, extra?: Record<string, any>) => void} emit
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: a fail frees the ref's lock
+ * @param {{cfg?: import('../types.js').Config, forge?: import('../types.js').Forge|null}} [am]  forge.autoMerge: a fail turns it off
  */
-export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
+export async function recoverInterrupted(store, adapter, emit, releaseOverlap, am = {}) {
   const running = store.listRunning();
   const refs = Object.keys(running);
   if (!refs.length) return;
@@ -86,6 +88,8 @@ export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
   for (const ref of refs) {
     const { stepId } = running[ref];
     emit("failed", ref, stepId, { reason: "interrupted by restart" });
+    // A fail is a bounce too: an approved PR must not merge while its task sits in the failure lane.
+    if (am.cfg?.forge?.autoMerge) await disableAutoMergeOnBounce({ forge: am.forge, store, emit }, ref, stepId, "interrupted by restart");
     try {
       await adapter.advance?.(ref, stepId, { outcome: "fail", reason: "interrupted by restart" });
     } catch (e) {
@@ -94,6 +98,7 @@ export async function recoverInterrupted(store, adapter, emit, releaseOverlap) {
     }
     store.clearRunning(ref);
     store.clearAttempts(ref);
+    store.clearSummaries(ref); // like a terminal fail in dispatch: no stale approval outlives it
     store.unmarkSeen(`step:${stepId}:${ref}`);
     if (releaseOverlap) {
       store.clearPredictedPaths(ref);

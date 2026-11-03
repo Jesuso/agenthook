@@ -4,7 +4,7 @@
 import { isForgePath } from "../forges/index.js";
 
 /** Job kinds that are signals, never queued work. */
-const SIGNAL_KINDS = new Set(["ci_green", "epic_changed", "board_done"]);
+const SIGNAL_KINDS = new Set(["ci_green", "epic_changed", "board_done", "pr_push"]);
 
 /**
  * @param {{
@@ -14,10 +14,11 @@ const SIGNAL_KINDS = new Set(["ci_green", "epic_changed", "board_done"]);
  *   ciGreen: (job: import('../types.js').Job) => unknown,
  *   epicChanged: (job: import('../types.js').Job) => unknown,
  *   boardDone: (job: import('../types.js').Job) => unknown,
+ *   prPush?: (job: import('../types.js').Job) => Promise<unknown>,
  * }} deps
  * @returns {import('node:http').RequestListener}
  */
-export function createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone }) {
+export function createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone, prPush }) {
   return (req, res) => {
     if (req.method !== "POST") {
       res.writeHead(200);
@@ -57,12 +58,13 @@ export function createRequestHandler({ adapter, forge, intake, ciGreen, epicChan
       res.end();
       Promise.resolve(source.processEvents(ctx))
         .then((jobs) => {
-          // `ci_green` / `epic_changed` / `board_done` are signals, not work: skip the queue
-          // (see src/ci-green.js, src/epic-changed.js, src/board-done.js).
+          // `ci_green` / `epic_changed` / `board_done` / `pr_push` are signals, not work: skip the queue
+          // (see src/ci-green.js, src/epic-changed.js, src/board-done.js, src/auto-merge.js).
           for (const j of jobs || []) {
             if (j.kind === "ci_green") ciGreen(j);
             else if (j.kind === "epic_changed") epicChanged(j);
             else if (j.kind === "board_done") boardDone(j);
+            else if (j.kind === "pr_push") prPush?.(j).catch((e) => console.error("[auto-merge] pr_push", e.message));
           }
           return intake((jobs || []).filter((j) => !SIGNAL_KINDS.has(j.kind)));
         }).catch((e) => console.error("[events]", e.message));

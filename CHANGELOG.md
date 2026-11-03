@@ -14,6 +14,26 @@ All notable changes to this project are documented here. The format is based on
   the same gate Asana and GitHub dependencies give you. The local adapter implements `openBlockers`
   (dispatch's re-check), `listQueued` skips blocked items, `ticket ls` shows `blocked by #n`, and the
   `ticket_add` control op accepts `blockedBy`. Each ref must already be on the board.
+- Opt-in auto-merge on review approval (`forge.autoMerge`, GitHub forge). When the review step
+  approves a PR with `advance` and its verdict's `summary.tier` is in `autoMerge.tiers`, the receiver
+  marks the PR ready (if draft) and enables GitHub auto-merge (`method`: `squash` by default, `merge`
+  or `rebase`), so GitHub merges it once the required checks pass — what `gh pr ready` +
+  `gh pr merge --auto` did by hand. Never on `hold`/`changes`/`fail`, a missing tier or one outside
+  the list; idempotent on re-runs. A refusal (auto-merge not allowed, permissions, network) never
+  fails the step: it emits `auto_merge_failed {pr?, tier, reason}` and leaves the PR alone. Success
+  emits `auto_merge_enabled {pr, tier, method}`; `prs` rows gain `autoMerge: true` and `ah tick`
+  shows `auto-merge`. Off when the block is absent. `autoMerge.step` picks any non-manual approving
+  step and `autoMerge.tierFrom` reads the tier from an earlier step's verdict (e.g. merge after QA
+  on the review's tier). An approving advance whose tier doesn't qualify emits `auto_merge_skipped`
+  instead of staying silent. Only the commit the tier step judged can merge: its PR head is
+  recorded when it starts and auto-merge is pinned to it (`expectedHeadOid`); a moved head is a
+  skip. Auto-merge comes off again (`auto_merge_disabled`) on any later `changes`/`fail` — verdict,
+  red-CI bounce, operator `cancel`, restart recovery — before the task moves (a refused disable
+  holds the task instead of reworking), and on a new commit pushed to the PR after approval
+  (`pull_request` synchronize webhook). `tooLate: true` flags a PR that had already merged.
+  Not combinable with multi-repo `repos` yet. The tier must come from a step after the
+  `createsWorktree` step (review, QA, …): config validation refuses a triage tier, or the code step
+  judging its own work.
 
 ## [0.14.0] — 2026-10-29
 

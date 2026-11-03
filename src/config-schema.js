@@ -223,6 +223,11 @@ export const CONFIG_SCHEMA = [
   entry("forge.greenCi", "boolean", "Report green CI", "forge", "Emit a ci_green event when an agent PR's checks all pass (moves nothing).", { default: true }),
   entry("forge.boardClosesOnMerge", "boolean", "Board closes on merge", "forge", "The board closes its own tickets on merge (e.g. Jira/Linear with a GitHub/GitLab integration); agenthook doesn't bridge.", { advanced: true, default: false }),
   entry("forge.ciTarget", "string", "Red-CI target step", "forge", "Step a red-CI bounce returns to; unset = the step that creates the worktree.", { advanced: true }),
+  entry("forge.autoMerge", "object", "Auto-merge on approval", "forge", "Opt-in: when the approving step advances a PR in an allowed tier, enable auto-merge; a later bounce turns it off.", { scope: ["github"], advanced: true }),
+  entry("forge.autoMerge.tiers", "string-list", "Tiers", "forge", "Review risk tiers (the verdict's summary.tier) that may auto-merge, e.g. low, medium.", { scope: ["github"], advanced: true }),
+  entry("forge.autoMerge.method", "enum", "Merge method", "forge", "How GitHub merges the PR once its required checks pass.", { options: ["squash", "merge", "rebase"], default: "squash", scope: ["github"], advanced: true }),
+  entry("forge.autoMerge.step", "string", "Approving step", "forge", "Step whose advance triggers it; unset = the pipeline's last review-kind step.", { scope: ["github"], advanced: true }),
+  entry("forge.autoMerge.tierFrom", "string", "Tier from step", "forge", "Step whose verdict's summary.tier is checked (must not run after the approving step); unset = the approving step.", { scope: ["github"], advanced: true }),
 
   // Integrations
   entry("overlapGuard", "boolean", "Overlap guard", "integrations", "Hold a worktree step while its predicted file paths overlap another in-flight task's.", { advanced: true, default: false }),

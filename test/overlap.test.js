@@ -362,6 +362,31 @@ test("recoverInterrupted: without a releaser (guard off) overlap state is untouc
   assert.deepEqual(store.listRunning(), {});
 });
 
+test("recoverInterrupted + forge.autoMerge: turns auto-merge off before failing the task, and drops stale summaries", async () => {
+  const store = createStore(tmpDir());
+  store.setRunning("A", { stepId: "qa", startedAt: "t" });
+  store.setSummary("A", "review", { summary: { tier: "low" }, outcome: "advance", run: "r", at: "t", headSha: "abc" });
+  /** @type {string[]} */
+  const order = [];
+  const adapter = /** @type {any} */ ({ advance: async (/** @type {string} */ ref, /** @type {string} */ s, /** @type {any} */ v) => order.push(`advance ${v.outcome}`) });
+  const forge = /** @type {any} */ ({
+    prHead: async () => ({ number: 7, sha: "abc", open: true }),
+    disableAutoMerge: async (/** @type {number} */ n) => (order.push(`disable ${n}`), { status: "disabled" }),
+  });
+  /** @type {string[]} */
+  const events = [];
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await recoverInterrupted(store, adapter, (/** @type {string} */ e) => events.push(e), undefined, { cfg: /** @type {any} */ ({ forge: { type: "github", autoMerge: { tiers: ["low"] } } }), forge });
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(order, ["disable 7", "advance fail"]);
+  assert.ok(events.includes("auto_merge_disabled"));
+  assert.equal(store.getSummaries("A"), undefined);
+});
+
 test("gate: a worktree failure right after taking the lock releases it again", async () => {
   const h = harness();
   h.store.setPredictedPaths("F", ["src/f.js"]);

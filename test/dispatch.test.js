@@ -143,8 +143,8 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
 // A fake `claude` (a tiny sh script, no network) writes $FAKE_VERDICT to the verdict
 // file and records the prompt it was handed, so runClaude runs end to end.
 
-/** @param {{steps?: any[], meta?: any, cfg?: any}} [o] */
-function heldHarness({ steps, meta, cfg: cfgOver } = {}) {
+/** @param {{steps?: any[], meta?: any, cfg?: any, forge?: any}} [o] */
+function heldHarness({ steps, meta, cfg: cfgOver, forge } = {}) {
   const dir = tmpDir();
   const bin = path.join(dir, "fake-claude.sh");
   fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$2" > "$FAKE_PROMPT_OUT"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
@@ -170,7 +170,7 @@ function heldHarness({ steps, meta, cfg: cfgOver } = {}) {
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
   });
   const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
-  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  const run = createDispatcher(cfg, adapter, undefined, store, emit, forge);
   const promptOut = path.join(dir, "prompt.txt");
   /** @param {string} stepId @param {any} verdict @param {string} [comment] @param {{prompt?: boolean}} [o] */
   const runStep = async (stepId, verdict, comment, { prompt = true } = {}) => {
@@ -1015,7 +1015,7 @@ const SHA = "abc1234def5678";
 /**
  * A dispatcher over a real temp store, a recording stub adapter and a stub forge.
  * `claude` is a fake `claudeBin` that writes `verdict` (for the pipeline-run cases).
- * @param {{assignedToUs?: boolean, fetchThrows?: boolean, stage?: string|null, pr?: any, prThrows?: boolean, rerunThrows?: boolean, verdict?: any, forge?: any}} [o]
+ * @param {{assignedToUs?: boolean, fetchThrows?: boolean, stage?: string|null, pr?: any, prThrows?: boolean, rerunThrows?: boolean, verdict?: any, forge?: any, autoMerge?: any, disable?: () => Promise<any>}} [o]
  */
 function ciHarness(o = {}) {
   /** @type {string[]} */
@@ -1029,7 +1029,7 @@ function ciHarness(o = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ci-"));
   const claude = path.join(dir, "fake-claude.sh");
   fs.writeFileSync(claude, `#!/bin/sh\nprintf '%s' '${JSON.stringify(o.verdict ?? { outcome: "advance" })}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
-  const cfg = { pipeline: CI_PIPELINE, repoPath: dir, dataDir: dir, logDir: dir, claudeBin: claude, forge: { type: "github" } };
+  const cfg = { pipeline: CI_PIPELINE, repoPath: dir, dataDir: dir, logDir: dir, claudeBin: claude, forge: { type: "github", ...(o.autoMerge ? { autoMerge: o.autoMerge } : {}) } };
   const store = createStore(dir);
   /** @type {any} */
   const adapter = {
@@ -1054,6 +1054,7 @@ function ciHarness(o = {}) {
     },
     failedLogTail: async () => LOG,
     prComment: async (n, body, log) => comments.push({ n, body, log }),
+    ...(o.disable ? { disableAutoMerge: async (/** @type {number} */ n) => (calls.push(`disable ${n}`), o.disable?.()) } : {}),
   };
   const emit = (event, ref, step, extra) => events.push({ event, ref, step, ...extra });
   const run = createDispatcher(/** @type {any} */ (cfg), adapter, undefined, store, emit, forge);
@@ -1092,6 +1093,37 @@ test("ci attempt 2 resting in review: log on the PR, review → changes → code
   assert.deepEqual(f, { target: "code", fromStep: "ci", text: TRUSTED });
   assert.ok(!JSON.stringify(f).includes("npm ERR"), "no log text reaches the rework prompt");
   assert.ok(h.events.some((e) => e.event === "ci_red" && e.action === "bounced" && e.target === "code"));
+});
+
+test("ci + forge.autoMerge: the bounce turns auto-merge off on the PR before moving the task", async () => {
+  const h = ciHarness({ autoMerge: { tiers: ["low"] }, disable: async () => ({ status: "disabled" }) });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await h.run(ciJob(2));
+  } finally {
+    console.log = log;
+  }
+  assert.ok(h.calls.includes("disable 5"));
+  assert.equal(h.advances.length, 1);
+  assert.equal(h.advances[0].outcome, "changes");
+  assert.ok(h.events.some((e) => e.event === "auto_merge_disabled" && e.pr === 5));
+});
+
+test("ci + forge.autoMerge: a disable that fails holds the task — no rework fires", async () => {
+  const h = ciHarness({ autoMerge: { tiers: ["low"] }, disable: async () => { throw new Error("403"); } });
+  const [log, err] = [console.log, console.error];
+  console.log = console.error = () => {};
+  try {
+    await h.run(ciJob(2));
+  } finally {
+    [console.log, console.error] = [log, err];
+  }
+  assert.deepEqual(h.advances, [], "not bounced");
+  assert.equal(h.store.getFindings("7"), undefined);
+  assert.match(h.store.getHeld("7")?.reason ?? "", /could not turn off auto-merge/);
+  assert.ok(h.events.some((e) => e.event === "auto_merge_failed"));
+  assert.ok(h.events.some((e) => e.event === "blocked" && e.step === "review"));
 });
 
 test("ci: a re-run that can't start bounces straight away", async () => {
@@ -1568,4 +1600,129 @@ test("onQuota: a claude run's rate_limit_event reaches the hook stamped with asO
   assert.deepEqual(q, { fiveHour: { utilization: 0.08, resetsAt: "2026-10-18T18:10:00.000Z" }, sevenDay: { utilization: 0.66, resetsAt: "2026-10-18T21:00:00.000Z" } });
   assert.ok(Date.parse(asOf) >= before - 1000);
   assert.deepEqual(await runWith("cursor"), []);
+});
+
+// --- forge.autoMerge wiring: the approving step's final advance reaches the forge, nothing else does ---
+
+/** A forge stub recording enableAutoMerge calls. @param {any} [over] */
+function autoMergeForge(over = {}) {
+  /** @type {any[]} */
+  const calls = [];
+  return {
+    calls,
+    prHead: async () => ({ number: 7, sha: "abc", open: true }),
+    enableAutoMerge: async (/** @type {number} */ pr, /** @type {any} */ o) => {
+      calls.push([pr, o.method, o.expectedSha]);
+      return { status: "enabled", readied: true };
+    },
+    ...over,
+  };
+}
+
+const autoMergeSteps = [{ id: "code", kind: "implement" }, { id: "review", kind: "review" }, { id: "done", manual: true }];
+const autoMergeCfg = { forge: { type: "github", autoMerge: { tiers: ["low"] } } };
+
+/** Run steps with console.error muted. @param {() => Promise<void>} fn */
+async function quietErrors(fn) {
+  const err = console.error;
+  console.error = () => {};
+  try {
+    await fn();
+  } finally {
+    console.error = err;
+  }
+}
+
+test("dispatch: a review advance with an allowed tier enables auto-merge after the move; the code step's advance does not", async () => {
+  const forge = autoMergeForge();
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(async () => {
+    await runStep("code", { outcome: "advance", summary: { tier: "low" } }, undefined, { prompt: false });
+    assert.deepEqual(forge.calls, [], "only the approving (review) step triggers it");
+    await runStep("review", { outcome: "advance", summary: { tier: "low" } }, undefined, { prompt: false });
+  });
+  assert.deepEqual(forge.calls, [[7, "squash", "abc"]], "pinned to the head the review saw at its start");
+  assert.deepEqual(advanced.at(-1), ["42", "review", "advance"], "the board move still happened");
+  const e = events.find((x) => x.event === "auto_merge_enabled");
+  assert.deepEqual([e?.pr, e?.tier, e?.method, e?.readied], [7, "low", "squash", true]);
+});
+
+test("dispatch: an approving advance without an allowed tier emits auto_merge_skipped, nothing else", async () => {
+  const forge = autoMergeForge();
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(async () => {
+    await runStep("review", { outcome: "advance", summary: { tier: "high" } }, undefined, { prompt: false });
+  });
+  assert.deepEqual(forge.calls, []);
+  assert.deepEqual(advanced.at(-1), ["42", "review", "advance"]);
+  const e = events.find((x) => x.event === "auto_merge_skipped");
+  assert.deepEqual([e?.tier, e?.reason], ["high", 'tier "high" is not in [low]']);
+});
+
+test("dispatch: a changes verdict after approval turns auto-merge off BEFORE the move", async () => {
+  /** @type {any[]} */
+  const order = [];
+  /** @type {any[]} */
+  let moves = [];
+  const forge = autoMergeForge({
+    disableAutoMerge: async (/** @type {number} */ n) => {
+      order.push(["disable", n, moves.length]);
+      return { status: "disabled" };
+    },
+  });
+  const qaSteps = [{ id: "code", kind: "implement" }, { id: "review", kind: "review" }, { id: "qa", kind: "qa" }, { id: "done", manual: true }];
+  const { runStep, events, advanced } = heldHarness({ steps: qaSteps, forge, cfg: autoMergeCfg });
+  moves = advanced;
+  await quietErrors(async () => {
+    await runStep("qa", { outcome: "changes", target: "code", reason: "broken" }, undefined, { prompt: false });
+  });
+  assert.deepEqual(order, [["disable", 7, 0]], "disabled while no move had happened yet");
+  assert.deepEqual(advanced, [["42", "qa", "changes"]], "the bounce still moved the task");
+  const e = events.find((x) => x.event === "auto_merge_disabled");
+  assert.deepEqual([e?.pr, e?.reason], [7, "changes from qa"]);
+});
+
+test("dispatch: a disable that fails on a changes bounce holds the task instead of firing the rework", async () => {
+  const forge = autoMergeForge({
+    disableAutoMerge: async () => {
+      throw new Error("Resource not accessible by integration");
+    },
+  });
+  const qaSteps = [{ id: "code", kind: "implement" }, { id: "review", kind: "review" }, { id: "qa", kind: "qa" }, { id: "done", manual: true }];
+  const { runStep, events, advanced, store } = heldHarness({ steps: qaSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(async () => {
+    await runStep("qa", { outcome: "changes", target: "code", reason: "broken" }, undefined, { prompt: false });
+  });
+  assert.deepEqual(advanced, [["42", "qa", "hold"]], "held, not bounced to code");
+  assert.equal(store.getFindings("42"), undefined, "no rework findings left behind");
+  assert.match(store.getHeld("42")?.reason ?? "", /could not turn off auto-merge/);
+  assert.ok(events.some((e) => e.event === "auto_merge_failed"));
+  assert.ok(events.some((e) => e.event === "blocked"));
+});
+
+test("dispatch: a fail verdict turns auto-merge off too (the failure lane must not merge)", async () => {
+  /** @type {number[]} */
+  const off = [];
+  const forge = autoMergeForge({ disableAutoMerge: async (/** @type {number} */ n) => (off.push(n), { status: "disabled" }) });
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(async () => {
+    await runStep("review", { outcome: "fail", reason: "nope" }, undefined, { prompt: false });
+  });
+  assert.deepEqual(off, [7]);
+  assert.deepEqual(advanced, [["42", "review", "fail"]]);
+  assert.ok(events.some((e) => e.event === "auto_merge_disabled"));
+});
+
+test("dispatch: an auto-merge failure is an event only — the review still advances", async () => {
+  const forge = autoMergeForge({
+    enableAutoMerge: async () => {
+      throw new Error("Auto merge is not allowed for this repository");
+    },
+  });
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(() => runStep("review", { outcome: "advance", summary: { tier: "low" } }, undefined, { prompt: false }).then(() => {}));
+  assert.deepEqual(advanced.at(-1), ["42", "review", "advance"]);
+  const e = events.find((x) => x.event === "auto_merge_failed");
+  assert.deepEqual([e?.pr, e?.tier, e?.reason], [7, "low", "Auto merge is not allowed for this repository"]);
+  assert.ok(!events.some((x) => x.event === "auto_merge_enabled"));
 });

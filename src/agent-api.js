@@ -224,7 +224,7 @@ export function compactEvent(e) {
   const { ts, event, ref, step, ...rest } = e;
   /** @type {Record<string, any>} */
   const out = { ts, e: event, ref, ...(step ? { step } : {}) };
-  for (const k of ["outcome", "reason", "detail", "costUsd", "estUsd", "costBasis", "unpriced", "energyKwh", "energyUsd", "energySource", "target", "action", "displayId", "moveTo", "pr", "sha", "mergeable", "mergeState", "plain", "options"]) {
+  for (const k of ["outcome", "reason", "detail", "costUsd", "estUsd", "costBasis", "unpriced", "energyKwh", "energyUsd", "energySource", "target", "action", "displayId", "moveTo", "pr", "sha", "mergeable", "mergeState", "tier", "method", "readied", "mergedNow", "plain", "options"]) {
     if (rest[k] !== undefined && rest[k] !== null) out[k] = k === "reason" || k === "detail" || k === "plain" ? clip(rest[k], REASON_MAX) : rest[k];
   }
   return out;
@@ -577,7 +577,7 @@ export async function readTick(entry, { cursor, board = true, prs = true, epics 
   }
   if (p) {
     if (p.error) out.prsError = p.error;
-    else out.prs = p.prs.map((/** @type {any} */ x) => ({ n: x.number, ref: x.ref, ci: x.ci, ...(x.mergeable === false ? { conflict: true } : {}), ...(x.mergeState && x.mergeState !== "clean" ? { state: x.mergeState } : {}), ...(x.draft ? { draft: true } : {}), ...(typeof x.mine === "boolean" ? { mine: x.mine } : {}), ...(x.review ? { review: x.review } : {}) }));
+    else out.prs = p.prs.map((/** @type {any} */ x) => ({ n: x.number, ref: x.ref, ci: x.ci, ...(x.mergeable === false ? { conflict: true } : {}), ...(x.mergeState && x.mergeState !== "clean" ? { state: x.mergeState } : {}), ...(x.draft ? { draft: true } : {}), ...(x.autoMerge ? { autoMerge: true } : {}), ...(typeof x.mine === "boolean" ? { mine: x.mine } : {}), ...(x.review ? { review: x.review } : {}) }));
   }
   if (ep) {
     if (ep.error) out.epicsError = ep.error;

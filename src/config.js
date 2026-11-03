@@ -23,6 +23,7 @@ import { energyErrors } from "./energy.js";
 import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
+import { autoMergeErrors } from "./auto-merge.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
 import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS } from "./sandbox/names.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
@@ -619,6 +620,7 @@ export function validateRawConfig(raw) {
     if (!t) errors.push(`config: forge.ciTarget "${label(cfg.forge.ciTarget)}" is not a pipeline step id.`);
     else if (t.manual) errors.push(`config: forge.ciTarget "${label(t.id)}" is a manual step (a red-CI bounce needs an agent step).`);
   }
+  errors.push(...autoMergeErrors(cfg.forge, pipeline, cfg.repos));
 
   return errors.length ? { ok: false, errors } : { ok: true };
 }

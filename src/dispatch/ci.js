@@ -1,6 +1,7 @@
 // A `ci` job: the forge saw a red CI run on the ref's PR — re-run once, else bounce.
 import { findStep, stepForStage } from "../pipeline.js";
 import { reportMoveFailure } from "../events.js";
+import { disableAutoMergeOnBounce } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./verdict.js').VerdictOps} ctx */
 export function createCi(ctx) {
@@ -30,6 +31,19 @@ export function createCi(ctx) {
     /** @type {import('../types.js').Verdict} */
     const verdict = { outcome: "changes", target: b.target, reason: b.text, findings: b.text };
     guardChanges(ref, cur.id, verdict, "ci");
+    // forge.autoMerge: an approved PR going back for a CI fix must not merge the fix unreviewed.
+    // If auto-merge can't be turned off, don't fire the rework: hold the task where it rests.
+    if (cfg.forge?.autoMerge) {
+      const off = await disableAutoMergeOnBounce({ forge, store, emit }, ref, cur.id, `red CI, ${verdict.outcome} from ${cur.id}`, typeof extra.pr === "number" ? extra.pr : null);
+      if (off === "error" && verdict.outcome === "changes") {
+        const reason = "red CI, but could not turn off auto-merge before the rework (see auto_merge_failed); turn it off, then release";
+        store?.clearFindings(ref);
+        store?.setHeld(ref, { stepId: cur.id, reason, heldAt: new Date().toISOString() });
+        emit?.("blocked", ref, cur.id, { reason, name: task.name, url: task.url });
+        console.log(`[ci] ${ref} (${cur.id}) -> hold (${reason})`);
+        return;
+      }
+    }
     if (verdict.outcome === "fail") {
       emit?.("failed", ref, cur.id, { reason: verdict.reason ?? null, name: task.name, url: task.url });
     } else {

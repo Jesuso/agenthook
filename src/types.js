@@ -9,12 +9,13 @@
  * The normalized unit of work the engine passes around. Adapters produce these
  * from raw webhook payloads; nothing past processEvents sees platform specifics.
  * @typedef {object} Job
- * @property {'pipeline'|'merge'|'ci'|'ci_green'|'epic_changed'|'board_done'} kind  pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces; ci_green: a green run — a candidate for the `ci_green` event, handled by `src/ci-green.js` outside the queue; epic_changed: the tracker saw an epic's structure change — signal only, `ref` = the epic, handled by `src/epic-changed.js` outside the queue; board_done: the tracker saw the board's own done flag flip on a ticket of ours — signal only, handled by `src/board-done.js` outside the queue)
+ * @property {'pipeline'|'merge'|'ci'|'ci_green'|'epic_changed'|'board_done'|'pr_push'} kind  pr_push: the forge saw a new commit on an agent PR with auto-merge on — signal only, handled by `createPrPushGuard` (src/auto-merge.js) outside the queue; pipeline: a step fired by a task entering its source section; merge: the forge saw the task's `agent/<ref>` PR merge (no agent — dispatch completes the task); ci: the forge saw a red CI run on that branch (no agent — dispatch re-runs it once, then bounces; ci_green: a green run — a candidate for the `ci_green` event, handled by `src/ci-green.js` outside the queue; epic_changed: the tracker saw an epic's structure change — signal only, `ref` = the epic, handled by `src/epic-changed.js` outside the queue; board_done: the tracker saw the board's own done flag flip on a ticket of ours — signal only, handled by `src/board-done.js` outside the queue)
  * @property {string} ref       provider-native item id (Asana gid, …)
  * @property {string} stepId    which Step in cfg.pipeline to run (merge: the `completeOnMerge` step, or ""; ci: "")
  * @property {string} dedupKey  unique per source event; one key → at most one run
  * @property {string} [comment] the owner's `trigger`-prefixed reply that resumed a held step (appended to the prompt)
  * @property {CiRun} [ci]       ci jobs only: the red run
+ * @property {{prNumber: number, headSha: string}} [push]  pr_push jobs only: the PR and its new head
  * @property {boolean} [boardCloses]  merge jobs only: the board closes this ticket itself on merge; dispatch doesn't bridge
  * @property {string} [queuedAt]  persisted queue entries only: ISO timestamp of the first enqueue (stamped by `store.addQueued`, kept across a re-add/restart)
  */
@@ -119,6 +120,7 @@
  * @property {StepOutcome} outcome  the outcome actually applied (after the changes guard / CI bounce)
  * @property {string} run           the run log basename (matches a `runs` row's `run`)
  * @property {string} at            ISO time the run finished
+ * @property {string} [headSha]     forge.autoMerge tier step only: the PR head when the run started (what it judged)
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
@@ -146,6 +148,7 @@
  * @property {string} [url]        the item's tracker web URL (Task.url)
  * @property {string} [summary]    the first prose paragraph of the description, plain and clipped (src/ticket-summary.js); what `ah ui` shows as "what is this about"
  * @property {{ref: string, name: string, url?: string}} [epic]  the ticket's epic, written by dispatch from Task.epic; null drops a stale value when the ticket leaves its epic
+ * @property {{sha: string, pr: number, step: string, at: string}} [autoMerge]  forge.autoMerge: we turned GitHub auto-merge on for this approved head (cleared when it comes off)
  */
 
 /** A `setRefMeta` patch: `undefined` skips a key, `null` deletes it.
@@ -585,6 +588,16 @@
  * @property {boolean} [greenCi]        emit a `ci_green` event when an agent PR's checks all pass (a supervisor signal; moves nothing). Default on; false disables
  * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)
  * @property {boolean} [boardClosesOnMerge]  the board closes its own tickets on merge (e.g. Jira/Linear with a dev-tool integration): every merge job is self-closing, so dispatch doesn't bridge it. Default false
+ * @property {AutoMergeConfig} [autoMerge]  GitHub only, opt-in: when the approving step advances with a risk tier in `tiers`, mark the PR ready and enable GitHub auto-merge; a later bounce turns it off. Absent = off
+ */
+
+/**
+ * `forge.autoMerge`: auto-merge an agent PR once a step approves it (src/auto-merge.js).
+ * @typedef {object} AutoMergeConfig
+ * @property {string[]} tiers    the `summary.tier` values that may auto-merge (e.g. ["low","medium"]); a verdict with no tier never does
+ * @property {'squash'|'merge'|'rebase'} [method]  GitHub merge method (default "squash")
+ * @property {string} [step]     the step whose `advance` triggers it; default the pipeline's last review-kind step
+ * @property {string} [tierFrom] the step whose verdict carries the tier (its stored summary, which must be an `advance`); default `step`. Must not run after `step`, and must run after the `createsWorktree` step
  */
 
 /** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
@@ -605,8 +618,19 @@
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
+ * @property {(prNumber: number, o: {method: 'squash'|'merge'|'rebase', expectedSha: string}) => Promise<AutoMergeResult>} [enableAutoMerge]  mark the agent PR ready (if draft), then enable auto-merge pinned to `expectedSha` (`moved` when the head is no longer it). Idempotent; throws on a refusal (repo setting, permissions, network)
+ * @property {(prNumber: number) => Promise<{status: 'disabled'|'off'|'merged'|'closed'}>} [disableAutoMerge]  turn auto-merge off on the agent PR (`off` = it was not on). Throws on a refusal
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(o: RunCredentialsInput) => Promise<RunCredentials|null>} [runCredentials]  optional; same contract as Adapter.runCredentials. Dispatch asks the forge first, then the tracker when this returns null
+ */
+
+/** What `Forge.enableAutoMerge` did. `enabled`: auto-merge is now on; `already`: it was on before
+ * (nothing changed); `merged_now`: GitHub reported nothing left to wait for, so the PR was merged
+ * directly (what `gh pr merge --auto` does); `merged` / `closed`: the PR was no longer open.
+ * @typedef {object} AutoMergeResult
+ * @property {'enabled'|'already'|'merged_now'|'merged'|'closed'|'moved'} status  moved: the PR head is no longer the approved sha — nothing written
+ * @property {boolean} readied  the PR was a draft and was marked ready for review first
+ * @property {string} [headSha]  moved only: the PR's current head
  */
 
 /** One merged agent PR as `listMergedAgentPrs` reports it.
@@ -628,6 +652,7 @@
  * @property {string|null} mergeState    GitHub's mergeable_state (clean|dirty|blocked|behind|unstable|…)
  * @property {'success'|'failure'|'pending'|'none'|'unknown'} ci   unknown = the check-runs call failed (not the same as none)
  * @property {string} updatedAt
+ * @property {boolean} [autoMerge]  true when GitHub auto-merge is enabled on the PR; absent otherwise
  * @property {Record<string, unknown>} [review]  set by ops (not the forge): the newest review-kind step's stored summary + its `outcome`/`at` (agent-authored — untrusted); absent when none is stored
  * @property {boolean} [mine]   set by ops (not the forge): true/false from a 5-min-cached `adapter.ownership` lookup, absent when scoping is off, the adapter has no `ownership`, or the lookup failed
  */

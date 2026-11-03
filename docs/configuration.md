@@ -160,6 +160,93 @@ two forges, `github` and `gitlab` (see [GitLab forge setup](gitlab.md)):
   already completed is never bridged either.
 - `redCi` / `greenCi` / `ciTarget` keep their defaults (react to red CI, emit a `ci_green`
   signal, bounce red CI to the `createsWorktree` step) unless overridden.
+- `autoMerge` (github only, off by default) — see [Auto-merge on review approval](#auto-merge-on-review-approval-forgeautomerge).
+
+### Auto-merge on review approval (`forge.autoMerge`)
+
+Opt-in. When the approving step (by default the review) advances a PR whose risk tier you allow, the receiver does what an
+operator would do by hand (`gh pr ready <n>` then `gh pr merge <n> --auto --squash`): it marks the
+PR ready for review if it is a draft, then enables GitHub auto-merge, so GitHub merges it once the
+required checks pass.
+
+```json
+"forge": {
+  "type": "github",
+  "repository": "owner/name",
+  "token": "${GITHUB_TOKEN}",
+  "autoMerge": { "tiers": ["low", "medium"], "method": "squash" }
+}
+```
+
+- `tiers` (required): the `summary.tier` values that may auto-merge (compared case-insensitively).
+  The tier is whatever your step instructions ask the agent to write, e.g.
+  `"summary": {"tier": "low", "plain": "…"}`. A verdict with no tier never auto-merges.
+- `method`: `squash` (default), `merge` or `rebase`.
+- `step`: the step whose `advance` triggers it. Any non-manual step. Default: the pipeline's
+  **last** `kind: "review"` step. Config validation fails when there is none and `step` is unset.
+- `tierFrom`: the step whose verdict carries the tier. Default: `step` itself. Set it when the
+  trigger is a later step that doesn't judge risk (e.g. `"step": "qa", "tierFrom": "review"`): the
+  tier is read from that step's stored summary, which must be an `advance`. It must not run after
+  `step`, and (with either setting) the tier step must run after the step that creates the worktree:
+  a triage tier would approve code nobody looked at, and the step that writes the code can't judge it.
+
+**Only the commit that was judged can merge.** When the tier step starts, the receiver records the
+PR's head commit. Auto-merge is enabled pinned to that commit (`expectedHeadOid`); if the PR has
+moved on by then (the approving step itself committed, or anyone pushed), nothing merges and the
+receiver emits `auto_merge_skipped` with the two SHAs. No PR when the tier step started (so no
+recorded head) is also a skip.
+
+It runs only when `step`'s final outcome is `advance` and the board move succeeded. `hold`,
+`changes`, `fail`, a red-CI bounce that turned the `advance` into `changes`, or a refused move (the
+task is not ours) never auto-merge. When `step` advances but the tier doesn't qualify (missing,
+outside `tiers`, or `tierFrom` has no approving verdict), nothing merges and the receiver emits
+`auto_merge_skipped {tier?, reason}`, so a misconfigured tier is visible. It is idempotent: a PR
+that already has auto-merge on, or is already merged or closed, is left alone.
+
+**It comes off again when the approved code changes or is rejected.** While the PR is open:
+
+- any later `changes` or `fail` on the task — a step's verdict, a red-CI bounce, an operator
+  `cancel`, or a restart that fails an interrupted run — disables auto-merge **before** the task
+  moves. If GitHub refuses the disable, a `changes` becomes a `hold` instead (no rework fires
+  while auto-merge may still be on); release it once auto-merge is off.
+- a new commit pushed to the PR after approval (from a later step, a person, anything) disables
+  it as soon as GitHub's `pull_request` webhook arrives. Auto-merge someone else turned on is left
+  alone.
+
+Each emits `auto_merge_disabled {pr, reason}`, and the next approval turns it on again. `hold`
+leaves it on. When the PR had already merged, the event carries `tooLate: true`: the rejected code
+is on the base branch and needs a person. Not supported together with multi-repo `repos` routing
+yet (config validation refuses it).
+
+A failure (the repo doesn't allow auto-merge, the token lacks permission, a network error) never
+fails the step or blocks the pipeline: the receiver logs it and emits `auto_merge_failed {pr?,
+tier?, reason}`. Nothing else changes, except that a draft already marked ready stays ready.
+Success emits `auto_merge_enabled {pr, tier, method, readied?, mergedNow?}`
+(`ah watch --event auto_merge_enabled,auto_merge_failed,auto_merge_skipped,auto_merge_disabled`),
+and the PR shows `auto-merge` in `ah tick` and `autoMerge: true` in `prs`.
+
+Where to put the approval is your call. Two common shapes:
+
+- **Merge at review, then keep going.** `triage → code → review → qa` with the default `step`
+  (review). The PR merges once its checks pass, and `qa` runs on the merged code (e.g. it files
+  follow-up tickets). A `changes` from `qa`, or a commit it pushes, that arrives *before* the merge
+  turns auto-merge off; after the merge there is nothing left to stop (`tooLate`).
+- **Merge after the last gate.** `"step": "qa", "tierFrom": "review"`: the review judges the risk,
+  and the merge waits until `qa` advances too.
+
+Setup on GitHub:
+
+- Enable **Settings → General → Allow auto-merge** on the repo. Without it every attempt is an
+  `auto_merge_failed`.
+- Auto-merge waits for **required** status checks (branch protection or a ruleset). When GitHub
+  reports nothing to wait for (the PR is already in a clean state), the receiver merges it right
+  away, like `gh pr merge --auto` does. Without required checks that means the PR merges as soon as
+  review approves, so require your CI checks first.
+- The token needs Pull requests: Read & write and Contents: Read & write (classic: `repo`); a GitHub
+  App needs the same repository permissions.
+- GitHub does not delete the head branch after an auto-merge; turn on **Automatically delete head
+  branches** if you want that.
+- The receiver reads `forge.autoMerge` at start: restart it after changing the block.
 
 `agenthook init` offers to write this block (defaulting to yes when the tracker is `github` or
 the repo's `origin` remote is a github.com URL; a GitLab `origin` offers the `gitlab` forge
