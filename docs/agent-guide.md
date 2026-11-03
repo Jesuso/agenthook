@@ -230,8 +230,8 @@ a stage it's already in, so no fresh transition fires and nothing happens even t
 success. Use `catchup {ref, force?}` instead — it replays the forged event in-process and tells you
 whether it actually `dispatched`.
 
-**Merge when green.** With `forge.autoMerge` set, a PR whose review approved an allowed tier merges
-itself (`auto_merge_enabled`); act only on `auto_merge_failed` and on tiers outside the list. Otherwise, don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
+**Merge when green.** With `forge.autoMerge` set, a PR whose approving step advanced with an allowed
+tier merges itself (`auto_merge_enabled`); act only on `auto_merge_failed` and `auto_merge_skipped`. Otherwise, don't poll `gh`: `events {cursor, waitS: 600, types: ["ci_green","ci_red"]}`. `ci_green`
 carries `mergeable`/`mergeState`, so you can merge without another call (`mergeable:null` = GitHub hasn't
 computed it yet; re-read `prs`). It fires only once the last workflow finishes, and only for Actions
 workflows — a repo whose last check is an external app (no `workflow_run`) won't emit, so keep `prs` as the
@@ -264,9 +264,11 @@ catch-up asked the tracker and found it done after its webhook was missed; a sig
 Entering the terminal stage alone is `pipeline_done`, a handoff, never done. Older logs may hold
 `via:"stage"` events; they never meant done), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha),
-`auto_merge_enabled {pr, tier, method}` / `auto_merge_failed {tier, reason}` (opt-in
-`forge.autoMerge`: the receiver turned on GitHub auto-merge after an approving review, or could not —
-on a failure the PR is untouched and still needs you), `pulled`
+`auto_merge_enabled {pr, tier, method}` / `auto_merge_failed {tier?, reason}` /
+`auto_merge_skipped {tier?, reason}` / `auto_merge_disabled {pr, reason}` (opt-in `forge.autoMerge`:
+the receiver turned on GitHub auto-merge after an approving step, could not (the PR still needs
+you), skipped it because the tier didn't qualify (the PR still needs you), or turned it off because
+the task bounced back), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
 Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,
 resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer stopped / restarted

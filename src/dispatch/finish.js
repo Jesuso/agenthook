@@ -8,7 +8,7 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
-import { autoMergeDecision, runAutoMerge } from "../auto-merge.js";
+import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce } from "../auto-merge.js";
 
 /** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
 export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
@@ -222,6 +222,13 @@ export function createFinish(ctx) {
         ? `[verdict] ${step.id} ${job.ref} -> hold (no valid verdict — set requireVerdict:false to advance on a clean exit)`
         : `[verdict] ${step.id} ${job.ref} -> ${verdict.outcome}${verdict.reason ? ` (${verdict.reason})` : ""}`
     );
+    // forge.autoMerge: the task is going back (changes — incl. a red-CI bounce — or fail). Turn
+    // auto-merge off before the move fires the rework, so a push made after an earlier approval
+    // can't merge on it. Ours already (dispatch ran this step); a no-op when it was never on.
+    if (cfg.forge?.autoMerge && (verdict.outcome === "changes" || verdict.outcome === "fail")) {
+      await disableAutoMergeOnBounce({ forge, store, emit }, job.ref, step.id, `${verdict.outcome} from ${step.id}`);
+    }
+
     let moved = false;
     try {
       await adapter.advance(job.ref, step.id, verdict);
@@ -231,12 +238,14 @@ export function createFinish(ctx) {
       reportMoveFailure(emit, job.ref, step.id, verdict.outcome, e);
     }
 
-    // Opt-in auto-merge (forge.autoMerge): the approving step advanced with an allowed risk tier.
+    // Opt-in auto-merge (forge.autoMerge): the approving step advanced with an allowed risk tier
+    // (or did not qualify: reported as `auto_merge_skipped`).
     // After the move, and only when it happened — a refused move (not ours) never merges. The
     // final verdict is read here, so a red-CI bounce or a capped loop never counts as approval.
     // runAutoMerge never throws; a failure is an `auto_merge_failed` event, nothing more.
-    const autoMerge = moved ? autoMergeDecision(cfg, step.id, verdict) : null;
-    if (autoMerge) await runAutoMerge({ forge, store, emit }, job.ref, step.id, autoMerge);
+    const autoMerge = moved ? autoMergeDecision(cfg, step.id, verdict, store?.getSummaries(job.ref)) : null;
+    if (autoMerge && "skipped" in autoMerge) reportAutoMergeSkipped({ forge, store, emit }, job.ref, step.id, autoMerge);
+    else if (autoMerge) await runAutoMerge({ forge, store, emit }, job.ref, step.id, autoMerge);
 
     // Reset loop counters and difficulty when the task leaves the pipeline: a terminal
     // `fail` or a drained worktree (done). mid-pipeline hold/advance keeps them so a

@@ -1615,6 +1615,41 @@ test("dispatch: a review advance with an allowed tier enables auto-merge after t
   assert.deepEqual([e?.pr, e?.tier, e?.method, e?.readied], [7, "low", "squash", true]);
 });
 
+test("dispatch: an approving advance without an allowed tier emits auto_merge_skipped, nothing else", async () => {
+  const forge = autoMergeForge();
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(async () => {
+    await runStep("review", { outcome: "advance", summary: { tier: "high" } }, undefined, { prompt: false });
+  });
+  assert.deepEqual(forge.calls, []);
+  assert.deepEqual(advanced.at(-1), ["42", "review", "advance"]);
+  const e = events.find((x) => x.event === "auto_merge_skipped");
+  assert.deepEqual([e?.tier, e?.reason], ["high", 'tier "high" is not in [low]']);
+});
+
+test("dispatch: a changes verdict after approval turns auto-merge off BEFORE the move", async () => {
+  /** @type {any[]} */
+  const order = [];
+  /** @type {any[]} */
+  let moves = [];
+  const forge = autoMergeForge({
+    disableAutoMerge: async (/** @type {number} */ n) => {
+      order.push(["disable", n, moves.length]);
+      return { status: "disabled" };
+    },
+  });
+  const qaSteps = [{ id: "code", kind: "implement" }, { id: "review", kind: "review" }, { id: "qa", kind: "qa" }, { id: "done", manual: true }];
+  const { runStep, events, advanced } = heldHarness({ steps: qaSteps, forge, cfg: autoMergeCfg });
+  moves = advanced;
+  await quietErrors(async () => {
+    await runStep("qa", { outcome: "changes", target: "code", reason: "broken" }, undefined, { prompt: false });
+  });
+  assert.deepEqual(order, [["disable", 7, 0]], "disabled while no move had happened yet");
+  assert.deepEqual(advanced, [["42", "qa", "changes"]], "the bounce still moved the task");
+  const e = events.find((x) => x.event === "auto_merge_disabled");
+  assert.deepEqual([e?.pr, e?.reason], [7, "changes from qa"]);
+});
+
 test("dispatch: an auto-merge failure is an event only — the review still advances", async () => {
   const forge = autoMergeForge({
     enableAutoMerge: async () => {

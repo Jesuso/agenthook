@@ -534,6 +534,8 @@ export const SINK_EVENTS = [
   "ci_green",
   "auto_merge_enabled",
   "auto_merge_failed",
+  "auto_merge_skipped",
+  "auto_merge_disabled",
   "enqueued",
   "pulled",
   "run_start",

@@ -22,7 +22,11 @@ All notable changes to this project are documented here. The format is based on
   the list; idempotent on re-runs. A refusal (auto-merge not allowed, permissions, network) never
   fails the step: it emits `auto_merge_failed {pr?, tier, reason}` and leaves the PR alone. Success
   emits `auto_merge_enabled {pr, tier, method}`; `prs` rows gain `autoMerge: true` and `ah tick`
-  shows `auto-merge`. Off when the block is absent.
+  shows `auto-merge`. Off when the block is absent. `autoMerge.step` picks any non-manual approving
+  step and `autoMerge.tierFrom` reads the tier from an earlier step's verdict (e.g. merge after QA
+  on the review's tier). An approving advance whose tier doesn't qualify emits `auto_merge_skipped`
+  instead of staying silent, and a later `changes`/`fail` (incl. a red-CI bounce) turns auto-merge
+  off on the open PR before the rework (`auto_merge_disabled`).
 
 ## [0.14.0] — 2026-10-29
 

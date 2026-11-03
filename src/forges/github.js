@@ -14,6 +14,7 @@
 //   unregisterWebhooks()       -> delete this forge's own hook only (by stored id or its own URL)
 //   prHead / rerunFailedJobs / failedLogTail / prComment -> the red-CI calls dispatch makes
 //   enableAutoMerge(n, {method}) -> draft → ready, then GitHub auto-merge (opt-in forge.autoMerge)
+//   disableAutoMerge(n)        -> turn auto-merge off again (the task bounced back after approval)
 //   runCredentials(o)          -> a per-run App token for one agent run (App auth only, #474)
 //
 // GitHub specifics:
@@ -513,6 +514,22 @@ export function createGithubForge(cfg, store) {
       const m = await api(`${repoPath()}/pulls/${prNumber}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: method, sha: pr.head.sha }) });
       if (!m.ok) throw new Error(`merge PR #${prNumber} ${m.status}: ${String((await json(m).catch(() => ({})))?.message ?? "").slice(0, 120)}`);
       return { status: "merged_now", readied };
+    },
+
+    // The opposite of enableAutoMerge, for a task bounced back after approval: turn GitHub
+    // auto-merge off on this repo's agent PR so a rework push can't merge on the old approval.
+    async disableAutoMerge(prNumber) {
+      const res = await api(`${repoPath()}/pulls/${prNumber}`);
+      if (!res.ok) throw new Error(`get PR #${prNumber} ${res.status}`);
+      const pr = await json(res);
+      if (!refFromBranch(pr?.head?.ref) || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+        throw new Error(`PR #${prNumber} is not an agent PR of ${owner}/${repo}`);
+      }
+      if (pr.merged_at) return { status: "merged" };
+      if (pr.state !== "open") return { status: "closed" };
+      if (!pr.auto_merge) return { status: "off" };
+      await graphql(`mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { number } } }`, { id: String(pr.node_id) });
+      return { status: "disabled" };
     },
 
     async rerunFailedJobs(runId) {

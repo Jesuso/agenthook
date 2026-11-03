@@ -19,8 +19,10 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  * Event shape: `{ ts, event, ref, step, ...fields }`
  *   ts    — ISO timestamp
  *   event — one of: enqueued | run_start | run_end | pipeline_done | board_done | blocked | failed | merged | pulled | ci_red | ci_green
- *           | auto_merge_enabled | auto_merge_failed (opt-in forge.autoMerge, src/auto-merge.js: `pr`, `tier`, `method`,
- *             `readied?`, `mergedNow?` / `pr?`, `tier`, `reason`; step = the approving step)
+ *           | auto_merge_enabled | auto_merge_failed | auto_merge_skipped | auto_merge_disabled (opt-in forge.autoMerge,
+ *             src/auto-merge.js. enabled: `pr`, `tier`, `method`, `readied?`, `mergedNow?`; failed: `pr?`, `tier?`, `reason`;
+ *             skipped: `tier?`, `reason` (the approving step advanced without an allowed tier); disabled: `pr`,
+ *             `reason` (a bounce turned it off); step = the approving step, or the step the task left)
  *           (board_done: the ticket is done on the board — signal only, nothing runs or moves. `via` = "flag"
  *             (the tracker's own done flag flipped on a ticket of ours — GitHub close, Asana complete, Jira
  *             done-category status, Linear completed/canceled state; step "", src/board-done.js) or "stage" (it

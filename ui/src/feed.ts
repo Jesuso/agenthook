@@ -118,6 +118,16 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       tone = "failed";
       break;
     }
+    case "auto_merge_skipped": {
+      text = tr("feed.autoMergeSkipped", { reason: event.reason ?? "?" });
+      tone = "held";
+      break;
+    }
+    case "auto_merge_disabled": {
+      text = tr("feed.autoMergeDisabled", { reason: event.reason ?? "?" });
+      tone = "held";
+      break;
+    }
     case "overlap_held": {
       text = tr("feed.overlapHeld");
       tone = "held";

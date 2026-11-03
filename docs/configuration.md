@@ -164,7 +164,7 @@ two forges, `github` and `gitlab` (see [GitLab forge setup](gitlab.md)):
 
 ### Auto-merge on review approval (`forge.autoMerge`)
 
-Opt-in. When the review step approves a PR whose risk tier you allow, the receiver does what an
+Opt-in. When the approving step (by default the review) advances a PR whose risk tier you allow, the receiver does what an
 operator would do by hand (`gh pr ready <n>` then `gh pr merge <n> --auto --squash`): it marks the
 PR ready for review if it is a draft, then enables GitHub auto-merge, so GitHub merges it once the
 required checks pass.
@@ -178,23 +178,44 @@ required checks pass.
 }
 ```
 
-- `tiers` (required): the values of the review verdict's `summary.tier` that may auto-merge
-  (compared case-insensitively). The tier is whatever your review instructions ask the reviewer to
-  write, e.g. `"summary": {"tier": "low", "plain": "…"}`. A review with no tier never auto-merges.
+- `tiers` (required): the `summary.tier` values that may auto-merge (compared case-insensitively).
+  The tier is whatever your step instructions ask the agent to write, e.g.
+  `"summary": {"tier": "low", "plain": "…"}`. A verdict with no tier never auto-merges.
 - `method`: `squash` (default), `merge` or `rebase`.
-- `step`: the step whose verdict approves. Default: the pipeline's **last** `kind: "review"` step, so
-  a later review is never skipped. Config validation fails when there is none and `step` is unset.
+- `step`: the step whose `advance` triggers it. Any non-manual step. Default: the pipeline's
+  **last** `kind: "review"` step. Config validation fails when there is none and `step` is unset.
+- `tierFrom`: the step whose verdict carries the tier. Default: `step` itself. Set it when the
+  trigger is a later step that doesn't judge risk (e.g. `"step": "qa", "tierFrom": "review"`): the
+  tier is read from that step's stored summary, which must be an `advance`. It must not run after
+  `step`.
 
-It runs only when that step's final outcome is `advance` and the board move succeeded. `hold`,
-`changes`, `fail`, a tier outside the list, a red-CI bounce that turned the `advance` into
-`changes`, or a refused move (the task is not ours) never auto-merge. It is idempotent: a PR that
-already has auto-merge on, or is already merged or closed, is left alone.
+It runs only when `step`'s final outcome is `advance` and the board move succeeded. `hold`,
+`changes`, `fail`, a red-CI bounce that turned the `advance` into `changes`, or a refused move (the
+task is not ours) never auto-merge. When `step` advances but the tier doesn't qualify (missing,
+outside `tiers`, or `tierFrom` has no approving verdict), nothing merges and the receiver emits
+`auto_merge_skipped {tier?, reason}`, so a misconfigured tier is visible. It is idempotent: a PR
+that already has auto-merge on, or is already merged or closed, is left alone.
+
+**A bounce turns it off.** While the PR is still open, any later `changes` or `fail` verdict on the
+task (a step sending it back, or a red-CI bounce) disables auto-merge on the PR **before** the task
+moves, so a rework commit never merges on the strength of the earlier approval. The receiver emits
+`auto_merge_disabled {pr, reason}`, and the next approval turns it on again. `hold` leaves it on.
 
 A failure (the repo doesn't allow auto-merge, the token lacks permission, a network error) never
-fails the step or blocks the pipeline: the receiver logs it, emits `auto_merge_failed {pr?, tier,
-reason}`, and leaves the PR as it was. Success emits `auto_merge_enabled {pr, tier, method,
-readied?, mergedNow?}` (`ah watch --event auto_merge_enabled,auto_merge_failed`), and the PR shows
-`auto-merge` in `ah tick` and `autoMerge: true` in `prs`.
+fails the step or blocks the pipeline: the receiver logs it and emits `auto_merge_failed {pr?,
+tier?, reason}`. Nothing else changes, except that a draft already marked ready stays ready.
+Success emits `auto_merge_enabled {pr, tier, method, readied?, mergedNow?}`
+(`ah watch --event auto_merge_enabled,auto_merge_failed,auto_merge_skipped,auto_merge_disabled`),
+and the PR shows `auto-merge` in `ah tick` and `autoMerge: true` in `prs`.
+
+Where to put the approval is your call. Two common shapes:
+
+- **Merge at review, then keep going.** `triage → code → review → qa` with the default `step`
+  (review). The PR merges once its checks pass, and `qa` runs on the merged code (e.g. it files
+  follow-up tickets). A `changes` from `qa` that arrives *before* the merge turns auto-merge off;
+  after the merge there is nothing left to stop.
+- **Merge after the last gate.** `"step": "qa", "tierFrom": "review"`: the review judges the risk,
+  and the merge waits until `qa` advances too.
 
 Setup on GitHub:
 

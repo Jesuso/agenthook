@@ -1,6 +1,7 @@
 // A `ci` job: the forge saw a red CI run on the ref's PR — re-run once, else bounce.
 import { findStep, stepForStage } from "../pipeline.js";
 import { reportMoveFailure } from "../events.js";
+import { disableAutoMergeOnBounce } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./verdict.js').VerdictOps} ctx */
 export function createCi(ctx) {
@@ -36,6 +37,10 @@ export function createCi(ctx) {
       emit?.("ci_red", ref, cur.id, { action: "bounced", target: verdict.target, ...extra });
     }
     console.log(`[verdict] ci ${ref} (${cur.id}) -> ${verdict.outcome}${verdict.reason ? ` (${verdict.reason})` : ""}`);
+    // forge.autoMerge: an approved PR going back for a CI fix must not merge the fix unreviewed.
+    if (cfg.forge?.autoMerge) {
+      await disableAutoMergeOnBounce({ forge, store, emit }, ref, cur.id, `red CI, ${verdict.outcome} from ${cur.id}`, typeof extra.pr === "number" ? extra.pr : null);
+    }
     try {
       await adapter.advance(ref, cur.id, verdict);
     } catch (e) {

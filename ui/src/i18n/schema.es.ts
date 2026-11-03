@@ -177,10 +177,11 @@ export const SCHEMA_ES: SchemaOverlay = {
   "forge.greenCi": { label: "Informar CI en verde", help: "Emite un evento ci_green cuando todos los checks de un PR del agente pasan (no mueve nada)." },
   "forge.boardClosesOnMerge": { label: "El tablero cierra al fusionar", help: "El tablero cierra sus propios tickets al fusionar (p. ej. Jira/Linear con una integración de GitHub/GitLab); agenthook no hace de puente." },
   "forge.ciTarget": { label: "Paso destino del CI en rojo", help: "Paso al que vuelve un rebote por CI en rojo; sin definir = el paso que crea el worktree." },
-  "forge.autoMerge": { label: "Auto-merge al aprobar", help: "Opcional: cuando la revisión aprueba un PR de un nivel de riesgo permitido, lo marca listo y activa el auto-merge." },
+  "forge.autoMerge": { label: "Auto-merge al aprobar", help: "Opcional: cuando el paso que aprueba avanza un PR de un nivel de riesgo permitido, lo marca listo y activa el auto-merge; si luego vuelve atrás, lo desactiva." },
   "forge.autoMerge.tiers": { label: "Niveles", help: "Niveles de riesgo de la revisión (summary.tier del veredicto) que pueden fusionarse solos, p. ej. low, medium." },
   "forge.autoMerge.method": { label: "Método de merge", help: "Cómo fusiona GitHub el PR cuando pasan sus checks obligatorios." },
   "forge.autoMerge.step": { label: "Paso que aprueba", help: "Paso cuyo advance lo dispara; sin definir = el último paso de tipo review del pipeline." },
+  "forge.autoMerge.tierFrom": { label: "Nivel tomado del paso", help: "Paso cuyo summary.tier se comprueba (no puede ir después del paso que aprueba); sin definir = el paso que aprueba." },
 
   // Integrations
   "overlapGuard": { label: "Guardia de solapamiento", help: "Retiene un paso con worktree mientras sus rutas previstas se solapan con las de otra tarea en curso." },

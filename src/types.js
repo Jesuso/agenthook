@@ -585,15 +585,16 @@
  * @property {boolean} [greenCi]        emit a `ci_green` event when an agent PR's checks all pass (a supervisor signal; moves nothing). Default on; false disables
  * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)
  * @property {boolean} [boardClosesOnMerge]  the board closes its own tickets on merge (e.g. Jira/Linear with a dev-tool integration): every merge job is self-closing, so dispatch doesn't bridge it. Default false
- * @property {AutoMergeConfig} [autoMerge]  GitHub only, opt-in: when the review step approves (`advance`) with a risk tier in `tiers`, mark the PR ready and enable GitHub auto-merge. Absent = off
+ * @property {AutoMergeConfig} [autoMerge]  GitHub only, opt-in: when the approving step advances with a risk tier in `tiers`, mark the PR ready and enable GitHub auto-merge; a later bounce turns it off. Absent = off
  */
 
 /**
- * `forge.autoMerge`: auto-merge an agent PR once its review approves it (src/dispatch/auto-merge.js).
+ * `forge.autoMerge`: auto-merge an agent PR once a step approves it (src/auto-merge.js).
  * @typedef {object} AutoMergeConfig
- * @property {string[]} tiers    the review verdict's `summary.tier` values that may auto-merge (e.g. ["low","medium"]); a review with no tier never does
+ * @property {string[]} tiers    the `summary.tier` values that may auto-merge (e.g. ["low","medium"]); a verdict with no tier never does
  * @property {'squash'|'merge'|'rebase'} [method]  GitHub merge method (default "squash")
  * @property {string} [step]     the step whose `advance` triggers it; default the pipeline's last review-kind step
+ * @property {string} [tierFrom] the step whose verdict carries the tier (its stored summary, which must be an `advance`); default `step`. Must not run after `step`
  */
 
 /** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
@@ -615,6 +616,7 @@
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
  * @property {(prNumber: number, o: {method: 'squash'|'merge'|'rebase'}) => Promise<AutoMergeResult>} [enableAutoMerge]  mark the agent PR ready (if draft), then enable auto-merge. Idempotent; throws on a refusal (repo setting, permissions, network)
+ * @property {(prNumber: number) => Promise<{status: 'disabled'|'off'|'merged'|'closed'}>} [disableAutoMerge]  turn auto-merge off on the agent PR (`off` = it was not on). Throws on a refusal
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(o: RunCredentialsInput) => Promise<RunCredentials|null>} [runCredentials]  optional; same contract as Adapter.runCredentials. Dispatch asks the forge first, then the tracker when this returns null
  */

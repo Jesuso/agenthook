@@ -3,7 +3,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // config validation, and runAutoMerge's never-throw contract over a stubbed forge.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoMergeDecision, autoMergeErrors, autoMergeStepId, runAutoMerge } from "../src/auto-merge.js";
+import { autoMergeDecision, autoMergeErrors, autoMergeStepId, disableAutoMergeOnBounce, reportAutoMergeSkipped, runAutoMerge } from "../src/auto-merge.js";
 
 const pipeline = [
   { id: "triage", kind: "triage" },
@@ -22,13 +22,13 @@ test("autoMergeDecision: only the approving step's advance with an allowed tier"
     ["low tier", "review", verdict("advance", { tier: "low" }), { tier: "low", method: "squash" }],
     ["medium tier", "review", verdict("advance", { tier: "medium" }), { tier: "medium", method: "squash" }],
     ["tier case/space-insensitive", "review", verdict("advance", { tier: " Low " }), { tier: "low", method: "squash" }],
-    ["high tier is outside the list", "review", verdict("advance", { tier: "high" }), null],
+    ["high tier is outside the list → skipped", "review", verdict("advance", { tier: "high" }), { skipped: 'tier "high" is not in [low, medium]', tier: "high" }],
     ["hold", "review", verdict("hold", { tier: "low" }), null],
     ["changes", "review", verdict("changes", { tier: "low" }), null],
     ["fail", "review", verdict("fail", { tier: "low" }), null],
-    ["no summary", "review", verdict("advance"), null],
-    ["summary without a tier", "review", verdict("advance", { plain: "ok" }), null],
-    ["non-string tier", "review", verdict("advance", { tier: 1 }), null],
+    ["no summary → skipped", "review", verdict("advance"), { skipped: 'no summary.tier in the "review" verdict' }],
+    ["summary without a tier → skipped", "review", verdict("advance", { plain: "ok" }), { skipped: 'no summary.tier in the "review" verdict' }],
+    ["non-string tier → skipped", "review", verdict("advance", { tier: 1 }), { skipped: 'no summary.tier in the "review" verdict' }],
     ["not the approving step", "code", verdict("advance", { tier: "low" }), null],
   ]);
   for (const [why, stepId, v, want] of cases) assert.deepEqual(autoMergeDecision(cfg(), stepId, v), want, why);
@@ -40,6 +40,19 @@ test("autoMergeDecision: absent block → never; method and step overrides apply
   assert.deepEqual(autoMergeDecision(cfg({ tiers: ["low"], method: "rebase" }), "review", verdict("advance", { tier: "low" })), { tier: "low", method: "rebase" });
   assert.deepEqual(autoMergeDecision(cfg({ tiers: ["low"], step: "code" }), "code", verdict("advance", { tier: "low" })), { tier: "low", method: "squash" });
   assert.equal(autoMergeDecision(cfg({ tiers: ["low"], step: "code" }), "review", verdict("advance", { tier: "low" })), null);
+});
+
+test("autoMergeDecision: tierFrom reads another step's stored approving summary", () => {
+  const qa = [...pipeline.slice(0, 3), { id: "qa", kind: "qa" }, { id: "done", manual: true }];
+  const c = /** @type {any} */ ({ pipeline: qa, forge: { type: "github", autoMerge: { tiers: ["low"], step: "qa", tierFrom: "review" } } });
+  const stored = (/** @type {string} */ outcome, /** @type {any} */ summary) => ({ review: { summary, outcome, run: "r", at: "t" } });
+  // QA's own verdict has no tier; review's stored one decides.
+  assert.deepEqual(autoMergeDecision(c, "qa", verdict("advance"), stored("advance", { tier: "Low" })), { tier: "low", method: "squash" });
+  assert.deepEqual(autoMergeDecision(c, "qa", verdict("advance", { tier: "low" }), stored("advance", { tier: "high" })), { skipped: 'tier "high" is not in [low]', tier: "high" });
+  assert.deepEqual(autoMergeDecision(c, "qa", verdict("advance"), stored("changes", { tier: "low" })), { skipped: 'step "review" (tierFrom) has no approving verdict stored' });
+  assert.deepEqual(autoMergeDecision(c, "qa", verdict("advance"), undefined), { skipped: 'step "review" (tierFrom) has no approving verdict stored' });
+  // The review itself is not the trigger any more.
+  assert.equal(autoMergeDecision(c, "review", verdict("advance", { tier: "low" }), stored("advance", { tier: "low" })), null);
 });
 
 test("autoMergeStepId: the last review-kind step, so an earlier review never merges past a later one", () => {
@@ -54,6 +67,8 @@ test("autoMergeErrors: valid, absent, and each malformed shape", () => {
   assert.deepEqual(autoMergeErrors(undefined, pipeline), []);
   assert.deepEqual(autoMergeErrors({ type: "github" }, pipeline), []);
   assert.deepEqual(autoMergeErrors(forge({ tiers: ["low"], method: "merge", step: "review" }), pipeline), []);
+  assert.deepEqual(autoMergeErrors(forge({ tiers: ["low"], step: "review", tierFrom: "code" }), pipeline), [], "tierFrom before step is fine");
+  assert.deepEqual(autoMergeErrors(forge({ tiers: ["low"], tierFrom: "review" }), pipeline), [], "tierFrom = the approving step is fine");
   const bad = /** @type {Array<[any, RegExp, any?]>} */ ([
     [forge(["low"]), /must be an object/],
     [forge({ tiers: [] }), /tiers must be a non-empty array/],
@@ -64,6 +79,10 @@ test("autoMergeErrors: valid, absent, and each malformed shape", () => {
     [forge({ tiers: ["low"], step: "done" }), /"done" is a manual step/],
     [forge({ tiers: ["low"] }), /needs a review step/, [{ id: "code" }]],
     [forge({ tiers: ["low"] }, "gitlab"), /only supported on the github forge/],
+    [forge({ tiers: ["low"], tierFrom: "" }), /tierFrom must be a pipeline step id/],
+    [forge({ tiers: ["low"], tierFrom: "nope" }), /tierFrom "nope" is not a pipeline step id/],
+    [forge({ tiers: ["low"], tierFrom: "done", step: "review" }), /tierFrom "done" is a manual step/],
+    [forge({ tiers: ["low"], step: "code", tierFrom: "review" }), /tierFrom "review" runs after the approving step "code"/],
   ]);
   for (const [f, re, pl] of bad) {
     const errs = autoMergeErrors(f, pl ?? pipeline);
@@ -149,4 +168,57 @@ test("runAutoMerge: every failure is non-fatal — one auto_merge_failed event w
   const noForge = harness();
   assert.equal(await quiet(() => runAutoMerge({ ...noForge.deps, forge: null }, "42", "review", decision)), null);
   assert.equal(noForge.events[0]?.event, "auto_merge_failed");
+});
+
+test("runAutoMerge: a stored PR number that is no longer open falls back to the branch lookup", async () => {
+  const h = harness({
+    prHead: async (/** @type {any} */ n, /** @type {string} */ ref) => {
+      h.calls.push(["prHead", n, ref]);
+      return n === 7 ? { number: 7, sha: "old", open: false } : { number: 9, sha: "abc", open: true };
+    },
+  });
+  await quiet(() => runAutoMerge(h.deps, "42", "review", decision));
+  assert.deepEqual(h.calls, [["prHead", 7, "42"], ["prHead", null, "42"], ["enableAutoMerge", 9, "squash"]]);
+  assert.equal(h.events[0]?.pr, 9);
+});
+
+test("reportAutoMergeSkipped: one auto_merge_skipped event with the reason (and the tier when there was one)", () => {
+  const h = harness();
+  quiet(async () => {
+    reportAutoMergeSkipped(h.deps, "42", "review", { skipped: 'tier "high" is not in [low]', tier: "high" });
+    reportAutoMergeSkipped(h.deps, "42", "review", { skipped: "no tier" });
+  });
+  assert.deepEqual(h.events, [
+    { event: "auto_merge_skipped", ref: "42", step: "review", tier: "high", reason: 'tier "high" is not in [low]' },
+    { event: "auto_merge_skipped", ref: "42", step: "review", reason: "no tier" },
+  ]);
+});
+
+test("disableAutoMergeOnBounce: turns auto-merge off on the open PR and emits auto_merge_disabled", async () => {
+  const h = harness({
+    disableAutoMerge: async (/** @type {number} */ n) => {
+      h.calls.push(["disableAutoMerge", n]);
+      return { status: "disabled" };
+    },
+  });
+  assert.equal(await quiet(() => disableAutoMergeOnBounce(h.deps, "42", "qa", "changes from qa")), true);
+  assert.deepEqual(h.calls, [["prHead", 7, "42"], ["disableAutoMerge", 7]]);
+  assert.deepEqual(h.events, [{ event: "auto_merge_disabled", ref: "42", step: "qa", pr: 7, reason: "changes from qa" }]);
+});
+
+test("disableAutoMergeOnBounce: silent when it was off, the PR is gone or closed, or the forge can't; a refusal is auto_merge_failed", async () => {
+  for (const [why, over] of /** @type {Array<[string, any]>} */ ([
+    ["was off", { disableAutoMerge: async () => ({ status: "off" }) }],
+    ["merged", { disableAutoMerge: async () => ({ status: "merged" }) }],
+    ["no PR", { prHead: async () => null, disableAutoMerge: async () => ({ status: "disabled" }) }],
+    ["closed PR", { prHead: async () => ({ number: 7, sha: "a", open: false }), disableAutoMerge: async () => ({ status: "disabled" }) }],
+    ["no forge support", {}],
+  ])) {
+    const h = harness(over);
+    assert.equal(await quiet(() => disableAutoMergeOnBounce(h.deps, "42", "qa", "changes from qa")), false, why);
+    assert.deepEqual(h.events, [], why);
+  }
+  const h = harness({ disableAutoMerge: async () => { throw new Error("Resource not accessible by integration"); } });
+  assert.equal(await quiet(() => disableAutoMergeOnBounce(h.deps, "42", "qa", "changes from qa", 7)), false);
+  assert.deepEqual(h.events, [{ event: "auto_merge_failed", ref: "42", step: "qa", pr: 7, reason: "disable failed (changes from qa): Resource not accessible by integration" }]);
 });

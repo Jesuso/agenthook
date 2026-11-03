@@ -521,6 +521,38 @@ test("enableAutoMerge: a refusal throws with GitHub's message; a non-agent PR is
   }
 });
 
+const DISABLE = "disablePullRequestAutoMerge";
+
+test("disableAutoMerge: turns it off only when on; merged/closed/off make no write; non-agent PR refused", async () => {
+  let s = autoMergeFetch({ pr: amPr({ auto_merge: { merge_method: "squash" } }), gql: { [DISABLE]: ok } });
+  try {
+    assert.deepEqual(await forge().disableAutoMerge?.(77), { status: "disabled" });
+    assert.deepEqual(s.calls, [["GET pr"], ["graphql", DISABLE, { id: "PR_node" }]]);
+  } finally {
+    s.restore();
+  }
+  for (const [over, status] of /** @type {Array<[any, string]>} */ ([
+    [{}, "off"],
+    [{ state: "closed", merged_at: "2026-01-01T00:00:00Z", auto_merge: { merge_method: "squash" } }, "merged"],
+    [{ state: "closed" }, "closed"],
+  ])) {
+    s = autoMergeFetch({ pr: amPr(over) });
+    try {
+      assert.deepEqual(await forge().disableAutoMerge?.(77), { status }, status);
+      assert.deepEqual(s.calls, [["GET pr"]], status);
+    } finally {
+      s.restore();
+    }
+  }
+  s = autoMergeFetch({ pr: amPr({ auto_merge: {}, head: { ref: "feature/x", sha: "abc", repo: { full_name: "o/r" } } }) });
+  try {
+    await assert.rejects(forge().disableAutoMerge?.(77) ?? Promise.resolve(), /not an agent PR/);
+    assert.deepEqual(s.calls, [["GET pr"]]);
+  } finally {
+    s.restore();
+  }
+});
+
 test("prState by number: merged_at → merged, closed → closed, else open (any branch); non-2xx throws", async () => {
   for (const [over, want] of /** @type {[any, string][]} */ ([
     [{ state: "closed", merged_at: "2026-10-15T00:00:00Z" }, "merged"],
