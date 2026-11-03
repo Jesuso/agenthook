@@ -32,6 +32,9 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             `name`, `url`; src/dispatch/step.js) or "recheck" (an operator `recheck`, or the merge catch-up, asked
  *             the tracker after the done webhook was missed and found the ticket completed; step "", src/recheck.js).
  *             A `pipeline_done` on the same entry is unchanged)
+ *           | hold_cleared (a held ticket turned done on the board: its held record and waiting pipeline jobs were
+ *             dropped, no tracker write; `via` = "board_done", `dequeued?` = the dropped jobs' steps; step = the held
+ *             step; src/board-done.js `clearHoldOnDone`, from the done webhook, `recheck` or the merge catch-up)
  *           (merged: the forge saw the ref's PR merge — `name`, `url`; `via: "recheck"` when a `recheck` asked the
  *             forge after the webhook was missed instead (step "", no merge bridge ran))
  *           (enqueued: `kind?` = the job's kind ("pipeline" when omitted) — a CI/merge job's enqueue

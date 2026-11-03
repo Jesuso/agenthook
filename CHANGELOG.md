@@ -35,6 +35,15 @@ All notable changes to this project are documented here. The format is based on
   `createsWorktree` step (review, QA, …): config validation refuses a triage tier, or the code step
   judging its own work.
 
+### Fixed
+
+- A held task no longer stays in `held` / "needs you" after its ticket is completed on the board.
+  When the board's done is recorded (the tracker's done webhook, `recheck`, or the merge catch-up in
+  `reconcile`), the hold is dropped along with any pipeline job still waiting for it, and a
+  `hold_cleared {via:"board_done"}` event is written. Nothing moves on the tracker (before, the only
+  way out was `cancel`, which moved the closed ticket to the failure lane), and a running agent is
+  left alone. `recheck {ref}` also clears a hold left on a ticket whose done was recorded earlier.
+
 ## [0.14.0] — 2026-10-29
 
 ### Added

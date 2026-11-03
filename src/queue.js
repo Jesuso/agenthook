@@ -246,15 +246,17 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
     },
     /**
      * Drop WAITING jobs for `ref` (optionally only `stepId`) — never a running one. Fires
-     * `onRemove` per job so queue.json follows. Returns the dropped jobs.
+     * `onRemove` per job so queue.json follows. Returns the dropped jobs. `only` narrows it
+     * further (e.g. pipeline jobs only).
      * @param {string} ref @param {string} [stepId]
+     * @param {(job: import('./types.js').Job) => boolean} [only]
      */
-    remove(ref, stepId) {
+    remove(ref, stepId, only) {
       /** @type {import('./types.js').Job[]} */
       const dropped = [];
       for (let i = queue.length - 1; i >= 0; i--) {
         const j = queue[i];
-        if (j.ref !== ref || (stepId && j.stepId !== stepId)) continue;
+        if (j.ref !== ref || (stepId && j.stepId !== stepId) || (only && !only(j))) continue;
         queue.splice(i, 1);
         inflight.delete(workKey(j));
         persist?.onRemove?.(j);

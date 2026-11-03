@@ -40,7 +40,7 @@ function setup(o = {}) {
       return { ref, name: `T ${ref}`, url: `u/${ref}`, completed: !!t.completed, assignedToUs: t.assignedToUs !== false };
     },
     listResting: async () => [],
-    advance: async () => {},
+    advance: async (/** @type {string} */ ref) => void calls.push(`advance ${ref}`),
     ...(o.complete !== false ? { complete: async (/** @type {string} */ ref) => void calls.push(`complete ${ref}`) } : {}),
   };
   const prs = o.prs ?? {};
@@ -147,6 +147,35 @@ test("recheck: not ours, or a failed fetch → error, nothing recorded; running 
   s.store.addQueued({ kind: "pipeline", ref: "Q", stepId: "code", dedupKey: "q" });
   await assert.rejects(() => s.ops.recheck({ ref: "Q" }), /queued/);
   await assert.rejects(() => s.ops.recheck({}), /ref is required/);
+});
+
+test("recheck: a completed HELD ticket leaves held / needs you — board_done + hold_cleared, no tracker write; an open held one stays", async () => {
+  const s = setup({ tasks: { H: { completed: true }, O: { completed: false } }, forge: false });
+  for (const ref of ["H", "O"]) {
+    s.emit("run_start", ref, "code");
+    s.emit("run_end", ref, "code", { outcome: "hold" });
+    s.store.setHeld(ref, { stepId: "code", reason: "which option?", heldAt: "2026-11-01T00:00:00Z" });
+  }
+  assert.equal(s.rowOf("H")?.status, "held");
+  assert.deepEqual(await s.ops.recheck({ ref: "H" }), { ref: "H", changed: ["board_done", "hold_cleared"], unchanged: false });
+  assert.equal(s.store.getHeld("H"), undefined);
+  assert.equal(s.rowOf("H")?.status, "done");
+  assert.equal(isNeedsYou(/** @type {any} */ (s.rowOf("H")), false), false);
+  assert.deepEqual(s.events().filter((e) => e.event === "hold_cleared").map((e) => [e.ref, e.step, e.via]), [["H", "code", "board_done"]]);
+  assert.deepEqual(await s.ops.recheck({ ref: "O" }), { ref: "O", changed: [], unchanged: true }, "an open ticket keeps its hold");
+  assert.equal(s.store.getHeld("O")?.stepId, "code");
+  assert.deepEqual(s.calls.filter((c) => !c.startsWith("fetch")), [], "no tracker move or completion");
+});
+
+test("recheck: a hold left on a ticket whose done was recorded before → hold_cleared only", async () => {
+  const s = setup({ tasks: { H: { completed: true } }, forge: false });
+  s.emit("run_start", "H", "code");
+  s.emit("run_end", "H", "code", { outcome: "hold" });
+  s.emit("board_done", "H", "", { via: "flag" });
+  s.store.setHeld("H", { stepId: "code", heldAt: "2026-11-01T00:00:00Z" });
+  assert.deepEqual(await s.ops.recheck({ ref: "H" }), { ref: "H", changed: ["hold_cleared"], unchanged: false });
+  assert.equal(s.store.getHeld("H"), undefined);
+  assert.deepEqual(await s.ops.recheck({ ref: "H" }), { ref: "H", changed: [], unchanged: true });
 });
 
 test("recheck: a failed PR lookup is reported and changes no PR fact; the board fact still lands", async () => {

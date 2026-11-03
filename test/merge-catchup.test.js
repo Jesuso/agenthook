@@ -167,6 +167,29 @@ test("merge catch-up: a completed task gets its merge job AND a board_done (via 
   assert.ok(h.lines.some((l) => l.includes("PR #2") && l.includes("merge already handled")));
 });
 
+test("merge catch-up: a completed HELD task loses its hold (hold_cleared), even when its done was already recorded", async () => {
+  const h = harness({ completed: { held1: true, held2: true } });
+  h.store.setHeld("held1", { stepId: "code", heldAt: "2026-10-19T00:00:00Z" });
+  h.store.setHeld("held2", { stepId: "review", heldAt: "2026-10-19T00:00:00Z" });
+  fs.writeFileSync(path.join(h.dir, "events.jsonl"), [
+    { ts: "2026-10-19T00:00:00Z", event: "run_start", ref: "held2", step: "review" },
+    { ts: "2026-10-19T01:00:00Z", event: "board_done", ref: "held2", step: "", via: "flag" },
+  ].map((e) => JSON.stringify(e) + "\n").join(""));
+  /** @type {any[]} */
+  const events = [];
+  const emit = (/** @type {string} */ e, /** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ x) => void events.push([e, ref, step, x]);
+  const prs = [{ pr: 5, ref: "held1", mergedAt: "2026-10-20T02:00:00Z" }, { pr: 6, ref: "held2", mergedAt: "2026-10-20T03:00:00Z" }];
+  await runMergeCatchup(h.cfg, { store: h.store, adapter: h.adapter, forge: /** @type {any} */ (fakeForge(prs)), intake: h.intake, emit, log: h.log });
+  assert.deepEqual(events, [
+    ["board_done", "held1", "", { via: "recheck" }],
+    ["hold_cleared", "held1", "code", { via: "board_done" }],
+    ["hold_cleared", "held2", "review", { via: "board_done" }],
+  ]);
+  assert.equal(h.store.getHeld("held1"), undefined);
+  assert.equal(h.store.getHeld("held2"), undefined);
+  assert.deepEqual(h.calls.filter((c) => !c.startsWith("fetch")), [], "no tracker write");
+});
+
 test("merge catch-up: a failed fetch on the oldest PR leaves the watermark unchanged", async () => {
   const h = harness({ fetchThrows: ["gone"] });
   h.store.setMergeWatermark("2026-10-01T00:00:00Z");

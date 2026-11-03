@@ -93,7 +93,9 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   /** ops' epics-cache reset, handed over via `onEpicChanged` (never an own property of ops — that would be a control op). @type {(() => void) | undefined} */
   let resetEpics;
   const epicChanged = createEpicChanged({ store, emit, invalidate: () => resetEpics?.() });
-  const boardDone = createBoardDone({ store, emit });
+  // A held ref turning done drops its waiting pipeline jobs too. `queue` is assigned below; this
+  // runs only from webhooks, after boot.
+  const boardDone = createBoardDone({ store, emit, queue: { remove: (ref, stepId, only) => queue.remove(ref, stepId, only) } });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, {
     sandbox,
     // A Claude run's quota reading: persisted (readable with the receiver down), shown, paced.

@@ -37,7 +37,8 @@ Vocabulary you will see in tool output:
 - **ref** — the tracker-native task id (Asana gid, GitHub issue number…). Every tool takes `ref`.
   `id` / `title` next to a ref are the human display id and a clipped title.
 - **slot** — concurrency: at most `slots.max` agents run at once; the rest wait in the **queue**.
-- **held** — a task whose agent asked for input. It stays parked until someone answers (`release`).
+- **held** — a task whose agent asked for input. It stays parked until someone answers (`release`)
+  or the ticket is completed on the board (the hold is then dropped: `hold_cleared`).
 - **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again, you `retry` them, or you `dismiss` them. `held` + `failed` is the dashboard's "needs you" list.
 - **backlog / queue stage** — optional opt-in lane the receiver pulls from when a slot frees.
 - There is **no polling** inside agenthook: forward motion is webhook-driven. Reads cost nothing on
@@ -168,6 +169,11 @@ verbatim as `release`'s `comment` — same gate, same resume, no new mechanism. 
 `"no valid verdict"` means the agent exited cleanly without a usable verdict file (likely cut
 mid-edit, or a weak/local `bin` that didn't finish the work) — read the run's tail first;
 `release` re-runs the step, or `run {ref, force:true}` to re-enter it from scratch.
+If the question no longer matters, complete the ticket on the board: its done webhook drops the
+hold and any queued resume (`hold_cleared {via:"board_done"}`), with no move on the tracker. Already
+completed but still in `held[]` (the done webhook was missed, or it landed before this behaviour)?
+`recheck {ref}` drops it (`changed` includes `hold_cleared`). Don't `cancel` a closed ticket just to
+clear its hold: `cancel` moves it to the failure lane.
 
 **A task failed** (`failed` event). `reason` is clipped; `runs {ref, tail}` has the real error.
 Decide: transient (re-enter with `run {ref, force:true}`), needs a fix elsewhere, or needs a human.
@@ -217,8 +223,8 @@ already flagged with a PR reason (`recheck {all:true}`). If a backlog lane is co
 
 **A PR ticket stuck in needs you after the board closed or the PR merged.** Its `board_done` or
 `merged` webhook was missed. `recheck {ref}` asks the tracker and forge again and records only
-what it missed (`board_done`/`merged` with `via:"recheck"`, never a tracker write); `unchanged:true`
-means nothing new. PR merged but the ticket really is still open: `close_on_board {ref}` closes it on
+what it missed (`board_done`/`merged` with `via:"recheck"`, never a tracker write); a completed
+ticket that is still held also loses its hold (`hold_cleared`); `unchanged:true` means nothing new. PR merged but the ticket really is still open: `close_on_board {ref}` closes it on
 the tracker (its own done webhook then records it). Neither fits: `dismiss {ref}`.
 
 **Take a ticket now.** `run {ref, step?}` assigns it to the token's account and moves it into the
@@ -266,7 +272,10 @@ its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
 ticket entered a manual step with that flag already set; `via:"recheck"` = a `recheck` or the merge
 catch-up asked the tracker and found it done after its webhook was missed; a signal only, nothing runs or moves.
 Entering the terminal stage alone is `pipeline_done`, a handoff, never done. Older logs may hold
-`via:"stage"` events; they never meant done), `ci_red {action}`, `ci_green {pr, sha, mergeable,
+`via:"stage"` events; they never meant done), `hold_cleared {via, dequeued?}` (a held ticket turned
+done on the board — via its done webhook, `recheck` or the merge catch-up — so its hold and any
+waiting resume (`dequeued` = their steps) were dropped; nothing moved on the tracker, a running agent
+is untouched), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha),
 `auto_merge_enabled {pr, tier, method}` / `auto_merge_failed {tier?, reason}` /
 `auto_merge_skipped {tier?, reason}` / `auto_merge_disabled {pr, reason, tooLate?}` (opt-in
@@ -299,7 +308,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
 | `retry {ref}` | re-run a **failed** task's failed step: back into that step's source stage (the webhook fires it); never reassigns | not failed (running, queued, held, dismissed or re-run since); not assigned to us; step is `manual` |
 | `dismiss {ref}` | acknowledge a **failed/cancelled** task, or a PR row (`prNeeds`), so dashboards stop counting it as needing attention until its next run (writes a `dismissed` event; the ticket is untouched) | ref is running, queued or held |
-| `recheck {ref}` / `recheck {all:true}` | ask the tracker and forge again about a ticket whose done/merge webhook was missed; records only the missed facts (`board_done`/`merged` with `via:"recheck"`, the PR's `prState`), never writes the tracker. `all` = every row already flagged with a PR reason, never the board. Returns `{ref, changed, unchanged}` per ref (`{rechecked:[…]}` with `all`; a ref that failed carries `error`) | ref is running or queued; not assigned to us, or the tracker read failed (nothing recorded) |
+| `recheck {ref}` / `recheck {all:true}` | ask the tracker and forge again about a ticket whose done/merge webhook was missed; records only the missed facts (`board_done`/`merged` with `via:"recheck"`, the PR's `prState`) and drops the hold of a completed held ticket (`hold_cleared`), never writes the tracker. `all` = every row already flagged with a PR reason, never the board. Returns `{ref, changed, unchanged}` per ref (`{rechecked:[…]}` with `all`; a ref that failed carries `error`) | ref is running or queued; not assigned to us, or the tracker read failed (nothing recorded) |
 | `close_on_board {ref}` | close the ticket on the tracker for a PR row whose code shipped (`prNeeds` `mergedOpen` or `openOnDone`); records nothing locally — the tracker's done webhook does | row has no such PR reason; tracker cannot close tickets; not assigned to us |
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |
 | `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`), then `recheck` the rows already flagged with a PR reason (adds `rechecked`) | — |
