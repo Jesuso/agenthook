@@ -25,6 +25,7 @@ import { createAdapter } from "../trackers/index.js";
 import { isPipeline } from "../pipeline.js";
 import { staleOverlaps } from "../overlap.js";
 import { readRecheckState, recordBoardDone } from "../recheck.js";
+import { clearHoldOnDone } from "../board-done.js";
 import { controlRequest } from "../ui/control-client.js";
 
 /** @param {any} args */
@@ -188,13 +189,14 @@ export async function runMergeCatchup(cfg, { store, adapter, forge, intake, emit
       continue;
     }
     // A completed task's board_done webhook may have been missed too: record it (ours only,
-    // never on live work). Its merge job still runs — on a completed task it is self-closing
-    // (no tracker write) and records `prState: merged` + the `merged` event.
+    // never on live work), and drop a hold left on it. Its merge job still runs — on a completed
+    // task it is self-closing (no tracker write) and records `prState: merged` + the `merged` event.
     if (task.completed && task.assignedToUs && emit) {
       local ??= readRecheckState(cfg);
       const row = local.rows.find((r) => r.ref === p.ref);
-      const live = row && ["running", "queued", "done"].includes(row.status);
-      if (!live && recordBoardDone({ store, emit }, p.ref, local.events)) log(`[done] ${p.ref} — completed on the board; board_done recorded`);
+      const live = row && ["running", "queued"].includes(row.status);
+      if (!live && row?.status !== "done" && recordBoardDone({ store, emit }, p.ref, local.events)) log(`[done] ${p.ref} — completed on the board; board_done recorded`);
+      if (!live && clearHoldOnDone({ store, emit }, p.ref)) log(`[done] ${p.ref} — completed on the board; hold cleared`);
     }
     if (intake([{ kind: "merge", ref: p.ref, stepId, dedupKey: `merged:${p.pr}`, ...(p.boardCloses ? { boardCloses: true } : {}) }]) > 0) {
       log(`[merge] queued ${p.ref} — PR #${p.pr} merged ${p.mergedAt}${task.completed ? " (task already completed)" : ""}`);

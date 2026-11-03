@@ -5,6 +5,7 @@
 // its merge catch-up, and the merge catch-up itself for a task it finds completed. Never a
 // board-wide poll, never a timer. It records local facts only — no tracker or forge write.
 // Fail-closed: a ref whose task we can't confirm is ours records nothing.
+import { clearHoldOnDone } from "./board-done.js";
 import { repositoryOf } from "./heartbeat.js";
 import { buildRows, lastRerunAt, readProfileState } from "./ui/rows.js";
 
@@ -39,6 +40,7 @@ export function recordBoardDone({ store, emit }, ref, events) {
  * recorded), then the PR's state when the forge can tell and the ref has one. Both reads happen
  * before any write. Records:
  *   - the board done (task completed, row not already `done`) → recordBoardDone;
+ *   - a completed task still held → its hold dropped (clearHoldOnDone, `hold_cleared`);
  *   - a merged/closed PR → `refmeta.prState` (an open one drops a stale terminal state);
  *   - a merged PR → a `merged` event (`via: "recheck"`) unless one was already recorded for it:
  *     skipped when the live `merged:<pr>` key is seen, and deduped on its own `recheck-merged:<pr>`
@@ -75,6 +77,8 @@ export async function recheckRef({ store, adapter, forge, emit }, ref, { row, ev
   /** @type {string[]} */
   const changed = [];
   if (task.completed && row?.status !== "done" && recordBoardDone({ store, emit }, ref, events)) changed.push("board_done");
+  // A completed ticket still held here has nothing left to answer (also clears one recorded done earlier).
+  if (task.completed && clearHoldOnDone({ store, emit }, ref)) changed.push("hold_cleared");
   if (prState === "merged" || prState === "closed") {
     if (meta?.prState !== prState) {
       store.setRefMeta(ref, { prState });
