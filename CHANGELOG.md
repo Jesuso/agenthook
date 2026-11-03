@@ -25,8 +25,13 @@ All notable changes to this project are documented here. The format is based on
   shows `auto-merge`. Off when the block is absent. `autoMerge.step` picks any non-manual approving
   step and `autoMerge.tierFrom` reads the tier from an earlier step's verdict (e.g. merge after QA
   on the review's tier). An approving advance whose tier doesn't qualify emits `auto_merge_skipped`
-  instead of staying silent, and a later `changes`/`fail` (incl. a red-CI bounce) turns auto-merge
-  off on the open PR before the rework (`auto_merge_disabled`).
+  instead of staying silent. Only the commit the tier step judged can merge: its PR head is
+  recorded when it starts and auto-merge is pinned to it (`expectedHeadOid`); a moved head is a
+  skip. Auto-merge comes off again (`auto_merge_disabled`) on any later `changes`/`fail` — verdict,
+  red-CI bounce, operator `cancel`, restart recovery — before the task moves (a refused disable
+  holds the task instead of reworking), and on a new commit pushed to the PR after approval
+  (`pull_request` synchronize webhook). `tooLate: true` flags a PR that had already merged.
+  Not combinable with multi-repo `repos` yet.
 
 ## [0.14.0] — 2026-10-29
 

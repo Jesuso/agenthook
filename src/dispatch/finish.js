@@ -8,7 +8,7 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
-import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce } from "../auto-merge.js";
+import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
 
 /** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
 export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
@@ -36,6 +36,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {"max"|"idle"|undefined} timedOut
  * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
  * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
+ * @property {string|null} [headSha]  forge.autoMerge tier step: the PR head when the run started
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -184,13 +185,26 @@ export function createFinish(ctx) {
     }
 
     guardChanges(job.ref, step.id, verdict, ciBounce ? "ci" : step.id);
+
+    // forge.autoMerge: the task is going back (changes — incl. a red-CI bounce — or fail). Turn
+    // auto-merge off before the move fires the rework, so a push made after an earlier approval
+    // can't merge on it. If that fails, auto-merge may still be on: hold instead of reworking.
+    if (cfg.forge?.autoMerge && (verdict.outcome === "changes" || verdict.outcome === "fail")) {
+      const off = await disableAutoMergeOnBounce({ forge, store, emit }, job.ref, step.id, `${ciBounce ? "red CI, " : ""}${verdict.outcome} from ${step.id}`);
+      if (off === "error" && verdict.outcome === "changes") {
+        Object.assign(verdict, { outcome: "hold", reason: "could not turn off auto-merge on the PR before the rework (see auto_merge_failed); turn it off, then release" });
+        delete verdict.target;
+        store?.clearFindings(job.ref);
+        store?.setHeld(job.ref, { stepId: step.id, reason: verdict.reason, heldAt: new Date().toISOString() });
+      }
+    }
     if (ciBounce && verdict.outcome === "changes") emit?.("ci_red", job.ref, step.id, { action: "bounced", target: verdict.target });
 
     // The step's supervisor summary, with the outcome actually applied. A run without one
     // drops the step's earlier summary, so a stale one never outlives a re-run.
     if (store) {
       if (verdict.summary) {
-        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString() });
+        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString(), ...(run.headSha ? { headSha: run.headSha } : {}) });
       } else {
         store.clearSummary(job.ref, step.id);
       }
@@ -222,12 +236,12 @@ export function createFinish(ctx) {
         ? `[verdict] ${step.id} ${job.ref} -> hold (no valid verdict — set requireVerdict:false to advance on a clean exit)`
         : `[verdict] ${step.id} ${job.ref} -> ${verdict.outcome}${verdict.reason ? ` (${verdict.reason})` : ""}`
     );
-    // forge.autoMerge: the task is going back (changes — incl. a red-CI bounce — or fail). Turn
-    // auto-merge off before the move fires the rework, so a push made after an earlier approval
-    // can't merge on it. Ours already (dispatch ran this step); a no-op when it was never on.
-    if (cfg.forge?.autoMerge && (verdict.outcome === "changes" || verdict.outcome === "fail")) {
-      await disableAutoMergeOnBounce({ forge, store, emit }, job.ref, step.id, `${verdict.outcome} from ${step.id}`);
-    }
+    // Decided before the move (it reads only this verdict + stored summaries) so a pending enable
+    // is registered before the move fires the next step: that step's bounce waits for it.
+    const autoMerge = autoMergeDecision(cfg, step.id, verdict, store?.getSummaries(job.ref), run.headSha);
+    /** @type {() => void} */
+    let releaseSlot = () => {};
+    if (autoMerge && !("skipped" in autoMerge)) holdAutoMergeSlot(job.ref, new Promise((r) => (releaseSlot = () => r(undefined))));
 
     let moved = false;
     try {
@@ -243,9 +257,14 @@ export function createFinish(ctx) {
     // After the move, and only when it happened — a refused move (not ours) never merges. The
     // final verdict is read here, so a red-CI bounce or a capped loop never counts as approval.
     // runAutoMerge never throws; a failure is an `auto_merge_failed` event, nothing more.
-    const autoMerge = moved ? autoMergeDecision(cfg, step.id, verdict, store?.getSummaries(job.ref)) : null;
-    if (autoMerge && "skipped" in autoMerge) reportAutoMergeSkipped({ forge, store, emit }, job.ref, step.id, autoMerge);
-    else if (autoMerge) await runAutoMerge({ forge, store, emit }, job.ref, step.id, autoMerge);
+    try {
+      if (moved && autoMerge) {
+        if ("skipped" in autoMerge) reportAutoMergeSkipped({ forge, store, emit }, job.ref, step.id, autoMerge);
+        else await runAutoMerge({ forge, store, emit }, job.ref, step.id, autoMerge);
+      }
+    } finally {
+      releaseSlot();
+    }
 
     // Reset loop counters and difficulty when the task leaves the pipeline: a terminal
     // `fail` or a drained worktree (done). mid-pipeline hold/advance keeps them so a

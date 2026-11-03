@@ -14,7 +14,7 @@
   energy), `routing.js`, `merge.js`, `ci.js`, and `runStep` cut in two: `step.js` (gates, worktree,
   prompt — standing instructions + `stepPrompt` base joined by `=== TICKET ===` — and the spawn with
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`, then the opt-in
-  `forge.autoMerge` call in `src/auto-merge.js` when the approving step's move succeeded, or `auto_merge_skipped`; a `changes`/`fail` first turns auto-merge off via `disableAutoMergeOnBounce`, as does a red-CI bounce in `ci.js`). **Verdict**:
+  `forge.autoMerge` call in `src/auto-merge.js` when the approving step's move succeeded, or `auto_merge_skipped`; the enable is pinned to the PR head `step.js` recorded when the tier step started. A `changes`/`fail` first turns auto-merge off via `disableAutoMergeOnBounce` — as do a red-CI bounce in `ci.js`, `ops.cancel` and restart recovery — and a failed disable turns a `changes` into a `hold`. A `pr_push` signal job (forge `synchronize` webhook) runs `createPrPushGuard` outside the queue). **Verdict**:
   non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `hold` by
   default (`requireVerdict` defaults to `true`; set `false` on the step to advance instead).
   `changes` is capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A

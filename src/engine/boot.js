@@ -190,7 +190,7 @@ export function createServe(deps) {
       }
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).
       const runningRefs = Object.keys(store.listRunning());
-      await recoverInterrupted(store, adapter, emit, releaseOverlap);
+      await recoverInterrupted(store, adapter, emit, releaseOverlap, { cfg, forge });
       restoreQueued(deps, runningRefs);
       // Queue-stage pull into any free slots (opt-in; no-op without a queue key).
       await puller.pull();

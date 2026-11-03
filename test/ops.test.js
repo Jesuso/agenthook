@@ -101,6 +101,28 @@ test("pause / resume: queue holds, heartbeat flag, resume is refused while a res
   assert.equal(locked.queue.isPaused(), true, "operator resume must not undo a restart's pause");
 });
 
+test("cancel + forge.autoMerge: a held ref's auto-merge is turned off before it moves to the failure lane", async () => {
+  /** @type {string[]} */
+  const order = [];
+  const forge = {
+    prHead: async () => ({ number: 7, sha: "abc", open: true }),
+    disableAutoMerge: async (/** @type {number} */ n) => (order.push(`disable ${n}`), { status: "disabled" }),
+  };
+  const adapter = { advance: async (/** @type {string} */ ref, /** @type {string} */ s, /** @type {any} */ v) => order.push(`advance ${v.outcome}`) };
+  const s = setup({ forge, adapter });
+  s.cfg.forge = { type: "github", autoMerge: { tiers: ["low"] } };
+  s.store.setHeld("H", { stepId: "code", heldAt: "t" });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await s.ops.cancel({ ref: "H" });
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(order, ["disable 7", "advance fail"]);
+  assert.ok(s.events.some((e) => e[0] === "auto_merge_disabled" && e[1] === "H"));
+});
+
 test("set_concurrency validates and applies; cancel kills a running ref and/or dequeues waiting ones", async () => {
   const killed = new Set(["RUN"]);
   const s = setup({ killed });

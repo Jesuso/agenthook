@@ -333,6 +333,7 @@ export const messages: Record<MessageKey, Message> = {
   "feed.autoMergeFailed": "auto-merge falló: {reason}",
   "feed.autoMergeSkipped": "sin auto-merge: {reason}",
   "feed.autoMergeDisabled": "auto-merge desactivado ({reason})",
+  "feed.autoMergeTooLate": "ya se había fusionado antes de: {reason}",
   "feed.overlapHeld": "esperando por solapamiento",
   "feed.overlapReleased": "solapamiento liberado",
   "feed.pulled": "tomado de la cola",

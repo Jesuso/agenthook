@@ -190,6 +190,20 @@ test("merged PR on agent/<ref> → one merge job keyed merged:<n>, stepId = comp
   assert.deepEqual(jobs, [{ kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77" }]);
 });
 
+/** A `pull_request` synchronize payload. @param {any} [over] */
+const pushed = (over = {}) => ({ action: "synchronize", pull_request: { number: 77, auto_merge: { merge_method: "squash" }, head: { ref: "agent/123", sha: "def456789", repo: { full_name: "o/r" } }, ...over } });
+
+test("synchronize on an agent PR with auto-merge on → one pr_push signal (forge.autoMerge only)", async () => {
+  const am = { autoMerge: { tiers: ["low"] } };
+  assert.deepEqual(await forge(am).processEvents(ctx(pushed())), [
+    { kind: "pr_push", ref: "123", stepId: "", dedupKey: "prpush:77:def456789", push: { prNumber: 77, headSha: "def456789" } },
+  ]);
+  assert.deepEqual(await forge().processEvents(ctx(pushed())), [], "feature off");
+  assert.deepEqual(await forge(am).processEvents(ctx(pushed({ auto_merge: null }))), [], "auto-merge not on");
+  assert.deepEqual(await forge(am).processEvents(ctx(pushed({ head: { ref: "feature/x", sha: "d", repo: { full_name: "o/r" } } }))), [], "not an agent branch");
+  assert.deepEqual(await forge(am).processEvents(ctx(pushed({ head: { ref: "agent/123", sha: "d", repo: { full_name: "fork/r" } } }))), [], "a fork's branch");
+});
+
 // --- self-closing boards: `Closes #<ref>` (#588) ---
 
 const onMain = (/** @type {string|null|undefined} */ body) => ({ body, baseRef: "main", defaultBranch: "main" });
@@ -454,8 +468,8 @@ const ok = { data: {} };
 test("enableAutoMerge: a draft is marked ready BEFORE auto-merge is enabled, with the method upper-cased", async () => {
   const s = autoMergeFetch({ pr: amPr({ draft: true }), gql: { [READY]: ok, [ENABLE]: ok } });
   try {
-    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash" }), { status: "enabled", readied: true });
-    assert.deepEqual(s.calls, [["GET pr"], ["graphql", READY, { id: "PR_node" }], ["graphql", ENABLE, { id: "PR_node", method: "SQUASH" }]]);
+    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }), { status: "enabled", readied: true });
+    assert.deepEqual(s.calls, [["GET pr"], ["graphql", READY, { id: "PR_node" }], ["graphql", ENABLE, { id: "PR_node", method: "SQUASH", sha: "abc" }]]);
   } finally {
     s.restore();
   }
@@ -464,7 +478,7 @@ test("enableAutoMerge: a draft is marked ready BEFORE auto-merge is enabled, wit
 test("enableAutoMerge: a ready PR skips the ready mutation", async () => {
   const s = autoMergeFetch({ pr: amPr(), gql: { [ENABLE]: ok } });
   try {
-    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "rebase" }), { status: "enabled", readied: false });
+    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "rebase", expectedSha: "abc" }), { status: "enabled", readied: false });
     assert.deepEqual(s.calls.map((c) => c[1] ?? c[0]), ["GET pr", ENABLE]);
     assert.equal(s.calls[1][2].method, "REBASE");
   } finally {
@@ -480,7 +494,7 @@ test("enableAutoMerge: idempotent — already enabled, merged or closed PRs make
   ])) {
     const s = autoMergeFetch({ pr: amPr(over) });
     try {
-      assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash" }), { status, readied: false });
+      assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }), { status, readied: false });
       assert.deepEqual(s.calls, [["GET pr"]], status);
     } finally {
       s.restore();
@@ -489,7 +503,7 @@ test("enableAutoMerge: idempotent — already enabled, merged or closed PRs make
   // GitHub answering "already enabled" (a race with another enabler) is the same no-op, not an error.
   const s = autoMergeFetch({ pr: amPr(), gql: { [ENABLE]: { errors: [{ message: "Pull request auto merge is already enabled" }] } } });
   try {
-    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash" }), { status: "already", readied: false });
+    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }), { status: "already", readied: false });
   } finally {
     s.restore();
   }
@@ -498,8 +512,18 @@ test("enableAutoMerge: idempotent — already enabled, merged or closed PRs make
 test("enableAutoMerge: nothing to wait for (clean status) → merges directly at the read head sha", async () => {
   const s = autoMergeFetch({ pr: amPr(), gql: { [ENABLE]: { errors: [{ message: "Pull request Pull request is in clean status" }] } } });
   try {
-    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash" }), { status: "merged_now", readied: false });
+    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }), { status: "merged_now", readied: false });
     assert.deepEqual(s.calls.at(-1), ["PUT merge", { merge_method: "squash", sha: "abc" }]);
+  } finally {
+    s.restore();
+  }
+});
+
+test("enableAutoMerge: a head that moved past the approved sha writes nothing and reports moved", async () => {
+  const s = autoMergeFetch({ pr: amPr({ draft: true, head: { ref: "agent/123", sha: "def", repo: { full_name: "o/r" } } }) });
+  try {
+    assert.deepEqual(await forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }), { status: "moved", readied: false, headSha: "def" });
+    assert.deepEqual(s.calls, [["GET pr"]], "no ready, no enable, no merge");
   } finally {
     s.restore();
   }
@@ -508,13 +532,13 @@ test("enableAutoMerge: nothing to wait for (clean status) → merges directly at
 test("enableAutoMerge: a refusal throws with GitHub's message; a non-agent PR is refused before any write", async () => {
   let s = autoMergeFetch({ pr: amPr(), gql: { [ENABLE]: { errors: [{ message: "Auto merge is not allowed for this repository" }] } } });
   try {
-    await assert.rejects(forge().enableAutoMerge?.(77, { method: "squash" }) ?? Promise.resolve(), /Auto merge is not allowed for this repository/);
+    await assert.rejects(forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }) ?? Promise.resolve(), /Auto merge is not allowed for this repository/);
   } finally {
     s.restore();
   }
   s = autoMergeFetch({ pr: amPr({ head: { ref: "feature/x", sha: "abc", repo: { full_name: "o/r" } } }) });
   try {
-    await assert.rejects(forge().enableAutoMerge?.(77, { method: "squash" }) ?? Promise.resolve(), /not an agent PR/);
+    await assert.rejects(forge().enableAutoMerge?.(77, { method: "squash", expectedSha: "abc" }) ?? Promise.resolve(), /not an agent PR/);
     assert.deepEqual(s.calls, [["GET pr"]]);
   } finally {
     s.restore();

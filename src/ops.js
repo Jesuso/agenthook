@@ -8,6 +8,7 @@
 // Writes never bypass a gate: `run` is the `agenthook run` move (the webhook then fires the
 // step), `release` reuses the `@agent` resume gate (held + under the attempt cap), and the
 // dispatcher's own fail-closed assignee check still decides whether any agent spawns.
+import { disableAutoMergeOnBounce } from "./auto-merge.js";
 import fs from "node:fs";
 import path from "node:path";
 import { isPipeline, findStep, resumeJob, queueStageOf } from "./pipeline.js";
@@ -395,6 +396,8 @@ export function createOps(deps) {
       /** @type {{moved?: boolean, moveError?: string}} */
       let outcome = {};
       if (!killed && stepId && (held || dropped.some((j) => (j.kind ?? "pipeline") === "pipeline"))) {
+        // forge.autoMerge: a cancel is a terminal fail — an approved PR must not merge behind it.
+        if (cfg.forge?.autoMerge) await disableAutoMergeOnBounce({ forge, store, emit }, ref, stepId, "cancelled by operator");
         try {
           await adapter.advance(ref, stepId, { outcome: "fail", reason: CANCELLED_REASON });
           outcome = { moved: true };

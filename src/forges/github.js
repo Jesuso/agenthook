@@ -9,7 +9,7 @@
 // Implements the Forge contract (src/types.js):
 //   describe()                 -> { name, agentEnv }
 //   authenticate(ctx)          -> {type:'accept'} | {type:'reject'}   (sync, no network)
-//   processEvents(ctx)         -> [job]   (merge + ci jobs only; everything else is [])
+//   processEvents(ctx)         -> [job]   (merge + ci jobs, plus pr_push signals for forge.autoMerge)
 //   registerWebhook(publicUrl) -> create the repo `pull_request`+`workflow_run` hook (best-effort)
 //   unregisterWebhooks()       -> delete this forge's own hook only (by stored id or its own URL)
 //   prHead / rerunFailedJobs / failedLogTail / prComment -> the red-CI calls dispatch makes
@@ -346,6 +346,14 @@ export function createGithubForge(cfg, store) {
       }
       if (event === "workflow_run") return ciJobs(ev);
       const pr = ev?.pull_request;
+      // forge.autoMerge: a new commit on an agent PR that has auto-merge on → `pr_push` signal
+      // (src/auto-merge.js createPrPushGuard turns it off when the approval was for an older head).
+      if (ev?.action === "synchronize") {
+        const pushRef = cfg.forge?.autoMerge && pr?.auto_merge ? refFromBranch(pr?.head?.ref) : null;
+        if (!pushRef || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) return [];
+        console.log(`[forge] PR #${pr.number} new head ${String(pr.head.sha).slice(0, 7)} with auto-merge on → pr_push ${pushRef}`);
+        return [{ kind: "pr_push", ref: pushRef, stepId: "", dedupKey: `prpush:${pr.number}:${pr.head.sha}`, push: { prNumber: pr.number, headSha: String(pr.head.sha) } }];
+      }
       if (ev?.action !== "closed" || pr?.merged !== true) {
         console.log(`[forge] ignore PR #${pr?.number ?? "?"} (${ev?.action}${ev?.action === "closed" ? ", not merged" : ""})`);
         return [];
@@ -485,7 +493,7 @@ export function createGithubForge(cfg, store) {
     // or a PR no longer open, is reported, not redone. When GitHub says there is nothing to wait
     // for (no pending required checks: "clean status"), it merges directly, like `gh` does.
     // Fail closed: only this repo's own agent-branch PRs.
-    async enableAutoMerge(prNumber, { method }) {
+    async enableAutoMerge(prNumber, { method, expectedSha }) {
       const res = await api(`${repoPath()}/pulls/${prNumber}`);
       if (!res.ok) throw new Error(`get PR #${prNumber} ${res.status}`);
       const pr = await json(res);
@@ -494,6 +502,8 @@ export function createGithubForge(cfg, store) {
       }
       if (pr.merged_at) return { status: "merged", readied: false };
       if (pr.state !== "open") return { status: "closed", readied: false };
+      // Pinned to the approved head: a commit pushed since then was never judged.
+      if (pr.head?.sha !== expectedSha) return { status: "moved", readied: false, headSha: String(pr.head?.sha ?? "") };
       if (pr.auto_merge) return { status: "already", readied: false };
       const id = String(pr.node_id);
       let readied = false;
@@ -503,15 +513,15 @@ export function createGithubForge(cfg, store) {
       }
       try {
         await graphql(
-          `mutation($id: ID!, $method: PullRequestMergeMethod!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method}) { pullRequest { number } } }`,
-          { id, method: method.toUpperCase() },
+          `mutation($id: ID!, $method: PullRequestMergeMethod!, $sha: GitObjectID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $sha}) { pullRequest { number } } }`,
+          { id, method: method.toUpperCase(), sha: expectedSha },
         );
         return { status: "enabled", readied };
       } catch (e) {
         if (/already enabled/i.test(e.message)) return { status: "already", readied };
         if (!/\b(clean|has_hooks) status\b/i.test(e.message)) throw e;
       }
-      const m = await api(`${repoPath()}/pulls/${prNumber}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: method, sha: pr.head.sha }) });
+      const m = await api(`${repoPath()}/pulls/${prNumber}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: method, sha: expectedSha }) });
       if (!m.ok) throw new Error(`merge PR #${prNumber} ${m.status}: ${String((await json(m).catch(() => ({})))?.message ?? "").slice(0, 120)}`);
       return { status: "merged_now", readied };
     },

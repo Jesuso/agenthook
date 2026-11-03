@@ -265,10 +265,11 @@ Entering the terminal stage alone is `pipeline_done`, a handoff, never done. Old
 `via:"stage"` events; they never meant done), `ci_red {action}`, `ci_green {pr, sha, mergeable,
 mergeState}` (all of a PR head's checks passed — wake up and merge; once per sha),
 `auto_merge_enabled {pr, tier, method}` / `auto_merge_failed {tier?, reason}` /
-`auto_merge_skipped {tier?, reason}` / `auto_merge_disabled {pr, reason}` (opt-in `forge.autoMerge`:
-the receiver turned on GitHub auto-merge after an approving step, could not (the PR still needs
-you), skipped it because the tier didn't qualify (the PR still needs you), or turned it off because
-the task bounced back), `pulled`
+`auto_merge_skipped {tier?, reason}` / `auto_merge_disabled {pr, reason, tooLate?}` (opt-in
+`forge.autoMerge`: the receiver turned on GitHub auto-merge after an approving step, could not (the
+PR still needs you), skipped it because the tier didn't qualify or the PR head moved since it was
+judged (the PR still needs you), or turned it off because the task bounced back or got a new commit;
+`tooLate` = the PR had already merged and the rejected code needs you), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
 Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,
 resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer stopped / restarted

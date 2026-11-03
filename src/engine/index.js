@@ -38,6 +38,7 @@ import { createIngress } from "../ingress/index.js";
 import { createForge } from "../forges/index.js";
 import { createSandbox } from "../sandbox/index.js";
 import { createCiGreen } from "../ci-green.js";
+import { createPrPushGuard } from "../auto-merge.js";
 import { createEpicChanged } from "../epic-changed.js";
 import { createBoardDone } from "../board-done.js";
 import { createQueue } from "../queue.js";
@@ -88,6 +89,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // overlapGuard only: undefined when off, so nothing downstream touches the overlap files.
   const releaseOverlap = cfg.overlapGuard ? createOverlapReleaser(store, intake, emit) : undefined;
   const ciGreen = createCiGreen({ adapter, forge, store, emit });
+  const prPush = createPrPushGuard({ cfg, forge, store, emit });
   /** ops' epics-cache reset, handed over via `onEpicChanged` (never an own property of ops — that would be a control op). @type {(() => void) | undefined} */
   let resetEpics;
   const epicChanged = createEpicChanged({ store, emit, invalidate: () => resetEpics?.() });
@@ -176,7 +178,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     archiveOnExit: false,
     finished: false,
     control: null,
-    server: http.createServer(createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone })),
+    server: http.createServer(createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone, prPush })),
   };
 
   // Opt-in quota pacer (src/quota.js; `quota` config, default off).

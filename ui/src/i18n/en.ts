@@ -331,6 +331,7 @@ export const messages = {
   "feed.autoMergeFailed": "auto-merge failed: {reason}",
   "feed.autoMergeSkipped": "not auto-merged: {reason}",
   "feed.autoMergeDisabled": "auto-merge turned off ({reason})",
+  "feed.autoMergeTooLate": "already auto-merged before {reason}",
   "feed.overlapHeld": "waiting on overlap",
   "feed.overlapReleased": "overlap released",
   "feed.pulled": "pulled",

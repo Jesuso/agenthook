@@ -15,6 +15,7 @@ import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
 import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
+import { needsReviewedHead, currentPrHead } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
 export function createStep(ctx) {
@@ -224,6 +225,9 @@ export function createStep(ctx) {
       console.log(`[dispatch] step ${step.id} ref ${job.ref}: model=${model ?? "default"} effort=${effort ?? "default"}`);
     }
 
+    // forge.autoMerge: the tier step's approval is pinned to the PR head it judges — read it before
+    // the agent starts, so a commit the agent (or anyone) pushes during the run is not covered.
+    const headSha = needsReviewedHead(cfg, step.id) ? await currentPrHead(forge, store, job.ref) : null;
     const startedAt = new Date().toISOString();
     const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null };
     // A new agent run means any PR state learned earlier (closed, merged) no longer stands —
@@ -339,7 +343,7 @@ export function createStep(ctx) {
     }
     const { code, result, quota, timedOut, sandboxReport } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport });
+    return finishStep(job, { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport, headSha });
   }
 
   return { runStep };

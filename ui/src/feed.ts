@@ -124,8 +124,8 @@ export function formatFeedEvent(event: Record<string, any>, displayId: string | 
       break;
     }
     case "auto_merge_disabled": {
-      text = tr("feed.autoMergeDisabled", { reason: event.reason ?? "?" });
-      tone = "held";
+      text = event.tooLate ? tr("feed.autoMergeTooLate", { reason: event.reason ?? "?" }) : tr("feed.autoMergeDisabled", { reason: event.reason ?? "?" });
+      tone = event.tooLate ? "failed" : "held";
       break;
     }
     case "overlap_held": {

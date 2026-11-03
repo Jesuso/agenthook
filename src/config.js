@@ -620,7 +620,7 @@ export function validateRawConfig(raw) {
     if (!t) errors.push(`config: forge.ciTarget "${label(cfg.forge.ciTarget)}" is not a pipeline step id.`);
     else if (t.manual) errors.push(`config: forge.ciTarget "${label(t.id)}" is a manual step (a red-CI bounce needs an agent step).`);
   }
-  errors.push(...autoMergeErrors(cfg.forge, pipeline));
+  errors.push(...autoMergeErrors(cfg.forge, pipeline, cfg.repos));
 
   return errors.length ? { ok: false, errors } : { ok: true };
 }

@@ -2,9 +2,12 @@
 // the pipeline's last review-kind step) finishes with `advance` and the risk tier — its own
 // verdict's `summary.tier`, or the stored summary of `autoMerge.tierFrom` — is in
 // `autoMerge.tiers`, the receiver asks the forge to mark the agent PR ready (if draft) and enable
-// auto-merge, so GitHub merges it once its required checks pass. A later `changes`/`fail` on the
-// task (a step bouncing it back, or a red-CI bounce) turns auto-merge off again while the PR is
-// still open, so a rework commit never merges on the strength of an earlier approval.
+// auto-merge, so GitHub merges it once its required checks pass — pinned to the PR head the
+// tier step saw when it started (`expectedHeadOid`), so only reviewed commits can merge.
+// Auto-merge comes off again while the PR is open when the task goes back (`changes`/`fail`
+// from any path, or a red-CI bounce) or when a new commit lands on the PR after approval (the
+// forge's `pull_request` synchronize webhook → `onPrPush`). A bounce whose disable fails is held
+// instead of firing the rework.
 // Best-effort by design: a refusal (repo setting, permissions, network) is logged and emitted as
 // `auto_merge_failed`; it never changes the verdict, the board move or the step's result.
 // Import-free, so config.js can take `autoMergeErrors` without pulling in dispatch.
@@ -40,15 +43,17 @@ export function autoMergeTierStepId(pipeline, autoMerge) {
  * Config validation for the optional `forge.autoMerge` block. Pure.
  * @param {any} forge  the raw `forge` block (may be undefined)
  * @param {any[]|undefined|null} pipeline
+ * @param {unknown} [repos]  the raw `repos` block (multi-repo routing)
  * @returns {string[]}
  */
-export function autoMergeErrors(forge, pipeline) {
+export function autoMergeErrors(forge, pipeline, repos) {
   const am = forge?.autoMerge;
   if (am == null) return [];
   if (typeof am !== "object" || Array.isArray(am)) return [`config: "forge.autoMerge" must be an object ({ "tiers": ["low"], "method": "squash" }).`];
   /** @type {string[]} */
   const errors = [];
   if (forge.type !== "github") errors.push(`config: "forge.autoMerge" is only supported on the github forge.`);
+  if (Array.isArray(repos) && repos.length > 1) errors.push(`config: "forge.autoMerge" does not support multi-repo routing yet (the forge only sees forge.repository); remove one or the other.`);
   const t = am.tiers;
   if (!Array.isArray(t) || !t.length || t.some((/** @type {unknown} */ x) => typeof x !== "string" || !x.trim())) {
     errors.push(`config: forge.autoMerge.tiers must be a non-empty array of tier names (e.g. ["low", "medium"]).`);
@@ -75,6 +80,15 @@ export function autoMergeErrors(forge, pipeline) {
     else if (from.manual) errors.push(`config: forge.autoMerge.tierFrom ${JSON.stringify(am.tierFrom)} is a manual step (no agent writes a verdict there).`);
     else if (ti > idx) errors.push(`config: forge.autoMerge.tierFrom ${JSON.stringify(am.tierFrom)} runs after the approving step ${JSON.stringify(id)}, so its tier would be stale.`);
   }
+  // The tier must come from a step that judges the code: strictly after the step that creates the
+  // worktree (when there is one). Earlier (triage) approves code nobody looked at; that step itself
+  // writes the code, so the PR head recorded at its start is never the commit it produced.
+  const tierId = autoMergeTierStepId(pipeline, am);
+  const ti = tierId ? pipeline.findIndex((s) => s && typeof s === "object" && s.id === tierId) : -1;
+  const wi = pipeline.findIndex((s) => s && typeof s === "object" && s.createsWorktree);
+  if (ti >= 0 && wi >= 0 && ti <= wi) {
+    errors.push(`config: forge.autoMerge takes its tier from ${JSON.stringify(tierId)}, which ${ti === wi ? "writes" : `runs before ${JSON.stringify(pipeline[wi].id)} writes`} the code; take it from a later step that judges it (tierFrom/step).`);
+  }
   return errors;
 }
 
@@ -83,29 +97,80 @@ export function autoMergeErrors(forge, pipeline) {
  * - `null`: not applicable — no block, not the approving step, or not an `advance`.
  * - `{skipped, tier?}`: the approving step advanced but the tier does not allow it (missing, outside
  *   `tiers`, or the `tierFrom` step has no approving verdict stored). Reported, never merged.
- * - `{tier, method}`: go. Tiers compare trimmed, case-insensitive.
+ * - `{tier, method, sha, from}`: go, pinned to `sha` — the PR head the tier step saw when it started.
+ *   Tiers compare trimmed, case-insensitive. No recorded head → skipped (fail closed).
  * @param {import('./types.js').Config} cfg @param {string} stepId @param {import('./types.js').Verdict} verdict
  * @param {Record<string, import('./types.js').SummaryRecord>|undefined} [summaries]  the ref's stored step summaries (for `tierFrom`)
- * @returns {{tier: string, method: 'squash'|'merge'|'rebase'}|{skipped: string, tier?: string}|null}
+ * @param {string|null} [runHeadSha]  the PR head this run (the approving step) saw at its start
+ * @returns {AutoMergeGo|{skipped: string, tier?: string}|null}
  */
-export function autoMergeDecision(cfg, stepId, verdict, summaries) {
+export function autoMergeDecision(cfg, stepId, verdict, summaries, runHeadSha) {
   const am = cfg.forge?.autoMerge;
   if (!am || !Array.isArray(am.tiers)) return null;
   if (verdict.outcome !== "advance") return null;
   if (stepId !== autoMergeStepId(cfg.pipeline, am)) return null;
   const from = autoMergeTierStepId(cfg.pipeline, am) ?? stepId;
   let raw;
+  /** @type {string|null|undefined} */
+  let sha;
   if (from === stepId) {
     raw = verdict.summary?.tier;
+    sha = runHeadSha;
   } else {
     const rec = summaries?.[from];
     if (!rec || rec.outcome !== "advance") return { skipped: `step "${from}" (tierFrom) has no approving verdict stored` };
     raw = /** @type {any} */ (rec.summary)?.tier;
+    sha = rec.headSha;
   }
   if (typeof raw !== "string" || !raw.trim()) return { skipped: `no summary.tier in the "${from}" verdict` };
   const tier = raw.trim().toLowerCase();
   if (!am.tiers.some((t) => String(t).trim().toLowerCase() === tier)) return { skipped: `tier "${tier}" is not in [${am.tiers.join(", ")}]`, tier };
-  return { tier, method: am.method ?? "squash" };
+  if (!sha) return { skipped: `no PR head recorded for the "${from}" run (no PR when it started?)`, tier };
+  return { tier, method: am.method ?? "squash", sha, from };
+}
+
+/** @typedef {{tier: string, method: 'squash'|'merge'|'rebase', sha: string, from: string}} AutoMergeGo */
+
+/**
+ * Does this step's run need the PR head recorded at its start (it is the tier source)? Pure.
+ * @param {import('./types.js').Config} cfg @param {string} stepId
+ */
+export function needsReviewedHead(cfg, stepId) {
+  const am = cfg.forge?.autoMerge;
+  return !!am && Array.isArray(am.tiers) && autoMergeTierStepId(cfg.pipeline, am) === stepId;
+}
+
+/**
+ * The open agent PR's head SHA right now (recorded at the tier step's start). Never throws.
+ * @param {import('./types.js').Forge|null|undefined} forge @param {import('./types.js').Store|undefined} store @param {string} ref
+ * @returns {Promise<string|null>}
+ */
+export async function currentPrHead(forge, store, ref) {
+  if (!forge?.prHead) return null;
+  try {
+    const pr = await findPr(forge, store, ref);
+    return pr?.open ? pr.sha : null;
+  } catch (e) {
+    console.error(`[auto-merge] ${ref} PR head lookup failed: ${e.message}`);
+    return null;
+  }
+}
+
+// Per-ref serialization: a bounce's disable waits for an enable that is still in flight for the
+// same ref (the enable runs after the board move that fires the next step, so a fast next step
+// could otherwise read "off" and then the enable lands). Process-wide; keyed by ref.
+/** @type {Map<string, Promise<unknown>>} */
+const inflight = new Map();
+
+/**
+ * Mark an auto-merge enable as pending for `ref` until `done` settles. Call it BEFORE the move.
+ * @param {string} ref @param {Promise<unknown>} done
+ */
+export function holdAutoMergeSlot(ref, done) {
+  const p = done.catch(() => {}).finally(() => {
+    if (inflight.get(ref) === p) inflight.delete(ref);
+  });
+  inflight.set(ref, p);
 }
 
 /**
@@ -137,10 +202,10 @@ async function findPr(forge, store, ref, hint) {
  * (a draft already marked ready stays ready).
  * @param {AutoMergeDeps} deps
  * @param {string} ref @param {string} stepId
- * @param {{tier: string, method: 'squash'|'merge'|'rebase'}} decision
+ * @param {AutoMergeGo} decision
  * @returns {Promise<import('./types.js').AutoMergeResult|null>}  null when it did not happen
  */
-export async function runAutoMerge({ forge, store, emit }, ref, stepId, { tier, method }) {
+export async function runAutoMerge({ forge, store, emit }, ref, stepId, { tier, method, sha, from }) {
   /** @param {string} reason @param {number} [pr] */
   const failed = (reason, pr) => {
     const r = String(reason).slice(0, REASON_MAX);
@@ -162,10 +227,15 @@ export async function runAutoMerge({ forge, store, emit }, ref, stepId, { tier, 
   }
   let res;
   try {
-    res = await forge.enableAutoMerge(pr.number, { method });
+    res = await forge.enableAutoMerge(pr.number, { method, expectedSha: sha });
   } catch (e) {
     return failed(e.message, pr.number);
   }
+  if (res.status === "moved") {
+    reportAutoMergeSkipped({ forge, store, emit }, ref, stepId, { skipped: `PR head moved since "${from}" saw it (${sha.slice(0, 7)} → ${String(res.headSha ?? "?").slice(0, 7)})`, tier });
+    return res;
+  }
+  if (res.status === "enabled" || res.status === "already") store?.setRefMeta(ref, { autoMerge: { sha, pr: pr.number, step: stepId, at: new Date().toISOString() } });
   if (res.status === "already" || res.status === "merged" || res.status === "closed") {
     console.log(`[auto-merge] ${ref} PR #${pr.number}: ${res.status === "already" ? "auto-merge already enabled" : `already ${res.status}`}`);
     return res;
@@ -195,23 +265,59 @@ export function reportAutoMergeSkipped({ emit }, ref, stepId, d) {
  * @param {string} ref @param {string} stepId  the step the task is leaving
  * @param {string} why  short cause, e.g. "changes from qa"
  * @param {number|null} [prHint]  the PR number when the caller already knows it
- * @returns {Promise<boolean>}  true when auto-merge was turned off
+ * @returns {Promise<'disabled'|'noop'|'error'>}  `error`: auto-merge may still be on — the caller
+ *   must not fire a rework (finish/ci turn the bounce into a hold)
  */
 export async function disableAutoMergeOnBounce({ forge, store, emit }, ref, stepId, why, prHint) {
-  if (!forge?.disableAutoMerge || !forge.prHead) return false;
+  if (!forge?.disableAutoMerge || !forge.prHead) return "noop";
+  await inflight.get(ref);
+  const ours = store?.getRefMeta(ref)?.autoMerge;
   let pr;
   try {
     pr = await findPr(forge, store, ref, prHint ?? null);
-    if (!pr || !pr.open) return false;
+    if (!pr) return "noop";
+    if (!pr.open) {
+      // We turned auto-merge on and the PR is gone: if it merged, the code this bounce rejects is
+      // already on the base branch. Nothing to stop — say so instead of staying silent.
+      if (ours && forge.prState && (await forge.prState(pr.number)) === "merged") {
+        console.log(`[auto-merge] ${ref} PR #${pr.number} already merged — too late to stop (${why})`);
+        emit?.("auto_merge_disabled", ref, stepId, { pr: pr.number, reason: why.slice(0, REASON_MAX), tooLate: true });
+        store?.setRefMeta(ref, { autoMerge: null });
+      }
+      return "noop";
+    }
     const res = await forge.disableAutoMerge(pr.number);
-    if (res.status !== "disabled") return false;
+    if (res.status !== "disabled") {
+      if (res.status === "off") store?.setRefMeta(ref, { autoMerge: null });
+      return "noop";
+    }
   } catch (e) {
     const r = `disable failed (${why}): ${e.message}`.slice(0, REASON_MAX);
     console.error(`[auto-merge] ${ref}${pr ? ` PR #${pr.number}` : ""} ${r}`);
     emit?.("auto_merge_failed", ref, stepId, { ...(pr ? { pr: pr.number } : {}), reason: r });
-    return false;
+    return "error";
   }
+  store?.setRefMeta(ref, { autoMerge: null });
   console.log(`[auto-merge] ${ref} PR #${pr.number}: auto-merge turned off (${why})`);
   emit?.("auto_merge_disabled", ref, stepId, { pr: pr.number, reason: why.slice(0, REASON_MAX) });
-  return true;
+  return "disabled";
+}
+
+/**
+ * The forge saw a new commit on an agent PR that has auto-merge on (`pr_push` signal job, from a
+ * `pull_request` synchronize webhook). If we turned auto-merge on for an older head, turn it off:
+ * the approval was for that head, not this one. Auto-merge someone else enabled is left alone.
+ * Handled outside the run queue (a cheap read + at most one write). Never throws.
+ * @param {AutoMergeDeps & {cfg: import('./types.js').Config}} deps
+ * @returns {(job: import('./types.js').Job) => Promise<'disabled'|'noop'|'error'>}
+ */
+export function createPrPushGuard({ cfg, forge, store, emit }) {
+  return async function onPrPush(job) {
+    const push = job.push;
+    if (!cfg.forge?.autoMerge || !push) return "noop";
+    await inflight.get(job.ref);
+    const ours = store?.getRefMeta(job.ref)?.autoMerge;
+    if (!ours?.sha || ours.sha === push.headSha) return "noop";
+    return disableAutoMergeOnBounce({ forge, store, emit }, job.ref, "", `new commit ${push.headSha.slice(0, 7)} after approval of ${ours.sha.slice(0, 7)}`, push.prNumber);
+  };
 }

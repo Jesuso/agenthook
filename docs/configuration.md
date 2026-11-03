@@ -187,7 +187,14 @@ required checks pass.
 - `tierFrom`: the step whose verdict carries the tier. Default: `step` itself. Set it when the
   trigger is a later step that doesn't judge risk (e.g. `"step": "qa", "tierFrom": "review"`): the
   tier is read from that step's stored summary, which must be an `advance`. It must not run after
-  `step`.
+  `step`, and (with either setting) the tier step must run after the step that creates the worktree:
+  a triage tier would approve code nobody looked at, and the step that writes the code can't judge it.
+
+**Only the commit that was judged can merge.** When the tier step starts, the receiver records the
+PR's head commit. Auto-merge is enabled pinned to that commit (`expectedHeadOid`); if the PR has
+moved on by then (the approving step itself committed, or anyone pushed), nothing merges and the
+receiver emits `auto_merge_skipped` with the two SHAs. No PR when the tier step started (so no
+recorded head) is also a skip.
 
 It runs only when `step`'s final outcome is `advance` and the board move succeeded. `hold`,
 `changes`, `fail`, a red-CI bounce that turned the `advance` into `changes`, or a refused move (the
@@ -196,10 +203,20 @@ outside `tiers`, or `tierFrom` has no approving verdict), nothing merges and the
 `auto_merge_skipped {tier?, reason}`, so a misconfigured tier is visible. It is idempotent: a PR
 that already has auto-merge on, or is already merged or closed, is left alone.
 
-**A bounce turns it off.** While the PR is still open, any later `changes` or `fail` verdict on the
-task (a step sending it back, or a red-CI bounce) disables auto-merge on the PR **before** the task
-moves, so a rework commit never merges on the strength of the earlier approval. The receiver emits
-`auto_merge_disabled {pr, reason}`, and the next approval turns it on again. `hold` leaves it on.
+**It comes off again when the approved code changes or is rejected.** While the PR is open:
+
+- any later `changes` or `fail` on the task — a step's verdict, a red-CI bounce, an operator
+  `cancel`, or a restart that fails an interrupted run — disables auto-merge **before** the task
+  moves. If GitHub refuses the disable, a `changes` becomes a `hold` instead (no rework fires
+  while auto-merge may still be on); release it once auto-merge is off.
+- a new commit pushed to the PR after approval (from a later step, a person, anything) disables
+  it as soon as GitHub's `pull_request` webhook arrives. Auto-merge someone else turned on is left
+  alone.
+
+Each emits `auto_merge_disabled {pr, reason}`, and the next approval turns it on again. `hold`
+leaves it on. When the PR had already merged, the event carries `tooLate: true`: the rejected code
+is on the base branch and needs a person. Not supported together with multi-repo `repos` routing
+yet (config validation refuses it).
 
 A failure (the repo doesn't allow auto-merge, the token lacks permission, a network error) never
 fails the step or blocks the pipeline: the receiver logs it and emits `auto_merge_failed {pr?,
@@ -212,8 +229,8 @@ Where to put the approval is your call. Two common shapes:
 
 - **Merge at review, then keep going.** `triage → code → review → qa` with the default `step`
   (review). The PR merges once its checks pass, and `qa` runs on the merged code (e.g. it files
-  follow-up tickets). A `changes` from `qa` that arrives *before* the merge turns auto-merge off;
-  after the merge there is nothing left to stop.
+  follow-up tickets). A `changes` from `qa`, or a commit it pushes, that arrives *before* the merge
+  turns auto-merge off; after the merge there is nothing left to stop (`tooLate`).
 - **Merge after the last gate.** `"step": "qa", "tierFrom": "review"`: the review judges the risk,
   and the merge waits until `qa` advances too.
 
