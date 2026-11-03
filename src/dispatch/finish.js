@@ -8,6 +8,7 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
+import { autoMergeDecision, runAutoMerge } from "../auto-merge.js";
 
 /** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
 export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
@@ -39,7 +40,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
 export function createFinish(ctx) {
-  const { cfg, adapter, store, emit, opts, pids, cancelled, killTimers } = ctx;
+  const { cfg, adapter, store, emit, forge, opts, pids, cancelled, killTimers } = ctx;
   const { stepIndex, leavePipeline, recordPr, finalizeUsage, stopEnergy, readVerdict, guardChanges } = ctx;
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
@@ -221,12 +222,21 @@ export function createFinish(ctx) {
         ? `[verdict] ${step.id} ${job.ref} -> hold (no valid verdict — set requireVerdict:false to advance on a clean exit)`
         : `[verdict] ${step.id} ${job.ref} -> ${verdict.outcome}${verdict.reason ? ` (${verdict.reason})` : ""}`
     );
+    let moved = false;
     try {
       await adapter.advance(job.ref, step.id, verdict);
+      moved = true;
     } catch (e) {
       console.error(`[advance] ${step.id} ${job.ref} (${verdict.outcome}) failed:`, e.message);
       reportMoveFailure(emit, job.ref, step.id, verdict.outcome, e);
     }
+
+    // Opt-in auto-merge (forge.autoMerge): the approving step advanced with an allowed risk tier.
+    // After the move, and only when it happened — a refused move (not ours) never merges. The
+    // final verdict is read here, so a red-CI bounce or a capped loop never counts as approval.
+    // runAutoMerge never throws; a failure is an `auto_merge_failed` event, nothing more.
+    const autoMerge = moved ? autoMergeDecision(cfg, step.id, verdict) : null;
+    if (autoMerge) await runAutoMerge({ forge, store, emit }, job.ref, step.id, autoMerge);
 
     // Reset loop counters and difficulty when the task leaves the pipeline: a terminal
     // `fail` or a drained worktree (done). mid-pipeline hold/advance keeps them so a

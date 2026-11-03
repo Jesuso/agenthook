@@ -75,6 +75,7 @@ const GROUPS = [
   ["Step.egress", [...STEP, "egress"], [...typedefProps("EgressConfig").keys()]],
   ["GithubAuthConfig (tracker)", ["tracker", "auth"], [...typedefProps("GithubAuthConfig").keys()]],
   ["GithubAuthConfig (forge)", ["forge", "auth"], [...typedefProps("GithubAuthConfig").keys()]],
+  ["AutoMergeConfig", ["forge", "autoMerge"], [...typedefProps("AutoMergeConfig").keys()]],
   ["RepoConfig", ["repos", "*"], [...typedefProps("RepoConfig").keys()]],
   ["Config.ui", ["ui"], literalKeys(config.get("ui") ?? "")],
   ["Config.digest", ["digest"], literalKeys(config.get("digest") ?? "")],

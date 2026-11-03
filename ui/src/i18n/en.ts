@@ -327,6 +327,8 @@ export const messages = {
   "feed.blocked": "held: {reason}",
   "feed.merged": "merged",
   "feed.ciRed": "CI red ({action})",
+  "feed.autoMergeEnabled": "auto-merge on ({tier})",
+  "feed.autoMergeFailed": "auto-merge failed: {reason}",
   "feed.overlapHeld": "waiting on overlap",
   "feed.overlapReleased": "overlap released",
   "feed.pulled": "pulled",

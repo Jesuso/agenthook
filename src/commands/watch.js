@@ -14,7 +14,7 @@ import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, waitForEv
 
 /** One text line per event. @param {Record<string, any>} e */
 const line = (e) =>
-  `${e.ts} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}${e.pr ? ` PR#${e.pr}` : ""}${e.sha ? ` ${String(e.sha).slice(0, 7)}` : ""}${e.mergeState ? ` ${e.mergeState}` : ""}`;
+  `${e.ts} ${e.e} ${e.ref}${e.step ? `/${e.step}` : ""}${e.outcome ? ` → ${e.outcome}` : ""}${e.reason ? ` (${e.reason})` : ""}${e.pr ? ` PR#${e.pr}` : ""}${e.sha ? ` ${String(e.sha).slice(0, 7)}` : ""}${e.mergeState ? ` ${e.mergeState}` : ""}${e.tier ? ` tier=${e.tier}` : ""}`;
 
 /** @param {any} args */
 const types = (args) => (args.event ? new Set(String(args.event).split(",").map((s) => s.trim()).filter(Boolean)) : null);

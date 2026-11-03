@@ -160,6 +160,55 @@ two forges, `github` and `gitlab` (see [GitLab forge setup](gitlab.md)):
   already completed is never bridged either.
 - `redCi` / `greenCi` / `ciTarget` keep their defaults (react to red CI, emit a `ci_green`
   signal, bounce red CI to the `createsWorktree` step) unless overridden.
+- `autoMerge` (github only, off by default) — see [Auto-merge on review approval](#auto-merge-on-review-approval-forgeautomerge).
+
+### Auto-merge on review approval (`forge.autoMerge`)
+
+Opt-in. When the review step approves a PR whose risk tier you allow, the receiver does what an
+operator would do by hand (`gh pr ready <n>` then `gh pr merge <n> --auto --squash`): it marks the
+PR ready for review if it is a draft, then enables GitHub auto-merge, so GitHub merges it once the
+required checks pass.
+
+```json
+"forge": {
+  "type": "github",
+  "repository": "owner/name",
+  "token": "${GITHUB_TOKEN}",
+  "autoMerge": { "tiers": ["low", "medium"], "method": "squash" }
+}
+```
+
+- `tiers` (required): the values of the review verdict's `summary.tier` that may auto-merge
+  (compared case-insensitively). The tier is whatever your review instructions ask the reviewer to
+  write, e.g. `"summary": {"tier": "low", "plain": "…"}`. A review with no tier never auto-merges.
+- `method`: `squash` (default), `merge` or `rebase`.
+- `step`: the step whose verdict approves. Default: the pipeline's **last** `kind: "review"` step, so
+  a later review is never skipped. Config validation fails when there is none and `step` is unset.
+
+It runs only when that step's final outcome is `advance` and the board move succeeded. `hold`,
+`changes`, `fail`, a tier outside the list, a red-CI bounce that turned the `advance` into
+`changes`, or a refused move (the task is not ours) never auto-merge. It is idempotent: a PR that
+already has auto-merge on, or is already merged or closed, is left alone.
+
+A failure (the repo doesn't allow auto-merge, the token lacks permission, a network error) never
+fails the step or blocks the pipeline: the receiver logs it, emits `auto_merge_failed {pr?, tier,
+reason}`, and leaves the PR as it was. Success emits `auto_merge_enabled {pr, tier, method,
+readied?, mergedNow?}` (`ah watch --event auto_merge_enabled,auto_merge_failed`), and the PR shows
+`auto-merge` in `ah tick` and `autoMerge: true` in `prs`.
+
+Setup on GitHub:
+
+- Enable **Settings → General → Allow auto-merge** on the repo. Without it every attempt is an
+  `auto_merge_failed`.
+- Auto-merge waits for **required** status checks (branch protection or a ruleset). When GitHub
+  reports nothing to wait for (the PR is already in a clean state), the receiver merges it right
+  away, like `gh pr merge --auto` does. Without required checks that means the PR merges as soon as
+  review approves, so require your CI checks first.
+- The token needs Pull requests: Read & write and Contents: Read & write (classic: `repo`); a GitHub
+  App needs the same repository permissions.
+- GitHub does not delete the head branch after an auto-merge; turn on **Automatically delete head
+  branches** if you want that.
+- The receiver reads `forge.autoMerge` at start: restart it after changing the block.
 
 `agenthook init` offers to write this block (defaulting to yes when the tracker is `github` or
 the repo's `origin` remote is a github.com URL; a GitLab `origin` offers the `gitlab` forge

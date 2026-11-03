@@ -143,8 +143,8 @@ test("store difficulty: independent per ref, fresh store reads persisted value",
 // A fake `claude` (a tiny sh script, no network) writes $FAKE_VERDICT to the verdict
 // file and records the prompt it was handed, so runClaude runs end to end.
 
-/** @param {{steps?: any[], meta?: any, cfg?: any}} [o] */
-function heldHarness({ steps, meta, cfg: cfgOver } = {}) {
+/** @param {{steps?: any[], meta?: any, cfg?: any, forge?: any}} [o] */
+function heldHarness({ steps, meta, cfg: cfgOver, forge } = {}) {
   const dir = tmpDir();
   const bin = path.join(dir, "fake-claude.sh");
   fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$2" > "$FAKE_PROMPT_OUT"\nprintf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
@@ -170,7 +170,7 @@ function heldHarness({ steps, meta, cfg: cfgOver } = {}) {
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
   });
   const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
-  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  const run = createDispatcher(cfg, adapter, undefined, store, emit, forge);
   const promptOut = path.join(dir, "prompt.txt");
   /** @param {string} stepId @param {any} verdict @param {string} [comment] @param {{prompt?: boolean}} [o] */
   const runStep = async (stepId, verdict, comment, { prompt = true } = {}) => {
@@ -1568,4 +1568,63 @@ test("onQuota: a claude run's rate_limit_event reaches the hook stamped with asO
   assert.deepEqual(q, { fiveHour: { utilization: 0.08, resetsAt: "2026-10-18T18:10:00.000Z" }, sevenDay: { utilization: 0.66, resetsAt: "2026-10-18T21:00:00.000Z" } });
   assert.ok(Date.parse(asOf) >= before - 1000);
   assert.deepEqual(await runWith("cursor"), []);
+});
+
+// --- forge.autoMerge wiring: the approving step's final advance reaches the forge, nothing else does ---
+
+/** A forge stub recording enableAutoMerge calls. @param {any} [over] */
+function autoMergeForge(over = {}) {
+  /** @type {any[]} */
+  const calls = [];
+  return {
+    calls,
+    prHead: async () => ({ number: 7, sha: "abc", open: true }),
+    enableAutoMerge: async (/** @type {number} */ pr, /** @type {any} */ o) => {
+      calls.push([pr, o.method]);
+      return { status: "enabled", readied: true };
+    },
+    ...over,
+  };
+}
+
+const autoMergeSteps = [{ id: "code", kind: "implement" }, { id: "review", kind: "review" }, { id: "done", manual: true }];
+const autoMergeCfg = { forge: { type: "github", autoMerge: { tiers: ["low"] } } };
+
+/** Run steps with console.error muted. @param {() => Promise<void>} fn */
+async function quietErrors(fn) {
+  const err = console.error;
+  console.error = () => {};
+  try {
+    await fn();
+  } finally {
+    console.error = err;
+  }
+}
+
+test("dispatch: a review advance with an allowed tier enables auto-merge after the move; the code step's advance does not", async () => {
+  const forge = autoMergeForge();
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(async () => {
+    await runStep("code", { outcome: "advance", summary: { tier: "low" } }, undefined, { prompt: false });
+    assert.deepEqual(forge.calls, [], "only the approving (review) step triggers it");
+    await runStep("review", { outcome: "advance", summary: { tier: "low" } }, undefined, { prompt: false });
+  });
+  assert.deepEqual(forge.calls, [[7, "squash"]]);
+  assert.deepEqual(advanced.at(-1), ["42", "review", "advance"], "the board move still happened");
+  const e = events.find((x) => x.event === "auto_merge_enabled");
+  assert.deepEqual([e?.pr, e?.tier, e?.method, e?.readied], [7, "low", "squash", true]);
+});
+
+test("dispatch: an auto-merge failure is an event only — the review still advances", async () => {
+  const forge = autoMergeForge({
+    enableAutoMerge: async () => {
+      throw new Error("Auto merge is not allowed for this repository");
+    },
+  });
+  const { runStep, events, advanced } = heldHarness({ steps: autoMergeSteps, forge, cfg: autoMergeCfg });
+  await quietErrors(() => runStep("review", { outcome: "advance", summary: { tier: "low" } }, undefined, { prompt: false }).then(() => {}));
+  assert.deepEqual(advanced.at(-1), ["42", "review", "advance"]);
+  const e = events.find((x) => x.event === "auto_merge_failed");
+  assert.deepEqual([e?.pr, e?.tier, e?.reason], [7, "low", "Auto merge is not allowed for this repository"]);
+  assert.ok(!events.some((x) => x.event === "auto_merge_enabled"));
 });

@@ -13,6 +13,7 @@
 //   registerWebhook(publicUrl) -> create the repo `pull_request`+`workflow_run` hook (best-effort)
 //   unregisterWebhooks()       -> delete this forge's own hook only (by stored id or its own URL)
 //   prHead / rerunFailedJobs / failedLogTail / prComment -> the red-CI calls dispatch makes
+//   enableAutoMerge(n, {method}) -> draft → ready, then GitHub auto-merge (opt-in forge.autoMerge)
 //   runCredentials(o)          -> a per-run App token for one agent run (App auth only, #474)
 //
 // GitHub specifics:
@@ -151,6 +152,16 @@ export function createGithubForge(cfg, store) {
         ...(init.headers || {}),
       },
     });
+  /** One GraphQL call; throws on a non-2xx or a GraphQL `errors` reply (their messages joined).
+   * @param {string} query @param {Record<string, unknown>} variables @returns {Promise<any>} */
+  const graphql = async (query, variables) => {
+    const res = await api("/graphql", { method: "POST", body: JSON.stringify({ query, variables }) });
+    /** @type {any} */
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}${body?.message ? `: ${body.message}` : ""}`);
+    if (Array.isArray(body?.errors) && body.errors.length) throw new Error(body.errors.map((/** @type {any} */ x) => x?.message ?? "error").join("; "));
+    return body?.data;
+  };
   // External API payloads are untyped until an adapter maps them — parse as any.
   /** @param {Response} res @returns {Promise<any>} */
   const json = (res) => res.json();
@@ -412,6 +423,7 @@ export function createGithubForge(cfg, store) {
             mergeState,
             ci,
             updatedAt: String(p.updated_at ?? ""),
+            ...(p.auto_merge ? { autoMerge: true } : {}),
           };
         }),
       );
@@ -464,6 +476,43 @@ export function createGithubForge(cfg, store) {
       // Fail closed: a PR whose head isn't this repo's agent branch is not ours to act on.
       if (!pr || pr.head?.ref !== branch || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) return null;
       return { number: pr.number, sha: pr.head.sha, open: pr.state === "open" };
+    },
+
+    // Opt-in auto-merge (`forge.autoMerge`, src/auto-merge.js): what `gh pr ready` + `gh pr merge
+    // --auto` do, over the API. Draft → ready first (GitHub refuses auto-merge on a draft), then
+    // enablePullRequestAutoMerge. Both are GraphQL-only. Idempotent: an already-enabled request,
+    // or a PR no longer open, is reported, not redone. When GitHub says there is nothing to wait
+    // for (no pending required checks: "clean status"), it merges directly, like `gh` does.
+    // Fail closed: only this repo's own agent-branch PRs.
+    async enableAutoMerge(prNumber, { method }) {
+      const res = await api(`${repoPath()}/pulls/${prNumber}`);
+      if (!res.ok) throw new Error(`get PR #${prNumber} ${res.status}`);
+      const pr = await json(res);
+      if (!refFromBranch(pr?.head?.ref) || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+        throw new Error(`PR #${prNumber} is not an agent PR of ${owner}/${repo}`);
+      }
+      if (pr.merged_at) return { status: "merged", readied: false };
+      if (pr.state !== "open") return { status: "closed", readied: false };
+      if (pr.auto_merge) return { status: "already", readied: false };
+      const id = String(pr.node_id);
+      let readied = false;
+      if (pr.draft) {
+        await graphql(`mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }`, { id });
+        readied = true;
+      }
+      try {
+        await graphql(
+          `mutation($id: ID!, $method: PullRequestMergeMethod!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method}) { pullRequest { number } } }`,
+          { id, method: method.toUpperCase() },
+        );
+        return { status: "enabled", readied };
+      } catch (e) {
+        if (/already enabled/i.test(e.message)) return { status: "already", readied };
+        if (!/\b(clean|has_hooks) status\b/i.test(e.message)) throw e;
+      }
+      const m = await api(`${repoPath()}/pulls/${prNumber}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: method, sha: pr.head.sha }) });
+      if (!m.ok) throw new Error(`merge PR #${prNumber} ${m.status}: ${String((await json(m).catch(() => ({})))?.message ?? "").slice(0, 120)}`);
+      return { status: "merged_now", readied };
     },
 
     async rerunFailedJobs(runId) {

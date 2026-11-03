@@ -75,6 +75,8 @@
   },
 
   "//forge": "Optional: complete tasks when their agent/<ref> PR merges. { type:'github', repository:'owner/name', token: a GITHUB_TOKEN env ref } + one manual step with completeOnMerge:true. See docs/asana-setup.md#completing-tasks-on-merge-forge.",
+  "//forgeAutoMerge": "Optional (github forge, off by default): add autoMerge to the forge block to auto-merge a PR once the review step approves it with an allowed risk tier (the verdict's summary.tier): the receiver marks the PR ready and enables GitHub auto-merge. method: squash (default) | merge | rebase. See docs/configuration.md#auto-merge-on-review-approval-forgeautomerge.",
+  "//forgeAutoMerge_example": { "autoMerge": { "tiers": ["low", "medium"], "method": "squash" } },
 
   "ingress": {
     "//": "How the receiver is reachable. ngrok (managed tunnel) | manual/hosted (static URL).",

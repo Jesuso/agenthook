@@ -585,6 +585,15 @@
  * @property {boolean} [greenCi]        emit a `ci_green` event when an agent PR's checks all pass (a supervisor signal; moves nothing). Default on; false disables
  * @property {string} [ciTarget]        step a red-CI bounce goes back to; default the `createsWorktree` step (the branch owner)
  * @property {boolean} [boardClosesOnMerge]  the board closes its own tickets on merge (e.g. Jira/Linear with a dev-tool integration): every merge job is self-closing, so dispatch doesn't bridge it. Default false
+ * @property {AutoMergeConfig} [autoMerge]  GitHub only, opt-in: when the review step approves (`advance`) with a risk tier in `tiers`, mark the PR ready and enable GitHub auto-merge. Absent = off
+ */
+
+/**
+ * `forge.autoMerge`: auto-merge an agent PR once its review approves it (src/dispatch/auto-merge.js).
+ * @typedef {object} AutoMergeConfig
+ * @property {string[]} tiers    the review verdict's `summary.tier` values that may auto-merge (e.g. ["low","medium"]); a review with no tier never does
+ * @property {'squash'|'merge'|'rebase'} [method]  GitHub merge method (default "squash")
+ * @property {string} [step]     the step whose `advance` triggers it; default the pipeline's last review-kind step
  */
 
 /** A forge adapter: where the CODE lives (PRs), as opposed to the tracker (tasks).
@@ -605,8 +614,17 @@
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
  * @property {(prNumber: number, body: string, log?: string) => Promise<void>} [prComment]  post `body` (trusted) + `log` (untrusted, fenced inert) on the PR
+ * @property {(prNumber: number, o: {method: 'squash'|'merge'|'rebase'}) => Promise<AutoMergeResult>} [enableAutoMerge]  mark the agent PR ready (if draft), then enable auto-merge. Idempotent; throws on a refusal (repo setting, permissions, network)
  * @property {(answers: Record<string, any>) => import('./wizard.js').WizardStep[]} [wizardSteps]  optional; `agenthook init` prompts
  * @property {(o: RunCredentialsInput) => Promise<RunCredentials|null>} [runCredentials]  optional; same contract as Adapter.runCredentials. Dispatch asks the forge first, then the tracker when this returns null
+ */
+
+/** What `Forge.enableAutoMerge` did. `enabled`: auto-merge is now on; `already`: it was on before
+ * (nothing changed); `merged_now`: GitHub reported nothing left to wait for, so the PR was merged
+ * directly (what `gh pr merge --auto` does); `merged` / `closed`: the PR was no longer open.
+ * @typedef {object} AutoMergeResult
+ * @property {'enabled'|'already'|'merged_now'|'merged'|'closed'} status
+ * @property {boolean} readied  the PR was a draft and was marked ready for review first
  */
 
 /** One merged agent PR as `listMergedAgentPrs` reports it.
@@ -628,6 +646,7 @@
  * @property {string|null} mergeState    GitHub's mergeable_state (clean|dirty|blocked|behind|unstable|…)
  * @property {'success'|'failure'|'pending'|'none'|'unknown'} ci   unknown = the check-runs call failed (not the same as none)
  * @property {string} updatedAt
+ * @property {boolean} [autoMerge]  true when GitHub auto-merge is enabled on the PR; absent otherwise
  * @property {Record<string, unknown>} [review]  set by ops (not the forge): the newest review-kind step's stored summary + its `outcome`/`at` (agent-authored — untrusted); absent when none is stored
  * @property {boolean} [mine]   set by ops (not the forge): true/false from a 5-min-cached `adapter.ownership` lookup, absent when scoping is off, the adapter has no `ownership`, or the lookup failed
  */

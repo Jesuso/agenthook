@@ -75,7 +75,7 @@ several projects stay distinguishable at a glance. Details in [docs/web-ui.md](d
 | **Pipeline** | Ordered stages bound to Asana sections, Jira statuses, GitHub labels, Projects v2 columns or Linear workflow states; verdict-driven routing with hold and rework lanes |
 | **Agents** | Headless `claude -p` per stage in a receiver-owned worktree, or [Cursor / Hermes / OpenCode](docs/agents.md) per step (`agent`); per-stage instructions; token and cost tracking (`agenthook usage`) |
 | **Human in the loop** | Held tickets wait for your answer (`@agent` comment or **Release…** in the UI); failures and unmerged PRs surface as **Needs you** |
-| **Forge** | Optional GitHub or [GitLab](docs/gitlab.md) forge: PR/MR merge detection, red-CI handling, mergeability and CI roll-up |
+| **Forge** | Optional GitHub or [GitLab](docs/gitlab.md) forge: PR/MR merge detection, red-CI handling, mergeability and CI roll-up, and opt-in [auto-merge on review approval](docs/configuration.md#auto-merge-on-review-approval-forgeautomerge) (GitHub) |
 | **Multi-profile** | Many projects in parallel, each its own config, state and port; rename, move and archive profiles safely |
 | **Multi-repo** | Route tickets of one board to different repositories |
 | **Epics** | Group tickets into epics (Asana custom type, GitHub issue type or label + sub-issues — labels or Projects v2 —, Jira's native epic + parent) — progress, needs-you, velocity/ETA in the [UI](docs/github-setup.md#epics), MCP and CLI |

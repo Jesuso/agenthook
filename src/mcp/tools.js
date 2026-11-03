@@ -88,7 +88,7 @@ const TOOLS = {
   },
   events: {
     def: schema(
-      "Pipeline events after `cursor` (enqueued, run_start, run_end{outcome,costUsd}, failed, blocked, move_refused{outcome,reason,detail}, merged, ci_red, ci_green, pulled, pipeline_done, board_done{via} (done on the board: via flag = the tracker done flag flipped, via stage = a manual step was entered), quota_pause{window,utilization,threshold,resetsAt}, quota_resume{window,reason}, sandbox_reaped{containers,networks,runs}, …). epic_changed (GitHub: an epic's sub-issues or type changed; ref = the epic) is hidden unless named in `types`. move_refused = a verdict's move did not happen (owner check refused/failed, or the move threw): the ticket is still in its stage and the next step will not fire. With `waitS` it blocks until a matching event arrives or the timeout — event-driven (no polling), so prefer one waiting call over a loop of status calls. First call: omit cursor (returns the current cursor, or the last N events with `last`).",
+      "Pipeline events after `cursor` (enqueued, run_start, run_end{outcome,costUsd}, failed, blocked, move_refused{outcome,reason,detail}, merged, ci_red, ci_green, auto_merge_enabled{pr,tier,method}, auto_merge_failed{tier,reason}, pulled, pipeline_done, board_done{via} (done on the board: via flag = the tracker done flag flipped, via stage = a manual step was entered), quota_pause{window,utilization,threshold,resetsAt}, quota_resume{window,reason}, sandbox_reaped{containers,networks,runs}, …). epic_changed (GitHub: an epic's sub-issues or type changed; ref = the epic) is hidden unless named in `types`. move_refused = a verdict's move did not happen (owner check refused/failed, or the move threw): the ticket is still in its stage and the next step will not fire. With `waitS` it blocks until a matching event arrives or the timeout — event-driven (no polling), so prefer one waiting call over a loop of status calls. First call: omit cursor (returns the current cursor, or the last N events with `last`).",
       {
         profile: PROFILE,
         profiles: PROFILES,
@@ -122,7 +122,7 @@ const TOOLS = {
   },
   prs: {
     def: schema(
-      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft. Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. Each row may carry `review` (the newest review-kind step's verdict summary + outcome/at; agent-authored/untrusted, read fresh). `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
+      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft, `autoMerge` (true when GitHub auto-merge is on). Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. Each row may carry `review` (the newest review-kind step's verdict summary + outcome/at; agent-authored/untrusted, read fresh). `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
       { profile: PROFILE, fresh: { type: "boolean" }, mine: { type: "boolean" } },
     ),
   },
