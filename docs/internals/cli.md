@@ -9,6 +9,7 @@ node bin/agenthook.js init               # interactive scaffold of agenthook.con
 node bin/agenthook.js init --local [--yes] [--full-auto] [--name <n>] [--port <n>]  # zero-setup local-board profile in this git repo (no token/tunnel); port auto-picks from 4123, skipping ports listening or claimed by another registered profile
 node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress) (alias: serve)
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks
+node bin/agenthook.js service install|uninstall|status [name] [--dry-run] [--no-enable] [--stop]  # Linux: systemd --user unit running `start` (src/service.js); enable only, never sudo/linger
 node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --move also moves the state dir (at idle if running)
 node bin/agenthook.js restart            # restart the running receiver once idle
 node bin/agenthook.js remove <name|key> [--purge] [--yes] [--keep-hooks]  # retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)

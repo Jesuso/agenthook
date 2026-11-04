@@ -12,6 +12,61 @@ import { spawn } from "node:child_process";
 import { ensurePrivateDir } from "./config.js";
 
 /**
+ * Exit code a control-socket `restart` uses when the receiver runs as a systemd --user service
+ * (`agenthook service install`): the unit's `RestartForceExitStatus=` turns it into a restart
+ * inside the unit, instead of a detached respawn that would escape systemd's supervision.
+ */
+export const RESTART_EXIT_CODE = 75;
+
+/**
+ * Exit code a `start` under the unit uses when it refuses to boot (profile already running,
+ * control socket owned, port in use): the unit's `RestartPreventExitStatus=` keeps systemd from
+ * retrying a refusal until the start limit trips and leaves the unit failed. The refusal is the
+ * operator's to resolve (hand the running receiver over, free the port).
+ */
+export const REFUSED_EXIT_CODE = 78;
+
+/**
+ * Marker file in the state dir that asks the next `start` to run one reconcile after boot — the
+ * out-of-band form of `--reconcile-on-boot` for a restart whose argv is fixed (a systemd unit).
+ */
+export const RECONCILE_MARKER = "reconcile-on-boot";
+
+/**
+ * Whether this receiver runs under `agenthook service`'s unit. Only the unit's own
+ * `AGENTHOOK_SERVICE=1` counts: `INVOCATION_ID` would also match a terminal the desktop launched
+ * as a transient service, and a restart there must still respawn.
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export const underSystemdUnit = (env = process.env) => env.AGENTHOOK_SERVICE === "1";
+
+/**
+ * Write the reconcile marker for the next `start` on this state dir.
+ * @param {string} stateDir
+ */
+export function writeReconcileMarker(stateDir) {
+  fs.writeFileSync(path.join(stateDir, RECONCILE_MARKER), `${new Date().toISOString()}\n`);
+}
+
+/**
+ * Whether a reconcile marker is present. Read-only: the boot that honours it clears it with
+ * `clearReconcileMarker` only once the boot succeeded, so a boot that fails (network not up yet,
+ * systemd retries) still reconciles on the attempt that makes it.
+ * @param {string} stateDir
+ */
+export function hasReconcileMarker(stateDir) {
+  return fs.existsSync(path.join(stateDir, RECONCILE_MARKER));
+}
+
+/**
+ * Remove the reconcile marker (after a successful boot). Never throws.
+ * @param {string} stateDir
+ */
+export function clearReconcileMarker(stateDir) {
+  fs.rmSync(path.join(stateDir, RECONCILE_MARKER), { force: true });
+}
+
+/**
  * Whether `spawnDetached` should wrap the child in `systemd-run --user --scope` so it
  * survives the caller's cgroup scope. Pure given injected probes (no I/O when supplied).
  * @param {{platform?: string, env?: NodeJS.ProcessEnv, onPath?: (cmd: string) => boolean, exists?: (p: string) => boolean}} [opts]
@@ -89,20 +144,34 @@ export function restartSpawnArgs(cfg, { execPath = process.execPath, installDir 
 }
 
 /**
+ * The env a detached child gets: the caller's, minus `AGENTHOOK_SERVICE`. A receiver spawned
+ * this way is not the unit's process, so a `restart` of it must respawn, not exit 75. Pure.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function detachedEnv(env = process.env) {
+  const copy = { ...env };
+  delete copy.AGENTHOOK_SERVICE;
+  return copy;
+}
+
+/**
  * Spawn `command args` detached (own process group, unref'd), stdio appended to
  * <stateDir>/receiver.log. On Linux with a reachable systemd user manager, wraps the
  * command in `systemd-run --user --scope` so the child survives the caller's cgroup scope.
+ * The child never inherits `AGENTHOOK_SERVICE` (see `detachedEnv`).
  * @param {{stateDir: string, stateKey: string}} cfg
  * @param {{command: string, args: string[]}} spec
+ * @param {{env?: NodeJS.ProcessEnv}} [opts]
  * @returns {{pid: number|undefined, logPath: string}}
  */
-export function spawnDetached(cfg, spec) {
+export function spawnDetached(cfg, spec, { env = process.env } = {}) {
   ensurePrivateDir(cfg.stateDir);
   const logPath = path.join(cfg.stateDir, "receiver.log");
   const fd = fs.openSync(logPath, "a");
   try {
-    const { command, args } = detachedSpawnSpec(spec, { scope: systemdScopeAvailable(), stateKey: cfg.stateKey });
-    const child = spawn(command, args, { detached: true, stdio: ["ignore", fd, fd] });
+    const { command, args } = detachedSpawnSpec(spec, { scope: systemdScopeAvailable({ env }), stateKey: cfg.stateKey });
+    const child = spawn(command, args, { detached: true, stdio: ["ignore", fd, fd], env: detachedEnv(env) });
     child.unref();
     return { pid: child.pid, logPath };
   } finally {

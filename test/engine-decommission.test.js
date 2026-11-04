@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createDecommissionRequester, createRestartRequester, finishTeardown, runDecommission, unregisterAll, waitForExit } from "../src/engine.js";
+import { RESTART_EXIT_CODE, RECONCILE_MARKER, hasReconcileMarker, clearReconcileMarker } from "../src/respawn.js";
 import { archiveStateDir } from "../src/archive.js";
 import { createQueue } from "../src/queue.js";
 
@@ -247,6 +248,35 @@ test("finishTeardown(respawn): spawns, never archives", () => {
   );
   assert.equal(spawned, 1);
   assert.ok(fs.existsSync(cfg.stateDir));
+});
+
+test("finishTeardown(respawn) under a systemd unit: no spawn, reconcile marker written, exit code 75", () => {
+  const { cfg } = cfgIn("restart-unit");
+  const lines = captureLogs(() => {
+    const r = finishTeardown(
+      { cfg, respawn: true },
+      { env: { AGENTHOOK_SERVICE: "1" }, spawnDetached: () => assert.fail("spawned"), archiveStateDir: () => assert.fail("archived") },
+    );
+    assert.deepEqual(r, { exitCode: RESTART_EXIT_CODE });
+  });
+  assert.match(lines[0], /^\[restart\] running as a systemd service — exiting 75 for systemd to restart/);
+  assert.ok(fs.existsSync(path.join(cfg.stateDir, RECONCILE_MARKER)));
+  assert.equal(hasReconcileMarker(cfg.stateDir), true, "the next start reads it");
+  assert.equal(hasReconcileMarker(cfg.stateDir), true, "reading does not consume it (a failed boot keeps it for the retry)");
+  clearReconcileMarker(cfg.stateDir);
+  assert.equal(hasReconcileMarker(cfg.stateDir), false, "cleared once the boot succeeded");
+  clearReconcileMarker(cfg.stateDir); // idempotent
+  assert.ok(!fs.existsSync(path.join(cfg.stateDir, RECONCILE_MARKER)));
+});
+
+test("finishTeardown(respawn): INVOCATION_ID alone is not a unit (a desktop-launched terminal has one)", () => {
+  const { cfg } = cfgIn("restart-term");
+  let spawned = 0;
+  captureLogs(() => {
+    const r = finishTeardown({ cfg, respawn: true }, { env: { INVOCATION_ID: "abc" }, spawnDetached: () => (spawned++, { pid: 1, logPath: "x" }) });
+    assert.deepEqual(r, { exitCode: 0 });
+  });
+  assert.equal(spawned, 1);
 });
 
 /** runDecommission deps that record the event + shutdown call. */
