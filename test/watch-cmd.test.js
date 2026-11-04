@@ -222,3 +222,116 @@ test("parse: --follow/--stream are booleans, --heartbeat takes a value", async (
   assert.deepEqual(a._, ["p"]);
   assert.equal(parse(["--stream", "p"]).stream, true);
 });
+
+// ---- --actionable. Live profiles carry this process's pid in server.pid (alive = receiver up).
+
+/** A profile whose receiver reads as up. @param {string} key @param {Record<string, any>[]} [lines] */
+function liveProfile(key, lines = []) {
+  const dir = profile(key, lines);
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+  return dir;
+}
+
+test("watch --actionable: skips handled events into a summary, wakes on the first one that needs someone", async () => {
+  liveProfile("act", [
+    { ts: "2026-01-03T00:00:00.000Z", event: "pipeline_done", ref: "5", step: "done", awaitingMerge: true, pr: 9 },
+    { ts: "2026-01-03T00:00:01.000Z", event: "merged", ref: "4", step: "" },
+    { ts: "2026-01-03T00:00:02.000Z", event: "ci_red", ref: "6", step: "", action: "rerun", pr: 10 },
+    { ts: "2026-01-03T00:00:03.000Z", event: "blocked", ref: "7", step: "review", reason: "needs a human" },
+  ]);
+  const j = await run(() => watch({ _: ["act"], actionable: true, json: true, cursor: "0", timeout: "1" }));
+  assert.equal(j.code, 0);
+  const r = JSON.parse(j.out[0]);
+  assert.deepEqual(r.events.map((e) => `${e.e}:${e.ref}`), ["blocked:7"]);
+  assert.equal(r.cursor, size("act"));
+  assert.deepEqual(r.summary, { n: 3, byEvent: { ci_red: { n: 1, refs: ["6"] }, merged: { n: 1, refs: ["4"] }, pipeline_done: { n: 1, refs: ["5"] } } });
+});
+
+test("watch --actionable: --wake and --quiet override the classifier", async () => {
+  liveProfile("actw", [
+    { ts: "2026-01-03T00:00:00.000Z", event: "merged", ref: "4", step: "" },
+    { ts: "2026-01-03T00:00:01.000Z", event: "blocked", ref: "7", step: "review", reason: "needs a human" },
+  ]);
+  const j = await run(() => watch({ _: ["actw"], actionable: true, json: true, cursor: "0", timeout: "1", wake: "merged", quiet: "blocked" }));
+  assert.equal(j.code, 0);
+  const r = JSON.parse(j.out[0]);
+  assert.deepEqual(r.events.map((e) => `${e.e}:${e.ref}`), ["merged:4"]);
+  assert.deepEqual(r.summary, { n: 1, byEvent: { blocked: { n: 1, refs: ["7"] } } });
+});
+
+test("watch --actionable: a quiet timeout still reports the summary and the cursor (exit 2)", async () => {
+  liveProfile("actq", [{ ts: "2026-01-03T00:00:00.000Z", event: "merged", ref: "4", step: "" }]);
+  const j = await run(() => watch({ _: ["actq"], actionable: true, json: true, cursor: "0", timeout: "0.1" }));
+  assert.equal(j.code, 2);
+  assert.deepEqual(JSON.parse(j.out[0]), { events: [], cursor: size("actq"), summary: { n: 1, byEvent: { merged: { n: 1, refs: ["4"] } } }, timedOut: true });
+  const t = await run(() => watch({ _: ["actq"], actionable: true, cursor: "0", timeout: "0.1" }));
+  assert.deepEqual(t.out, ["skipped 1: merged 1 (4)", `(nothing actionable in 0.1s) cursor ${size("actq")}`]);
+});
+
+test("watch --actionable: ci_green wakes only when auto-merge is not already on for the ref", async () => {
+  const dir = liveProfile("actg", [
+    { ts: "2026-01-03T00:00:00.000Z", event: "ci_green", ref: "1", step: "", pr: 3 },
+    { ts: "2026-01-03T00:00:01.000Z", event: "ci_green", ref: "2", step: "", pr: 4 },
+  ]);
+  fs.writeFileSync(path.join(dir, "refmeta.json"), JSON.stringify({ 1: { autoMerge: { pr: 3, sha: "a", step: "review", at: "x" } } }));
+  const r = JSON.parse((await run(() => watch({ _: ["actg"], actionable: true, json: true, cursor: "0", timeout: "1" }))).out[0]);
+  assert.deepEqual(r.events.map((e) => e.ref), ["2"]);
+  assert.deepEqual(r.summary.byEvent, { ci_green: { n: 1, refs: ["1"] } });
+});
+
+test("watch --actionable: a receiver that is not running wakes at once with daemon_down", async () => {
+  profile("actdown"); // no server.pid
+  const j = await run(() => watch({ _: ["actdown"], actionable: true, json: true, timeout: "5" }));
+  assert.equal(j.code, 0);
+  const r = JSON.parse(j.out[0]);
+  assert.equal(r.events.length, 1);
+  assert.equal(r.events[0].e, "daemon_down");
+  assert.match(r.events[0].reason, /actdown.*not running/);
+  assert.equal(r.cursor, size("actdown"));
+});
+
+test("watch --actionable: a receiver that dies mid-wait is noticed at the next --liveness check", async () => {
+  const dir = liveProfile("actdie");
+  const p = run(() => watch({ _: ["actdie"], actionable: true, json: true, timeout: "5", liveness: "0.05" }));
+  await new Promise((r) => setTimeout(r, 30));
+  fs.rmSync(path.join(dir, "server.pid"));
+  const j = await p;
+  assert.equal(j.code, 0);
+  assert.equal(JSON.parse(j.out[0]).events[0].e, "daemon_down");
+});
+
+test("watch --actionable --follow: one line per wake with the summary since the last one; watch_end carries the rest", async () => {
+  liveProfile("actf");
+  const s = follow({ _: ["actf"], actionable: true });
+  await new Promise((r) => setTimeout(r, 30));
+  append("actf", [ev("1", "pipeline_done"), ev("2", "failed")]);
+  await until(() => s.out.length >= 1);
+  append("actf", [ev("3", "merged")]);
+  await new Promise((r) => setTimeout(r, 50));
+  const r = await s.stop();
+  assert.equal(r.code, 0);
+  assert.equal(r.out.length, 2);
+  assert.equal(r.out[0].e, "actionable");
+  assert.deepEqual(r.out[0].events.map((e) => `${e.e}:${e.ref}`), ["failed:2"]);
+  assert.deepEqual(r.out[0].summary, { n: 1, byEvent: { pipeline_done: { n: 1, refs: ["1"] } } });
+  assert.deepEqual(r.out[1], { e: "watch_end", cursor: size("actf"), summary: { n: 1, byEvent: { merged: { n: 1, refs: ["3"] } } } });
+});
+
+test("watch a b --actionable: refs in the summary and events carry the profile", async () => {
+  liveProfile("acta", [{ ts: "2026-01-03T00:00:00.000Z", event: "merged", ref: "1", step: "" }]);
+  liveProfile("actb", [{ ts: "2026-01-03T00:00:01.000Z", event: "move_refused", ref: "2", step: "code", outcome: "advance", reason: "not_ours" }]);
+  const j = await run(() => watch({ _: ["acta", "actb"], actionable: true, json: true, cursor: '{"acta":0,"actb":0}', timeout: "1" }));
+  assert.equal(j.code, 0);
+  const r = JSON.parse(j.out[0]);
+  assert.deepEqual(r.events.map((e) => `${e.profile}:${e.e}:${e.ref}`), ["actb:move_refused:2"]);
+  assert.deepEqual(r.summary.byEvent, { merged: { n: 1, refs: ["acta:1"] } });
+  assert.deepEqual(r.cursor, { acta: size("acta"), actb: size("actb") });
+});
+
+test("parse: --actionable is a boolean, --liveness takes a value", async () => {
+  const { parse } = await import("../bin/agenthook.js");
+  const a = parse(["--actionable", "--liveness", "30", "p"]);
+  assert.equal(a.actionable, true);
+  assert.equal(a.liveness, "30");
+  assert.deepEqual(a._, ["p"]);
+});

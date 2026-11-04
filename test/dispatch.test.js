@@ -696,6 +696,18 @@ test("dispatch: a drainWorktree manual step emits pipeline_done unchanged and no
   ]);
 });
 
+test("dispatch: pipeline_done carries awaitingMerge while auto-merge is on and the PR has not merged", async () => {
+  const notEpic = { fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", url: "u", completed: false, assignedToUs: true }) };
+  const pending = epicHarness([{ id: "code" }, { id: "done", manual: true, drainWorktree: true }], notEpic);
+  pending.store.setRefMeta("42", { autoMerge: { sha: "abc", pr: 9, step: "review", at: "2026-01-01T00:00:00.000Z" } });
+  await pending.runStep("done");
+  assert.deepEqual(pending.events, [{ event: "pipeline_done", ref: "42", step: "done", name: "t", url: "u", awaitingMerge: true, pr: 9 }]);
+  const merged = epicHarness([{ id: "code" }, { id: "done", manual: true, drainWorktree: true }], notEpic);
+  merged.store.setRefMeta("42", { autoMerge: { sha: "abc", pr: 9, step: "review", at: "2026-01-01T00:00:00.000Z" }, prState: "merged" });
+  await merged.runStep("done");
+  assert.deepEqual(merged.events, [{ event: "pipeline_done", ref: "42", step: "done", name: "t", url: "u" }], "the merge bridge's done move is a real finish");
+});
+
 // --- multi-repo routing: resolve → sticky → hold on ambiguity (no spawn) ---
 // A fake `claude` records its cwd + prompt; steps create no worktree, so cwd = repo.path.
 
@@ -906,7 +918,7 @@ function mergeHarness(o = {}) {
 test("merge: moves into the completeOnMerge step (assign:false) BEFORE completing, emits merged", async () => {
   const h = mergeHarness();
   const out = await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "complete G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
+  assert.deepEqual(h.calls, ["fetch G1", 'refmeta G1 {"prState":"merged"}', "enter G1 done assign=false", "complete G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
   assert.equal(out.code, 0);
   assert.equal(out.name, "Task G1");
@@ -944,7 +956,7 @@ test("merge: tracker without complete() but the completeOnMerge move worked → 
   } finally {
     console.log = log;
   }
-  assert.deepEqual(h.calls, ["fetch G1", "enter G1 done assign=false", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
+  assert.deepEqual(h.calls, ["fetch G1", 'refmeta G1 {"prState":"merged"}', "enter G1 done assign=false", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
   assert.deepEqual(h.events, [{ event: "merged", ref: "G1", step: "done", name: "Task G1", url: "u/G1" }]);
   assert.ok(!lines.some((l) => l.includes("leaving it open")), "no stale 'has no complete()' log after a successful move");
 });
@@ -999,7 +1011,7 @@ test("merge: move failed with no complete(), or complete() threw → still recor
   assert.ok(a.calls.includes("clearAttempts G1"), "the failed move falls back to direct cleanup");
   const b = mergeHarness({ completeThrows: true });
   await b.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
-  assert.deepEqual(b.calls, ["fetch G1", "enter G1 done assign=false", "complete G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
+  assert.deepEqual(b.calls, ["fetch G1", 'refmeta G1 {"prState":"merged"}', "enter G1 done assign=false", "complete G1", "clearSummaries G1", 'refmeta G1 {"prState":"merged"}']);
 });
 
 // --- ci jobs (forge red CI): re-run once, then comment + bounce to code; fail-closed ---
