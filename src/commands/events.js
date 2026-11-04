@@ -12,7 +12,19 @@ import { neverStarted } from "../profile.js";
 import { HIDDEN_BY_DEFAULT } from "../events.js";
 import { formatEnergy } from "../energy.js";
 
-const VALID_EVENTS = new Set(["enqueued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled", "ci_red", "ci_green", "dismissed", "coalesced", "epic_changed", "board_done", "hold_cleared", "followup_pending", "followup_due", "followup_done"]);
+// Every event the receiver writes (src/events.js) plus the watch-only `daemon_down`;
+// test/events-cmd.test.js scans src/ for emit("…") calls and fails when one is missing here.
+export const VALID_EVENTS = new Set([
+  "enqueued", "dequeued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled",
+  "ci_red", "ci_green", "dismissed", "coalesced", "verdict_missing", "move_refused",
+  "epic_changed", "epic_skipped", "board_done", "hold_cleared",
+  "auto_merge_enabled", "auto_merge_skipped", "auto_merge_failed", "auto_merge_disabled",
+  "followup_pending", "followup_due", "followup_done",
+  "overlap_held", "overlap_released", "quota_pause", "quota_resume",
+  "digest_start", "digest_end", "summary_end",
+  "restart_requested", "restarting", "decommission_requested", "decommissioning", "sandbox_reaped",
+  "daemon_down",
+]);
 
 /**
  * Parse an event line as JSON; return null on failure.
