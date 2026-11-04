@@ -42,6 +42,9 @@ export function createMerge(ctx) {
     const doneStep = cfg.pipeline?.find((s) => s.completeOnMerge);
     let moved = false;
     if (!selfClosing && doneStep && adapter.enterStage) {
+      // Recorded before the move: the done step its webhook fires reads it (a merged PR's
+      // `pipeline_done` is not `awaitingMerge`). The write after the bridge below repeats it.
+      store?.setRefMeta(job.ref, { prState: "merged" });
       try {
         await adapter.enterStage(job.ref, doneStep.id, { assign: false });
         moved = true;
