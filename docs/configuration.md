@@ -225,28 +225,36 @@ Success emits `auto_merge_enabled {pr, tier, method, readied?, mergedNow?}`
 (`ah watch --event auto_merge_enabled,auto_merge_failed,auto_merge_skipped,auto_merge_disabled`),
 and the PR shows `auto-merge` in `ah tick` and `autoMerge: true` in `prs`.
 
-#### Approve with post-deploy checks
+#### Approve with follow-up checks
 
 Some acceptance criteria can only be verified once the change is live: a production metric, a log
 line, a third-party callback. Without this, a reviewer has to `hold` those PRs for a human yes. It
 can instead approve with the checks attached:
 
 ```json
-{ "outcome": "advance", "summary": { "tier": "low" }, "postDeploy": ["signup errors stay at 0 for an hour after deploy"] }
+{ "outcome": "advance", "summary": { "tier": "low" }, "followUp": ["signup errors stay at 0 for an hour once live"] }
 ```
 
 - **Allowed tier.** If the tier is in `forge.autoMerge.tiers` (or `low`/`medium` when
   `forge.autoMerge` is not set), it is an ordinary approval. The task advances and auto-merge runs
-  as usual. The checks are recorded on the ref and a `postdeploy_pending` event is emitted.
-  `status.postDeploy` / `ah tick` and `agenthook postdeploy [list]` show them until someone runs
-  `agenthook postdeploy done <ref>` (MCP: `postdeploy_done`).
+  as usual. The checks are recorded on the ref and a `followup_pending` event is emitted.
+  `status.followUp` / `ah tick` and `agenthook followup [list]` show them until someone runs
+  `agenthook followup done <ref>` (MCP: `followup_done`).
+- **When they are due.** agenthook never sees a deploy; the last thing it observes is the merge.
+  When the PR merges, `followup_due {n, detail, pr?}` fires for the ref, and `ah watch
+  --actionable` wakes for it. With no `forge` configured there is no merge event, so
+  `followup_due` fires at approval instead. Nothing expires a record: it stays, with `since`,
+  until `followup done`.
 - **Any other tier, or none.** The verdict becomes a `hold` whose reason names the checks, so a
   risky change still waits for a human.
 - **Withdrawn approval.** A later `changes` or `fail` drops the recorded checks, and so does the
   same step approving again without any.
-- **Text only.** The tier comes from the verdict's `summary.tier`, else from the stored summary of
-  `forge.autoMerge.tierFrom`. The checks are agent-written text: they are shown, never fed back into
-  a prompt (at most 10, 300 characters each).
+- **One tier per ticket.** The tier is read exactly as auto-merge reads it: the approving step's
+  own `summary.tier` only when that step is the tier source (`forge.autoMerge.tierFrom` unset, or
+  equal to it), else the stored `tierFrom` summary. A reviewer cannot re-rate a triage-`high`
+  ticket `low` to get the checks recorded.
+- **Text only.** The checks are agent-written text: they are shown, never fed back into a prompt
+  (at most 10, 300 characters each).
 
 The review instructions decide when to use it. The examples under `examples/*/INSTRUCTIONS_REVIEW.md`
 show the wording.

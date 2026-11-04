@@ -112,7 +112,7 @@
  * @property {'easy'|'medium'|'hard'} [difficulty]  optional ticket difficulty emitted by triage; persisted per-ref to gate model/effort on subsequent steps
  * @property {string[]} [paths]    overlapGuard: repo-relative files (dir = trailing `/`) — predicted by a no-worktree step, touched by a worktree step (sanitised, ≤200)
  * @property {Record<string, unknown>} [summary]  optional free-form supervisor summary (plain object, ≤300 chars serialised); stored as-is per (ref, step), shown on `runs`/`prs`, never interpreted or fed back into a prompt
- * @property {string[]} [postDeploy]  advance only: checks to verify once the change is deployed (src/postdeploy.js); an allowed `summary.tier` approves and records them, any other tier holds
+ * @property {string[]} [followUp]  advance only: checks to verify once the change is live (src/followup.js); an allowed `summary.tier` approves and records them, any other tier holds
  */
 
 /** One stored step summary (summaries.json, keyed ref → stepId).
@@ -150,7 +150,7 @@
  * @property {string} [summary]    the first prose paragraph of the description, plain and clipped (src/ticket-summary.js); what `ah ui` shows as "what is this about"
  * @property {{ref: string, name: string, url?: string}} [epic]  the ticket's epic, written by dispatch from Task.epic; null drops a stale value when the ticket leaves its epic
  * @property {{sha: string, pr: number, step: string, at: string}} [autoMerge]  forge.autoMerge: we turned GitHub auto-merge on for this approved head (cleared when it comes off)
- * @property {{checks: string[], tier: string, step: string, at: string, pr?: number}} [postDeploy]  an approval with post-deploy checks (src/postdeploy.js): what to verify once the change is live; cleared by `postdeploy done`, a bounce or fail, or a later approval by the same step without checks
+ * @property {{checks: string[], tier: string, step: string, at: string, pr?: number}} [followUp]  an approval with follow-up checks (src/followup.js): what to verify once the change is live; cleared by `followup done`, a bounce or fail, or a later approval by the same step without checks
  */
 
 /** A `setRefMeta` patch: `undefined` skips a key, `null` deletes it.

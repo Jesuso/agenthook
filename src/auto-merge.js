@@ -40,6 +40,27 @@ export function autoMergeTierStepId(pipeline, autoMerge) {
 }
 
 /**
+ * The one risk tier a finished run is judged by — shared by auto-merge and follow-up checks, so
+ * a ticket has a single rating. The verdict's own `summary.tier` counts only when this step IS
+ * the tier source (`autoMerge.tierFrom`, else the approving step); otherwise the stored summary
+ * of that step. A reviewer cannot re-rate a triage-`high` ticket `low`. Pure.
+ * @param {import('./types.js').Config} cfg @param {string} stepId @param {import('./types.js').Verdict} verdict
+ * @param {Record<string, import('./types.js').SummaryRecord>|undefined} [summaries]
+ * @returns {{from: string, tier: string|null, rec?: import('./types.js').SummaryRecord, skipped?: string}}
+ *   `tier` lower-cased, null when missing; `skipped` says why when the source step has no approving verdict
+ */
+export function riskTier(cfg, stepId, verdict, summaries) {
+  const am = cfg.forge?.autoMerge;
+  const from = (am ? autoMergeTierStepId(cfg.pipeline, am) : null) ?? stepId;
+  /** @param {unknown} raw */
+  const norm = (raw) => (typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : null);
+  if (from === stepId) return { from, tier: norm(verdict.summary?.tier) };
+  const rec = summaries?.[from];
+  if (!rec || rec.outcome !== "advance") return { from, tier: null, skipped: `step "${from}" (tierFrom) has no approving verdict stored` };
+  return { from, tier: norm(/** @type {any} */ (rec.summary)?.tier), rec };
+}
+
+/**
  * Config validation for the optional `forge.autoMerge` block. Pure.
  * @param {any} forge  the raw `forge` block (may be undefined)
  * @param {any[]|undefined|null} pipeline
@@ -109,21 +130,10 @@ export function autoMergeDecision(cfg, stepId, verdict, summaries, runHeadSha) {
   if (!am || !Array.isArray(am.tiers)) return null;
   if (verdict.outcome !== "advance") return null;
   if (stepId !== autoMergeStepId(cfg.pipeline, am)) return null;
-  const from = autoMergeTierStepId(cfg.pipeline, am) ?? stepId;
-  let raw;
-  /** @type {string|null|undefined} */
-  let sha;
-  if (from === stepId) {
-    raw = verdict.summary?.tier;
-    sha = runHeadSha;
-  } else {
-    const rec = summaries?.[from];
-    if (!rec || rec.outcome !== "advance") return { skipped: `step "${from}" (tierFrom) has no approving verdict stored` };
-    raw = /** @type {any} */ (rec.summary)?.tier;
-    sha = rec.headSha;
-  }
-  if (typeof raw !== "string" || !raw.trim()) return { skipped: `no summary.tier in the "${from}" verdict` };
-  const tier = raw.trim().toLowerCase();
+  const { from, tier, rec, skipped } = riskTier(cfg, stepId, verdict, summaries);
+  if (skipped) return { skipped };
+  const sha = from === stepId ? runHeadSha : rec?.headSha;
+  if (!tier) return { skipped: `no summary.tier in the "${from}" verdict` };
   if (!am.tiers.some((t) => String(t).trim().toLowerCase() === tier)) return { skipped: `tier "${tier}" is not in [${am.tiers.join(", ")}]`, tier };
   if (!sha) return { skipped: `no PR head recorded for the "${from}" run (no PR when it started?)`, tier };
   return { tier, method: am.method ?? "squash", sha, from };

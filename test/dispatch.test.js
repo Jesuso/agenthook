@@ -909,11 +909,25 @@ function mergeHarness(o = {}) {
     clearDifficulty: (ref) => calls.push(`clearDifficulty ${ref}`),
     clearSummaries: (ref) => calls.push(`clearSummaries ${ref}`),
     setRefMeta: (ref, patch) => calls.push(`refmeta ${ref} ${JSON.stringify(patch)}`),
+    getRefMeta: (ref) => o.refmeta?.[ref],
   };
   const emit = (event, ref, step, extra) => events.push({ event, ref, step, ...extra });
   const run = createDispatcher(/** @type {any} */ (cfg), adapter, undefined, /** @type {any} */ (store), emit);
   return { run, calls, events };
 }
+
+test("merge: follow-up checks recorded on the ref become due on merge (followup_due after merged)", async () => {
+  const h = mergeHarness({ refmeta: { G1: { followUp: { checks: ["signup errors stay flat", "no new 5xx"], tier: "low", step: "review", at: "2026-01-01T00:00:00.000Z", pr: 5 } } } });
+  await h.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:5" });
+  assert.deepEqual(
+    h.events.map((e) => e.event),
+    ["merged", "followup_due"],
+  );
+  assert.deepEqual(h.events[1], { event: "followup_due", ref: "G1", step: "done", n: 2, detail: "signup errors stay flat; no new 5xx", pr: 5, name: "Task G1", url: "u/G1" });
+  const none = mergeHarness();
+  await none.run({ kind: "merge", ref: "G1", stepId: "done", dedupKey: "merged:6" });
+  assert.deepEqual(none.events.map((e) => e.event), ["merged"], "no record, no due event");
+});
 
 test("merge: moves into the completeOnMerge step (assign:false) BEFORE completing, emits merged", async () => {
   const h = mergeHarness();

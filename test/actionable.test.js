@@ -11,6 +11,7 @@ test("isActionable: stop-the-line events wake; handled-by-the-receiver events do
     { event: "auto_merge_failed", ref: "1" },
     { event: "auto_merge_skipped", ref: "1" },
     { e: "daemon_down", ref: "" },
+    { event: "followup_due", ref: "1" },
     { event: "ci_red", ref: "1", action: "skipped" },
     { event: "ci_red", ref: "1" },
     { event: "auto_merge_disabled", ref: "1", tooLate: true },
@@ -19,6 +20,8 @@ test("isActionable: stop-the-line events wake; handled-by-the-receiver events do
   const no = [
     { event: "pipeline_done", ref: "1" },
     { event: "pipeline_done", ref: "1", awaitingMerge: true },
+    { event: "followup_pending", ref: "1" },
+    { event: "followup_done", ref: "1" },
     { event: "merged", ref: "1" },
     { event: "hold_cleared", ref: "1" },
     { event: "run_end", ref: "1" },

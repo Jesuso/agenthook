@@ -17,7 +17,7 @@ import { readProfileState, buildRows, readJson, isObj } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { pricingOf } from "./pricing.js";
 import { normalizeQuota, normalizeTrip } from "./quota.js";
-import { pendingPostDeploy } from "./postdeploy.js";
+import { pendingFollowUp } from "./followup.js";
 
 const REASON_MAX = 200;
 const FAILED_MAX = 50;
@@ -167,8 +167,8 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     })
     .sort((a, b) => String(b.at).localeCompare(String(a.at)))
     .slice(0, FAILED_MAX);
-  // Approvals with checks to verify after the deploy (src/postdeploy.js), oldest first.
-  const postDeploy = pendingPostDeploy(state.refmeta).map(({ ref, checks, tier, pr, since }) =>
+  // Approvals with checks to verify once the change is live (src/followup.js), oldest first.
+  const followUp = pendingFollowUp(state.refmeta).map(({ ref, checks, tier, pr, since }) =>
     label({ ref, checks: checks.map((c) => clip(c, REASON_MAX)), ...(tier ? { tier } : {}), ...(pr ? { pr } : {}), ...(since ? { since } : {}) }, state.refmeta[ref]),
   );
   const active = entry.up ? running.length : 0;
@@ -193,7 +193,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     queue,
     held,
     ...(failed.length ? { failed } : {}),
-    ...(postDeploy.length ? { postDeploy } : {}),
+    ...(followUp.length ? { followUp } : {}),
     ...(entry.up ? {} : { note: "receiver down — running/queue are from the last state on disk (interrupted/stalled)" }),
   };
   return { ...out, etag: etagOf(out) };

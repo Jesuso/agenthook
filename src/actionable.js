@@ -5,7 +5,7 @@
 // compact summary that rides along with the next wake (or the timeout). Pure; no I/O.
 
 /** Always actionable: the pipeline stopped and is waiting on someone. */
-const ALWAYS = new Set(["blocked", "failed", "move_refused", "auto_merge_failed", "auto_merge_skipped", "daemon_down"]);
+const ALWAYS = new Set(["blocked", "failed", "move_refused", "auto_merge_failed", "auto_merge_skipped", "followup_due", "daemon_down"]);
 
 /** `ci_red` actions the receiver already handles on its own (re-run, rework bounce, parked bounce). */
 const CI_RED_AUTOMATIC = new Set(["rerun", "bounced", "deferred"]);
@@ -16,7 +16,7 @@ const SUMMARY_REFS_MAX = 20;
 /**
  * Does this event need a human/supervisor? `refmeta` is the profile's refmeta.json (per-ref
  * metadata) — a `ci_green` on a PR the receiver already set to auto-merge needs nobody.
- * - blocked, failed, move_refused, auto_merge_failed, auto_merge_skipped, daemon_down: yes.
+ * - blocked, failed, move_refused, auto_merge_failed, auto_merge_skipped, followup_due, daemon_down: yes.
  * - ci_red: only when the receiver did not re-run or bounce it itself (`action` skipped/absent).
  * - auto_merge_disabled: only `tooLate` (the rejected code already merged).
  * - ci_green: only when auto-merge is not on for the ref (someone has to merge it).

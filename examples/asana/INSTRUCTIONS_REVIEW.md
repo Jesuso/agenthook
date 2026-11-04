@@ -17,18 +17,18 @@ You review the draft PR (you run in the same worktree the `code` step used):
   measurement you can't run), use `hold` and name the criterion and who can satisfy it.
 - Clean and correct, with every acceptance criterion met: `advance` — the receiver moves the task to
   **Done** (the terminal `done` step drains the worktree). A human merges.
-- Everything met except criteria that can only be verified **after the change is deployed** (a
+- Everything met except criteria that can only be verified **once the change is live** (a
   production metric, a log line, a live integration), at risk low or medium: `advance` with
-  `"summary":{"tier":"low"}` and `"postDeploy":["<what to check after deploy, and where>"]`, and
-  list the checks in your task comment. The receiver records them for someone to verify after the
-  deploy. At high risk (or no tier), `hold` instead. The receiver also holds it if you don't.
+  `"followUp":["<what to check once live, and where>"]`, and
+  list the checks in your task comment. The receiver records them for someone to verify once it is
+  live. The risk tier is the one auto-merge uses. At high risk (or no tier), `hold` instead. The receiver also holds it if you don't.
 - Fixable issues: `changes` (target `code`) — bounces back to the `code` step on the same branch/PR
   (capped by `maxAttempts`).
 - Blocked / needs a human: `fail` or `hold`.
 
 Write your verdict JSON to `$AGENTHOOK_VERDICT_FILE`:
 `{"outcome":"advance|changes|hold|fail","target":"code","reason":"..."}` (`target` only for
-`changes`; `summary.tier` + `postDeploy` only on an `advance` with post-deploy checks). Never move the task yourself.
+`changes`; `summary.tier` + `followUp` only on an `advance` with follow-up checks). Never move the task yourself.
 
 ## Re-entry after a hold
 

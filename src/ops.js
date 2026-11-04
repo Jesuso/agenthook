@@ -22,7 +22,7 @@ import { repositoryOf } from "./heartbeat.js";
 import { buildRows, readProfileState } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { canonicalLang } from "./digest-config.js";
-import { markPostDeployDone } from "./postdeploy.js";
+import { markFollowUpDone } from "./followup.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
@@ -426,8 +426,8 @@ export function createOps(deps) {
       emit("dismissed", ref, "", { by: "operator" });
       return { ref, dismissed: true };
     }),
-    // Post-deploy checks verified (src/postdeploy.js): drop the ref's record, a `postdeploy_done` event.
-    postdeploy_done: write("postdeploy_done", async (args) => markPostDeployDone(store, emit, needString(args.ref, "ref"))),
+    // Follow-up checks verified (src/followup.js): drop the ref's record, a `followup_done` event.
+    followup_done: write("followup_done", async (args) => markFollowUpDone(store, emit, needString(args.ref, "ref"))),
     // Ask the tracker and forge again for a Needs-you PR row's missed facts (src/recheck.js):
     // `{ref}`, or `{all:true}` = every row of this profile already flagged with `prNeeds` —
     // never a board-wide poll. Records local facts only; fail-closed per ref.

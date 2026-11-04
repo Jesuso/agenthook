@@ -8,13 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
-- Approve with post-deploy checks. A step's `advance` verdict can carry `postDeploy: ["…"]`: criteria
-  only verifiable once the change is live. At an allowed `summary.tier` (`forge.autoMerge.tiers`,
-  else low/medium) it is an ordinary approval (auto-merge runs as usual). The checks are recorded on
-  the ref (`postdeploy_pending` event, `status.postDeploy`, `ah tick`), listed by
-  `agenthook postdeploy [list]` and cleared by `agenthook postdeploy done <ref>` (MCP:
-  `postdeploy_done`; `postdeploy_done` event). A higher or missing tier turns the verdict into a
-  `hold` naming the checks. The example review instructions describe when to use it.
+- Approve with follow-up checks. A step's `advance` verdict can carry `followUp: ["…"]`: criteria
+  only verifiable once the change is live. At an allowed risk tier (`forge.autoMerge.tiers`, else
+  low/medium; read exactly as auto-merge reads it, so a reviewer cannot re-rate a `tierFrom` ticket)
+  it is an ordinary approval (auto-merge runs as usual). The checks are recorded on the ref
+  (`followup_pending` event, `status.followUp`, `ah tick`), listed by `agenthook followup [list]`
+  and cleared by `agenthook followup done <ref>` (MCP: `followup_done`; `followup_done` event).
+  agenthook never sees a deploy: `followup_due` fires when the PR merges (or at approval with no
+  `forge`) and is actionable in `watch --actionable`. A higher or missing tier turns the verdict
+  into a `hold` naming the checks. The example review instructions describe when to use it.
 - `agenthook watch --actionable`: wake only for events that need a human or supervisor (`blocked`,
   `failed`, `move_refused`, `auto_merge_failed`/`auto_merge_skipped`, a `ci_red` the receiver did not
   re-run or bounce, a `tooLate` `auto_merge_disabled`, a `ci_green` on a PR without auto-merge). The
