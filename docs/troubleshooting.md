@@ -38,6 +38,40 @@ scope means it's tied to that session. Restart it with `agenthook restart` or `s
 pick up the systemd scope. Opt out with `AGENTHOOK_NO_SYSTEMD_SCOPE=1` if you'd rather manage the
 process lifetime yourself (e.g. under your own service manager).
 
+## receiver doesn't come back after a reboot
+
+`start --detach` survives the terminal, not a reboot or a crash. On Linux, run it as a systemd user
+service instead:
+
+```bash
+agenthook service install [name]     # writes ~/.config/systemd/user/agenthook-<key>.service, enables it
+agenthook service status [name]      # unit file, enabled/active, lingering
+agenthook service uninstall [name]   # disable + remove (--stop also stops it)
+```
+
+The unit runs `agenthook start --config <path>` in the foreground, restarts it when it fails
+(`Restart=on-failure`), and starts it at your next login. `install` enables the unit but doesn't
+start it, so a receiver you already started keeps running. To hand it over to systemd, run
+`agenthook stop --keep-hooks`, then `systemctl --user start agenthook-<key>.service`. `--dry-run`
+prints the unit without writing it. `--no-enable` writes it without calling `systemctl`.
+
+To start it **at boot without logging in**, turn on lingering for your user once. agenthook never
+runs this for you, because some systems need sudo for it:
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+The unit captures the installing shell's `PATH` so the receiver finds the agent CLI, `git` and
+`gh`. Re-run `install` after moving them. Secrets come from the `.env` beside the config, as for
+any `start`.
+
+A control-socket `restart` respawns the receiver detached, outside the unit. That respawn keeps
+running (`KillMode=process`), but systemd no longer supervises it until the next login or boot.
+`agenthook service status` shows the unit as inactive while that is the case.
+
+Linux only. Other platforms get a clear "unsupported" message.
+
 ## "doctor is green but nothing happens when I move a task"
 
 The single most common cause. `doctor` validates the token, git repo, binaries and port, and flags
