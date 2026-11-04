@@ -67,6 +67,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `agenthook events --event` / `watch --event` accept every event type the receiver writes
+  (`move_refused`, `verdict_missing`, `quota_pause`, `restarting`, …); before, a filter on one of
+  them was refused as an "unknown event type". A test now keeps the list in step with the emitters.
 - A held task no longer stays in `held` / "needs you" after its ticket is completed on the board.
   When the board's done is recorded (the tracker's done webhook, `recheck`, or the merge catch-up in
   `reconcile`), the hold is dropped along with any pipeline job still waiting for it, and a

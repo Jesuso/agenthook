@@ -185,3 +185,25 @@ test("events --json: epic_changed hidden by default, shown with --event epic_cha
   const filtered = await captureStdout(() => events({ _: [], config, json: true, event: "epic_changed" }));
   assert.deepEqual(filtered.trim().split("\n").map((l) => JSON.parse(l).event), ["epic_changed"]);
 });
+
+test("events --event: every event type the receiver emits is a valid filter (auto_merge_*, move_refused, …)", async () => {
+  const { VALID_EVENTS } = await import("../src/commands/events.js");
+  const emitted = new Set();
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(p);
+      else if (ent.name.endsWith(".js")) for (const m of fs.readFileSync(p, "utf8").matchAll(/\bemit\??\.?\(\s*"([a-z_]+)"/g)) emitted.add(m[1]);
+    }
+  };
+  walk(new URL("../src/", import.meta.url).pathname);
+  const missing = [...emitted].filter((e) => !VALID_EVENTS.has(e)).sort();
+  assert.deepEqual(missing, [], `emitted but rejected by --event: ${missing.join(", ")}`);
+
+  const config = startedProfile([
+    { ts: "t", event: "auto_merge_enabled", ref: "1", step: "review", pr: 7, tier: "low", method: "squash" },
+    { ts: "t", event: "run_end", ref: "1", step: "review", outcome: "advance" },
+  ]);
+  const out = await captureStdout(() => events({ _: [], config, json: true, event: "auto_merge_enabled" }));
+  assert.deepEqual(out.trim().split("\n").map((l) => JSON.parse(l).event), ["auto_merge_enabled"]);
+});
