@@ -31,6 +31,9 @@ export const BASE_AGENT_ENV = [
 export const HOST_SESSION_ENV = /** @type {const} */ ([
   "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SSE_PORT",
   "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_*", "CLAUDE_CODE_BRIDGE_*", "CLAUDE_CODE_MESSAGING_*",
+  // The receiver's own systemd-unit marker (`agenthook service`): an agent running `agenthook
+  // start --detach` or `restart` from its shell must not think it is the unit (src/respawn.js).
+  "AGENTHOOK_SERVICE",
 ]);
 
 /** The allowlist for one agent run, in order: the base names, the agent CLI's `envPassthrough`,

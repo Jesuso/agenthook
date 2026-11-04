@@ -38,6 +38,52 @@ scope means it's tied to that session. Restart it with `agenthook restart` or `s
 pick up the systemd scope. Opt out with `AGENTHOOK_NO_SYSTEMD_SCOPE=1` if you'd rather manage the
 process lifetime yourself (e.g. under your own service manager).
 
+## receiver doesn't come back after a reboot
+
+`start --detach` survives the terminal, not a reboot or a crash. On Linux, run it as a systemd user
+service instead:
+
+```bash
+agenthook service install [name]     # writes ~/.config/systemd/user/agenthook-<key>.service, enables it
+agenthook service status [name]      # unit file, enabled/active, lingering
+agenthook service uninstall [name]   # disable + remove (--stop also stops it)
+```
+
+The unit runs `agenthook start --config <path>` in the foreground, restarts it when it fails
+(`Restart=on-failure`), and starts it at your next login. `install` enables the unit but doesn't
+start it, so a receiver you already started keeps running. To hand it over to systemd, run
+`agenthook stop --keep-hooks`, then `systemctl --user start agenthook-<key>.service`. Until you
+do, a start the unit attempts refuses ("already running") and exits 78, which the unit does not
+retry (`RestartPreventExitStatus=78`); the journal names the hand-over. `--dry-run` prints the
+unit without writing it. `--no-enable` writes it without calling `systemctl`.
+`systemctl --user stop` waits for the running agents to finish, up to 30 minutes
+(`TimeoutStopSec=30min`), the same drain `agenthook stop` does.
+
+To start it **at boot without logging in**, turn on lingering for your user once. agenthook never
+runs this for you, because some systems need sudo for it:
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+The unit captures the installing shell's `PATH` so the receiver finds the agent CLI, `git` and
+`gh`. Re-run `install` after moving them, and after a Node upgrade that removes the old binary
+(nvm): the unit names the `node` and the agenthook install it was written with. An agenthook run
+from the npx cache gets a warning — npm evicts that cache without notice, so install it with
+`npm i -g @jesuso/agenthook` first. Secrets come from the `.env` beside the config, as for any
+`start`.
+
+`agenthook restart` (and the UI's "Restart when idle") works under the unit: the receiver exits
+with code 75 instead of respawning itself, and `RestartForceExitStatus=75` makes systemd start it
+again inside the unit, with the usual reconcile after boot. `agenthook service status` stays
+active. Every start counts against `StartLimitBurst=20` per 10 minutes (`RestartSec=10`; a boot
+before the network is up can take a few tries); if a burst of restarts trips it, run
+`systemctl --user reset-failed agenthook-<key>.service`. After `rename --move`, run
+`agenthook service install <newName>`: it writes the unit for the new state key and replaces the
+old one (disabled and removed, its receiver left running).
+
+Linux only. Other platforms get a clear "unsupported" message.
+
 ## "doctor is green but nothing happens when I move a task"
 
 The single most common cause. `doctor` validates the token, git repo, binaries and port, and flags

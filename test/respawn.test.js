@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup, spawnDetached } from "../src/respawn.js";
+import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup, spawnDetached, detachedEnv, RESTART_EXIT_CODE, REFUSED_EXIT_CODE } from "../src/respawn.js";
 import { parse } from "../bin/agenthook.js";
 
 const cfg = { installDir: "/opt/agenthook", configPath: "/p/agenthook.config.json" };
@@ -121,4 +121,32 @@ test("spawnDetached: a child's stdout reaches <stateDir>/receiver.log (pins deli
     if (prev === undefined) delete process.env.AGENTHOOK_NO_SYSTEMD_SCOPE;
     else process.env.AGENTHOOK_NO_SYSTEMD_SCOPE = prev;
   }
+});
+
+test("detachedEnv: a copy without AGENTHOOK_SERVICE; the input is untouched", () => {
+  const env = { AGENTHOOK_SERVICE: "1", PATH: "/bin" };
+  assert.deepEqual(detachedEnv(env), { PATH: "/bin" });
+  assert.equal(env.AGENTHOOK_SERVICE, "1");
+  assert.deepEqual(detachedEnv({ PATH: "/bin" }), { PATH: "/bin" });
+});
+
+test("exit codes: restart 75 and refused 78 are distinct and neither is 1", () => {
+  assert.equal(RESTART_EXIT_CODE, 75);
+  assert.equal(REFUSED_EXIT_CODE, 78);
+});
+
+test("spawnDetached: the child does not inherit AGENTHOOK_SERVICE (a restart of it must respawn, not exit 75)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-respawn-"));
+  const cfg = { stateDir: dir, stateKey: "p" };
+  const env = { ...process.env, AGENTHOOK_SERVICE: "1", AGENTHOOK_NO_SYSTEMD_SCOPE: "1" };
+  spawnDetached(cfg, { command: process.execPath, args: ["-e", "console.log('[env] AGENTHOOK_SERVICE=' + JSON.stringify(process.env.AGENTHOOK_SERVICE))"] }, { env });
+  const logPath = path.join(dir, "receiver.log");
+  const deadline = Date.now() + 5000;
+  let content = "";
+  while (Date.now() < deadline) {
+    content = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+    if (content.includes("[env]")) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.match(content, /\[env\] AGENTHOOK_SERVICE=undefined/);
 });

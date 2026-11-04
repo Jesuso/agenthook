@@ -64,6 +64,7 @@ import { ticket } from "../src/commands/ticket.js";
 import { guide } from "../src/commands/guide.js";
 import { skill } from "../src/commands/skill.js";
 import { followup } from "../src/commands/followup.js";
+import { service } from "../src/commands/service.js";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -99,7 +100,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, followup };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -149,6 +150,10 @@ usage: agenthook <command> [args] [--config <path>]
                             another registered profile; --port <n> picks one explicitly
   start [--detach]          boot this profile (alias: serve)
   stop [--keep-hooks]       stop the receiver
+  service install|uninstall|status [name] [--dry-run] [--no-enable] [--stop]
+                            Linux: run the receiver as a systemd --user service (starts at login, restarts
+                            on a crash; at boot too once you run \`loginctl enable-linger\` yourself);
+                            install replaces a stale unit written for the same config (after rename --move)
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
                             --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
   restart                   restart the running receiver once idle
@@ -227,6 +232,8 @@ async function main() {
 if (realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((e) => {
     console.error(e.message || e);
-    process.exit(1);
+    // A thrown error may carry its own exit code (e.g. a `start` refused under the systemd unit
+    // exits REFUSED_EXIT_CODE so the unit does not retry it); anything else is 1.
+    process.exit(Number.isInteger(e?.exitCode) && e.exitCode > 0 ? e.exitCode : 1);
   });
 }

@@ -17,6 +17,16 @@ All notable changes to this project are documented here. The format is based on
   agenthook never sees a deploy: `followup_due` fires when the PR merges (or at approval with no
   `forge`) and is actionable in `watch --actionable`. A higher or missing tier turns the verdict
   into a `hold` naming the checks. The example review instructions describe when to use it.
+- `agenthook service install|uninstall|status [name]` (Linux): run a profile's receiver as a
+  systemd `--user` service, so it comes back after a crash (`Restart=on-failure`) and at login, or
+  at boot once you turn on lingering with `loginctl enable-linger` yourself (printed, never run).
+  `install` enables the unit without starting it; `--dry-run` prints it, `--no-enable` only writes
+  it, and it replaces a stale unit written for the same config (after `rename --move`). Other
+  platforms get an "unsupported" message. A control-socket `restart` under the unit exits 75
+  (`RestartForceExitStatus=75`) so systemd restarts it inside the unit, reconcile on boot
+  included, instead of a detached respawn that would escape supervision; a refused start (already
+  running, port in use) exits 78 and is not retried. `TimeoutStopSec=30min` lets a stop drain the
+  running agents. See docs/troubleshooting.md.
 - `agenthook watch --actionable`: wake only for events that need a human or supervisor (`blocked`,
   `failed`, `move_refused`, `auto_merge_failed`/`auto_merge_skipped`, a `ci_red` the receiver did not
   re-run or bounce, a `tooLate` `auto_merge_disabled`, a `ci_green` on a PR without auto-merge). The

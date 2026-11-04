@@ -124,6 +124,7 @@ export async function rename(args) {
   if (result.running) {
     if (await sendRestart(controlSockPath(peek.stateDir, from), { when: "idle", moveTo: to })) {
       console.log(`the receiver moves ${fromDir} → ${toDir} when idle, then restarts on "${to}"`);
+      console.log(`if it runs as a systemd service, run \`agenthook service install ${to}\` afterwards: it writes the unit for the new name and replaces the old one`);
     } else {
       console.error(`state dir not moved — once the receiver is stopped, re-run \`agenthook rename ${to} --move --config ${peek.configPath}\``);
     }
