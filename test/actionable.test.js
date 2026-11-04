@@ -32,6 +32,15 @@ test("isActionable: stop-the-line events wake; handled-by-the-receiver events do
   for (const e of no) assert.equal(isActionable(e), false, JSON.stringify(e));
 });
 
+test("isActionable: --wake / --quiet override the built-in list by event type", () => {
+  const o = { wake: new Set(["merged"]), quiet: new Set(["blocked"]) };
+  assert.equal(isActionable({ event: "merged", ref: "1" }, null, o), true);
+  assert.equal(isActionable({ event: "blocked", ref: "1" }, null, o), false);
+  assert.equal(isActionable({ event: "failed", ref: "1" }, null, o), true);
+  // quiet beats wake when both name the same type
+  assert.equal(isActionable({ event: "merged", ref: "1" }, null, { wake: new Set(["merged"]), quiet: new Set(["merged"]) }), false);
+});
+
 test("isActionable: ci_green needs nobody when auto-merge is already on for that ref", () => {
   const refmeta = { 1: { autoMerge: { pr: 3, sha: "a" } }, 2: { pr: 4 } };
   assert.equal(isActionable({ event: "ci_green", ref: "1" }, refmeta), false);

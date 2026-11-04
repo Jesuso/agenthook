@@ -14,7 +14,8 @@ All notable changes to this project are documented here. The format is based on
   rest is folded into a `summary` (counts + refs per event) printed with the next wake or the
   timeout, which also carries the cursor. A receiver that is not running (checked at start and
   every `--liveness` seconds) wakes the watch with a `daemon_down` event instead of a silent timeout.
-  With `--follow`, one `{"e":"actionable"}` line per wake.
+  With `--follow`, one `{"e":"actionable"}` line per wake. `--wake a,b` / `--quiet a,b` add to /
+  drop from the built-in list by event type.
 - `pipeline_done` carries `awaitingMerge: true` and `pr` when `forge.autoMerge` is on and the PR
   has not merged yet, so it is not mistaken for a merge.
 

@@ -13,6 +13,7 @@
 // `--actionable` wakes only for events that need a human/supervisor (src/actionable.js), folds the
 // rest into a `summary` (counts + refs) printed with the next wake or the timeout, and reports a
 // stopped receiver as a `daemon_down` event instead of waiting out the timeout on a dead log.
+// `--wake a,b` / `--quiet a,b` add to / remove from the built-in actionable list by event type.
 import path from "node:path";
 import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, waitForEvents, waitForEventsMulti, eventsCursor, compactEvent } from "../agent-api.js";
 import { isActionable, createSummary, summaryLine } from "../actionable.js";
@@ -25,6 +26,8 @@ const line = (e) =>
 
 /** @param {any} args */
 const types = (args) => (args.event ? new Set(String(args.event).split(",").map((s) => s.trim()).filter(Boolean)) : null);
+/** A comma list flag as a Set, or undefined. @param {unknown} v */
+const csv = (v) => (v ? new Set(String(v).split(",").map((s) => s.trim()).filter(Boolean)) : undefined);
 /** @param {number} timeoutS */
 const timeoutMs = (timeoutS) => (timeoutS > 0 ? timeoutS * 1000 : 2 ** 31 - 1);
 
@@ -249,6 +252,7 @@ async function watchActionable(args, opts) {
   }
 
   const summary = createSummary();
+  const overrides = { wake: csv(args.wake), quiet: csv(args.quiet) };
   /** @type {Set<string>} */
   const reportedDown = new Set();
   const livenessS = Number(args.liveness);
@@ -354,7 +358,7 @@ async function watchActionable(args, opts) {
       const hits = [];
       for (const e of raw) {
         const key = multi ? e.profile : entries[0].stateKey;
-        if (isActionable(e, metaOf(key))) hits.push(multi ? { ...compactEvent(e), profile: e.profile } : compactEvent(e));
+        if (isActionable(e, metaOf(key), overrides)) hits.push(multi ? { ...compactEvent(e), profile: e.profile } : compactEvent(e));
         else summary.add(e, multi ? e.profile : undefined);
       }
       if (hits.length) {

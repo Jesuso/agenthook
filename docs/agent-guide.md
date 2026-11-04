@@ -73,7 +73,8 @@ events that need someone: `blocked`, `failed`, `move_refused`, `auto_merge_faile
 reported once per down spell). Everything else it read (`pipeline_done`, `merged`, `hold_cleared`,
 a re-run `ci_red`, …) comes back as `summary: {n, byEvent: {<event>: {n, refs}}}` with the next wake,
 or with the timeout (`{events: [], cursor, summary, timedOut: true}`, exit 2). With `--follow` each
-wake is one `{"e":"actionable","events":[…],"cursor":…,"summary":…}` line.
+wake is one `{"e":"actionable","events":[…],"cursor":…,"summary":…}` line. `--wake a,b` makes
+those event types always wake (e.g. `--wake postdeploy_pending`); `--quiet a,b` makes them never wake.
 `tick {profiles: ["*"]}` (`agenthook tick --all --json`) returns one tick per profile.
 `ageS`/`outTok` never affect the etag, so `{"unchanged":true}` can fire while an agent is running;
 omit `ifNoneMatch` when you want fresh ages and token counts rather than the cheap unchanged check.

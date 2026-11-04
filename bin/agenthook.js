@@ -68,7 +68,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "liveness", "body", "file", "step", "name", "agent", "blocked-by"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "liveness", "wake", "quiet", "body", "file", "step", "name", "agent", "blocked-by"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -184,7 +184,8 @@ usage: agenthook <command> [args] [--config <path>]
                             --actionable: wake only for events that need someone (blocked, failed, move_refused,
                             auto_merge_failed/skipped, ci_red not re-run/bounced, ci_green without auto-merge,
                             daemon_down = receiver not running); the rest ride along as a summary; --liveness <s>
-                            = receiver check interval (default 60); with --follow: one {"e":"actionable"} line per wake
+                            = receiver check interval (default 60); with --follow: one {"e":"actionable"} line per wake;
+                            --wake a,b / --quiet a,b add to / drop from that list by event type
   guide [topic]             the agent guide from a shell (same text as the MCP guide tool); \`authoring\` = how to create
                             tickets/epics/dependencies that THIS profile's receiver will pick up (rendered from the config)
   skill install [--agent a,b|all] [--repo [path]] [--dry-run]

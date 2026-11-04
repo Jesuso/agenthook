@@ -21,11 +21,16 @@ const SUMMARY_REFS_MAX = 20;
  * - auto_merge_disabled: only `tooLate` (the rejected code already merged).
  * - ci_green: only when auto-merge is not on for the ref (someone has to merge it).
  * - everything else (pipeline_done, merged, hold_cleared, run_end, …): no.
+ * `wake` / `quiet` (`--wake a,b` / `--quiet a,b`) override the built-in list per event type:
+ * an event type in `wake` always wakes, one in `quiet` never does.
  * @param {Record<string, any>} e  a raw events.jsonl record (`event` key) or a compact one (`e` key)
  * @param {Record<string, any>|null} [refmeta]
+ * @param {{wake?: Set<string>, quiet?: Set<string>}} [overrides]
  */
-export function isActionable(e, refmeta = null) {
+export function isActionable(e, refmeta = null, overrides = {}) {
   const name = e.event ?? e.e;
+  if (overrides.quiet?.has(name)) return false;
+  if (overrides.wake?.has(name)) return true;
   if (ALWAYS.has(name)) return true;
   if (name === "ci_red") return !CI_RED_AUTOMATIC.has(e.action);
   if (name === "auto_merge_disabled") return e.tooLate === true;

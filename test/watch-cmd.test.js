@@ -247,6 +247,18 @@ test("watch --actionable: skips handled events into a summary, wakes on the firs
   assert.deepEqual(r.summary, { n: 3, byEvent: { ci_red: { n: 1, refs: ["6"] }, merged: { n: 1, refs: ["4"] }, pipeline_done: { n: 1, refs: ["5"] } } });
 });
 
+test("watch --actionable: --wake and --quiet override the classifier", async () => {
+  liveProfile("actw", [
+    { ts: "2026-01-03T00:00:00.000Z", event: "merged", ref: "4", step: "" },
+    { ts: "2026-01-03T00:00:01.000Z", event: "blocked", ref: "7", step: "review", reason: "needs a human" },
+  ]);
+  const j = await run(() => watch({ _: ["actw"], actionable: true, json: true, cursor: "0", timeout: "1", wake: "merged", quiet: "blocked" }));
+  assert.equal(j.code, 0);
+  const r = JSON.parse(j.out[0]);
+  assert.deepEqual(r.events.map((e) => `${e.e}:${e.ref}`), ["merged:4"]);
+  assert.deepEqual(r.summary, { n: 1, byEvent: { blocked: { n: 1, refs: ["7"] } } });
+});
+
 test("watch --actionable: a quiet timeout still reports the summary and the cursor (exit 2)", async () => {
   liveProfile("actq", [{ ts: "2026-01-03T00:00:00.000Z", event: "merged", ref: "4", step: "" }]);
   const j = await run(() => watch({ _: ["actq"], actionable: true, json: true, cursor: "0", timeout: "0.1" }));
