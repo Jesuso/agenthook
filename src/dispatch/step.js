@@ -78,7 +78,11 @@ export function createStep(ctx) {
         store?.clearRepo(job.ref);
         store?.clearHeld(job.ref);
         leavePipeline(job.ref);
-        emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url });
+        // forge.autoMerge turned on for an approved PR that has not merged yet: this is the
+        // pipeline handing it to GitHub, not a merge — say so, so readers don't mistake it.
+        const rm = store?.getRefMeta(job.ref);
+        const awaitingMerge = !!rm?.autoMerge && rm.prState !== "merged";
+        emit?.("pipeline_done", job.ref, step.id, { name: task.name, url: task.url, ...(awaitingMerge ? { awaitingMerge: true, pr: rm?.autoMerge?.pr } : {}) });
       }
       // The stage itself is agenthook's handoff, not done (ADR 0008). The board's own flag is
       // read here because some trackers never deliver it (GitHub Projects v2) or have none (local).
