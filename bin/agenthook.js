@@ -63,6 +63,7 @@ import { watch } from "../src/commands/watch.js";
 import { ticket } from "../src/commands/ticket.js";
 import { guide } from "../src/commands/guide.js";
 import { skill } from "../src/commands/skill.js";
+import { followup } from "../src/commands/followup.js";
 import { service } from "../src/commands/service.js";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -99,7 +100,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -187,10 +188,12 @@ usage: agenthook <command> [args] [--config <path>]
   watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json] [--follow|--stream [--heartbeat <s>]]  block until the next event (exit 2 on timeout); --follow stays attached, one JSON line per event with its resume cursor, then a final watch_end line
                             (--all / ≥2 names: first event from any profile, tagged; --cursor '{"<key>":<n>}')
                             --actionable: wake only for events that need someone (blocked, failed, move_refused,
-                            auto_merge_failed/skipped, ci_red not re-run/bounced, ci_green without auto-merge,
+                            auto_merge_failed/skipped, followup_due, ci_red not re-run/bounced, ci_green without auto-merge,
                             daemon_down = receiver not running); the rest ride along as a summary; --liveness <s>
                             = receiver check interval (default 60); with --follow: one {"e":"actionable"} line per wake;
                             --wake a,b / --quiet a,b add to / drop from that list by event type
+  followup [list] [name…|--all] [--json]  approvals with checks still to verify once the change is live
+  followup done <ref> [name]  mark one task's follow-up checks verified (clears them)
   guide [topic]             the agent guide from a shell (same text as the MCP guide tool); \`authoring\` = how to create
                             tickets/epics/dependencies that THIS profile's receiver will pick up (rendered from the config)
   skill install [--agent a,b|all] [--repo [path]] [--dry-run]

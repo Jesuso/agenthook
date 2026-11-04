@@ -20,6 +20,10 @@ branch/PR (the rework loop).
 5. Check every acceptance criterion in the issue. If any is unmet and the code stage can fix it,
    use `changes` and name the criterion. If only a human can satisfy it (prod access, credentials,
    a measurement you can't run), use `hold` and name the criterion and who can satisfy it.
+   A criterion that can only be verified **once the change is live** (a production metric, a
+   log line, a live integration) is different. If everything else is met and the risk is low or
+   medium, approve with `followUp` listing each check, and list them in the Jira comment too.
+   If the risk is high, `hold` instead.
 6. Leave a review signal on the PR (technical) even if it's "no issues found".
 
 ## Report
@@ -33,6 +37,10 @@ branch/PR (the rework loop).
 Write JSON to `$AGENTHOOK_VERDICT_FILE`:
 
 - `{"outcome":"advance","reason":"<approved>"}` — looks good → `Done`.
+- `{"outcome":"advance","reason":"<approved>","followUp":["<what to check once live, and where>"]}`
+  — approved, with criteria only checkable once live (risk `low`/`medium`) → `Done`. The
+  receiver records the checks for someone to verify once it is live. A `high` or missing tier
+  holds instead → `Needs Info`.
 - `{"outcome":"changes","target":"code","reason":"<what to fix>"}` — needs rework → back to
   `Agent Queue` (re-fires `code`). Capped by `maxAttempts`.
 - `{"outcome":"hold","reason":"<the specific question>"}` — needs a human call → `Needs Info`.

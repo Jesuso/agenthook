@@ -90,6 +90,12 @@ export function createMerge(ctx) {
     store?.setRefMeta(job.ref, { prState: "merged" }); // state and events agree
     leavePipeline(job.ref);
     emit?.("merged", job.ref, job.stepId, { name: task.name, url: task.url });
+    // Follow-up checks recorded at approval (src/followup.js) become verifiable now: the merge is
+    // the last thing agenthook observes. This is what wakes `watch --actionable`.
+    const fu = store?.getRefMeta(job.ref)?.followUp;
+    if (fu && Array.isArray(fu.checks) && fu.checks.length) {
+      emit?.("followup_due", job.ref, job.stepId, { n: fu.checks.length, detail: fu.checks.join("; "), ...(Number.isInteger(fu.pr) ? { pr: fu.pr } : {}), name: task.name, url: task.url });
+    }
     return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code: 0 };
   }
 

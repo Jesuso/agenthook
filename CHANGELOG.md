@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Approve with follow-up checks. A step's `advance` verdict can carry `followUp: ["…"]`: criteria
+  only verifiable once the change is live. At an allowed risk tier (`forge.autoMerge.tiers`, else
+  low/medium; read exactly as auto-merge reads it, so a reviewer cannot re-rate a `tierFrom` ticket)
+  it is an ordinary approval (auto-merge runs as usual). The checks are recorded on the ref
+  (`followup_pending` event, `status.followUp`, `ah tick`), listed by `agenthook followup [list]`
+  and cleared by `agenthook followup done <ref>` (MCP: `followup_done`; `followup_done` event).
+  agenthook never sees a deploy: `followup_due` fires when the PR merges (or at approval with no
+  `forge`) and is actionable in `watch --actionable`. A higher or missing tier turns the verdict
+  into a `hold` naming the checks. The example review instructions describe when to use it.
 - `agenthook service install|uninstall|status [name]` (Linux): run a profile's receiver as a
   systemd `--user` service, so it comes back after a crash (`Restart=on-failure`) and at login, or
   at boot once you turn on lingering with `loginctl enable-linger` yourself (printed, never run).

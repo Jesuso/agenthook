@@ -8,6 +8,7 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
+import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
 
 /** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
@@ -200,6 +201,19 @@ export function createFinish(ctx) {
     }
     if (ciBounce && verdict.outcome === "changes") emit?.("ci_red", job.ref, step.id, { action: "bounced", target: verdict.target });
 
+    // Approve with follow-up checks (src/followup.js): an allowed tier approves as usual and
+    // records the checks after the move; any other tier holds, naming them. A bounce or fail
+    // withdraws an earlier approval's checks; so does the same step approving again without any.
+    const followUp = followUpDecision(cfg, step.id, verdict, store?.getSummaries(job.ref));
+    if (followUp && "hold" in followUp) {
+      Object.assign(verdict, { outcome: "hold", reason: followUp.hold });
+      store?.setHeld(job.ref, { stepId: step.id, reason: followUp.hold, heldAt: new Date().toISOString() });
+    }
+    const pendingChecks = store?.getRefMeta(job.ref)?.followUp;
+    if (pendingChecks && !followUp && (verdict.outcome === "changes" || verdict.outcome === "fail" || (verdict.outcome === "advance" && pendingChecks.step === step.id))) {
+      store?.setRefMeta(job.ref, { followUp: null });
+    }
+
     // The step's supervisor summary, with the outcome actually applied. A run without one
     // drops the step's earlier summary, so a stale one never outlives a re-run.
     if (store) {
@@ -264,6 +278,17 @@ export function createFinish(ctx) {
       }
     } finally {
       releaseSlot();
+    }
+
+    // The approval stood (the move happened): record what to verify once the change is live.
+    if (moved && followUp && "record" in followUp) {
+      const pr = store?.getRefMeta(job.ref)?.pr;
+      store?.setRefMeta(job.ref, { followUp: { checks: followUp.checks, tier: followUp.tier, step: step.id, at: new Date().toISOString(), ...(Number.isInteger(pr) ? { pr } : {}) } });
+      const extra = { n: followUp.checks.length, detail: followUp.checks.join("; "), ...(Number.isInteger(pr) ? { pr } : {}), name: task.name, url: task.url };
+      emit?.("followup_pending", job.ref, step.id, { tier: followUp.tier, ...extra });
+      // No forge → no `merged` event will ever fire for this ref, so the checks are due now.
+      if (!cfg.forge) emit?.("followup_due", job.ref, step.id, extra);
+      console.log(`[followup] ${job.ref} approved (${followUp.tier}) with ${followUp.checks.length} follow-up check(s)`);
     }
 
     // Reset loop counters and difficulty when the task leaves the pipeline: a terminal

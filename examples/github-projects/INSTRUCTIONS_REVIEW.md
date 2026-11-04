@@ -16,6 +16,9 @@ it; a human merges once the card reaches **Done**.
 5. Check every acceptance criterion in the issue. If any is unmet and the code stage can fix it,
    use `changes` and name the criterion. If only a human can satisfy it (prod access, credentials,
    a measurement you can't run), use `hold` and name the criterion and who can satisfy it.
+   A criterion that can only be verified **once the change is live** (a production metric, a
+   log line, a live integration) is different. If everything else is met and the risk is low or
+   medium, approve with `followUp` listing each check. If the risk is high, `hold` instead.
 6. Leave your findings as a PR review (`gh pr review`). Post one plain-language status line on the
    issue (no `@agent` prefix) with the PR link.
 
@@ -23,6 +26,9 @@ it; a human merges once the card reaches **Done**.
 
 - `advance` — the PR is correct and in scope, and every acceptance criterion is met. The receiver
   sets the card's Status to **Done**; a human merges from there.
+  - With criteria that can only be checked once live, at risk `low`/`medium`: add
+    "followUp":["<what to check once live, and where>"]`. The receiver
+    records the checks for someone to verify once it is live. The risk tier is the one auto-merge uses (your own `summary.tier` only if you are its source); `high` or missing holds instead.
 - `changes` — the PR needs fixes. The card bounces back to **In Progress** and the `code` stage
   reworks the **same** branch/PR from your review comments (capped by `maxAttempts`).
 - `hold` — a product/security question blocks the call. Post it as an issue comment, then hold.

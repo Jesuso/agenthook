@@ -193,6 +193,14 @@ const TOOLS = {
       ["ref"],
     ),
   },
+  followup_done: {
+    write: true,
+    def: schema(
+      "Mark a task's follow-up checks verified: the review approved it with `followUp` checks (listed under `status.followUp`), someone confirmed them on the live change, and this clears the record (writes a `followup_done` event; the ticket, board and PR are untouched). Errors if the task has no follow-up checks recorded.",
+      { profile: PROFILE, ref: REF },
+      ["ref"],
+    ),
+  },
   recheck: {
     write: true,
     def: schema(

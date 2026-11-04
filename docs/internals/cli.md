@@ -38,7 +38,7 @@ node bin/agenthook.js skill install [--agent a,b|all] [--repo [path]] [--dry-run
 node bin/agenthook.js skill ls            # installed copies + versions (doctor warns when one is older than the package)
 node bin/agenthook.js watch [name…|--all] [--event a,b] [--cursor <n|json>] [--timeout s]  # block until the next event (exit 2 on timeout; ≥2 names/--all = first event from any, object cursor)
 node bin/agenthook.js watch [name…|--all] --follow [--heartbeat s] [--timeout s]  # stream: one JSON line per event + its exact resume cursor, optional heartbeat lines, final {"e":"watch_end"} (exit 0 on SIGTERM/SIGINT, 2 on total --timeout)
-node bin/agenthook.js watch [name…|--all] --actionable [--follow] [--liveness s] [--wake a,b] [--quiet a,b] [--timeout s]  # wake only for events that need someone (src/actionable.js) + daemon_down; --wake/--quiet add to/drop from that list; the rest rides along as a summary (counts + refs), also on the timeout
+node bin/agenthook.js watch [name…|--all] --actionable [--follow] [--liveness s] [--wake a,b] [--quiet a,b] [--timeout s]  # wake only for events that need someone (src/actionable.js) + followup_due + daemon_down; --wake/--quiet add to/drop from that list; the rest rides along as a summary (counts + refs), also on the timeout
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 npm test                                  # node:test suites in test/ (units + test/e2e.test.js: real receiver, local tracker, stub agent)

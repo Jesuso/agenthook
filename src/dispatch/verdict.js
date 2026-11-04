@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import { sanitizePaths } from "../overlap.js";
 import { findStep, prevStep, DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
+import { parseFollowUp } from "../followup.js";
 
 /** The fail reason for a killed run. @param {"max"|"idle"} kind @param {number} minutes */
 export function timeoutReason(kind, minutes) {
@@ -115,6 +116,8 @@ export function parseVerdict(code, text, { requireVerdict = true } = {}) {
       : undefined,
     paths: sanitizePaths(raw.paths),
     summary: parseSummary(raw.summary),
+    // Only on an advance (an approval with checks to verify once the change is live); absent otherwise.
+    ...(raw.outcome === "advance" && parseFollowUp(raw.followUp) ? { followUp: parseFollowUp(raw.followUp) } : {}),
   };
 }
 
