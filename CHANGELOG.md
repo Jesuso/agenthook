@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-04
+
 ### Added
 
 - Approve with follow-up checks. A step's `advance` verdict can carry `followUp: ["…"]`: criteria
@@ -962,7 +964,8 @@ First public release, published to npm as **[@jesuso/agenthook](https://www.npmj
 - Webhook signatures verified with constant-time HMAC; handshake secrets stored `0600`.
 - See [SECURITY.md](SECURITY.md) for the threat model and disclosure process.
 
-[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/Jesuso/agenthook/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/Jesuso/agenthook/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/Jesuso/agenthook/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/Jesuso/agenthook/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Jesuso/agenthook/compare/v0.11.0...v0.12.0
