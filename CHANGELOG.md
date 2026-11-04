@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `agenthook watch --actionable`: wake only for events that need a human or supervisor (`blocked`,
+  `failed`, `move_refused`, `auto_merge_failed`/`auto_merge_skipped`, a `ci_red` the receiver did not
+  re-run or bounce, a `tooLate` `auto_merge_disabled`, a `ci_green` on a PR without auto-merge). The
+  rest is folded into a `summary` (counts + refs per event) printed with the next wake or the
+  timeout, which also carries the cursor. A receiver that is not running (checked at start and
+  every `--liveness` seconds) wakes the watch with a `daemon_down` event instead of a silent timeout.
+  With `--follow`, one `{"e":"actionable"}` line per wake.
+- `pipeline_done` carries `awaitingMerge: true` and `pr` when `forge.autoMerge` is on and the PR
+  has not merged yet, so it is not mistaken for a merge.
+
 - Blockers on the local board. `agenthook ticket add … --blocked-by <ref,ref>` writes a `blockedBy`
   list on the item; it rests in its stage until every listed ticket reaches a done stage (a manual
   step's `sourceStatus`), then the last blocker's move pushes its step in-process (an `unblock:` job),

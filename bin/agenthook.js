@@ -68,7 +68,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "body", "file", "step", "name", "agent", "blocked-by"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "liveness", "body", "file", "step", "name", "agent", "blocked-by"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -181,6 +181,10 @@ usage: agenthook <command> [args] [--config <path>]
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
   watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json] [--follow|--stream [--heartbeat <s>]]  block until the next event (exit 2 on timeout); --follow stays attached, one JSON line per event with its resume cursor, then a final watch_end line
                             (--all / ≥2 names: first event from any profile, tagged; --cursor '{"<key>":<n>}')
+                            --actionable: wake only for events that need someone (blocked, failed, move_refused,
+                            auto_merge_failed/skipped, ci_red not re-run/bounced, ci_green without auto-merge,
+                            daemon_down = receiver not running); the rest ride along as a summary; --liveness <s>
+                            = receiver check interval (default 60); with --follow: one {"e":"actionable"} line per wake
   guide [topic]             the agent guide from a shell (same text as the MCP guide tool); \`authoring\` = how to create
                             tickets/epics/dependencies that THIS profile's receiver will pick up (rendered from the config)
   skill install [--agent a,b|all] [--repo [path]] [--dry-run]

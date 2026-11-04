@@ -64,6 +64,16 @@ Supervising several profiles? Don't run one wait per profile: `events {profiles:
 From a shell with a monitor/tail tool, `agenthook watch --follow [--all] [--heartbeat <s>]` streams
 instead of exiting after each batch: one JSON line per event carrying its own resume `cursor`,
 optional `{"e":"heartbeat"}` lines, and a final `{"e":"watch_end","cursor":…}` line.
+
+Supervisor that only needs to act? `agenthook watch --actionable [--follow] --json` wakes only for
+events that need someone: `blocked`, `failed`, `move_refused`, `auto_merge_failed`,
+`auto_merge_skipped`, `ci_red` the receiver did not re-run or bounce itself (`action` `skipped`),
+`auto_merge_disabled` with `tooLate`, `ci_green` on a PR without auto-merge, and `daemon_down`
+(the receiver is not running — checked at start and every `--liveness` seconds, default 60, and
+reported once per down spell). Everything else it read (`pipeline_done`, `merged`, `hold_cleared`,
+a re-run `ci_red`, …) comes back as `summary: {n, byEvent: {<event>: {n, refs}}}` with the next wake,
+or with the timeout (`{events: [], cursor, summary, timedOut: true}`, exit 2). With `--follow` each
+wake is one `{"e":"actionable","events":[…],"cursor":…,"summary":…}` line.
 `tick {profiles: ["*"]}` (`agenthook tick --all --json`) returns one tick per profile.
 `ageS`/`outTok` never affect the etag, so `{"unchanged":true}` can fire while an agent is running;
 omit `ifNoneMatch` when you want fresh ages and token counts rather than the cheap unchanged check.
@@ -267,7 +277,8 @@ before the hold it forces; a `blocked` event follows), `blocked {reason}` (task 
 `failed {reason}`, `merged` (`via:"recheck"` when a `recheck` learned it rather than the forge's webhook),
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
-`pipeline_done` (ticket finished, PR ready), `board_done {via}` (the ticket is done on the board:
+`pipeline_done` (ticket finished, PR ready; `awaitingMerge: true` + `pr` = `forge.autoMerge` is on
+and the PR has not merged yet — wait for `merged`, it is not one), `board_done {via}` (the ticket is done on the board:
 `via:"flag"` = its tracker done flag flipped — issue closed, task completed, done status — or the
 ticket entered a manual step with that flag already set; `via:"recheck"` = a `recheck` or the merge
 catch-up asked the tracker and found it done after its webhook was missed; a signal only, nothing runs or moves.
