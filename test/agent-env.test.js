@@ -85,3 +85,8 @@ test("buildAgentEnv: the parent Claude Code session's variables are stripped eve
   assert.ok(strippedNames({ source: src, allow: ["*"] }).includes("CLAUDE_CODE_MESSAGING_TOKEN"));
   assert.ok(HOST_SESSION_ENV.length > 0);
 });
+
+test("buildAgentEnv: AGENTHOOK_SERVICE never reaches an agent, even through a passthrough glob", () => {
+  const out = buildAgentEnv({ source: { AGENTHOOK_SERVICE: "1", PATH: "/bin" }, allow: ["PATH", "AGENTHOOK_*"], platform: "linux" });
+  assert.deepEqual(out, { PATH: "/bin" });
+});

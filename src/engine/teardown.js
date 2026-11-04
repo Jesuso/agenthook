@@ -191,6 +191,9 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
       state.finished = true;
       ({ exitCode } = finishTeardown({ cfg, respawn: state.respawnOnExit, moveTo: state.moveOnExit, archive: state.archiveOnExit }));
     }
+    // Belt and braces: should the process end some other way before either exit below fires,
+    // it still reports the restart code to systemd.
+    process.exitCode = exitCode;
     state.server.close(() => process.exit(exitCode));
     setTimeout(() => process.exit(exitCode), 1500).unref(); // don't hang on lingering sockets
   }

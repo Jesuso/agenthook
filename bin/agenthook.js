@@ -151,7 +151,8 @@ usage: agenthook <command> [args] [--config <path>]
   stop [--keep-hooks]       stop the receiver
   service install|uninstall|status [name] [--dry-run] [--no-enable] [--stop]
                             Linux: run the receiver as a systemd --user service (starts at login, restarts
-                            on a crash; at boot too once you run \`loginctl enable-linger\` yourself)
+                            on a crash; at boot too once you run \`loginctl enable-linger\` yourself);
+                            install replaces a stale unit written for the same config (after rename --move)
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
                             --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
   restart                   restart the running receiver once idle
@@ -228,6 +229,8 @@ async function main() {
 if (realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((e) => {
     console.error(e.message || e);
-    process.exit(1);
+    // A thrown error may carry its own exit code (e.g. a `start` refused under the systemd unit
+    // exits REFUSED_EXIT_CODE so the unit does not retry it); anything else is 1.
+    process.exit(Number.isInteger(e?.exitCode) && e.exitCode > 0 ? e.exitCode : 1);
   });
 }

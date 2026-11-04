@@ -6,7 +6,9 @@
 //
 // install:   write ~/.config/systemd/user/agenthook-<key>.service, daemon-reload, enable it (not
 //            start: a receiver already up from `start --detach` keeps running; `--no-enable` only
-//            writes the file, `--dry-run` only prints it).
+//            writes the file, `--dry-run` only prints it). Another agenthook-*.service for the
+//            same config (left by `rename --move`) is disabled and removed first — never
+//            stopped, the receiver it started keeps running.
 // uninstall: disable it (`--stop` also stops a running service), remove the file, daemon-reload.
 // status:    whether the unit file exists, is enabled / active, and whether lingering is on.
 import fs from "node:fs";
@@ -14,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { peekConfig, installDir as defaultInstallDir, registryDir } from "../config.js";
 import { resolveProfile } from "../heartbeat.js";
-import { unitName, userUnitDir, renderUnit, defaultRunner, lingerEnabled, unsupportedReason } from "../service.js";
+import { unitName, userUnitDir, renderUnit, defaultRunner, lingerEnabled, unsupportedReason, staleUnits } from "../service.js";
 
 const USAGE = "usage: agenthook service install|uninstall|status [name] [--dry-run] [--no-enable] [--stop]";
 
@@ -34,6 +36,7 @@ function target(args) {
   const name = args._[1];
   let configPath = args.config;
   if (name) {
+    if (configPath) console.log(`note: both "${name}" and --config given; the profile name wins`);
     const p = resolveProfile(String(name));
     if (!p) throw new Error(`unknown profile "${name}"`);
     if (!p.configPath) throw new Error(`profile "${name}" has no recorded config path; run this from its directory instead`);
@@ -79,21 +82,41 @@ export async function service(args, deps = {}) {
   };
 
   if (sub === "install") {
+    const installDir = deps.installDir ?? defaultInstallDir;
     const text = renderUnit({
       name: cfg.name,
       stateKey: cfg.stateKey,
       configPath: cfg.configPath,
       execPath: deps.execPath ?? process.execPath,
-      installDir: deps.installDir ?? defaultInstallDir,
+      installDir,
       pathEnv: env.PATH,
       home: env.AGENTHOOK_HOME ? registryDir : undefined,
     });
+    // The unit's ExecStart names this install. An npx cache entry is evicted without notice,
+    // and the unit then fails to start until it is re-run from a durable install.
+    if (installDir.split(path.sep).includes("_npx")) {
+      console.error(
+        `warning: this agenthook runs from the npx cache (${installDir}), which npm evicts without notice — the unit would then fail to start. Install it for good (npm i -g @jesuso/agenthook) and re-run: agenthook service install`,
+      );
+    }
+    const stale = staleUnits(path.dirname(file), cfg.configPath, unit);
     if (args["dry-run"]) {
+      for (const old of stale) console.log(`# would replace ${old} (same config)`);
       console.log(`# ${file}`);
       process.stdout.write(text);
       return;
     }
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    // Replace a unit a `rename --move` left under the old state key: disable (never --now, the
+    // receiver it started keeps running) and remove it, so one profile has one unit.
+    for (const old of stale) {
+      if (!args["no-enable"]) {
+        const r = systemctl(["disable", old]);
+        if (r.status !== 0) console.error(`systemctl --user disable ${old}: ${(r.stderr || r.stdout).trim() || `exit ${r.status}`}`);
+      }
+      fs.rmSync(path.join(path.dirname(file), old), { force: true });
+      console.log(`replaced ${old} (same config)`);
+    }
     fs.writeFileSync(file, text);
     console.log(`wrote ${file}`);
     if (args["no-enable"]) {

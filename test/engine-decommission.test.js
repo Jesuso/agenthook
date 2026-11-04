@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createDecommissionRequester, createRestartRequester, finishTeardown, runDecommission, unregisterAll, waitForExit } from "../src/engine.js";
-import { RESTART_EXIT_CODE, RECONCILE_MARKER, consumeReconcileMarker } from "../src/respawn.js";
+import { RESTART_EXIT_CODE, RECONCILE_MARKER, hasReconcileMarker, clearReconcileMarker } from "../src/respawn.js";
 import { archiveStateDir } from "../src/archive.js";
 import { createQueue } from "../src/queue.js";
 
@@ -261,8 +261,11 @@ test("finishTeardown(respawn) under a systemd unit: no spawn, reconcile marker w
   });
   assert.match(lines[0], /^\[restart\] running as a systemd service — exiting 75 for systemd to restart/);
   assert.ok(fs.existsSync(path.join(cfg.stateDir, RECONCILE_MARKER)));
-  assert.equal(consumeReconcileMarker(cfg.stateDir), true, "the next start consumes it");
-  assert.equal(consumeReconcileMarker(cfg.stateDir), false);
+  assert.equal(hasReconcileMarker(cfg.stateDir), true, "the next start reads it");
+  assert.equal(hasReconcileMarker(cfg.stateDir), true, "reading does not consume it (a failed boot keeps it for the retry)");
+  clearReconcileMarker(cfg.stateDir);
+  assert.equal(hasReconcileMarker(cfg.stateDir), false, "cleared once the boot succeeded");
+  clearReconcileMarker(cfg.stateDir); // idempotent
   assert.ok(!fs.existsSync(path.join(cfg.stateDir, RECONCILE_MARKER)));
 });
 
