@@ -40,6 +40,11 @@ Vocabulary you will see in tool output:
 - **held** — a task whose agent asked for input. It stays parked until someone answers (`release`)
   or the ticket is completed on the board (the hold is then dropped: `hold_cleared`).
 - **failed** — `status.failed[]`: tasks whose last word is a real failure (`why`, `at`; an operator `cancel` is not listed), until they run again, you `retry` them, or you `dismiss` them. `held` + `failed` is the dashboard's "needs you" list.
+- **post-deploy checks** — `status.postDeploy[]` (`ref`, `checks`, `tier`, `pr?`, `since`): approvals
+  the review let merge (low/medium tier, or `forge.autoMerge.tiers`) with criteria only checkable
+  once the change is live. Verify each on the deployed change, then `postdeploy_done {ref}`
+  (shell: `agenthook postdeploy [list]` / `postdeploy done <ref>`). A check that fails is a new
+  ticket, not a reopen. A `postdeploy_pending {tier, n, detail, pr?}` event marks each new one.
 - **backlog / queue stage** — optional opt-in lane the receiver pulls from when a slot frees.
 - There is **no polling** inside agenthook: forward motion is webhook-driven. Reads cost nothing on
   the tracker; `board`/`prs` hit the tracker/forge only when you call them (cached ~30 s).
@@ -308,6 +313,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
 | `retry {ref}` | re-run a **failed** task's failed step: back into that step's source stage (the webhook fires it); never reassigns | not failed (running, queued, held, dismissed or re-run since); not assigned to us; step is `manual` |
 | `dismiss {ref}` | acknowledge a **failed/cancelled** task, or a PR row (`prNeeds`), so dashboards stop counting it as needing attention until its next run (writes a `dismissed` event; the ticket is untouched) | ref is running, queued or held |
+| `postdeploy_done {ref}` | mark a task's post-deploy checks (`status.postDeploy`) verified on the deployed change: clears them (writes a `postdeploy_done` event; ticket, board and PR untouched) | ref has no post-deploy checks recorded |
 | `recheck {ref}` / `recheck {all:true}` | ask the tracker and forge again about a ticket whose done/merge webhook was missed; records only the missed facts (`board_done`/`merged` with `via:"recheck"`, the PR's `prState`) and drops the hold of a completed held ticket (`hold_cleared`), never writes the tracker. `all` = every row already flagged with a PR reason, never the board. Returns `{ref, changed, unchanged}` per ref (`{rechecked:[…]}` with `all`; a ref that failed carries `error`) | ref is running or queued; not assigned to us, or the tracker read failed (nothing recorded) |
 | `close_on_board {ref}` | close the ticket on the tracker for a PR row whose code shipped (`prNeeds` `mergedOpen` or `openOnDone`); records nothing locally — the tracker's done webhook does | row has no such PR reason; tracker cannot close tickets; not assigned to us |
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |

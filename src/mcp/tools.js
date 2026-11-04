@@ -193,6 +193,14 @@ const TOOLS = {
       ["ref"],
     ),
   },
+  postdeploy_done: {
+    write: true,
+    def: schema(
+      "Mark a task's post-deploy checks verified: the review approved it with `postDeploy` checks (listed under `status.postDeploy`), someone confirmed them on the deployed change, and this clears the record (writes a `postdeploy_done` event; the ticket, board and PR are untouched). Errors if the task has no post-deploy checks recorded.",
+      { profile: PROFILE, ref: REF },
+      ["ref"],
+    ),
+  },
   recheck: {
     write: true,
     def: schema(

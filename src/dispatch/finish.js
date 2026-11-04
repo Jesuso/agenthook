@@ -8,6 +8,7 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
+import { postDeployDecision } from "../postdeploy.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
 
 /** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
@@ -200,6 +201,19 @@ export function createFinish(ctx) {
     }
     if (ciBounce && verdict.outcome === "changes") emit?.("ci_red", job.ref, step.id, { action: "bounced", target: verdict.target });
 
+    // Approve with post-deploy checks (src/postdeploy.js): an allowed tier approves as usual and
+    // records the checks after the move; any other tier holds, naming them. A bounce or fail
+    // withdraws an earlier approval's checks; so does the same step approving again without any.
+    const postDeploy = postDeployDecision(cfg, step.id, verdict, store?.getSummaries(job.ref));
+    if (postDeploy && "hold" in postDeploy) {
+      Object.assign(verdict, { outcome: "hold", reason: postDeploy.hold });
+      store?.setHeld(job.ref, { stepId: step.id, reason: postDeploy.hold, heldAt: new Date().toISOString() });
+    }
+    const pendingChecks = store?.getRefMeta(job.ref)?.postDeploy;
+    if (pendingChecks && !postDeploy && (verdict.outcome === "changes" || verdict.outcome === "fail" || (verdict.outcome === "advance" && pendingChecks.step === step.id))) {
+      store?.setRefMeta(job.ref, { postDeploy: null });
+    }
+
     // The step's supervisor summary, with the outcome actually applied. A run without one
     // drops the step's earlier summary, so a stale one never outlives a re-run.
     if (store) {
@@ -264,6 +278,14 @@ export function createFinish(ctx) {
       }
     } finally {
       releaseSlot();
+    }
+
+    // The approval stood (the move happened): record what to verify after the deploy.
+    if (moved && postDeploy && "record" in postDeploy) {
+      const pr = store?.getRefMeta(job.ref)?.pr;
+      store?.setRefMeta(job.ref, { postDeploy: { checks: postDeploy.checks, tier: postDeploy.tier, step: step.id, at: new Date().toISOString(), ...(Number.isInteger(pr) ? { pr } : {}) } });
+      emit?.("postdeploy_pending", job.ref, step.id, { tier: postDeploy.tier, n: postDeploy.checks.length, detail: postDeploy.checks.join("; "), ...(Number.isInteger(pr) ? { pr } : {}), name: task.name, url: task.url });
+      console.log(`[postdeploy] ${job.ref} approved (${postDeploy.tier}) with ${postDeploy.checks.length} post-deploy check(s)`);
     }
 
     // Reset loop counters and difficulty when the task leaves the pipeline: a terminal

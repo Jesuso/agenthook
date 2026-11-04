@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Approve with post-deploy checks. A step's `advance` verdict can carry `postDeploy: ["…"]`: criteria
+  only verifiable once the change is live. At an allowed `summary.tier` (`forge.autoMerge.tiers`,
+  else low/medium) it is an ordinary approval (auto-merge runs as usual). The checks are recorded on
+  the ref (`postdeploy_pending` event, `status.postDeploy`, `ah tick`), listed by
+  `agenthook postdeploy [list]` and cleared by `agenthook postdeploy done <ref>` (MCP:
+  `postdeploy_done`; `postdeploy_done` event). A higher or missing tier turns the verdict into a
+  `hold` naming the checks. The example review instructions describe when to use it.
+
 - Blockers on the local board. `agenthook ticket add … --blocked-by <ref,ref>` writes a `blockedBy`
   list on the item; it rests in its stage until every listed ticket reaches a done stage (a manual
   step's `sourceStatus`), then the last blocker's move pushes its step in-process (an `unblock:` job),

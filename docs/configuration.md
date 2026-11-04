@@ -225,6 +225,32 @@ Success emits `auto_merge_enabled {pr, tier, method, readied?, mergedNow?}`
 (`ah watch --event auto_merge_enabled,auto_merge_failed,auto_merge_skipped,auto_merge_disabled`),
 and the PR shows `auto-merge` in `ah tick` and `autoMerge: true` in `prs`.
 
+#### Approve with post-deploy checks
+
+Some acceptance criteria can only be verified once the change is live: a production metric, a log
+line, a third-party callback. Without this, a reviewer has to `hold` those PRs for a human yes. It
+can instead approve with the checks attached:
+
+```json
+{ "outcome": "advance", "summary": { "tier": "low" }, "postDeploy": ["signup errors stay at 0 for an hour after deploy"] }
+```
+
+- **Allowed tier.** If the tier is in `forge.autoMerge.tiers` (or `low`/`medium` when
+  `forge.autoMerge` is not set), it is an ordinary approval. The task advances and auto-merge runs
+  as usual. The checks are recorded on the ref and a `postdeploy_pending` event is emitted.
+  `status.postDeploy` / `ah tick` and `agenthook postdeploy [list]` show them until someone runs
+  `agenthook postdeploy done <ref>` (MCP: `postdeploy_done`).
+- **Any other tier, or none.** The verdict becomes a `hold` whose reason names the checks, so a
+  risky change still waits for a human.
+- **Withdrawn approval.** A later `changes` or `fail` drops the recorded checks, and so does the
+  same step approving again without any.
+- **Text only.** The tier comes from the verdict's `summary.tier`, else from the stored summary of
+  `forge.autoMerge.tierFrom`. The checks are agent-written text: they are shown, never fed back into
+  a prompt (at most 10, 300 characters each).
+
+The review instructions decide when to use it. The examples under `examples/*/INSTRUCTIONS_REVIEW.md`
+show the wording.
+
 Where to put the approval is your call. Two common shapes:
 
 - **Merge at review, then keep going.** `triage → code → review → qa` with the default `step`

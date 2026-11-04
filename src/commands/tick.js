@@ -16,6 +16,7 @@ export function digest(t) {
   for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m`);
   for (const q of t.queue) lines.push(`  WAIT ${fmt(q)} ${q.step}`);
   for (const h of t.held) lines.push(`  HELD ${fmt(h)} ${h.step}${h.why ? ` — ${h.why}` : ""}`);
+  for (const p of t.postDeploy ?? []) lines.push(`  POSTDEPLOY ${fmt(p)}${p.pr ? ` PR#${p.pr}` : ""}${p.tier ? ` tier=${p.tier}` : ""} — ${p.checks.join("; ")}`);
   if (t.board) for (const b of t.board) lines.push(`  board ${b.step}: ${b.resting.length} resting${b.backlog ? `, ${b.backlog.length} backlog` : ""}${b.resting.length ? ` [${b.resting.map((/** @type {any} */ c) => c.id ?? c.ref).join(" ")}]` : ""}`);
   if (t.boardError) lines.push(`  board: ${t.boardError}`);
   if (t.prs) for (const p of t.prs) lines.push(`  PR #${p.n} ${p.ref} ci=${p.ci}${p.conflict ? " CONFLICT" : ""}${p.state ? ` ${p.state}` : ""}${p.draft ? " draft" : ""}${p.autoMerge ? " auto-merge" : ""}${typeof p.mine === "boolean" ? (p.mine ? " mine" : " not-mine") : ""}`);
