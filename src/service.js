@@ -5,8 +5,9 @@
 // once the user has lingering enabled) and restarts it when it dies.
 //
 // The unit runs the same `start` a terminal would, so the receiver is unchanged. Two details:
-// - `KillMode=process`: a control-socket `restart` respawns a detached `start --detach` and the
-//   old process exits; systemd must not kill that respawn as a leftover of the unit's cgroup.
+// - `AGENTHOOK_SERVICE=1` + `RestartForceExitStatus=75`: a control-socket `restart` under the
+//   unit does not respawn a detached process (that would escape systemd); it exits 75 and
+//   systemd starts it again inside the unit (src/respawn.js RESTART_EXIT_CODE).
 // - `PATH` is the installing shell's: a user manager's default PATH rarely holds the agent CLI,
 //   git or gh, and the receiver spawns them. Re-run `install` after moving them.
 // Linux only. Never runs sudo: lingering (`loginctl enable-linger`) is printed for the user to run.
@@ -14,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { RESTART_EXIT_CODE } from "./respawn.js";
 
 /** The unit name for a profile. @param {string} stateKey */
 export const unitName = (stateKey) => `agenthook-${stateKey}.service`;
@@ -55,19 +57,22 @@ export function renderUnit({ name, stateKey, configPath, execPath, installDir, p
     `Description=agenthook receiver (${name})`,
     // No network-online.target: a user manager can't see the system one. A boot before the
     // network is up fails the ingress, and Restart=on-failure retries it.
+    // Every start counts, a control-socket `restart` included; 10 leaves room for a busy
+    // afternoon of restarts. When it trips: systemctl --user reset-failed <unit>.
     "StartLimitIntervalSec=300",
-    "StartLimitBurst=5",
+    "StartLimitBurst=10",
     "",
     "[Service]",
     "Type=simple",
     // A path setting takes the rest of the line as-is (no quotes), so only `%` is escaped.
     `WorkingDirectory=${path.dirname(configPath).replace(/%/g, "%%")}`,
     `ExecStart=${exec}`,
+    envLine("AGENTHOOK_SERVICE", "1"),
     ...(pathEnv ? [envLine("PATH", pathEnv)] : []),
     ...(home ? [envLine("AGENTHOOK_HOME", home)] : []),
     "Restart=on-failure",
-    "RestartSec=10",
-    "KillMode=process",
+    `RestartForceExitStatus=${RESTART_EXIT_CODE}`,
+    "RestartSec=3",
     "",
     "[Install]",
     "WantedBy=default.target",

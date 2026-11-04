@@ -12,7 +12,9 @@ All notable changes to this project are documented here. The format is based on
   systemd `--user` service, so it comes back after a crash (`Restart=on-failure`) and at login, or
   at boot once you turn on lingering with `loginctl enable-linger` yourself (printed, never run).
   `install` enables the unit without starting it; `--dry-run` prints it, `--no-enable` only writes
-  it. Other platforms get an "unsupported" message. See docs/troubleshooting.md.
+  it. Other platforms get an "unsupported" message. A control-socket `restart` under the unit
+  exits 75 (`RestartForceExitStatus=75`) so systemd restarts it inside the unit, reconcile on boot
+  included, instead of a detached respawn that would escape supervision. See docs/troubleshooting.md.
 
 - Blockers on the local board. `agenthook ticket add … --blocked-by <ref,ref>` writes a `blockedBy`
   list on the item; it rests in its stage until every listed ticket reaches a done stage (a manual

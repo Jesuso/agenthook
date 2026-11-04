@@ -66,9 +66,12 @@ The unit captures the installing shell's `PATH` so the receiver finds the agent 
 `gh`. Re-run `install` after moving them. Secrets come from the `.env` beside the config, as for
 any `start`.
 
-A control-socket `restart` respawns the receiver detached, outside the unit. That respawn keeps
-running (`KillMode=process`), but systemd no longer supervises it until the next login or boot.
-`agenthook service status` shows the unit as inactive while that is the case.
+`agenthook restart` (and the UI's "Restart when idle") works under the unit: the receiver exits
+with code 75 instead of respawning itself, and `RestartForceExitStatus=75` makes systemd start it
+again inside the unit, with the usual reconcile after boot. `agenthook service status` stays
+active. Every start counts against `StartLimitBurst=10` per 5 minutes; if a burst of restarts
+trips it, run `systemctl --user reset-failed agenthook-<key>.service`. After `rename --move`,
+re-run `agenthook service install <newName>` so the unit follows the new state key.
 
 Linux only. Other platforms get a clear "unsupported" message.
 

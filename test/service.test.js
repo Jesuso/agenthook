@@ -56,7 +56,7 @@ async function capture(fn) {
   return { out: out.join("\n"), err: err.join("\n"), code };
 }
 
-test("renderUnit: foreground start on the profile's config, restart on failure, KillMode=process, PATH captured", () => {
+test("renderUnit: foreground start on the profile's config, restart on failure and on exit 75, PATH captured", () => {
   const text = renderUnit({
     name: "demo",
     stateKey: "demo",
@@ -71,7 +71,10 @@ test("renderUnit: foreground start on the profile's config, restart on failure, 
   assert.match(text, /^WorkingDirectory=\/home\/u\/work\/repo$/m);
   assert.match(text, /^Environment=PATH=\/home\/u\/\.local\/bin:\/usr\/bin$/m);
   assert.match(text, /^Restart=on-failure$/m);
-  assert.match(text, /^KillMode=process$/m);
+  assert.match(text, /^RestartForceExitStatus=75$/m);
+  assert.match(text, /^Environment=AGENTHOOK_SERVICE=1$/m);
+  assert.match(text, /^StartLimitBurst=10$/m);
+  assert.doesNotMatch(text, /KillMode/, "a restart exits for systemd instead of leaving a respawn behind");
   assert.match(text, /^WantedBy=default\.target$/m);
   assert.doesNotMatch(text, /--detach/, "systemd supervises a foreground process");
   assert.doesNotMatch(text, /AGENTHOOK_HOME/);

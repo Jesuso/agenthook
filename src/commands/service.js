@@ -1,6 +1,7 @@
 // `agenthook service install|uninstall|status [name] [--dry-run] [--no-enable] [--stop]` — run a
 // profile's receiver as a systemd --user service, so it comes back after a reboot or a crash
-// (src/service.js). Linux only. Never runs sudo: starting at boot without a login needs the
+// (src/service.js). A control-socket `restart` under the unit exits 75 and systemd starts it
+// again inside the unit (no escaped respawn). Linux only. Never runs sudo: starting at boot without a login needs the
 // user's lingering on, which this prints for the user to run.
 //
 // install:   write ~/.config/systemd/user/agenthook-<key>.service, daemon-reload, enable it (not

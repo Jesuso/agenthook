@@ -6,13 +6,15 @@
 // reaches it instead of racing its boot. Waits on an fs.watch of the state dir, not a poll.
 //
 // `--reconcile-on-boot` is internal: a control-socket `restart` respawns with it so the
-// new server runs one reconcile after boot. `--detach` forwards it to the child.
+// new server runs one reconcile after boot. `--detach` forwards it to the child. A restart under
+// a systemd unit can't change the unit's argv, so it leaves a marker file in the state dir
+// instead (src/respawn.js RECONCILE_MARKER); the foreground boot consumes it.
 import { loadConfig } from "../config.js";
 import { createEngine } from "../engine.js";
 import { readProfile } from "../heartbeat.js";
 import { claimStateDir } from "../profile.js";
 import fs from "node:fs";
-import { startArgv, spawnDetached } from "../respawn.js";
+import { startArgv, spawnDetached, consumeReconcileMarker } from "../respawn.js";
 import { isAlive } from "../heartbeat.js";
 import { checkSockPath } from "../control.js";
 import { claimedPorts, portInUse } from "../port.js";
@@ -58,7 +60,7 @@ export async function start(args) {
     return;
   }
 
-  await createEngine(cfg, { reconcileOnBoot }).serve();
+  await createEngine(cfg, { reconcileOnBoot: reconcileOnBoot || consumeReconcileMarker(cfg.stateDir) }).serve();
   // serve() keeps the process alive via the open server + signal handlers.
 }
 

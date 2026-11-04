@@ -12,6 +12,46 @@ import { spawn } from "node:child_process";
 import { ensurePrivateDir } from "./config.js";
 
 /**
+ * Exit code a control-socket `restart` uses when the receiver runs as a systemd --user service
+ * (`agenthook service install`): the unit's `RestartForceExitStatus=` turns it into a restart
+ * inside the unit, instead of a detached respawn that would escape systemd's supervision.
+ */
+export const RESTART_EXIT_CODE = 75;
+
+/**
+ * Marker file in the state dir that asks the next `start` to run one reconcile after boot — the
+ * out-of-band form of `--reconcile-on-boot` for a restart whose argv is fixed (a systemd unit).
+ */
+export const RECONCILE_MARKER = "reconcile-on-boot";
+
+/**
+ * Whether this receiver runs under `agenthook service`'s unit. Only the unit's own
+ * `AGENTHOOK_SERVICE=1` counts: `INVOCATION_ID` would also match a terminal the desktop launched
+ * as a transient service, and a restart there must still respawn.
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export const underSystemdUnit = (env = process.env) => env.AGENTHOOK_SERVICE === "1";
+
+/**
+ * Write the reconcile marker for the next `start` on this state dir.
+ * @param {string} stateDir
+ */
+export function writeReconcileMarker(stateDir) {
+  fs.writeFileSync(path.join(stateDir, RECONCILE_MARKER), `${new Date().toISOString()}\n`);
+}
+
+/**
+ * Consume the reconcile marker: true (and the file removed) when one was present.
+ * @param {string} stateDir
+ */
+export function consumeReconcileMarker(stateDir) {
+  const p = path.join(stateDir, RECONCILE_MARKER);
+  if (!fs.existsSync(p)) return false;
+  fs.rmSync(p, { force: true });
+  return true;
+}
+
+/**
  * Whether `spawnDetached` should wrap the child in `systemd-run --user --scope` so it
  * survives the caller's cgroup scope. Pure given injected probes (no I/O when supplied).
  * @param {{platform?: string, env?: NodeJS.ProcessEnv, onPath?: (cmd: string) => boolean, exists?: (p: string) => boolean}} [opts]

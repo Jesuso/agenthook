@@ -3,7 +3,7 @@
 // the exit wait, and teardown's once-only respawn/archive tail.
 import fs from "node:fs";
 import path from "node:path";
-import { restartSpawnArgs, spawnDetached } from "../respawn.js";
+import { restartSpawnArgs, spawnDetached, underSystemdUnit, writeReconcileMarker, RESTART_EXIT_CODE } from "../respawn.js";
 import { moveStateDir } from "../state-move.js";
 import { archiveStateDir } from "../archive.js";
 import { crashRecord } from "./recovery.js";
@@ -83,12 +83,16 @@ export function waitForExit(queue, keepQueued) {
  * successor's already-running / socket-owner checks pass and archiveStateDir sees no live pid).
  * `respawn` (restart): optionally move the state dir, then spawn the successor. `archive`
  * (decommission, mutually exclusive): archive the state dir, never respawn. No events/heartbeat
- * after either: they'd write into — or recreate — the old dir.
+ * after either: they'd write into — or recreate — the old dir. Under a systemd unit
+ * (`agenthook service`) a restart does not respawn: it leaves the reconcile marker and returns
+ * `exitCode` RESTART_EXIT_CODE, which the unit's `RestartForceExitStatus=` turns into a
+ * supervised restart.
  * @param {{cfg: {configPath: string, stateKey: string, stateDir: string, name: string, installDir: string}, respawn?: boolean, moveTo?: string, archive?: boolean}} plan
- * @param {{moveStateDir?: typeof moveStateDir, spawnDetached?: typeof spawnDetached, archiveStateDir?: typeof archiveStateDir}} [deps]
+ * @param {{moveStateDir?: typeof moveStateDir, spawnDetached?: typeof spawnDetached, archiveStateDir?: typeof archiveStateDir, env?: NodeJS.ProcessEnv}} [deps]
+ * @returns {{exitCode: number}}
  */
 export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
-  const { moveStateDir: move = moveStateDir, spawnDetached: spawn = spawnDetached, archiveStateDir: archiveDir = archiveStateDir } = deps;
+  const { moveStateDir: move = moveStateDir, spawnDetached: spawn = spawnDetached, archiveStateDir: archiveDir = archiveStateDir, env = process.env } = deps;
   if (respawn) {
     // A pending move happens here, once nothing holds the state dir, and the successor logs
     // into the new dir (it resolves the new key from the rewritten config).
@@ -102,13 +106,22 @@ export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
         console.error(`[restart] move failed: ${e.message} — restarting on "${cfg.stateKey}"`);
       }
     }
+    if (underSystemdUnit(env)) {
+      try {
+        writeReconcileMarker(spawnCfg.stateDir);
+      } catch (e) {
+        console.error(`[restart] could not write the reconcile marker: ${e.message}`);
+      }
+      console.log(`[restart] running as a systemd service — exiting ${RESTART_EXIT_CODE} for systemd to restart "${cfg.name}" inside the unit`);
+      return { exitCode: RESTART_EXIT_CODE };
+    }
     try {
       const { pid, logPath } = spawn(spawnCfg, restartSpawnArgs(cfg));
       console.log(`[restart] respawned "${cfg.name}" (pid ${pid}). Log: ${logPath}`);
     } catch (e) {
       console.error(`[restart] respawn failed: ${e.message}`);
     }
-    return;
+    return { exitCode: 0 };
   }
   if (archive) {
     // receiver.log is held open by fd: lines logged after the rename land in the archived copy.
@@ -119,6 +132,7 @@ export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
       console.error(`[decommission] archive failed: ${e.message} — state dir left at ${cfg.stateDir}`);
     }
   }
+  return { exitCode: 0 };
 }
 
 /**
@@ -172,12 +186,13 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
     // Restart: spawn the successor (after an optional move); decommission: archive the state
     // dir. Exactly once, after the pidfile, control socket and listener are released and before
     // either exit path below. No events/heartbeat after this point.
+    let exitCode = 0;
     if ((state.respawnOnExit || state.archiveOnExit) && !state.finished) {
       state.finished = true;
-      finishTeardown({ cfg, respawn: state.respawnOnExit, moveTo: state.moveOnExit, archive: state.archiveOnExit });
+      ({ exitCode } = finishTeardown({ cfg, respawn: state.respawnOnExit, moveTo: state.moveOnExit, archive: state.archiveOnExit }));
     }
-    state.server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 1500).unref(); // don't hang on lingering sockets
+    state.server.close(() => process.exit(exitCode));
+    setTimeout(() => process.exit(exitCode), 1500).unref(); // don't hang on lingering sockets
   }
 
   /** Force path: kill in-flight agents and exit now (second signal, or no children). @param {string} reason */
