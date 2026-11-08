@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, agentLints, policyLints, portCheck, claimedPortLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, harnessLanLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -1223,4 +1223,116 @@ test("runChecks: the global insteadof rules are read through spawn only when a r
   const checks = await runChecks(/** @type {any} */ ({ ...cfg, forge: { type: "github", repository: "o/r", ...APP } }), io({ spawn, fetch: async () => new Response("{}", { status: 500 }) }));
   assert.ok(seen.some((a) => a[0] === "git" && a.includes("--get-regexp")));
   assert.ok(checks.some((c) => c.warn && /to SSH \(url\.git@github\.com:\.insteadof\)/.test(String(c.note))));
+});
+
+// --- named harnesses (#632) ---
+
+test("harnessBinChecks: flags a harness with its own bin or a different agent, not one that only inherits the profile's", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    agent: "claude",
+    harnesses: {
+      local: { bin: "/opt/custom-claude" },
+      same: { agent: "claude" },
+      other: { agent: "cursor" },
+      plain: {},
+    },
+  });
+  assert.deepEqual(harnessBinChecks(cfg), [
+    { name: "local", bin: "/opt/custom-claude" },
+    { name: "other", bin: "agent" },
+  ]);
+});
+
+test("harnessBinChecks: [] without harnesses", () => {
+  assert.deepEqual(harnessBinChecks(/** @type {any} */ ({ claudeBin: "claude" })), []);
+});
+
+test("harnessLanLints: [] without sandbox or without harnesses", () => {
+  const h = { local: { env: { ANTHROPIC_BASE_URL: "http://192.168.1.5:11434" } } };
+  assert.deepEqual(harnessLanLints(/** @type {any} */ ({ harnesses: h })), [], "no sandbox block");
+  assert.deepEqual(harnessLanLints(/** @type {any} */ ({ sandbox: { type: "docker" } })), [], "no harnesses");
+});
+
+test("harnessLanLints: a loopback harness ANTHROPIC_BASE_URL always warns, regardless of egress rules", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker", egress: { allow: ["127.0.0.1:11434!private"] } },
+    harnesses: { local: { env: { ANTHROPIC_BASE_URL: "http://localhost:11434" } } },
+    pipeline: [{ id: "code", harness: "local" }],
+  });
+  const lints = harnessLanLints(cfg);
+  assert.equal(lints.length, 1);
+  assert.equal(lints[0].label, `harness "local": ANTHROPIC_BASE_URL http://localhost:11434 is loopback`);
+  assert.match(lints[0].note, /is the container itself/);
+});
+
+test("harnessLanLints: a private (non-loopback) harness endpoint needs a matching !private rule on every routed step", () => {
+  const url = "http://192.168.68.2:11434";
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { local: { env: { ANTHROPIC_BASE_URL: url } } },
+    pipeline: [{ id: "code", harness: "local" }, { id: "triage", manual: true }],
+  });
+  const missing = harnessLanLints(cfg);
+  assert.deepEqual(missing, [{ level: "warn", label: `harness "local": ANTHROPIC_BASE_URL ${url} is a private address`, note: `sandboxed runs need "192.168.68.2:11434!private" in sandbox.egress.allow` }]);
+
+  const allowed = harnessLanLints({ ...cfg, sandbox: { type: "docker", egress: { allow: ["192.168.68.2:11434!private"] } } });
+  assert.deepEqual(allowed, []);
+});
+
+test("harnessLanLints: a plain step's own ANTHROPIC_BASE_URL is checked the same way, independent of any harness", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { local: {} }, // harnesses must be configured at all for doctor to look
+    pipeline: [{ id: "code", env: { ANTHROPIC_BASE_URL: "http://10.0.0.9:9000" } }],
+  });
+  const lints = harnessLanLints(cfg);
+  assert.deepEqual(lints, [{ level: "warn", label: `step "code": ANTHROPIC_BASE_URL http://10.0.0.9:9000 is a private address`, note: `sandboxed runs need "10.0.0.9:9000!private" in sandbox.egress.allow` }]);
+});
+
+test("harnessLanLints: a public hostname, egress mode other than allowlist, or an unclassifiable hostname is silent", () => {
+  const harnesses = { local: { env: { ANTHROPIC_BASE_URL: "http://api.example.com:11434" } } };
+  assert.deepEqual(harnessLanLints(/** @type {any} */ ({ sandbox: { type: "docker" }, harnesses, pipeline: [{ id: "code", harness: "local" }] })), [], "public hostname — can't tell without DNS");
+
+  const privateHarness = { local: { env: { ANTHROPIC_BASE_URL: "http://192.168.1.5:11434" } } };
+  const openCfg = /** @type {any} */ ({ sandbox: { type: "docker", egress: { mode: "open" } }, harnesses: privateHarness, pipeline: [{ id: "code", harness: "local" }] });
+  assert.deepEqual(harnessLanLints(openCfg), [], "open mode doesn't need the rule");
+});
+
+test("harnessSlotLints: [] without harnesses; one ℹ per harness (slot count or unbounded); ⚠ when a step's harnesses all cap to 0", () => {
+  assert.deepEqual(harnessSlotLints(/** @type {any} */ ({})), []);
+  const cfg = /** @type {any} */ ({
+    harnesses: { local: { maxConcurrent: 2 }, remote: {} },
+    pipeline: [{ id: "code", harness: ["local", "remote"] }],
+  });
+  const lints = harnessSlotLints(cfg);
+  assert.deepEqual(lints.filter((l) => l.level === "info"), [
+    { level: "info", label: `harness "local"`, note: "2 slot(s)" },
+    { level: "info", label: `harness "remote"`, note: "unbounded" },
+  ]);
+  assert.deepEqual(lints.filter((l) => l.level === "warn"), []);
+
+  const dead = /** @type {any} */ ({
+    harnesses: { a: { maxConcurrent: 0 }, b: { maxConcurrent: 0 } },
+    pipeline: [{ id: "code", harness: ["a", "b"] }],
+  });
+  const deadLints = harnessSlotLints(dead);
+  assert.ok(deadLints.some((l) => l.level === "warn" && l.label === `step "code" harness slots` && /can never run/.test(l.note)));
+});
+
+test("runChecks: harness bins, LAN endpoint and slot lines show up end to end, and are absent without harnesses", async () => {
+  const { cfg } = cleanProfile();
+  const plain = await runChecks(cfg, io());
+  assert.ok(!plain.some((c) => c.label.includes("harness ")), "no harnesses — no new lines");
+
+  const withHarnesses = /** @type {any} */ ({
+    ...cfg,
+    sandbox: { type: "docker" },
+    harnesses: { local: { bin: "/opt/custom-claude", env: { ANTHROPIC_BASE_URL: "http://192.168.68.2:11434" } }, remote: { maxConcurrent: 3 } },
+    pipeline: [{ id: "code", harness: "local", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "done", manual: true }],
+  });
+  const checks = await runChecks(withHarnesses, io({ has: () => true, run: async () => ({ code: 0, stdout: "", stderr: "" }) }));
+  assert.ok(checks.some((c) => c.label === `harness "local" binary "/opt/custom-claude"` && c.ok));
+  assert.ok(checks.some((c) => c.warn && c.label.startsWith(`harness "local": ANTHROPIC_BASE_URL`) && /private address/.test(c.label)));
+  assert.ok(checks.some((c) => c.info && c.label === `harness "remote"` && c.note === "3 slot(s)"));
 });
