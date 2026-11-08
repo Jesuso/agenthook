@@ -16,7 +16,7 @@ export function digest(t) {
     if (h.state === "down" || h.state === "probing") lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`);
   }
   const fmt = (/** @type {any} */ r) => `${r.id ?? r.ref}${r.title ? ` "${r.title}"` : ""}`;
-  for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m`);
+  for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m${r.harness ? ` · ${r.harness}` : ""}`);
   for (const q of t.queue) lines.push(`  WAIT ${fmt(q)} ${q.step}`);
   for (const h of t.held) lines.push(`  HELD ${fmt(h)} ${h.step}${h.why ? ` — ${h.why}` : ""}`);
   for (const p of t.followUp ?? []) lines.push(`  FOLLOWUP ${fmt(p)}${p.pr ? ` PR#${p.pr}` : ""}${p.tier ? ` tier=${p.tier}` : ""} — ${p.checks.join("; ")}`);

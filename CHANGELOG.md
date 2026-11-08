@@ -33,6 +33,10 @@ All notable changes to this project are documented here. The format is based on
   `slots.harnesses[name]` gains `state`/`until`/`reason`, `tick` prints a line per down harness,
   the state persists in `harness-health.json`, and the `harness_reset {harness}` op clears it. See
   [docs/local-models.md](docs/local-models.md#when-a-harness-fails).
+- Harness on `tick`/`status` running rows (#630). A live run on a named harness carries `harness`
+  in its `running[]` row (from `running.json`; the key is omitted when the run has none), and the
+  `tick` text digest appends `· <harness>` to the RUN line. Profiles without harnesses are
+  unchanged.
 
 ### Fixed
 
