@@ -44,6 +44,12 @@ All notable changes to this project are documented here. The format is based on
   in its `running[]` row (from `running.json`; the key is omitted when the run has none), and the
   `tick` text digest appends `· <harness>` to the RUN line. Profiles without harnesses are
   unchanged.
+- `set_concurrency {harness, max: 0}` drains a harness at runtime (#640). Setting a named
+  harness's slot cap to `0` stops new starts on it while running agents finish — the way to keep
+  runs off a dead backend before the health breaker trips or restarts the receiver — and
+  `tick`/`status` show `max: 0`; `set_concurrency {harness, max: n}` with `n > 0` re-enables it.
+  `0` is allowed only for a named harness: the global cap keeps its `1..64` range. The UI editor
+  is unchanged.
 
 ### Changed
 
