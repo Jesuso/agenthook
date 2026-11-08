@@ -96,13 +96,20 @@ export function egressRules({ agentHosts = [], trackerHosts = [], forgeHosts = [
   const origin = originRule(originUrl);
   const all = [...agentHosts, ...trackerHosts, ...forgeHosts, ...(origin ? [origin] : []), ...expand(allow, presets)];
   const drops = expand(deny, presets).map((d) => ({ rule: parseRule(d), port: /:\d+(?:!private)?$/.test(d.trim()) }));
+  // A `!private` rule for a host:port wins over the same host:port without it: the proxy takes
+  // the FIRST matching rule, and the agent's own rule for ANTHROPIC_BASE_URL (never `!private`)
+  // comes before the operator's allow list — so without this, a LAN model endpoint the operator
+  // explicitly allowed with `!private` would still be refused.
+  const parsed = all.map((r) => ({ r, p: parseRule(r) }));
+  const privateKeys = new Set(parsed.filter(({ p }) => p.allowPrivate).map(({ p }) => `${patternOf(p)}:${p.port}`));
   /** @type {Set<string>} */
   const seen = new Set();
   /** @type {string[]} */
   const out = [];
-  for (const r of all) {
-    const p = parseRule(r);
-    const key = `${patternOf(p)}:${p.port}${p.allowPrivate ? "!private" : ""}`;
+  for (const { r, p } of parsed) {
+    const bare = `${patternOf(p)}:${p.port}`;
+    if (!p.allowPrivate && privateKeys.has(bare)) continue;
+    const key = `${bare}${p.allowPrivate ? "!private" : ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     if (drops.some((d) => patternOf(d.rule) === patternOf(p) && (!d.port || d.rule.port === p.port))) continue;

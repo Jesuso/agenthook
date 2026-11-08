@@ -46,6 +46,17 @@ test("egressRules: order agent → tracker → forge → origin → allow, dedup
   assert.deepEqual(egressRules({ originUrl: "ssh://git@git.acme.io:2222/o/r.git" }), ["git.acme.io"], "ssh is pushed over https (443)");
 });
 
+test("egressRules: an operator `!private` rule replaces the same host:port without it (a LAN model behind ANTHROPIC_BASE_URL)", () => {
+  // The agent's own BASE_URL rule comes first and is never `!private`; the proxy takes the first
+  // match, so the plain rule must give way or the allowed LAN endpoint is still refused.
+  const rules = egressRules({ agentHosts: claudeEgressHosts({ ANTHROPIC_BASE_URL: "http://192.168.68.2:11434" }), allow: ["192.168.68.2:11434!private"] });
+  assert.deepEqual(rules, ["api.anthropic.com", "192.168.68.2:11434!private"]);
+  // Same host, other port: unrelated, both stay.
+  assert.deepEqual(egressRules({ allow: ["llm.lan:8080", "llm.lan:11434!private"] }), ["llm.lan:8080", "llm.lan:11434!private"]);
+  // A deny still removes the host.
+  assert.deepEqual(egressRules({ allow: ["llm.lan:11434", "llm.lan:11434!private"], deny: ["llm.lan"] }), []);
+});
+
 test("egressRules: presets expand; deny removes a default (or one port); an unknown preset throws", () => {
   assert.deepEqual(egressRules({ allow: ["@npm"] }), REGISTRY_PRESETS["@npm"]);
   assert.deepEqual(egressRules({ allow: ["@pypi", "@crates"] }), ["pypi.org", "files.pythonhosted.org", "crates.io", "index.crates.io", "static.crates.io"]);

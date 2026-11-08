@@ -36,6 +36,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Sandbox egress: an operator `!private` rule now replaces the plain rule for the same `host:port`, including the agent's own `ANTHROPIC_BASE_URL` rule. A model served on the LAN behind `ANTHROPIC_BASE_URL` was refused even when allowed with `!private`, because the proxy takes the first matching rule.
 - A missing agent binary (`ENOENT` at spawn) no longer crashes the receiver: the run fails with
   `spawn failed: …` (#621).
 
