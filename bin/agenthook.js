@@ -70,7 +70,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "cursor", "timeout", "heartbeat", "liveness", "wake", "quiet", "body", "file", "step", "name", "agent", "blocked-by"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "host", "cursor", "timeout", "heartbeat", "liveness", "wake", "quiet", "body", "file", "step", "name", "agent", "blocked-by"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
