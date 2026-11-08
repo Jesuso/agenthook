@@ -122,7 +122,7 @@ The proxy only sees `host:port` (a `CONNECT`, or an absolute `http://` URL). It 
 The connection then goes to the address the name resolved to, and it is refused when that
 address is loopback, link-local (`169.254/16` — cloud metadata — and `fe80::/10`), RFC1918,
 CGNAT (`100.64/10`) or ULA (`fc00::/7`), unless the rule ends in `!private`. So an allowlisted
-name can't be pointed at your LAN.
+name can't be pointed at your LAN. A `!private` rule for a `host:port` replaces any plain rule for the same `host:port`, including the agent's own rule for `ANTHROPIC_BASE_URL` — so a model served on your LAN (`"allow": ["192.168.1.20:11434!private"]` with `ANTHROPIC_BASE_URL=http://192.168.1.20:11434`) is reachable.
 
 **Allowed by default** (`mode: "allowlist"`, the default whenever `sandbox` is set):
 
