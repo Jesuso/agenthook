@@ -138,7 +138,7 @@ you restarted Ollama.
 
 The state survives a restart in `harness-health.json` in the state dir (a harness removed from
 the config is dropped; one whose cooldown passed while the receiver was down comes back probing).
-`tick` shows a line per down or probing harness (`harness local-qwen: down until 14:32 (spawn
+`tick` shows a line per down or probing harness (`harness local-qwen: down until 14:32Z (spawn
 failed: …)`), and `slots.harnesses[name]` carries `state`, plus `until` and `reason` when it isn't
 up.
 

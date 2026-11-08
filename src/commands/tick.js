@@ -13,7 +13,7 @@ export function digest(t) {
     `${t.profile} ${t.up ? "up" : "DOWN"}${t.paused ? " PAUSED" : ""}${t.restartPending ? " restart-pending" : ""} slots ${s.active}/${s.max ?? "?"} run, ${s.queued} queued, ${s.free ?? "?"} free`,
   ];
   for (const [name, h] of Object.entries(s.harnesses ?? {})) {
-    if (h.state === "down" || h.state === "probing") lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}` : ""}${h.reason ? ` (${h.reason})` : ""}`);
+    if (h.state === "down" || h.state === "probing") lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`);
   }
   const fmt = (/** @type {any} */ r) => `${r.id ?? r.ref}${r.title ? ` "${r.title}"` : ""}`;
   for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m`);
