@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format is based on
   the state persists in `harness-health.json`, and the `harness_reset {harness}` op clears it. See
   [docs/local-models.md](docs/local-models.md#when-a-harness-fails).
 
+### Changed
+
+- `docs/local-models.md` gains a "Behind the sandbox" note on reaching a LAN model endpoint from a
+  sandboxed run: `ANTHROPIC_BASE_URL` at the host's LAN IP, a `!private` egress rule, and the host
+  firewall (`ufw`) that may still drop the Docker bridge traffic (#628).
+
 ### Fixed
 
 - Sandbox egress: an operator `!private` rule now replaces the plain rule for the same `host:port`, including the agent's own `ANTHROPIC_BASE_URL` rule. A model served on the LAN behind `ANTHROPIC_BASE_URL` was refused even when allowed with `!private`, because the proxy takes the first matching rule.

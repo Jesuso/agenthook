@@ -102,6 +102,13 @@ A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConc
   on the step, so `escalate`/`lite` still override a harness's `model`.
 - **Sandbox.** A sandboxed run on a harness with `sandbox.image` uses that image instead of
   `sandbox.image`; the boot check inspects every configured image.
+- **Behind the sandbox.** Inside a sandboxed run, `localhost` is the agent's container, not the
+  host. Point `ANTHROPIC_BASE_URL` at an address the egress proxy can reach — the host's LAN IP
+  (e.g. `http://192.168.1.20:11434`) — and allow it with a `!private` rule:
+  `"sandbox": { "egress": { "allow": ["192.168.1.20:11434!private"] } }`. A host firewall may
+  still drop traffic from the Docker bridge to that port; with ufw:
+  `sudo ufw allow in on docker0 to any port 11434 proto tcp`. Symptom: no `egress denied` line
+  for that host in the run log, but the connection times out.
 - **Where to see it.** `ah tick --json` shows `slots.harnesses` (`{name: {active, max, state}}`) and
   `harnessUsage` (runs and tokens per harness); `ah status` prints a `harness :` line per harness;
   `run_start`/`run_end`, the usage record and each `runs` row carry `harness`; `running.json`
