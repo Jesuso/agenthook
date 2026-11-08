@@ -33,6 +33,32 @@ test("renderEvent includes outcome and cost for run_end", () => {
   assert.ok(out.includes("cost=$0.1234"), "cost included");
 });
 
+test("renderEvent prints harness= right after model= on run_start and run_end", () => {
+  const start = renderEvent({ ts: "2026-07-03T10:00:01.000Z", event: "run_start", ref: "42", step: "code", model: "claude-opus-4-8", harness: "local" });
+  assert.ok(start.includes("model=claude-opus-4-8  harness=local"), "harness follows model");
+  const end = renderEvent({ ts: "2026-07-03T10:05:00.000Z", event: "run_end", ref: "42", step: "code", outcome: "advance", harness: "local", costUsd: 0.1 });
+  assert.ok(end.includes("harness=local  outcome=advance"), "harness precedes outcome");
+});
+
+test("renderEvent omits harness= when absent or null (profiles without harnesses unchanged)", () => {
+  const noField = renderEvent({ ts: "2026-07-03T10:00:01.000Z", event: "run_start", ref: "42", step: "code", model: "claude-opus-4-8" });
+  assert.ok(!noField.includes("harness="), "absent field not printed");
+  const nullH = renderEvent({ ts: "2026-07-03T10:00:01.000Z", event: "run_start", ref: "42", step: "code", model: "claude-opus-4-8", harness: null });
+  assert.ok(!nullH.includes("harness="), "null harness not printed");
+  assert.equal(noField, nullH, "null harness is byte-for-byte the same as no harness");
+});
+
+test("renderEvent renders harness_down / harness_up readably (name instead of ref/step)", () => {
+  const down = renderEvent({ ts: "2026-07-03T10:06:00.000Z", event: "harness_down", ref: "", step: "", harness: "local", reason: "spawn failed", until: "2026-07-03T10:11:00.000Z" });
+  assert.ok(down.includes("harness_down"), "event name present");
+  assert.ok(down.includes("  local  reason=spawn failed  until=2026-07-03T10:11:00.000Z"), "name, reason, until");
+  assert.ok(!down.includes("ref=") && !down.includes("step="), "no ref/step for a profile-wide event");
+
+  const up = renderEvent({ ts: "2026-07-03T10:12:00.000Z", event: "harness_up", ref: "", step: "", harness: "local" });
+  assert.ok(up.includes("harness_up") && up.includes("  local"), "name after event name");
+  assert.ok(!up.includes("ref=") && !up.includes("step="), "no ref/step for a profile-wide event");
+});
+
 test("renderEvent includes reason for blocked and failed", () => {
   const blocked = { ts: "2026-07-03T10:01:00.000Z", event: "blocked", ref: "7", step: "triage", reason: "unclear spec" };
   assert.ok(renderEvent(blocked).includes("reason=unclear spec"));

@@ -15,7 +15,7 @@ complexity: no remote access layer, no secrets management, no hosted service. Fu
 | Topic | Decision |
 |---|---|
 | Scope | **One UI for all profiles** under `~/.agenthook/` (same discovery as `ah ls`). |
-| Access | **Localhost only.** No remote / tailnet / tunnel access. |
+| Access | **Localhost by default.** `--host <ip>` (or `0.0.0.0`) serves a trusted LAN over plain HTTP; the launch token is the only credential. No remote / tailnet / tunnel access layer. |
 | Secrets | **Never.** The UI edits config files only; `${ENV}` refs are shown as refs, never resolved. `.env` is not read or written. |
 | v1 | **Read-only.** Editing lands in v2 (instructions) and v3 (config). |
 | Look & feel | **Dense ops console**: tables, monospace for ids/paths, dark-first (light supported). Built to sit on a second screen. |
@@ -31,13 +31,19 @@ unsandboxed `claude -p` runs under `fullAuto` — the editor is an RCE-grade sur
 So the UI is its own command and process:
 
 ```
-ah ui [--port 4180] [--no-open]
+ah ui [--port 4180] [--host 127.0.0.1] [--no-open]
 ```
 
-- Binds **127.0.0.1** only. No flag to bind elsewhere.
+- Binds **127.0.0.1** by default. `--host <ip>` binds another address, `--host 0.0.0.0` (or `::`)
+  every interface, for a browser on another machine of a trusted LAN (e.g. to keep the GPU box
+  headless). The printed URLs include each reachable address. Plain HTTP: the token travels in
+  the clear on that network, and whoever has it can edit configs and drive agents — treat it like
+  a password, and open the port only to that LAN (ufw: `sudo ufw allow from 192.168.1.0/24 to any
+  port 4180 proto tcp`). A DNS name is not accepted: the Host guard matches addresses.
 - Generates a random token per launch and opens `http://127.0.0.1:4180/?token=…` (Jupyter-style);
   the token is exchanged for an `HttpOnly; SameSite=Strict` cookie. Every API call requires it.
-- Rejects requests whose `Host` isn't `127.0.0.1:<port>`/`localhost:<port>` (DNS-rebinding) and,
+- Rejects requests whose `Host` isn't `127.0.0.1:<port>`/`localhost:<port>` — or, with `--host`, the
+  bound address (`0.0.0.0`: any of this machine's own interface addresses) — (DNS-rebinding) and,
   for writes (v2+), whose `Origin` doesn't match (CSRF).
 - Is a **blind reader** of the state dirs. It never writes receiver-owned runtime state
   (`running.json`, `queue.json`, `held.json`, `seen.json`, …). In v2+ it writes only files the user

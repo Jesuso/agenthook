@@ -101,6 +101,21 @@ test("readStatus: slots.harnesses passes the breaker state through (until/reason
   });
 });
 
+test("readStatus: running rows carry harness from running.json, only when the run has one (#630)", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: {
+      7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", harness: "qwen" },
+      8: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", harness: null },
+      9: { stepId: "triage", startedAt: "2026-01-01T00:50:00Z" },
+    },
+  });
+  const running = readStatus(readProfile("p", reg)).running;
+  assert.equal(running[0].harness, "qwen");
+  assert.equal(Object.hasOwn(running[1], "harness"), false, "harness null → no key");
+  assert.equal(Object.hasOwn(running[2], "harness"), false, "no field → no key");
+});
+
 test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", () => {
   const reg = registry();
   profile(reg, "a", { name: "Alpha" });

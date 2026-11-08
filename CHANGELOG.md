@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `ah ui --host <ip>` binds the dashboard to another address (`0.0.0.0` / `::` = every interface) so a browser on a trusted LAN can use it; default stays `127.0.0.1`. The Host guard then accepts the bound address (any of the machine's own interface addresses for `0.0.0.0`), never a DNS name; the launch token stays the only credential and the CLI warns on a non-loopback bind.
 - Named harnesses with slot pools (#619). A top-level `harnesses` record declares agent backends
   (`agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `sandbox.image`), each with its own
   `maxConcurrent`. A step names one or a list with `harness`, and `routing` (`first-free`, the
@@ -39,6 +40,20 @@ All notable changes to this project are documented here. The format is based on
   private address needs a matching `host:port!private` rule in the effective egress allowlist;
   and each harness's slot count is reported, with a warning when a step's harnesses all cap to 0.
   A profile without `harnesses` gets none of these lines.
+- Harness on `tick`/`status` running rows (#630). A live run on a named harness carries `harness`
+  in its `running[]` row (from `running.json`; the key is omitted when the run has none), and the
+  `tick` text digest appends `· <harness>` to the RUN line. Profiles without harnesses are
+  unchanged.
+
+### Changed
+
+- `events` text output shows the harness: `run_start`/`run_end` lines print `harness=<name>` right
+  after `model=` when the event carries one (absent or null without, so lines of profiles without
+  harnesses are unchanged), and `harness_down`/`harness_up` print readably as
+  `harness_down <name> reason=… until=…` / `harness_up <name>` (#631).
+- `docs/local-models.md` gains a "Behind the sandbox" note on reaching a LAN model endpoint from a
+  sandboxed run: `ANTHROPIC_BASE_URL` at the host's LAN IP, a `!private` egress rule, and the host
+  firewall (`ufw`) that may still drop the Docker bridge traffic (#628).
 
 ### Fixed
 

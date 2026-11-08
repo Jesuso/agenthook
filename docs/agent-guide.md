@@ -107,7 +107,9 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
 - `slots.harnesses` (present only when the profile has `harnesses`) is
   `{"<name>": {"active": n, "max": n|null, "state": "up"|"down"|"probing"}}` per harness — `max: null`
   means only the global cap bounds it. `run_start`/`run_end` then carry `harness` (the name the run
-  was routed to, or `null`). `state` is the health breaker's: `down` (routed around until `until`,
+  was routed to, or `null`), and a `running[]` row carries `harness` (the name from `running.json`)
+  only when the run is on one — the `tick` text digest appends `· <harness>` to the RUN line.
+  `state` is the health breaker's: `down` (routed around until `until`,
   with the `reason`) or `probing` (cooldown over; one probe run at a time decides). A step whose
   harnesses are all down waits in `capped`; it never fails. `harness_down` / `harness_up` events mark
   the transitions, and a run that tripped it ends `run_end` with `outcome: "requeued"` (it re-runs

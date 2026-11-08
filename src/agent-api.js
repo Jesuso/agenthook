@@ -151,6 +151,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
         step: r?.stepId,
         ageS: Number.isNaN(started) ? null : Math.max(0, Math.round((now - started) / 1000)),
         ...(r?.model ? { model: r.model } : {}),
+        ...(r?.harness ? { harness: r.harness } : {}),
         ...(typeof r?.output === "number" ? { outTok: r.output } : {}),
       },
       state.refmeta[ref],

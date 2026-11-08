@@ -29,6 +29,21 @@ test("digest: one header line, RUN/WAIT/HELD rows, board, PRs, events, cursor", 
   assert.equal(lines.at(-1), "  cursor 42");
 });
 
+test("digest: RUN row appends · harness only when the row has one (#630)", () => {
+  const out = digest({
+    profile: "p", up: true,
+    slots: { max: 2, active: 2, queued: 0, free: 0 },
+    running: [
+      { ref: "7", id: "ID-7", step: "code", ageS: 600, model: "m", harness: "qwen" },
+      { ref: "8", step: "code", ageS: 300 },
+    ],
+    queue: [], held: [], events: [], cursor: 1,
+  });
+  const lines = out.split("\n");
+  assert.ok(lines.includes("  RUN  ID-7 code 10m · qwen"));
+  assert.ok(lines.includes("  RUN  8 code 5m"), "no harness → text unchanged");
+});
+
 test("digest: one line per down or probing harness (#621); an up harness adds none", () => {
   const out = digest({
     profile: "p", up: true,
