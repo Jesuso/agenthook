@@ -135,7 +135,9 @@ an optional `"plain"` is the agent's one-sentence `summary.plain`, whitespace-co
 `reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. `auto_merge_enabled` carries `pr`, `tier`, `method` (and `mergedNow` when it merged at once); `auto_merge_failed` carries `tier`, `reason` and usually `pr`. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
-`runs {ref, tail?}` → `{runs:[{run,step,at,outcome,model?,harness?,costUsd,estUsd?,costBasis?,energyKwh?,energyUsd?,running?,summary?}], log?}`. `tail:N` adds the
+`runs {ref, tail?}` → `{runs:[{run,step,at,outcome,model?,harness?,costUsd,estUsd?,costBasis?,energyKwh?,energyUsd?,turns?,firstContext?,peakContext?,lastContext?,running?,summary?}], log?}`.
+`turns`/`firstContext`/`peakContext`/`lastContext` (#645) appear only when the agent's parser saw at
+least one turn (claude/opencode today; absent on cursor/hermes). `tail:N` adds the
 last N transcript lines of the newest run (or `step` / `run`): the way to see *why* an agent held
 or failed. `summary` is the free-form object the agent wrote in its verdict (e.g. a reviewer's risk
 tier — its shape is whatever the project's instructions ask for); it appears only on the run that

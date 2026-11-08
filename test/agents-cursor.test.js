@@ -105,6 +105,23 @@ test("parser: no result → result null, session id from the first event that ca
   assert.deepEqual([rec.input, rec.output, rec.cacheRead, rec.cacheCreate, rec.unpriced, rec.costUsd, rec.model], [0, 0, 0, 0, true, undefined, "auto"]);
 });
 
+test("parser: the recorded fixture (usage only on result) leaves turns/firstContext/peakContext/lastContext unset (#645)", () => {
+  const p = createCursorStreamParser();
+  p.push(FIXTURE);
+  p.flush();
+  assert.ok(!("turns" in p.tally));
+});
+
+test("parser: an assistant event that itself carries usage counts as a turn (#645)", () => {
+  const p = createCursorStreamParser();
+  p.push(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }], usage: { inputTokens: 100, cacheReadTokens: 50, cacheWriteTokens: 0 } } }) + "\n");
+  assert.equal(p.tally.turns, 1);
+  assert.equal(p.tally.firstContext, 150);
+  assert.equal(p.tally.lastContext, 150);
+  p.push(JSON.stringify({ type: "result", session_id: SID, usage: { inputTokens: 999 } }) + "\n");
+  assert.equal(p.tally.turns, 1, "the result aggregate never counts as a turn");
+});
+
 test("usage record: always unpriced with no costUsd; bin tagged only when it overrides agent", () => {
   const p = createCursorStreamParser();
   p.push(FIXTURE);

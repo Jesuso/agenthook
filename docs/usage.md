@@ -60,6 +60,10 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `output`      | number   | `usage.output_tokens`                                   |
 | `cacheRead`   | number   | `usage.cache_read_input_tokens`                         |
 | `cacheCreate` | number   | `usage.cache_creation_input_tokens`                     |
+| `turns`       | number?  | Model turns the agent's parser counted (#645); absent when the agent reports no per-turn usage (cursor, hermes today) |
+| `firstContext`| number?  | The first turn's prompt size (input + cache-read + cache-create); only when `turns` is set |
+| `peakContext` | number?  | The largest turn's prompt size; only when `turns` is set |
+| `lastContext` | number?  | The final turn's prompt size; only when `turns` is set  |
 | `costUsd`     | number?  | `result.total_cost_usd` (the CLI's own cost figure)     |
 | `sessionId`   | string?  | `result.session_id`                                     |
 | `unpriced`    | `true`?  | Local-model run: `costUsd` is kept for audit but left out of every spend total |

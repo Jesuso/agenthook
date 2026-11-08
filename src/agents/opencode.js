@@ -40,6 +40,7 @@ const num = (n) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0
  */
 export function createOpencodeParser() {
   let buf = "";
+  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
   const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   let cost = 0;
   let steps = 0;
@@ -68,6 +69,12 @@ export function createOpencodeParser() {
       tally.cacheRead = num(c.read);
       tally.cacheCreate = num(c.write);
       cost += num(part.cost);
+      // Per-turn context size (#645): every step_finish is a turn.
+      const ctx = num(t.input) + num(c.read) + num(c.write);
+      tally.turns = (tally.turns ?? 0) + 1;
+      if (tally.firstContext === undefined) tally.firstContext = ctx;
+      tally.peakContext = tally.peakContext === undefined ? ctx : Math.max(tally.peakContext, ctx);
+      tally.lastContext = ctx;
     }
     return "";
   }
