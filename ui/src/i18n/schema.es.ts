@@ -42,6 +42,17 @@ export const SCHEMA_ES: SchemaOverlay = {
   "sandbox.services.*.agentEnv": { label: "Entorno del agente", help: "Variables literales añadidas al contenedor del agente en los pasos que lo usan (p. ej. DATABASE_URL)." },
   "sandbox.services.*.memory": { label: "Memoria del servicio", help: "Límite de memoria del contenedor del servicio, p. ej. 1g." },
   "sandbox.services.*.cpus": { label: "CPU del servicio", help: "Límite de CPU del contenedor del servicio." },
+  "harnesses": { label: "Harnesses", help: "Backends de agente con nombre, cada uno con su propio cupo de ranuras; el harness de un paso elige uno con una ranura libre." },
+  "harnesses.*": { label: "Harness", help: "Un backend: los ajustes de agente que recibe un paso donde no define los suyos, más su límite de ranuras." },
+  "harnesses.*.agent": { label: "Agente", help: "La CLI de agente de código de este harness; sin definir usa el agente del perfil." },
+  "harnesses.*.model": { label: "Modelo", help: "El --model del agente en este harness; gana el model propio del paso." },
+  "harnesses.*.bin": { label: "Binario del agente", help: "La CLI del agente en este harness (un nombre en el PATH o una ruta absoluta); gana el bin propio del paso." },
+  "harnesses.*.env": { label: "Entorno del agente", help: "Entorno extra para las ejecuciones en este harness (p. ej. ANTHROPIC_BASE_URL); ganan las claves env del paso." },
+  "harnesses.*.provider": { label: "Proveedor", help: "Proveedor de inferencia en este harness (hermes --provider); los demás agentes lo ignoran." },
+  "harnesses.*.toolsets": { label: "Toolsets", help: "Toolsets de Hermes -t en este harness; los demás agentes lo ignoran." },
+  "harnesses.*.maxConcurrent": { label: "Máximo de ejecuciones simultáneas", help: "Ejecuciones en este harness a la vez, entre todos los pasos, dentro del límite global; sin definir = solo ese límite." },
+  "harnesses.*.sandbox": { label: "Sandbox del harness", help: "Ajustes del sandbox para las ejecuciones en este harness." },
+  "harnesses.*.sandbox.image": { label: "Imagen del sandbox", help: "Imagen del agente para las ejecuciones en sandbox en este harness, en lugar de sandbox.image." },
 
   // Repos
   "repoPath": { label: "Ruta del repo", help: "El checkout en el que trabajan los agentes (perfiles de un solo repo); relativo al archivo de configuración." },
@@ -136,6 +147,8 @@ export const SCHEMA_ES: SchemaOverlay = {
 
   // Pipeline steps — common + advanced
   "tracker.pipeline.*.maxConcurrent": { label: "Máximo de ejecuciones simultáneas", help: "Ejecuciones de este paso a la vez, contadas dentro del límite global; sin definir = solo ese límite." },
+  "tracker.pipeline.*.harness": { label: "Harness", help: "Nombre(s) de harnesses en los que corre este paso; la cola elige uno con una ranura libre al iniciar." },
+  "tracker.pipeline.*.routing": { label: "Enrutado de harness", help: "Cómo se elige de una lista de harnesses: first-free = el primero con hueco; round-robin = rotar, saltando los llenos." },
   "tracker.pipeline.*.completeOnMerge": { label: "Completar al fusionar", help: "Solo pasos manuales, como máximo uno: el puente para tableros que no se enteran de las fusiones; un PR del agente fusionado mueve la tarea aquí." },
   "tracker.pipeline.*.closeIssue": { label: "Cerrar issue", help: "Entrar en este paso (terminal) cierra el issue y libera los issues que bloqueaba." },
   "tracker.pipeline.*.completeTask": { label: "Completar tarea", help: "Entrar en este paso (terminal) marca la tarea como completada y libera las tareas que bloqueaba." },
