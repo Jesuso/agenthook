@@ -416,9 +416,10 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       pump();
     },
     /**
-     * Change one named harness's slot cap at runtime (not persisted to config). Lowering it
-     * below its running count kills nothing — it only gates new starts; a raise starts waiting
-     * jobs now. Throws for a name that isn't a configured harness.
+     * Change one named harness's slot cap at runtime (not persisted to config). 0 drains the
+     * harness: `hasRoom` is false until raised again, so no new starts while running agents
+     * finish. Lowering it below its running count kills nothing — it only gates new starts; a
+     * raise starts waiting jobs now. Throws for a name that isn't a configured harness.
      * @param {string} name @param {number} n
      */
     setHarnessMax(name, n) {

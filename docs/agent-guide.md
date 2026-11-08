@@ -106,7 +106,8 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
   while `queued` is non-zero.
 - `slots.harnesses` (present only when the profile has `harnesses`) is
   `{"<name>": {"active": n, "max": n|null, "state": "up"|"down"|"probing"}}` per harness — `max: null`
-  means only the global cap bounds it. `run_start`/`run_end` then carry `harness` (the name the run
+  means only the global cap bounds it, and `max: 0` means it is being drained at runtime
+  (`set_concurrency {harness, max: 0}` — no new starts until re-enabled). `run_start`/`run_end` then carry `harness` (the name the run
   was routed to, or `null`), and a `running[]` row carries `harness` (the name from `running.json`)
   only when the run is on one — the `tick` text digest appends `· <harness>` to the RUN line.
   `state` is the health breaker's: `down` (routed around until `until`,
@@ -289,7 +290,9 @@ events still queue); `resume` undoes it. Use `pause` + wait for `status.slots.ac
 a deploy, then `restart` (restarts when idle, queue preserved). `set_concurrency {max}` changes the
 cap until the next restart (not persisted); `set_concurrency {max, harness}` changes only that named
 harness's slot cap (the global cap is untouched; lowering it below its running count kills nothing,
-it only gates new starts).
+it only gates new starts). `max: 0` is allowed with `harness` only — it drains that harness (no new
+starts, running agents finish), the way to keep runs off a dead backend before the health breaker
+trips; `set_concurrency {harness, max: n}` re-enables it.
 
 ## events
 
@@ -338,7 +341,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | tool | does | refuses when |
 |---|---|---|
 | `pause` / `resume` | stop / restart starting agents and pulling backlog | — (`resume` is a no-op while restart/shutdown owns the queue) |
-| `set_concurrency {max, harness?}` | cap 1–64, runtime only; with `harness`, that harness's cap only | out of range; `unknown harness "x"` |
+| `set_concurrency {max, harness?}` | cap 1–64 (0–64 with `harness`; `0` drains that harness — no new starts until re-enabled), runtime only | out of range; `max: 0` without a harness; `unknown harness "x"` |
 | `harness_reset {harness}` | clear a harness's health breaker (down/probing → up, `harness_up`) and start the work waiting on it; `reset:false` = it was already up | `this profile has no harnesses`; `no harness "<name>" (have: …)` |
 | `run {ref, step?, assign?, force?}` | assign + move into a step's source stage | ref not found; ticket already completed (override: `force`); already in the pipeline (override: `force`) |
 | `catchup {ref, force?}` | re-fire the step for the stage the ticket **currently rests in**; use instead of `run {force}` when `run`'s move produces no fresh transition | not assigned to us; rests in no pipeline source stage; no tracker support |

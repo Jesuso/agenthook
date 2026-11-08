@@ -469,6 +469,32 @@ test("setHarnessMax: a raise starts a waiting job; a lower cap only gates new st
   assert.throws(() => createQueue(1, async () => info(job("x", "code"))).setHarnessMax("qwen", 2), /unknown harness "qwen"/);
 });
 
+test("setHarnessMax 0 drains a harness: no new starts until a raise re-enables it", async () => {
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 2 } });
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  q.enqueue(job("C", "code"));
+  assert.deepEqual(started, ["A:qwen", "B:qwen"]);
+  q.setHarnessMax("qwen", 0); // drain: running agents finish, nothing new starts
+  assert.deepEqual(q.state().harnesses?.qwen, { active: 2, max: 0, state: "up" });
+  await done("A");
+  assert.equal(started.length, 2, "a freed slot does not start the waiting job");
+  assert.equal(q.state().capped, 1);
+  q.setHarnessMax("qwen", 2); // re-enable: the waiting job starts (B still holds one slot)
+  assert.deepEqual(started.slice(2), ["C:qwen"]);
+  for (const r of ["B", "C"]) await done(r);
+  await q.onIdle();
+  // drained while idle: no start until re-enabled
+  q.setHarnessMax("qwen", 0);
+  q.enqueue(job("D", "code"));
+  assert.equal(started.length, 3, "nothing starts on a drained harness");
+  q.setHarnessMax("qwen", 2);
+  assert.deepEqual(started.slice(3), ["D:qwen"]);
+  await done("D");
+  await q.onIdle();
+  assert.deepEqual(q.state().harnesses?.qwen, { active: 0, max: 2, state: "up" });
+});
+
 test("harness: a slot is released on settle, including when the run rejects", async () => {
   const one = { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1 } };
   const { q, started, done } = harnessed(3, one);
