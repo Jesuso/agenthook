@@ -79,9 +79,10 @@ test("dispatch: a run with job.harness spawns with the harness's bin/model/env a
   const bin = path.join(dir, "claude-local.sh");
   const out = path.join(dir, "out.txt");
   // Records argv, two env vars and running.json as the run sees it, then writes the verdict.
+  // running.json is written in onPid, after the spawn: wait for it (up to 5s) instead of racing it.
   fs.writeFileSync(
     bin,
-    `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}.argv"\nprintf 'BASE=%s\\nSHARED=%s\\n' "\${ANTHROPIC_BASE_URL-unset}" "\${SHARED-unset}" > "${out}"\ncp "${path.join(dir, "running.json")}" "${out}.running"\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}.argv"\nprintf 'BASE=%s\\nSHARED=%s\\n' "\${ANTHROPIC_BASE_URL-unset}" "\${SHARED-unset}" > "${out}"\nn=0; while [ ! -f "${path.join(dir, "running.json")}" ] && [ $n -lt 100 ]; do sleep 0.05; n=$((n+1)); done\ncp "${path.join(dir, "running.json")}" "${out}.running"\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
     { mode: 0o755 },
   );
   const cfg = /** @type {any} */ ({
