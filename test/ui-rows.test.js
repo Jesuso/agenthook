@@ -903,3 +903,10 @@ test("buildRows: a board_done alone makes no row; after a run it changes nothing
   assert.equal(row(rows, "1").status, "done");
   assert.equal(row(rows, "1").step, "done");
 });
+
+test("profileView: harnesses = heartbeat.queue.harnesses when up; no key when down or without harnesses (#620)", () => {
+  const heartbeat = { maxConcurrent: 4, queue: { active: 1, queued: 0, harnesses: { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null } } } };
+  assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).harnesses, { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null } });
+  assert.equal("harnesses" in profileView({ name: "p", pid: 1, up: false, heartbeat }), false);
+  assert.equal("harnesses" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0 } } }), false);
+});

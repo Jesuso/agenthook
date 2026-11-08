@@ -136,7 +136,11 @@ const TOOLS = {
   },
   set_concurrency: {
     write: true,
-    def: schema("Change the concurrent-agent cap at runtime (1..64). Not persisted: a restart returns to the config value.", { profile: PROFILE, max: { type: "integer", minimum: 1, maximum: 64 } }, ["max"]),
+    def: schema(
+      "Change the concurrent-agent cap at runtime (1..64). With `harness`, change that named harness's slot cap instead (the global cap is untouched; lowering it kills no running agent). Not persisted: a restart returns to the config value.",
+      { profile: PROFILE, max: { type: "integer", minimum: 1, maximum: 64 }, harness: { type: "string" } },
+      ["max"],
+    ),
   },
   run: {
     write: true,

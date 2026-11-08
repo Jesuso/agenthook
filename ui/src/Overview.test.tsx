@@ -182,6 +182,14 @@ describe("Overview", () => {
     expect(html.match(/data-slot="busy"/g)).toHaveLength(1);
   });
 
+  it("shows an active/max chip per harness next to the slot pips; none without harnesses (#620)", () => {
+    const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null } } }), []);
+    expect(html).toMatch(/data-harness="qwen" class="[^"]*" title="harness qwen: 1 of 2 slots in use">qwen <span[^>]*>1<\/span><span[^>]*>\/2<\/span>/);
+    expect(html).toMatch(/data-harness="opus"[^>]*title="harness opus: 0 running, no cap of its own">opus <span[^>]*>0<\/span><span[^>]*>\/∞<\/span>/);
+    expect(html.indexOf("data-slot=")).toBeLessThan(html.indexOf("data-harness-slots"));
+    expect(render(profile(), [])).not.toContain("data-harness");
+  });
+
   it("shows waiting time on a queued row with a queuedAt stamp, and nothing with none", () => {
     const html = render(profile({ active: 1, maxConcurrent: 3, queued: 2 }), [
       ticket("q1", { status: "queued", queuePos: 0, queuedAt: new Date(NOW - 6 * 60_000).toISOString() }),

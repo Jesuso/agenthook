@@ -444,6 +444,8 @@ export function profileView(p) {
   const hb = isObj(p.heartbeat) ? p.heartbeat : null;
   /** @param {any} v */
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  // Per-harness slots, only for a live profile with harnesses (no key otherwise).
+  const harnesses = p.up ? harnessSlots(hb?.queue?.harnesses) : null;
   return {
     name: p.name,
     label: str(hb?.name) || p.label || p.name,
@@ -463,6 +465,7 @@ export function profileView(p) {
     paused: p.up ? hb?.paused === true : null,
     quotaPaused: p.up ? normalizeTrip(hb?.quotaPaused) : null,
     quota: normalizeQuota(p.quota),
+    ...(harnesses ? { harnesses } : {}),
     restartPending: p.up ? hb?.restartPending === true || hb?.decommissionPending === true || hb?.draining === true : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
@@ -475,6 +478,22 @@ export function profileView(p) {
     recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now(), pricingOf(hb)),
     recentRuns: recentRuns(p.events ?? [], p.now ?? Date.now()),
   };
+}
+
+/**
+ * The heartbeat's per-harness slots as `{[name]: {active, max}}` (max null = uncapped); null
+ * when absent or empty (a profile without harnesses).
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null}>|null}
+ */
+export function harnessSlots(raw) {
+  if (!isObj(raw)) return null;
+  /** @type {Record<string, {active: number, max: number|null}>} */
+  const out = {};
+  for (const [name, h] of Object.entries(raw)) {
+    if (!isObj(h)) continue;
+    out[name] = { active: Math.max(0, Number(h.active) || 0), max: Number.isInteger(h.max) && h.max > 0 ? h.max : null };
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /** The resolved identity for a profile row: the heartbeat's configured colour / emoji (validated), else derived from the state key.

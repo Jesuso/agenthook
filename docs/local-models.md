@@ -101,8 +101,16 @@ A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConc
   on the step, so `escalate`/`lite` still override a harness's `model`.
 - **Sandbox.** A sandboxed run on a harness with `sandbox.image` uses that image instead of
   `sandbox.image`; the boot check inspects every configured image.
-- **Where to see it.** `ah tick --json` shows `slots.harnesses` (`{name: {active, max}}`);
-  `run_start`/`run_end` carry `harness`; `running.json` records `harness` and `agent`.
+- **Where to see it.** `ah tick --json` shows `slots.harnesses` (`{name: {active, max}}`) and
+  `harnessUsage` (runs and tokens per harness); `ah status` prints a `harness :` line per harness;
+  `run_start`/`run_end`, the usage record and each `runs` row carry `harness`; `running.json`
+  records `harness` and `agent`; the digest snapshot sums `last24h.harnesses`. The web UI shows an
+  `active/max` chip per harness on the Overview and edits `harnesses` under Basics → Advanced
+  (renaming or removing one updates the steps that name it), and a step's `harness`/`routing` in
+  its card.
+- **Change a cap live.** MCP `set_concurrency {max, harness}` sets one harness's slot cap until
+  the next restart (the config file and the global cap are untouched). Lowering it below the
+  running count kills nothing; it only gates new starts.
 
 A step without `harness` behaves exactly as before, and a profile without `harnesses` reports the
 same `slots` and events as before. Worktree, verdict and advance never depend on the harness.

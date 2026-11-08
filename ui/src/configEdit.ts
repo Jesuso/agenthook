@@ -260,11 +260,14 @@ export function envRows(env: unknown): [string, string][] {
  * no-op-when-absent guard as `escalateEdit`.
  */
 export function envEdit(text: string, i: number, rows: [string, string][]): string {
+  return envPathEdit(text, [...PIPELINE, i, "env"], rows);
+}
+
+/** `envEdit` for any env record at `path` (a step's or a harness's): same blank-key drop, none left removes it. */
+export function envPathEdit(text: string, path: JSONPath, rows: [string, string][]): string {
   const clean = rows.filter(([k]) => k.trim() !== "").map(([k, v]): [string, string] => [k.trim(), v]);
-  const path: JSONPath = [...PIPELINE, i, "env"];
-  if (clean.length > 0) return setPath(text, path, Object.fromEntries(clean));
-  const step = readSteps(JSON.parse(text))[i] ?? {};
-  return step.env === undefined ? text : setPath(text, path, undefined);
+  // setPath with undefined is already a no-op when the key is absent.
+  return setPath(text, path, clean.length > 0 ? Object.fromEntries(clean) : undefined);
 }
 
 /** Swap step `i` with its neighbour (`dir` -1 up / +1 down); see `swapItems`. */
@@ -789,4 +792,94 @@ export function cardFor(error: string, raw: unknown): CardRef | null {
  */
 export function showTerminalFlag(step: Record<string, unknown>, i: number, count: number, key: "closeIssue" | "completeTask"): boolean {
   return i === count - 1 || step.manual === true || step[key] !== undefined;
+}
+
+// ---- named harnesses (#620): the `harnesses` record and the steps that name its keys ----
+
+/** `harnesses` as [name, block] pairs in file order; a non-object record reads as none, a non-object entry as {}. */
+export function readHarnesses(raw: unknown): [string, Record<string, unknown>][] {
+  const hs = isObj(raw) ? raw.harnesses : undefined;
+  return isObj(hs) ? Object.entries(hs).map(([name, h]) => [name, isObj(h) ? h : {}]) : [];
+}
+
+export const harnessPath = (name: string, ...rest: string[]): JSONPath => ["harnesses", name, ...rest];
+
+/** A step's `harness` as a list: a name is a one-element list, a list of names is kept, anything else is []. */
+export function stepHarnessList(v: unknown): string[] {
+  if (typeof v === "string") return v ? [v] : [];
+  return Array.isArray(v) ? v.filter((n): n is string => typeof n === "string") : [];
+}
+
+/** Append `harnesses["harness-N"]: {}` with a name no harness uses; returns the new text and the name. */
+export function addHarness(text: string): { text: string; name: string } {
+  const names = new Set(readHarnesses(JSON.parse(text)).map(([n]) => n));
+  let n = names.size + 1;
+  while (names.has(`harness-${n}`)) n++;
+  const name = `harness-${n}`;
+  return { text: setPath(text, harnessPath(name), {}), name };
+}
+
+/** Why a harness can't be renamed to `to` ("blank" / "taken"), or null when it can. */
+export function harnessRenameError(raw: unknown, from: string, to: string): "blank" | "taken" | null {
+  const name = to.trim();
+  if (!name) return "blank";
+  return name !== from && readHarnesses(raw).some(([n]) => n === name) ? "taken" : null;
+}
+
+/**
+ * Rename harness `from` to `to`: only the key's text changes (the block, its comments and the
+ * record's order stay put), then every step's `harness` reference follows — a name or a list
+ * element, each a one-value edit. A blank or taken name (`harnessRenameError`) is no edit.
+ */
+export function renameHarness(text: string, from: string, to: string): string {
+  const name = to.trim();
+  if (name === from || harnessRenameError(JSON.parse(text), from, name)) return text;
+  const tree = parseTree(text);
+  const record = tree && findNodeAtLocation(tree, ["harnesses"]);
+  const key = record?.children?.find((prop) => prop.children?.[0]?.value === from)?.children?.[0];
+  if (!key) return text;
+  let next = applyEdits(text, [{ offset: key.offset, length: key.length, content: JSON.stringify(name) }]);
+  readSteps(JSON.parse(next)).forEach((step, i) => {
+    const h = step.harness;
+    if (h === from) next = setPath(next, stepPath(i, "harness"), name);
+    else if (Array.isArray(h)) h.forEach((n, j) => n === from && (next = setPath(next, [...stepPath(i, "harness"), j], name)));
+  });
+  return next;
+}
+
+/**
+ * Remove harness `name` (and `harnesses` with it once empty), then drop the name from every step's
+ * `harness`: a list loses that element; a step left naming none loses `harness` and `routing`.
+ */
+export function removeHarness(text: string, name: string): string {
+  let next = setPath(text, harnessPath(name), undefined);
+  if (readHarnesses(JSON.parse(next)).length === 0) next = setPath(next, ["harnesses"], undefined);
+  readSteps(JSON.parse(next)).forEach((step, i) => {
+    const list = stepHarnessList(step.harness);
+    if (!list.includes(name)) return;
+    if (list.every((n) => n === name)) {
+      next = setPath(setPath(next, stepPath(i, "harness"), undefined), stepPath(i, "routing"), undefined);
+      return;
+    }
+    // Last index first, so the earlier indices still point at their elements.
+    const h = step.harness as unknown[];
+    for (let j = h.length - 1; j >= 0; j--) if (h[j] === name) next = setPath(next, [...stepPath(i, "harness"), j], undefined);
+  });
+  return next;
+}
+
+/**
+ * A step's harness pick: none removes `harness` and `routing`; one writes the name (and drops
+ * `routing`, which needs a list); two or more write the list (routing kept).
+ */
+export function stepHarnessEdit(text: string, i: number, names: string[]): string {
+  if (names.length === 0) return setPath(setPath(text, stepPath(i, "harness"), undefined), stepPath(i, "routing"), undefined);
+  if (names.length === 1) return setPath(setPath(text, stepPath(i, "harness"), names[0]), stepPath(i, "routing"), undefined);
+  return setPath(text, stepPath(i, "harness"), names);
+}
+
+/** Remove harness `name`'s `sandbox` once an edit left it {} (its one key, `image`, cleared). */
+export function dropEmptyHarnessSandbox(text: string, name: string): string {
+  const h = readHarnesses(JSON.parse(text)).find(([n]) => n === name)?.[1];
+  return h && isObj(h.sandbox) && Object.keys(h.sandbox).length === 0 ? setPath(text, harnessPath(name, "sandbox"), undefined) : text;
 }

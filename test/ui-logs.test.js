@@ -344,3 +344,20 @@ test("listRuns: each run carries its own run_end's plain; absent when none (#563
   assert.deepEqual(runs.map((r) => r.plain), [undefined, "Which database should it use?"]);
   assert.equal("plain" in runs[0], false);
 });
+
+test("listRuns: model + harness come from the matched run_end, only when it names them (#620)", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
+  const dir = path.join(reg, "q", "logs");
+  fs.mkdirSync(dir, { recursive: true });
+  const names = ["2026-10-08T10-00-00-000Z-step-code-7.log", "2026-10-08T10-10-00-000Z-step-code-7.log"];
+  for (const n of names) fs.writeFileSync(path.join(dir, n), "x");
+  const events = [
+    { ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", model: "qwen3-coder", harness: "qwen" },
+    { ts: "2026-10-08T10:15:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", harness: null },
+  ];
+  const [newest, oldest] = listRuns(reg, "q", "7", events);
+  assert.equal(oldest.model, "qwen3-coder");
+  assert.equal(oldest.harness, "qwen");
+  assert.equal("model" in newest, false);
+  assert.equal("harness" in newest, false, "a null harness adds no key");
+});

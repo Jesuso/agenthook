@@ -118,6 +118,7 @@ export function Overview(props: OverviewProps) {
                 <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
                 {t("common.agents")}
               </span>
+              {profile.harnesses && <HarnessChips harnesses={profile.harnesses} />}
               <span>
                 <span className="font-mono text-fg">{profile.queued ?? 0}</span> {t("common.queued")}
               </span>
@@ -229,6 +230,26 @@ function SlotPips({ active, max, up }: { active: number; max: number; up: boolea
       <span className="font-mono">
         {active} <span className="text-muted">/ {max}</span>
       </span>
+    </span>
+  );
+}
+
+/** One `active/max` chip per named harness (a profile with `harnesses` only); an uncapped one reads `∞`. */
+function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harnesses"]> }) {
+  const { t } = useT();
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
+      {Object.entries(harnesses).map(([name, h]) => (
+        <span
+          key={name}
+          data-harness={name}
+          className="rounded border border-border px-1.5 font-mono"
+          title={h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max })}
+        >
+          {name} <span className="text-fg">{h.active}</span>
+          <span className="text-muted">/{h.max ?? "∞"}</span>
+        </span>
+      ))}
     </span>
   );
 }

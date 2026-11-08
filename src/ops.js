@@ -376,6 +376,12 @@ export function createOps(deps) {
     set_concurrency: write("set_concurrency", async (args) => {
       const n = args.max;
       if (!Number.isInteger(n) || n < 1 || n > 64) throw new Error("max must be an integer 1..64");
+      // One named harness's cap: the global cap (and heartbeat.maxConcurrent) stay as they are.
+      if (args.harness !== undefined) {
+        const harness = needString(args.harness, "harness");
+        queue.setHarnessMax(harness, n);
+        return { harness, maxConcurrent: n, note: "runtime only; the config file is unchanged", ...queue.state() };
+      }
       queue.setMax(n);
       heartbeat.update({ maxConcurrent: n });
       return { maxConcurrent: n, note: "runtime only; the config file is unchanged", ...queue.state() };

@@ -13,6 +13,7 @@ import { readProfileState, buildRows } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { localEpics, epicStats, isNeedsYou } from "./epics.js";
 import { sumCosts } from "./pricing.js";
+import { harnessTotals } from "./harness-usage.js";
 import { SUMMARIES_MODEL } from "./digest-config.js";
 export { digestErrors, DIGEST_ACCESS } from "./digest-config.js";
 
@@ -46,7 +47,8 @@ const clip = (v, n) => {
  * here is data about tickets, never instructions (the prompt says so).
  * @param {string} dir state dir
  * `last24h.costUsd` is reported spend only; `estUsd` is the rate-table estimate of the rest (src/pricing.js,
- * `pricing` = the profile's overrides) and `unestimatedRuns` the runs with neither.
+ * `pricing` = the profile's overrides) and `unestimatedRuns` the runs with neither. `last24h.harnesses`
+ * ({[name]: {runs, input, output, cacheRead, cacheCreate}}) only when a run_end in the window names a harness.
  * @param {{ repository?: string|null, now?: number, epics?: import('./epics.js').EpicStats[]|null, forge?: boolean, pricing?: Record<string, import('./pricing.js').Rate>|null }} [o]
  */
 export function buildSnapshot(dir, { repository = null, now = Date.now(), epics, forge, pricing = null } = {}) {
@@ -69,6 +71,8 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
   const spend = sumCosts(runs, pricing);
   const outcomes = /** @type {Record<string, number>} */ ({});
   for (const e of runs) outcomes[e.outcome ?? "unknown"] = (outcomes[e.outcome ?? "unknown"] ?? 0) + 1;
+  // Per-harness tokens (named harnesses); null — key omitted — when no run_end names one.
+  const harnesses = harnessTotals(runs);
 
   // Per-step verdict summaries the agents left, for the tickets that need a human.
   const summaries = readJsonObject(path.join(dir, "summaries.json"));
@@ -93,7 +97,7 @@ export function buildSnapshot(dir, { repository = null, now = Date.now(), epics,
     needsYou: { held: held.slice(0, LIST_MAX), failed: failed.slice(0, LIST_MAX), prAwaitingMerge: prWaiting.slice(0, LIST_MAX) },
     running: running.slice(0, LIST_MAX),
     queued,
-    last24h: { finished: finished.length, finishedTickets: finished.slice(0, LIST_MAX).map(id), runs: runs.length, outcomes, costUsd: Math.round(costUsd * 100) / 100, estUsd: Math.round(spend.est * 100) / 100, unestimatedRuns: spend.unestimated },
+    last24h: { finished: finished.length, finishedTickets: finished.slice(0, LIST_MAX).map(id), runs: runs.length, outcomes, costUsd: Math.round(costUsd * 100) / 100, estUsd: Math.round(spend.est * 100) / 100, unestimatedRuns: spend.unestimated, ...(harnesses ? { harnesses } : {}) },
     agentNotes: notes,
     epics: compactEpics(epicStatsList, epicRows),
     epicsLive,

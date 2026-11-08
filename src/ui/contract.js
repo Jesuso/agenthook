@@ -72,6 +72,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} updatedAt
  * @property {number|null} active         agents running (heartbeat.queue.active); null when down
  * @property {number|null} queued         jobs waiting behind maxConcurrent; null when down
+ * @property {Record<string, {active: number, max: number|null}>} [harnesses]  per named harness slots (heartbeat.queue.harnesses; max null = only the global cap); absent when down or without harnesses
  * @property {boolean|null} paused       operator pause (heartbeat.paused; in-memory, a restart clears it); null when down
  * @property {QuotaTrip|null} quotaPaused  the quota pacer holds new runs (heartbeat.quotaPaused; src/quota.js) — distinct from the
  *                                        operator `paused`; null when not paused or down
@@ -191,6 +192,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} startedAt           ISO, from the log's filename stamp
  * @property {string|null} endedAt        run_end.ts; null while it runs or once run_end left the tail
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
+ * @property {string} [model]             run_end.model; absent when the run_end has none
+ * @property {string} [harness]           run_end.harness: the named harness that ran it; absent on a profile without harnesses
  * @property {string} [plain]             run_end.plain: the agent's one-sentence summary.plain (agent-authored — untrusted); absent when none
  * @property {number|null} costUsd
  * @property {boolean} unpriced           run_end.unpriced: no real cost (non-Claude agent or local model; costUsd null)

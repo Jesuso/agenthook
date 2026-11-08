@@ -17,6 +17,9 @@ const HARNESSES = {
   bare: {},
 };
 
+/** A claude stream-json result line, so the run writes a usage record. */
+const RESULT_LINE = JSON.stringify({ type: "result", total_cost_usd: 0.5, usage: { input_tokens: 10, output_tokens: 5 } });
+
 test("harnessesOf: a string is a one-element list, a list is copied, none is []", () => {
   assert.deepEqual(harnessesOf({ harness: "qwen" }), ["qwen"]);
   assert.deepEqual(harnessesOf({ harness: ["qwen", "deepseek"] }), ["qwen", "deepseek"]);
@@ -82,7 +85,7 @@ test("dispatch: a run with job.harness spawns with the harness's bin/model/env a
   // running.json is written in onPid, after the spawn: wait for it (up to 5s) instead of racing it.
   fs.writeFileSync(
     bin,
-    `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}.argv"\nprintf 'BASE=%s\\nSHARED=%s\\n' "\${ANTHROPIC_BASE_URL-unset}" "\${SHARED-unset}" > "${out}"\nn=0; while [ ! -f "${path.join(dir, "running.json")}" ] && [ $n -lt 100 ]; do sleep 0.05; n=$((n+1)); done\ncp "${path.join(dir, "running.json")}" "${out}.running"\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}.argv"\nprintf 'BASE=%s\\nSHARED=%s\\n' "\${ANTHROPIC_BASE_URL-unset}" "\${SHARED-unset}" > "${out}"\nn=0; while [ ! -f "${path.join(dir, "running.json")}" ] && [ $n -lt 100 ]; do sleep 0.05; n=$((n+1)); done\ncp "${path.join(dir, "running.json")}" "${out}.running"\nprintf '%s\\n' '${RESULT_LINE}'\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
     { mode: 0o755 },
   );
   const cfg = /** @type {any} */ ({
@@ -122,12 +125,13 @@ test("dispatch: a run with job.harness spawns with the harness's bin/model/env a
   assert.equal(events.find((e) => e.event === "run_start")?.harness, "local");
   assert.equal(events.find((e) => e.event === "run_end")?.harness, "local");
   assert.deepEqual(advanced, [["42", "code", "advance"]]);
+  assert.equal(store.readUsage()[0]?.harness, "local", "the usage record names the harness");
 });
 
 test("dispatch: a profile without harnesses keeps run_start/run_end free of a harness field", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-dispatch-harness-"));
   const bin = path.join(dir, "fake-claude.sh");
-  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' '${RESULT_LINE}'\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
   const cfg = /** @type {any} */ ({ pipeline: [{ id: "code" }], claudeBin: bin, repoPath: dir, worktreePrefix: path.join(dir, "wt"), dataDir: dir, logDir: dir, instructionsFile: path.join(dir, "none.md") });
   /** @type {any[]} */ const events = [];
   const adapter = /** @type {any} */ ({
@@ -135,7 +139,8 @@ test("dispatch: a profile without harnesses keeps run_start/run_end free of a ha
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async () => {},
   });
-  const run = createDispatcher(cfg, adapter, undefined, createStore(dir), (/** @type {string} */ event, /** @type {string} */ _r, /** @type {string} */ _s, /** @type {any} */ extra) => events.push({ event, ...extra }));
+  const store = createStore(dir);
+  const run = createDispatcher(cfg, adapter, undefined, store, (/** @type {string} */ event, /** @type {string} */ _r, /** @type {string} */ _s, /** @type {any} */ extra) => events.push({ event, ...extra }));
   const log = console.log;
   console.log = () => {};
   try {
@@ -144,4 +149,7 @@ test("dispatch: a profile without harnesses keeps run_start/run_end free of a ha
     console.log = log;
   }
   for (const e of events.filter((x) => x.event === "run_start" || x.event === "run_end")) assert.equal(Object.hasOwn(e, "harness"), false, e.event);
+  const usage = store.readUsage();
+  assert.equal(usage.length, 1);
+  assert.equal(Object.hasOwn(usage[0], "harness"), false, "a non-harness run's usage record has no harness");
 });

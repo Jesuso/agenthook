@@ -64,6 +64,24 @@ test("readStatus: slots.harnesses (heartbeat) shows per-harness active/max, only
   assert.equal(Object.hasOwn(readStatus(readProfile("q", plain)).slots, "harnesses"), false);
 });
 
+test("readStatus: harnessUsage sums usage.jsonl per harness, only when the heartbeat lists harnesses and a run used one (#620)", () => {
+  const usage = [
+    { ref: "1", stepId: "code", harness: "qwen", input: 10, output: 5, cacheRead: 1, cacheCreate: 2 },
+    { ref: "2", stepId: "code", harness: "qwen", input: 1, output: 1, cacheRead: 0, cacheCreate: 0 },
+    { ref: "3", stepId: "triage", input: 50, output: 50, cacheRead: 0, cacheCreate: 0 },
+  ].map((r) => JSON.stringify(r)).join("\n") + "\n";
+  const reg = registry();
+  const dir = profile(reg, "p", { hb: { queue: { active: 0, queued: 0, harnesses: { qwen: { active: 0, max: 1 }, opus: { active: 0, max: null } } } } });
+  assert.equal(Object.hasOwn(readStatus(readProfile("p", reg)), "harnessUsage"), false, "no usage yet → no key");
+  fs.writeFileSync(path.join(dir, "usage.jsonl"), usage);
+  assert.deepEqual(readStatus(readProfile("p", reg)).harnessUsage, { qwen: { runs: 2, input: 11, output: 6, cacheRead: 1, cacheCreate: 2 } });
+  // no harnesses in the heartbeat: usage.jsonl is not consulted, no key
+  const plain = registry();
+  const pdir = profile(plain, "q", { hb: { queue: { active: 0, queued: 0 } } });
+  fs.writeFileSync(path.join(pdir, "usage.jsonl"), usage);
+  assert.equal(Object.hasOwn(readStatus(readProfile("q", plain)), "harnessUsage"), false);
+});
+
 test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", () => {
   const reg = registry();
   profile(reg, "a", { name: "Alpha" });
@@ -242,6 +260,9 @@ test("readRuns / readRunLogTail: newest run log tail, step filter, unknown ref",
   assert.equal(runs.length, 1);
   assert.equal(runs[0].outcome, "advance");
   assert.equal(runs[0].costUsd, 1.5);
+  assert.equal(Object.hasOwn(runs[0], "model") || Object.hasOwn(runs[0], "harness"), false, "none on the run_end → no keys");
+  fs.writeFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts: "2026-01-01T00:00:10.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", model: "qwen3", harness: "qwen" }) + "\n");
+  assert.deepEqual([readRuns("p", "7", dir, reg)[0].model, readRuns("p", "7", dir, reg)[0].harness], ["qwen3", "qwen"]);
   const tail = readRunLogTail("p", "7", dir, { lines: 3 }, reg);
   assert.equal(tail.tail, "line 97\nline 98\nline 99");
   assert.match(String(readRunLogTail("p", "7", dir, { step: "nope" }, reg).error), /no run log/);

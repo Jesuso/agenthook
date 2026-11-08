@@ -90,18 +90,18 @@ export const CONFIG_SCHEMA = [
   entry("sandbox.services.*.agentEnv", "record", "Agent env", "basics", "Literal env added to the agent's container for steps using it (e.g. DATABASE_URL).", { advanced: true, editor: "pending" }),
   entry("sandbox.services.*.memory", "string", "Service memory", "basics", "Service container memory cap, e.g. 1g.", { default: "1g", advanced: true, editor: "pending" }),
   entry("sandbox.services.*.cpus", "number", "Service CPUs", "basics", "Service container CPU cap.", { default: 1, min: 0.1, advanced: true, editor: "pending" }),
-  // Named harnesses (#619): Raw-only until their editor lands (#620).
-  entry("harnesses", "record", "Harnesses", "basics", "Named agent backends, each with its own slot pool; a step's harness picks one with a free slot.", { advanced: true, editor: "pending" }),
-  entry("harnesses.*", "object", "Harness", "basics", "One backend: the agent knobs a step gets where it sets none of its own, plus its slot cap.", { advanced: true, editor: "pending" }),
-  entry("harnesses.*.agent", "enum", "Agent", "basics", "This harness's coding-agent CLI; unset uses the profile's agent.", { advanced: true, options: AGENT_NAMES, editor: "pending" }),
-  entry("harnesses.*.model", "string", "Model", "basics", "The agent's --model on this harness; a step's own model wins.", { advanced: true, editor: "pending" }),
-  entry("harnesses.*.bin", "string", "Agent binary", "basics", "The agent CLI on this harness (a name on PATH or an absolute path); a step's own bin wins.", { advanced: true, sensitive: true, editor: "pending" }),
-  entry("harnesses.*.env", "record", "Agent env", "basics", "Extra environment for runs on this harness (e.g. ANTHROPIC_BASE_URL); a step's env keys win.", { advanced: true, sensitive: true, editor: "pending" }),
-  entry("harnesses.*.provider", "string", "Provider", "basics", "Inference provider on this harness (hermes --provider); other agents ignore it.", { advanced: true, editor: "pending" }),
-  entry("harnesses.*.toolsets", "string-list", "Toolsets", "basics", "Hermes -t toolsets on this harness; other agents ignore it.", { advanced: true, editor: "pending" }),
-  entry("harnesses.*.maxConcurrent", "number", "Max concurrent runs", "basics", "Runs on this harness at once, across every step, inside the global limit; unset = only that limit.", { min: 1, advanced: true, editor: "pending" }),
-  entry("harnesses.*.sandbox", "object", "Harness sandbox", "basics", "Sandbox overrides for runs on this harness.", { advanced: true, editor: "pending" }),
-  entry("harnesses.*.sandbox.image", "string", "Sandbox image", "basics", "Agent image for sandboxed runs on this harness, instead of sandbox.image.", { advanced: true, sensitive: true, editor: "pending" }),
+  // Named harnesses (#619): edited in Basics → Advanced (HarnessesField) and the step card (#620).
+  entry("harnesses", "record", "Harnesses", "basics", "Named agent backends, each with its own slot pool; a step's harness picks one with a free slot.", { advanced: true }),
+  entry("harnesses.*", "object", "Harness", "basics", "One backend: the agent knobs a step gets where it sets none of its own, plus its slot cap.", { advanced: true }),
+  entry("harnesses.*.agent", "enum", "Agent", "basics", "This harness's coding-agent CLI; unset uses the profile's agent.", { advanced: true, options: AGENT_NAMES }),
+  entry("harnesses.*.model", "string", "Model", "basics", "The agent's --model on this harness; a step's own model wins.", { advanced: true }),
+  entry("harnesses.*.bin", "string", "Agent binary", "basics", "The agent CLI on this harness (a name on PATH or an absolute path); a step's own bin wins.", { advanced: true, sensitive: true }),
+  entry("harnesses.*.env", "record", "Agent env", "basics", "Extra environment for runs on this harness (e.g. ANTHROPIC_BASE_URL); a step's env keys win.", { advanced: true, sensitive: true }),
+  entry("harnesses.*.provider", "string", "Provider", "basics", "Inference provider on this harness (hermes --provider); other agents ignore it.", { advanced: true }),
+  entry("harnesses.*.toolsets", "string-list", "Toolsets", "basics", "Hermes -t toolsets on this harness; other agents ignore it.", { advanced: true }),
+  entry("harnesses.*.maxConcurrent", "number", "Max concurrent runs", "basics", "Runs on this harness at once, across every step, inside the global limit; unset = only that limit.", { min: 1, advanced: true }),
+  entry("harnesses.*.sandbox", "object", "Harness sandbox", "basics", "Sandbox overrides for runs on this harness.", { advanced: true }),
+  entry("harnesses.*.sandbox.image", "string", "Sandbox image", "basics", "Agent image for sandboxed runs on this harness, instead of sandbox.image.", { advanced: true, sensitive: true }),
 
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),
@@ -196,8 +196,8 @@ export const CONFIG_SCHEMA = [
 
   // Pipeline steps — common + advanced
   step("maxConcurrent", "number", "Max concurrent runs", "Runs of this step at once, counted inside the global limit; unset = only that limit.", { min: 1, advanced: true }),
-  step("harness", "string-list", "Harness", "Harness name(s) from harnesses this step runs on; the queue picks one with a free slot at start.", { advanced: true, editor: "pending" }),
-  step("routing", "enum", "Harness routing", "How a harness list is picked: first-free = first with room; round-robin = rotate, skipping full ones.", { advanced: true, options: HARNESS_ROUTINGS, default: "first-free", editor: "pending" }),
+  step("harness", "string-list", "Harness", "Harness name(s) from harnesses this step runs on; the queue picks one with a free slot at start.", { advanced: true }),
+  step("routing", "enum", "Harness routing", "How a harness list is picked: first-free = first with room; round-robin = rotate, skipping full ones.", { advanced: true, options: HARNESS_ROUTINGS, default: "first-free" }),
   step("completeOnMerge", "boolean", "Complete on merge", "Manual steps only, at most one: the bridge for boards that can't hear merges; a merged agent PR moves the task here.", { advanced: true }),
   step("closeIssue", "boolean", "Close issue", "Entering this (terminal) step closes the issue, releasing the issues it blocked.", { scope: ["github"], advanced: true }),
   step("completeTask", "boolean", "Complete task", "Entering this (terminal) step marks the task completed, releasing the tasks it blocked.", { scope: ["asana"], advanced: true }),

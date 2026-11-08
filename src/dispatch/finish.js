@@ -90,6 +90,8 @@ export function createFinish(ctx) {
     }
     // A harness may have switched the agent: name it, so follow/resume find the run's transcript.
     if (harnessField.harness) usage.agent = agent.describe().name;
+    // ...and the harness itself, so status can sum usage per harness (`harnessUsage`).
+    if (typeof harnessField.harness === "string" && harnessField.harness) usage.harness = harnessField.harness;
     const unpriced = !!usage.unpriced;
     // Stamp the basis (src/pricing.js): a reported run keeps `costUsd` alone; otherwise an
     // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.

@@ -13,8 +13,17 @@ import {
   defaultBoolEdit,
   dropEmptyBlock,
   effectiveBool,
-  envEdit,
+  addHarness,
+  dropEmptyHarnessSandbox,
+  envPathEdit,
   envRows,
+  harnessPath,
+  harnessRenameError,
+  readHarnesses,
+  removeHarness,
+  renameHarness,
+  stepHarnessEdit,
+  stepHarnessList,
   pricingEdit,
   pricingErrors,
   energyEdit,
@@ -383,24 +392,24 @@ function EscalateGroup(props: EditProps & { i: number; step: Record<string, unkn
 }
 
 /**
- * The step's `env` editor: one key/value row each, plus "add variable". Rows are a local draft
- * committed on blur (a blank key is dropped); removing the last row removes `env`.
+ * An `env` editor (a step's, or a harness's — `path`): one key/value row each, plus "add variable".
+ * Rows are a local draft committed on blur (a blank key is dropped); removing the last row removes `env`.
  */
-function EnvField(props: EditProps & { i: number; env: unknown }) {
+function EnvField(props: EditProps & { path: JSONPath; env: unknown }) {
   const { t, lang } = useT();
   const initial = envRows(props.env);
   const [rows, setRows] = useState(initial);
   const key = JSON.stringify(initial);
   useEffect(() => setRows(initial), [key]);
-  const m = fieldMeta(stepPath(props.i, "env"), lang);
-  const commit = (next: [string, string][]) => props.onEdit(envEdit(props.text, props.i, next));
+  const m = fieldMeta(props.path, lang);
+  const commit = (next: [string, string][]) => props.onEdit(envPathEdit(props.text, props.path, next));
   const change = (idx: number, col: 0 | 1, value: string) => {
     const next = rows.map((r) => [...r] as [string, string]);
     next[idx][col] = value;
     setRows(next);
   };
   return (
-    <div className="col-span-full flex flex-col gap-1" data-step-env>
+    <div className="col-span-full flex flex-col gap-1" {...(props.path[0] === "harnesses" ? { "data-harness-env": "" } : { "data-step-env": "" })}>
       <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
         {m.label}
         <span className="ml-1 font-mono opacity-70">{m.hint}</span>
@@ -469,6 +478,129 @@ function PricingField(props: EditProps & { pricing: unknown }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * A step's `harness` pick: a checkbox per defined harness — the picked list keeps the order they
+ * were ticked in (first-free tries them in that order) — and `routing` once two or more are picked.
+ * Hidden on a profile without harnesses, unless the step already names one (so it can be cleared).
+ */
+function StepHarnessField(props: EditProps & { i: number; step: Record<string, unknown>; names: string[] }) {
+  const { lang } = useT();
+  const helpId = useId();
+  const picked = stepHarnessList(props.step.harness);
+  if (props.names.length === 0 && picked.length === 0) return null;
+  const options = [...props.names, ...picked.filter((n) => !props.names.includes(n))];
+  const path = stepPath(props.i, "harness");
+  const m = fieldMeta(path, lang);
+  const toggle = (n: string, on: boolean) => props.onEdit(stepHarnessEdit(props.text, props.i, on ? [...picked, n] : picked.filter((x) => x !== n)));
+  return (
+    <div className="col-span-full flex flex-col gap-1" data-step-harness>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {m.label}
+        <span className="ml-1 font-mono opacity-70">{m.hint}</span>
+        {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
+      </span>
+      <div role="group" aria-label={m.label} aria-describedby={m.help ? helpId : undefined} className="flex flex-wrap gap-3">
+        {options.map((n) => (
+          <label key={n} className="flex items-center gap-1 text-xs">
+            <input type="checkbox" name={path.join(".")} value={n} data-harness-option={n} checked={picked.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
+            <span className="font-mono">{n}</span>
+          </label>
+        ))}
+      </div>
+      {Array.isArray(props.step.harness) && (
+        <div className="max-w-xs">
+          <SelectField text={props.text} onEdit={props.onEdit} path={stepPath(props.i, "routing")} value={props.step.routing} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The `harnesses` record editor (#620): a card per harness plus "+ Add harness". Each card edits the
+ * name (committed on blur; every step naming it follows — configEdit `renameHarness`), the agent
+ * knobs a step inherits from it, its slot cap and sandbox image. Removing one also drops it from the
+ * steps that name it (`removeHarness`). bin / env / sandbox.image are sensitive: Save's diff flags them.
+ */
+function HarnessesField(props: EditProps & { raw: unknown }) {
+  const { t, lang } = useT();
+  const harnesses = readHarnesses(props.raw);
+  const m = fieldMeta(["harnesses"], lang);
+  return (
+    <div className="col-span-full flex flex-col gap-2" data-harnesses>
+      <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        {m.label}
+        <span className="ml-1 font-mono opacity-70">{m.hint}</span>
+        {m.help && <HelpTip label={m.label} help={m.help} />}
+      </span>
+      {harnesses.map(([name, h]) => (
+        <HarnessCard key={name} text={props.text} onEdit={props.onEdit} raw={props.raw} name={name} harness={h} />
+      ))}
+      <div>
+        <button type="button" className={BUTTON} data-add-harness onClick={() => props.onEdit(addHarness(props.text).text)}>
+          {t("forms.harness.add")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HarnessCard(props: EditProps & { raw: unknown; name: string; harness: Record<string, unknown> }) {
+  const { t, lang } = useT();
+  const ask = useContext(ConfirmContext);
+  const [draft, setDraft] = useState(props.name);
+  useEffect(() => setDraft(props.name), [props.name]);
+  const problem = harnessRenameError(props.raw, props.name, draft);
+  const h = props.harness;
+  const at = (...k: string[]) => harnessPath(props.name, ...k);
+  const edit = { text: props.text, onEdit: props.onEdit };
+  const sandboxEdit = { text: props.text, onEdit: (next: string) => props.onEdit(dropEmptyHarnessSandbox(next, props.name)) };
+  // provider / toolsets are hermes-only knobs: shown on a hermes harness, or once set (the step card's rule)
+  const isHermes = (h.agent ?? (props.raw as any)?.agent ?? "claude") === "hermes";
+  const nameMeta = fieldMeta(["harnesses", "*"], lang);
+  return (
+    <section className="flex flex-col gap-2 rounded border border-[var(--color-border)] p-2" data-harness-card={props.name}>
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <Field label={nameMeta.label} help={nameMeta.help} error={problem === "blank" ? t("forms.harness.blank") : problem === "taken" ? t("forms.harness.taken", { name: draft.trim() }) : null}>
+            <input
+              className={INPUT}
+              name={`harnesses.${props.name}`}
+              data-harness-name
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => !problem && draft.trim() !== props.name && props.onEdit(renameHarness(props.text, props.name, draft))}
+            />
+            <span className={NOTE}>{t("forms.harness.renameNote")}</span>
+          </Field>
+        </div>
+        <button
+          type="button"
+          className={ICON_BUTTON}
+          aria-label={t("forms.harness.remove")}
+          onClick={() =>
+            ask({ title: t("forms.harness.removeTitle", { name: props.name }), body: t("forms.harness.removeBody"), confirmLabel: t("forms.removeConfirm"), destructive: true }).then(
+              (ok) => ok && props.onEdit(removeHarness(props.text, props.name)),
+            )
+          }
+        >
+          {t("forms.remove")}
+        </button>
+      </div>
+      <div className={FIELD_GRID}>
+        <SelectField {...edit} path={at("agent")} value={h.agent} />
+        <ModelField {...edit} path={at("model")} value={h.model} />
+        <TextField {...edit} path={at("bin")} value={h.bin} />
+        <NumberField {...edit} path={at("maxConcurrent")} value={h.maxConcurrent} />
+        {(isHermes || h.provider !== undefined) && <TextField {...edit} path={at("provider")} value={h.provider} />}
+        {(isHermes || h.toolsets !== undefined) && <StringListField {...edit} path={at("toolsets")} value={h.toolsets} />}
+        <TextField {...sandboxEdit} path={at("sandbox", "image")} value={asRecord(h.sandbox).image} />
+        <EnvField {...edit} path={at("env")} env={h.env} />
+      </div>
+    </section>
   );
 }
 
@@ -778,7 +910,8 @@ function MetaField(props: { path: JSONPath; children: React.ReactNode }) {
 export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }) {
   const b = readBasics(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
-  const advancedCount = (["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length;
+  const harnessCount = readHarnesses(props.raw).length;
+  const advancedCount = (["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length + (harnessCount ? 1 : 0);
   return (
     <div className="@container max-w-5xl rounded border border-[var(--color-border)] p-3">
       <div className={FIELD_GRID}>
@@ -830,6 +963,7 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
                 <Msg k="forms.basics.stateIdNote" nodes={{ cmd: <span className="font-mono">agenthook rename --move</span> }} />
               </p>
             </div>
+            <HarnessesField {...edit} raw={props.raw} />
           </div>
         </details>
       </div>
@@ -962,6 +1096,7 @@ export function PipelineForm(
 ) {
   const { t, lang } = useT();
   const steps = readSteps(props.raw);
+  const harnessNames = readHarnesses(props.raw).map(([n]) => n);
   const tracker = (props.raw as any)?.tracker?.type;
   const keys = stageKeysFor(props.stages?.body ?? null, tracker);
   const stageList = props.stages?.source.kind === "list" ? props.stages.source.stages : null;
@@ -1200,7 +1335,8 @@ export function PipelineForm(
                     <div className={FIELD_GRID_3}>
                       <SelectField {...edit} path={at("agent")} value={s.agent} />
                       <TextField {...edit} path={at("bin")} value={s.bin} />
-                      <EnvField {...edit} i={i} env={s.env} />
+                      <EnvField {...edit} path={at("env")} env={s.env} />
+                      <StepHarnessField {...edit} i={i} step={s} names={harnessNames} />
                       {(isHermes || s.provider !== undefined) && <TextField {...edit} path={at("provider")} value={s.provider} />}
                       {(isHermes || s.isolated !== undefined) && <CheckField {...edit} path={at("isolated")} value={s.isolated} defaultValue={true} />}
                       {(isHermes || s.toolsets !== undefined) && <StringListField {...edit} path={at("toolsets")} value={s.toolsets} />}
