@@ -485,8 +485,9 @@ const HARNESS_STATES = new Set(["up", "down", "probing"]);
 
 /**
  * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
- * null = uncapped; `state` is the health breaker's, `until`/`reason` only while down or probing);
- * null when absent or empty (a profile without harnesses).
+ * null = uncapped, 0 = drained via `set_concurrency`; `state` is the health breaker's,
+ * `until`/`reason` only while down or probing); null when absent or empty (a profile without
+ * harnesses).
  * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>|null}
  */
 export function harnessSlots(raw) {
@@ -499,7 +500,7 @@ export function harnessSlots(raw) {
     const down = state === "down" || state === "probing";
     out[name] = {
       active: Math.max(0, Number(h.active) || 0),
-      max: Number.isInteger(h.max) && h.max > 0 ? h.max : null,
+      max: Number.isInteger(h.max) && h.max >= 0 ? h.max : null,
       ...(state ? { state } : {}),
       ...(down && typeof h.until === "string" ? { until: h.until } : {}),
       ...(down && typeof h.reason === "string" ? { reason: (h.reason.length > 200 ? h.reason.slice(0, 199) + "…" : h.reason) } : {}),
