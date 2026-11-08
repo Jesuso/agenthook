@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `ah ui --host <ip>` binds the dashboard to another address (`0.0.0.0` / `::` = every interface) so a browser on a trusted LAN can use it; default stays `127.0.0.1`. The Host guard then accepts the bound address (any of the machine's own interface addresses for `0.0.0.0`), never a DNS name; the launch token stays the only credential and the CLI warns on a non-loopback bind.
 - Named harnesses with slot pools (#619). A top-level `harnesses` record declares agent backends
   (`agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `sandbox.image`), each with its own
   `maxConcurrent`. A step names one or a list with `harness`, and `routing` (`first-free`, the

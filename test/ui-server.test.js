@@ -8,7 +8,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createUiServer, safeEqual, cookieToken } from "../src/ui/server.js";
+import { createUiServer, hostAllowed, safeEqual, cookieToken } from "../src/ui/server.js";
 
 const TOKEN = "t0k3n-abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -107,6 +107,47 @@ test("Host guard: anything but 127.0.0.1:<port> / localhost:<port> → 403, even
   assert.equal((await req(`/?token=${TOKEN}`, { host: "evil.com" })).status, 403);
   assert.equal((await req("/api/snapshot", { host: `127.0.0.1:${port}`, cookie: good() })).status, 200);
   assert.equal((await req("/api/snapshot", { host: `localhost:${port}`, cookie: good() })).status, 200);
+});
+
+test("hostAllowed: loopback always; a single bind address exactly; 0.0.0.0 / :: → any own interface ip; never a DNS name", () => {
+  const own = () => ["192.168.68.2", "fd00::1", "127.0.0.1"];
+  for (const listen of [undefined, "127.0.0.1", "0.0.0.0", "::", "192.168.68.2"]) {
+    assert.equal(hostAllowed("127.0.0.1:4180", 4180, listen, own), true, `loopback ok (${listen})`);
+    assert.equal(hostAllowed("localhost:4180", 4180, listen, own), true, `localhost ok (${listen})`);
+    assert.equal(hostAllowed("127.0.0.1:4181", 4180, listen, own), false, `other port (${listen})`);
+    assert.equal(hostAllowed("sarah.lan:4180", 4180, listen, own), false, `a DNS name never (${listen})`);
+    assert.equal(hostAllowed("10.9.9.9:4180", 4180, listen, own), false, `a foreign ip never (${listen})`);
+  }
+  assert.equal(hostAllowed("192.168.68.2:4180", 4180, "127.0.0.1", own), false, "loopback bind: LAN ip refused");
+  assert.equal(hostAllowed("192.168.68.2:4180", 4180, "0.0.0.0", own), true, "all-interfaces bind: own ip ok");
+  assert.equal(hostAllowed("[fd00::1]:4180", 4180, "::", own), true, "v6 own ip ok");
+  assert.equal(hostAllowed("192.168.68.2:4180", 4180, "::", own), true, ":: covers v4 own ips too");
+  assert.equal(hostAllowed("192.168.68.2:4180", 4180, "192.168.68.2", own), true, "single bind: that ip ok");
+  assert.equal(hostAllowed("192.168.68.3:4180", 4180, "192.168.68.2", own), false, "single bind: another own ip refused");
+  assert.equal(hostAllowed("192.168.68.2", 4180, "0.0.0.0", own), false, "port required");
+});
+
+test("server bound for the LAN (host: 0.0.0.0): an own interface ip in Host passes, a stranger still 403s", async () => {
+  const own = Object.values(os.networkInterfaces()).flat().find((i) => i && !i.internal && i.family === "IPv4")?.address;
+  const lan = createUiServer({ port: 0, token: TOKEN, distDir, registry, host: "0.0.0.0" });
+  await new Promise((r) => lan.listen(0, "127.0.0.1", () => r(undefined)));
+  const lport = /** @type {import('node:net').AddressInfo} */ (lan.address()).port;
+  const ask = (/** @type {string} */ host) =>
+    new Promise((resolve) => {
+      const r = http.request({ host: "127.0.0.1", port: lport, path: "/api/snapshot", headers: { cookie: good(), host }, setHost: false }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      r.end();
+    });
+  try {
+    assert.equal(await ask(`127.0.0.1:${lport}`), 200);
+    assert.equal(await ask(`evil.com:${lport}`), 403);
+    assert.equal(await ask(`10.255.255.1:${lport}`), 403, "an ip that is not ours");
+    if (own) assert.equal(await ask(`${own}:${lport}`), 200, `own LAN ip ${own}`);
+  } finally {
+    await new Promise((r) => lan.close(() => r(undefined)));
+  }
 });
 
 test("static: / → index.html, assets served with a content type + nosniff, no SPA fallback", async () => {
