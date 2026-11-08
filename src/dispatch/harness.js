@@ -54,8 +54,8 @@ const API_FAILURE_RE = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET
 /**
  * The first line of `text` that reports a connection-level model-API failure (clipped to ~200
  * chars), or undefined. A line matches on `ECONNREFUSED`/`ENOTFOUND`/`EHOSTUNREACH`/`ETIMEDOUT`/
- * `ECONNRESET`, either `agenthook egress: … failed` form (the plain-HTTP and CONNECT proxy
- * texts), `agenthook egress: cannot resolve` (a DNS failure), or `API Error: 502|503|504`. A
+ * `ECONNRESET`, either the egress proxy's `egress: … failed` form (the plain-HTTP and CONNECT proxy
+ * texts), the egress proxy's `egress: cannot resolve` (a DNS failure), or `API Error: 502|503|504`. A
  * line whose `API Error:` status is 4xx never matches, even if it also contains one of those
  * tokens — a 4xx (or any other client error) is the model API answering, not a connection
  * failure. Pure.

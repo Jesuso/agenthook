@@ -139,7 +139,7 @@ eating every run routed to it. A run on a harness **trips** it when:
   was unreachable at the connection level, **at any wall time**: `downGraceSeconds` only governs
   the fast-exit signal above, because an agent CLI that keeps retrying a dead backend can run well
   past it with nothing to show for it. Detected from a bounded scan of the run's own output
-  (`ECONNREFUSED`/`ENOTFOUND`/`EHOSTUNREACH`/`ETIMEDOUT`/`ECONNRESET`, an `agenthook egress: …
+  (`ECONNREFUSED`/`ENOTFOUND`/`EHOSTUNREACH`/`ETIMEDOUT`/`ECONNRESET`, the egress proxy's `egress: …
   failed`/`cannot resolve` line, or `API Error: 502/503/504`); a sandboxed run instead prefers the
   egress proxy's own `upstream-failures.jsonl` record for the step's `ANTHROPIC_BASE_URL` host.
   Any 4xx `API Error` (bad request, auth, quota) is the model API answering, not a connection
