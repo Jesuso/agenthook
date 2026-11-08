@@ -83,13 +83,17 @@ export function agentBinChecks(cfg) {
 /** Named harness binaries doctor must check on the host (#632): every `harnesses.<name>` with
  * its own `bin`, or whose `agent` differs from the profile's, resolved exactly like dispatch
  * (`h.bin || agent.defaults.bin || cfg.claudeBin`) — a harness that only inherits the profile's
- * agent/bin is already covered by agentBinChecks. Pure (config only).
- * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'harnesses'>} cfg
+ * agent/bin is already covered by agentBinChecks. A harness only routed through sandboxed steps
+ * resolves its binary inside the image instead (like agentBinChecks skips those steps), so it's
+ * excluded unless at least one non-manual, unsandboxed step also routes through it. Pure.
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'harnesses'|'pipeline'|'sandbox'>} cfg
  * @returns {{ name: string, bin: string }[]} */
 export function harnessBinChecks(cfg) {
+  const hostRouted = new Set((cfg.pipeline ?? []).filter((s) => !s.manual && !isSandboxed(cfg, s)).flatMap(harnessesOf));
   /** @type {{ name: string, bin: string }[]} */
   const out = [];
   for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
+    if (!hostRouted.has(name)) continue;
     if (!h.bin && (!h.agent || h.agent === (cfg.agent ?? DEFAULT_AGENT))) continue;
     const agent = agentFor(cfg, { agent: h.agent });
     out.push({ name, bin: h.bin || agent.defaults.bin || cfg.claudeBin });
@@ -161,8 +165,10 @@ export function harnessLanLints(cfg) {
   const loopback = (label, url, hp) =>
     out.push({ level: "warn", label: `${label}: ANTHROPIC_BASE_URL ${url} is loopback`, note: `inside the sandbox "${hp.host}" is the container itself, not this host — use the host's LAN IP (and allow it with !private)` });
   /** @param {string} label @param {string|undefined} url @param {{host: string, port: number}} hp */
-  const private_ = (label, url, hp) =>
-    out.push({ level: "warn", label: `${label}: ANTHROPIC_BASE_URL ${url} is a private address`, note: `sandboxed runs need "${hp.host}:${hp.port}!private" in sandbox.egress.allow` });
+  const private_ = (label, url, hp) => {
+    const host = hp.host.includes(":") ? `[${hp.host}]` : hp.host;
+    out.push({ level: "warn", label: `${label}: ANTHROPIC_BASE_URL ${url} is a private address`, note: `sandboxed runs need "${host}:${hp.port}!private" in sandbox.egress.allow` });
+  };
 
   for (const [name, h] of Object.entries(cfg.harnesses)) {
     const url = h.env?.ANTHROPIC_BASE_URL;
@@ -183,16 +189,15 @@ export function harnessLanLints(cfg) {
       }
     }
   }
+  // A step's own loopback ANTHROPIC_BASE_URL is already flagged by egressLints — only the
+  // private-address case (no equivalent there) is this function's to report for steps.
   for (const s of steps) {
     const url = s.env?.ANTHROPIC_BASE_URL;
     const hp = hostPort(url);
     if (!hp) continue;
-    const kind = classifyHost(hp.host);
-    if (kind === "loopback") loopback(`step "${s.id}"`, url, hp);
-    else if (kind === "private") {
-      const policy = egressPolicy(cfg, s);
-      if (policy.mode === "allowlist" && !allowsPrivateRule(policy.allow, hp.host, hp.port)) private_(`step "${s.id}"`, url, hp);
-    }
+    if (classifyHost(hp.host) !== "private") continue;
+    const policy = egressPolicy(cfg, s);
+    if (policy.mode === "allowlist" && !allowsPrivateRule(policy.allow, hp.host, hp.port)) private_(`step "${s.id}"`, url, hp);
   }
   return out;
 }

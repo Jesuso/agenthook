@@ -1237,6 +1237,7 @@ test("harnessBinChecks: flags a harness with its own bin or a different agent, n
       other: { agent: "cursor" },
       plain: {},
     },
+    pipeline: [{ id: "code", harness: ["local", "same", "other", "plain"] }],
   });
   assert.deepEqual(harnessBinChecks(cfg), [
     { name: "local", bin: "/opt/custom-claude" },
@@ -1246,6 +1247,35 @@ test("harnessBinChecks: flags a harness with its own bin or a different agent, n
 
 test("harnessBinChecks: [] without harnesses", () => {
   assert.deepEqual(harnessBinChecks(/** @type {any} */ ({ claudeBin: "claude" })), []);
+});
+
+test("harnessBinChecks: a harness only routed through a sandboxed step resolves its bin inside the image, not on the host", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    sandbox: { type: "docker" },
+    harnesses: { local: { bin: "claude-in-image" } },
+    pipeline: [{ id: "code", harness: "local" }], // sandboxed by default — no sandbox: false
+  });
+  assert.deepEqual(harnessBinChecks(cfg), [], "sandboxed-only routing never fails doctor on a host that lacks the image's binary");
+});
+
+test("harnessBinChecks: a harness no step routes through is silent", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    harnesses: { local: { bin: "/opt/custom-claude" } },
+    pipeline: [{ id: "triage", manual: true }],
+  });
+  assert.deepEqual(harnessBinChecks(cfg), []);
+});
+
+test("harnessBinChecks: a harness routed through an unsandboxed step is checked, and ✗ when its bin isn't on PATH", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    sandbox: { type: "docker" },
+    harnesses: { local: { bin: "missing-claude" } },
+    pipeline: [{ id: "code", harness: "local", sandbox: false }],
+  });
+  assert.deepEqual(harnessBinChecks(cfg), [{ name: "local", bin: "missing-claude" }]);
 });
 
 test("harnessLanLints: [] without sandbox or without harnesses", () => {
@@ -1308,6 +1338,26 @@ test("harnessLanLints: a plain step's own ANTHROPIC_BASE_URL is checked the same
   assert.deepEqual(lints, [{ level: "warn", label: `step "code": ANTHROPIC_BASE_URL http://10.0.0.9:9000 is a private address`, note: `sandboxed runs need "10.0.0.9:9000!private" in sandbox.egress.allow` }]);
 });
 
+test("harnessLanLints: a step's own loopback ANTHROPIC_BASE_URL is silent here — egressLints already flags it", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { local: {} },
+    pipeline: [{ id: "code", env: { ANTHROPIC_BASE_URL: "http://localhost:11434" } }],
+  });
+  assert.deepEqual(harnessLanLints(cfg), []);
+});
+
+test("harnessLanLints: an IPv6 private address suggests a bracketed host in the egress rule", () => {
+  const url = "http://[fd00::5]:11434";
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { local: { env: { ANTHROPIC_BASE_URL: url } } },
+    pipeline: [{ id: "code", harness: "local" }],
+  });
+  const lints = harnessLanLints(cfg);
+  assert.deepEqual(lints, [{ level: "warn", label: `harness "local": ANTHROPIC_BASE_URL ${url} is a private address`, note: `sandboxed runs need "[fd00::5]:11434!private" in sandbox.egress.allow` }]);
+});
+
 test("harnessLanLints: a public hostname, egress mode other than allowlist, or an unclassifiable hostname is silent", () => {
   const harnesses = { local: { env: { ANTHROPIC_BASE_URL: "http://api.example.com:11434" } } };
   assert.deepEqual(harnessLanLints(/** @type {any} */ ({ sandbox: { type: "docker" }, harnesses, pipeline: [{ id: "code", harness: "local" }] })), [], "public hostname — can't tell without DNS");
@@ -1347,7 +1397,11 @@ test("runChecks: harness bins, LAN endpoint and slot lines show up end to end, a
     ...cfg,
     sandbox: { type: "docker" },
     harnesses: { local: { bin: "/opt/custom-claude", env: { ANTHROPIC_BASE_URL: "http://192.168.68.2:11434" } }, remote: { maxConcurrent: 3 } },
-    pipeline: [{ id: "code", harness: "local", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } }, { id: "done", manual: true }],
+    pipeline: [
+      { id: "code", harness: "local", env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } },
+      { id: "code-host", harness: "local", sandbox: false, env: { CLAUDE_CODE_OAUTH_TOKEN: "t" } },
+      { id: "done", manual: true },
+    ],
   });
   const checks = await runChecks(withHarnesses, io({ has: () => true, run: async () => ({ code: 0, stdout: "", stderr: "" }) }));
   assert.ok(checks.some((c) => c.label === `harness "local" binary "/opt/custom-claude"` && c.ok));
