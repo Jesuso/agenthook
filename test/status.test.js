@@ -130,6 +130,57 @@ test("status: a live profile whose heartbeat says `starting` prints it verbatim 
   assert.equal((await runStatus("status-started"))[1], `status  : UP (pid ${process.pid})`);
 });
 
+test("status: harness lines show the breaker state (down/probing) and include 0-run harnesses (#638)", async () => {
+  /** @param {string} key @param {any} hb */
+  const seed = (key, hb) => {
+    const dir = path.join(registryDir, key);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: key, stateKey: key, configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+    fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: key, stateKey: key, tracker: "local", updatedAt: new Date().toISOString(), ...hb }));
+  };
+  const rec = (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ x) => JSON.stringify({ ref, stepId, startedAt: "t", endedAt: "t", input: 500, output: 500, cacheRead: 0, cacheCreate: 0, ...x });
+
+  // Two usage'd harnesses: one up, one down with a cooldown.
+  seed("status-hb-up", { queue: { active: 0, queued: 0, harnesses: { qwen: { active: 0, max: 2, state: "up" } } } });
+  seed("status-hb-down", {
+    queue: {
+      active: 0,
+      queued: 1,
+      harnesses: {
+        qwen: { active: 0, max: 2, state: "down", until: "2026-01-08T10:30:00.000Z", reason: "spawn failed" },
+        probe: { active: 0, max: 1, state: "probing", reason: "cooldown elapsed" },
+      },
+    },
+  });
+  for (const key of ["status-hb-up", "status-hb-down"]) {
+    const dir = path.join(registryDir, key);
+    fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+    // The "up" profile ran only on qwen; "down" has a run on each configured harness.
+    fs.writeFileSync(path.join(dir, "usage.jsonl"), key === "status-hb-up"
+      ? [rec("1", "code", { harness: "qwen" })].join("\n") + "\n"
+      : [rec("1", "code", { harness: "qwen" }), rec("2", "code", { harness: "probe" })].join("\n") + "\n");
+  }
+
+  const up = (await runStatus("status-hb-up")).filter((l) => l.startsWith("harness"));
+  assert.deepEqual(up, ["harness : qwen 1 run(s), 1K tokens"]);
+
+  const down = (await runStatus("status-hb-down")).filter((l) => l.startsWith("harness"));
+  assert.deepEqual(down, [
+    "harness : qwen 1 run(s), 1K tokens · down until 10:30Z (spawn failed)",
+    "harness : probe 1 run(s), 1K tokens · probing (cooldown elapsed)",
+  ]);
+
+  // A configured harness with no runs yet still gets a line, so a down breaker is never invisible.
+  seed("status-hb-noruns", { queue: { active: 0, queued: 0, harnesses: { llama: { active: 0, max: 1, state: "down", until: "2026-01-08T11:00:00.000Z", reason: "fast exit (1)" } } } });
+  assert.deepEqual((await runStatus("status-hb-noruns")).filter((l) => l.startsWith("harness")), [
+    "harness : llama 0 run(s), 0 tokens · down until 11:00Z (fast exit (1))",
+  ]);
+
+  // No harnesses configured, no usage: no harness lines at all (unchanged).
+  seed("status-hb-none", {});
+  assert.deepEqual((await runStatus("status-hb-none")).filter((l) => l.startsWith("harness")), []);
+});
+
 test("status: one `harness :` line per harness under usage, and `· <harness>` on a recent run that had one (#620)", async () => {
   const dir = path.join(registryDir, "status-harness");
   fs.mkdirSync(path.join(dir, "logs"), { recursive: true });

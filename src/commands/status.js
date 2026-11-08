@@ -156,10 +156,19 @@ export async function status(args) {
     const spendStr = formatSpend(spend);
     const noEst = spend.unestimated ? ` (${spend.unestimated} run(s) no estimate)` : "";
     console.log(`usage   : ${fmtTokens(totalTokens)} tokens${spendStr ? `, ${spendStr}` : ""} over ${usageRecords.length} run(s)${noEst}`);
-    // Per named harness (only runs a harness ran carry one).
-    for (const [name, t] of Object.entries(harnessTotals(usageRecords) ?? {})) {
-      console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens`);
-    }
+  }
+  // Per named harness: every configured harness gets a line (the heartbeat's `queue.harnesses`,
+  // set only for a profile with harnesses) — even with 0 runs, so a down breaker is never
+  // invisible — plus any harness a usage record names. An `up` (or unknown) state prints plain.
+  const slots = hb.queue?.harnesses && typeof hb.queue.harnesses === "object" ? hb.queue.harnesses : {};
+  const totals = harnessTotals(usageRecords) ?? {};
+  for (const name of [...new Set([...Object.keys(slots), ...Object.keys(totals)])]) {
+    const t = totals[name] ?? { runs: 0, input: 0, output: 0 };
+    const h = slots[name];
+    const state = h && h.state && h.state !== "up"
+      ? ` · ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`
+      : "";
+    console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens${state}`);
   }
 
   // Most recent run logs — with per-run token figures where available.
