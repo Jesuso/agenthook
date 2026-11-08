@@ -128,8 +128,25 @@ export function defaultProfileKey(configPath) {
 const label = (t, meta) => ({ ...(meta?.displayId ? { id: String(meta.displayId) } : {}), ...(meta?.title ? { title: clip(String(meta.title), TITLE_MAX) } : {}), ...t });
 
 /**
+ * The heartbeat's per-harness slots as `{[name]: {active, max}}` (max null = uncapped); null
+ * when absent or empty (a profile without harnesses).
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null}>|null}
+ */
+function harnessSlots(raw) {
+  if (!isObj(raw)) return null;
+  /** @type {Record<string, {active: number, max: number|null}>} */
+  const out = {};
+  for (const [name, h] of Object.entries(raw)) {
+    if (!isObj(h)) continue;
+    out[name] = { active: Math.max(0, Number(h.active) || 0), max: Number.isInteger(h.max) && h.max > 0 ? h.max : null };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
  * One profile's live picture in the fewest tokens that still answer "what is running, what is
  * waiting, can I start more?". `slots.free` already subtracts queued jobs and is 0 while paused / quota-paused / restarting / draining (nothing can start).
+ * `slots.harnesses` ({[name]: {active, max}}) only for a profile with harnesses.
  * `quota` is the last Claude quota reading (quota.json — there with the receiver down too).
  * @param {ReturnType<typeof import('./heartbeat.js').readProfile>} entry
  * @param {{now?: number}} [opts]
@@ -175,13 +192,15 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   const queued = entry.up ? queue.length : 0;
   // Queued jobs waiting on their step's own maxConcurrent, not on a slot (heartbeat; only set with step caps).
   const capped = Math.min(queued, Math.max(0, Number(hb.queue?.capped) || 0));
+  // Per-harness slots (heartbeat; only set when the profile has harnesses).
+  const harnesses = entry.up ? harnessSlots(hb.queue?.harnesses) : null;
   const quotaPaused = normalizeTrip(hb.quotaPaused);
   const quota = normalizeQuota(state.quota);
   const out = {
     profile: entry.stateKey,
     up: entry.up,
     tracker: hb.tracker ?? null,
-    slots: { max, active, queued, ...(capped ? { capped } : {}), free: max === null ? null : hb.paused || quotaPaused || hb.restartPending || hb.decommissionPending || hb.draining ? 0 : Math.max(0, max - active - (queued - capped)) },
+    slots: { max, active, queued, ...(capped ? { capped } : {}), free: max === null ? null : hb.paused || quotaPaused || hb.restartPending || hb.decommissionPending || hb.draining ? 0 : Math.max(0, max - active - (queued - capped)), ...(harnesses ? { harnesses } : {}) },
     ...(hb.paused ? { paused: true } : {}),
     ...(quotaPaused ? { quotaPaused } : {}),
     ...(quota ? { quota } : {}),

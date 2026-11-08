@@ -3,7 +3,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // single-flight puller (injected deps; no network, no engine).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeSlots, planPull, stepBudget, createPuller, PULL_TTL_MS } from "../src/pull.js";
+import { freeSlots, planPull, stepBudget, harnessBudget, mergeBudgets, createPuller, PULL_TTL_MS } from "../src/pull.js";
 
 test("freeSlots: full → 0, pending counted, never negative", () => {
   assert.equal(freeSlots({ max: 2, active: 2, queued: 0, pending: 0 }), 0);
@@ -61,6 +61,7 @@ function harness(o = {}) {
     max: o.max ?? 2,
     queueState: () => state,
     stepState: () => o.stepState || {},
+    harnessState: () => o.harnessState || {},
     inflightRefs: () => o.inflight || [],
     listQueued: async (stepId) => {
       lists++;
@@ -208,4 +209,31 @@ test("puller: capped queued jobs leave slots for the code pull; a capped step's 
   await h2.p.pull();
   await h2.p.pull();
   assert.deepEqual(h2.entered, ["1:triage:assign=false", "10:code:assign=false", "11:code:assign=false", "12:code:assign=false"]);
+});
+
+// --- named harnesses (#619): a harnessed queue step pulls only into room its harnesses have ---
+
+test("harnessBudget: Σ(max − active) over the step's harnesses − its queued − pending; all full → 0; any uncapped → absent", () => {
+  const hs = { qwen: { active: 1, max: 1 }, deepseek: { active: 1, max: 2 }, opus: { active: 0, max: null } };
+  assert.deepEqual(harnessBudget({ code: ["qwen", "deepseek"] }, hs, {}, []), { code: 1 }, "partial room limits the budget");
+  assert.deepEqual(harnessBudget({ code: ["qwen", "deepseek"] }, hs, { code: { active: 2, queued: 1 } }, []), { code: 0 }, "its queued job takes the room");
+  assert.deepEqual(harnessBudget({ code: ["qwen", "deepseek"] }, hs, {}, ["code"]), { code: 0 }, "a pending pull takes the room");
+  assert.deepEqual(harnessBudget({ code: ["qwen"] }, hs, {}, []), { code: 0 }, "all harnesses full → 0");
+  assert.deepEqual(harnessBudget({ review: ["deepseek", "opus"] }, hs, {}, []), {}, "an uncapped harness leaves the step unbounded");
+  assert.deepEqual(harnessBudget({ code: ["missing"] }, hs, {}, []), {}, "a harness the queue doesn't report is not a bound");
+});
+
+test("mergeBudgets: the tighter bound wins; a step bounded by one side keeps it", () => {
+  assert.deepEqual(mergeBudgets({ triage: 2, code: 3 }, { code: 1, review: 0 }), { triage: 2, code: 1, review: 0 });
+});
+
+test("puller: a queue step whose harnesses are all full pulls nothing; partial room limits the pull", async () => {
+  const steps = [{ id: "code", queueLabel: "queue:code", harness: ["qwen", "deepseek"] }];
+  const board = { code: ["10", "11", "12"] };
+  const full = harness({ steps, board, max: 5, state: { active: 3, queued: 0 }, harnessState: { qwen: { active: 1, max: 1 }, deepseek: { active: 2, max: 2 } } });
+  await full.p.pull();
+  assert.deepEqual(full.entered, [], "global slots are free, but every harness is full");
+  const partial = harness({ steps, board, max: 5, state: { active: 2, queued: 0 }, harnessState: { qwen: { active: 1, max: 1 }, deepseek: { active: 1, max: 2 } } });
+  await partial.p.pull();
+  assert.deepEqual(partial.entered, ["10:code:assign=false"], "one deepseek slot → one pull");
 });

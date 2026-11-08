@@ -334,3 +334,170 @@ test("no step caps: state() keeps its {active, queued} shape", () => {
   q.enqueue(job("T2"));
   assert.deepEqual(q.state(), { active: 1, queued: 1 });
 });
+
+// --- named harnesses (#619): a slot pool per backend, picked when the job starts ---
+
+/**
+ * A queue whose jobs settle (or reject) only when the test says so; `started` records
+ * `ref:harness` per start. @param {number} max @param {any} harnessing @param {Record<string, number>} [caps]
+ */
+function harnessed(max, harnessing, caps = {}) {
+  /** @type {Map<string, {ok: () => void, fail: () => void}>} */ const settle = new Map();
+  /** @type {string[]} */ const started = [];
+  const run = (/** @type {any} */ j) =>
+    new Promise((resolve, reject) => {
+      started.push(`${j.ref}:${j.harness ?? "-"}`);
+      settle.set(j.ref, { ok: () => resolve(info(j)), fail: () => reject(new Error("boom")) });
+    });
+  const q = createQueue(max, run, undefined, undefined, caps, harnessing);
+  /** @param {string} ref @param {"ok"|"fail"} [how] */
+  const done = async (ref, how = "ok") => {
+    const err = console.error;
+    console.error = () => {};
+    try {
+      settle.get(ref)?.[how]();
+      settle.delete(ref);
+      await new Promise((r) => setImmediate(r));
+    } finally {
+      console.error = err;
+    }
+  };
+  return { q, started, done };
+}
+
+const CODE_QR = { steps: { code: { harnesses: ["qwen", "deepseek"], routing: "first-free" } }, caps: { qwen: 1, deepseek: 2, opus: 3 } };
+
+test("harness first-free: prefers the first listed harness, spills to the next when it's full", async () => {
+  const { q, started, done } = harnessed(4, CODE_QR);
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  q.enqueue(job("C", "code"));
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "C:deepseek"]);
+  await done("A");
+  q.enqueue(job("D", "code"));
+  assert.deepEqual(started.slice(3), ["D:qwen"], "a freed first harness is preferred again");
+  for (const r of ["B", "C", "D"]) await done(r);
+  await q.onIdle();
+});
+
+test("harness round-robin: rotates across the list and skips a full harness", async () => {
+  const rr = { steps: { review: { harnesses: ["a", "b", "c"], routing: "round-robin" } }, caps: { a: 1, b: 5, c: 5 } };
+  const { q, started, done } = harnessed(10, rr);
+  for (const r of ["R1", "R2", "R3"]) q.enqueue(job(r, "review"));
+  assert.deepEqual(started, ["R1:a", "R2:b", "R3:c"]);
+  q.enqueue(job("R4", "review")); // cursor back at a — full (cap 1), so b
+  assert.deepEqual(started.slice(3), ["R4:b"]);
+  q.enqueue(job("R5", "review")); // cursor past b → c
+  assert.deepEqual(started.slice(4), ["R5:c"]);
+  await done("R1");
+  q.enqueue(job("R6", "review")); // cursor wrapped to a, which has room again
+  assert.deepEqual(started.slice(5), ["R6:a"]);
+  for (const r of ["R2", "R3", "R4", "R5", "R6"]) await done(r);
+  await q.onIdle();
+});
+
+test("harness: all harnesses full → the job waits and counts in capped; an unrelated job behind it still starts", async () => {
+  const { q, started, done } = harnessed(5, CODE_QR);
+  for (const r of ["A", "B", "C", "D"]) q.enqueue(job(r, "code"));
+  q.enqueue(job("T", "triage"));
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "C:deepseek", "T:-"], "D waits on full harnesses; T jumps it");
+  assert.deepEqual(q.state(), {
+    active: 4,
+    queued: 1,
+    capped: 1,
+    harnesses: { qwen: { active: 1, max: 1 }, deepseek: { active: 2, max: 2 }, opus: { active: 0, max: 3 } },
+  });
+  await done("B");
+  assert.deepEqual(started.slice(4), ["D:deepseek"]);
+  for (const r of ["A", "C", "D", "T"]) await done(r);
+  await q.onIdle();
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 0, max: 1 }, deepseek: { active: 0, max: 2 }, opus: { active: 0, max: 3 } });
+});
+
+test("harness: the harness cap nests with the step cap and the global cap — all three need room", async () => {
+  // step cap binds: code may run 1 at once though qwen+deepseek have 3 slots
+  let h = harnessed(4, CODE_QR, { code: 1 });
+  h.q.enqueue(job("A", "code"));
+  h.q.enqueue(job("B", "code"));
+  assert.deepEqual(h.started, ["A:qwen"]);
+  assert.equal(h.q.state().capped, 1);
+  await h.done("A");
+  assert.deepEqual(h.started.slice(1), ["B:qwen"]);
+  await h.done("B");
+  // global cap binds: max 2 though the harnesses have 3 slots
+  h = harnessed(2, CODE_QR);
+  for (const r of ["A", "B", "C"]) h.q.enqueue(job(r, "code"));
+  assert.deepEqual(h.started, ["A:qwen", "B:deepseek"]);
+  assert.deepEqual({ active: h.q.state().active, capped: h.q.state().capped }, { active: 2, capped: 0 }, "C waits on a global slot, not on a harness");
+  await h.done("A");
+  assert.deepEqual(h.started.slice(2), ["C:qwen"]);
+  for (const r of ["B", "C"]) await h.done(r);
+  // harness cap binds: an uncapped step and a big global cap, but qwen alone holds 1
+  h = harnessed(9, { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1 } });
+  h.q.enqueue(job("A", "code"));
+  h.q.enqueue(job("B", "code"));
+  assert.deepEqual(h.started, ["A:qwen"]);
+  await h.done("A");
+  await h.done("B");
+  await h.q.onIdle();
+});
+
+test("harness: a slot is released on settle, including when the run rejects", async () => {
+  const one = { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1 } };
+  const { q, started, done } = harnessed(3, one);
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 1, max: 1 } });
+  await done("A", "fail");
+  assert.deepEqual(started, ["A:qwen", "B:qwen"], "the rejected run freed qwen");
+  await done("B");
+  await q.onIdle();
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 0, max: 1 } });
+});
+
+test("harness: a job enqueued with a stale or unknown harness is re-routed at start", async () => {
+  const { q, started, done } = harnessed(4, CODE_QR);
+  const warn = console.warn;
+  /** @type {string[]} */ const warned = [];
+  console.warn = (/** @type {string} */ m) => warned.push(m);
+  try {
+    q.enqueue({ ...job("A", "code"), harness: "gone" });
+    q.enqueue({ ...job("B", "code"), harness: "opus" }); // configured, but not on code's list
+    q.enqueue({ ...job("T", "triage"), harness: "qwen" }); // triage has no harness at all
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "T:-"]);
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /\[harness\] gone .*unknown, re-routing/);
+  assert.equal(q.state().harnesses?.opus.active, 0, "the stale name never took a slot");
+  for (const r of ["A", "B", "T"]) await done(r);
+  await q.onIdle();
+});
+
+test("harness: an uncapped harness reports max null and never blocks", async () => {
+  const { q, started, done } = harnessed(3, { steps: { code: { harnesses: ["free"] } }, caps: { free: undefined } });
+  for (const r of ["A", "B", "C"]) q.enqueue(job(r, "code"));
+  assert.deepEqual(started, ["A:free", "B:free", "C:free"]);
+  assert.deepEqual(q.state(), { active: 3, queued: 0, capped: 0, harnesses: { free: { active: 3, max: null } } });
+  assert.deepEqual(q.harnessState(), { free: { active: 3, max: null } });
+  for (const r of ["A", "B", "C"]) await done(r);
+  await q.onIdle();
+});
+
+test("harness: merge/ci jobs never take a harness slot", async () => {
+  const { q, started, done } = harnessed(3, { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1 } });
+  q.enqueue(job("A", "code"));
+  q.enqueue({ kind: "merge", ref: "M", stepId: "code", dedupKey: "merged:1" });
+  assert.deepEqual(started, ["A:qwen", "M:-"]);
+  await done("A");
+  await done("M");
+  await q.onIdle();
+});
+
+test("no harnesses: state() has no `harnesses` and harnessState() is empty", () => {
+  const q = createQueue(1, () => new Promise(() => {}));
+  q.enqueue(job("T1"));
+  assert.deepEqual(q.state(), { active: 1, queued: 0 });
+  assert.deepEqual(q.harnessState(), {});
+});

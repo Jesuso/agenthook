@@ -48,6 +48,22 @@ test("readStatus: slots.capped (heartbeat) frees the slots its queued jobs would
   assert.deepEqual(readStatus(readProfile("p", reg)).slots, { max: 3, active: 1, queued: 2, capped: 2, free: 2 });
 });
 
+test("readStatus: slots.harnesses (heartbeat) shows per-harness active/max, only when the profile has harnesses", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: { 7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z" }, 8: { stepId: "code", startedAt: "2026-01-01T00:51:00Z" } },
+    queue: [{ kind: "pipeline", ref: "9", stepId: "code", dedupKey: "k9" }],
+    hb: { queue: { active: 2, queued: 1, capped: 1, harnesses: { "local-qwen": { active: 1, max: 1 }, deepseek: { active: 1, max: 1 }, opus: { active: 0, max: null } } } },
+  });
+  assert.deepEqual(readStatus(readProfile("p", reg)).slots, {
+    max: 3, active: 2, queued: 1, capped: 1, free: 1,
+    harnesses: { "local-qwen": { active: 1, max: 1 }, deepseek: { active: 1, max: 1 }, opus: { active: 0, max: null } },
+  });
+  const plain = registry();
+  profile(plain, "q", { hb: { queue: { active: 0, queued: 0 } } });
+  assert.equal(Object.hasOwn(readStatus(readProfile("q", plain)).slots, "harnesses"), false);
+});
+
 test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", () => {
   const reg = registry();
   profile(reg, "a", { name: "Alpha" });

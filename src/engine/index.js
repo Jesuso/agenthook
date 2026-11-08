@@ -45,6 +45,7 @@ import { createQueue } from "../queue.js";
 import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
+import { harnessesOf } from "../dispatch/harness.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
 import { createDigester } from "../digest.js";
 import { createSummarizer } from "../summarize.js";
@@ -113,10 +114,21 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   /** @type {Record<string, number>} */
   const stepCaps = {};
   for (const s of cfg.pipeline || []) if (!s.manual && s.maxConcurrent != null) stepCaps[s.id] = s.maxConcurrent;
+  // Named harnesses: each harnessed step's list + routing, and each harness's own slot cap.
+  /** @type {Parameters<typeof createQueue>[5]} */
+  let harnessing;
+  if (cfg.harnesses) {
+    harnessing = { steps: {}, caps: {} };
+    for (const s of cfg.pipeline || []) {
+      if (!s.manual && harnessesOf(s).length) harnessing.steps[s.id] = { harnesses: harnessesOf(s), routing: s.routing ?? "first-free" };
+    }
+    for (const [name, h] of Object.entries(cfg.harnesses)) harnessing.caps[name] = h.maxConcurrent;
+  }
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
     { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
     stepCaps,
+    harnessing,
   );
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
@@ -160,6 +172,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     max: () => queue.max(), // live: `set_concurrency` moves it
     queueState: () => queue.state(),
     stepState: () => queue.stepState(),
+    harnessState: () => queue.harnessState(),
     inflightRefs: () => [...Object.keys(store.listRunning()), ...store.listQueued().map((j) => j.ref)],
     listQueued: (stepId) => /** @type {NonNullable<typeof adapter.listQueued>} */ (adapter.listQueued)(stepId),
     enterStage: (ref, stepId, opts) => /** @type {NonNullable<typeof adapter.enterStage>} */ (adapter.enterStage)(ref, stepId, opts),

@@ -18,6 +18,7 @@
  * @property {{prNumber: number, headSha: string}} [push]  pr_push jobs only: the PR and its new head
  * @property {boolean} [boardCloses]  merge jobs only: the board closes this ticket itself on merge; dispatch doesn't bridge
  * @property {string} [queuedAt]  persisted queue entries only: ISO timestamp of the first enqueue (stamped by `store.addQueued`, kept across a re-add/restart)
+ * @property {string} [harness]   pipeline jobs of a step with `harness`: the harness the queue picked when the job started (never trusted from disk — re-routed at start)
  */
 
 /** A red CI run on a ref's agent branch (the `ci` job payload). Receiver-trusted
@@ -57,6 +58,8 @@
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
  * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
+ * @property {string|string[]} [harness]     name(s) from the profile's `harnesses` this step's runs use; the queue picks one with a free slot when a job starts. The step's own agent/model/bin/provider/toolsets win over the harness's; `env` merges (step keys win)
+ * @property {'first-free'|'round-robin'} [routing]  how a `harness` list is picked: first-free (default) = the first listed harness with room; round-robin = rotate, skipping full ones. Needs a list
  * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over the agent's filtered env (see agentEnvPassthrough; AGENTHOOK_VERDICT_FILE is reserved)
@@ -137,6 +140,8 @@
  * @property {number} [cacheRead]   live cache-read token tally (estimate; final in UsageRecord)
  * @property {number} [cacheCreate] live cache-creation token tally (estimate; final in UsageRecord)
  * @property {string|null} [model]   the model the run was launched with (null = CLI default)
+ * @property {string|null} [harness] the harness the run was routed to (null = the step has none)
+ * @property {string} [agent]        the agent adapter the run spawned (after the step's and the harness's `agent`)
  */
 
 /** Durable per-ref display metadata (refmeta.json). Never cleared: `status`/`events`
@@ -185,6 +190,7 @@
  * @property {string} stepId
  * @property {string} [model]      model that ran (step `--model`, else the `modelUsage` key)
  * @property {string} [bin]        the step's agent binary, only when it differs from `claudeBin`
+ * @property {string} [agent]      the agent adapter that ran — only on a harness run (a harness may switch it; otherwise the step names it)
  * @property {string} startedAt    ISO timestamp the run was spawned
  * @property {string} endedAt      ISO timestamp the run exited
  * @property {number} [durationMs] `result.duration_ms` if present
@@ -504,7 +510,7 @@
  * @typedef {object} Sandbox
  * @property {() => {name: string, home: string}} describe  `home` = the container's HOME
  * @property {() => Promise<{ok: true} | {ok: false, reason: string}>} check  runtime reachable + image present
- * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress}) => Promise<SandboxRun>} wrap  `egress` absent = open (the runtime's default network)
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string}) => Promise<SandboxRun>} wrap  `egress` absent = open (the runtime's default network); `image` = the run's harness image (absent = the profile's)
  * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} reap  force-remove every container
  *   and network labelled with this profile; `runs` is the distinct `"<ref>/<step>"` values read from the removed
  *   containers' `agenthook.ref`/`agenthook.step` labels (best-effort — a container with neither label is omitted)
@@ -659,6 +665,20 @@
  * @property {boolean} [mine]   set by ops (not the forge): true/false from a 5-min-cached `adapter.ownership` lookup, absent when scoping is off, the adapter has no `ownership`, or the lookup failed
  */
 
+/**
+ * A named agent backend (`harnesses.<name>`): a bundle of spawn knobs with its own slot pool.
+ * A step naming it gets these knobs where it sets none of its own (src/dispatch/harness.js).
+ * @typedef {object} Harness
+ * @property {string} [agent]                  agent adapter (src/agents/); default the profile's
+ * @property {string} [model]                  the agent's model
+ * @property {string} [bin]                    the agent's executable (a name on PATH or an absolute path)
+ * @property {Record<string, string>} [env]   extra environment for the agent; a step's own `env` keys win
+ * @property {string} [provider]               inference provider (hermes `--provider`); other agents ignore it
+ * @property {string[]} [toolsets]            hermes `-t` toolsets; other agents ignore it
+ * @property {number} [maxConcurrent]          max runs on this harness at once, across every step (default: bounded only by the global cap)
+ * @property {{image?: string}} [sandbox]     sandboxed runs on this harness use this image instead of `sandbox.image`
+ */
+
 /** A factory `(cfg, store) => Forge`.
  * @typedef {(cfg: Config, store: Store) => Forge} ForgeFactory */
 
@@ -681,6 +701,7 @@
  * @property {SinkConfig[]} [sinks]  optional human-attention sinks fed from the event bus
  * @property {ForgeConfig} [forge]   optional; absent = no forge (no PR awareness)
  * @property {SandboxConfig} [sandbox]  optional; absent = agents run on the host. Set = each run in its own container (src/sandbox/)
+ * @property {Record<string, Harness>} [harnesses]  named agent backends, each with its own slot pool; a step's `harness` picks from them
  * @property {{ color?: string, emoji?: string }} [ui]  optional profile identity for the web UI (src/identity.js); unset values derive from the state key
  * @property {{ soul: string, access?: 'snapshot', model?: string, maxBudgetUsd?: number }} digest  the on-demand Digest (src/digest.js); `soul` is resolved beside the config; unset `model`/`maxBudgetUsd` fall back to `summaries.*`
  * @property {{ model?: string, maxBudgetUsd?: number }} [summaries]  cheap tool-less summaries in the UI language (src/summarize.js); `model` default "claude-haiku-5-5", `maxBudgetUsd` default 0.1 per ticket-summary run

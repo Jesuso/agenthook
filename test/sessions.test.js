@@ -11,7 +11,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-sessions-"));
 process.env.HOME = HOME;
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 
-const { sessionDir, refRepo, listSessions } = await import("../src/sessions.js");
+const { sessionDir, refRepo, listSessions, sessionAgents } = await import("../src/sessions.js");
 const { claudeProjectDir } = await import("../src/paths.js");
 const { worktreePath } = await import("../src/worktree.js");
 
@@ -87,4 +87,11 @@ test("follow transcriptDirs: a sandboxed profile also searches the receiver-owne
   assert.deepEqual(got.dirs, [sbx]);
   assert.ok(got.searched.includes(sbx));
   assert.deepEqual(transcriptDirs({ ...cfg, sandbox: undefined }, cfg.repos).dirs, [], "unsandboxed: not searched");
+});
+
+test("sessionAgents: a harness's agent counts too, so follow/resume find runs it switched (#619)", () => {
+  const names = (/** @type {any} */ cfg) => sessionAgents(cfg).map((a) => a.name);
+  const base = { agent: "claude", pipeline: [{ id: "code" }] };
+  assert.deepEqual(names(base), ["claude"]);
+  assert.deepEqual(names({ ...base, harnesses: { cur: { agent: "cursor" }, plain: {} } }), ["claude", "cursor"]);
 });

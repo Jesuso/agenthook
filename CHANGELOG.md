@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Named harnesses with slot pools (#619). A top-level `harnesses` record declares agent backends
+  (`agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `sandbox.image`), each with its own
+  `maxConcurrent`. A step names one or a list with `harness`, and `routing` (`first-free`, the
+  default, or `round-robin`) picks a harness with a free slot when the job starts; with all of them
+  full the job waits without blocking unrelated work. The step's own knobs win, `env` merges.
+  `tick`/`status` show `slots.harnesses`; `run_start`/`run_end` carry `harness`; the
+  queue-stage pull only pulls into harness room. A profile without `harnesses` is unchanged. See
+  [docs/local-models.md](docs/local-models.md#several-backends-harnesses).
+
 ## [0.15.0] — 2026-11-04
 
 ### Added

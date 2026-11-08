@@ -54,12 +54,58 @@ Steps that write code (`code`, a `createsWorktree` step) gain the most from a st
 | `env` | Extra environment for this step's agent only, e.g. `ANTHROPIC_BASE_URL`. |
 | `model` | The model name your endpoint serves. |
 | `requireVerdict` | On by default: hold the task when the agent exits cleanly without a valid verdict file, instead of advancing it. Weaker models skip the verdict more often — set `false` to opt back out to the old advance-on-clean-exit behavior. |
-| `maxConcurrent` | `1` when one GPU serves the model, so runs of this step queue instead of competing. The cap counts inside the global `maxConcurrent`. |
+| `maxConcurrent` | `1` when one GPU serves the model, so runs of this step queue instead of competing. The cap counts inside the global `maxConcurrent`. Several steps sharing one GPU: use a [harness](#several-backends-harnesses) instead. |
 | `maxMinutes` / `idleMinutes` | Local models are slower. Raise the wall-clock cap, and the idle cap if you set one. |
 | `maxAttempts` | Caps how many times a `changes` verdict can bounce back into a step. |
 
 A weaker model is more likely to loop: a local `review` can keep returning `changes` that `code`
 can't satisfy. `maxAttempts` (default 3) bounds that loop, then the task fails to a human.
+
+## Several backends: harnesses
+
+A step's `maxConcurrent` caps one step. When two steps share one local GPU, they can still hit it
+at once, and a step can't fall back to another backend when its own is busy. A **harness** fixes
+both: a named bundle of agent knobs with its own slot pool, declared once at the top level and
+named by any number of steps.
+
+```jsonc
+{
+  "maxConcurrent": 4,
+  "harnesses": {
+    "local-qwen": { "agent": "claude", "model": "qwen3-coder", "env": { "ANTHROPIC_BASE_URL": "http://localhost:11434" }, "maxConcurrent": 1 },
+    "opus":       { "agent": "claude", "model": "claude-opus-5-5", "maxConcurrent": 3 },
+    "deepseek":   { "agent": "opencode", "model": "deepseek/deepseek-v3", "maxConcurrent": 2 }
+  },
+  "tracker": {
+    "pipeline": [
+      { "id": "triage", "harness": "opus" },
+      { "id": "code",   "harness": ["local-qwen", "deepseek"], "routing": "first-free" },
+      { "id": "review", "harness": ["deepseek", "opus"],       "routing": "round-robin" }
+    ]
+  }
+}
+```
+
+A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConcurrent` and
+`sandbox: { image }`, all optional. Unset `maxConcurrent` = bounded only by the global cap.
+
+- **When it's picked.** The queue picks the harness when the job *starts*, never earlier: a
+  waiting job has none yet. `first-free` (the default) takes the first listed harness with a free
+  slot; `round-robin` rotates through the list and skips full ones. `routing` needs a list.
+- **All full.** The job waits (it counts in `slots.capped`, not as holding a global slot), and an
+  unrelated job behind it still starts. A job starts only when the global cap, the step's own
+  `maxConcurrent` and one of its harnesses all have room.
+- **Precedence.** A knob the step sets itself wins over the harness's; a knob neither sets falls
+  back to the profile (`agent`, `agentProvider`, `claudeBin`) and the agent's default, as before.
+  `env` merges: the harness's, with the step's keys on top. `effort`, `escalate` and `lite` stay
+  on the step, so `escalate`/`lite` still override a harness's `model`.
+- **Sandbox.** A sandboxed run on a harness with `sandbox.image` uses that image instead of
+  `sandbox.image`; the boot check inspects every configured image.
+- **Where to see it.** `ah tick --json` shows `slots.harnesses` (`{name: {active, max}}`);
+  `run_start`/`run_end` carry `harness`; `running.json` records `harness` and `agent`.
+
+A step without `harness` behaves exactly as before, and a profile without `harnesses` reports the
+same `slots` and events as before. Worktree, verdict and advance never depend on the harness.
 
 ## Cost reporting
 

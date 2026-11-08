@@ -10,8 +10,9 @@
  * agent's permission mode, binary, env passthrough, per-run GitHub token switch and per-step
  * binary/env/allow/deny policy, the energy command (it runs a shell command), the sandbox
  * backend/image/egress mode and a step's opt-out of it (and its egress mode), each service's image
- * and env and a step's services, the tracker identity that scopes which items are ours,
- * and every src/config.js SECRET_FIELDS path (a test keeps that list a subset of this one).
+ * and env and a step's services, each harness's binary/env/image, the tracker identity that
+ * scopes which items are ours, and every src/config.js SECRET_FIELDS path (a test keeps that
+ * list a subset of this one).
  * `[*]` expands every element of an array, a `*` segment every key of an object.
  */
 export const SENSITIVE_FIELDS = /** @type {const} */ ([
@@ -45,6 +46,9 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "sandbox.egress.mode",
   "sandbox.services.*.image",
   "sandbox.services.*.env",
+  "harnesses.*.bin",
+  "harnesses.*.env",
+  "harnesses.*.sandbox.image",
 ]);
 
 /**

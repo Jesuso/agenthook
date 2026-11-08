@@ -24,20 +24,31 @@ export function planRestore(queued, runningRefs, stepIds) {
 /**
  * @param {number} initialMax
  * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
- * @param {(state: {active:number, queued:number, capped?:number}) => void} [onChange]  called after every state change (heartbeat)
+ * @param {(state: {active:number, queued:number, capped?:number, harnesses?: Record<string, {active: number, max: number|null}>}) => void} [onChange]  called after every state change (heartbeat)
  * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
  *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run,
  *   onSettle after a job settles and its slot is released (the engine's queue-stage pull trigger)
  * @param {Record<string, number>} [stepCaps]  per-step concurrency caps (stepId → max runs at once),
  *   counted INSIDE the global max. Only `pipeline` jobs count; `merge`/`ci` spawn no agent. Empty →
  *   strict FIFO as before, and `state()` carries no `capped`.
+ * @param {{steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps: Record<string, number|undefined>}} [harnessing]
+ *   named harnesses (set only when the profile has `harnesses`): each harnessed step's list and
+ *   routing, and each harness's slot cap (undefined = only the global cap). A pipeline job of a
+ *   harnessed step starts only when one of its harnesses has room; the pick lands on `job.harness`.
+ *   Set → `state()` carries `harnesses` (and `capped`).
  */
-export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
+export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, harnessing) {
   let max = initialMax;
   const caps = new Map(Object.entries(stepCaps));
-  const capping = caps.size > 0;
+  const harnessSteps = new Map(Object.entries(harnessing?.steps ?? {}));
+  const harnessCaps = harnessing?.caps ?? {};
+  const capping = caps.size > 0 || harnessSteps.size > 0;
   /** @type {Map<string, number>} stepId → running pipeline jobs of that step */
   const activeByStep = new Map();
+  /** @type {Map<string, number>} harness name → running jobs on it */
+  const activeByHarness = new Map();
+  /** @type {Map<string, number>} stepId → its round-robin cursor (the next list index to try) */
+  const rrNext = new Map();
   /** @param {import('./types.js').Job} job */
   const isPipeline = (job) => (job.kind ?? "pipeline") === "pipeline";
   /** @param {import('./types.js').Job} job  true while `job`'s step is at its cap (it must wait) */
@@ -45,7 +56,43 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
     const cap = isPipeline(job) ? caps.get(job.stepId) : undefined;
     return cap != null && (activeByStep.get(job.stepId) ?? 0) >= cap;
   };
-  const cappedCount = () => (capping ? queue.filter(atCap).length : 0);
+  /** @param {string} name  true while `name` has a free slot (an uncapped harness always does) */
+  const hasRoom = (name) => {
+    const cap = Object.hasOwn(harnessCaps, name) ? harnessCaps[name] : undefined;
+    return cap == null || (activeByHarness.get(name) ?? 0) < cap;
+  };
+  /** @param {import('./types.js').Job} job  its step's harness routing, when it has one */
+  const routingOf = (job) => (isPipeline(job) ? harnessSteps.get(job.stepId) : undefined);
+  /** @param {import('./types.js').Job} job  true while `job` must wait: its step's cap, or every one of its harnesses, is full */
+  const blocked = (job) => atCap(job) || !!routingOf(job)?.harnesses.every((n) => !hasRoom(n));
+  /**
+   * The harness `job` starts on (undefined when its step has none, or all are full): first-free
+   * takes the first listed one with room; round-robin starts at the step's cursor and skips full
+   * ones, then moves the cursor past its pick.
+   * @param {import('./types.js').Job} job
+   */
+  const pickHarness = (job) => {
+    const r = routingOf(job);
+    if (!r?.harnesses.length) return undefined;
+    const list = r.harnesses;
+    if (r.routing !== "round-robin") return list.find(hasRoom);
+    const start = (rrNext.get(job.stepId) ?? 0) % list.length;
+    for (let k = 0; k < list.length; k++) {
+      const i = (start + k) % list.length;
+      if (!hasRoom(list[i])) continue;
+      rrNext.set(job.stepId, i + 1);
+      return list[i];
+    }
+    return undefined;
+  };
+  /** @returns {Record<string, {active: number, max: number|null}>} every configured harness's slots */
+  const harnessState = () => {
+    /** @type {Record<string, {active: number, max: number|null}>} */
+    const out = {};
+    for (const [name, cap] of Object.entries(harnessCaps)) out[name] = { active: activeByHarness.get(name) ?? 0, max: cap ?? null };
+    return out;
+  };
+  const cappedCount = () => (capping ? queue.filter(blocked).length : 0);
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -84,7 +131,12 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
   let idleWaiters = [];
   /** @type {(() => void)[]} */
   let activeIdleWaiters = [];
-  const snapshot = () => (capping ? { active, queued: queue.length, capped: cappedCount() } : { active, queued: queue.length });
+  const snapshot = () => ({
+    active,
+    queued: queue.length,
+    ...(capping ? { capped: cappedCount() } : {}),
+    ...(harnessing ? { harnesses: harnessState() } : {}),
+  });
   const report = () => onChange?.(snapshot());
   const resolveIdle = () => {
     if (active === 0 && queue.length === 0 && idleWaiters.length) {
@@ -103,17 +155,27 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
 
   function pump() {
     while (!paused && active < max && queue.length) {
-      // First waiting job whose step is under its cap: a capped job never blocks the
-      // uncapped ones behind it, and the jobs left behind keep their relative order.
-      const i = capping ? queue.findIndex((j) => !atCap(j)) : 0;
+      // First waiting job whose step is under its cap and has a harness with room: a capped
+      // job never blocks the startable ones behind it, and the jobs left behind keep their
+      // relative order.
+      const i = capping ? queue.findIndex((j) => !blocked(j)) : 0;
       if (i < 0) break;
       const [job] = queue.splice(i, 1);
       if (!job) break;
       persist?.onRemove?.(job);
+      // The harness is picked here, never trusted from the job (a restored entry may name one
+      // since renamed or removed).
+      if (job.harness != null && !Object.hasOwn(harnessCaps, job.harness)) console.warn(`[harness] ${job.harness} on ${job.ref} unknown, re-routing`);
+      delete job.harness;
+      const harness = pickHarness(job);
+      if (harness) {
+        job.harness = harness;
+        activeByHarness.set(harness, (activeByHarness.get(harness) ?? 0) + 1);
+      }
       active++;
       if (isPipeline(job)) activeByStep.set(job.stepId, (activeByStep.get(job.stepId) ?? 0) + 1);
       report();
-      console.log(`[start] ${job.kind} ${job.ref} (running ${active}/${max}, ${queue.length} queued)`);
+      console.log(`[start] ${job.kind} ${job.ref}${harness ? ` on ${harness}` : ""} (running ${active}/${max}, ${queue.length} queued)`);
       run(job)
         .then((info) => {
           const left = active - 1 + queue.length;
@@ -133,6 +195,11 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
             const n = (activeByStep.get(job.stepId) ?? 1) - 1;
             if (n > 0) activeByStep.set(job.stepId, n);
             else activeByStep.delete(job.stepId);
+          }
+          if (harness) {
+            const n = (activeByHarness.get(harness) ?? 1) - 1;
+            if (n > 0) activeByHarness.set(harness, n);
+            else activeByHarness.delete(harness);
           }
           inflight.delete(workKey(job));
           for (const w of freeWaiters.get(workKey(job)) ?? []) w();
@@ -220,8 +287,14 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}) {
       if (!byRef.has(ref)) return fn();
       refWaiters.set(ref, [...(refWaiters.get(ref) ?? []), fn]);
     },
-    /** {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap) only when step caps are set. */
+    /**
+     * {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap, or whose harnesses
+     * are all full) only when step caps or harnesses are set; `harnesses` ({[name]: {active, max}})
+     * only when the profile has harnesses.
+     */
     state: snapshot,
+    /** Every configured harness's {active, max} (max null = uncapped) — the puller's harness budget; {} without harnesses. */
+    harnessState,
     /**
      * Per-step counts of PIPELINE jobs: {[stepId]: {active, queued}} — the puller's per-step budget.
      * @returns {Record<string, {active: number, queued: number}>}

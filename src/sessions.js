@@ -7,7 +7,7 @@
 // and every step's own `agent`, so a cursor step in a claude profile is found too.
 import fs from "node:fs";
 import path from "node:path";
-import { agentFor } from "./agents/index.js";
+import { AGENTS, agentFor, getAgent } from "./agents/index.js";
 import { worktreePath } from "./worktree.js";
 import { reposOf, repoById, primaryRepo } from "./repos.js";
 
@@ -29,14 +29,15 @@ export function agentSessions(agent) {
 }
 
 /** The distinct agents whose transcripts a profile's runs may have left: the profile's agent,
- * then every non-manual step's, keeping only those with `sessions`. Throws (the profile
- * agent's plain error) when none keeps transcripts.
- * @param {Pick<import('./types.js').Config, 'agent'|'pipeline'>} cfg
+ * then every non-manual step's, then every harness's, keeping only those with `sessions`.
+ * Throws (the profile agent's plain error) when none keeps transcripts.
+ * @param {Pick<import('./types.js').Config, 'agent'|'pipeline'|'harnesses'>} cfg
  * @returns {{name: string, sessions: import('./types.js').AgentSessions}[]} */
 export function sessionAgents(cfg) {
   /** @type {Map<string, import('./types.js').AgentSessions>} */
   const seen = new Map();
-  for (const agent of [agentFor(cfg), ...(cfg.pipeline ?? []).filter((s) => !s.manual).map((s) => agentFor(cfg, s))]) {
+  const harnessAgents = Object.values(cfg.harnesses ?? {}).filter((h) => h.agent).map((h) => agentFor(cfg, h));
+  for (const agent of [agentFor(cfg), ...(cfg.pipeline ?? []).filter((s) => !s.manual).map((s) => agentFor(cfg, s)), ...harnessAgents]) {
     const name = agent.describe().name;
     if (agent.sessions && !seen.has(name)) seen.set(name, agent.sessions);
   }
@@ -197,7 +198,8 @@ export function listSessions(cfg, ref, store) {
   const seenIds = new Set(out.map((s) => s.id));
   for (const rec of store?.readUsage?.() ?? []) {
     if (rec.ref !== ref || !rec.sessionId || seenIds.has(rec.sessionId)) continue;
-    const agent = agentFor(cfg, (cfg.pipeline ?? []).find((s) => s.id === rec.stepId));
+    // A record names the agent that ran (a harness may have switched it); older ones don't.
+    const agent = rec.agent && Object.hasOwn(AGENTS, rec.agent) ? getAgent(rec.agent) : agentFor(cfg, (cfg.pipeline ?? []).find((s) => s.id === rec.stepId));
     if (agent.sessions || !agent.resumeCommand) continue;
     seenIds.add(rec.sessionId);
     out.push({ id: rec.sessionId, step: rec.stepId, at: Date.parse(rec.startedAt), msgs: 0, prompt: "", agent: agent.describe().name });

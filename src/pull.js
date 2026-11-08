@@ -6,11 +6,13 @@
 // fires the step as usual; there is no direct enqueue. The in-memory queue stays FIFO:
 // priority comes from only pulling into free slots, in board order.
 
+import { harnessesOf } from "./dispatch/harness.js";
+
 /**
  * Free slots a pull may fill: `max − active − (queued − capped) − pending`. `pending` counts
  * refs a pull already moved whose webhook-driven job hasn't arrived yet, so a second settle
- * can't over-pull into the same slot. `capped` queued jobs wait on their step's own cap, not
- * on a slot, so they don't hold one. Never negative.
+ * can't over-pull into the same slot. `capped` queued jobs wait on their step's own cap (or its
+ * full harnesses), not on a slot, so they don't hold one. Never negative.
  * @param {{max: number, active: number, queued: number, capped?: number, pending: number}} s
  */
 export function freeSlots({ max, active, queued, capped = 0, pending }) {
@@ -66,6 +68,52 @@ export function stepBudget(caps, stepState, pendingSteps) {
   return out;
 }
 
+/**
+ * Remaining pull budget per queue step that routes through harnesses: the room left across its
+ * harnesses (Σ max − active) less the step's own queued + pending jobs, never negative. A step
+ * with an uncapped harness (or one the queue doesn't report) is absent — unbounded by harnesses.
+ * Pure. Combine with stepBudget via `mergeBudgets` (the tighter bound wins).
+ * @param {Record<string, string[]>} stepHarnesses  stepId → its harness list
+ * @param {Record<string, {active: number, max: number|null}>} harnessState  the queue's per-harness slots
+ * @param {Record<string, {active: number, queued: number}>} stepState  the queue's per-step counts
+ * @param {Iterable<string>} pendingSteps  the stepId of every pending pull
+ * @returns {Record<string, number>}
+ */
+export function harnessBudget(stepHarnesses, harnessState, stepState, pendingSteps) {
+  /** @type {Record<string, number>} */
+  const pendingOf = {};
+  for (const id of pendingSteps) pendingOf[id] = (pendingOf[id] ?? 0) + 1;
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const [id, names] of Object.entries(stepHarnesses)) {
+    if (!names.length) continue;
+    let room = 0;
+    for (const n of names) {
+      const h = Object.hasOwn(harnessState, n) ? harnessState[n] : undefined;
+      if (h?.max == null) {
+        room = Infinity;
+        break;
+      }
+      room += Math.max(0, h.max - h.active);
+    }
+    if (room === Infinity) continue;
+    const s = Object.hasOwn(stepState, id) ? stepState[id] : { active: 0, queued: 0 };
+    out[id] = Math.max(0, room - s.queued - (pendingOf[id] ?? 0));
+  }
+  return out;
+}
+
+/**
+ * Two per-step budgets as one: a step bounded by both gets the smaller; one bounded by either
+ * keeps that bound. Pure. @param {Record<string, number>} a @param {Record<string, number>} b
+ * @returns {Record<string, number>}
+ */
+export function mergeBudgets(a, b) {
+  const out = { ...a };
+  for (const [id, n] of Object.entries(b)) out[id] = Object.hasOwn(out, id) ? Math.min(out[id], n) : n;
+  return out;
+}
+
 /** How long a pulled ref holds its slot waiting for its webhook before it's forgotten
  * (checked lazily on the next trigger — never by a timer). */
 export const PULL_TTL_MS = 10 * 60 * 1000;
@@ -81,6 +129,7 @@ export const PULL_TTL_MS = 10 * 60 * 1000;
  *   max: number | (() => number),   // a function tracks the live cap (`set_concurrency`)
  *   queueState: () => {active: number, queued: number, capped?: number},
  *   stepState?: () => Record<string, {active: number, queued: number}>,  // per-step counts (only read for capped steps)
+ *   harnessState?: () => Record<string, {active: number, max: number|null}>,  // per-harness slots (only read for steps with `harness`)
  *   inflightRefs: () => string[],
  *   listQueued: (stepId: string) => Promise<string[]>,
  *   enterStage: (ref: string, stepId: string, opts: {assign: boolean}) => Promise<unknown>,
@@ -92,11 +141,14 @@ export const PULL_TTL_MS = 10 * 60 * 1000;
  * }} deps
  */
 export function createPuller(deps) {
-  const { steps, max, queueState, stepState, inflightRefs, listQueued, enterStage, stageOf, isDraining, emit, onDepth } = deps;
+  const { steps, max, queueState, stepState, harnessState, inflightRefs, listQueued, enterStage, stageOf, isDraining, emit, onDepth } = deps;
   const now = deps.now || Date.now;
   /** @type {Record<string, number>} stepId → maxConcurrent, for the queue steps that set one */
   const caps = {};
   for (const s of steps) if (s.maxConcurrent != null) caps[s.id] = s.maxConcurrent;
+  /** @type {Record<string, string[]>} stepId → its harness list, for the queue steps that set one */
+  const harnessed = {};
+  for (const s of steps) if (harnessesOf(s).length) harnessed[s.id] = harnessesOf(s);
   /** @type {Map<string, {at: number, stepId: string}>} ref → when + into which step it was pulled */
   const pending = new Map();
   /** @type {Record<string, {depth: number, at: string}>} */
@@ -123,7 +175,9 @@ export function createPuller(deps) {
     }
     onDepth?.(depth);
     // Re-read the slots: a webhook may have enqueued work while we listed.
-    const budget = stepBudget(caps, stepState?.() ?? {}, [...pending.values()].map((p) => p.stepId));
+    const counts = stepState?.() ?? {};
+    const pendingSteps = [...pending.values()].map((p) => p.stepId);
+    const budget = mergeBudgets(stepBudget(caps, counts, pendingSteps), harnessBudget(harnessed, harnessState?.() ?? {}, counts, pendingSteps));
     const picks = planPull({ free: slots(), pending: pending.keys(), inflightRefs: inflightRefs(), candidates, budget });
     for (const { ref, stepId, rank } of picks) {
       if (isDraining()) return;

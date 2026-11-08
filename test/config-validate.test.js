@@ -517,3 +517,69 @@ test("sandbox.services / step services (#529): a valid catalog passes; each stru
   assert.deepEqual(errs(raw({}, [{ id: "code", services: ["db"] }])), [`config: pipeline step "code" services needs a profile "sandbox" (services run beside the sandboxed agent).`]);
   assert.deepEqual(errs(withSvc({ db }, [{ id: "code" }, { id: "done", manual: true, services: ["db"] }])), [`config: pipeline step "done" services has no effect on a manual step (no agent runs).`]);
 });
+
+// --- named harnesses (#619) ---
+
+const HARNESSES = {
+  "local-qwen": { agent: "claude", model: "qwen3-coder", env: { ANTHROPIC_BASE_URL: "http://localhost:11434" }, maxConcurrent: 1 },
+  opus: { agent: "claude", model: "claude-opus-5-5", maxConcurrent: 3 },
+  deepseek: { agent: "opencode", model: "deepseek/deepseek-v3", maxConcurrent: 2, sandbox: { image: "agent-opencode:1" } },
+  bare: {},
+};
+/** @param {any} harnesses @param {any[]} [pipeline] */
+const hErrs = (harnesses, pipeline) => /** @type {any} */ (validateRawConfig(raw({ harnesses }, pipeline))).errors;
+
+test("harnesses: the example shape passes — a string, a first-free list and a round-robin list; a step without harness still loads", () => {
+  const steps = [
+    { id: "triage", harness: "opus" },
+    { id: "code", harness: ["local-qwen", "deepseek"], routing: "first-free" },
+    { id: "review", harness: ["deepseek", "opus"], routing: "round-robin" },
+    { id: "plain" },
+    { id: "done", manual: true },
+  ];
+  assert.deepEqual(validateRawConfig(raw({ harnesses: HARNESSES }, steps)), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code" }])), { ok: true }, "no harnesses block at all");
+});
+
+test("harnesses: not an object fails", () => {
+  for (const v of [[], "opus", 5]) assert.match(hErrs(v)[0], /^config: "harnesses" must be an object/);
+  assert.deepEqual(hErrs({ opus: "claude" }), [`config: harness "opus" must be an object.`]);
+});
+
+test("harnesses: a bad agent, bin, provider, toolsets, env, model, maxConcurrent or sandbox.image fails", () => {
+  const one = (/** @type {any} */ h) => hErrs({ x: h });
+  assert.deepEqual(one({ agent: "gpt" }), [`config: harness "x" agent "gpt" is not a known agent (claude, cursor, hermes, opencode).`]);
+  assert.deepEqual(one({ bin: " " }), [`config: harness "x" bin must be a non-empty string (a name on PATH or an absolute path).`]);
+  assert.deepEqual(one({ provider: "" }), [`config: harness "x" provider must be a non-empty string.`]);
+  assert.deepEqual(one({ toolsets: [] }), [`config: harness "x" toolsets must be a non-empty array of non-empty strings.`]);
+  assert.deepEqual(one({ env: [] }), [`config: harness "x" env must be an object of NAME: "value" strings.`]);
+  assert.deepEqual(one({ env: { AGENTHOOK_VERDICT_FILE: "x" } }), [`config: harness "x" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`]);
+  assert.deepEqual(one({ env: { A: 1 } }), [`config: harness "x" env.A must be a string.`]);
+  assert.deepEqual(one({ model: "" }), [`config: harness "x" model must be a non-empty string.`]);
+  for (const v of [0, -1, 1.5, "2"]) assert.deepEqual(one({ maxConcurrent: v }), [`config: harness "x" maxConcurrent must be a positive integer.`], `maxConcurrent ${JSON.stringify(v)}`);
+  assert.deepEqual(one({ sandbox: { image: "" } }), [`config: harness "x" sandbox.image must be a non-empty string.`]);
+  assert.deepEqual(one({ sandbox: "img" }), [`config: harness "x" sandbox must be an object ({ "image": "…" }).`]);
+});
+
+test("step harness: not a string or list, an empty list, or a duplicate name fails", () => {
+  const msg = `config: pipeline step "code" harness must be a harness name or a non-empty list of names.`;
+  for (const v of [5, {}, "", [], [""], ["opus", 3]]) assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: v }]), [msg], `harness ${JSON.stringify(v)}`);
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", "opus"] }]), [`config: pipeline step "code" harness lists "opus" twice.`]);
+});
+
+test("step harness: an unknown name fails (also with no harnesses block)", () => {
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", "gone"] }]), [`config: pipeline step "code" harness "gone" is not in "harnesses".`]);
+  assert.deepEqual(hErrs(undefined, [{ id: "code", harness: "opus" }]), [`config: pipeline step "code" harness "opus" is not in "harnesses".`]);
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: "toString" }]), [`config: pipeline step "code" harness "toString" is not in "harnesses".`], "own keys only");
+});
+
+test("step routing: without a list, or an unknown value, fails", () => {
+  const needsList = `config: pipeline step "code" routing needs a "harness" list (it picks among several harnesses).`;
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", routing: "first-free" }]), [needsList]);
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: "opus", routing: "round-robin" }]), [needsList]);
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", "bare"], routing: "random" }]), [`config: pipeline step "code" routing must be "first-free" or "round-robin".`]);
+});
+
+test("step harness: on a manual step fails (no agent runs)", () => {
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code" }, { id: "done", manual: true, harness: "opus" }]), [`config: pipeline step "done" harness has no effect on a manual step (no agent runs).`]);
+});

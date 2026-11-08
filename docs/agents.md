@@ -18,6 +18,10 @@ Each pipeline step spawns a headless coding-agent CLI. By default that is Claude
 }
 ```
 
+A step can also name one or more [harnesses](local-models.md#several-backends-harnesses): named
+bundles of agent/model/bin/env with their own slot pool, picked when the job starts (spill-over
+and round-robin across backends).
+
 An unknown `agent` fails at config load. `ah doctor` checks that each step's binary is on PATH
 and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (steps: review)`).
 
