@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format is based on
   the state persists in `harness-health.json`, and the `harness_reset {harness}` op clears it. See
   [docs/local-models.md](docs/local-models.md#when-a-harness-fails).
 
+### Changed
+
+- `docs/local-models.md` gains a "Behind the sandbox" note on reaching a LAN model endpoint from a
+  sandboxed run: `ANTHROPIC_BASE_URL` at the host's LAN IP, a `!private` egress rule, and the host
+  firewall (`ufw`) that may still drop the Docker bridge traffic (#628).
+
 ### Fixed
 
 - `tick`/`status` show `slots.harnesses` (and `capped`) from boot: the heartbeat's queue state is seeded from the queue when the engine starts, not only after the first run.
