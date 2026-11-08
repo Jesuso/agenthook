@@ -105,7 +105,7 @@ test("createTools: read-only hides and refuses every write tool; annotations mar
   const rw = createTools({});
   const ro = createTools({ readOnly: true });
   const names = (t) => t.list().map((x) => x.name);
-  for (const w of ["run", "cancel", "release", "retry", "dismiss", "recheck", "close_on_board", "pause", "resume", "set_concurrency", "reconcile", "pull", "restart"]) {
+  for (const w of ["run", "cancel", "release", "retry", "dismiss", "recheck", "close_on_board", "pause", "resume", "set_concurrency", "harness_reset", "reconcile", "pull", "restart"]) {
     assert.ok(names(rw).includes(w), `${w} listed read-write`);
     assert.ok(!names(ro).includes(w), `${w} hidden read-only`);
     await assert.rejects(() => ro.call(w, { ref: "1" }, { signal: new AbortController().signal }), /read-only/);
@@ -212,4 +212,29 @@ test("events/tick with profiles: union + tags + object cursor; profile+profiles,
   // Single-profile shape unchanged: no profile tag on events, numeric cursor.
   const single = await call("events", { profile: "a", cursor: 0 });
   assert.deepEqual(single, { events: [{ ts: "2026-01-01T00:00:02Z", e: "run_end", ref: "a", step: "code" }], cursor: size("a") });
+});
+
+test("harness_reset tool (#621): forwards {harness, actor} to the live receiver's control socket; harness is required", async () => {
+  const { startControl } = await import("../src/control.js");
+  const { controlSockPath } = await import("../src/paths.js");
+  const registry = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-mcpreset-"));
+  const dir = path.join(registry, "p");
+  fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: "p", maxConcurrent: 3, tracker: "github" }));
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+  /** @type {any[]} */ const got = [];
+  const control = await startControl(/** @type {any} */ ({ name: "p", controlSock: controlSockPath(dir, "p"), pidFile: path.join(dir, "server.pid") }), {
+    startedAt: "x",
+    commands: { harness_reset: async (/** @type {any} */ a) => (got.push(a), { harness: a.harness, reset: true }) },
+  });
+  try {
+    const t = createTools({ registry });
+    const ctx = { signal: new AbortController().signal };
+    assert.deepEqual(await t.call("harness_reset", { profile: "p", harness: "local" }, ctx), { harness: "local", reset: true });
+    assert.deepEqual(got, [{ harness: "local", actor: "mcp" }]);
+    await assert.rejects(() => t.call("harness_reset", { profile: "p" }, ctx), /harness_reset: .*harness/);
+    assert.equal(got.length, 1, "a missing harness never reaches the receiver");
+  } finally {
+    control?.close();
+  }
 });

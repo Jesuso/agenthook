@@ -561,6 +561,14 @@ test("harnesses: a bad agent, bin, provider, toolsets, env, model, maxConcurrent
   assert.deepEqual(one({ sandbox: "img" }), [`config: harness "x" sandbox must be an object ({ "image": "…" }).`]);
 });
 
+test("harnesses: the breaker keys — cooldownMinutes is an integer 1-60, downGraceSeconds a positive integer", () => {
+  const one = (/** @type {any} */ h) => hErrs({ x: h });
+  assert.equal(one({ cooldownMinutes: 1, downGraceSeconds: 1 }), undefined, "valid → no errors");
+  assert.equal(one({ cooldownMinutes: 60, downGraceSeconds: 600 }), undefined);
+  for (const v of [0, 61, 1.5, "10"]) assert.deepEqual(one({ cooldownMinutes: v }), [`config: harness "x" cooldownMinutes must be an integer 1-60.`], `cooldownMinutes ${JSON.stringify(v)}`);
+  for (const v of [0, -1, 2.5, "30"]) assert.deepEqual(one({ downGraceSeconds: v }), [`config: harness "x" downGraceSeconds must be a positive integer.`], `downGraceSeconds ${JSON.stringify(v)}`);
+});
+
 test("step harness: not a string or list, an empty list, or a duplicate name fails", () => {
   const msg = `config: pipeline step "code" harness must be a harness name or a non-empty list of names.`;
   for (const v of [5, {}, "", [], [""], ["opus", 3]]) assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: v }]), [msg], `harness ${JSON.stringify(v)}`);

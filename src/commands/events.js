@@ -23,6 +23,7 @@ export const VALID_EVENTS = new Set([
   "overlap_held", "overlap_released", "quota_pause", "quota_resume",
   "digest_start", "digest_end", "summary_end",
   "restart_requested", "restarting", "decommission_requested", "decommissioning", "sandbox_reaped",
+  "harness_down", "harness_up",
   "daemon_down",
 ]);
 

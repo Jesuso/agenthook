@@ -17,7 +17,7 @@ the MCP `guide` tool — update it when a tool, event or error message changes).
   (minus per-day `velocity.days`) or `epicsError`. `mcp/server.js` is a zero-dep stdio JSON-RPC MCP transport, `mcp/tools.js` the tool
   table (`--read-only` unlists + refuses every write). Live-only reads (`board`, `prs`) and all writes go
   over `control.sock` to `ops.js` (`createOps`, wired in `engine.js`, passed to `startControl({commands})`):
-  `pause/resume/set_concurrency/cancel/run/release/reconcile/pull/ticket_add`, each audited to `control-audit.jsonl`
+  `pause/resume/set_concurrency/harness_reset/cancel/run/release/reconcile/pull/ticket_add`, each audited to `control-audit.jsonl`
   (0600, comment/body text never logged), refusals exposed to the caller (`e.expose`). `cancel` = `queue.remove`
   + `runClaude.cancel(ref)` (SIGTERM→SIGKILL; resolves as `fail`, "cancelled by operator"). `release`
   reuses `resumeJob` (the `@agent` gate — see [dispatch.md](dispatch.md)); `run` is `agenthook run`'s move incl. `entryBlock`. Forge

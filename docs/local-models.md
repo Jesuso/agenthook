@@ -86,8 +86,9 @@ named by any number of steps.
 }
 ```
 
-A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConcurrent` and
-`sandbox: { image }`, all optional. Unset `maxConcurrent` = bounded only by the global cap.
+A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConcurrent`,
+`sandbox: { image }`, `cooldownMinutes` and `downGraceSeconds`, all optional. Unset
+`maxConcurrent` = bounded only by the global cap.
 
 - **When it's picked.** The queue picks the harness when the job *starts*, never earlier: a
   waiting job has none yet. `first-free` (the default) takes the first listed harness with a free
@@ -101,11 +102,48 @@ A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConc
   on the step, so `escalate`/`lite` still override a harness's `model`.
 - **Sandbox.** A sandboxed run on a harness with `sandbox.image` uses that image instead of
   `sandbox.image`; the boot check inspects every configured image.
-- **Where to see it.** `ah tick --json` shows `slots.harnesses` (`{name: {active, max}}`);
+- **Where to see it.** `ah tick --json` shows `slots.harnesses` (`{name: {active, max, state}}`);
   `run_start`/`run_end` carry `harness`; `running.json` records `harness` and `agent`.
 
 A step without `harness` behaves exactly as before, and a profile without `harnesses` reports the
 same `slots` and events as before. Worktree, verdict and advance never depend on the harness.
+
+### When a harness fails
+
+A health breaker keeps a dead backend (Ollama stopped, a provider refusing, a missing `bin`) from
+eating every run routed to it. A run on a harness **trips** it when:
+
+- the agent's own preflight refused or threw (an unenforceable `allow`/`deny` policy, a sandbox
+  the agent doesn't support, a credential or sandbox-setup refusal do *not* trip: those are
+  config, not backend health);
+- the agent CLI could not be spawned at all (e.g. `ENOENT`: the `bin` is missing);
+- it exited non-zero within `downGraceSeconds` (default 30) with no model output tokens — not a
+  timeout, not a cancel. A run that produced output and then failed (red tests, a `fail` verdict)
+  never trips.
+
+A trip marks the harness **down** for `cooldownMinutes` (1–60, default 10) and emits
+`harness_down`. While the run's step is under its `maxAttempts` cap, the run that tripped it is not
+failed: it ends with `run_end` `outcome: "requeued"`, goes back to the **front** of the queue (its
+worktree kept) and starts again on the next harness with room — `first-free` spills to the next
+listed one, `round-robin` skips the down one. At the cap it fails as it would without a breaker.
+If every harness of a step is down, its jobs wait (counted in `slots.capped`) and never fail.
+
+Once the cooldown passes the harness is **probing**: exactly one run at a time goes to it. A probe
+that settles without tripping brings it back **up** (`harness_up`); one that trips puts it down
+again with the cooldown doubled, up to 60 minutes. There is no timer: the cooldown is checked
+whenever the queue moves (an event, a run finishing, `set_concurrency`, `resume`), so an idle
+receiver whose step has every harness down starts the waiting job on the first of those after the
+cooldown. `harness_reset {harness}` (MCP / control socket) brings a harness up at once, e.g. after
+you restarted Ollama.
+
+The state survives a restart in `harness-health.json` in the state dir (a harness removed from
+the config is dropped; one whose cooldown passed while the receiver was down comes back probing).
+`tick` shows a line per down or probing harness (`harness local-qwen: down until 14:32Z (spawn
+failed: …)`), and `slots.harnesses[name]` carries `state`, plus `until` and `reason` when it isn't
+up.
+
+Without `harnesses` there is no breaker; a missing agent `bin` just fails the run (it no longer
+crashes the receiver).
 
 ## Cost reporting
 

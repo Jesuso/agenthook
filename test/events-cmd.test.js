@@ -198,6 +198,7 @@ test("events --event: every event type the receiver emits is a valid filter (aut
   };
   walk(new URL("../src/", import.meta.url).pathname);
   const missing = [...emitted].filter((e) => !VALID_EVENTS.has(e)).sort();
+  for (const e of ["harness_down", "harness_up"]) assert.ok(emitted.has(e) && VALID_EVENTS.has(e), `${e} (#621) is emitted and a valid filter`);
   assert.deepEqual(missing, [], `emitted but rejected by --event: ${missing.join(", ")}`);
 
   const config = startedProfile([

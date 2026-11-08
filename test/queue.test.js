@@ -405,13 +405,13 @@ test("harness: all harnesses full → the job waits and counts in capped; an unr
     active: 4,
     queued: 1,
     capped: 1,
-    harnesses: { qwen: { active: 1, max: 1 }, deepseek: { active: 2, max: 2 }, opus: { active: 0, max: 3 } },
+    harnesses: { qwen: { active: 1, max: 1, state: "up" }, deepseek: { active: 2, max: 2, state: "up" }, opus: { active: 0, max: 3, state: "up" } },
   });
   await done("B");
   assert.deepEqual(started.slice(4), ["D:deepseek"]);
   for (const r of ["A", "C", "D", "T"]) await done(r);
   await q.onIdle();
-  assert.deepEqual(q.state().harnesses, { qwen: { active: 0, max: 1 }, deepseek: { active: 0, max: 2 }, opus: { active: 0, max: 3 } });
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 0, max: 1, state: "up" }, deepseek: { active: 0, max: 2, state: "up" }, opus: { active: 0, max: 3, state: "up" } });
 });
 
 test("harness: the harness cap nests with the step cap and the global cap — all three need room", async () => {
@@ -447,12 +447,12 @@ test("harness: a slot is released on settle, including when the run rejects", as
   const { q, started, done } = harnessed(3, one);
   q.enqueue(job("A", "code"));
   q.enqueue(job("B", "code"));
-  assert.deepEqual(q.state().harnesses, { qwen: { active: 1, max: 1 } });
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 1, max: 1, state: "up" } });
   await done("A", "fail");
   assert.deepEqual(started, ["A:qwen", "B:qwen"], "the rejected run freed qwen");
   await done("B");
   await q.onIdle();
-  assert.deepEqual(q.state().harnesses, { qwen: { active: 0, max: 1 } });
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 0, max: 1, state: "up" } });
 });
 
 test("harness: a job enqueued with a stale or unknown harness is re-routed at start", async () => {
@@ -479,8 +479,8 @@ test("harness: an uncapped harness reports max null and never blocks", async () 
   const { q, started, done } = harnessed(3, { steps: { code: { harnesses: ["free"] } }, caps: { free: undefined } });
   for (const r of ["A", "B", "C"]) q.enqueue(job(r, "code"));
   assert.deepEqual(started, ["A:free", "B:free", "C:free"]);
-  assert.deepEqual(q.state(), { active: 3, queued: 0, capped: 0, harnesses: { free: { active: 3, max: null } } });
-  assert.deepEqual(q.harnessState(), { free: { active: 3, max: null } });
+  assert.deepEqual(q.state(), { active: 3, queued: 0, capped: 0, harnesses: { free: { active: 3, max: null, state: "up" } } });
+  assert.deepEqual(q.harnessState(), { free: { active: 3, max: null, state: "up" } });
   for (const r of ["A", "B", "C"]) await done(r);
   await q.onIdle();
 });
@@ -500,4 +500,177 @@ test("no harnesses: state() has no `harnesses` and harnessState() is empty", () 
   q.enqueue(job("T1"));
   assert.deepEqual(q.state(), { active: 1, queued: 0 });
   assert.deepEqual(q.harnessState(), {});
+});
+
+// --- harness health breaker (#621): a failing harness goes down, is routed around, then probed ---
+
+/**
+ * A harnessed queue on a fake clock: `done(ref, health?)` settles a run, optionally with a
+ * health signal. Records persisted health, onAdd calls and the down/up callbacks.
+ * @param {number} max @param {any} harnessing
+ */
+function breaker(max, harnessing) {
+  let t = Date.parse("2026-11-08T12:00:00Z");
+  /** @type {Map<string, (h?: any) => void>} */ const settle = new Map();
+  /** @type {string[]} */ const started = [];
+  /** @type {any[]} */ const log = [];
+  /** @type {any} */ let persisted = null;
+  /** @type {any[]} */ const added = [];
+  const run = (/** @type {any} */ j) =>
+    new Promise((resolve) => {
+      started.push(`${j.ref}:${j.harness ?? "-"}`);
+      settle.set(j.ref, (h) => resolve({ ...info(j), ...(h ? { health: h } : {}) }));
+    });
+  const q = createQueue(max, run, undefined, { onAdd: (j, o) => added.push([j.ref, !!o?.front]) }, {}, {
+    ...harnessing,
+    now: () => t,
+    onHealth: (/** @type {any} */ d) => (persisted = d),
+    onHarnessDown: (/** @type {string} */ n, /** @type {any} */ i) => log.push(["down", n, i.until, i.reason]),
+    onHarnessUp: (/** @type {string} */ n) => log.push(["up", n]),
+  });
+  /** @param {string} ref @param {any} [h] */
+  const done = async (ref, h) => {
+    const w = console.warn;
+    console.warn = () => {};
+    try {
+      settle.get(ref)?.(h);
+      settle.delete(ref);
+      await new Promise((r) => setImmediate(r));
+    } finally {
+      console.warn = w;
+    }
+  };
+  const trip = (/** @type {string} */ harness, requeue = false) => ({ harness, reason: "spawn failed: ENOENT", requeue });
+  return { q, started, done, trip, log, added, advance: (/** @type {number} */ ms) => (t += ms), now: () => t, persisted: () => persisted };
+}
+const MIN = 60000;
+const PAIR = { steps: { code: { harnesses: ["local", "cloud"], routing: "first-free" } }, caps: { local: 1, cloud: 2 } };
+
+test("breaker: a health settle marks the harness down; first-free routes around it", async () => {
+  const b = breaker(4, PAIR);
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", b.trip("local"));
+  const until = new Date(b.now() + 10 * MIN).toISOString();
+  assert.deepEqual(b.log, [["down", "local", until, "spawn failed: ENOENT"]]);
+  assert.deepEqual(b.persisted(), { local: { until, strikes: 1, reason: "spawn failed: ENOENT" } });
+  assert.deepEqual(b.q.harnessState().local, { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT" });
+  b.q.enqueue(job("B", "code"));
+  assert.deepEqual(b.started, ["A:local", "B:cloud"], "the down harness is skipped though it has a free slot");
+  await b.done("B");
+  assert.equal(b.q.harnessState().local.state, "down", "a healthy settle elsewhere leaves it down");
+});
+
+test("breaker: round-robin skips a down harness", async () => {
+  const rr = { steps: { r: { harnesses: ["a", "b", "c"], routing: "round-robin" } }, caps: { a: 5, b: 5, c: 5 } };
+  const b = breaker(10, rr);
+  b.q.enqueue(job("X", "r"));
+  await b.done("X", b.trip("a")); // cursor now at b
+  for (const r of ["A", "B", "C", "D"]) b.q.enqueue(job(r, "r"));
+  assert.deepEqual(b.started.slice(1), ["A:b", "B:c", "C:b", "D:c"]);
+});
+
+test("breaker: every harness of the step down → the job waits (counted in capped), never fails; it starts on the first pump after the cooldown", async () => {
+  const one = { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 }, cooldowns: { local: 5 } };
+  const b = breaker(4, one);
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", b.trip("local"));
+  b.q.enqueue(job("B", "code"));
+  b.q.enqueue(job("T", "triage"));
+  assert.deepEqual(b.started, ["A:local", "T:-"], "B waits; the unrelated job behind it starts");
+  assert.equal(b.q.state().capped, 1);
+  assert.equal(b.q.state().queued, 1);
+  b.advance(5 * MIN);
+  assert.equal(b.q.harnessState().local.state, "probing", "expiry is read lazily");
+  await b.done("T"); // the next pump (a settle) starts the waiting job
+  assert.deepEqual(b.started, ["A:local", "T:-", "B:local"]);
+});
+
+test("breaker: probing allows one run at a time; a healthy settle brings it up (harness_up)", async () => {
+  const b = breaker(4, { steps: { code: { harnesses: ["free"] } }, caps: { free: undefined } });
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", b.trip("free"));
+  b.advance(10 * MIN);
+  for (const r of ["B", "C", "D"]) b.q.enqueue(job(r, "code"));
+  assert.deepEqual(b.started, ["A:free", "B:free"], "one probe run on an uncapped harness");
+  assert.equal(b.q.harnessState().free.state, "probing");
+  await b.done("B");
+  assert.deepEqual(b.log.at(-1), ["up", "free"]);
+  assert.deepEqual(b.persisted(), {});
+  assert.deepEqual(b.q.harnessState().free, { active: 2, max: null, state: "up" });
+  assert.deepEqual(b.started, ["A:free", "B:free", "C:free", "D:free"]);
+});
+
+test("breaker: a probe that trips doubles the cooldown, capped at 60 minutes; a stale trip while down changes nothing", async () => {
+  const b = breaker(4, { steps: { code: { harnesses: ["local"] } }, caps: { local: 2 }, cooldowns: { local: 20 } });
+  b.q.enqueue(job("A", "code"));
+  b.q.enqueue(job("A2", "code"));
+  await b.done("A", b.trip("local"));
+  const first = b.q.harnessState().local.until;
+  await b.done("A2", b.trip("local")); // started before the trip: already down
+  assert.equal(b.q.harnessState().local.until, first);
+  assert.equal(b.log.length, 1, "no second harness_down");
+  /** @type {number[]} */ const cooldowns = [];
+  for (const r of ["B", "C", "D"]) {
+    b.advance(60 * MIN);
+    b.q.enqueue(job(r, "code"));
+    const before = b.now();
+    await b.done(r, b.trip("local"));
+    cooldowns.push((Date.parse(/** @type {string} */ (b.q.harnessState().local.until)) - before) / MIN);
+  }
+  assert.deepEqual(cooldowns, [40, 60, 60]);
+  assert.equal(b.persisted().local.strikes, 4);
+});
+
+test("breaker: requeue puts the job back at the front, still in flight; it runs on the next harness", async () => {
+  const b = breaker(1, PAIR);
+  /** @type {string[]} */ const freed = [];
+  b.q.enqueue(job("A", "code"));
+  b.q.enqueue(job("B", "code"));
+  b.q.whenRefFree("A", () => freed.push("A"));
+  await b.done("A", b.trip("local", true));
+  assert.deepEqual(b.started, ["A:local", "A:cloud"], "A re-runs first, on the next listed harness");
+  assert.deepEqual(b.added, [["A", false], ["B", false], ["A", true]], "persisted back at the front");
+  assert.deepEqual(freed, [], "no whenRefFree waiter fired");
+  assert.equal(b.q.has(job("A", "code")), true);
+  assert.equal(b.q.enqueue(job("A", "code")), false, "a duplicate is still coalesced");
+  await b.done("A");
+  assert.deepEqual(freed, ["A"]);
+  assert.deepEqual(b.started.at(-1), "B:cloud");
+  await b.done("B");
+  await b.q.onIdle();
+});
+
+test("breaker: a requeued job keeps its front spot while every harness is down", async () => {
+  const b = breaker(1, { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 } });
+  b.q.enqueue(job("A", "code"));
+  b.q.enqueue(job("B", "code"));
+  await b.done("A", b.trip("local", true));
+  assert.deepEqual(b.q.state(), { active: 0, queued: 2, capped: 2, harnesses: b.q.harnessState() });
+  b.advance(10 * MIN);
+  assert.equal(b.q.resetHarness("nope"), false);
+  b.q.resume(); // any pump after `until`
+  assert.deepEqual(b.started, ["A:local", "A:local"]);
+});
+
+test("breaker: health is seeded from the persisted record (unknown names dropped; an expired entry is probing)", () => {
+  const until = new Date(Date.parse("2026-11-08T12:00:00Z") + 5 * MIN).toISOString();
+  const past = new Date(Date.parse("2026-11-08T12:00:00Z") - MIN).toISOString();
+  const b = breaker(4, { ...PAIR, health: { local: { until, strikes: 2, reason: "r" }, cloud: { until: past, strikes: 1, reason: "old" }, gone: { until, strikes: 1, reason: "x" } } });
+  assert.deepEqual(b.q.harnessState(), {
+    local: { active: 0, max: 1, state: "down", until, reason: "r" },
+    cloud: { active: 0, max: 2, state: "probing", until: past, reason: "old" },
+  });
+});
+
+test("breaker: resetHarness clears the entry, reports up, persists and starts waiting work", async () => {
+  const b = breaker(4, { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 } });
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", b.trip("local"));
+  b.q.enqueue(job("B", "code"));
+  assert.deepEqual(b.started, ["A:local"]);
+  assert.equal(b.q.resetHarness("local"), true);
+  assert.deepEqual(b.log.at(-1), ["up", "local"]);
+  assert.deepEqual(b.persisted(), {});
+  assert.deepEqual(b.started, ["A:local", "B:local"]);
+  assert.equal(b.q.resetHarness("local"), false, "already up");
 });

@@ -127,18 +127,30 @@ export function defaultProfileKey(configPath) {
 /** @param {any} t @param {any} meta */
 const label = (t, meta) => ({ ...(meta?.displayId ? { id: String(meta.displayId) } : {}), ...(meta?.title ? { title: clip(String(meta.title), TITLE_MAX) } : {}), ...t });
 
+/** A harness's breaker states (src/queue.js). */
+const HARNESS_STATES = new Set(["up", "down", "probing"]);
+
 /**
- * The heartbeat's per-harness slots as `{[name]: {active, max}}` (max null = uncapped); null
- * when absent or empty (a profile without harnesses).
- * @param {any} raw @returns {Record<string, {active: number, max: number|null}>|null}
+ * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
+ * null = uncapped; `state` is the health breaker's, `until`/`reason` only while down or probing);
+ * null when absent or empty (a profile without harnesses).
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>|null}
  */
 function harnessSlots(raw) {
   if (!isObj(raw)) return null;
-  /** @type {Record<string, {active: number, max: number|null}>} */
+  /** @type {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>} */
   const out = {};
   for (const [name, h] of Object.entries(raw)) {
     if (!isObj(h)) continue;
-    out[name] = { active: Math.max(0, Number(h.active) || 0), max: Number.isInteger(h.max) && h.max > 0 ? h.max : null };
+    const state = HARNESS_STATES.has(h.state) ? h.state : undefined;
+    const down = state === "down" || state === "probing";
+    out[name] = {
+      active: Math.max(0, Number(h.active) || 0),
+      max: Number.isInteger(h.max) && h.max > 0 ? h.max : null,
+      ...(state ? { state } : {}),
+      ...(down && typeof h.until === "string" ? { until: h.until } : {}),
+      ...(down && typeof h.reason === "string" ? { reason: clip(h.reason, REASON_MAX) } : {}),
+    };
   }
   return Object.keys(out).length ? out : null;
 }
@@ -146,7 +158,7 @@ function harnessSlots(raw) {
 /**
  * One profile's live picture in the fewest tokens that still answer "what is running, what is
  * waiting, can I start more?". `slots.free` already subtracts queued jobs and is 0 while paused / quota-paused / restarting / draining (nothing can start).
- * `slots.harnesses` ({[name]: {active, max}}) only for a profile with harnesses.
+ * `slots.harnesses` ({[name]: {active, max, state, until?, reason?}}) only for a profile with harnesses.
  * `quota` is the last Claude quota reading (quota.json — there with the receiver down too).
  * @param {ReturnType<typeof import('./heartbeat.js').readProfile>} entry
  * @param {{now?: number}} [opts]

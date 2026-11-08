@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveHarness, harnessesOf } from "../src/dispatch/harness.js";
+import { resolveHarness, harnessesOf, healthTrip, cooldownFor } from "../src/dispatch/harness.js";
+import { createSpawn } from "../src/dispatch/spawn.js";
 import { resolveModelEffort, createDispatcher } from "../src/dispatch.js";
 import { agentFor } from "../src/agents/index.js";
 import { createStore } from "../src/store.js";
@@ -144,4 +145,128 @@ test("dispatch: a profile without harnesses keeps run_start/run_end free of a ha
     console.log = log;
   }
   for (const e of events.filter((x) => x.event === "run_start" || x.event === "run_end")) assert.equal(Object.hasOwn(e, "harness"), false, e.event);
+});
+
+// --- harness health breaker (#621): which runs trip, the ENOENT fix, requeue vs fail ---
+
+test("healthTrip: preflight and spawn errors trip; a fast no-output non-zero exit trips; output, timeout, cancel or a slow exit don't", () => {
+  const base = { code: 1, cancelled: false, noOutput: true, wallMs: 2000 };
+  assert.equal(healthTrip({ ...base, code: 0, preflight: "hermes preflight failed: no home" }), "hermes preflight failed: no home");
+  assert.equal(healthTrip({ ...base, spawnError: "spawn qwen ENOENT" }), "spawn failed: spawn qwen ENOENT");
+  assert.equal(healthTrip(base), "exited 1 with no output after 2s");
+  assert.equal(healthTrip({ ...base, noOutput: false }), undefined, "it produced output, then failed");
+  assert.equal(healthTrip({ ...base, timedOut: "idle" }), undefined);
+  assert.equal(healthTrip({ ...base, cancelled: true }), undefined);
+  assert.equal(healthTrip({ ...base, code: 0 }), undefined);
+  assert.equal(healthTrip({ ...base, wallMs: 30000 }), undefined, "past the default 30s grace");
+  assert.equal(healthTrip({ ...base, wallMs: 30000, downGraceSeconds: 60 }), "exited 1 with no output after 30s");
+});
+
+test("cooldownFor: the base cooldown, doubled per strike, capped at 60", () => {
+  assert.deepEqual([1, 2, 3, 4].map((s) => cooldownFor(10, s)), [10, 20, 40, 60]);
+  assert.equal(cooldownFor(60, 1), 60);
+});
+
+test("agentPreflight: only the agent's own preflight is a health signal — policy and sandbox refusals are not", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-preflight-"));
+  const logPath = path.join(dir, "run.log");
+  const { agentPreflight } = createSpawn(/** @type {any} */ ({ cfg: {} }));
+  /** @param {any} [o] */
+  const agent = (o = {}) => /** @type {any} */ ({ describe: () => ({ name: "fake", policy: o.policy }), ...o });
+  const step = /** @type {any} */ ({ id: "code" });
+  assert.deepEqual(agentPreflight(agent({ preflight: () => "backend unreachable" }), step, undefined, logPath), { reason: "backend unreachable", health: true });
+  const threw = agentPreflight(agent({ preflight: () => { throw new Error("boom"); } }), step, undefined, logPath);
+  assert.deepEqual(threw, { reason: "fake preflight failed: boom", health: true });
+  const policy = agentPreflight(agent({ preflight: () => "never reached" }), { ...step, allow: { bash: ["ls"] } }, undefined, logPath);
+  assert.equal(policy?.health, undefined);
+  assert.match(String(policy?.reason), /cannot enforce step "code" allow policy/);
+  const sandbox = agentPreflight(agent(), step, undefined, logPath, { sandboxed: true });
+  assert.equal(sandbox?.health, undefined);
+  assert.match(String(sandbox?.reason), /does not support the sandbox/);
+  assert.equal(agentPreflight(agent({ preflight: () => undefined }), step, undefined, logPath), undefined);
+});
+
+/**
+ * One pipeline run through the real dispatcher with the given cfg overrides; returns the settle
+ * info, the events and the advances. @param {string} dir @param {any} over @param {any} [job]
+ */
+async function dispatchOnce(dir, over, job = {}) {
+  const cfg = /** @type {any} */ ({ repoPath: dir, worktreePrefix: path.join(dir, "wt"), dataDir: dir, logDir: dir, instructionsFile: path.join(dir, "none.md"), ...over });
+  const store = createStore(dir);
+  /** @type {any[]} */ const events = [];
+  /** @type {any[]} */ const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ v) => advanced.push([ref, stepId, v.outcome, v.reason]),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _r, /** @type {string} */ _s, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  const log = console.log;
+  console.log = () => {};
+  try {
+    const info = await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k:code", ...job });
+    return { info: /** @type {any} */ (info), events, advanced, store };
+  } finally {
+    console.log = log;
+  }
+}
+
+test("ENOENT: a missing agent bin fails the run (spawn failed) instead of crashing the receiver — no harnesses", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-enoent-"));
+  const { info, events, advanced } = await dispatchOnce(dir, { pipeline: [{ id: "code" }], claudeBin: path.join(dir, "no-such-bin") });
+  assert.equal(advanced.length, 1);
+  assert.equal(advanced[0][2], "fail");
+  assert.match(advanced[0][3], /^spawn failed: .*ENOENT/);
+  assert.equal(info.health, undefined, "no breaker without harnesses");
+  assert.equal(events.find((e) => e.event === "run_end")?.outcome, "fail");
+  const logFile = fs.readdirSync(dir).find((f) => f.endsWith(".log"));
+  assert.match(fs.readFileSync(path.join(dir, String(logFile)), "utf8"), /\[agenthook\] spawn failed: .*ENOENT/);
+});
+
+test("breaker: a harnessed run whose bin is missing is requeued (run_end requeued, no move) under the attempt cap", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-"));
+  const harnesses = { local: { bin: path.join(dir, "no-such-bin") }, cloud: {} };
+  const { info, events, advanced, store } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: ["local", "cloud"] }] }, { harness: "local" });
+  assert.deepEqual(advanced, [], "the ticket is not moved");
+  assert.equal(info.health.harness, "local");
+  assert.equal(info.health.requeue, true);
+  assert.match(info.health.reason, /^spawn failed: .*ENOENT/);
+  const end = events.find((e) => e.event === "run_end");
+  assert.equal(end.outcome, "requeued");
+  assert.equal(end.harness, "local");
+  assert.equal(end.reason, info.health.reason);
+  assert.equal(events.some((e) => e.event === "failed"), false);
+  assert.deepEqual(store.listRunning(), {}, "the running record is cleared");
+  assert.equal(store.getAttempt("42", "code"), 1, "the attempt still counts");
+});
+
+test("breaker: at the attempt cap a tripping run fails as before, and still reports health (requeue false)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-cap-"));
+  const store = createStore(dir);
+  store.bumpAttempt("42", "code"); // this run is the 2nd: the cap is 2
+  const harnesses = { local: { bin: path.join(dir, "no-such-bin") } };
+  const { info, events, advanced } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: "local", maxAttempts: 2 }] }, { harness: "local" });
+  assert.equal(advanced.length, 1);
+  assert.equal(advanced[0][2], "fail");
+  assert.match(advanced[0][3], /^spawn failed: .*ENOENT/);
+  assert.equal(info.health.requeue, false);
+  assert.equal(info.health.harness, "local");
+  assert.equal(events.find((e) => e.event === "run_end")?.outcome, "fail");
+});
+
+test("breaker: a fast non-zero exit with no output trips its harness; a clean run reports no health", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-exit-"));
+  const bad = path.join(dir, "bad.sh");
+  fs.writeFileSync(bad, "#!/bin/sh\necho 'connection refused' >&2\nexit 3\n", { mode: 0o755 });
+  const good = path.join(dir, "good.sh");
+  fs.writeFileSync(good, `#!/bin/sh\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const harnesses = { local: { bin: bad }, cloud: { bin: good } };
+  const pipeline = [{ id: "code", harness: ["local", "cloud"] }, { id: "done", manual: true }];
+  const tripped = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "local" });
+  assert.match(String(tripped.info.health?.reason), /^exited 3 with no output after \d+s$/);
+  assert.equal(tripped.info.health?.requeue, true);
+  const ok = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "cloud" });
+  assert.equal(ok.info.health, undefined);
+  assert.equal(ok.advanced[0][2], "advance");
 });
