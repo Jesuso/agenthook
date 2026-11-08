@@ -154,7 +154,7 @@ const RAW_ONLY = new Set([
   "tracker.pipeline.*.egress", "tracker.pipeline.*.egress.mode", "tracker.pipeline.*.egress.allow", "tracker.pipeline.*.egress.deny",
   "tracker.pipeline.*.services",
   ...["", ".*", ".*.image", ".*.env", ".*.wait", ".*.wait.cmd", ".*.wait.timeoutS", ".*.agentEnv", ".*.memory", ".*.cpus"].map((k) => `sandbox.services${k}`),
-  ...["", ".*", ".*.agent", ".*.model", ".*.bin", ".*.env", ".*.provider", ".*.toolsets", ".*.maxConcurrent", ".*.sandbox", ".*.sandbox.image"].map((k) => `harnesses${k}`),
+  ...["", ".*", ".*.agent", ".*.model", ".*.bin", ".*.env", ".*.provider", ".*.toolsets", ".*.maxConcurrent", ".*.cooldownMinutes", ".*.downGraceSeconds", ".*.sandbox", ".*.sandbox.image"].map((k) => `harnesses${k}`),
   "tracker.pipeline.*.harness", "tracker.pipeline.*.routing",
 ]);
 

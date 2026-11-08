@@ -223,6 +223,14 @@ test("harnessBudget: Σ(max − active) over the step's harnesses − its queued
   assert.deepEqual(harnessBudget({ code: ["missing"] }, hs, {}, []), {}, "a harness the queue doesn't report is not a bound");
 });
 
+test("harnessBudget: a down harness adds no room, a probing one at most its single probe run", () => {
+  const hs = /** @type {const} */ ({ local: { active: 0, max: 2, state: "down" }, free: { active: 0, max: null, state: "down" }, probe: { active: 0, max: 4, state: "probing" }, busy: { active: 1, max: null, state: "probing" }, cloud: { active: 0, max: 1, state: "up" } });
+  assert.deepEqual(harnessBudget({ code: ["local", "cloud"] }, hs, {}, []), { code: 1 });
+  assert.deepEqual(harnessBudget({ code: ["free"] }, hs, {}, []), { code: 0 }, "a down uncapped harness no longer leaves the step unbounded");
+  assert.deepEqual(harnessBudget({ code: ["probe", "cloud"] }, hs, {}, []), { code: 2 });
+  assert.deepEqual(harnessBudget({ code: ["busy"] }, hs, {}, []), { code: 0 }, "its probe is already running");
+});
+
 test("mergeBudgets: the tighter bound wins; a step bounded by one side keeps it", () => {
   assert.deepEqual(mergeBudgets({ triage: 2, code: 3 }, { code: 1, review: 0 }), { triage: 2, code: 1, review: 0 });
 });

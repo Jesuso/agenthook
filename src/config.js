@@ -413,7 +413,7 @@ function envErrors(env, where) {
  */
 function harnessesErrors(hs) {
   if (hs == null) return [];
-  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox? }.`];
+  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds? }.`];
   /** @type {string[]} */
   const errors = [];
   for (const [name, h] of Object.entries(hs)) {
@@ -429,6 +429,8 @@ function harnessesErrors(hs) {
     if (h.model != null && (typeof h.model !== "string" || !h.model.trim())) errors.push(`config: ${where} model must be a non-empty string.`);
     if (h.env != null) errors.push(...envErrors(h.env, where));
     if (h.maxConcurrent != null && (!Number.isInteger(h.maxConcurrent) || h.maxConcurrent < 1)) errors.push(`config: ${where} maxConcurrent must be a positive integer.`);
+    if (h.cooldownMinutes != null && (!Number.isInteger(h.cooldownMinutes) || h.cooldownMinutes < 1 || h.cooldownMinutes > 60)) errors.push(`config: ${where} cooldownMinutes must be an integer 1-60.`);
+    if (h.downGraceSeconds != null && (!Number.isInteger(h.downGraceSeconds) || h.downGraceSeconds < 1)) errors.push(`config: ${where} downGraceSeconds must be a positive integer.`);
     if (h.sandbox != null) {
       if (typeof h.sandbox !== "object" || Array.isArray(h.sandbox)) errors.push(`config: ${where} sandbox must be an object ({ "image": "…" }).`);
       else if (h.sandbox.image != null && (typeof h.sandbox.image !== "string" || !h.sandbox.image.trim())) errors.push(`config: ${where} sandbox.image must be a non-empty string.`);

@@ -38,3 +38,32 @@ export function resolveHarness(cfg, step, harnessName) {
   else delete eff.env;
   return { step: eff, harness: harnessName, sandboxImage: h.sandbox?.image };
 }
+
+/** Breaker defaults (`harnesses.<name>.cooldownMinutes` / `.downGraceSeconds`) and the backoff ceiling. */
+export const DEFAULT_COOLDOWN_MINUTES = 10;
+export const DEFAULT_DOWN_GRACE_SECONDS = 30;
+export const MAX_COOLDOWN_MINUTES = 60;
+
+/**
+ * Whether a finished run on a harness says its backend is unhealthy (the breaker's trip signal),
+ * and why; undefined when it doesn't. Trips on an `agent.preflight` refusal, a spawn error, or a
+ * fast non-zero exit (inside `downGraceSeconds`, not a timeout or cancel) with no model output.
+ * Any other refusal (policy, sandbox, credentials) and a run that produced output never trip.
+ * @param {{preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number}} r
+ * @returns {string|undefined}
+ */
+export function healthTrip(r) {
+  if (r.preflight) return r.preflight;
+  if (r.spawnError) return `spawn failed: ${r.spawnError}`;
+  const grace = (r.downGraceSeconds ?? DEFAULT_DOWN_GRACE_SECONDS) * 1000;
+  if (r.code !== 0 && !r.timedOut && !r.cancelled && r.noOutput && r.wallMs < grace) return `exited ${r.code} with no output after ${Math.round(r.wallMs / 1000)}s`;
+  return undefined;
+}
+
+/**
+ * The cooldown a trip opens: `cooldownMinutes` on the first strike, doubled per strike after
+ * that, never past MAX_COOLDOWN_MINUTES. Pure. @param {number} cooldownMinutes @param {number} strikes
+ */
+export function cooldownFor(cooldownMinutes, strikes) {
+  return Math.min(cooldownMinutes * 2 ** (strikes - 1), MAX_COOLDOWN_MINUTES);
+}

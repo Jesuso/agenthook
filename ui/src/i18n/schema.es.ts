@@ -51,6 +51,8 @@ export const SCHEMA_ES: SchemaOverlay = {
   "harnesses.*.provider": { label: "Proveedor", help: "Proveedor de inferencia en este harness (hermes --provider); los demás agentes lo ignoran." },
   "harnesses.*.toolsets": { label: "Toolsets", help: "Toolsets de Hermes -t en este harness; los demás agentes lo ignoran." },
   "harnesses.*.maxConcurrent": { label: "Máximo de ejecuciones simultáneas", help: "Ejecuciones en este harness a la vez, entre todos los pasos, dentro del límite global; sin definir = solo ese límite." },
+  "harnesses.*.cooldownMinutes": { label: "Pausa tras fallo (minutos)", help: "Cuánto se esquiva un harness que falla antes de una ejecución de prueba; se duplica con cada fallo repetido, hasta 60." },
+  "harnesses.*.downGraceSeconds": { label: "Margen de fallo (segundos)", help: "Una ejecución que falla en estos segundos sin salida del modelo marca el harness como caído." },
   "harnesses.*.sandbox": { label: "Sandbox del harness", help: "Ajustes del sandbox para las ejecuciones en este harness." },
   "harnesses.*.sandbox.image": { label: "Imagen del sandbox", help: "Imagen del agente para las ejecuciones en sandbox en este harness, en lugar de sandbox.image." },
 

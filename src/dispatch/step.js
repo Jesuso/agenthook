@@ -252,8 +252,11 @@ export function createStep(ctx) {
     const provider = spawnStep.provider ?? cfg.agentProvider;
     const agentEnv = agent.env?.({ cfg, step: spawnStep });
     const spawnEnv = agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: spawnStep.env });
-    // A failed preflight resolves the run as `fail` with no agent spawned.
-    let refused = agentPreflight(agent, spawnStep, provider, logPath, { sandboxed, env: spawnEnv });
+    // A failed preflight resolves the run as `fail` with no agent spawned. Only the agent's own
+    // preflight refusing is a harness health signal (`preflightDown`); the rest is config.
+    const pre = agentPreflight(agent, spawnStep, provider, logPath, { sandboxed, env: spawnEnv });
+    let refused = pre?.reason;
+    const preflightDown = pre?.health ? pre.reason : undefined;
     // Per-run credentials (#474): the forge's, else the tracker's. One that should have scoped
     // and couldn't refuses the run exactly like a preflight — never the operator's token instead.
     /** @type {import('../types.js').RunCredentials|null} */
@@ -351,9 +354,9 @@ export function createStep(ctx) {
         console.error(`[run] run credentials dispose failed for ${job.ref}:`, e.message);
       }
     }
-    const { code, result, quota, timedOut, sandboxReport } = spawned;
+    const { code, result, quota, timedOut, sandboxReport, spawnError, noOutput } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport, headSha });
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport, headSha });
   }
 
   return { runStep };

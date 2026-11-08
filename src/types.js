@@ -677,6 +677,8 @@
  * @property {string[]} [toolsets]            hermes `-t` toolsets; other agents ignore it
  * @property {number} [maxConcurrent]          max runs on this harness at once, across every step (default: bounded only by the global cap)
  * @property {{image?: string}} [sandbox]     sandboxed runs on this harness use this image instead of `sandbox.image`
+ * @property {number} [cooldownMinutes]        health breaker: how long a tripped harness stays down (1–60, default 10), doubled per repeat strike up to 60
+ * @property {number} [downGraceSeconds]       health breaker: a non-zero exit with no model output inside this many seconds trips it (default 30)
  */
 
 /** A factory `(cfg, store) => Forge`.
@@ -759,7 +761,7 @@
  * @property {(ref: string, info: RunningInfo) => void} setRunning
  * @property {(ref: string) => void} clearRunning
  * @property {() => Record<string, RunningInfo>} listRunning
- * @property {(job: Job) => void} addQueued
+ * @property {(job: Job, opts?: {front?: boolean}) => void} addQueued  `front` re-inserts at index 0 (a harness-breaker requeue keeps its place across a restart)
  * @property {(job: Job) => void} removeQueued
  * @property {() => Job[]} listQueued
  * @property {(ref: string, stepId: string) => number} getAttempt   how many times stepId has run for ref (0 if never)
@@ -801,6 +803,8 @@
  * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
  * @property {() => string|null} getMergeWatermark                  merge catch-up: ISO `mergedAt` of the newest merged agent PR listed (null = never ran)
  * @property {(iso: string) => void} setMergeWatermark               persist the merge catch-up watermark
+ * @property {() => Record<string, {until: string, strikes: number, reason: string}>} getHarnessHealth  harness breaker entries (harness-health.json `down`); {} when none
+ * @property {(down: Record<string, {until: string, strikes: number, reason: string}>) => void} setHarnessHealth  persist the harness breaker entries
  */
 
 export {};

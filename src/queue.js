@@ -1,5 +1,11 @@
 // Bounded-concurrency job queue. Worktree isolation (see INSTRUCTIONS.md) lets
 // multiple agents run at once; MAX caps how many.
+import { DEFAULT_COOLDOWN_MINUTES, cooldownFor } from "./dispatch/harness.js";
+
+/** One harness's breaker entry: down until `until` (ms epoch), then probing; `strikes` doubles the next cooldown.
+ * @typedef {{until: number, strikes: number, reason: string}} HarnessHealth */
+/** A harness's slots as `state()` / `harnessState()` report them (`until` as ISO; `until`/`reason` only when not up).
+ * @typedef {{active: number, max: number|null, state: 'up'|'down'|'probing', until?: string, reason?: string}} HarnessSlots */
 /**
  * Boot-restore plan for persisted queue entries: which to re-enqueue (in order) and
  * which to drop (ref was mid-run at boot — recovery failed it — or step is gone). A
@@ -23,25 +29,61 @@ export function planRestore(queued, runningRefs, stepIds) {
 
 /**
  * @param {number} initialMax
- * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number}>} run
- * @param {(state: {active:number, queued:number, capped?:number, harnesses?: Record<string, {active: number, max: number|null}>}) => void} [onChange]  called after every state change (heartbeat)
- * @param {{onAdd?: (job: import('./types.js').Job) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
- *   persistence hooks: onAdd once a job is accepted, onRemove when it leaves the wait list to run,
- *   onSettle after a job settles and its slot is released (the engine's queue-stage pull trigger)
+ * @param {(job: import('./types.js').Job) => Promise<{kind:string,ref:string,name:string,url:string,code:number,health?:{harness:string,reason:string,requeue:boolean}}>} run
+ *   its `health` (a harnessed run only) trips the job's harness breaker; `requeue` puts the job
+ *   back at the front of the wait list instead of finishing it
+ * @param {(state: {active:number, queued:number, capped?:number, harnesses?: Record<string, HarnessSlots>}) => void} [onChange]  called after every state change (heartbeat)
+ * @param {{onAdd?: (job: import('./types.js').Job, opts?: {front?: boolean}) => void, onRemove?: (job: import('./types.js').Job) => void, onSettle?: () => void}} [persist]
+ *   persistence hooks: onAdd once a job is accepted (`front` for a requeued one, back at index 0),
+ *   onRemove when it leaves the wait list to run, onSettle after a job settles and its slot is
+ *   released (the engine's queue-stage pull trigger)
  * @param {Record<string, number>} [stepCaps]  per-step concurrency caps (stepId → max runs at once),
  *   counted INSIDE the global max. Only `pipeline` jobs count; `merge`/`ci` spawn no agent. Empty →
  *   strict FIFO as before, and `state()` carries no `capped`.
- * @param {{steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps: Record<string, number|undefined>}} [harnessing]
+ * @param {{steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps: Record<string, number|undefined>,
+ *   cooldowns?: Record<string, number|undefined>, health?: Record<string, {until: string, strikes: number, reason: string}>, now?: () => number,
+ *   onHealth?: (down: Record<string, {until: string, strikes: number, reason: string}>) => void,
+ *   onHarnessDown?: (name: string, info: {reason: string, until: string}) => void, onHarnessUp?: (name: string) => void}} [harnessing]
  *   named harnesses (set only when the profile has `harnesses`): each harnessed step's list and
  *   routing, and each harness's slot cap (undefined = only the global cap). A pipeline job of a
  *   harnessed step starts only when one of its harnesses has room; the pick lands on `job.harness`.
  *   Set → `state()` carries `harnesses` (and `capped`).
+ *   The health breaker: a settle with `health` marks its harness down for its cooldown
+ *   (`cooldowns`, minutes, default 10), doubled per repeat strike up to 60. A down harness has no
+ *   room; once `until` passes it is probing — room for exactly one run, whose healthy settle
+ *   brings it back up. Expiry is read lazily (pump, `blocked`, `state()`), never on a timer: an
+ *   idle receiver whose step has every harness down starts the waiting job on the first pump
+ *   after `until` (an enqueue, a settle, `setMax`, `resume`, `resetHarness`). `health` seeds the
+ *   breaker (harness-health.json), `onHealth` persists every change, `onHarnessDown`/`onHarnessUp`
+ *   report the transitions.
  */
 export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, harnessing) {
   let max = initialMax;
   const caps = new Map(Object.entries(stepCaps));
   const harnessSteps = new Map(Object.entries(harnessing?.steps ?? {}));
   const harnessCaps = harnessing?.caps ?? {};
+  const now = harnessing?.now ?? Date.now;
+  /** @type {Map<string, HarnessHealth>} harness name → its breaker entry (absent = up) */
+  const health = new Map();
+  for (const [name, h] of Object.entries(harnessing?.health ?? {})) {
+    const until = Date.parse(h?.until);
+    if (Object.hasOwn(harnessCaps, name) && Number.isFinite(until)) health.set(name, { until, strikes: Number.isInteger(h.strikes) && h.strikes > 0 ? h.strikes : 1, reason: String(h.reason ?? "") });
+  }
+  /** @param {string} name @returns {'up'|'down'|'probing'} */
+  const healthOf = (name) => {
+    const h = health.get(name);
+    return !h ? "up" : now() < h.until ? "down" : "probing";
+  };
+  const persistHealth = () => {
+    /** @type {Record<string, {until: string, strikes: number, reason: string}>} */
+    const down = {};
+    for (const [name, h] of health) down[name] = { until: new Date(h.until).toISOString(), strikes: h.strikes, reason: h.reason };
+    try {
+      harnessing?.onHealth?.(down);
+    } catch (e) {
+      console.error(`[harness] health write failed (continuing): ${e.message}`);
+    }
+  };
   const capping = caps.size > 0 || harnessSteps.size > 0;
   /** @type {Map<string, number>} stepId → running pipeline jobs of that step */
   const activeByStep = new Map();
@@ -56,10 +98,36 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     const cap = isPipeline(job) ? caps.get(job.stepId) : undefined;
     return cap != null && (activeByStep.get(job.stepId) ?? 0) >= cap;
   };
-  /** @param {string} name  true while `name` has a free slot (an uncapped harness always does) */
+  /** @param {string} name  true while `name` has a free slot (an uncapped harness always does); a down harness has none, a probing one only while idle */
   const hasRoom = (name) => {
+    const n = activeByHarness.get(name) ?? 0;
+    const h = healthOf(name);
+    if (h === "down" || (h === "probing" && n > 0)) return false;
     const cap = Object.hasOwn(harnessCaps, name) ? harnessCaps[name] : undefined;
-    return cap == null || (activeByHarness.get(name) ?? 0) < cap;
+    return cap == null || n < cap;
+  };
+  /**
+   * A settle on `name`: a health signal opens (or re-opens) its breaker, a healthy settle closes a
+   * probing one. A trip from a run that started before the harness went down changes nothing.
+   * @param {string} name @param {{reason: string}|undefined} signal
+   */
+  const settleHealth = (name, signal) => {
+    const h = healthOf(name);
+    const cur = health.get(name);
+    if (signal && h !== "down") {
+      const strikes = cur ? cur.strikes + 1 : 1;
+      const cd = harnessing?.cooldowns?.[name] ?? DEFAULT_COOLDOWN_MINUTES;
+      const until = now() + cooldownFor(cd, strikes) * 60000;
+      health.set(name, { until, strikes, reason: signal.reason });
+      persistHealth();
+      console.warn(`[harness] ${name} down until ${new Date(until).toISOString()} (${signal.reason})`);
+      harnessing?.onHarnessDown?.(name, { reason: signal.reason, until: new Date(until).toISOString() });
+    } else if (!signal && h === "probing") {
+      health.delete(name);
+      persistHealth();
+      console.log(`[harness] ${name} up again`);
+      harnessing?.onHarnessUp?.(name);
+    }
   };
   /** @param {import('./types.js').Job} job  its step's harness routing, when it has one */
   const routingOf = (job) => (isPipeline(job) ? harnessSteps.get(job.stepId) : undefined);
@@ -85,11 +153,15 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     }
     return undefined;
   };
-  /** @returns {Record<string, {active: number, max: number|null}>} every configured harness's slots */
+  /** @returns {Record<string, HarnessSlots>} every configured harness's slots and breaker state */
   const harnessState = () => {
-    /** @type {Record<string, {active: number, max: number|null}>} */
+    /** @type {Record<string, HarnessSlots>} */
     const out = {};
-    for (const [name, cap] of Object.entries(harnessCaps)) out[name] = { active: activeByHarness.get(name) ?? 0, max: cap ?? null };
+    for (const [name, cap] of Object.entries(harnessCaps)) {
+      const state = healthOf(name);
+      const h = health.get(name);
+      out[name] = { active: activeByHarness.get(name) ?? 0, max: cap ?? null, state, ...(h ? { until: new Date(h.until).toISOString(), reason: h.reason } : {}) };
+    }
     return out;
   };
   const cappedCount = () => (capping ? queue.filter(blocked).length : 0);
@@ -176,8 +248,11 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       if (isPipeline(job)) activeByStep.set(job.stepId, (activeByStep.get(job.stepId) ?? 0) + 1);
       report();
       console.log(`[start] ${job.kind} ${job.ref}${harness ? ` on ${harness}` : ""} (running ${active}/${max}, ${queue.length} queued)`);
+      /** @type {Awaited<ReturnType<typeof run>>['health']} */
+      let signal;
       run(job)
         .then((info) => {
+          signal = info?.health;
           const left = active - 1 + queue.length;
           console.log(
             `[done] ${info.kind} "${info.name}" exited ${info.code} — ` +
@@ -200,11 +275,20 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
             const n = (activeByHarness.get(harness) ?? 1) - 1;
             if (n > 0) activeByHarness.set(harness, n);
             else activeByHarness.delete(harness);
+            settleHealth(harness, signal);
           }
-          inflight.delete(workKey(job));
-          for (const w of freeWaiters.get(workKey(job)) ?? []) w();
-          freeWaiters.delete(workKey(job));
-          releaseRef(job.ref);
+          if (harness && signal?.requeue) {
+            // Back to the front, still in flight: its work key and ref count stay, so no duplicate
+            // is coalesced in and no whenFree/whenRefFree waiter fires. pump re-picks the harness.
+            delete job.harness;
+            queue.unshift(job);
+            persist?.onAdd?.(job, { front: true });
+          } else {
+            inflight.delete(workKey(job));
+            for (const w of freeWaiters.get(workKey(job)) ?? []) w();
+            freeWaiters.delete(workKey(job));
+            releaseRef(job.ref);
+          }
           report();
           pump();
           resolveIdle();
@@ -289,12 +373,25 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     },
     /**
      * {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap, or whose harnesses
-     * are all full) only when step caps or harnesses are set; `harnesses` ({[name]: {active, max}})
-     * only when the profile has harnesses.
+     * are all full or down) only when step caps or harnesses are set; `harnesses` ({[name]: {active,
+     * max, state, until?, reason?}}) only when the profile has harnesses.
      */
     state: snapshot,
-    /** Every configured harness's {active, max} (max null = uncapped) — the puller's harness budget; {} without harnesses. */
+    /** Every configured harness's {active, max, state, until?, reason?} (max null = uncapped) — the puller's harness budget; {} without harnesses. */
     harnessState,
+    /**
+     * Close `name`'s breaker now (the `harness_reset` op): drop its entry, persist, report
+     * `onHarnessUp` when it was down or probing, then start waiting work. False when it was up.
+     * @param {string} name @returns {boolean}
+     */
+    resetHarness(name) {
+      if (!health.delete(name)) return false;
+      persistHealth();
+      harnessing?.onHarnessUp?.(name);
+      report();
+      pump();
+      return true;
+    },
     /**
      * Per-step counts of PIPELINE jobs: {[stepId]: {active, queued}} — the puller's per-step budget.
      * @returns {Record<string, {active: number, queued: number}>}

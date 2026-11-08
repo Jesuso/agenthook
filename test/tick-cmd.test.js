@@ -28,3 +28,19 @@ test("digest: one header line, RUN/WAIT/HELD rows, board, PRs, events, cursor", 
   assert.ok(lines.includes("  ev 10:20:30 run_end 7/code → fail (boom)"));
   assert.equal(lines.at(-1), "  cursor 42");
 });
+
+test("digest: one line per down or probing harness (#621); an up harness adds none", () => {
+  const out = digest({
+    profile: "p", up: true,
+    slots: { max: 3, active: 0, queued: 1, free: 2, harnesses: {
+      "local-qwen": { active: 0, max: 1, state: "down", until: "2026-11-08T14:32:00.000Z", reason: "spawn failed: ENOENT" },
+      deepseek: { active: 1, max: 1, state: "probing", until: "2026-11-08T12:00:00.000Z", reason: "exited 1 with no output after 2s" },
+      opus: { active: 0, max: null, state: "up" },
+    } },
+    running: [], queue: [], held: [], events: [], cursor: 1,
+  });
+  const lines = out.split("\n");
+  assert.ok(lines.includes("  harness local-qwen: down until 14:32 (spawn failed: ENOENT)"));
+  assert.ok(lines.includes("  harness deepseek: probing (exited 1 with no output after 2s)"));
+  assert.equal(lines.filter((l) => l.includes("harness")).length, 2);
+});

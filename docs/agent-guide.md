@@ -105,8 +105,13 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
   `maxConcurrent` cap, or on its harnesses all being full, not on a slot — so `free` can be > 0
   while `queued` is non-zero.
 - `slots.harnesses` (present only when the profile has `harnesses`) is
-  `{"<name>": {"active": n, "max": n|null}}` per harness — `max: null` means only the global cap
-  bounds it. `run_start`/`run_end` then carry `harness` (the name the run was routed to, or `null`).
+  `{"<name>": {"active": n, "max": n|null, "state": "up"|"down"|"probing"}}` per harness — `max: null`
+  means only the global cap bounds it. `run_start`/`run_end` then carry `harness` (the name the run
+  was routed to, or `null`). `state` is the health breaker's: `down` (routed around until `until`,
+  with the `reason`) or `probing` (cooldown over; one probe run at a time decides). A step whose
+  harnesses are all down waits in `capped`; it never fails. `harness_down` / `harness_up` events mark
+  the transitions, and a run that tripped it ends `run_end` with `outcome: "requeued"` (it re-runs
+  first, on another harness). `harness_reset {harness}` clears it once the backend is fixed.
 - `up:false` → the receiver is down; `running`/`queue` are the last state on disk, not live.
 
 `tick` adds `board` (`[{step, resting:[{ref,id,title}]}]` — tickets sitting in each step's source
@@ -326,6 +331,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 |---|---|---|
 | `pause` / `resume` | stop / restart starting agents and pulling backlog | — (`resume` is a no-op while restart/shutdown owns the queue) |
 | `set_concurrency {max}` | cap 1–64, runtime only | out of range |
+| `harness_reset {harness}` | clear a harness's health breaker (down/probing → up, `harness_up`) and start the work waiting on it; `reset:false` = it was already up | `this profile has no harnesses`; `no harness "<name>" (have: …)` |
 | `run {ref, step?, assign?, force?}` | assign + move into a step's source stage | ref not found; ticket already completed (override: `force`); already in the pipeline (override: `force`) |
 | `catchup {ref, force?}` | re-fire the step for the stage the ticket **currently rests in**; use instead of `run {force}` when `run`'s move produces no fresh transition | not assigned to us; rests in no pipeline source stage; no tracker support |
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |

@@ -70,11 +70,12 @@ export function stepBudget(caps, stepState, pendingSteps) {
 
 /**
  * Remaining pull budget per queue step that routes through harnesses: the room left across its
- * harnesses (Σ max − active) less the step's own queued + pending jobs, never negative. A step
- * with an uncapped harness (or one the queue doesn't report) is absent — unbounded by harnesses.
+ * harnesses (Σ max − active) less the step's own queued + pending jobs, never negative. A down
+ * harness adds no room and a probing one at most 1 (its one probe run). A step with an uncapped
+ * up harness (or one the queue doesn't report) is absent — unbounded by harnesses.
  * Pure. Combine with stepBudget via `mergeBudgets` (the tighter bound wins).
  * @param {Record<string, string[]>} stepHarnesses  stepId → its harness list
- * @param {Record<string, {active: number, max: number|null}>} harnessState  the queue's per-harness slots
+ * @param {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing'}>} harnessState  the queue's per-harness slots
  * @param {Record<string, {active: number, queued: number}>} stepState  the queue's per-step counts
  * @param {Iterable<string>} pendingSteps  the stepId of every pending pull
  * @returns {Record<string, number>}
@@ -90,6 +91,11 @@ export function harnessBudget(stepHarnesses, harnessState, stepState, pendingSte
     let room = 0;
     for (const n of names) {
       const h = Object.hasOwn(harnessState, n) ? harnessState[n] : undefined;
+      if (h?.state === "down") continue;
+      if (h?.state === "probing") {
+        room += Math.max(0, 1 - h.active);
+        continue;
+      }
       if (h?.max == null) {
         room = Infinity;
         break;
@@ -129,7 +135,7 @@ export const PULL_TTL_MS = 10 * 60 * 1000;
  *   max: number | (() => number),   // a function tracks the live cap (`set_concurrency`)
  *   queueState: () => {active: number, queued: number, capped?: number},
  *   stepState?: () => Record<string, {active: number, queued: number}>,  // per-step counts (only read for capped steps)
- *   harnessState?: () => Record<string, {active: number, max: number|null}>,  // per-harness slots (only read for steps with `harness`)
+ *   harnessState?: () => Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing'}>,  // per-harness slots (only read for steps with `harness`)
  *   inflightRefs: () => string[],
  *   listQueued: (stepId: string) => Promise<string[]>,
  *   enterStage: (ref: string, stepId: string, opts: {assign: boolean}) => Promise<unknown>,

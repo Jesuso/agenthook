@@ -115,18 +115,37 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const stepCaps = {};
   for (const s of cfg.pipeline || []) if (!s.manual && s.maxConcurrent != null) stepCaps[s.id] = s.maxConcurrent;
   // Named harnesses: each harnessed step's list + routing, and each harness's own slot cap.
+  // The health breaker is seeded from harness-health.json (a harness since removed from the
+  // config is dropped), persisted on every change, and its transitions are events.
   /** @type {Parameters<typeof createQueue>[5]} */
   let harnessing;
   if (cfg.harnesses) {
-    harnessing = { steps: {}, caps: {} };
+    const harnesses = cfg.harnesses;
+    const stored = store.getHarnessHealth();
+    const seeded = Object.fromEntries(Object.entries(stored).filter(([name]) => Object.hasOwn(harnesses, name)));
+    if (Object.keys(seeded).length !== Object.keys(stored).length) store.setHarnessHealth(seeded);
+    /** @type {Record<string, number|undefined>} */
+    const cooldowns = {};
+    harnessing = {
+      steps: {},
+      caps: {},
+      cooldowns,
+      health: seeded,
+      onHealth: (down) => store.setHarnessHealth(down),
+      onHarnessDown: (harness, { reason, until }) => emit("harness_down", "", "", { harness, reason, until }),
+      onHarnessUp: (harness) => emit("harness_up", "", "", { harness }),
+    };
     for (const s of cfg.pipeline || []) {
       if (!s.manual && harnessesOf(s).length) harnessing.steps[s.id] = { harnesses: harnessesOf(s), routing: s.routing ?? "first-free" };
     }
-    for (const [name, h] of Object.entries(cfg.harnesses)) harnessing.caps[name] = h.maxConcurrent;
+    for (const [name, h] of Object.entries(harnesses)) {
+      harnessing.caps[name] = h.maxConcurrent;
+      cooldowns[name] = h.cooldownMinutes;
+    }
   }
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
-    { onAdd: (job) => store.addQueued(job), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
+    { onAdd: (job, o) => store.addQueued(job, o), onRemove: (job) => store.removeQueued(job), onSettle: () => void puller.pull() },
     stepCaps,
     harnessing,
   );
