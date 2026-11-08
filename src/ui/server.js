@@ -32,6 +32,8 @@
 // the profile's `.env` checked for a claude credential, no value returned. Nothing else in any
 // state dir is ever written.
 import { readDigest } from "../digest.js";
+import net from "node:net";
+import os from "node:os";
 import { canonicalLang } from "../digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
@@ -113,13 +115,42 @@ export function cookieToken(header) {
 }
 
 /**
- * @param {{ port: number, token: string, distDir: string, registry?: string,
+ * The DNS-rebinding guard: whether a request's `Host` header names this listener. Always
+ * `127.0.0.1:<port>` / `localhost:<port>`. Bound to one other address (`--host 192.168.1.5`),
+ * that `address:<port>` too. Bound to every interface (`0.0.0.0` / `::`), any `ip:<port>` whose ip
+ * is one of this machine's own interface addresses (looked up per request: a LAN address can
+ * change) — never a DNS name, so a name an attacker controls can't point at us. Pure apart from
+ * the interface lookup. @param {string} host the lower-cased Host header @param {number} port
+ * @param {string} [listenHost] the address the server was bound to (default loopback)
+ * @param {() => string[]} [ownAddresses] this machine's interface addresses (tests)
+ */
+export function hostAllowed(host, port, listenHost = "127.0.0.1", ownAddresses = localAddresses) {
+  if (host === `127.0.0.1:${port}` || host === `localhost:${port}`) return true;
+  if (listenHost === "127.0.0.1" || listenHost === "localhost") return false;
+  const m = /^(\[[0-9a-f:.]+\]|[0-9.]+):(\d+)$/.exec(host);
+  if (!m || Number(m[2]) !== port) return false;
+  const ip = m[1].startsWith("[") ? m[1].slice(1, -1) : m[1];
+  if (!net.isIP(ip)) return false;
+  if (listenHost === "0.0.0.0" || listenHost === "::") return ownAddresses().includes(ip);
+  return ip === listenHost.toLowerCase();
+}
+
+/** Every address of this machine's network interfaces (v4 and v6, scope ids stripped). */
+function localAddresses() {
+  /** @type {string[]} */
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) for (const i of list ?? []) out.push(i.address.replace(/%.*$/, ""));
+  return out;
+}
+
+/**
+ * @param {{ port: number, token: string, distDir: string, host?: string, registry?: string,
  *   discoverTimeoutMs?: number, restartTimeoutMs?: number, releaseTimeoutMs?: number, digestTimeoutMs?: number, summaryTimeoutMs?: number, epicsTimeoutMs?: number,
  *   sandboxIo?: { run?: import('../types.js').IngressRun, has?: (bin: string) => boolean,
  *     build?: (bin: string, args: string[], dockerfile: string) => { status: number|null } } }} opts  `sandboxIo`: the readiness probes (tests stub them)
  * @returns {http.Server}
  */
-export function createUiServer({ port, token, distDir, registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, summaryTimeoutMs = 200000, epicsTimeoutMs = 20000, sandboxIo = {} }) {
+export function createUiServer({ port, token, distDir, host: listenHost = "127.0.0.1", registry = registryDir, discoverTimeoutMs = 5000, restartTimeoutMs = 2000, releaseTimeoutMs = 20000, digestTimeoutMs = 200000, summaryTimeoutMs = 200000, epicsTimeoutMs = 20000, sandboxIo = {} }) {
   const root = path.resolve(distDir);
   /** @type {ReturnType<typeof createWatcher>|null} */
   let watcher = null;
@@ -547,11 +578,11 @@ export function createUiServer({ port, token, distDir, registry = registryDir, d
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");
 
-    // DNS-rebinding guard: the Host must name our loopback listener exactly.
+    // DNS-rebinding guard: the Host must name our listener exactly (see hostAllowed).
     const addr = server.address();
     const bound = addr && typeof addr === "object" ? addr.port : port;
     const host = String(req.headers.host || "").toLowerCase();
-    if (host !== `127.0.0.1:${bound}` && host !== `localhost:${bound}`) return send(res, 403);
+    if (!hostAllowed(host, bound, listenHost)) return send(res, 403);
 
     const raw = String(req.url || "/");
     const q = raw.indexOf("?");

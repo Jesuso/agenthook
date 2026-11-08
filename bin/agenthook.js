@@ -24,7 +24,7 @@
 //   agenthook ticket ls [--json]   the local board
 //   agenthook doctor [--fix [--dry-run]]  preflight checks for this profile (--fix: apply safe local fixes)
 //   agenthook alias [--remove]     add/remove an `ah` short command (opt-in symlink)
-//   agenthook ui [--port <n>] [--no-open]  local web dashboard + editors (127.0.0.1 only)
+//   agenthook ui [--port <n>] [--host <ip>] [--no-open]  local web dashboard + editors (127.0.0.1 unless --host)
 //   agenthook mcp [--read-only]    MCP server (stdio) for external agents — docs/mcp.md
 //   agenthook tick [name] [--json] one-call status+board+PRs+events digest for agents
 //   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
@@ -179,7 +179,9 @@ usage: agenthook <command> [args] [--config <path>]
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
-  ui [--port <n>] [--no-open]  local web dashboard + editors, all profiles (127.0.0.1; default port 4180)
+  ui [--port <n>] [--host <ip>] [--no-open]
+                            local web dashboard + editors, all profiles (default 127.0.0.1:4180;
+                            --host 0.0.0.0 / <LAN ip> serves the LAN — token is the only credential)
   mcp [--read-only]         MCP server over stdio: read+manage the pipeline from an agent (all profiles)
   tick [name…|--all] [--json] [--cursor <n|json>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
                             (--all / ≥2 names: one per profile; --cursor '{"<key>":<n>}')

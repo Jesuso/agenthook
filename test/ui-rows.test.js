@@ -11,7 +11,7 @@ import { buildRows, buildSnapshot, isRerunEvent, lastRerunAt, profileView, readE
 import { profileDir } from "../src/ui/logs.js";
 import { repositoryOf } from "../src/heartbeat.js";
 import { isNeedsYou, ticketBucket } from "../src/epics.js";
-import { uiPort, checkBundle, DEFAULT_PORT } from "../src/commands/ui.js";
+import { uiPort, checkBundle, DEFAULT_PORT, uiHost, uiUrls } from "../src/commands/ui.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-rows-"));
 
@@ -909,4 +909,21 @@ test("profileView: harnesses = heartbeat.queue.harnesses when up; no key when do
   assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).harnesses, { qwen: { active: 1, max: 2 }, opus: { active: 0, max: null } });
   assert.equal("harnesses" in profileView({ name: "p", pid: 1, up: false, heartbeat }), false);
   assert.equal("harnesses" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0 } } }), false);
+});
+
+test("uiHost: default loopback; localhost → 127.0.0.1; ip literals pass; a DNS name or junk throws", () => {
+  assert.equal(uiHost({}), "127.0.0.1");
+  assert.equal(uiHost({ host: "localhost" }), "127.0.0.1");
+  assert.equal(uiHost({ host: "0.0.0.0" }), "0.0.0.0");
+  assert.equal(uiHost({ host: "192.168.68.2" }), "192.168.68.2");
+  assert.equal(uiHost({ host: "::" }), "::");
+  for (const bad of ["sarah.lan", "", true, "300.1.1.1"]) assert.throws(() => uiHost({ host: bad }), /invalid --host/, String(bad));
+});
+
+test("uiUrls: loopback first; a single address adds itself; 0.0.0.0 adds every non-internal v4 interface", () => {
+  assert.deepEqual(uiUrls("127.0.0.1", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
+  assert.deepEqual(uiUrls("192.168.68.2", 4180, "t"), ["http://127.0.0.1:4180/?token=t", "http://192.168.68.2:4180/?token=t"]);
+  const all = uiUrls("0.0.0.0", 4180, "t");
+  assert.equal(all[0], "http://127.0.0.1:4180/?token=t");
+  for (const u of all.slice(1)) assert.match(u, /^http:\/\/\d+\.\d+\.\d+\.\d+:4180\/\?token=t$/);
 });
