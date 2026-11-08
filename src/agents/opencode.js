@@ -6,6 +6,12 @@
 // and `resume` takes the session id from usage.jsonl and the top-level `resumeCommand`
 // (`opencode -s <id>`: the interactive TUI — `opencode run -s <id>` refuses to start without a
 // new message). The interface is documented by src/agents/claude.js.
+import fs from "node:fs";
+import path from "node:path";
+
+/** `opencodeConfig` cap: large enough for a real provider config, small enough that a bad path
+ * (a repo, a log) fails fast instead of reading gigabytes into memory. */
+const MAX_OPENCODE_CONFIG_BYTES = 256 * 1024;
 
 /**
  * Build the `opencode run` argv (pure; exported for tests). The prompt is positional, so it
@@ -144,6 +150,31 @@ export function buildOpencodeUsageRecord({ ref, stepId, model, bin, startedAt, e
   };
 }
 
+/**
+ * Read and validate a resolved `opencodeConfig` path (already absolute — loadConfig resolves
+ * `~/` and relative paths). `lstat`, not `stat`: a symlink fails the `isFile()` check rather
+ * than being followed. Throws `opencodeConfig <path>: …` on any problem; the caller's `sandbox`
+ * hook throwing surfaces as dispatch's "sandbox setup failed" refusal.
+ * @param {string} configPath @returns {string} the file's raw content
+ */
+export function readOpencodeConfig(configPath) {
+  let st;
+  try {
+    st = fs.lstatSync(configPath);
+  } catch (e) {
+    throw new Error(`opencodeConfig ${configPath}: ${e.message}`);
+  }
+  if (!st.isFile()) throw new Error(`opencodeConfig ${configPath}: not a regular file`);
+  if (st.size > MAX_OPENCODE_CONFIG_BYTES) throw new Error(`opencodeConfig ${configPath}: ${st.size} bytes exceeds the ${MAX_OPENCODE_CONFIG_BYTES}-byte cap`);
+  const content = fs.readFileSync(configPath, "utf8");
+  try {
+    JSON.parse(content);
+  } catch (e) {
+    throw new Error(`opencodeConfig ${configPath}: invalid JSON (${e.message})`);
+  }
+  return content;
+}
+
 /** @type {import('../types.js').AgentAdapter} */
 export const opencode = {
   describe: () => ({ name: "opencode", stdout: "stream-json" }),
@@ -153,5 +184,27 @@ export const opencode = {
   usageRecord: (result, ctx) => buildOpencodeUsageRecord({ ...ctx, result }),
   sessions: null,
   resumeCommand: (sessionId) => ["-s", sessionId],
+  // Sandboxed: a `step.opencodeConfig` (the harness's, unless the step sets its own — resolved
+  // by src/dispatch/harness.js before this runs) is copied into the per-run HOME, never
+  // mounted — OpenCode configs can declare plugins/MCP commands, so a mount that persisted
+  // across runs would let one run plant config that executes in the next (the per-run HOME
+  // wrap() builds is deleted at teardown instead). No key → no files: OpenCode falls back to
+  // its defaults (cloud providers reach it via env, through OPENCODE_* passthrough).
+  // OPENCODE_DISABLE_AUTOUPDATE / OPENCODE_DISABLE_MODELS_FETCH skip OpenCode's own non-essential
+  // network calls (the update check and the models.dev catalog fetch) — verified against the
+  // installed CLI's env var names, not guessed.
+  sandbox({ step, home }) {
+    /** @type {{dst: string, content: string, mode?: number}[]} */
+    const files = [];
+    if (step.opencodeConfig) {
+      const content = readOpencodeConfig(step.opencodeConfig);
+      files.push({ dst: path.posix.join(home, ".config", "opencode", "opencode.json"), content, mode: 0o600 });
+    }
+    return {
+      mounts: [],
+      files,
+      env: { OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" },
+    };
+  },
   defaults: { bin: "opencode" },
 };

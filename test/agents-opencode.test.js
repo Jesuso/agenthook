@@ -181,6 +181,61 @@ test("adapter: describe, defaults, no transcripts but a top-level resume argv", 
   assert.throws(() => agentSessions(opencode), /^Error: opencode runs have no transcripts to follow$/);
 });
 
+test("sandbox: no opencodeConfig → no files, non-essential-traffic env only", () => {
+  const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent" });
+  assert.deepEqual(own.mounts, []);
+  assert.deepEqual(own.files, []);
+  assert.deepEqual(own.env, { OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" });
+});
+
+test("sandbox: opencodeConfig is read and copied to .config/opencode/opencode.json under home", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-cfg-"));
+  const cfgPath = path.join(dir, "opencode.json");
+  const content = JSON.stringify({ provider: { ollama: { options: { baseURL: "http://localhost:11434/v1" } } } });
+  fs.writeFileSync(cfgPath, content);
+  try {
+    const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code", opencodeConfig: cfgPath }), cwd: "/wt", ownsCwd: true, home: "/home/agent" });
+    assert.deepEqual(own.files, [{ dst: "/home/agent/.config/opencode/opencode.json", content, mode: 0o600 }]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sandbox: a missing, non-regular, oversized or invalid-JSON opencodeConfig throws `opencodeConfig <path>: …`", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-cfg-bad-"));
+  try {
+    const missing = path.join(dir, "nope.json");
+    assert.throws(() => opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ opencodeConfig: missing }), cwd: "/wt", ownsCwd: true, home: "/home/agent" }), new RegExp(`^Error: opencodeConfig ${missing}:`));
+
+    const dirAsConfig = path.join(dir, "subdir");
+    fs.mkdirSync(dirAsConfig);
+    assert.throws(() => opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ opencodeConfig: dirAsConfig }), cwd: "/wt", ownsCwd: true, home: "/home/agent" }), /not a regular file/);
+
+    const big = path.join(dir, "big.json");
+    fs.writeFileSync(big, "x".repeat(256 * 1024 + 1));
+    assert.throws(() => opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ opencodeConfig: big }), cwd: "/wt", ownsCwd: true, home: "/home/agent" }), /exceeds the .* cap/);
+
+    const bad = path.join(dir, "bad.json");
+    fs.writeFileSync(bad, "{not json");
+    assert.throws(() => opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ opencodeConfig: bad }), cwd: "/wt", ownsCwd: true, home: "/home/agent" }), /invalid JSON/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sandbox: a symlinked opencodeConfig is rejected (lstat, never followed)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-cfg-sym-"));
+  try {
+    const real = path.join(dir, "real.json");
+    fs.writeFileSync(real, "{}");
+    const link = path.join(dir, "link.json");
+    fs.symlinkSync(real, link);
+    assert.throws(() => opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ opencodeConfig: link }), cwd: "/wt", ownsCwd: true, home: "/home/agent" }), /not a regular file/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /** @param {Partial<import('../src/types.js').UsageRecord>[]} recs */
 const usageStore = (recs) => ({ getRepo: () => undefined, readUsage: () => /** @type {any[]} */ (recs) });
 

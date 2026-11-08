@@ -10,7 +10,7 @@ export const DEFAULT_IMAGE = `agenthook-agent:${pkg.version}`;
 
 /** The agent image recipe. No USER (the run sets the host uid) and no CMD (the run names the
  * agent binary). A custom `sandbox.image` built FROM this must keep sh, git, gh and the agent
- * CLI on PATH. */
+ * CLIs (claude, opencode) on PATH. */
 export const AGENT_DOCKERFILE = `FROM node:22-bookworm-slim
 RUN apt-get update \\
   && apt-get install -y --no-install-recommends git ca-certificates curl gnupg \\
@@ -22,6 +22,8 @@ RUN apt-get update \\
   && rm -rf /var/lib/apt/lists/*
 ARG CLAUDE_VERSION=latest
 RUN npm i -g @anthropic-ai/claude-code@\${CLAUDE_VERSION}
+ARG OPENCODE_VERSION=latest
+RUN npm i -g opencode-ai@\${OPENCODE_VERSION}
 RUN mkdir -p /home/agent && chmod 1777 /home/agent
 `;
 

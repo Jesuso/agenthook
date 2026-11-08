@@ -14,7 +14,7 @@ import { createStore } from "../src/store.js";
 
 const HARNESSES = {
   qwen: { agent: "claude", model: "qwen3-coder", bin: "claude-local", env: { ANTHROPIC_BASE_URL: "http://localhost:11434", SHARED: "harness" }, maxConcurrent: 1 },
-  deepseek: { agent: "opencode", model: "deepseek/deepseek-v3", provider: "openrouter", toolsets: ["terminal"], sandbox: { image: "agent-opencode:1" } },
+  deepseek: { agent: "opencode", model: "deepseek/deepseek-v3", provider: "openrouter", toolsets: ["terminal"], sandbox: { image: "agent-opencode:1" }, opencodeConfig: "/cfg/harness-opencode.json" },
   bare: {},
 };
 
@@ -32,8 +32,15 @@ test("resolveHarness: the harness fills knobs the step leaves unset", () => {
   const r = resolveHarness({ harnesses: HARNESSES }, step, "deepseek");
   assert.equal(r.harness, "deepseek");
   assert.equal(r.sandboxImage, "agent-opencode:1");
-  assert.deepEqual(r.step, { id: "code", effort: "high", agent: "opencode", model: "deepseek/deepseek-v3", provider: "openrouter", toolsets: ["terminal"] });
+  assert.deepEqual(r.step, { id: "code", effort: "high", agent: "opencode", model: "deepseek/deepseek-v3", provider: "openrouter", toolsets: ["terminal"], opencodeConfig: "/cfg/harness-opencode.json" });
   assert.deepEqual(step, { id: "code", effort: "high" }, "the real step is not mutated");
+});
+
+test("resolveHarness: opencodeConfig carries from the harness; the step's own wins", () => {
+  const viaHarness = resolveHarness({ harnesses: HARNESSES }, { id: "code" }, "deepseek").step;
+  assert.equal(viaHarness.opencodeConfig, "/cfg/harness-opencode.json");
+  const stepOwn = resolveHarness({ harnesses: HARNESSES }, { id: "code", opencodeConfig: "/cfg/step-opencode.json" }, "deepseek").step;
+  assert.equal(stepOwn.opencodeConfig, "/cfg/step-opencode.json");
 });
 
 test("resolveHarness precedence: step inline > harness > profile > adapter default", () => {

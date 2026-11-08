@@ -215,6 +215,37 @@ test("wrap(): a per-run 0700 HOME with mountpoints for dst-under-home mounts; ki
   assert.deepEqual(await r.done(), {}, "idempotent");
 });
 
+test("wrap(): files are written under the per-run HOME at mode 0600, owned by this process, and gone after done()", async () => {
+  const cfg = tmpCfg();
+  const s = stubRun({});
+  const sb = createContainerSandbox(cfg, { runtime: "docker", run: s.run, uid: 1, gid: 2 });
+  const r = await sb.wrap({
+    runId: "r", ref: "42", stepId: "code", bin: "opencode", args: ["run"], env: { A: "1" }, cwd: "/wt", mounts: [{ path: "/wt" }], step: /** @type {any} */ ({ id: "code" }),
+    files: [{ dst: `${SANDBOX_HOME}/.config/opencode/opencode.json`, content: '{"a":1}' }],
+  });
+  const home = path.join(cfg.stateDir, "sandbox-home", r.id);
+  const written = path.join(home, ".config", "opencode", "opencode.json");
+  assert.equal(fs.readFileSync(written, "utf8"), '{"a":1}');
+  assert.equal(fs.statSync(written).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(written).uid, process.getuid());
+  await r.done();
+  assert.equal(fs.existsSync(home), false);
+});
+
+test("wrap(): a file dst outside SANDBOX_HOME, or with a .. segment, is rejected", async () => {
+  const cfg = tmpCfg();
+  const s = stubRun({});
+  const sb = createContainerSandbox(cfg, { runtime: "docker", run: s.run, uid: 1, gid: 2 });
+  await assert.rejects(
+    sb.wrap({ runId: "r", ref: "42", stepId: "code", bin: "opencode", args: ["run"], env: {}, cwd: "/wt", mounts: [], step: /** @type {any} */ ({ id: "code" }), files: [{ dst: "/etc/passwd", content: "x" }] }),
+    /must be under/,
+  );
+  await assert.rejects(
+    sb.wrap({ runId: "r2", ref: "42", stepId: "code", bin: "opencode", args: ["run"], env: {}, cwd: "/wt", mounts: [], step: /** @type {any} */ ({ id: "code" }), files: [{ dst: `${SANDBOX_HOME}/../escape`, content: "x" }] }),
+    /must be under/,
+  );
+});
+
 test("DOCKER / PODMAN override the runtime binary", async () => {
   const prev = process.env.PODMAN;
   process.env.PODMAN = "/opt/podman";
@@ -247,6 +278,8 @@ test("image: default tag carries the package version; build reads the Dockerfile
   assert.deepEqual(buildImageArgs("podman", "x:1"), ["build", "-t", "x:1", "-"]);
   assert.match(AGENT_DOCKERFILE, /^FROM node:22-bookworm-slim/);
   assert.match(AGENT_DOCKERFILE, /@anthropic-ai\/claude-code@\$\{CLAUDE_VERSION\}/);
+  assert.match(AGENT_DOCKERFILE, /ARG OPENCODE_VERSION=latest/);
+  assert.match(AGENT_DOCKERFILE, /npm i -g opencode-ai@\$\{OPENCODE_VERSION\}/);
   assert.match(AGENT_DOCKERFILE, /install -y --no-install-recommends gh/);
   assert.doesNotMatch(AGENT_DOCKERFILE, /^(USER|CMD)\b/m);
 });

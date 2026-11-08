@@ -242,6 +242,15 @@ test("pipeline step bin/env: a valid pair and ${VAR} values pass; bad shapes, na
   assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", bin: null, env: null }])), { ok: true });
 });
 
+test("pipeline step opencodeConfig: a non-empty string passes; an empty one or a non-string fails", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", opencodeConfig: "~/.config/opencode/opencode.json" }])), { ok: true });
+  /** @param {any} step */
+  const errs = (step) => /** @type {any} */ (validateRawConfig(raw({}, [{ id: "code", ...step }]))).errors;
+  assert.deepEqual(errs({ opencodeConfig: "" }), [`config: pipeline step "code" opencodeConfig must be a non-empty string.`]);
+  assert.deepEqual(errs({ opencodeConfig: 5 }), [`config: pipeline step "code" opencodeConfig must be a non-empty string.`]);
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", opencodeConfig: null }])), { ok: true });
+});
+
 test("agent: unset or \"claude\" passes at the top level and on a step; unknown names and manual steps fail", () => {
   assert.deepEqual(validateRawConfig(raw({ agent: "claude" }, [{ id: "code", agent: "claude" }])), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ agent: undefined }, [{ id: "code", agent: null }])), { ok: true });
@@ -556,6 +565,7 @@ test("harnesses: a bad agent, bin, provider, toolsets, env, model, maxConcurrent
   assert.deepEqual(one({ env: { AGENTHOOK_VERDICT_FILE: "x" } }), [`config: harness "x" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`]);
   assert.deepEqual(one({ env: { A: 1 } }), [`config: harness "x" env.A must be a string.`]);
   assert.deepEqual(one({ model: "" }), [`config: harness "x" model must be a non-empty string.`]);
+  assert.deepEqual(one({ opencodeConfig: "" }), [`config: harness "x" opencodeConfig must be a non-empty string.`]);
   for (const v of [0, -1, 1.5, "2"]) assert.deepEqual(one({ maxConcurrent: v }), [`config: harness "x" maxConcurrent must be a positive integer.`], `maxConcurrent ${JSON.stringify(v)}`);
   assert.deepEqual(one({ sandbox: { image: "" } }), [`config: harness "x" sandbox.image must be a non-empty string.`]);
   assert.deepEqual(one({ sandbox: "img" }), [`config: harness "x" sandbox must be an object ({ "image": "…" }).`]);

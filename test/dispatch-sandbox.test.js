@@ -296,12 +296,12 @@ function sandboxHarness(steps, { inner, forge = null, sandbox = { type: "docker"
   const events = [];
   const emit = (/** @type {string} */ event, /** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ data) => void events.push({ event, ref, stepId, data });
   const run = createDispatcher(cfg, adapter, undefined, store, emit, forge, undefined, { killGraceMs: 200, sandbox: createSandbox(cfg) });
-  /** @param {string} stepId */
-  const go = async (stepId) => {
+  /** @param {string} stepId @param {Partial<import('../src/types.js').Job>} [extra] */
+  const go = async (stepId, extra) => {
     const l = console.log;
     console.log = () => {};
     try {
-      await run({ kind: "pipeline", ref: "42", stepId, dedupKey: `k:${stepId}` });
+      await run({ kind: "pipeline", ref: "42", stepId, dedupKey: `k:${stepId}`, ...extra });
     } finally {
       console.log = l;
     }
@@ -400,6 +400,35 @@ test("sandbox e2e: a sandboxed cursor step is refused and the runtime is never s
     assert.equal(h.advanced[0].outcome, "fail");
     assert.match(h.advanced[0].reason, /cursor does not support the sandbox yet — the run is refused rather than run on the host \(set "sandbox": false on step "code"/);
     assert.deepEqual(h.calls(), []);
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: a sandboxed opencode step (agent: opencode) is not refused and runs through the runtime, with the per-run HOME mounted", async () => {
+  const h = sandboxHarness([{ id: "code", agent: "opencode", createsWorktree: true }, { id: "done", manual: true }]);
+  // The harness's claudeBin stub doubles as the opencode binary here — the stub is agent-agnostic.
+  h.cfg.pipeline[0].bin = h.cfg.claudeBin;
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance", JSON.stringify(h.advanced));
+    const run = h.calls().find(isAgentRun);
+    assert.ok(run, "the runtime client was spawned");
+    const mounts = run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1]] : []));
+    assert.ok(mounts.some((m) => m.startsWith(`type=bind,src=${path.join(h.state, "sandbox-home")}`) && m.endsWith(`,dst=${path.join("/home", "agent")}`)), mounts.join("\n"));
+  } finally {
+    h.restore();
+  }
+});
+
+test("sandbox e2e: a harness with agent: opencode routes a sandboxed run through it unrefused", async () => {
+  const h = sandboxHarness([{ id: "code", harness: "oc-local", createsWorktree: true }, { id: "done", manual: true }]);
+  h.cfg.harnesses = { "oc-local": { agent: "opencode", bin: h.cfg.claudeBin } };
+  try {
+    await h.go("code", { harness: "oc-local" });
+    assert.equal(h.advanced[0]?.outcome, "advance", JSON.stringify(h.advanced));
+    const run = h.calls().find(isAgentRun);
+    assert.ok(run, "the runtime client was spawned");
   } finally {
     h.restore();
   }
