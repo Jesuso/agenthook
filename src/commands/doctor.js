@@ -20,6 +20,7 @@ import { readProfile, isAlive, instructionTargets } from "../heartbeat.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 import { fileURLToPath } from "node:url";
 import { agentFor } from "../agents/index.js";
+import { DEFAULT_AGENT } from "../agents/names.js";
 import { hermesSourceHome, hermesProviderInfo } from "../agents/hermes-home.js";
 import { uiBundleState } from "../ui-bundle.js";
 import { isAppAuth, normalizePem, createGithubAuth, mintInstallationToken } from "../github-auth.js";
@@ -31,10 +32,12 @@ import { serviceImages } from "../sandbox/container.js";
 import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
+import { harnessesOf } from "../dispatch/harness.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
 import { FORGE_AGENT_ENV, FORGE_EGRESS_HOSTS } from "../forges/index.js";
-import { egressPolicy, egressRules, needsEgressProxy } from "../sandbox/egress.js";
+import { egressPolicy, egressRules, needsEgressProxy, parseRule } from "../sandbox/egress.js";
+import { isPrivateAddress } from "../sandbox/egress-proxy.mjs";
 
 const UI_SRC_DIR = fileURLToPath(new URL("../../ui/src/", import.meta.url));
 const UI_DIST_DIR = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
@@ -75,6 +78,152 @@ export function agentBinChecks(cfg) {
     byKey.set(key, group);
   }
   return [...byKey.values()];
+}
+
+/** Named harness binaries doctor must check on the host (#632): every `harnesses.<name>` with
+ * its own `bin`, or whose `agent` differs from the profile's, resolved exactly like dispatch
+ * (`h.bin || agent.defaults.bin || cfg.claudeBin`) — a harness that only inherits the profile's
+ * agent/bin is already covered by agentBinChecks. A harness only routed through sandboxed steps
+ * resolves its binary inside the image instead (like agentBinChecks skips those steps), so it's
+ * excluded unless at least one non-manual, unsandboxed step also routes through it. Pure.
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'harnesses'|'pipeline'|'sandbox'>} cfg
+ * @returns {{ name: string, bin: string }[]} */
+export function harnessBinChecks(cfg) {
+  const hostRouted = new Set((cfg.pipeline ?? []).filter((s) => !s.manual && !isSandboxed(cfg, s)).flatMap(harnessesOf));
+  /** @type {{ name: string, bin: string }[]} */
+  const out = [];
+  for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
+    if (!hostRouted.has(name)) continue;
+    if (!h.bin && (!h.agent || h.agent === (cfg.agent ?? DEFAULT_AGENT))) continue;
+    const agent = agentFor(cfg, { agent: h.agent });
+    out.push({ name, bin: h.bin || agent.defaults.bin || cfg.claudeBin });
+  }
+  return out;
+}
+
+/** The host/port a URL's hostname names, lower-cased and bracket-stripped (IPv6); undefined
+ * for an unparseable URL. Port defaults 80 (http) / 443 (https) when the URL names none.
+ * @param {string|undefined} url @returns {{host: string, port: number}|undefined} */
+function hostPort(url) {
+  try {
+    const u = new URL(String(url));
+    if (!u.hostname) return undefined;
+    const host = u.hostname.replace(/^\[(.*)\]$/, "$1").toLowerCase();
+    const port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+    return { host, port };
+  } catch {
+    return undefined;
+  }
+}
+
+/** @param {string} ip */
+const isLoopbackIp = (ip) => (net.isIPv4(ip) ? ip.startsWith("127.") : ip === "::1" || ip === "0:0:0:0:0:0:0:1");
+
+/** Whether `host` is loopback, some other private address, or unclassifiable without DNS
+ * (not an IP literal and not "localhost" — doctor never resolves a name). Pure.
+ * @param {string} host @returns {'loopback'|'private'|undefined} */
+function classifyHost(host) {
+  if (host === "localhost" || host.endsWith(".localhost")) return "loopback";
+  if (!net.isIP(host)) return undefined;
+  if (isLoopbackIp(host)) return "loopback";
+  return isPrivateAddress(host) ? "private" : undefined;
+}
+
+/** Whether an `allow` list already carries a `host:port!private` rule for this exact host/port
+ * (never a wildcard — a sandboxed LAN endpoint is pinned to one address). `@preset` entries are
+ * never host:port rules, so they're skipped rather than passed to parseRule. Pure.
+ * @param {string[]} allow @param {string} host @param {number} port @returns {boolean} */
+function allowsPrivateRule(allow, host, port) {
+  return allow.some((entry) => {
+    if (entry.startsWith("@")) return false;
+    try {
+      const r = parseRule(entry);
+      return r.allowPrivate && !r.wildcard && r.host === host && r.port === port;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * LAN model endpoints behind the sandbox (#632): a harness's or a step's own
+ * `env.ANTHROPIC_BASE_URL` naming a loopback address can never reach the host from inside the
+ * container ("localhost" there is the container itself); naming any other private address
+ * (RFC1918, link-local, ULA, …) needs an explicit `host:port!private` rule in the effective
+ * egress allowlist, or the proxy refuses it. A hostname DNS would be needed to classify is
+ * skipped. Only harnesses/steps a sandboxed step actually uses are checked; `[]` without
+ * `cfg.harnesses` (doctor stays silent on a profile that doesn't use them) or `cfg.sandbox`.
+ * Pure (config only).
+ * @param {import('../types.js').Config} cfg
+ * @returns {{ level: 'warn', label: string, note: string }[]} */
+export function harnessLanLints(cfg) {
+  if (!cfg.harnesses || !cfg.sandbox) return [];
+  /** @type {{ level: 'warn', label: string, note: string }[]} */
+  const out = [];
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual && isSandboxed(cfg, s));
+  /** @param {string} label @param {string|undefined} url @param {{host: string, port: number}} hp */
+  const loopback = (label, url, hp) =>
+    out.push({ level: "warn", label: `${label}: ANTHROPIC_BASE_URL ${url} is loopback`, note: `inside the sandbox "${hp.host}" is the container itself, not this host — use the host's LAN IP (and allow it with !private)` });
+  /** @param {string} label @param {string|undefined} url @param {{host: string, port: number}} hp */
+  const private_ = (label, url, hp) => {
+    const host = hp.host.includes(":") ? `[${hp.host}]` : hp.host;
+    out.push({ level: "warn", label: `${label}: ANTHROPIC_BASE_URL ${url} is a private address`, note: `sandboxed runs need "${host}:${hp.port}!private" in sandbox.egress.allow` });
+  };
+
+  for (const [name, h] of Object.entries(cfg.harnesses)) {
+    const url = h.env?.ANTHROPIC_BASE_URL;
+    const hp = hostPort(url);
+    if (!hp) continue;
+    const kind = classifyHost(hp.host);
+    if (!kind) continue;
+    const routed = steps.filter((s) => harnessesOf(s).includes(name) && !s.env?.ANTHROPIC_BASE_URL);
+    if (!routed.length) continue;
+    if (kind === "loopback") loopback(`harness "${name}"`, url, hp);
+    else {
+      for (const s of routed) {
+        const policy = egressPolicy(cfg, s);
+        if (policy.mode === "allowlist" && !allowsPrivateRule(policy.allow, hp.host, hp.port)) {
+          private_(`harness "${name}"`, url, hp);
+          break;
+        }
+      }
+    }
+  }
+  // A step's own loopback ANTHROPIC_BASE_URL is already flagged by egressLints — only the
+  // private-address case (no equivalent there) is this function's to report for steps.
+  for (const s of steps) {
+    const url = s.env?.ANTHROPIC_BASE_URL;
+    const hp = hostPort(url);
+    if (!hp) continue;
+    if (classifyHost(hp.host) !== "private") continue;
+    const policy = egressPolicy(cfg, s);
+    if (policy.mode === "allowlist" && !allowsPrivateRule(policy.allow, hp.host, hp.port)) private_(`step "${s.id}"`, url, hp);
+  }
+  return out;
+}
+
+/**
+ * Per-harness slots (#632): an ℹ line per harness naming its `maxConcurrent` ("N slot(s)" or
+ * "unbounded"), plus a ⚠ when every harness a step's `harness` list names has an explicit cap
+ * and their caps sum to 0 — the step can never run. `[]` without `cfg.harnesses`. Pure.
+ * @param {Pick<import('../types.js').Config, 'harnesses'|'pipeline'>} cfg
+ * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
+export function harnessSlotLints(cfg) {
+  if (!cfg.harnesses) return [];
+  /** @type {{ level: 'info'|'warn', label: string, note: string }[]} */
+  const out = [];
+  for (const [name, h] of Object.entries(cfg.harnesses)) {
+    out.push({ level: "info", label: `harness "${name}"`, note: h.maxConcurrent == null ? "unbounded" : `${h.maxConcurrent} slot(s)` });
+  }
+  for (const s of cfg.pipeline ?? []) {
+    const names = harnessesOf(s);
+    if (!names.length) continue;
+    const caps = names.map((n) => cfg.harnesses?.[n]?.maxConcurrent);
+    if (caps.every((c) => c != null) && caps.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) === 0) {
+      out.push({ level: "warn", label: `step "${s.id}" harness slots`, note: `every harness it can use (${names.join(", ")}) is capped at 0 — this step can never run` });
+    }
+  }
+  return out;
 }
 
 /** Per-step agent lints that pass loadConfig yet weaken the pipeline. Pure (config only).
@@ -1138,6 +1287,9 @@ export async function runChecks(cfg, io = {}) {
   if (!binChecks.some((c) => c.bin === cfg.claudeBin) && !have(cfg.claudeBin)) {
     warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");
   }
+  for (const { name, bin } of harnessBinChecks(cfg)) {
+    add(have(bin), `harness "${name}" binary ${JSON.stringify(bin)}`, have(bin) ? "" : "not found", { manual: `install ${bin} or put it on PATH` });
+  }
   for (const l of agentLints(cfg)) warn(l.label, l.note);
   policyLints(cfg).forEach(finding);
   for (const l of agentEnvLints(cfg, { env, platform })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note, l.fix);
@@ -1164,6 +1316,8 @@ export async function runChecks(cfg, io = {}) {
   const files = [...new Set(reposOf(cfg).flatMap((r) => rootFiles(r.path)))];
   const origins = cfg.sandbox && !cfg.forge ? reposOf(cfg).flatMap((r) => hostGitFacts(r.path).originUrl ?? []) : [];
   for (const l of egressLints(cfg, { files, env, origins })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
+  for (const l of harnessLanLints(cfg)) warn(l.label, l.note);
+  for (const l of harnessSlotLints(cfg)) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });

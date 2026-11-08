@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format is based on
   `slots.harnesses[name]` gains `state`/`until`/`reason`, `tick` prints a line per down harness,
   the state persists in `harness-health.json`, and the `harness_reset {harness}` op clears it. See
   [docs/local-models.md](docs/local-models.md#when-a-harness-fails).
+- `doctor` checks named harnesses (#632): a harness's own `bin` (or an `agent` other than the
+  profile's) must resolve on PATH; a sandboxed harness's or step's `ANTHROPIC_BASE_URL` naming a
+  loopback address warns it's unreachable from inside the container, and one naming any other
+  private address needs a matching `host:port!private` rule in the effective egress allowlist;
+  and each harness's slot count is reported, with a warning when a step's harnesses all cap to 0.
+  A profile without `harnesses` gets none of these lines.
 - Harness on `tick`/`status` running rows (#630). A live run on a named harness carries `harness`
   in its `running[]` row (from `running.json`; the key is omitted when the run has none), and the
   `tick` text digest appends `· <harness>` to the RUN line. Profiles without harnesses are
