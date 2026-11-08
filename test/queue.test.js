@@ -442,6 +442,33 @@ test("harness: the harness cap nests with the step cap and the global cap — al
   await h.q.onIdle();
 });
 
+test("setHarnessMax: a raise starts a waiting job; a lower cap only gates new starts; unknown name throws", async () => {
+  const caps = { qwen: 1, deepseek: 1, opus: 3 };
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["qwen"] } }, caps });
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  assert.deepEqual(started, ["A:qwen"]);
+  q.setHarnessMax("qwen", 2);
+  assert.deepEqual(started, ["A:qwen", "B:qwen"], "the raise pumps the waiting job");
+  assert.deepEqual(q.state().harnesses?.qwen, { active: 2, max: 2, state: "up" });
+  assert.equal(q.max(), 9, "the global cap is untouched");
+  assert.equal(caps.qwen, 1, "the caller's caps object is not mutated");
+  q.setHarnessMax("qwen", 1); // below active: nothing is killed
+  assert.deepEqual(q.state().harnesses?.qwen, { active: 2, max: 1, state: "up" });
+  q.enqueue(job("C", "code"));
+  assert.equal(started.length, 2, "C waits: qwen is over its new cap");
+  assert.throws(() => q.setHarnessMax("nope", 2), /unknown harness "nope"/);
+  assert.throws(() => q.setHarnessMax("toString", 2), /unknown harness/, "an inherited key is not a harness");
+  await done("A");
+  assert.equal(started.length, 2, "one of two freed: still at cap 1");
+  await done("B");
+  assert.deepEqual(started.slice(2), ["C:qwen"]);
+  await done("C");
+  await q.onIdle();
+  // a queue without harnesses rejects any name
+  assert.throws(() => createQueue(1, async () => info(job("x", "code"))).setHarnessMax("qwen", 2), /unknown harness "qwen"/);
+});
+
 test("harness: a slot is released on settle, including when the run rejects", async () => {
   const one = { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1 } };
   const { q, started, done } = harnessed(3, one);

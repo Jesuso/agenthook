@@ -61,7 +61,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   let max = initialMax;
   const caps = new Map(Object.entries(stepCaps));
   const harnessSteps = new Map(Object.entries(harnessing?.steps ?? {}));
-  const harnessCaps = harnessing?.caps ?? {};
+  // Queue-owned copy: setHarnessMax changes a cap at runtime without touching the engine's.
+  const harnessCaps = { ...(harnessing?.caps ?? {}) };
   const now = harnessing?.now ?? Date.now;
   /** @type {Map<string, HarnessHealth>} harness name → its breaker entry (absent = up) */
   const health = new Map();
@@ -411,6 +412,18 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     /** Change the concurrency cap at runtime (not persisted to config); a raise starts waiting jobs now. @param {number} n */
     setMax(n) {
       max = n;
+      report();
+      pump();
+    },
+    /**
+     * Change one named harness's slot cap at runtime (not persisted to config). Lowering it
+     * below its running count kills nothing — it only gates new starts; a raise starts waiting
+     * jobs now. Throws for a name that isn't a configured harness.
+     * @param {string} name @param {number} n
+     */
+    setHarnessMax(name, n) {
+      if (!Object.hasOwn(harnessCaps, name)) throw new Error(`unknown harness "${name}"`);
+      harnessCaps[name] = n;
       report();
       pump();
     },

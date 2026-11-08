@@ -149,13 +149,11 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
 
 // Raw-only on purpose, each with its ticket: the per-step egress policy (#473) gets its form
 // with the isolation report (#476). The profile sandbox* keys got a Basics form in #494.
-// Services (#529) are Raw-only for v1. Harnesses (#619) get their editor in #620.
+// Services (#529) are Raw-only for v1.
 const RAW_ONLY = new Set([
   "tracker.pipeline.*.egress", "tracker.pipeline.*.egress.mode", "tracker.pipeline.*.egress.allow", "tracker.pipeline.*.egress.deny",
   "tracker.pipeline.*.services",
   ...["", ".*", ".*.image", ".*.env", ".*.wait", ".*.wait.cmd", ".*.wait.timeoutS", ".*.agentEnv", ".*.memory", ".*.cpus"].map((k) => `sandbox.services${k}`),
-  ...["", ".*", ".*.agent", ".*.model", ".*.bin", ".*.env", ".*.provider", ".*.toolsets", ".*.maxConcurrent", ".*.cooldownMinutes", ".*.downGraceSeconds", ".*.sandbox", ".*.sandbox.image"].map((k) => `harnesses${k}`),
-  "tracker.pipeline.*.harness", "tracker.pipeline.*.routing",
 ]);
 
 test("no schema entry is left pending (#343): every documented key has a form", () => {

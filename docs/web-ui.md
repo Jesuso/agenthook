@@ -304,10 +304,13 @@ with the same Clear / replace controls and is never rewritten unless you act.
 
 **Scope.** Dedicated forms for the **pipeline designer** (steps: add / remove / reorder; id, kind,
 model, effort, `maxAttempts`, `maxMinutes`, `idleMinutes`, `requireVerdict`, `createsWorktree`, `drainWorktree`,
-`manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor; the tracker's stage
+`manual`, `instructionsFile`, the agent `bin` and an `env` key/value editor, a `harness` pick — one
+name writes a string, two or more a list plus `routing`, none removes both; the tracker's stage
 bindings), the **top-level basics** (`name`, `maxConcurrent`, `fullAuto`, `port`, `trigger`,
-`instructionsFile`, and — under Advanced — `claudeBin` and a read-only `stateId`, since the server
-422s any save that changes it; use `agenthook rename --move` instead), every `tracker` / `forge` /
+`instructionsFile`, and — under Advanced — `claudeBin`, a read-only `stateId`, since the server
+422s any save that changes it; use `agenthook rename --move` instead, and the `harnesses` cards:
+add / rename / remove, where a rename rewrites every step's `harness` reference and a remove drops
+the name from them, a step left with none losing `harness` and `routing`), every `tracker` / `forge` /
 `ingress` key, the
 **Integrations** tab: `sinks[]` (add / remove / reorder; per-type fields — `url` for slack/webhook,
 `botToken` + `chatId` for telegram; an event filter whose absent `events` shows the defaults, any
@@ -521,7 +524,8 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   `prUrl` (`refmeta.pr` known) — a ticket done by hand on another branch is just Done.
 
 ### Profile Overview
-- Stat tiles: agents (slot pips), queued, cost today, **done today**, pause/resume.
+- Stat tiles: agents (slot pips, plus an `active/max` chip per named harness — `∞` when uncapped —
+  on a profile with `harnesses`), queued, cost today, **done today**, pause/resume.
 - Zone 1 *Needs you* (hidden when empty): failed → held → PR rows, one-line reason (heldReason /
   verdict summary), inline Release / Dismiss / Open PR / Open ticket.
 - Zone 2 *Now*: running agents per step with elapsed, model, cost, follow-log; free slots as empty

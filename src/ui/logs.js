@@ -74,7 +74,7 @@ function energyOf(end) {
  * in `events` (still running, or older than the events tail). `running` = no outcome yet, it's
  * the ref's newest run, and running.json has the ref on that step. `estUsd`/`costBasis` follow
  * src/pricing.js `costOf` (the run_end's stamp, else the profile's rates); `energyKwh`/`energyUsd`
- * ride along when the run was measured (src/energy.js).
+ * ride along when the run was measured (src/energy.js), `model`/`harness` when the run_end names them.
  * @param {string} registry @param {string} profile @param {string} ref
  * @param {Record<string, any>[]} events  the profile's events tail, oldest first
  * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
@@ -133,6 +133,8 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
       step: r.step,
       startedAt: r.startedAt,
       outcome,
+      ...(end && typeof end.model === "string" && end.model ? { model: end.model } : {}),
+      ...(end && typeof end.harness === "string" && end.harness ? { harness: end.harness } : {}),
       ...(end && typeof end.plain === "string" && end.plain ? { plain: end.plain.slice(0, 300) } : {}),
       costUsd: end && typeof end.costUsd === "number" && Number.isFinite(end.costUsd) ? end.costUsd : null,
       unpriced: !!end && end.unpriced === true,

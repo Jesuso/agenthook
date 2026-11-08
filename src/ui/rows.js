@@ -444,6 +444,8 @@ export function profileView(p) {
   const hb = isObj(p.heartbeat) ? p.heartbeat : null;
   /** @param {any} v */
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  // Per-harness slots, only for a live profile with harnesses (no key otherwise).
+  const harnesses = p.up ? harnessSlots(hb?.queue?.harnesses) : null;
   return {
     name: p.name,
     label: str(hb?.name) || p.label || p.name,
@@ -463,6 +465,7 @@ export function profileView(p) {
     paused: p.up ? hb?.paused === true : null,
     quotaPaused: p.up ? normalizeTrip(hb?.quotaPaused) : null,
     quota: normalizeQuota(p.quota),
+    ...(harnesses ? { harnesses } : {}),
     restartPending: p.up ? hb?.restartPending === true || hb?.decommissionPending === true || hb?.draining === true : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
@@ -475,6 +478,34 @@ export function profileView(p) {
     recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now(), pricingOf(hb)),
     recentRuns: recentRuns(p.events ?? [], p.now ?? Date.now()),
   };
+}
+
+/** A harness's breaker states (src/queue.js). */
+const HARNESS_STATES = new Set(["up", "down", "probing"]);
+
+/**
+ * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
+ * null = uncapped; `state` is the health breaker's, `until`/`reason` only while down or probing);
+ * null when absent or empty (a profile without harnesses).
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>|null}
+ */
+export function harnessSlots(raw) {
+  if (!isObj(raw)) return null;
+  /** @type {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>} */
+  const out = {};
+  for (const [name, h] of Object.entries(raw)) {
+    if (!isObj(h)) continue;
+    const state = HARNESS_STATES.has(h.state) ? h.state : undefined;
+    const down = state === "down" || state === "probing";
+    out[name] = {
+      active: Math.max(0, Number(h.active) || 0),
+      max: Number.isInteger(h.max) && h.max > 0 ? h.max : null,
+      ...(state ? { state } : {}),
+      ...(down && typeof h.until === "string" ? { until: h.until } : {}),
+      ...(down && typeof h.reason === "string" ? { reason: (h.reason.length > 200 ? h.reason.slice(0, 199) + "…" : h.reason) } : {}),
+    };
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /** The resolved identity for a profile row: the heartbeat's configured colour / emoji (validated), else derived from the state key.

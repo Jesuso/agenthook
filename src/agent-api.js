@@ -13,11 +13,13 @@ import { HIDDEN_BY_DEFAULT } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "./epics.js";
 import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
-import { readProfileState, buildRows, readJson, isObj } from "./ui/rows.js";
+import { readProfileState, buildRows, readJson, isObj, harnessSlots } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { pricingOf } from "./pricing.js";
 import { normalizeQuota, normalizeTrip } from "./quota.js";
 import { pendingFollowUp } from "./followup.js";
+import { createStore } from "./store.js";
+import { harnessTotals } from "./harness-usage.js";
 
 const REASON_MAX = 200;
 const FAILED_MAX = 50;
@@ -127,38 +129,12 @@ export function defaultProfileKey(configPath) {
 /** @param {any} t @param {any} meta */
 const label = (t, meta) => ({ ...(meta?.displayId ? { id: String(meta.displayId) } : {}), ...(meta?.title ? { title: clip(String(meta.title), TITLE_MAX) } : {}), ...t });
 
-/** A harness's breaker states (src/queue.js). */
-const HARNESS_STATES = new Set(["up", "down", "probing"]);
-
-/**
- * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
- * null = uncapped; `state` is the health breaker's, `until`/`reason` only while down or probing);
- * null when absent or empty (a profile without harnesses).
- * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>|null}
- */
-function harnessSlots(raw) {
-  if (!isObj(raw)) return null;
-  /** @type {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>} */
-  const out = {};
-  for (const [name, h] of Object.entries(raw)) {
-    if (!isObj(h)) continue;
-    const state = HARNESS_STATES.has(h.state) ? h.state : undefined;
-    const down = state === "down" || state === "probing";
-    out[name] = {
-      active: Math.max(0, Number(h.active) || 0),
-      max: Number.isInteger(h.max) && h.max > 0 ? h.max : null,
-      ...(state ? { state } : {}),
-      ...(down && typeof h.until === "string" ? { until: h.until } : {}),
-      ...(down && typeof h.reason === "string" ? { reason: clip(h.reason, REASON_MAX) } : {}),
-    };
-  }
-  return Object.keys(out).length ? out : null;
-}
-
 /**
  * One profile's live picture in the fewest tokens that still answer "what is running, what is
  * waiting, can I start more?". `slots.free` already subtracts queued jobs and is 0 while paused / quota-paused / restarting / draining (nothing can start).
- * `slots.harnesses` ({[name]: {active, max, state, until?, reason?}}) only for a profile with harnesses.
+ * `slots.harnesses` ({[name]: {active, max, state, until?, reason?}}) only for a profile with harnesses; `harnessUsage`
+ * ({[name]: {runs, input, output, cacheRead, cacheCreate}}, from usage.jsonl) only when the
+ * heartbeat lists harnesses and some run used one — usage.jsonl isn't read otherwise.
  * `quota` is the last Claude quota reading (quota.json — there with the receiver down too).
  * @param {ReturnType<typeof import('./heartbeat.js').readProfile>} entry
  * @param {{now?: number}} [opts]
@@ -206,6 +182,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   const capped = Math.min(queued, Math.max(0, Number(hb.queue?.capped) || 0));
   // Per-harness slots (heartbeat; only set when the profile has harnesses).
   const harnesses = entry.up ? harnessSlots(hb.queue?.harnesses) : null;
+  const harnessUsage = isObj(hb.queue?.harnesses) && Object.keys(hb.queue.harnesses).length ? harnessTotals(createStore(entry.dir).readUsage()) : null;
   const quotaPaused = normalizeTrip(hb.quotaPaused);
   const quota = normalizeQuota(state.quota);
   const out = {
@@ -220,6 +197,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     ...(hb.decommissionPending ? { decommissionPending: true } : {}),
     ...(hb.draining ? { draining: true } : {}),
     ...(hb.queueStage ? { backlog: hb.queueStage } : {}),
+    ...(harnessUsage ? { harnessUsage } : {}),
     running,
     queue,
     held,
@@ -479,6 +457,8 @@ export function readRuns(profile, ref, dir, registry = registryDir) {
       step: r.step,
       at: r.startedAt,
       outcome: r.outcome,
+      ...(r.model ? { model: r.model } : {}),
+      ...(r.harness ? { harness: r.harness } : {}),
       ...(r.costUsd !== null ? { costUsd: r.costUsd } : {}),
       ...(r.estUsd !== null ? { estUsd: r.estUsd } : {}),
       ...(r.costBasis !== null ? { costBasis: r.costBasis } : {}),

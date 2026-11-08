@@ -55,6 +55,21 @@ test("buildSnapshot: last24h keeps rate-table estimates and no-estimate runs apa
   assert.equal(s.last24h.unestimatedRuns, 1, "the unknown model");
 });
 
+test("buildSnapshot: last24h.harnesses sums the window's run_ends per harness; absent when none names one (#620)", () => {
+  const dir = stateDir();
+  assert.equal("harnesses" in buildSnapshot(dir, { now: NOW }).last24h, false, "no harness run → no key");
+  fs.appendFileSync(path.join(dir, "events.jsonl"), [
+    { ts: ago(60 * 30), event: "run_end", ref: "3", step: "code", outcome: "advance", harness: "qwen", input: 1000, output: 1000, cacheRead: 0, cacheCreate: 0 }, // outside 24h
+    { ts: ago(50), event: "run_end", ref: "3", step: "code", outcome: "advance", harness: "qwen", input: 10, output: 20, cacheRead: 30, cacheCreate: 40 },
+    { ts: ago(40), event: "run_end", ref: "3", step: "review", outcome: "fail", harness: "opus", input: 1, output: 2, cacheRead: 3, cacheCreate: 4 },
+    { ts: ago(30), event: "run_end", ref: "3", step: "fix", outcome: "advance", harness: null },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  assert.deepEqual(buildSnapshot(dir, { now: NOW }).last24h.harnesses, {
+    qwen: { runs: 1, input: 10, output: 20, cacheRead: 30, cacheCreate: 40 },
+    opus: { runs: 1, input: 1, output: 2, cacheRead: 3, cacheCreate: 4 },
+  });
+});
+
 test("buildSnapshot: a done ticket's PR needs you only when known, each item with its prNeeds kind; no forge → none", () => {
   const dir = stateDir();
   assert.deepEqual(buildSnapshot(dir, { repository: "o/r", now: NOW }).needsYou.prAwaitingMerge, [], "no refmeta.pr → just finished");

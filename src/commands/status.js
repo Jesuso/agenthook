@@ -10,6 +10,7 @@ import { ago, day } from "./ls.js";
 import { costOf, formatSpend, pricingOf, sumCosts } from "../pricing.js";
 import { formatQuota, normalizeTrip } from "../quota.js";
 import { readQuota } from "../quota-file.js";
+import { harnessTotals } from "../harness-usage.js";
 
 /**
  * Format a token count as a human-readable string (e.g. "1.2M", "340K").
@@ -155,6 +156,10 @@ export async function status(args) {
     const spendStr = formatSpend(spend);
     const noEst = spend.unestimated ? ` (${spend.unestimated} run(s) no estimate)` : "";
     console.log(`usage   : ${fmtTokens(totalTokens)} tokens${spendStr ? `, ${spendStr}` : ""} over ${usageRecords.length} run(s)${noEst}`);
+    // Per named harness (only runs a harness ran carry one).
+    for (const [name, t] of Object.entries(harnessTotals(usageRecords) ?? {})) {
+      console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens`);
+    }
   }
 
   // Most recent run logs — with per-run token figures where available.
@@ -186,7 +191,8 @@ export async function status(args) {
         const ref = refForLog(l, Object.keys(refmeta));
         const m = ref ? refmeta[ref] : undefined;
         const metaStr = m ? `  ${m.displayId ?? ref}  ${m.pr ? `#${m.pr}` : "—"}  ${m.title ?? ""}`.trimEnd() : "";
-        console.log(`  ${l}${tokStr}${metaStr}`);
+        const harnessStr = rec && typeof rec.harness === "string" && rec.harness ? ` · ${rec.harness}` : "";
+        console.log(`  ${l}${tokStr}${metaStr}${harnessStr}`);
       }
     }
   } catch {

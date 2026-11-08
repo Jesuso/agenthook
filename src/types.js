@@ -191,6 +191,7 @@
  * @property {string} [model]      model that ran (step `--model`, else the `modelUsage` key)
  * @property {string} [bin]        the step's agent binary, only when it differs from `claudeBin`
  * @property {string} [agent]      the agent adapter that ran — only on a harness run (a harness may switch it; otherwise the step names it)
+ * @property {string} [harness]    the named harness that ran it — only on a harness run
  * @property {string} startedAt    ISO timestamp the run was spawned
  * @property {string} endedAt      ISO timestamp the run exited
  * @property {number} [durationMs] `result.duration_ms` if present

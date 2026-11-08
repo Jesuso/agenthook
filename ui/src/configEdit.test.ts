@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import example from "../../agenthook.config.example.json?raw";
 import {
+  addHarness,
+  dropEmptyHarnessSandbox,
+  envPathEdit,
+  harnessPath,
+  harnessRenameError,
+  readHarnesses,
+  removeHarness,
+  renameHarness,
+  stepHarnessEdit,
+  stepHarnessList,
   addRepo,
   addSink,
   addStep,
@@ -851,5 +861,111 @@ describe("cardFor / showTerminalFlag (#373)", () => {
     expect(showTerminalFlag({ completeTask: false }, 1, 3, "completeTask")).toBe(true);
     expect(showTerminalFlag({ closeIssue: true }, 1, 3, "completeTask")).toBe(false);
     expect(showTerminalFlag({ manual: false }, 1, 3, "closeIssue")).toBe(false);
+  });
+});
+
+describe("harnesses: add / rename / remove keep the steps' references valid (#620)", () => {
+  const base = {
+    name: "p",
+    tracker: {
+      type: "github",
+      pipeline: [
+        { id: "code", sourceLabel: "agent:code", harness: ["qwen", "opus"], routing: "round-robin" },
+        { id: "review", sourceLabel: "agent:review", harness: "qwen" },
+        { id: "triage", sourceLabel: "agent:triage" },
+      ],
+    },
+    harnesses: { qwen: { model: "qwen3-coder", maxConcurrent: 1 }, opus: { model: "claude-opus-5-5" } },
+  };
+  const text = JSON.stringify(base, null, 2);
+
+  it("readHarnesses / stepHarnessList read the record and a step's pick", () => {
+    expect(readHarnesses(base).map(([n]) => n)).toEqual(["qwen", "opus"]);
+    expect(readHarnesses({})).toEqual([]);
+    expect(readHarnesses({ harnesses: [] })).toEqual([]);
+    expect(stepHarnessList("a")).toEqual(["a"]);
+    expect(stepHarnessList(["a", "b"])).toEqual(["a", "b"]);
+    expect(stepHarnessList(undefined)).toEqual([]);
+  });
+
+  it("addHarness appends an unused harness-N as {}; creates the record when absent", () => {
+    const a = addHarness(text);
+    expect(a.name).toBe("harness-3");
+    expect(JSON.parse(a.text).harnesses["harness-3"]).toEqual({});
+    const fresh = addHarness(JSON.stringify({ name: "p" }, null, 2));
+    expect(JSON.parse(fresh.text).harnesses).toEqual({ "harness-1": {} });
+  });
+
+  it("renameHarness changes only the key text and rewrites every step reference", () => {
+    const out = renameHarness(text, "qwen", "local");
+    const raw = JSON.parse(out);
+    expect(Object.keys(raw.harnesses)).toEqual(["local", "opus"]);
+    expect(raw.harnesses.local).toEqual({ model: "qwen3-coder", maxConcurrent: 1 });
+    expect(raw.tracker.pipeline[0].harness).toEqual(["local", "opus"]);
+    expect(raw.tracker.pipeline[1].harness).toBe("local");
+    expect(raw.tracker.pipeline[2]).not.toHaveProperty("harness");
+    expect(out.replace(/local/g, "qwen")).toBe(text); // nothing else moved
+  });
+
+  it("renameHarness: a blank, taken or unchanged name is no edit", () => {
+    expect(harnessRenameError(base, "qwen", " ")).toBe("blank");
+    expect(harnessRenameError(base, "qwen", "opus")).toBe("taken");
+    expect(harnessRenameError(base, "qwen", "qwen")).toBeNull();
+    expect(renameHarness(text, "qwen", "opus")).toBe(text);
+    expect(renameHarness(text, "qwen", "")).toBe(text);
+    expect(renameHarness(text, "qwen", "qwen")).toBe(text);
+  });
+
+  it("removeHarness drops the name from every step; a step left with none loses harness and routing", () => {
+    const raw = JSON.parse(removeHarness(text, "qwen"));
+    expect(raw.harnesses).toEqual({ opus: { model: "claude-opus-5-5" } });
+    expect(raw.tracker.pipeline[0]).toMatchObject({ harness: ["opus"], routing: "round-robin" });
+    expect(raw.tracker.pipeline[1]).not.toHaveProperty("harness");
+    const both = JSON.parse(removeHarness(removeHarness(text, "qwen"), "opus"));
+    expect(both.tracker.pipeline[0]).not.toHaveProperty("harness");
+    expect(both.tracker.pipeline[0]).not.toHaveProperty("routing");
+  });
+
+  it("removing the last harness removes the record", () => {
+    const one = JSON.stringify({ name: "p", harnesses: { a: {} }, tracker: { type: "github", pipeline: [{ id: "code", harness: "a" }] } }, null, 2);
+    const raw = JSON.parse(removeHarness(one, "a"));
+    expect(raw).not.toHaveProperty("harnesses");
+    expect(raw.tracker.pipeline[0]).toEqual({ id: "code" });
+  });
+
+  it("stepHarnessEdit: none deletes harness + routing, one writes a string (no routing), two+ write a list", () => {
+    const none = JSON.parse(stepHarnessEdit(text, 0, [])).tracker.pipeline[0];
+    expect(none).not.toHaveProperty("harness");
+    expect(none).not.toHaveProperty("routing");
+    const one = JSON.parse(stepHarnessEdit(text, 0, ["opus"])).tracker.pipeline[0];
+    expect(one.harness).toBe("opus");
+    expect(one).not.toHaveProperty("routing");
+    const two = JSON.parse(stepHarnessEdit(text, 2, ["qwen", "opus"])).tracker.pipeline[2];
+    expect(two.harness).toEqual(["qwen", "opus"]);
+  });
+
+  it("envPathEdit / dropEmptyHarnessSandbox edit a harness's env and sandbox", () => {
+    const withEnv = envPathEdit(text, harnessPath("qwen", "env"), [["ANTHROPIC_BASE_URL", "http://localhost:11434"], [" ", "x"]]);
+    expect(JSON.parse(withEnv).harnesses.qwen.env).toEqual({ ANTHROPIC_BASE_URL: "http://localhost:11434" });
+    expect(JSON.parse(envPathEdit(withEnv, harnessPath("qwen", "env"), [])).harnesses.qwen).not.toHaveProperty("env");
+    const emptied = setPath(setPath(text, harnessPath("qwen", "sandbox", "image"), "img:1"), harnessPath("qwen", "sandbox", "image"), undefined);
+    expect(JSON.parse(dropEmptyHarnessSandbox(emptied, "qwen")).harnesses.qwen).not.toHaveProperty("sandbox");
+  });
+
+  it("a config edited this way (add + rename a harness, pick it on a step) passes validateRawConfig", async () => {
+    // A non-literal specifier: src/config.js reaches node-only modules the UI typecheck must not follow.
+    const configJs = new URL("../../src/config.js", import.meta.url).href;
+    const { validateRawConfig } = await import(/* @vite-ignore */ configJs);
+    const added = addHarness(text);
+    let next = renameHarness(added.text, added.name, "deepseek");
+    next = stepHarnessEdit(next, 2, ["deepseek", "qwen"]);
+    next = renameHarness(next, "qwen", "local");
+    next = removeHarness(next, "opus");
+    const raw = JSON.parse(next);
+    expect(raw.tracker.pipeline[2].harness).toEqual(["deepseek", "local"]);
+    const errors: string[] = validateRawConfig(raw).errors ?? [];
+    expect(errors.filter((e) => /harness|routing/.test(e))).toEqual([]);
+    // the check has teeth: the same steps against a record missing their names fail it
+    expect(validateRawConfig({ ...raw, harnesses: { deepseek: {} } }).errors.join("\n")).toContain('harness "local" is not in "harnesses"');
   });
 });

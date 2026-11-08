@@ -129,3 +129,19 @@ test("status: a live profile whose heartbeat says `starting` prints it verbatim 
   assert.equal((await runStatus("status-starting"))[1], `status  : starting (tracker unavailable) (pid ${process.pid})`);
   assert.equal((await runStatus("status-started"))[1], `status  : UP (pid ${process.pid})`);
 });
+
+test("status: one `harness :` line per harness under usage, and `· <harness>` on a recent run that had one (#620)", async () => {
+  const dir = path.join(registryDir, "status-harness");
+  fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "H", stateKey: "status-harness", configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+  const rec = (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ x) => JSON.stringify({ ref, stepId, startedAt: "t", endedAt: "t", input: 1000, output: 1000, cacheRead: 0, cacheCreate: 0, ...x });
+  fs.writeFileSync(path.join(dir, "usage.jsonl"), [rec("7", "code", { harness: "qwen" }), rec("8", "code", { harness: "qwen" }), rec("9", "triage", {})].join("\n") + "\n");
+  fs.writeFileSync(path.join(dir, "logs", "2026-01-01T00-00-00-000Z-step-code-7.log"), "x");
+  fs.writeFileSync(path.join(dir, "logs", "2026-01-01T00-01-00-000Z-step-triage-9.log"), "x");
+  const out = await runStatus("status-harness");
+  const usageAt = out.findIndex((l) => l.startsWith("usage"));
+  assert.equal(out[usageAt + 1], "harness : qwen 2 run(s), 4K tokens");
+  assert.equal(out.filter((l) => l.startsWith("harness")).length, 1);
+  assert.match(out.find((l) => l.includes("step-code-7")) ?? "", / · qwen$/);
+  assert.doesNotMatch(out.find((l) => l.includes("step-triage-9")) ?? "", /·/);
+});

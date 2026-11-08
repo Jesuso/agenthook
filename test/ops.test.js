@@ -13,7 +13,7 @@ import { startControl } from "../src/control.js";
 import { controlRequest } from "../src/ui/control-client.js";
 
 /** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any, onEpicChanged?: (reset: () => void) => void}} [o] */
-function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker, onEpicChanged } = {}) {
+function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker, onEpicChanged, harnessing } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
   const cfg = /** @type {any} */ ({
     name: "t",
@@ -27,7 +27,7 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
   /** @type {any[]} */ const intaken = [];
   /** @type {any[]} */ const events = [];
   /** @type {any[]} */ const beats = [];
-  const queue = createQueue(1, queueRun ?? (() => new Promise(() => {})), undefined, { onAdd: (j) => store.addQueued(j), onRemove: (j) => store.removeQueued(j) });
+  const queue = createQueue(1, queueRun ?? (() => new Promise(() => {})), undefined, { onAdd: (j) => store.addQueued(j), onRemove: (j) => store.removeQueued(j) }, {}, harnessing);
   /** @type {string[]} */ const pulls = [];
   /** @type {string[]} */ const left = [];
   const ops = createOps({
@@ -121,6 +121,27 @@ test("cancel + forge.autoMerge: a held ref's auto-merge is turned off before it 
   }
   assert.deepEqual(order, ["disable 7", "advance fail"]);
   assert.ok(s.events.some((e) => e[0] === "auto_merge_disabled" && e[1] === "H"));
+});
+
+test("set_concurrency {harness}: changes that harness's cap live, never the global one; unknown names reject", async () => {
+  const s = setup({ harnessing: { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1, opus: undefined } } });
+  s.queue.setMax(5);
+  s.queue.enqueue({ kind: "pipeline", ref: "A", stepId: "code", dedupKey: "a" }); // runs on qwen (never settles)
+  s.queue.enqueue({ kind: "pipeline", ref: "B", stepId: "code", dedupKey: "b" }); // waits on qwen
+  assert.equal(s.queue.state().active, 1);
+  const beats = s.beats.length;
+  const r = await s.ops.set_concurrency({ max: 3, harness: "qwen" });
+  assert.equal(r.harness, "qwen");
+  assert.equal(r.maxConcurrent, 3);
+  assert.match(r.note, /runtime only/);
+  assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 3, state: "up" }, "the raise started the waiting job");
+  assert.equal(s.queue.max(), 5, "global maxConcurrent unchanged");
+  assert.equal(s.beats.length, beats, "heartbeat.maxConcurrent is not touched");
+  await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "nope" }), /unknown harness "nope"/);
+  await assert.rejects(() => s.ops.set_concurrency({ max: 99, harness: "qwen" }), /1\.\.64/);
+  await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "" }), /harness is required/);
+  // a profile without harnesses: any name rejects
+  await assert.rejects(() => setup().ops.set_concurrency({ max: 2, harness: "qwen" }), /unknown harness "qwen"/);
 });
 
 test("set_concurrency validates and applies; cancel kills a running ref and/or dequeues waiting ones", async () => {

@@ -16,6 +16,13 @@ All notable changes to this project are documented here. The format is based on
   `tick`/`status` show `slots.harnesses`; `run_start`/`run_end` carry `harness`; the
   queue-stage pull only pulls into harness room. A profile without `harnesses` is unchanged. See
   [docs/local-models.md](docs/local-models.md#several-backends-harnesses).
+- Per-harness usage, live caps and a UI editor (#620). A harness run's usage record carries
+  `harness`; MCP `status`/`tick --json` add `harnessUsage` (runs and tokens per harness), CLI
+  `status` prints a `harness :` line per harness, `runs` rows carry `model` and `harness`, and the
+  digest snapshot adds `last24h.harnesses`. MCP `set_concurrency {max, harness}` changes one
+  harness's slot cap at runtime. The web UI edits `harnesses` (add, rename and remove keep the steps'
+  references valid) and a step's `harness`/`routing`, and the Overview shows an `active/max` chip
+  per harness. A profile without `harnesses` gets none of these keys.
 - Harness health breaker (#621). A run on a harness whose backend looks down (the agent's preflight
   refused, the spawn failed, or a fast non-zero exit with no model output inside
   `harnesses.<name>.downGraceSeconds`, default 30) marks that harness down for
