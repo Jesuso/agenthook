@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format is based on
   `agenthook doctor` lints a configured provider's `baseURL` for a loopback or unallowed-private
   LAN address, same as a harness's `ANTHROPIC_BASE_URL`. `cursor` and `hermes` are still refused
   sandboxed. See [docs/sandbox.md#opencode-in-the-sandbox](docs/sandbox.md#opencode-in-the-sandbox).
+- Per-run turn metrics (#645): `usage.jsonl` records, the `run_end` event and `runs` rows
+  (`ah agent-api`/MCP) now carry `turns`, `firstContext`, `peakContext` and `lastContext` — how
+  many model turns a run took and how its context grew — for agents whose parser sees per-turn
+  usage (claude, opencode today; absent on cursor/hermes). An enabler for comparing a local-model
+  harness against a cloud one. See [docs/usage.md](docs/usage.md#where-records-live).
 - Harness breaker: trip on a connection-level model-API failure, not only a fast exit (#639). A
   no-output, non-zero exit now also trips the breaker at **any** wall time — not just inside
   `downGraceSeconds` — when the run's output reports a connection-level model-API failure
@@ -62,6 +67,12 @@ All notable changes to this project are documented here. The format is based on
   in its `running[]` row (from `running.json`; the key is omitted when the run has none), and the
   `tick` text digest appends `· <harness>` to the RUN line. Profiles without harnesses are
   unchanged.
+- `set_concurrency {harness, max: 0}` drains a harness at runtime (#640). Setting a named
+  harness's slot cap to `0` stops new starts on it while running agents finish — the way to keep
+  runs off a dead backend before the health breaker trips or restarts the receiver — and
+  `tick`/`status` show `max: 0`; `set_concurrency {harness, max: n}` with `n > 0` re-enables it.
+  `0` is allowed only for a named harness: the global cap keeps its `1..64` range. The UI editor
+  is unchanged.
 
 ### Changed
 

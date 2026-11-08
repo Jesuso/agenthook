@@ -375,13 +375,21 @@ export function createOps(deps) {
     }),
     set_concurrency: write("set_concurrency", async (args) => {
       const n = args.max;
-      if (!Number.isInteger(n) || n < 1 || n > 64) throw new Error("max must be an integer 1..64");
       // One named harness's cap: the global cap (and heartbeat.maxConcurrent) stay as they are.
       if (args.harness !== undefined) {
         const harness = needString(args.harness, "harness");
+        // 0 is harness-only: it drains that harness at runtime (no new starts; running agents
+        // finish) — the escape hatch while a backend is down and the breaker hasn't tripped.
+        if (!Number.isInteger(n) || n < 0 || n > 64) throw new Error("max must be an integer 0..64");
         queue.setHarnessMax(harness, n);
-        return { harness, maxConcurrent: n, note: "runtime only; the config file is unchanged", ...queue.state() };
+        return {
+          harness,
+          maxConcurrent: n,
+          note: n === 0 ? "draining: no new starts until re-enabled; runtime only, the config file is unchanged" : "runtime only; the config file is unchanged",
+          ...queue.state(),
+        };
       }
+      if (!Number.isInteger(n) || n < 1 || n > 64) throw new Error("max must be an integer 1..64");
       queue.setMax(n);
       heartbeat.update({ maxConcurrent: n });
       return { maxConcurrent: n, note: "runtime only; the config file is unchanged", ...queue.state() };

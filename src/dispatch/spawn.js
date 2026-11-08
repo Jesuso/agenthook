@@ -12,6 +12,21 @@ import { modelApiFailure } from "./harness.js";
  * (`modelApiFailure`) keeps, tail-bounded — enough for the one line that matters, not the whole run. */
 const API_SCAN_BUF_BYTES = 64 * 1024;
 
+/** The defined subset of a parser's per-turn stats (#645), or undefined when the parser never
+ * saw a turn (`tally.turns` unset) — so a result with no per-turn usage adds nothing to the
+ * record rather than zeros. Pure.
+ * @param {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} tally
+ * @returns {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}|undefined} */
+export function pickTurnStats(tally) {
+  if (typeof tally.turns !== "number") return undefined;
+  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+  const out = { turns: tally.turns };
+  if (typeof tally.firstContext === "number") out.firstContext = tally.firstContext;
+  if (typeof tally.peakContext === "number") out.peakContext = tally.peakContext;
+  if (typeof tally.lastContext === "number") out.lastContext = tally.lastContext;
+  return out;
+}
+
 // How long a timed-out agent gets between SIGTERM and SIGKILL.
 export const KILL_GRACE_MS = 10000;
 
@@ -85,7 +100,7 @@ export function createSpawn(ctx) {
    * raw stderr and final result text (the harness breaker's any-duration signal, src/dispatch/harness.js).
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}}} o
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -254,7 +269,8 @@ export function createSpawn(ctx) {
             /* best effort */
           }
         }
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}) });
+        const turnStats = pickTurnStats(parser.tally);
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}) });
       });
     });
   }

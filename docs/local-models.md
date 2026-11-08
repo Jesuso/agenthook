@@ -118,7 +118,9 @@ A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConc
   its card.
 - **Change a cap live.** MCP `set_concurrency {max, harness}` sets one harness's slot cap until
   the next restart (the config file and the global cap are untouched). Lowering it below the
-  running count kills nothing; it only gates new starts.
+  running count kills nothing; it only gates new starts. `max: 0` is allowed for a harness: it
+  drains the harness (no new starts, running agents finish) — the way to keep runs off a dead
+  backend before the breaker trips — and `max: n>0` re-enables it.
 
 A step without `harness` behaves exactly as before, and a profile without `harnesses` reports the
 same `slots` and events as before. Worktree, verdict and advance never depend on the harness.

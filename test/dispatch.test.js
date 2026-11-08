@@ -1553,6 +1553,23 @@ test("run_end: a priced run carries costUsd and no unpriced key", async () => {
   assert.equal("unpriced" in end, false);
 });
 
+test("run_end + usage record: turns/firstContext/peakContext/lastContext (#645) ride along when the parser saw turns", async () => {
+  const ASSISTANT_LINE = JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [], usage: { input_tokens: 1000 } } });
+  const r = await timeoutRun(`echo '${ASSISTANT_LINE}'\necho '${RESULT_LINE}'`, {});
+  const end = r.events.find((e) => e.event === "run_end");
+  assert.deepEqual([end.turns, end.firstContext, end.peakContext, end.lastContext], [1, 1000, 1000, 1000]);
+  assert.deepEqual([r.usage[0].turns, r.usage[0].firstContext, r.usage[0].peakContext, r.usage[0].lastContext], [1, 1000, 1000, 1000]);
+});
+
+test("run_end + usage record: no per-turn usage seen → turns/firstContext/peakContext/lastContext absent, not zero", async () => {
+  const r = await timeoutRun(`echo '${RESULT_LINE}'`, {});
+  const end = r.events.find((e) => e.event === "run_end");
+  for (const k of ["turns", "firstContext", "peakContext", "lastContext"]) {
+    assert.equal(k in end, false, `${k} absent from run_end`);
+    assert.equal(k in r.usage[0], false, `${k} absent from the usage record`);
+  }
+});
+
 test("run_end: a non-Claude step model is unpriced — no costUsd", async () => {
   const r = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "qwen3-coder" });
   const end = r.events.find((e) => e.event === "run_end");

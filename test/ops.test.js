@@ -123,7 +123,7 @@ test("cancel + forge.autoMerge: a held ref's auto-merge is turned off before it 
   assert.ok(s.events.some((e) => e[0] === "auto_merge_disabled" && e[1] === "H"));
 });
 
-test("set_concurrency {harness}: changes that harness's cap live, never the global one; unknown names reject", async () => {
+test("set_concurrency {harness}: changes that harness's cap live, never the global one; 0 drains; unknown names reject", async () => {
   const s = setup({ harnessing: { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1, opus: undefined } } });
   s.queue.setMax(5);
   s.queue.enqueue({ kind: "pipeline", ref: "A", stepId: "code", dedupKey: "a" }); // runs on qwen (never settles)
@@ -137,8 +137,18 @@ test("set_concurrency {harness}: changes that harness's cap live, never the glob
   assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 3, state: "up" }, "the raise started the waiting job");
   assert.equal(s.queue.max(), 5, "global maxConcurrent unchanged");
   assert.equal(s.beats.length, beats, "heartbeat.maxConcurrent is not touched");
+  // 0 drains the harness: no new starts until re-enabled; running agents finish
+  const d = await s.ops.set_concurrency({ max: 0, harness: "qwen" });
+  assert.equal(d.maxConcurrent, 0);
+  assert.match(d.note, /draining/);
+  assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 0, state: "up" });
+  const re = await s.ops.set_concurrency({ max: 2, harness: "qwen" });
+  assert.equal(re.maxConcurrent, 2);
+  assert.match(re.note, /runtime only/);
+  assert.equal(s.beats.length, beats, "drain/re-enable never touches heartbeat.maxConcurrent");
+  await assert.rejects(() => s.ops.set_concurrency({ max: 0 }), /1\.\.64/); // 0 without a harness
   await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "nope" }), /unknown harness "nope"/);
-  await assert.rejects(() => s.ops.set_concurrency({ max: 99, harness: "qwen" }), /1\.\.64/);
+  await assert.rejects(() => s.ops.set_concurrency({ max: 99, harness: "qwen" }), /0\.\.64/);
   await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "" }), /harness is required/);
   // a profile without harnesses: any name rejects
   await assert.rejects(() => setup().ops.set_concurrency({ max: 2, harness: "qwen" }), /unknown harness "qwen"/);

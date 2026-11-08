@@ -911,6 +911,11 @@ test("profileView: harnesses = heartbeat.queue.harnesses when up; no key when do
   assert.equal("harnesses" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0 } } }), false);
 });
 
+test("profileView: harnesses keeps max: 0 (drained via set_concurrency, #640) instead of mapping it to null", () => {
+  const heartbeat = { maxConcurrent: 4, queue: { active: 0, queued: 0, harnesses: { local: { active: 1, max: 0 } } } };
+  assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).harnesses, { local: { active: 1, max: 0 } });
+});
+
 test("uiHost: default loopback; localhost → 127.0.0.1; ip literals pass; a DNS name or junk throws", () => {
   assert.equal(uiHost({}), "127.0.0.1");
   assert.equal(uiHost({ host: "localhost" }), "127.0.0.1");
