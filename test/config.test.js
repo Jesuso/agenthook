@@ -61,6 +61,28 @@ test("maxMinutes 0, fractional values, and omitted keys load", () => {
   assert.equal(cfg.pipeline?.[2].maxMinutes, undefined);
 });
 
+test("opencodeConfig: resolved against the config dir for a step and a harness, like instructionsFile", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-oc-"));
+  const file = path.join(dir, "agenthook.config.json");
+  const home = os.homedir();
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      name: "ah-cfg-test-oc",
+      repoPath: dir,
+      harnesses: { local: { agent: "opencode", opencodeConfig: "~/oc-harness.json" } },
+      tracker: { type: "asana", pipeline: [{ id: "code", opencodeConfig: "./oc-step.json" }] },
+    }),
+  );
+  try {
+    const cfg = loadConfig({ configPath: file });
+    assert.equal(cfg.pipeline?.[0].opencodeConfig, path.join(dir, "oc-step.json"));
+    assert.equal(cfg.harnesses?.local.opencodeConfig, path.join(home, "oc-harness.json"));
+  } finally {
+    fs.rmSync(path.join(registryDir, "ah-cfg-test-oc"), { recursive: true, force: true });
+  }
+});
+
 test("a queue key on a manual step is rejected", () => {
   assert.throws(load([{ id: "done", manual: true, queueLabel: "queue:done" }]), /queueLabel is not allowed on a manual step/);
 });

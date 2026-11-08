@@ -88,8 +88,8 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   [local Qwen recipe](#a-local-qwen-recipe-hermes--ollama) below.
 - **`fullAuto`**: adds each CLI's skip-permissions flag. That is `--dangerously-skip-permissions`
   (claude), `--force` (cursor), `--yolo` (hermes) or `--auto` (opencode). It is code execution from
-  a webhook, unsandboxed unless the profile sets `sandbox` ([sandbox.md](sandbox.md); only claude
-  runs sandboxed). Without `fullAuto`, claude runs pinned to `dontAsk`
+  a webhook, unsandboxed unless the profile sets `sandbox` ([sandbox.md](sandbox.md); claude and
+  opencode run sandboxed — cursor and hermes are refused). Without `fullAuto`, claude runs pinned to `dontAsk`
   ([permissions](sandbox.md#permissions-inside-and-outside-the-sandbox)); the other CLIs keep their
   own default. See the security posture in the [README](../README.md).
 - **`bin`**: a step `bin` overrides the agent's default binary, e.g. a wrapper script.
@@ -296,6 +296,11 @@ runs show as "unpriced". `ah follow` does not cover OpenCode runs (its sessions 
 own database, which agenthook does not read); read the run log in the UI or `logs/` instead.
 `ah resume <ref>` still lists them, from the session ids in `usage.jsonl`, and prints
 `cd <worktree> && opencode -s <id>`, which reopens the session in OpenCode's TUI.
+
+Sandboxed, OpenCode needs its own provider config seeded in — a fresh per-run sandbox HOME has
+none. Set `opencodeConfig` (step or harness; the step's own wins) to a host path to an OpenCode
+JSON config; it's copied (never mounted) into that run's sandbox HOME. See
+[sandbox.md#opencode-in-the-sandbox](sandbox.md#opencode-in-the-sandbox).
 
 ## Adding an adapter
 

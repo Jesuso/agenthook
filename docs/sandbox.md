@@ -460,7 +460,7 @@ build commands against this list before turning it on:
 | a database or cache on your machine (`localhost:5432`, Redis, MinIO, LocalStack, a `docker compose` stack) | the container's network is `--internal`; it has no route to your host's loopback or private networks, and the proxy refuses loopback and RFC1918 targets even when a rule names them | a [Service](#services) (`sandbox.services` + the step's `services`) gives the run its own throwaway database/cache instead — see the [compose recipe](#docker-compose--sandboxservices) to carry over an existing stack, or fall back to an in-memory fake (`sqlite`, `ioredis-mock`) or `"sandbox": false` |
 | the Docker socket (Testcontainers, `docker build`, `docker compose` from the agent) | not mounted, on purpose: it would give the run root-equivalent control of the host | there is no flag to mount it; the [Testcontainers recipe](#testcontainers-or-any-start-it-myself-test-library) points the test at a [Service](#services) instead, or run that step with `"sandbox": false` |
 | a browser (Cypress, Playwright) | the default image has none | the [browser recipe](#browser-e2e-playwright--cypress): a custom image that installs the browser at build time, plus the app under test as a [Service](#services) |
-| a toolchain other than node 22, git, gh, curl and claude (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
+| a toolchain other than node 22, git, gh, curl, claude and opencode (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
 | packages from a registry | blocked unless allowed | `"egress": {"allow": ["@npm"]}` (see [Network](#network)) |
 | a package whose install script downloads a binary from its own host (e.g. a headless-browser package fetching its browser from a CDN) | that host isn't allowlisted, and the package's own fetcher may not honour the proxy | set the package's skip-download env var in the step's `env`, or add the host to `egress.allow` |
 | cloud or database credentials in your shell or home (`~/.aws`, `~/.pgpass`, `AWS_PROFILE`, an SSM tunnel on localhost) | none of them reach the container | by design: they are what a hijacked run would use |
@@ -518,8 +518,27 @@ are never structurally enforced.
   denied. A script can plant an allow rule that widens the next run; only the sandbox and a
   reviewer catch it. Treat a `.claude/` change in an agent PR as a red flag.
 - **Steps with `"sandbox": false`** run on the host with your user's full reach.
-- **Unsupported agents** are refused, not run unsandboxed: a sandboxed `cursor`, `hermes` or
-  `opencode` step fails; set `"sandbox": false` on it to run it on the host.
+- **Unsupported agents** are refused, not run unsandboxed: a sandboxed `cursor` or `hermes` step
+  fails; set `"sandbox": false` on it to run it on the host. `claude` and `opencode` both support
+  the sandbox.
+
+## OpenCode in the sandbox
+
+A harness (or step) with `"agent": "opencode"` runs sandboxed like `claude`. A local-model
+provider needs a config, since a fresh per-run sandbox HOME has none: set `opencodeConfig` (on
+the harness, or the step — the step's own wins) to a host path to an OpenCode JSON config
+(`~/.config/opencode/opencode.json` style). It's read and **copied** into that run's sandbox HOME
+at `.config/opencode/opencode.json`, never mounted — a mount would persist across runs, and an
+OpenCode config can declare plugins/MCP commands, so a run could otherwise plant config that
+executes in the next one. The copy is gone with the rest of the per-run HOME at teardown.
+`opencodeConfig` only applies to sandboxed runs; on the host OpenCode reads your own
+`~/.config/opencode` as usual.
+
+A `provider.*.options.baseURL` pointing at a LAN model server needs the same care as a harness's
+`ANTHROPIC_BASE_URL` (see [Network](#network) above): `localhost`/`127.0.0.1` never reaches your
+host from inside the container, so use the host's LAN IP, and allowlist mode needs a
+`host:port!private` rule for it (`agenthook doctor` lints both). The provider's own host (a cloud
+API) still needs a place in `sandbox.egress.allow` — `opencodeConfig` never adds one for you.
 
 ## Alternative: run the receiver itself in a container
 

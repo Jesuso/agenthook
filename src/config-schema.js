@@ -104,6 +104,7 @@ export const CONFIG_SCHEMA = [
   entry("harnesses.*.downGraceSeconds", "number", "Down grace (seconds)", "basics", "A run that fails within this many seconds with no model output marks the harness down.", { min: 1, default: 30, advanced: true }),
   entry("harnesses.*.sandbox", "object", "Harness sandbox", "basics", "Sandbox overrides for runs on this harness.", { advanced: true }),
   entry("harnesses.*.sandbox.image", "string", "Sandbox image", "basics", "Agent image for sandboxed runs on this harness, instead of sandbox.image.", { advanced: true, sensitive: true }),
+  entry("harnesses.*.opencodeConfig", "string", "OpenCode config path", "basics", "opencode, sandbox only: host path to an OpenCode JSON config, copied into the run's sandbox HOME; a step's own wins.", { advanced: true, sensitive: true }),
 
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),
@@ -173,6 +174,7 @@ export const CONFIG_SCHEMA = [
   step("egress.deny", "string-list", "Egress deny", "Hosts to remove from the defaults (e.g. the tracker API).", { advanced: true, editor: "pending" }),
   step("services", "string-list", "Services", "Names from sandbox.services this step's sandboxed runs get, fresh per run (at most 8).", { sensitive: true, advanced: true, editor: "pending" }),
   step("env", "record", "Agent env", "Extra environment for this step's agent only; put secret values in ${VAR} refs.", { advanced: true, sensitive: true }),
+  step("opencodeConfig", "string", "OpenCode config path", "opencode, sandbox only: path to an OpenCode JSON config, copied into the run's sandbox HOME; wins over the harness's.", { advanced: true, sensitive: true }),
   step("instructionsFile", "string", "Instructions file", "Standing instructions for this step; unset uses the profile's instructionsFile."),
   step("maxAttempts", "number", "Max attempts", "Runs allowed per task before a changes loop back into this step fails instead.", { default: 3, min: 1 }),
   step("maxMinutes", "number", "Wall-clock limit (min)", "Kill a run after this many minutes and fail it as a timeout; 0 = no cap.", { default: 120, min: 0, advanced: true }),

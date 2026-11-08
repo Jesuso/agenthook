@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, harnessLanLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, harnessLanLints, opencodeConfigLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -920,6 +920,15 @@ test("sandboxChecks: a sandboxed hermes step ✗, a credential-less claude step 
   }
 });
 
+test("sandboxChecks: a sandboxed opencode step is no longer flagged — it has a sandbox hook now (#647)", async () => {
+  const checks = await sandboxChecks(
+    sbCfg({ pipeline: [{ id: "code", agent: "opencode" }, { id: "done", manual: true }] }),
+    { run: sbRun(), has: () => true },
+  );
+  const by = (/** @type {string} */ s) => checks.filter((c) => c.label.includes(s));
+  assert.equal(by('step "code" (opencode) can run sandboxed').length, 0);
+});
+
 test("sandboxChecks: allowlist with a custom image also checks the built-in image (the egress proxy), with the build fix", async () => {
   /** @type {string[]} */
   const inspected = [];
@@ -1365,6 +1374,51 @@ test("harnessLanLints: a public hostname, egress mode other than allowlist, or a
   const privateHarness = { local: { env: { ANTHROPIC_BASE_URL: "http://192.168.1.5:11434" } } };
   const openCfg = /** @type {any} */ ({ sandbox: { type: "docker", egress: { mode: "open" } }, harnesses: privateHarness, pipeline: [{ id: "code", harness: "local" }] });
   assert.deepEqual(harnessLanLints(openCfg), [], "open mode doesn't need the rule");
+});
+
+test("opencodeConfigLints: [] without sandbox, without an opencodeConfig, or on a host step", () => {
+  assert.deepEqual(opencodeConfigLints(/** @type {any} */ ({ pipeline: [{ id: "code", opencodeConfig: "/x.json" }] })), [], "no sandbox block");
+  const cfg = /** @type {any} */ ({ sandbox: { type: "docker" }, pipeline: [{ id: "code" }] });
+  assert.deepEqual(opencodeConfigLints(cfg), [], "no opencodeConfig");
+  const hostStep = /** @type {any} */ ({ sandbox: { type: "docker" }, pipeline: [{ id: "code", opencodeConfig: "/x.json", sandbox: false }] });
+  assert.deepEqual(opencodeConfigLints(hostStep), [], "step runs on the host");
+});
+
+test("opencodeConfigLints: a loopback provider baseURL always warns; a private one needs a matching !private rule", () => {
+  const content = JSON.stringify({ provider: { ollama: { options: { baseURL: "http://localhost:11434/v1" } } } });
+  const cfg = /** @type {any} */ ({ sandbox: { type: "docker" }, pipeline: [{ id: "code", opencodeConfig: "/x.json" }] });
+  const loop = opencodeConfigLints(cfg, { read: () => content });
+  assert.deepEqual(loop, [{ level: "warn", label: `opencodeConfig /x.json: provider "ollama" baseURL http://localhost:11434/v1`, note: `inside the sandbox "localhost" is the container itself, not this host — use the host's LAN IP (and allow it with !private)` }]);
+
+  const privateContent = JSON.stringify({ provider: { ollama: { options: { baseURL: "http://192.168.1.10:11434/v1" } } } });
+  const missing = opencodeConfigLints(cfg, { read: () => privateContent });
+  assert.deepEqual(missing, [{ level: "warn", label: `opencodeConfig /x.json: provider "ollama" baseURL http://192.168.1.10:11434/v1`, note: `sandboxed runs need "192.168.1.10:11434!private" in sandbox.egress.allow` }]);
+
+  const allowedCfg = { ...cfg, sandbox: { type: "docker", egress: { allow: ["192.168.1.10:11434!private"] } } };
+  assert.deepEqual(opencodeConfigLints(allowedCfg, { read: () => privateContent }), []);
+});
+
+test("opencodeConfigLints: the harness's opencodeConfig applies where the step sets none; an unreadable or invalid file warns with the error", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { "oc-local": { agent: "opencode", opencodeConfig: "/harness.json" } },
+    pipeline: [{ id: "code", harness: "oc-local" }],
+  });
+  const content = JSON.stringify({ provider: { ollama: { options: { baseURL: "http://localhost:11434/v1" } } } });
+  const lints = opencodeConfigLints(cfg, { read: () => content });
+  assert.equal(lints.length, 1);
+  assert.match(lints[0].label, /^opencodeConfig \/harness\.json:/);
+
+  const bad = opencodeConfigLints(cfg, {
+    read: () => {
+      throw new Error("ENOENT: no such file");
+    },
+  });
+  assert.deepEqual(bad, [{ level: "warn", label: "opencodeConfig /harness.json", note: "unreadable: ENOENT: no such file" }]);
+
+  const invalid = opencodeConfigLints(cfg, { read: () => "{not json" });
+  assert.equal(invalid.length, 1);
+  assert.match(invalid[0].note, /^invalid JSON:/);
 });
 
 test("harnessSlotLints: [] without harnesses; one ℹ per harness (slot count or unbounded); ⚠ when a step's harnesses all cap to 0", () => {

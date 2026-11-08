@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- OpenCode now runs inside the per-run sandbox (#647). The agent image installs `opencode-ai`
+  alongside `claude` — an existing `agenthook-agent:<version>` image predates this; remove it and
+  run `agenthook doctor --fix` to rebuild. A new `opencodeConfig` key (on a step or a harness; the
+  step's own wins) names a host path to an OpenCode JSON config, copied — never mounted — into
+  that run's per-run sandbox HOME, so a local-model provider can be configured there.
+  `agenthook doctor` lints a configured provider's `baseURL` for a loopback or unallowed-private
+  LAN address, same as a harness's `ANTHROPIC_BASE_URL`. `cursor` and `hermes` are still refused
+  sandboxed. See [docs/sandbox.md#opencode-in-the-sandbox](docs/sandbox.md#opencode-in-the-sandbox).
 - Per-run turn metrics (#645): `usage.jsonl` records, the `run_end` event and `runs` rows
   (`ah agent-api`/MCP) now carry `turns`, `firstContext`, `peakContext` and `lastContext` — how
   many model turns a run took and how its context grew — for agents whose parser sees per-turn

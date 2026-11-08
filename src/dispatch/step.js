@@ -286,7 +286,7 @@ export function createStep(ctx) {
         const rules = policy.mode === "allowlist"
           ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
           : [];
-        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}) };
+        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}), ...(own.files ? { files: own.files } : {}) };
       } catch (e) {
         refused = `sandbox setup failed: ${e.message}`;
         try {

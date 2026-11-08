@@ -40,6 +40,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "tracker.pipeline[*].deny",
   "tracker.pipeline[*].egress.mode",
   "tracker.pipeline[*].services",
+  "tracker.pipeline[*].opencodeConfig",
   "energy.source.cmd",
   "sandbox.type",
   "sandbox.image",
@@ -49,6 +50,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "harnesses.*.bin",
   "harnesses.*.env",
   "harnesses.*.sandbox.image",
+  "harnesses.*.opencodeConfig",
 ]);
 
 /**

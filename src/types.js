@@ -58,12 +58,13 @@
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
  * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
- * @property {string|string[]} [harness]     name(s) from the profile's `harnesses` this step's runs use; the queue picks one with a free slot when a job starts. The step's own agent/model/bin/provider/toolsets win over the harness's; `env` merges (step keys win)
+ * @property {string|string[]} [harness]     name(s) from the profile's `harnesses` this step's runs use; the queue picks one with a free slot when a job starts. The step's own agent/model/bin/provider/toolsets/opencodeConfig win over the harness's; `env` merges (step keys win)
  * @property {'first-free'|'round-robin'} [routing]  how a `harness` list is picked: first-free (default) = the first listed harness with room; round-robin = rotate, skipping full ones. Needs a list
  * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
  * @property {Record<string, string>} [env]   extra environment for this step's agent only, merged over the agent's filtered env (see agentEnvPassthrough; AGENTHOOK_VERDICT_FILE is reserved)
  * @property {boolean} [sandbox]              false = run this step on the host even when the profile has a `sandbox` (the operator's explicit escape hatch)
+ * @property {string} [opencodeConfig]        opencode only, sandbox only: host path to an OpenCode JSON config, copied into the per-run sandbox HOME at `.config/opencode/opencode.json`; a leading `~/` resolves against the home dir, a relative path against the config dir. Unset on a host run (opencode reads the operator's own `~/.config/opencode`)
  * @property {StepPolicy} [allow]           the only commands this step's agent may run and the only cwd-relative paths it may write (reads inside cwd stay allowed); enforced through the agent CLI (claude only — other agents' runs are refused)
  * @property {StepPolicy} [deny]            commands this step's agent may never run and cwd-relative paths it may never read or write; enforced even under fullAuto (claude only)
  * @property {EgressConfig} [egress]          this step's network policy: `mode` overrides the profile's `sandbox.egress.mode`; `allow`/`deny` are added to the profile's. Needs a profile `sandbox`
@@ -516,7 +517,7 @@
  * @typedef {object} Sandbox
  * @property {() => {name: string, home: string}} describe  `home` = the container's HOME
  * @property {() => Promise<{ok: true} | {ok: false, reason: string}>} check  runtime reachable + image present
- * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string}) => Promise<SandboxRun>} wrap  `egress` absent = open (the runtime's default network); `image` = the run's harness image (absent = the profile's)
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}) => Promise<SandboxRun>} wrap  `egress` absent = open (the runtime's default network); `image` = the run's harness image (absent = the profile's); `files` are written into the per-run HOME (see Sandbox's `sandbox` hook on AgentAdapter)
  * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} reap  force-remove every container
  *   and network labelled with this profile; `runs` is the distinct `"<ref>/<step>"` values read from the removed
  *   containers' `agenthook.ref`/`agenthook.step` labels (best-effort — a container with neither label is omitted)
@@ -569,7 +570,7 @@
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string, sandboxed?: boolean, env?: Record<string, string>}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for; claude: refuse a sandboxed run with no credential var in `env`, the spawn env)
  * @property {(env: Record<string, string>) => string[]} [egressHosts]  egress rules for the model API a run with this spawn env talks to (claude: api.anthropic.com, ANTHROPIC_BASE_URL's host, Bedrock/Vertex); a sandboxed run's allowlist includes them
- * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string}) => {mounts: SandboxMount[], env?: Record<string, string>}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. An agent without it is refused when sandboxed
+ * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string}) => {mounts: SandboxMount[], env?: Record<string, string>, files?: {dst: string, content: string, mode?: number}[]}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`; opencode: its `opencodeConfig`, written via `files`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. `files[].dst` is an absolute container path under `home`, written into the per-run sandbox HOME (never mounted — it's gone at teardown). An agent without a `sandbox` hook is refused when sandboxed
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  * @property {string[]} [envPassthrough]  receiver env vars (NAME or PREFIX*) this CLI needs, added to the agent env allowlist (src/agent-env.js): auth keys, config vars
@@ -685,6 +686,7 @@
  * @property {{image?: string}} [sandbox]     sandboxed runs on this harness use this image instead of `sandbox.image`
  * @property {number} [cooldownMinutes]        health breaker: how long a tripped harness stays down (1–60, default 10), doubled per repeat strike up to 60
  * @property {number} [downGraceSeconds]       health breaker: a non-zero exit with no model output inside this many seconds trips it (default 30)
+ * @property {string} [opencodeConfig]         opencode only, sandbox only: host path to an OpenCode JSON config; a step's own `opencodeConfig` wins
  */
 
 /** A factory `(cfg, store) => Forge`.

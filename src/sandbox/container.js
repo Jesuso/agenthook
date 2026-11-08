@@ -382,7 +382,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       return { ok: true };
     },
 
-    async wrap({ ref, stepId, bin: agentBin, args, env, cwd, mounts, step, egress, image: runImage }) {
+    async wrap({ ref, stepId, bin: agentBin, args, env, cwd, mounts, step, egress, image: runImage, files }) {
       const id = containerName({ stateKey: cfg.stateKey, ref, stepId });
       const catalog = cfg.sandbox?.services ?? {};
       const services = step?.services ?? [];
@@ -394,6 +394,15 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       for (const m of mounts) {
         const dst = m.dst ?? m.path;
         if (dst.startsWith(SANDBOX_HOME + "/")) fs.mkdirSync(path.join(home, dst.slice(SANDBOX_HOME.length + 1)), { recursive: true, mode: 0o700 });
+      }
+      // Files an agent's sandbox hook wants seeded into the per-run HOME (never mounted — see
+      // module comment): written here, under the host uid, and gone with `home` at teardown.
+      for (const f of files ?? []) {
+        if (!f.dst.startsWith(SANDBOX_HOME + "/") || f.dst.split("/").includes("..")) throw new Error(`sandbox file ${JSON.stringify(f.dst)} must be under ${SANDBOX_HOME} with no ".." segment`);
+        const rel = f.dst.slice(SANDBOX_HOME.length + 1);
+        const abs = path.join(home, rel);
+        fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(abs, f.content, { mode: f.mode ?? 0o600 });
       }
       const mode = egress?.mode ?? "open";
       /** @type {RunNet|null} */

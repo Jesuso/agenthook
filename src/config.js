@@ -319,6 +319,12 @@ export function loadConfig(opts = {}) {
   cfg.pipeline = cfg.tracker.pipeline;
   for (const step of cfg.pipeline) {
     if (step.instructionsFile) step.instructionsFile = resolvePath(step.instructionsFile, configDir);
+    if (step.opencodeConfig) step.opencodeConfig = resolvePath(step.opencodeConfig, configDir);
+  }
+
+  // A harness's opencodeConfig is sandbox-only, like a step's own; resolve it the same way.
+  for (const h of Object.values(cfg.harnesses ?? {})) {
+    if (h.opencodeConfig) h.opencodeConfig = resolvePath(h.opencodeConfig, configDir);
   }
 
   return cfg;
@@ -413,7 +419,7 @@ function envErrors(env, where) {
  */
 function harnessesErrors(hs) {
   if (hs == null) return [];
-  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds? }.`];
+  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig? }.`];
   /** @type {string[]} */
   const errors = [];
   for (const [name, h] of Object.entries(hs)) {
@@ -427,6 +433,7 @@ function harnessesErrors(hs) {
       if (e) errors.push(e);
     }
     if (h.model != null && (typeof h.model !== "string" || !h.model.trim())) errors.push(`config: ${where} model must be a non-empty string.`);
+    if (h.opencodeConfig != null && (typeof h.opencodeConfig !== "string" || !h.opencodeConfig.trim())) errors.push(`config: ${where} opencodeConfig must be a non-empty string.`);
     if (h.env != null) errors.push(...envErrors(h.env, where));
     if (h.maxConcurrent != null && (!Number.isInteger(h.maxConcurrent) || h.maxConcurrent < 1)) errors.push(`config: ${where} maxConcurrent must be a positive integer.`);
     if (h.cooldownMinutes != null && (!Number.isInteger(h.cooldownMinutes) || h.cooldownMinutes < 1 || h.cooldownMinutes > 60)) errors.push(`config: ${where} cooldownMinutes must be an integer 1-60.`);
@@ -617,6 +624,9 @@ export function validateRawConfig(raw) {
       }
     }
     if (step.env != null) errors.push(...envErrors(step.env, where));
+    if (step.opencodeConfig != null && (typeof step.opencodeConfig !== "string" || !step.opencodeConfig.trim())) {
+      errors.push(`config: ${where} opencodeConfig must be a non-empty string.`);
+    }
     if (step.lite != null) {
       const h = step.lite.descriptionHeadings;
       if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {

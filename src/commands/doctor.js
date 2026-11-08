@@ -203,6 +203,70 @@ export function harnessLanLints(cfg) {
 }
 
 /**
+ * OpenCode provider baseURL lints (#647), parallel to harnessLanLints: for each sandboxed,
+ * non-manual step and each harness it routes through, the effective `opencodeConfig` (the
+ * step's own, else the harness's) is read and parsed, and each `provider.*.options.baseURL`
+ * gets the same loopback / private-without-`!private` warnings as a harness's/step's
+ * `ANTHROPIC_BASE_URL`. An unreadable or invalid file warns with the error instead of throwing.
+ * `[]` without `cfg.sandbox`. Pure given `read`.
+ * @param {import('../types.js').Config} cfg
+ * @param {{read?: (path: string) => string}} [io]
+ * @returns {{ level: 'warn', label: string, note: string }[]} */
+export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf8") } = {}) {
+  if (!cfg.sandbox) return [];
+  /** @type {{ level: 'warn', label: string, note: string }[]} */
+  const out = [];
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual && isSandboxed(cfg, s));
+  /** @type {Set<string>} one check per distinct (step, harness, path) */
+  const seen = new Set();
+  for (const s of steps) {
+    const names = harnessesOf(s).length ? harnessesOf(s) : [undefined];
+    for (const name of names) {
+      const configPath = s.opencodeConfig ?? (name ? cfg.harnesses?.[name]?.opencodeConfig : undefined);
+      if (!configPath) continue;
+      const key = `${s.id}\0${name ?? ""}\0${configPath}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const label = `opencodeConfig ${configPath}`;
+      /** @type {string} */
+      let raw;
+      try {
+        raw = read(configPath);
+      } catch (e) {
+        out.push({ level: "warn", label, note: `unreadable: ${e.message}` });
+        continue;
+      }
+      /** @type {any} */
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        out.push({ level: "warn", label, note: `invalid JSON: ${e.message}` });
+        continue;
+      }
+      const providers = parsed && typeof parsed === "object" ? parsed.provider : undefined;
+      if (!providers || typeof providers !== "object") continue;
+      const policy = egressPolicy(cfg, s);
+      for (const [id, p] of Object.entries(providers)) {
+        const url = /** @type {any} */ (p)?.options?.baseURL;
+        const hp = hostPort(url);
+        if (!hp) continue;
+        const kind = classifyHost(hp.host);
+        if (!kind) continue;
+        const pLabel = `${label}: provider ${JSON.stringify(id)} baseURL ${url}`;
+        if (kind === "loopback") {
+          out.push({ level: "warn", label: pLabel, note: `inside the sandbox "${hp.host}" is the container itself, not this host — use the host's LAN IP (and allow it with !private)` });
+        } else if (policy.mode === "allowlist" && !allowsPrivateRule(policy.allow, hp.host, hp.port)) {
+          const host = hp.host.includes(":") ? `[${hp.host}]` : hp.host;
+          out.push({ level: "warn", label: pLabel, note: `sandboxed runs need "${host}:${hp.port}!private" in sandbox.egress.allow` });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Per-harness slots (#632): an ℹ line per harness naming its `maxConcurrent` ("N slot(s)" or
  * "unbounded"), plus a ⚠ when every harness a step's `harness` list names has an explicit cap
  * and their caps sum to 0 — the step can never run. `[]` without `cfg.harnesses`. Pure.
@@ -1317,6 +1381,7 @@ export async function runChecks(cfg, io = {}) {
   const origins = cfg.sandbox && !cfg.forge ? reposOf(cfg).flatMap((r) => hostGitFacts(r.path).originUrl ?? []) : [];
   for (const l of egressLints(cfg, { files, env, origins })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
   for (const l of harnessLanLints(cfg)) warn(l.label, l.note);
+  for (const l of opencodeConfigLints(cfg)) warn(l.label, l.note);
   for (const l of harnessSlotLints(cfg)) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);
