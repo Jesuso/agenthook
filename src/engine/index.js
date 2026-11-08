@@ -149,6 +149,9 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     stepCaps,
     harnessing,
   );
+  // Seed the heartbeat with the queue's real initial shape: with harnesses (or step caps) it
+  // carries `harnesses` / `capped` from boot, so `tick`/`status` show them before the first run.
+  heartbeat.update({ queue: queue.state() });
 
   // Reload the dedup set from disk each batch (catchup edits it out-of-band), then
   // enqueue anything new. Disk is the source of truth. No section side-effect here:
