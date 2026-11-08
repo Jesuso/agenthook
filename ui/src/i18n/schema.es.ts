@@ -55,6 +55,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "harnesses.*.downGraceSeconds": { label: "Margen de fallo (segundos)", help: "Una ejecución que falla en estos segundos sin salida del modelo marca el harness como caído." },
   "harnesses.*.sandbox": { label: "Sandbox del harness", help: "Ajustes del sandbox para las ejecuciones en este harness." },
   "harnesses.*.sandbox.image": { label: "Imagen del sandbox", help: "Imagen del agente para las ejecuciones en sandbox en este harness, en lugar de sandbox.image." },
+  "harnesses.*.opencodeConfig": { label: "Ruta de config de OpenCode", help: "opencode, solo sandbox: ruta de un config JSON de OpenCode, copiado al sandbox HOME de la ejecución; gana la del paso." },
 
   // Repos
   "repoPath": { label: "Ruta del repo", help: "El checkout en el que trabajan los agentes (perfiles de un solo repo); relativo al archivo de configuración." },
@@ -124,6 +125,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "tracker.pipeline.*.egress.deny": { label: "Salida denegada", help: "Hosts que se quitan de los predeterminados (p. ej. la API del tracker)." },
   "tracker.pipeline.*.services": { label: "Servicios", help: "Nombres de sandbox.services que reciben las ejecuciones en sandbox de este paso, nuevos cada vez (máximo 8)." },
   "tracker.pipeline.*.env": { label: "Entorno del agente", help: "Entorno extra solo para el agente de este paso; pon los valores secretos en referencias ${VAR}." },
+  "tracker.pipeline.*.opencodeConfig": { label: "Ruta de config de OpenCode", help: "opencode, solo sandbox: ruta de un config JSON de OpenCode, copiado al sandbox HOME de la ejecución; gana la del harness." },
   "tracker.pipeline.*.instructionsFile": { label: "Archivo de instrucciones", help: "Instrucciones permanentes de este paso; sin definir usa el instructionsFile del perfil." },
   "tracker.pipeline.*.maxAttempts": { label: "Máximo de intentos", help: "Ejecuciones permitidas por tarea antes de que un ciclo changes de vuelta a este paso falle." },
   "tracker.pipeline.*.maxMinutes": { label: "Límite de tiempo real (min)", help: "Detiene una ejecución tras estos minutos y la marca fallida por tiempo agotado; 0 = sin límite." },
