@@ -37,6 +37,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- `events` text output shows the harness: `run_start`/`run_end` lines print `harness=<name>` right
+  after `model=` when the event carries one (absent or null without, so lines of profiles without
+  harnesses are unchanged), and `harness_down`/`harness_up` print readably as
+  `harness_down <name> reason=… until=…` / `harness_up <name>` (#631).
 - `docs/local-models.md` gains a "Behind the sandbox" note on reaching a LAN model endpoint from a
   sandboxed run: `ANTHROPIC_BASE_URL` at the host's LAN IP, a `!private` egress rule, and the host
   firewall (`ufw`) that may still drop the Docker bridge traffic (#628).
