@@ -217,4 +217,5 @@ test("rawAgentBins: claudeBin + literal step bins + the default bin of every nam
     rawAgentBins({ agent: "hermes", tracker: { pipeline: [{ id: "a" }, { id: "b", agent: "cursor" }, { id: "c", bin: "claude-local" }, { id: "d", agent: "${AGENT}" }, { id: "e", agent: "bogus" }] } }),
     ["claude", "hermes", "agent", "claude-local"],
   );
+  assert.deepEqual(rawAgentBins({ harnesses: { q: { bin: "claude-qwen" }, d: { agent: "opencode" }, v: { bin: "${BIN}" } } }), ["claude", "claude-qwen", "opencode"], "harness bins and agents too");
 });

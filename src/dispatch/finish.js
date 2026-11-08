@@ -18,6 +18,8 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * runStep's locals the post-exit phase reads, handed over as one object.
  * @typedef {object} StepRun
  * @property {import('../types.js').Step} step
+ * @property {import('../types.js').Step} spawnStep  `step` with its harness's spawn knobs filled in (src/dispatch/harness.js) — what the agent ran with
+ * @property {{harness?: string|null}} harnessField  run_end's `harness` (set only for a profile with harnesses)
  * @property {import('../types.js').Task} task
  * @property {import('../types.js').RepoConfig} repo
  * @property {boolean} hasWorktree
@@ -47,7 +49,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -69,14 +71,14 @@ export function createFinish(ctx) {
 
     // Best-effort post-exit token capture (hermes' `sessions export`, #395): only when the
     // run actually spawned and came back with a session id to export.
-    const finalized = !refused && typeof result?.session_id === "string" ? await finalizeUsage(agent, { sessionId: result.session_id, bin: step.bin, agentEnv, env: step.env, stepId: step.id, ref: job.ref, logPath }) : null;
+    const finalized = !refused && typeof result?.session_id === "string" ? await finalizeUsage(agent, { sessionId: result.session_id, bin: spawnStep.bin, agentEnv, env: spawnStep.env, stepId: step.id, ref: job.ref, logPath }) : null;
 
     // Persist the final per-run usage record from the captured result (token totals +
     // cost). Append-only usage.jsonl, distinct from the rewritten state files. The adapter
     // decides `unpriced` (e.g. a local-model run — step `bin`, or a non-Claude model — whose
     // dollar figure is made up), so run_end drops the cost and the usage record is tagged.
     // Built even without a result: `unpriced` must still reach run_end.
-    const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: step.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString() });
+    const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString() });
     if (finalized) {
       for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) {
         if (typeof finalized[k] === "number" && Number.isFinite(finalized[k]) && finalized[k] >= 0) usage[k] = finalized[k];
@@ -86,6 +88,8 @@ export function createFinish(ctx) {
       // can't match.
       if (finalized.model && !model) usage.model = finalized.model;
     }
+    // A harness may have switched the agent: name it, so follow/resume find the run's transcript.
+    if (harnessField.harness) usage.agent = agent.describe().name;
     const unpriced = !!usage.unpriced;
     // Stamp the basis (src/pricing.js): a reported run keeps `costUsd` alone; otherwise an
     // API-equivalent `estUsd` from the rate table, when the model has a rate and tokens.
@@ -134,6 +138,7 @@ export function createFinish(ctx) {
     const options = verdict.outcome === "hold" && Array.isArray(verdict.summary?.options) ? verdict.summary.options : undefined;
     emit?.("run_end", job.ref, step.id, {
       outcome: verdict.outcome,
+      ...harnessField,
       ...(plain ? { plain } : {}),
       ...(options ? { options } : {}),
       ...(costUsd !== undefined ? { costUsd } : {}),

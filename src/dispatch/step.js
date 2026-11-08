@@ -15,6 +15,7 @@ import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
 import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
+import { resolveHarness } from "./harness.js";
 import { needsReviewedHead, currentPrHead } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
@@ -215,10 +216,13 @@ export function createStep(ctx) {
     // A rework pass already has a branch (and maybe a PR): pick it up before spawning.
     if (hasWorktree) await recordPr(job.ref, repo);
 
+    // The harness the queue picked supplies the spawn knobs the step leaves unset: every spawn
+    // read below goes through `spawnStep`; id, verdict and advance stay on `step`.
+    const { step: spawnStep, harness, sandboxImage } = resolveHarness(cfg, step, job.harness);
     // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
     // tag and this step has a matching `escalate` key, override the base model/effort.
     const storedDifficulty = store?.getDifficulty(job.ref);
-    const { model, effort } = resolveModelEffort(step, storedDifficulty, task.description);
+    const { model, effort } = resolveModelEffort(spawnStep, storedDifficulty, task.description);
     const liteApplied = !!step.lite && descriptionHasHeadings(task.description, step.lite.descriptionHeadings);
     if (liteApplied) {
       console.log(`[dispatch] lite step ${step.id} ref ${job.ref} (spec headings present): model=${model ?? "default"} effort=${effort ?? "default"}`);
@@ -226,28 +230,30 @@ export function createStep(ctx) {
     if (storedDifficulty && step.escalate?.[storedDifficulty]) {
       console.log(`[dispatch] escalating step ${step.id} ref ${job.ref} (difficulty=${storedDifficulty}): model=${model ?? "default"} effort=${effort ?? "default"}`);
     } else {
-      console.log(`[dispatch] step ${step.id} ref ${job.ref}: model=${model ?? "default"} effort=${effort ?? "default"}`);
+      console.log(`[dispatch] step ${step.id} ref ${job.ref}${harness ? ` on ${harness}` : ""}: model=${model ?? "default"} effort=${effort ?? "default"}`);
     }
 
     // forge.autoMerge: the tier step's approval is pinned to the PR head it judges — read it before
     // the agent starts, so a commit the agent (or anyone) pushes during the run is not covered.
     const headSha = needsReviewedHead(cfg, step.id) ? await currentPrHead(forge, store, job.ref) : null;
     const startedAt = new Date().toISOString();
-    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null };
+    const agent = agentFor(cfg, spawnStep);
+    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null, harness, agent: agent.describe().name };
+    // `harness` rides on run_start/run_end only for a profile that has harnesses.
+    const harnessField = cfg.harnesses ? { harness } : {};
     // A new agent run means any PR state learned earlier (closed, merged) no longer stands —
     // mirrors buildRows resetting its event-derived prState on run_start.
     store?.setRefMeta(job.ref, { prState: null });
-    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
+    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...harnessField, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;
     const maxMinutes = step.maxMinutes ?? DEFAULT_MAX_MINUTES;
-    const agent = agentFor(cfg, step);
     const promptFile = agent.describe().promptFile ? promptFilePathFor(step.id, job.ref) : undefined;
-    const provider = step.provider ?? cfg.agentProvider;
-    const agentEnv = agent.env?.({ cfg, step });
-    const spawnEnv = agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: step.env });
+    const provider = spawnStep.provider ?? cfg.agentProvider;
+    const agentEnv = agent.env?.({ cfg, step: spawnStep });
+    const spawnEnv = agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: spawnStep.env });
     // A failed preflight resolves the run as `fail` with no agent spawned.
-    let refused = agentPreflight(agent, step, provider, logPath, { sandboxed, env: spawnEnv });
+    let refused = agentPreflight(agent, spawnStep, provider, logPath, { sandboxed, env: spawnEnv });
     // Per-run credentials (#474): the forge's, else the tracker's. One that should have scoped
     // and couldn't refuses the run exactly like a preflight — never the operator's token instead.
     /** @type {import('../types.js').RunCredentials|null} */
@@ -262,7 +268,7 @@ export function createStep(ctx) {
     let sandboxedRun;
     if (sandboxed && sandbox && agent.sandbox && !refused) {
       try {
-        const own = agent.sandbox({ cfg, step, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home });
+        const own = agent.sandbox({ cfg, step: spawnStep, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home });
         // The per-run GH_CONFIG_DIR (#474) is mounted read-only next to the agent's own mounts:
         // a refresh rewrites hosts.yml with an atomic rename, which the container sees because
         // the mount is the directory, not the file.
@@ -277,7 +283,7 @@ export function createStep(ctx) {
         const rules = policy.mode === "allowlist"
           ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
           : [];
-        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules } };
+        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}) };
       } catch (e) {
         refused = `sandbox setup failed: ${e.message}`;
         try {
@@ -301,14 +307,14 @@ export function createStep(ctx) {
         model,
         effort,
         provider,
-        toolsets: step.toolsets,
+        toolsets: spawnStep.toolsets,
         isolated: step.isolated,
         allow: step.allow,
         deny: step.deny,
-        bin: step.bin,
+        bin: spawnStep.bin,
         agentEnv,
         creds,
-        env: step.env,
+        env: spawnStep.env,
         verdictFile,
         sandboxed: sandboxedRun,
         maxMs: maxMinutes * 60000,
@@ -347,7 +353,7 @@ export function createStep(ctx) {
     }
     const { code, result, quota, timedOut, sandboxReport } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport, headSha });
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport, headSha });
   }
 
   return { runStep };

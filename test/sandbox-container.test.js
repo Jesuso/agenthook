@@ -109,6 +109,24 @@ test("check(): ok when info + image inspect succeed; a missing image names docto
   assert.equal(down.calls.length, 1, "no image probe once the runtime is down");
 });
 
+test("check(): every harness sandbox.image is inspected too; wrap() runs a harness image when given one", async () => {
+  const cfg = { ...tmpCfg({ type: "docker", image: "mine:1" }), harnesses: { oc: { agent: "opencode", sandbox: { image: "oc:2" } }, plain: {} } };
+  const ok = stubRun({});
+  assert.deepEqual(await createContainerSandbox(cfg, { runtime: "docker", run: ok.run }).check(), { ok: true });
+  assert.deepEqual(ok.calls.filter((c) => c[1] === "image").map((c) => c[3]), ["mine:1", "oc:2"]);
+  const missing = stubRun({});
+  missing.run = async (bin, args) => ({ code: args[2] === "oc:2" ? 1 : 0, stdout: "", stderr: "" });
+  const r = await createContainerSandbox(cfg, { runtime: "docker", run: missing.run }).check();
+  assert.match(/** @type {any} */ (r).reason, /sandbox image oc:2 not found/);
+  const s = stubRun({});
+  const sb = createContainerSandbox(cfg, { runtime: "docker", run: s.run, uid: 1, gid: 2 });
+  const base = { runId: "r", ref: "42", stepId: "code", bin: "opencode", args: ["run"], env: {}, cwd: "/wt", mounts: [{ path: "/wt" }], step: /** @type {any} */ ({ id: "code" }) };
+  const onHarness = await sb.wrap({ ...base, image: "oc:2" });
+  assert.ok(onHarness.args.includes("oc:2") && !onHarness.args.includes("mine:1"));
+  const onProfile = await sb.wrap(base);
+  assert.ok(onProfile.args.includes("mine:1") && !onProfile.args.includes("oc:2"));
+});
+
 test("check(): a runtime binary that can't spawn is a reason, not a throw", async () => {
   const r = await createContainerSandbox(tmpCfg(), { runtime: "podman", run: async () => { throw Object.assign(new Error("spawn podman ENOENT"), { code: "ENOENT" }); } }).check();
   assert.equal(r.ok, false);

@@ -26,6 +26,7 @@ import { reposErrors } from "./repos-config.js";
 import { autoMergeErrors } from "./auto-merge.js";
 import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
 import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS } from "./sandbox/names.js";
+import { HARNESS_ROUTINGS } from "./config-schema.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
 
@@ -209,8 +210,8 @@ export function peekConfig(opts = {}) {
 
 /**
  * The distinct agent binaries a raw (uninterpolated) config names: `claudeBin` (default
- * "claude"), every pipeline step's `bin`, and the default bin (AGENT_DEFAULT_BINS) of every
- * agent the profile or a step names. Literal values only — a `${VAR}` ref is unresolved
+ * "claude"), every pipeline step's and harness's `bin`, and the default bin (AGENT_DEFAULT_BINS)
+ * of every agent the profile, a step or a harness names. Literal values only — a `${VAR}` ref is unresolved
  * here, so it is skipped (and the default "claude" kept). Pure.
  * @param {any} raw @returns {string[]}
  */
@@ -226,6 +227,12 @@ export function rawAgentBins(raw) {
     for (const s of pipeline) {
       if (literal(s?.bin)) bins.add(s.bin.trim());
       addAgent(s?.agent);
+    }
+  }
+  if (raw?.harnesses && typeof raw.harnesses === "object") {
+    for (const h of Object.values(raw.harnesses)) {
+      if (literal(h?.bin)) bins.add(h.bin.trim());
+      addAgent(h?.agent);
     }
   }
   return [...bins];
@@ -374,6 +381,63 @@ function label(v) {
 const isAgentName = (v) => typeof v === "string" && /** @type {readonly string[]} */ (AGENT_NAMES).includes(v);
 
 /**
+ * Format checks for the spawn knobs a pipeline step and a `harnesses` entry share. `where` names
+ * the owner (`pipeline step "code"`, `harness "opus"`). Each returns its error, or null for a
+ * valid value; callers skip an unset knob.
+ * @type {Record<'agent'|'bin'|'provider'|'toolsets', (v: any, where: string) => string|null>}
+ */
+const KNOB_ERRORS = {
+  agent: (v, where) => (isAgentName(v) ? null : `config: ${where} agent ${JSON.stringify(v)} is not a known agent (${AGENT_NAMES.join(", ")}).`),
+  bin: (v, where) => (typeof v === "string" && v.trim() ? null : `config: ${where} bin must be a non-empty string (a name on PATH or an absolute path).`),
+  provider: (v, where) => (typeof v === "string" && v.trim() ? null : `config: ${where} provider must be a non-empty string.`),
+  toolsets: (v, where) =>
+    Array.isArray(v) && v.length && v.every((/** @type {unknown} */ t) => typeof t === "string" && t.trim()) ? null : `config: ${where} toolsets must be a non-empty array of non-empty strings.`,
+};
+
+/** Errors in a step's or harness's `env` (see KNOB_ERRORS for `where`). @param {any} env @param {string} where @returns {string[]} */
+function envErrors(env, where) {
+  if (typeof env !== "object" || Array.isArray(env)) return [`config: ${where} env must be an object of NAME: "value" strings.`];
+  /** @type {string[]} */
+  const errors = [];
+  for (const [k, v] of Object.entries(env)) {
+    if (!ENV_KEY_RE.test(k)) errors.push(`config: ${where} env key ${JSON.stringify(k)} is not a valid variable name.`);
+    else if (k === "AGENTHOOK_VERDICT_FILE") errors.push(`config: ${where} env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
+    if (typeof v !== "string") errors.push(`config: ${where} env.${k} must be a string.`);
+  }
+  return errors;
+}
+
+/**
+ * Structural errors in the optional `harnesses` record (named agent backends). Pure.
+ * @param {any} hs @returns {string[]}
+ */
+function harnessesErrors(hs) {
+  if (hs == null) return [];
+  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox? }.`];
+  /** @type {string[]} */
+  const errors = [];
+  for (const [name, h] of Object.entries(hs)) {
+    const where = `harness ${JSON.stringify(name)}`;
+    if (!h || typeof h !== "object" || Array.isArray(h)) {
+      errors.push(`config: ${where} must be an object.`);
+      continue;
+    }
+    for (const k of /** @type {const} */ (["agent", "bin", "provider", "toolsets"])) {
+      const e = h[k] != null ? KNOB_ERRORS[k](h[k], where) : null;
+      if (e) errors.push(e);
+    }
+    if (h.model != null && (typeof h.model !== "string" || !h.model.trim())) errors.push(`config: ${where} model must be a non-empty string.`);
+    if (h.env != null) errors.push(...envErrors(h.env, where));
+    if (h.maxConcurrent != null && (!Number.isInteger(h.maxConcurrent) || h.maxConcurrent < 1)) errors.push(`config: ${where} maxConcurrent must be a positive integer.`);
+    if (h.sandbox != null) {
+      if (typeof h.sandbox !== "object" || Array.isArray(h.sandbox)) errors.push(`config: ${where} sandbox must be an object ({ "image": "…" }).`);
+      else if (h.sandbox.image != null && (typeof h.sandbox.image !== "string" || !h.sandbox.image.trim())) errors.push(`config: ${where} sandbox.image must be a non-empty string.`);
+    }
+  }
+  return errors;
+}
+
+/**
  * Structural validation of a config object WITHOUT resolving it: pure (no fs, no env, no
  * path resolution), never throws for any JSON value, and collects every error in check
  * order rather than stopping at the first. `${VAR}` strings are opaque values. loadConfig
@@ -438,6 +502,9 @@ export function validateRawConfig(raw) {
     if (!valid) errors.push(`config: "language" must be a BCP-47 language tag (e.g. "es").`);
   }
 
+  const harnesses = cfg.harnesses;
+  errors.push(...harnessesErrors(harnesses));
+
   const pipeline = Array.isArray(tracker?.pipeline) && tracker.pipeline.length ? tracker.pipeline : null;
   if (!pipeline) {
     errors.push(`config: "tracker.pipeline" is required (a non-empty array of steps).`);
@@ -465,28 +532,34 @@ export function validateRawConfig(raw) {
     if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
       errors.push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
     }
-    if (step.agent != null) {
-      if (!isAgentName(step.agent)) {
-        errors.push(`config: pipeline step "${sid}" agent ${JSON.stringify(step.agent)} is not a known agent (${AGENT_NAMES.join(", ")}).`);
+    const where = `pipeline step "${sid}"`;
+    for (const k of /** @type {const} */ (["agent", "bin", "provider", "toolsets"])) {
+      if (step[k] == null) continue;
+      const e = KNOB_ERRORS[k](step[k], where);
+      if (e) errors.push(e);
+      else if (step.manual && k !== "bin") errors.push(`config: ${where} ${k} has no effect on a manual step (no agent runs).`);
+    }
+    if (step.harness != null) {
+      const h = step.harness;
+      const named = (/** @type {unknown} */ n) => typeof n === "string" && n.trim() !== "";
+      if (!named(h) && !(Array.isArray(h) && h.length && h.every(named))) {
+        errors.push(`config: ${where} harness must be a harness name or a non-empty list of names.`);
       } else if (step.manual) {
-        errors.push(`config: pipeline step "${sid}" agent has no effect on a manual step (no agent runs).`);
+        errors.push(`config: ${where} harness has no effect on a manual step (no agent runs).`);
+      } else {
+        const list = typeof h === "string" ? [h] : h;
+        const known = harnesses && typeof harnesses === "object" && !Array.isArray(harnesses) ? harnesses : {};
+        for (const [i, n] of list.entries()) {
+          if (list.indexOf(n) !== i) errors.push(`config: ${where} harness lists ${JSON.stringify(n)} twice.`);
+          else if (!Object.hasOwn(known, n)) errors.push(`config: ${where} harness ${JSON.stringify(n)} is not in "harnesses".`);
+        }
       }
     }
-    if (step.bin != null && (typeof step.bin !== "string" || !step.bin.trim())) {
-      errors.push(`config: pipeline step "${sid}" bin must be a non-empty string (a name on PATH or an absolute path).`);
-    }
-    if (step.provider != null) {
-      if (typeof step.provider !== "string" || !step.provider.trim()) {
-        errors.push(`config: pipeline step "${sid}" provider must be a non-empty string.`);
-      } else if (step.manual) {
-        errors.push(`config: pipeline step "${sid}" provider has no effect on a manual step (no agent runs).`);
-      }
-    }
-    if (step.toolsets != null) {
-      if (!Array.isArray(step.toolsets) || !step.toolsets.length || step.toolsets.some((/** @type {unknown} */ t) => typeof t !== "string" || !t.trim())) {
-        errors.push(`config: pipeline step "${sid}" toolsets must be a non-empty array of non-empty strings.`);
-      } else if (step.manual) {
-        errors.push(`config: pipeline step "${sid}" toolsets has no effect on a manual step (no agent runs).`);
+    if (step.routing != null) {
+      if (!(/** @type {readonly unknown[]} */ (HARNESS_ROUTINGS).includes(step.routing))) {
+        errors.push(`config: ${where} routing must be ${HARNESS_ROUTINGS.map((r) => JSON.stringify(r)).join(" or ")}.`);
+      } else if (!Array.isArray(step.harness)) {
+        errors.push(`config: ${where} routing needs a "harness" list (it picks among several harnesses).`);
       }
     }
     for (const key of /** @type {const} */ (["allow", "deny"])) {
@@ -541,17 +614,7 @@ export function validateRawConfig(raw) {
         }
       }
     }
-    if (step.env != null) {
-      if (typeof step.env !== "object" || Array.isArray(step.env)) {
-        errors.push(`config: pipeline step "${sid}" env must be an object of NAME: "value" strings.`);
-      } else {
-        for (const [k, v] of Object.entries(step.env)) {
-          if (!ENV_KEY_RE.test(k)) errors.push(`config: pipeline step "${sid}" env key ${JSON.stringify(k)} is not a valid variable name.`);
-          else if (k === "AGENTHOOK_VERDICT_FILE") errors.push(`config: pipeline step "${sid}" env key AGENTHOOK_VERDICT_FILE is reserved (the receiver sets it).`);
-          if (typeof v !== "string") errors.push(`config: pipeline step "${sid}" env.${k} must be a string.`);
-        }
-      }
-    }
+    if (step.env != null) errors.push(...envErrors(step.env, where));
     if (step.lite != null) {
       const h = step.lite.descriptionHeadings;
       if (!Array.isArray(h) || !h.length || !h.every((x) => typeof x === "string" && x.trim())) {

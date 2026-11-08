@@ -83,6 +83,8 @@ const GROUPS = [
   ["Config.energy.source", ["energy", "source"], literalKeys((config.get("energy") ?? "").slice((config.get("energy") ?? "").indexOf("source:")))],
   ["Step.lite", [...STEP, "lite"], literalKeys(stepProps.get("lite") ?? "")],
   ["Step.escalate", [...STEP, "escalate", "*"], literalKeys(stepProps.get("escalate") ?? "")],
+  ["Harness", ["harnesses", "*"], [...typedefProps("Harness").keys()]],
+  ["Harness.sandbox", ["harnesses", "*", "sandbox"], literalKeys(typedefProps("Harness").get("sandbox") ?? "")],
 ];
 
 const schemaPaths = new Set(CONFIG_SCHEMA.map((e) => e.path.join(".")));
@@ -99,6 +101,7 @@ test("the typedef parser is non-trivial (a regex change can't make the drift tes
   assert.deepEqual(find("Step.escalate"), ["model", "effort"]);
   assert.deepEqual(find("ServiceConfig"), ["image", "env", "wait", "agentEnv", "memory", "cpus"]);
   assert.deepEqual(find("ServiceConfig.wait"), ["cmd", "timeoutS"]);
+  assert.deepEqual(find("Harness.sandbox"), ["image"]);
 });
 
 test("every typedef config key has a schema entry or a NO_FORM reason", () => {
@@ -146,11 +149,13 @@ test("the sensitive set equals SENSITIVE_FIELDS (which stays the source of truth
 
 // Raw-only on purpose, each with its ticket: the per-step egress policy (#473) gets its form
 // with the isolation report (#476). The profile sandbox* keys got a Basics form in #494.
-// Services (#529) are Raw-only for v1.
+// Services (#529) are Raw-only for v1. Harnesses (#619) get their editor in #620.
 const RAW_ONLY = new Set([
   "tracker.pipeline.*.egress", "tracker.pipeline.*.egress.mode", "tracker.pipeline.*.egress.allow", "tracker.pipeline.*.egress.deny",
   "tracker.pipeline.*.services",
   ...["", ".*", ".*.image", ".*.env", ".*.wait", ".*.wait.cmd", ".*.wait.timeoutS", ".*.agentEnv", ".*.memory", ".*.cpus"].map((k) => `sandbox.services${k}`),
+  ...["", ".*", ".*.agent", ".*.model", ".*.bin", ".*.env", ".*.provider", ".*.toolsets", ".*.maxConcurrent", ".*.sandbox", ".*.sandbox.image"].map((k) => `harnesses${k}`),
+  "tracker.pipeline.*.harness", "tracker.pipeline.*.routing",
 ]);
 
 test("no schema entry is left pending (#343): every documented key has a form", () => {

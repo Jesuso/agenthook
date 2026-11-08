@@ -11,6 +11,12 @@
   "//fullAuto": "false (safe default) = privileged tool calls are denied (headless agents cannot prompt) unless a step allow policy permits them. true = --dangerously-skip-permissions: a verified webhook runs UNSANDBOXED code on the host. Opt in only on a trusted host or in a container. See docs/architecture.md#security-posture.",
   "fullAuto": false,
   "claudeBin": "claude",
+  "//harnesses": "Optional: named agent backends, each with its own slot pool (maxConcurrent). A step's \"harness\" (a name or a list, with \"routing\": first-free | round-robin) picks one with a free slot when the job starts; the step's own agent/model/bin/env win. Rename to \"harnesses\" to enable. See docs/local-models.md#several-backends-harnesses.",
+  "//harnesses_example": {
+    "local-qwen": { "agent": "claude", "model": "qwen3-coder", "env": { "ANTHROPIC_BASE_URL": "http://localhost:11434" }, "maxConcurrent": 1 },
+    "opus": { "agent": "claude", "model": "claude-opus-5-5", "maxConcurrent": 3 },
+    "deepseek": { "agent": "opencode", "model": "deepseek/deepseek-v3", "maxConcurrent": 2 }
+  },
 
   "tracker": {
     "//": "type selects the adapter; the rest is that tracker's config.",

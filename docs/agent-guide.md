@@ -102,7 +102,11 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
 - `slots.free` is how many more tasks can start *right now*. It is **0 while paused**, restarting,
   decommissioning or draining — flags `paused` / `restartPending` / `draining` say why.
 - `slots.capped` (present only when > 0) counts queued jobs waiting on their step's own
-  `maxConcurrent` cap, not on a slot — so `free` can be > 0 while `queued` is non-zero.
+  `maxConcurrent` cap, or on its harnesses all being full, not on a slot — so `free` can be > 0
+  while `queued` is non-zero.
+- `slots.harnesses` (present only when the profile has `harnesses`) is
+  `{"<name>": {"active": n, "max": n|null}}` per harness — `max: null` means only the global cap
+  bounds it. `run_start`/`run_end` then carry `harness` (the name the run was routed to, or `null`).
 - `up:false` → the receiver is down; `running`/`queue` are the last state on disk, not live.
 
 `tick` adds `board` (`[{step, resting:[{ref,id,title}]}]` — tickets sitting in each step's source

@@ -198,6 +198,15 @@ export function serviceArgs(o) {
   ];
 }
 
+/** Every harness's own `sandbox.image` (a run on that harness uses it instead of `sandbox.image`). Pure.
+ * @param {Pick<import('../types.js').Config, 'harnesses'>} cfg @returns {string[]} */
+export function harnessImages(cfg) {
+  /** @type {Set<string>} */
+  const out = new Set();
+  for (const h of Object.values(cfg.harnesses ?? {})) if (h.sandbox?.image) out.add(h.sandbox.image);
+  return [...out];
+}
+
 /** Every image a sandboxed step's services reference, in pipeline order. Pure.
  * @param {Pick<import('../types.js').Config, 'sandbox'|'pipeline'>} cfg @returns {string[]} */
 export function serviceImages(cfg) {
@@ -333,7 +342,8 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       }
       if (info.code !== 0) return { ok: false, reason: `\`${bin} info\` failed: ${firstLine(info)} — is the ${runtime} daemon/socket up?` };
       // The egress proxy always runs the built-in image, so a custom image needs it too.
-      const agentImages = new Set([image, ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
+      // A harness's own sandbox.image is a run image too.
+      const agentImages = new Set([image, ...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
       for (const img of agentImages) {
         const r = await run(bin, ["image", "inspect", img], { timeoutMs: 30_000 }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
         if (r.code !== 0) return { ok: false, reason: `sandbox image ${img} not found — run \`agenthook doctor --fix\` or build it (docs/sandbox.md)` };
@@ -347,7 +357,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
       return { ok: true };
     },
 
-    async wrap({ ref, stepId, bin: agentBin, args, env, cwd, mounts, step, egress }) {
+    async wrap({ ref, stepId, bin: agentBin, args, env, cwd, mounts, step, egress, image: runImage }) {
       const id = containerName({ stateKey: cfg.stateKey, ref, stepId });
       const catalog = cfg.sandbox?.services ?? {};
       const services = step?.services ?? [];
@@ -388,7 +398,7 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
         runtime, id, stateKey: cfg.stateKey, ref, stepId,
         memory: cfg.sandbox?.memory, cpus: cfg.sandbox?.cpus,
         uid: hostUid(), gid: hostGid(),
-        home, mounts, cwd, env: runEnv, image, bin: agentBin, args,
+        home, mounts, cwd, env: runEnv, image: runImage ?? image, bin: agentBin, args,
         network: !net ? (mode === "none" ? "none" : undefined) : mode === "open" ? [net.network, DEFAULT_NETWORK[runtime]] : net.network,
       });
       if (net) {
