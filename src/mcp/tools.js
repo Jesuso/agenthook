@@ -142,6 +142,14 @@ const TOOLS = {
       ["max"],
     ),
   },
+  harness_reset: {
+    write: true,
+    def: schema(
+      "Clear a harness's health breaker (down or probing → up, emits `harness_up`) and start the work waiting on it. `reset:false` = it was already up. Errors on an unknown harness or a profile without harnesses.",
+      { profile: PROFILE, harness: { type: "string", description: "harness name from the profile's `harnesses`" } },
+      ["harness"],
+    ),
+  },
   run: {
     write: true,
     def: schema(

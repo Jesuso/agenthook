@@ -100,6 +100,8 @@ export const CONFIG_SCHEMA = [
   entry("harnesses.*.provider", "string", "Provider", "basics", "Inference provider on this harness (hermes --provider); other agents ignore it.", { advanced: true }),
   entry("harnesses.*.toolsets", "string-list", "Toolsets", "basics", "Hermes -t toolsets on this harness; other agents ignore it.", { advanced: true }),
   entry("harnesses.*.maxConcurrent", "number", "Max concurrent runs", "basics", "Runs on this harness at once, across every step, inside the global limit; unset = only that limit.", { min: 1, advanced: true }),
+  entry("harnesses.*.cooldownMinutes", "number", "Down cooldown (minutes)", "basics", "How long a failing harness is routed around before one probe run; doubles per repeat failure, up to 60.", { min: 1, max: 60, default: 10, advanced: true }),
+  entry("harnesses.*.downGraceSeconds", "number", "Down grace (seconds)", "basics", "A run that fails within this many seconds with no model output marks the harness down.", { min: 1, default: 30, advanced: true }),
   entry("harnesses.*.sandbox", "object", "Harness sandbox", "basics", "Sandbox overrides for runs on this harness.", { advanced: true }),
   entry("harnesses.*.sandbox.image", "string", "Sandbox image", "basics", "Agent image for sandboxed runs on this harness, instead of sandbox.image.", { advanced: true, sensitive: true }),
 

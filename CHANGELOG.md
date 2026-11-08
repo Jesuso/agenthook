@@ -23,6 +23,21 @@ All notable changes to this project are documented here. The format is based on
   harness's slot cap at runtime. The web UI edits `harnesses` (add, rename and remove keep the steps'
   references valid) and a step's `harness`/`routing`, and the Overview shows an `active/max` chip
   per harness. A profile without `harnesses` gets none of these keys.
+- Harness health breaker (#621). A run on a harness whose backend looks down (the agent's preflight
+  refused, the spawn failed, or a fast non-zero exit with no model output inside
+  `harnesses.<name>.downGraceSeconds`, default 30) marks that harness down for
+  `cooldownMinutes` (default 10, doubled per repeat strike up to 60) and emits `harness_down`. The
+  run goes back to the front of the queue (`run_end` `outcome: "requeued"`, while under
+  `maxAttempts`) and the queue routes around the harness; after the cooldown one probe run decides,
+  and a healthy one emits `harness_up`. All harnesses of a step down → its jobs wait, never fail.
+  `slots.harnesses[name]` gains `state`/`until`/`reason`, `tick` prints a line per down harness,
+  the state persists in `harness-health.json`, and the `harness_reset {harness}` op clears it. See
+  [docs/local-models.md](docs/local-models.md#when-a-harness-fails).
+
+### Fixed
+
+- A missing agent binary (`ENOENT` at spawn) no longer crashes the receiver: the run fails with
+  `spawn failed: …` (#621).
 
 ## [0.15.0] — 2026-11-04
 

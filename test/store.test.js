@@ -163,6 +163,29 @@ test("queue.json round-trips in insertion order and dedups by ref:stepId", () =>
   assert.deepEqual(s.listQueued().map((x) => `${x.ref}:${x.stepId}`), ["A:code", "A:review"]);
 });
 
+test("queue.json: addQueued {front} re-inserts at index 0 (a harness-breaker requeue keeps its place across a restart)", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  const j = (/** @type {string} */ ref) => ({ kind: "pipeline", ref, stepId: "code", dedupKey: `${ref}:code` });
+  s.addQueued(j("B"));
+  s.addQueued(j("C"));
+  s.addQueued(j("A"), { front: true });
+  s.addQueued(j("C"), { front: true }); // already there: dedup wins, no move
+  assert.deepEqual(createStore(dir).listQueued().map((x) => x.ref), ["A", "B", "C"]);
+});
+
+test("harness-health.json: getHarnessHealth is {} until set, then round-trips the down map", () => {
+  const dir = tmpDir();
+  const s = createStore(dir);
+  assert.deepEqual(s.getHarnessHealth(), {});
+  const down = { local: { until: "2026-11-08T12:10:00.000Z", strikes: 2, reason: "spawn failed: ENOENT" } };
+  s.setHarnessHealth(down);
+  assert.deepEqual(createStore(dir).getHarnessHealth(), down);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "harness-health.json"), "utf8")), { down });
+  fs.writeFileSync(path.join(dir, "harness-health.json"), "[]");
+  assert.deepEqual(s.getHarnessHealth(), {}, "a malformed file reads as none");
+});
+
 test("queue.json: addQueued stamps queuedAt on first add and keeps it on a dedup re-add", async () => {
   const dir = tmpDir();
   const s = createStore(dir);

@@ -132,7 +132,7 @@ const label = (t, meta) => ({ ...(meta?.displayId ? { id: String(meta.displayId)
 /**
  * One profile's live picture in the fewest tokens that still answer "what is running, what is
  * waiting, can I start more?". `slots.free` already subtracts queued jobs and is 0 while paused / quota-paused / restarting / draining (nothing can start).
- * `slots.harnesses` ({[name]: {active, max}}) only for a profile with harnesses; `harnessUsage`
+ * `slots.harnesses` ({[name]: {active, max, state, until?, reason?}}) only for a profile with harnesses; `harnessUsage`
  * ({[name]: {runs, input, output, cacheRead, cacheCreate}}, from usage.jsonl) only when the
  * heartbeat lists harnesses and some run used one — usage.jsonl isn't read otherwise.
  * `quota` is the last Claude quota reading (quota.json — there with the receiver down too).

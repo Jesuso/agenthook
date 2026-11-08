@@ -134,7 +134,7 @@ test("set_concurrency {harness}: changes that harness's cap live, never the glob
   assert.equal(r.harness, "qwen");
   assert.equal(r.maxConcurrent, 3);
   assert.match(r.note, /runtime only/);
-  assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 3 }, "the raise started the waiting job");
+  assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 3, state: "up" }, "the raise started the waiting job");
   assert.equal(s.queue.max(), 5, "global maxConcurrent unchanged");
   assert.equal(s.beats.length, beats, "heartbeat.maxConcurrent is not touched");
   await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "nope" }), /unknown harness "nope"/);
@@ -760,7 +760,8 @@ test("epics: onEpicChanged hands over a cache reset that is not a control op", a
   let reset;
   const { ops } = setup({ adapter, onEpicChanged: (r) => { reset = r; } });
   assert.equal(typeof reset, "function");
-  assert.ok(!Object.keys(ops).some((k) => /epic_?changed|reset|invalidate/i.test(k)), "no invalidation own property on the commands map");
+  // harness_reset is a real op (the health breaker), not a cache invalidation.
+  assert.ok(!Object.keys(ops).some((k) => k !== "harness_reset" && /epic_?changed|reset|invalidate/i.test(k)), "no invalidation own property on the commands map");
   await ops.epics({});
   await ops.epics({});
   assert.equal(calls.listEpics, 1);
@@ -854,4 +855,43 @@ test("ticket_add: refuses (exposed) without createTask or without a title; adapt
   const s = setup({ adapter: { createTask: async () => { throw new Error('local: step "done" is manual'); } } });
   await assert.rejects(() => s.ops.ticket_add({ title: " " }), /title is required/);
   await assert.rejects(() => s.ops.ticket_add({ title: "x", step: "done" }), /is manual/);
+});
+
+test("harness_reset: clears a down harness (harness_up), starts its waiting job; errors on an unknown name or a profile without harnesses (MCP + control socket)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-harness-"));
+  const cfg = /** @type {any} */ ({ name: "t", provider: "github", stateDir: dir, dataDir: dir, pipeline: [{ id: "code", harness: "local" }], harnesses: { local: { maxConcurrent: 1 } } });
+  const store = createStore(dir);
+  /** @type {any[]} */ const events = [];
+  /** @type {string[]} */ const started = [];
+  const until = new Date(Date.now() + 10 * 60000).toISOString();
+  const queue = createQueue(2, async (j) => (started.push(j.ref), new Promise(() => {})), undefined, undefined, {}, {
+    steps: { code: { harnesses: ["local"] } },
+    caps: { local: 1 },
+    health: { local: { until, strikes: 1, reason: "spawn failed: ENOENT" } },
+    onHarnessUp: (name) => events.push(["harness_up", name]),
+  });
+  const deps = /** @type {any} */ ({ cfg, store, forge: null, queue, adapter: {}, cancelRun: () => false, intake: () => 0, emit: () => {}, heartbeat: { update: () => {} }, pull: async () => {}, isLocked: () => false });
+  const ops = createOps(deps);
+  queue.enqueue({ kind: "pipeline", ref: "A", stepId: "code", dedupKey: "A:code" });
+  assert.deepEqual(started, [], "local is down: A waits");
+  assert.equal(queue.state().capped, 1);
+  await assert.rejects(() => ops.harness_reset({ harness: "nope" }), /no harness "nope" \(have: local\)/);
+  await assert.rejects(() => ops.harness_reset({}), /harness/);
+  const sock = path.join(dir, "c.sock");
+  const control = await startControl(/** @type {any} */ ({ name: "t", controlSock: sock, pidFile: path.join(dir, "pid") }), { startedAt: "x", commands: ops });
+  try {
+    const r = await controlRequest(sock, "harness_reset", { harness: "local", actor: "t" }, { timeoutMs: 2000 });
+    assert.equal(r.ok, true);
+    assert.equal(r.result.reset, true);
+    assert.equal(r.result.harnesses.local.state, "up");
+  } finally {
+    control?.close();
+  }
+  assert.deepEqual(events, [["harness_up", "local"]]);
+  assert.deepEqual(started, ["A"], "the waiting job started");
+  assert.equal((await ops.harness_reset({ harness: "local" })).reset, false, "already up");
+  const audit = fs.readFileSync(path.join(dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(audit.map((a) => [a.cmd, a.ok]), [["harness_reset", false], ["harness_reset", false], ["harness_reset", true], ["harness_reset", true]]);
+  const plain = setup();
+  await assert.rejects(() => plain.ops.harness_reset({ harness: "local" }), /this profile has no harnesses/);
 });

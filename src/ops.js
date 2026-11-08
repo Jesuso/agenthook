@@ -386,6 +386,13 @@ export function createOps(deps) {
       heartbeat.update({ maxConcurrent: n });
       return { maxConcurrent: n, note: "runtime only; the config file is unchanged", ...queue.state() };
     }),
+    harness_reset: write("harness_reset", async (args) => {
+      if (!cfg.harnesses) throw new Error("this profile has no harnesses");
+      const name = needString(args.harness, "harness");
+      if (!Object.hasOwn(cfg.harnesses, name)) throw new Error(`no harness "${name}" (have: ${Object.keys(cfg.harnesses).join(", ")})`);
+      const reset = queue.resetHarness(name); // emits harness_up when it was down or probing, then starts waiting work
+      return { harness: name, reset, ...queue.state() };
+    }),
     cancel: write("cancel", async (args) => {
       const ref = needString(args.ref, "ref");
       const dropped = queue.remove(ref);

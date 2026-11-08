@@ -4,7 +4,7 @@
 
 - `src/store.js` — JSON files in `dataDir`: `secrets.json` (handshake secrets keyed by webhook
   path, 0600), `seen.json` (dedup set), `running.json` (in-flight pipeline jobs for crash
-  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), `repo.json`
+  recovery), `queue.json` (jobs waiting behind `maxConcurrent`, replayed on boot; a harness-breaker requeue is re-added at the front), `harness-health.json` (`{down: {name: {until, strikes, reason}}}`, the harness health breaker the queue seeds from on boot), `attempts.json` (per-`(ref,step)` run counts backing the `changes`-loop cap), `repo.json`
   (multi-repo sticky `ref → repoId`, cleared on terminal states), and
   `held.json` (`ref → {stepId, reason, heldAt}` written on a `hold` verdict; any later run of the
   ref, `fail`, or drain clears it — it names the step an `@agent` reply resumes).

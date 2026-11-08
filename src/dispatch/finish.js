@@ -8,6 +8,8 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
+import { healthTrip } from "./harness.js";
+import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
 
@@ -31,6 +33,9 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {number} maxMinutes
  * @property {import('../types.js').AgentAdapter} agent
  * @property {string|undefined} refused
+ * @property {string} [preflightDown]  the agent's own preflight refused (`refused` holds the same reason) — a harness health signal
+ * @property {string} [spawnError]  the spawn itself errored (e.g. ENOENT: the bin is missing)
+ * @property {boolean} [noOutput]  the parser counted no model output tokens
  * @property {Record<string, string>|undefined} agentEnv
  * @property {string|null} energyRun
  * @property {number} code
@@ -49,7 +54,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -103,6 +108,31 @@ export function createFinish(ctx) {
     if (energyRec) Object.assign(usage, energyRec);
     if (store && result) store.recordUsage(usage);
 
+    // Harness breaker (src/queue.js): a run whose harness backend looks down (healthTrip) says so
+    // in its settle info, and the queue marks the harness down. Under the attempt cap the job goes
+    // back to the front of the queue instead — no verdict, no move; the worktree and any overlap
+    // lock stay for the re-run, which the queue routes around the down harness.
+    const harness = harnessField.harness;
+    const tripped = harness
+      ? healthTrip({ preflight: preflightDown, spawnError, code, timedOut, cancelled: wasCancelled, noOutput, wallMs: Date.now() - Date.parse(startedAt), downGraceSeconds: cfg.harnesses?.[harness]?.downGraceSeconds })
+      : undefined;
+    /** @type {{harness: string, reason: string, requeue: boolean}|undefined} */
+    let health;
+    if (harness && tripped) {
+      const requeue = !wasCancelled && (store?.getAttempt(job.ref, step.id) ?? 0) < (step.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+      health = { harness, reason: tripped, requeue };
+      if (requeue) {
+        try {
+          fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
+        } catch {
+          /* best effort */
+        }
+        console.log(`[harness] ${harness} looks down (${tripped}) — ${step.id} ${job.ref} goes back to the front of the queue`);
+        emit?.("run_end", job.ref, step.id, { outcome: "requeued", harness, reason: tripped });
+        return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code, health };
+      }
+    }
+
     // A sandboxed agent owns its verdict dir, and the host reads the file synchronously: only a
     // small regular file is read. A symlink would route on a file outside the dir, a FIFO would
     // block the event loop on open (the whole receiver), a huge file would be slurped — each is
@@ -120,6 +150,8 @@ export function createFinish(ctx) {
     /** @type {import('../types.js').Verdict} */
     const verdict = refused
       ? { outcome: "fail", reason: refused }
+      : spawnError
+      ? { outcome: "fail", reason: `spawn failed: ${spawnError}` }
       : wasCancelled
       ? { outcome: "fail", reason: CANCELLED_REASON }
       : timedOut
@@ -312,7 +344,7 @@ export function createFinish(ctx) {
     // Summaries end on a terminal fail only — a drained `advance` (done) still has an open PR.
     if (verdict.outcome === "fail") store?.clearSummaries(job.ref);
 
-    return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code };
+    return { kind: job.kind, ref: job.ref, name: task.name, url: task.url, code, ...(health ? { health } : {}) };
   }
 
   return { finishStep };

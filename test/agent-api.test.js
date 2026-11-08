@@ -82,6 +82,25 @@ test("readStatus: harnessUsage sums usage.jsonl per harness, only when the heart
   assert.equal(Object.hasOwn(readStatus(readProfile("q", plain)), "harnessUsage"), false);
 });
 
+test("readStatus: slots.harnesses passes the breaker state through (until/reason only while down or probing; junk dropped)", () => {
+  const reg = registry();
+  const until = "2026-11-08T14:32:00.000Z";
+  profile(reg, "p", {
+    hb: { queue: { active: 0, queued: 1, capped: 1, harnesses: {
+      local: { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT" },
+      cloud: { active: 0, max: 2, state: "probing", until, reason: "r" },
+      opus: { active: 0, max: null, state: "up", until, reason: "stale" },
+      odd: { active: 0, max: 1, state: "melted", until: 5, reason: {} },
+    } } },
+  });
+  assert.deepEqual(readStatus(readProfile("p", reg)).slots.harnesses, {
+    local: { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT" },
+    cloud: { active: 0, max: 2, state: "probing", until, reason: "r" },
+    opus: { active: 0, max: null, state: "up" },
+    odd: { active: 0, max: 1 },
+  });
+});
+
 test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", () => {
   const reg = registry();
   profile(reg, "a", { name: "Alpha" });

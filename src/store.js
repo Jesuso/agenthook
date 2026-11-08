@@ -77,6 +77,7 @@ export function createStore(dataDir) {
   const ciRedFile = path.join(dataDir, "cired.json");
   const summariesFile = path.join(dataDir, "summaries.json");
   const mergeWatermarkFile = path.join(dataDir, "merge-watermark.json");
+  const harnessHealthFile = path.join(dataDir, "harness-health.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -132,11 +133,14 @@ export function createStore(dataDir) {
 
     // --- jobs waiting in the queue (queue.json), insertion-ordered, deduped by kind:ref:stepId ---
     // (kind keeps a `merge` job and the pipeline job for its completeOnMerge step apart)
-    addQueued: (job) => {
+    // `front`: a harness-breaker requeue goes back to index 0, so a restart keeps its place.
+    addQueued: (job, { front = false } = {}) => {
       /** @type {import("./types.js").Job[]} */
       const l = readJson(queueFile, []);
       if (l.some((j) => sameQueued(j, job))) return;
-      l.push({ ...job, queuedAt: job.queuedAt ?? new Date().toISOString() });
+      const entry = { ...job, queuedAt: job.queuedAt ?? new Date().toISOString() };
+      if (front) l.unshift(entry);
+      else l.push(entry);
       fs.writeFileSync(queueFile, JSON.stringify(l));
     },
     removeQueued: (job) => {
@@ -297,6 +301,14 @@ export function createStore(dataDir) {
     },
     setMergeWatermark: (iso) => {
       fs.writeFileSync(mergeWatermarkFile, JSON.stringify({ mergedAt: iso }));
+    },
+    // --- harness health breaker (harness-health.json): {down: {[name]: {until, strikes, reason}}} ---
+    getHarnessHealth: () => {
+      const d = readJson(harnessHealthFile, {})?.down;
+      return d && typeof d === "object" && !Array.isArray(d) ? d : {};
+    },
+    setHarnessHealth: (down) => {
+      fs.writeFileSync(harnessHealthFile, JSON.stringify({ down }));
     },
     // --- per-ref review findings (findings.json): set on a `changes` bounce, read by the target step ---
     getFindings: (ref) => readJson(findingsFile, {})[ref],

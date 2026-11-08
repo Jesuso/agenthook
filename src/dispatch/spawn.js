@@ -73,9 +73,12 @@ export function createSpawn(ctx) {
    * and `egress` (the run's network policy), in the harness's `image` when it has one;
    * a `wrap()` rejection fails the run (`refused`) with nothing spawned. The run's sandbox report
    * comes back as `sandboxReport`.
+   * A spawn that errors (e.g. ENOENT: the bin is missing) never throws: it is written to the log
+   * and comes back as `spawnError` once the child closes. `noOutput` says the parser counted no
+   * model output tokens (the harness breaker's fast-exit signal).
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string}}} o
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -130,6 +133,14 @@ export function createSpawn(ctx) {
         env: launch.env,
       });
       children?.add(child);
+      /** @type {string|undefined} */
+      let spawnError;
+      // Without a listener a spawn error (a missing bin) is an uncaught `error` event that takes
+      // the whole receiver down; `close` still follows, so the run resolves there as failed.
+      child.on("error", (e) => {
+        spawnError ??= e.message;
+        logStream.write(`[agenthook] spawn failed: ${e.message}\n`);
+      });
       onPid?.(child.pid);
 
       /** @type {"max"|"idle"|undefined} */
@@ -222,7 +233,7 @@ export function createSpawn(ctx) {
             /* best effort */
           }
         }
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0) });
       });
     });
   }
@@ -306,13 +317,16 @@ export function createSpawn(ctx) {
    * A preflight that throws fails the run too — with its message. A step `allow`/`deny` policy
    * the agent can't enforce (`describe().policy`) is refused first: it never runs unrestricted.
    * Then a sandboxed run of an agent with no `sandbox` hook: it never falls back to the host silently.
+   * `health` is set only when the agent's own preflight refused — the one branch that says the
+   * backend is down (the harness breaker's signal); the policy and sandbox refusals are config.
    * @param {import('../types.js').AgentAdapter} agent @param {import('../types.js').Step} step
    * @param {string|undefined} provider @param {string} logPath
    * @param {{sandboxed?: boolean, env?: Record<string, string>}} [o]  `env` = the spawn env (agentSpawnEnv)
-   * @returns {string|undefined}
+   * @returns {{reason: string, health?: true}|undefined}
    */
   function agentPreflight(agent, step, provider, logPath, { sandboxed = false, env } = {}) {
     let reason;
+    let health = false;
     const policy = agent.describe().policy;
     const unenforced = /** @type {const} */ (["allow", "deny"]).find((k) => step[k] && !policy?.[k]);
     if (unenforced) {
@@ -325,6 +339,7 @@ export function createSpawn(ctx) {
       } catch (e) {
         reason = `${agent.describe().name} preflight failed: ${e.message}`;
       }
+      health = !!reason;
     }
     if (!reason) return undefined;
     try {
@@ -332,7 +347,7 @@ export function createSpawn(ctx) {
     } catch (e) {
       console.error(`[run] log write failed for ${logPath}:`, e.message);
     }
-    return reason;
+    return { reason, ...(health ? { health: /** @type {const} */ (true) } : {}) };
   }
 
   return { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight };
