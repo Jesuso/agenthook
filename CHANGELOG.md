@@ -65,6 +65,8 @@ All notable changes to this project are documented here. The format is based on
   prints `· down until HH:MMZ (reason)` and a harness in its probe window `· probing` (an `up`
   harness prints exactly as before), and every configured harness gets a line — even with
   `0 runs` — so a down harness is never invisible. Profiles without harnesses are unchanged.
+- `docs/local-models.md` gains a worked example of Claude Code on a local Ollama with a cloud
+  spill harness, with the measured context overhead, speed, Ollama quirks and firewall notes.
 - `docs/local-models.md` gains a "Behind the sandbox" note on reaching a LAN model endpoint from a
   sandboxed run: `ANTHROPIC_BASE_URL` at the host's LAN IP, a `!private` egress rule, and the host
   firewall (`ufw`) that may still drop the Docker bridge traffic (#628).

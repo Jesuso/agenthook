@@ -169,6 +169,70 @@ up.
 Without `harnesses` there is no breaker; a missing agent `bin` just fails the run (it no longer
 crashes the receiver).
 
+### Worked example: Claude Code on a local Ollama, spilling to the cloud
+
+This is the maintainers' own dogfood setup, as validated on 2026-11-08. The agent harness is
+**Claude Code in both cases**; Ollama is only the inference runner behind it. Claude Code sends
+its Messages-API requests wherever `ANTHROPIC_BASE_URL` points, and Ollama (0.14+) answers them
+on `/v1/messages`, so the local harness differs from the cloud one only in that URL and the
+model name. Tools, worktree, verdict file and the MCP server are Claude Code's, unchanged.
+
+```jsonc
+{
+  "maxConcurrent": 3,
+  "harnesses": {
+    // Claude Code → this box's Ollama. Two slots because the GPU serves two 64K contexts
+    // (OLLAMA_NUM_PARALLEL=2); a third would queue inside Ollama and look like a stall.
+    "local": {
+      "model": "qwen3.8:27b-64k",
+      "env": { "ANTHROPIC_BASE_URL": "http://192.168.1.20:11434" },
+      "maxConcurrent": 2
+    },
+    // Claude Code → Anthropic, the previous default of the step.
+    "cloud": { "model": "claude-sonnet-5" }
+  },
+  "sandbox": {
+    "type": "docker",
+    "egress": { "mode": "allowlist", "allow": ["@npm", "192.168.1.20:11434!private"] }
+  },
+  "tracker": {
+    "pipeline": [
+      { "id": "triage", "kind": "triage", "model": "claude-opus-5-5" },
+      { "id": "code", "harness": ["local", "cloud"], "routing": "first-free", "createsWorktree": true, "maxMinutes": 180 },
+      { "id": "review", "kind": "review", "model": "claude-opus-5-5" }
+    ]
+  }
+}
+```
+
+Notes from running it:
+
+- **Routing.** With two `code` tickets the first two runs take `local`'s slots; a third spills to
+  `cloud` at once (`first-free`) and `tick` shows `local 2/2, cloud 1`. When a local slot frees,
+  the next ticket goes local again.
+- **Context overhead.** Claude Code's first request already carries its system prompt, tool
+  definitions, the repo's `CLAUDE.md` and the step's instructions: about 20–25K tokens before
+  the model has read a single file. On a 64K context that is more than a third of the window,
+  and Claude Code assumes a 200K window when it decides to compact. Prefer a model tag with a
+  96K or 128K context for the `code` step; keep 64K for `triage`/`review`.
+- **Speed.** A 27B model on one consumer GPU wrote the same class of small PR in 11–50 minutes
+  where the cloud model took 5–10. Set the step's `maxMinutes` accordingly (180 here).
+- **Harmless warning.** The run log starts with
+  `[claude-code:unrecognized_model] {"model":"qwen3.8:27b-64k"}`: Claude Code does not know the
+  name, but passes it through.
+- **Ollama compatibility.** Ollama 0.40 occasionally answers a long tool-use conversation with
+  `API Error: 500 no user query found in messages` on `/v1/messages`; Claude Code retries, then
+  exits 1 and the run fails as a normal failure (it produced output, so the breaker does not
+  trip; the ticket's next attempt reruns it). It is an Ollama bug, not a routing one: rerun, or
+  retry the ticket on the cloud harness.
+- **Backend down.** With Ollama stopped, a `local` run fails with
+  `API Error: 502 … upstream 192.168.1.20:11434 failed: connect ECONNREFUSED`; the breaker marks
+  `local` down and the run goes to `cloud` (see [When a harness fails](#when-a-harness-fails)).
+  Claude Code retries for a few minutes first, so expect the spill a few minutes after the stop,
+  not at once.
+- **Firewall.** The container reaches Ollama through the egress proxy at the host's LAN address;
+  a host firewall may drop that (`sudo ufw allow in on docker0 to any port 11434 proto tcp`).
+
 ## Cost reporting
 
 `claude` prices every run from its own Claude price table, so a run on a local model still
