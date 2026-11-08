@@ -7,7 +7,9 @@
 // - `CONNECT host:port` (HTTPS and anything tunnelled): piped when allowed;
 // - absolute-URI plain HTTP (`GET http://host/…`): forwarded when allowed (port 80 needs a
 //   `host:80` rule);
-// anything else gets a 403 naming the host, and one line in `<dir>/denied.jsonl`.
+// anything else gets a 403 naming the host, and one line in `<dir>/denied.jsonl`. An allowed
+// target that fails to connect or resolve writes one line to `<dir>/upstream-failures.jsonl`
+// instead (the harness breaker's connection-level model-API signal, src/dispatch/harness.js).
 // Rules match the REQUESTED hostname; the connection then goes to the address it resolved to,
 // which must not be loopback, link-local (cloud metadata), RFC1918 or ULA unless the rule ends
 // in `!private` — so an allowlisted name can't be pointed at the host's LAN.
@@ -176,6 +178,7 @@ function startProxy(dir) {
   if (!Array.isArray(rules)) throw new Error("allow.json: rules must be an array");
   rules.forEach(parseRule); // fail at start, not on the first request
   const deniedFile = path.join(dir, "denied.jsonl");
+  const upstreamFile = path.join(dir, "upstream-failures.jsonl");
   // Overridable for tests only; production always uses the exported defaults.
   const maxLines = Number(process.env.EGRESS_DENIED_LOG_MAX_LINES) || DENIED_LOG_MAX_LINES;
   const maxBytes = Number(process.env.EGRESS_DENIED_LOG_MAX_BYTES) || DENIED_LOG_MAX_BYTES;
@@ -195,6 +198,23 @@ function startProxy(dir) {
       deniedBytes += Buffer.byteLength(line);
     } catch (e) {
       console.error(`[egress] could not record a denial: ${e.message}`);
+    }
+  };
+  // Same caps as denied.jsonl, own counters; a failure past the cap is dropped silently (no
+  // summary line — unlike a denial, this is never shown to the client, so there's nothing to
+  // reconcile a count against).
+  let upstreamLines = 0;
+  let upstreamBytes = 0;
+  /** @param {string} host @param {number} port @param {string} error */
+  const logUpstreamFailure = (host, port, error) => {
+    const line = JSON.stringify({ at: new Date().toISOString(), host: normHost(host), port, error }) + "\n";
+    if (upstreamLines >= maxLines || upstreamBytes + Buffer.byteLength(line) > maxBytes) return;
+    try {
+      fs.appendFileSync(upstreamFile, line);
+      upstreamLines++;
+      upstreamBytes += Buffer.byteLength(line);
+    } catch (e) {
+      console.error(`[egress] could not record an upstream failure: ${e.message}`);
     }
   };
   /** @param {string} host @param {number} port */
@@ -224,6 +244,7 @@ function startProxy(dir) {
       return;
     }
     if ("error" in target) {
+      logUpstreamFailure(url.hostname, port, target.error);
       res.writeHead(502, { "Content-Type": "text/plain" }).end(`agenthook egress: ${target.error}\n`);
       return;
     }
@@ -237,6 +258,7 @@ function startProxy(dir) {
       up.pipe(res);
     });
     upstream.on("error", (e) => {
+      logUpstreamFailure(url.hostname, port, e.message);
       if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain" });
       res.end(`agenthook egress: upstream ${url.host} failed: ${e.message}\n`);
     });
@@ -259,6 +281,7 @@ function startProxy(dir) {
       return;
     }
     if ("error" in target) {
+      logUpstreamFailure(host, port, target.error);
       client.end(`HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nagenthook egress: ${target.error}\n`);
       return;
     }
@@ -271,6 +294,7 @@ function startProxy(dir) {
       client.pipe(upstream);
     });
     upstream.on("error", (e) => {
+      logUpstreamFailure(host, port, e.message);
       if (!connected && client.writable) client.end(`HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\nagenthook egress: ${host}:${port} failed: ${e.message}\n`);
       else client.destroy();
     });

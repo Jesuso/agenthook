@@ -134,7 +134,16 @@ eating every run routed to it. A run on a harness **trips** it when:
 - the agent CLI could not be spawned at all (e.g. `ENOENT`: the `bin` is missing);
 - it exited non-zero within `downGraceSeconds` (default 30) with no model output tokens — not a
   timeout, not a cancel. A run that produced output and then failed (red tests, a `fail` verdict)
-  never trips.
+  never trips;
+- it exited non-zero with no model output tokens — not a timeout, not a cancel — and the model API
+  was unreachable at the connection level, **at any wall time**: `downGraceSeconds` only governs
+  the fast-exit signal above, because an agent CLI that keeps retrying a dead backend can run well
+  past it with nothing to show for it. Detected from a bounded scan of the run's own output
+  (`ECONNREFUSED`/`ENOTFOUND`/`EHOSTUNREACH`/`ETIMEDOUT`/`ECONNRESET`, the egress proxy's `egress: …
+  failed`/`cannot resolve` line, or `API Error: 502/503/504`); a sandboxed run instead prefers the
+  egress proxy's own `upstream-failures.jsonl` record for the step's `ANTHROPIC_BASE_URL` host.
+  Any 4xx `API Error` (bad request, auth, quota) is the model API answering, not a connection
+  failure, and never trips — even on a line that also contains one of the tokens above.
 
 A trip marks the harness **down** for `cooldownMinutes` (1–60, default 10) and emits
 `harness_down`. While the run's step is under its `maxAttempts` cap, the run that tripped it is not

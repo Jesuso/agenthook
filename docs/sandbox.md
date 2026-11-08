@@ -191,6 +191,15 @@ the rest and appends one summary line on exit. `run_end` then also carries
 `egressDeniedTruncated: <n>` (the count of denials dropped from the log), omitted when nothing
 was truncated.
 
+An **allowed** target that the proxy can't reach — connection refused/reset/timed out, the name
+doesn't resolve — writes `{at, host, port, error}` to `upstream-failures.jsonl` instead (same
+caps as `denied.jsonl`, its own counters; a failure past the cap is just dropped, since it was
+never shown to the client, so there's nothing to reconcile a count against). `done()` reads it
+into the run's report deduped by `host:port` (first error kept), with one run-log note per entry;
+this is the harness breaker's connection-level model-API signal (`healthTrip`,
+docs/local-models.md#when-a-harness-fails) when the host:port matches the step's
+`ANTHROPIC_BASE_URL`.
+
 **Not filtered.** The allowed hosts are exfiltration channels **by design**: the model API sees
 the prompt and whatever the agent sends it, the forge accepts a pushed branch (or a gist, with a
 broad token), and the tracker accepts a comment. Scoped short-lived tokens (#474) narrow the forge

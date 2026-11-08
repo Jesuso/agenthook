@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveHarness, harnessesOf, healthTrip, cooldownFor } from "../src/dispatch/harness.js";
+import { resolveHarness, harnessesOf, healthTrip, cooldownFor, modelApiFailure } from "../src/dispatch/harness.js";
 import { createSpawn } from "../src/dispatch/spawn.js";
 import { resolveModelEffort, createDispatcher } from "../src/dispatch.js";
 import { agentFor } from "../src/agents/index.js";
@@ -170,6 +170,61 @@ test("healthTrip: preflight and spawn errors trip; a fast no-output non-zero exi
   assert.equal(healthTrip({ ...base, wallMs: 30000, downGraceSeconds: 60 }), "exited 1 with no output after 30s");
 });
 
+test("modelApiFailure: ECONNREFUSED/ENOTFOUND/EHOSTUNREACH/ETIMEDOUT/ECONNRESET, both egress-proxy failure forms, cannot-resolve and 502/503/504 match; 4xx never does, even alongside a matching token", () => {
+  for (const token of ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ETIMEDOUT", "ECONNRESET"]) {
+    assert.equal(modelApiFailure(`connect ${token} 10.0.0.1:443`), `connect ${token} 10.0.0.1:443`);
+  }
+  assert.equal(modelApiFailure("agenthook egress: upstream 127.0.0.1:11434 failed: connect ECONNREFUSED 127.0.0.1:11434"), "agenthook egress: upstream 127.0.0.1:11434 failed: connect ECONNREFUSED 127.0.0.1:11434");
+  assert.equal(modelApiFailure("agenthook egress: 127.0.0.1:11434 failed: connect ECONNREFUSED 127.0.0.1:11434"), "agenthook egress: 127.0.0.1:11434 failed: connect ECONNREFUSED 127.0.0.1:11434");
+  assert.equal(modelApiFailure("agenthook egress: cannot resolve ollama.local: ENOTFOUND"), "agenthook egress: cannot resolve ollama.local: ENOTFOUND");
+  for (const code of ["502", "503", "504"]) assert.equal(modelApiFailure(`API Error: ${code} backend down`), `API Error: ${code} backend down`);
+  for (const code of ["400", "401", "403", "404", "429"]) {
+    assert.equal(modelApiFailure(`API Error: ${code} bad request`), undefined);
+    assert.equal(modelApiFailure(`API Error: ${code} bad request ECONNRESET`), undefined, "a 4xx line never matches, even with another token");
+  }
+  assert.equal(modelApiFailure("some normal output\nnothing here"), undefined);
+  assert.equal(modelApiFailure(undefined), undefined);
+  // first matching line, clipped
+  const long = "x".repeat(250) + " ECONNRESET";
+  assert.equal(modelApiFailure(`fine\n${long}\nECONNREFUSED too`), long.slice(0, 200));
+  assert.equal(modelApiFailure("fine\nECONNRESET\nECONNREFUSED too"), "ECONNRESET");
+});
+
+test("healthTrip: a connection-level model-API failure trips at any wall time (no-output, non-zero, not timeout/cancel)", () => {
+  const base = { code: 1, cancelled: false, noOutput: true, wallMs: 180000 }; // well past the default grace
+  for (const token of ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ETIMEDOUT", "ECONNRESET"]) {
+    assert.equal(healthTrip({ ...base, apiDown: `connect ${token} x` }), `model API unreachable: connect ${token} x`);
+  }
+  assert.equal(healthTrip({ ...base, apiDown: "agenthook egress: upstream 1.2.3.4:443 failed: x" }), "model API unreachable: agenthook egress: upstream 1.2.3.4:443 failed: x");
+  assert.equal(healthTrip({ ...base, apiDown: "agenthook egress: 1.2.3.4:443 failed: x" }), "model API unreachable: agenthook egress: 1.2.3.4:443 failed: x");
+  assert.equal(healthTrip({ ...base, apiDown: "agenthook egress: cannot resolve h: ENOTFOUND" }), "model API unreachable: agenthook egress: cannot resolve h: ENOTFOUND");
+  assert.equal(healthTrip({ ...base, apiDown: "API Error: 502 down" }), "model API unreachable: API Error: 502 down");
+
+  assert.equal(healthTrip({ ...base, noOutput: false, apiDown: "ECONNREFUSED" }), undefined, "output was produced");
+  assert.equal(healthTrip({ ...base, code: 0, apiDown: "ECONNREFUSED" }), undefined, "clean exit");
+  assert.equal(healthTrip({ ...base, timedOut: "idle", apiDown: "ECONNREFUSED" }), undefined, "a timeout never trips");
+  assert.equal(healthTrip({ ...base, cancelled: true, apiDown: "ECONNREFUSED" }), undefined, "a cancel never trips");
+
+  const upstreamFailures = [{ host: "192.168.68.2", port: 11434, error: "connect ECONNREFUSED" }];
+  assert.equal(
+    healthTrip({ ...base, upstreamFailures, baseUrl: "http://192.168.68.2:11434" }),
+    "model API unreachable: 192.168.68.2:11434 connect ECONNREFUSED",
+    "an upstream-failures entry for the base-URL host trips",
+  );
+  assert.equal(
+    healthTrip({ ...base, upstreamFailures: [{ host: "10.0.0.9", port: 11434, error: "x" }], baseUrl: "http://192.168.68.2:11434" }),
+    undefined,
+    "an entry for a different host does not trip (and there is no apiDown here)",
+  );
+  assert.equal(
+    healthTrip({ ...base, upstreamFailures, baseUrl: "http://192.168.68.2:11434", apiDown: "ECONNRESET elsewhere" }),
+    "model API unreachable: 192.168.68.2:11434 connect ECONNREFUSED",
+    "the structured upstream-failures source wins over apiDown when both are present",
+  );
+  // the existing fast-exit cases are unchanged (still governed by downGraceSeconds)
+  assert.equal(healthTrip({ code: 1, cancelled: false, noOutput: true, wallMs: 2000, apiDown: "irrelevant, inside grace" }), "exited 1 with no output after 2s");
+});
+
 test("cooldownFor: the base cooldown, doubled per strike, capped at 60", () => {
   assert.deepEqual([1, 2, 3, 4].map((s) => cooldownFor(10, s)), [10, 20, 40, 60]);
   assert.equal(cooldownFor(60, 1), 60);
@@ -277,4 +332,37 @@ test("breaker: a fast non-zero exit with no output trips its harness; a clean ru
   const ok = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "cloud" });
   assert.equal(ok.info.health, undefined);
   assert.equal(ok.advanced[0][2], "advance");
+});
+
+/** A fake claude bin emitting one `API Error: <code> …` line as rendered assistant text (so the
+ * dispatcher's bounded scan sees it exactly as a real Claude Code run would), then sleeping past
+ * `downGraceSeconds` before a no-output non-zero exit. @param {string} line */
+const apiErrorBin = (line) =>
+  `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: line }] } })}'\nsleep 1.2\nexit 1\n`;
+
+test("breaker: a no-output exit past downGraceSeconds trips when its output names a connection-level model-API failure (#639)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-apidown-"));
+  const bin = path.join(dir, "down.sh");
+  fs.writeFileSync(bin, apiErrorBin("API Error: 502 agenthook egress: upstream 127.0.0.1:11434 failed: connect ECONNREFUSED 127.0.0.1:11434"), { mode: 0o755 });
+  const harnesses = { local: { bin, downGraceSeconds: 1 } };
+  const { info, events, advanced } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: ["local"] }] }, { harness: "local" });
+  assert.deepEqual(advanced, [], "the ticket is not moved");
+  assert.equal(info.health.harness, "local");
+  assert.equal(info.health.requeue, true);
+  assert.match(info.health.reason, /^model API unreachable: /);
+  const end = events.find((e) => e.event === "run_end");
+  assert.equal(end.outcome, "requeued");
+  assert.equal(events.some((e) => e.event === "failed"), false);
+});
+
+test("breaker: the same shape with a 4xx API Error line never trips — plain fail, no health", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-no-trip-4xx-"));
+  const bin = path.join(dir, "down.sh");
+  fs.writeFileSync(bin, apiErrorBin("API Error: 401 unauthorized"), { mode: 0o755 });
+  const harnesses = { local: { bin, downGraceSeconds: 1 } };
+  const { info, events, advanced } = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: ["local"] }] }, { harness: "local" });
+  assert.equal(info.health, undefined, "a 4xx line never trips the breaker");
+  assert.equal(advanced[0][2], "fail");
+  assert.equal(events.find((e) => e.event === "run_end")?.outcome, "fail");
+  assert.equal(events.some((e) => e.event === "harness_down"), false);
 });

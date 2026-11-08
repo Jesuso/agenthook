@@ -36,6 +36,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {string} [preflightDown]  the agent's own preflight refused (`refused` holds the same reason) — a harness health signal
  * @property {string} [spawnError]  the spawn itself errored (e.g. ENOENT: the bin is missing)
  * @property {boolean} [noOutput]  the parser counted no model output tokens
+ * @property {string} [apiDown]  a connection-level model-API failure line found in the run's output (src/dispatch/harness.js modelApiFailure) — a harness health signal at any wall time
  * @property {Record<string, string>|undefined} agentEnv
  * @property {string|null} energyRun
  * @property {number} code
@@ -54,7 +55,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -114,7 +115,19 @@ export function createFinish(ctx) {
     // lock stay for the re-run, which the queue routes around the down harness.
     const harness = harnessField.harness;
     const tripped = harness
-      ? healthTrip({ preflight: preflightDown, spawnError, code, timedOut, cancelled: wasCancelled, noOutput, wallMs: Date.now() - Date.parse(startedAt), downGraceSeconds: cfg.harnesses?.[harness]?.downGraceSeconds })
+      ? healthTrip({
+          preflight: preflightDown,
+          spawnError,
+          code,
+          timedOut,
+          cancelled: wasCancelled,
+          noOutput,
+          wallMs: Date.now() - Date.parse(startedAt),
+          downGraceSeconds: cfg.harnesses?.[harness]?.downGraceSeconds,
+          apiDown,
+          upstreamFailures: sandboxReport?.upstreamFailures,
+          baseUrl: spawnStep.env?.ANTHROPIC_BASE_URL,
+        })
       : undefined;
     /** @type {{harness: string, reason: string, requeue: boolean}|undefined} */
     let health;

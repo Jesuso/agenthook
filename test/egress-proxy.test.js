@@ -10,6 +10,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { egressAllowed, parseRule, isPrivateAddress } from "../src/sandbox/egress-proxy.mjs";
+import { upstreamReport } from "../src/sandbox/container.js";
 
 const PROXY = fileURLToPath(new URL("../src/sandbox/egress-proxy.mjs", import.meta.url));
 
@@ -114,8 +115,9 @@ async function startProxy(rules, env = {}) {
   const child = spawn(process.execPath, [PROXY, dir], { env: { ...process.env, EGRESS_PORT: String(port), ...env }, stdio: ["ignore", "ignore", "inherit"] });
   for (let i = 0; i < 200 && !fs.existsSync(path.join(dir, "ready")); i++) await new Promise((r) => setTimeout(r, 25));
   const denied = () => (fs.existsSync(path.join(dir, "denied.jsonl")) ? fs.readFileSync(path.join(dir, "denied.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []);
+  const upstreamFailures = () => (fs.existsSync(path.join(dir, "upstream-failures.jsonl")) ? fs.readFileSync(path.join(dir, "upstream-failures.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []);
   const exited = new Promise((resolve) => child.on("exit", resolve));
-  return { dir, port, denied, stop: () => child.kill("SIGTERM"), exited };
+  return { dir, port, denied, upstreamFailures, stop: () => child.kill("SIGTERM"), exited };
 }
 
 test("proxy: ready appears; an allowed CONNECT is piped; a denied one gets the 403 and a denied.jsonl line", { timeout: 20000 }, async () => {
@@ -201,6 +203,39 @@ test("proxy: an allowed plain-HTTP request is forwarded with its path and method
   } finally {
     p.stop();
     origin.close();
+  }
+});
+
+test("proxy: an allowed upstream that refuses connections appends to upstream-failures.jsonl (both plain-HTTP and CONNECT); upstreamReport parses, skips torn lines, and dedups by host:port (#639)", { timeout: 20000 }, async () => {
+  const refusedPort = await freePort(); // nothing listens here: a guaranteed ECONNREFUSED on loopback
+  const p = await startProxy([`127.0.0.1:${refusedPort}!private`]);
+  try {
+    const connectDenial = await connectVia(p.port, `127.0.0.1:${refusedPort}`);
+    assert.match(connectDenial, /^HTTP\/1\.1 502 Bad Gateway/);
+
+    const httpDenial = await new Promise((resolve, reject) => {
+      const sock = net.connect(p.port, "127.0.0.1", () => sock.write(`GET http://127.0.0.1:${refusedPort}/x HTTP/1.1\r\nHost: 127.0.0.1:${refusedPort}\r\nConnection: close\r\n\r\n`));
+      let buf = "";
+      sock.setEncoding("utf8");
+      sock.on("data", (d) => (buf += d));
+      sock.on("end", () => resolve(buf));
+      sock.on("error", reject);
+    });
+    assert.match(httpDenial, /^HTTP\/1\.1 502 /);
+
+    const lines = p.upstreamFailures();
+    assert.equal(lines.length, 2, "one line per failed attempt");
+    for (const l of lines) {
+      assert.equal(l.host, "127.0.0.1");
+      assert.equal(l.port, refusedPort);
+      assert.match(l.error, /ECONNREFUSED/);
+      assert.match(l.at, /^\d{4}-\d\d-\d\dT/);
+    }
+
+    const parsed = upstreamReport(lines.map((l) => JSON.stringify(l)).join("\n") + "\nnot json\n");
+    assert.deepEqual(parsed, [{ host: "127.0.0.1", port: refusedPort, error: lines[0].error }], "deduped by host:port, first error kept, torn line skipped");
+  } finally {
+    p.stop();
   }
 });
 
