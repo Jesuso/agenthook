@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Per-run turn metrics (#645): `usage.jsonl` records, the `run_end` event and `runs` rows
+  (`ah agent-api`/MCP) now carry `turns`, `firstContext`, `peakContext` and `lastContext` — how
+  many model turns a run took and how its context grew — for agents whose parser sees per-turn
+  usage (claude, opencode today; absent on cursor/hermes). An enabler for comparing a local-model
+  harness against a cloud one. See [docs/usage.md](docs/usage.md#where-records-live).
 - Harness breaker: trip on a connection-level model-API failure, not only a fast exit (#639). A
   no-output, non-zero exit now also trips the breaker at **any** wall time — not just inside
   `downGraceSeconds` — when the run's output reports a connection-level model-API failure

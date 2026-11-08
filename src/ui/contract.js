@@ -201,6 +201,10 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {'reported'|'rate-table'|null} costBasis  which figure stands for the run; null = no cost and no estimate
  * @property {number} [energyKwh]         measured energy (an `energy: true` step, src/energy.js); absent when unmeasured — never in costUsd/estUsd
  * @property {number} [energyUsd]         its dollars at the profile's `energy.usdPerKwh`
+ * @property {number} [turns]             model turns the agent's parser counted (#645); absent when the agent reports no per-turn usage
+ * @property {number} [firstContext]      the first turn's prompt size; only when `turns` is set
+ * @property {number} [peakContext]       the largest turn's prompt size; only when `turns` is set
+ * @property {number} [lastContext]       the final turn's prompt size; only when `turns` is set
  * @property {boolean} running            no outcome yet, newest run, and running.json has it
  * @property {number} bytes               log size when listed
  */

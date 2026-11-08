@@ -44,7 +44,9 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             `unpriced: true` and no `costUsd`, so it adds nothing to any reported spend sum. `costBasis?` =
  *             reported | rate-table; `estUsd?` = an API-equivalent rate-table estimate (src/pricing.js), never
  *             summed into `costUsd`; when the agent returned a result, also `model?`, `input`, `output`,
- *             `cacheRead`, `cacheCreate` so readers can price it; a step with `energy: true` adds
+ *             `cacheRead`, `cacheCreate` so readers can price it, plus `turns?`, `firstContext?`,
+ *             `peakContext?`, `lastContext?` (#645) when the agent's parser saw at least one turn
+ *             (claude/opencode today; absent on cursor/hermes); a step with `energy: true` adds
  *             `energyKwh?`, `energyUsd?`, `energySource?` — measured electricity (src/energy.js), never
  *             summed into `costUsd`/`estUsd`)
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in

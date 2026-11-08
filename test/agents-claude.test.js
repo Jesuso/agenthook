@@ -189,8 +189,10 @@ test("createStreamParser: renders assistant text only (no raw JSON), captures re
   assert.equal(log, "Looking at the code.\nDone.\n", "only text blocks, no tool_use or raw JSON");
   assert.ok(p.result, "result event captured");
   assert.equal(p.result.session_id, "sess-1");
-  // final tally mirrors result.usage (output replaced, not summed); cache fields from result event
-  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30 });
+  // final tally mirrors result.usage (output replaced, not summed); cache fields from result event.
+  // turns/firstContext/peakContext/lastContext (#645) come from the two id-less assistant events,
+  // each its own turn: ctx 100 then 250 (no cache fields on either).
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
 });
 
 test("createStreamParser: tally grows across assistant events before the result", () => {
@@ -198,9 +200,9 @@ test("createStreamParser: tally grows across assistant events before the result"
   p.push(fixtureLines[0] + "\n");
   assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
   p.push(fixtureLines[1] + "\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
   p.push(fixtureLines[2] + "\n"); // output sums (12+8), input tracks latest turn
-  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 0, cacheCreate: 0 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 0, cacheCreate: 0, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
 });
 
 test("createStreamParser: tolerates lines split across chunk boundaries", () => {
@@ -210,7 +212,7 @@ test("createStreamParser: tolerates lines split across chunk boundaries", () => 
   let log = "";
   for (const ch of whole) log += p.push(ch);
   assert.equal(log, "Looking at the code.\nDone.\n");
-  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
   assert.equal(p.result.total_cost_usd, 0.0321);
 });
 
@@ -221,7 +223,7 @@ test("createStreamParser: skips non-JSON lines without crashing", () => {
   log += p.push(fixtureLines[1] + "\n");
   log += p.push("{ broken json\n");
   assert.equal(log, "Looking at the code.\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
 });
 
 test("createStreamParser: flush() processes a final line with no trailing newline", () => {
@@ -230,7 +232,7 @@ test("createStreamParser: flush() processes a final line with no trailing newlin
   assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 }, "unterminated line not parsed yet");
   const tail = p.flush();
   assert.equal(tail, "Looking at the code.\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
 });
 
 test("createStreamParser: cache_read/cache_creation tokens captured in tally from result event", () => {
@@ -272,6 +274,44 @@ test("createStreamParser: a second result event sums usage/duration, keeps the l
   assert.equal(rec.durationMs, 603476);
   assert.equal(rec.costUsd, 22.29);
   assert.equal(rec.sessionId, "sess-2");
+});
+
+test("createStreamParser: turns/firstContext/peakContext/lastContext from 3 distinct-id assistant turns (#645)", () => {
+  const p = createStreamParser();
+  const turn = (id, input) => JSON.stringify({ type: "assistant", message: { id, content: [], usage: { input_tokens: input } } });
+  p.push(turn("msg_1", 1000) + "\n");
+  p.push(turn("msg_2", 3000) + "\n");
+  p.push(turn("msg_3", 2000) + "\n");
+  assert.equal(p.tally.turns, 3);
+  assert.equal(p.tally.firstContext, 1000);
+  assert.equal(p.tally.peakContext, 3000);
+  assert.equal(p.tally.lastContext, 2000);
+});
+
+test("createStreamParser: two assistant events sharing one message.id count as one turn (#645)", () => {
+  const p = createStreamParser();
+  const block = (text) => JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [{ type: "text", text }], usage: { input_tokens: 500 } } });
+  p.push(block("a") + "\n");
+  p.push(block("b") + "\n");
+  assert.equal(p.tally.turns, 1);
+  assert.equal(p.tally.firstContext, 500);
+  assert.equal(p.tally.lastContext, 500);
+});
+
+test("createStreamParser: an event with parent_tool_use_id set (a sub-agent sidechain) is ignored (#645)", () => {
+  const p = createStreamParser();
+  p.push(JSON.stringify({ type: "assistant", parent_tool_use_id: "t1", message: { id: "side_1", content: [], usage: { input_tokens: 9000 } } }) + "\n");
+  assert.equal(p.tally.turns, undefined, "sidechain turn not counted");
+  p.push(JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [], usage: { input_tokens: 400 } } }) + "\n");
+  assert.equal(p.tally.turns, 1);
+  assert.equal(p.tally.firstContext, 400, "the main-conversation turn, not the sidechain's");
+});
+
+test("createStreamParser: no usage at all → turns/firstContext/peakContext/lastContext stay absent (#645)", () => {
+  const p = createStreamParser();
+  p.push(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }) + "\n");
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+  assert.ok(!("turns" in p.tally));
 });
 
 test("buildUsageRecord: extracts totals/cost/session from the result event", () => {

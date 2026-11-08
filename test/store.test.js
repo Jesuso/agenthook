@@ -56,7 +56,8 @@ test("recordUsage appends and readUsage round-trips records (newest-last)", () =
   const dir = tmpDir();
   const s = createStore(dir);
   assert.deepEqual(s.readUsage(), [], "no file yet -> empty list");
-  const r1 = { ref: "1", stepId: "code", input: 100, output: 20, costUsd: 0.03 };
+  // turns/firstContext/peakContext/lastContext (#645) round-trip like any other field.
+  const r1 = { ref: "1", stepId: "code", input: 100, output: 20, costUsd: 0.03, turns: 3, firstContext: 1000, peakContext: 3000, lastContext: 2000 };
   const r2 = { ref: "2", stepId: "review", input: 50, output: 10, costUsd: 0.01 };
   s.recordUsage(r1);
   s.recordUsage(r2);

@@ -108,15 +108,21 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, all
  * `rate_limit_event` (src/quota.js; a malformed one leaves it unchanged). Pure (no I/O),
  * stateful — feed chunks via push(), flush() any tail at EOF, then read `.tally` / `.result` /
  * `.quota`. Exported for unit tests.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number}, result:any, quota:import('../quota.js').QuotaReading|null}}
+ * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number,turns?:number,firstContext?:number,peakContext?:number,lastContext?:number}, result:any, quota:import('../quota.js').QuotaReading|null}}
  */
 export function createStreamParser() {
   let buf = "";
+  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
   const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   /** @type {any} */
   let result = null;
   /** @type {import('../quota.js').QuotaReading|null} */
   let quota = null;
+  // The last counted turn's `message.id` (#645): a content block sharing it is the same turn.
+  // undefined both at start and after an id-less event — an id-less event always counts as its
+  // own turn (see the comparison below).
+  /** @type {string|undefined} */
+  let lastTurnId;
 
   /** @param {any} ev @returns {string} human-readable log text for this event */
   function handleEvent(ev) {
@@ -130,6 +136,21 @@ export function createStreamParser() {
         if (typeof u.input_tokens === "number") tally.input = u.input_tokens;
         if (typeof u.cache_read_input_tokens === "number") tally.cacheRead = u.cache_read_input_tokens;
         if (typeof u.cache_creation_input_tokens === "number") tally.cacheCreate = u.cache_creation_input_tokens;
+        // Per-turn context size (#645): only the main conversation (a sidechain's
+        // parent_tool_use_id is a different context window), one turn per distinct
+        // message.id — Claude Code emits one assistant event per content block, and
+        // blocks of the same turn share an id and its usage. An id-less event is its own turn.
+        if (ev.parent_tool_use_id == null) {
+          const id = ev.message.id;
+          if (id === undefined || id !== lastTurnId) {
+            if (id !== undefined) lastTurnId = id;
+            const ctx = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+            tally.turns = (tally.turns ?? 0) + 1;
+            if (tally.firstContext === undefined) tally.firstContext = ctx;
+            tally.peakContext = tally.peakContext === undefined ? ctx : Math.max(tally.peakContext, ctx);
+            tally.lastContext = ctx;
+          }
+        }
       }
       const content = ev.message.content;
       let text = "";

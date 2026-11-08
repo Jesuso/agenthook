@@ -297,6 +297,10 @@ test("readRuns / readRunLogTail: newest run log tail, step filter, unknown ref",
   assert.equal(Object.hasOwn(runs[0], "model") || Object.hasOwn(runs[0], "harness"), false, "none on the run_end → no keys");
   fs.writeFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts: "2026-01-01T00:00:10.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", model: "qwen3", harness: "qwen" }) + "\n");
   assert.deepEqual([readRuns("p", "7", dir, reg)[0].model, readRuns("p", "7", dir, reg)[0].harness], ["qwen3", "qwen"]);
+  // turns/firstContext/peakContext/lastContext (#645) ride along only when the run_end has them.
+  fs.writeFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts: "2026-01-01T00:00:10.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", turns: 3, firstContext: 1000, peakContext: 3000, lastContext: 2000 }) + "\n");
+  const withTurns = readRuns("p", "7", dir, reg)[0];
+  assert.deepEqual([withTurns.turns, withTurns.firstContext, withTurns.peakContext, withTurns.lastContext], [3, 1000, 3000, 2000]);
   const tail = readRunLogTail("p", "7", dir, { lines: 3 }, reg);
   assert.equal(tail.tail, "line 97\nline 98\nline 99");
   assert.match(String(readRunLogTail("p", "7", dir, { step: "nope" }, reg).error), /no run log/);

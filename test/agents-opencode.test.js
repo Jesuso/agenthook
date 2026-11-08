@@ -84,15 +84,28 @@ test("parser: recorded run → tool + text in the log, tally summed over steps, 
   const log = p.push(FIXTURE) + p.flush();
   assert.equal(log, "🔧 read\nhello\n");
   // output = 45 + 13 summed; input/cache = the latest step's context
-  assert.deepEqual(p.tally, { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0 });
+  // turns/firstContext/peakContext/lastContext (#645): 2 step_finish events, ctx 6925+1792=8717 then 108+8704=8812
+  assert.deepEqual(p.tally, { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0, turns: 2, firstContext: 8717, peakContext: 8812, lastContext: 8812 });
   assert.equal(p.sessionId, SID);
-  assert.deepEqual(p.result, { session_id: SID, tokens: { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0 }, cost: 0 });
+  assert.deepEqual(p.result, { session_id: SID, tokens: { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0, turns: 2, firstContext: 8717, peakContext: 8812, lastContext: 8812 }, cost: 0 });
 });
 
 test("parser: reasoning tokens count as output", () => {
   const p = createOpencodeParser();
   p.push(JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input: 1, output: 2, reasoning: 30, cache: { read: 4, write: 5 } }, cost: 0 } }) + "\n");
-  assert.deepEqual(p.tally, { input: 1, output: 32, cacheRead: 4, cacheCreate: 5 });
+  assert.deepEqual(p.tally, { input: 1, output: 32, cacheRead: 4, cacheCreate: 5, turns: 1, firstContext: 10, peakContext: 10, lastContext: 10 });
+});
+
+test("parser: 3 step_finish events give turns/firstContext/peakContext/lastContext (#645)", () => {
+  const p = createOpencodeParser();
+  const finish = (input, read, write) => JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input, output: 1, cache: { read, write } }, cost: 0 } });
+  p.push(finish(1000, 0, 0) + "\n");
+  p.push(finish(2000, 1000, 0) + "\n");
+  p.push(finish(500, 0, 0) + "\n");
+  assert.equal(p.tally.turns, 3);
+  assert.equal(p.tally.firstContext, 1000);
+  assert.equal(p.tally.peakContext, 3000);
+  assert.equal(p.tally.lastContext, 500);
 });
 
 test("parser: a line split across chunks is buffered; one char at a time gives the same output", () => {
@@ -118,7 +131,9 @@ test("parser: unknown event types and non-JSON lines are ignored, never throw", 
   const out = p.push('not json\n{"type":"mystery","x":1}\n{"type":"text"}\n{"type":"text","part":{"text":5}}\n{"type":"tool_use","part":null}\n[1,2]\nnull\n{"type":"step_finish","part":{"tokens":"x","cost":"free"}}\n');
   assert.equal(out + p.flush(), "");
   assert.equal(p.sessionId, undefined);
-  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+  // the malformed step_finish still counts as a turn (every step_finish is one, #645),
+  // just with a zero context (its tokens field isn't an object)
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 0, peakContext: 0, lastContext: 0 });
 });
 
 test("parser: an error event becomes a one-line ⚠ in the log, never throws on odd shapes", () => {

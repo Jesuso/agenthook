@@ -68,6 +68,18 @@ function energyOf(end) {
   return { energyKwh: kWh, energyUsd: typeof usd === "number" && Number.isFinite(usd) && usd >= 0 ? usd : 0 };
 }
 
+/** A run_end's per-turn stats (#645), when `turns` is a finite number; else `{}`.
+ * @param {Record<string, any>|null} end @returns {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+function turnStatsOf(end) {
+  if (typeof end?.turns !== "number" || !Number.isFinite(end.turns)) return {};
+  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+  const out = { turns: end.turns };
+  for (const k of /** @type {const} */ (["firstContext", "peakContext", "lastContext"])) {
+    if (typeof end[k] === "number" && Number.isFinite(end[k])) out[k] = end[k];
+  }
+  return out;
+}
+
 /**
  * A ref's runs, newest first. `outcome`/`costUsd` come from the first `run_end` for the same
  * (ref, step) at or after the log's stamp and before that step's next run; null when it isn't
@@ -141,6 +153,7 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
       estUsd: c.estUsd ?? null,
       costBasis: c.costBasis ?? null,
       ...energyOf(end),
+      ...turnStatsOf(end),
       endedAt: end && typeof end.ts === "string" ? end.ts : null,
       running: !end && i === found.length - 1 && !!cur && cur.stepId === r.step,
       bytes: r.bytes,

@@ -38,10 +38,11 @@ function readUsage(u, tally) {
  * (`system`, `user`, `thinking`, `tool_call`, …) and non-JSON lines, never throws.
  * Cursor's assistant events carry no usage, so the tally fills in at the `result` event.
  * The session id is the result's, else the first `session_id` any event carried.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number}, result:any, sessionId:string|undefined}}
+ * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number,turns?:number,firstContext?:number,peakContext?:number,lastContext?:number}, result:any, sessionId:string|undefined}}
  */
 export function createCursorStreamParser() {
   let buf = "";
+  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
   const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   /** @type {any} */
   let result = null;
@@ -53,7 +54,17 @@ export function createCursorStreamParser() {
     if (!ev || typeof ev !== "object") return "";
     if (firstSessionId === undefined && typeof ev.session_id === "string") firstSessionId = ev.session_id;
     if (ev.type === "assistant" && ev.message && typeof ev.message === "object") {
-      readUsage(ev.message.usage, tally); // none today; harmless if Cursor starts sending it
+      const u = ev.message.usage;
+      readUsage(u, tally); // none today; harmless if Cursor starts sending it
+      // Per-turn context size (#645): only an assistant event that itself carries usage
+      // counts — the `result` aggregate never does (buildCursorUsageRecord's path).
+      if (u && typeof u === "object") {
+        const ctx = (u.inputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheWriteTokens || 0);
+        tally.turns = (tally.turns ?? 0) + 1;
+        if (tally.firstContext === undefined) tally.firstContext = ctx;
+        tally.peakContext = tally.peakContext === undefined ? ctx : Math.max(tally.peakContext, ctx);
+        tally.lastContext = ctx;
+      }
       const content = ev.message.content;
       let text = "";
       if (Array.isArray(content)) {

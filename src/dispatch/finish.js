@@ -41,6 +41,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {string|null} energyRun
  * @property {number} code
  * @property {any} result
+ * @property {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} [turnStats]  the parser's per-turn stats (#645), when it saw at least one turn
  * @property {import('../quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
  * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
@@ -55,7 +56,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, timedOut, sandboxed, sandboxReport } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -94,6 +95,9 @@ export function createFinish(ctx) {
       // can't match.
       if (finalized.model && !model) usage.model = finalized.model;
     }
+    // Per-turn stats the parser saw (#645): turns/firstContext/peakContext/lastContext, only
+    // when the parser counted at least one turn — hermes' `finalize` never sets these.
+    if (turnStats) Object.assign(usage, turnStats);
     // A harness may have switched the agent: name it, so follow/resume find the run's transcript.
     if (harnessField.harness) usage.agent = agent.describe().name;
     // ...and the harness itself, so status can sum usage per harness (`harnessUsage`).
@@ -178,7 +182,20 @@ export function createFinish(ctx) {
 
     const costUsd = unpriced ? undefined : usage.costUsd;
     // Model + tokens ride along when a result was seen, so Stats can price from events.jsonl alone.
-    const tokens = result ? { ...(usage.model ? { model: usage.model } : {}), input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheCreate: usage.cacheCreate } : {};
+    // turns/firstContext/peakContext/lastContext (#645) ride along only when the parser saw a turn.
+    const tokens = result
+      ? {
+          ...(usage.model ? { model: usage.model } : {}),
+          input: usage.input,
+          output: usage.output,
+          cacheRead: usage.cacheRead,
+          cacheCreate: usage.cacheCreate,
+          ...(typeof usage.turns === "number" ? { turns: usage.turns } : {}),
+          ...(typeof usage.firstContext === "number" ? { firstContext: usage.firstContext } : {}),
+          ...(typeof usage.peakContext === "number" ? { peakContext: usage.peakContext } : {}),
+          ...(typeof usage.lastContext === "number" ? { lastContext: usage.lastContext } : {}),
+        }
+      : {};
     // The agent's one plain sentence for a human (summary.plain), whitespace-collapsed; absent when none.
     const plain = typeof verdict.summary?.plain === "string" ? verdict.summary.plain.replace(/\s+/g, " ").trim() : "";
     // 2-4 short discrete answers (summary.options), only on a hold — parseSummary already validated them.
