@@ -34,6 +34,13 @@ All notable changes to this project are documented here. The format is based on
   the state persists in `harness-health.json`, and the `harness_reset {harness}` op clears it. See
   [docs/local-models.md](docs/local-models.md#when-a-harness-fails).
 
+### Changed
+
+- `events` text output shows the harness: `run_start`/`run_end` lines print `harness=<name>` right
+  after `model=` when the event carries one (absent or null without, so lines of profiles without
+  harnesses are unchanged), and `harness_down`/`harness_up` print readably as
+  `harness_down <name> reason=… until=…` / `harness_up <name>` (#631).
+
 ### Fixed
 
 - `tick`/`status` show `slots.harnesses` (and `capped`) from boot: the heartbeat's queue state is seeded from the queue when the engine starts, not only after the first run.

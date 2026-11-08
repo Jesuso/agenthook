@@ -80,11 +80,19 @@ export function resolveRefFilter(q, refmeta, knownRefs = []) {
 export function renderEvent(ev, meta) {
   const ts = ev.ts ? ev.ts.replace("T", " ").slice(0, 19) + "Z" : "?";
   const tag = String(ev.event ?? "?").padEnd(13);
+  // harness_down / harness_up are profile-wide (no ref, no step) — the harness name is the subject.
+  if (ev.event === "harness_down" || ev.event === "harness_up") {
+    let extra = "";
+    if (ev.reason != null) extra += `  reason=${ev.reason}`;
+    if (ev.until != null) extra += `  until=${ev.until}`;
+    return `${ts}  ${tag}  ${ev.harness ?? "?"}${extra}`;
+  }
   const displayId = ev.displayId ?? meta?.displayId;
   const ref = `${displayId ? `${displayId} ` : ""}ref=${ev.ref ?? "?"}`;
   const step = String(ev.step ?? "?");
   let extra = "";
   if (ev.model != null) extra += `  model=${ev.model}`;
+  if (ev.harness != null) extra += `  harness=${ev.harness}`;
   if (ev.outcome != null) extra += `  outcome=${ev.outcome}`;
   if (ev.costUsd != null) extra += `  cost=$${Number(ev.costUsd).toFixed(4)}`;
   if (ev.estUsd != null) extra += `  est=~$${Number(ev.estUsd).toFixed(4)}`;
