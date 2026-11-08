@@ -44,19 +44,77 @@ export const DEFAULT_COOLDOWN_MINUTES = 10;
 export const DEFAULT_DOWN_GRACE_SECONDS = 30;
 export const MAX_COOLDOWN_MINUTES = 60;
 
+/** Clip a reason string to a bounded length, so a trip reason never bloats a log/event. @param {string} s @param {number} [n] */
+const clip = (s, n = 200) => (s.length > n ? s.slice(0, n) : s);
+
+/** A line's connection-level model-API failure tokens — never matched on a line whose `API
+ * Error:` status is 4xx (checked separately, first). */
+const API_FAILURE_RE = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET|agenthook egress: (?:upstream )?\S+ failed:|agenthook egress: cannot resolve/;
+
+/**
+ * The first line of `text` that reports a connection-level model-API failure (clipped to ~200
+ * chars), or undefined. A line matches on `ECONNREFUSED`/`ENOTFOUND`/`EHOSTUNREACH`/`ETIMEDOUT`/
+ * `ECONNRESET`, either `agenthook egress: … failed` form (the plain-HTTP and CONNECT proxy
+ * texts), `agenthook egress: cannot resolve` (a DNS failure), or `API Error: 502|503|504`. A
+ * line whose `API Error:` status is 4xx never matches, even if it also contains one of those
+ * tokens — a 4xx (or any other client error) is the model API answering, not a connection
+ * failure. Pure.
+ * @param {string|undefined} text @returns {string|undefined}
+ */
+export function modelApiFailure(text) {
+  if (!text) return undefined;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const apiError = /API Error: (\d{3})/.exec(line);
+    if (apiError && apiError[1][0] === "4") continue;
+    if (API_FAILURE_RE.test(line) || (apiError && ["502", "503", "504"].includes(apiError[1]))) return clip(line);
+  }
+  return undefined;
+}
+
+/** `baseUrl`'s host:port, normalized like the egress proxy compares hosts (lower-case, no IPv6
+ * brackets; port defaulted from the scheme). Undefined on a missing/unparseable URL.
+ * @param {string|undefined} baseUrl @returns {{host: string, port: number}|undefined} */
+function baseUrlHostPort(baseUrl) {
+  if (!baseUrl) return undefined;
+  try {
+    const u = new URL(baseUrl);
+    return { host: u.hostname.toLowerCase().replace(/^\[|\]$/g, ""), port: u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80 };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The `upstreamFailures` entry whose host:port matches `baseUrl`'s, or undefined.
+ * @param {{host: string, port: number, error: string}[]|undefined} upstreamFailures @param {string|undefined} baseUrl */
+function matchingUpstreamFailure(upstreamFailures, baseUrl) {
+  const target = baseUrlHostPort(baseUrl);
+  if (!target || !upstreamFailures?.length) return undefined;
+  return upstreamFailures.find((f) => f.host.toLowerCase().replace(/^\[|\]$/g, "") === target.host && f.port === target.port);
+}
+
 /**
  * Whether a finished run on a harness says its backend is unhealthy (the breaker's trip signal),
- * and why; undefined when it doesn't. Trips on an `agent.preflight` refusal, a spawn error, or a
- * fast non-zero exit (inside `downGraceSeconds`, not a timeout or cancel) with no model output.
- * Any other refusal (policy, sandbox, credentials) and a run that produced output never trip.
- * @param {{preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number}} r
+ * and why; undefined when it doesn't. Trips on an `agent.preflight` refusal, a spawn error, a
+ * fast non-zero exit (inside `downGraceSeconds`, not a timeout or cancel) with no model output,
+ * or — with no output, non-zero, not a timeout or cancel, at ANY wall time — a connection-level
+ * model-API failure: a sandbox's `upstreamFailures` entry for the run's `baseUrl` host:port
+ * (preferred), else a scanned `apiDown` line. Any other refusal (policy, sandbox, credentials)
+ * and a run that produced output never trip.
+ * @param {{preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number, apiDown?: string, upstreamFailures?: {host: string, port: number, error: string}[], baseUrl?: string}} r
  * @returns {string|undefined}
  */
 export function healthTrip(r) {
   if (r.preflight) return r.preflight;
   if (r.spawnError) return `spawn failed: ${r.spawnError}`;
   const grace = (r.downGraceSeconds ?? DEFAULT_DOWN_GRACE_SECONDS) * 1000;
-  if (r.code !== 0 && !r.timedOut && !r.cancelled && r.noOutput && r.wallMs < grace) return `exited ${r.code} with no output after ${Math.round(r.wallMs / 1000)}s`;
+  if (r.code !== 0 && !r.timedOut && !r.cancelled && r.noOutput) {
+    if (r.wallMs < grace) return `exited ${r.code} with no output after ${Math.round(r.wallMs / 1000)}s`;
+    const upstream = matchingUpstreamFailure(r.upstreamFailures, r.baseUrl);
+    if (upstream) return `model API unreachable: ${clip(`${upstream.host}:${upstream.port} ${upstream.error}`)}`;
+    if (r.apiDown) return `model API unreachable: ${clip(r.apiDown)}`;
+  }
   return undefined;
 }
 

@@ -494,6 +494,7 @@
  * @typedef {object} SandboxReport
  * @property {string[]} [notes]             lines dispatch appends to the run log as `[agenthook] <note>`
  * @property {Record<string, any>} [extra]  fields dispatch merges into the run's `run_end` event
+ * @property {{host: string, port: number, error: string}[]} [upstreamFailures]  distinct host:port the egress proxy couldn't reach for an allowed request (src/sandbox/container.js upstreamReport) — fed to the harness breaker (healthTrip)
  */
 
 /** What `wrap()` returns for one run: dispatch spawns `bin args` (the runtime client) instead

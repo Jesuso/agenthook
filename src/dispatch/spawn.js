@@ -6,6 +6,11 @@ import { spawn } from "node:child_process";
 import { timeoutReason } from "./verdict.js";
 import { containerEnv, runtimeEnv } from "./sandbox.js";
 import { agentEnvAllow, buildAgentEnv } from "../agent-env.js";
+import { modelApiFailure } from "./harness.js";
+
+/** How much of a run's rendered stdout + raw stderr the harness breaker's connection-failure scan
+ * (`modelApiFailure`) keeps, tail-bounded — enough for the one line that matters, not the whole run. */
+const API_SCAN_BUF_BYTES = 64 * 1024;
 
 // How long a timed-out agent gets between SIGTERM and SIGKILL.
 export const KILL_GRACE_MS = 10000;
@@ -75,10 +80,12 @@ export function createSpawn(ctx) {
    * comes back as `sandboxReport`.
    * A spawn that errors (e.g. ENOENT: the bin is missing) never throws: it is written to the log
    * and comes back as `spawnError` once the child closes. `noOutput` says the parser counted no
-   * model output tokens (the harness breaker's fast-exit signal).
+   * model output tokens (the harness breaker's fast-exit signal). `apiDown` is the first
+   * connection-level model-API failure line found in a bounded tail of the run's rendered stdout,
+   * raw stderr and final result text (the harness breaker's any-duration signal, src/dispatch/harness.js).
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string}}} o
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -187,12 +194,22 @@ export function createSpawn(ctx) {
         else drainTimer = setTimeout(dropPipes, killGraceMs);
       });
 
+      // The harness breaker's any-duration signal (src/dispatch/harness.js modelApiFailure):
+      // a tail-bounded buffer of rendered stdout + raw stderr, scanned once the run closes.
+      let apiBuf = "";
+      /** @param {string} s */
+      const bufferApi = (s) => {
+        if (!s) return;
+        apiBuf = (apiBuf + s).slice(-API_SCAN_BUF_BYTES);
+      };
+
       let lastOut = 0;
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk) => {
         armIdle();
         const text = parser.push(chunk);
         if (text) logStream.write(text);
+        bufferApi(text);
         if (onTally && parser.tally.output !== lastOut) {
           lastOut = parser.tally.output;
           onTally(parser.tally);
@@ -203,6 +220,7 @@ export function createSpawn(ctx) {
         armIdle();
         parser.pushStderr?.(chunk);
         logStream.write(chunk);
+        bufferApi(chunk);
       });
       child.on("close", async (c) => {
         clearTimeout(maxTimer);
@@ -211,6 +229,9 @@ export function createSpawn(ctx) {
         clearTimeout(drainTimer);
         const tail = parser.flush();
         if (tail) logStream.write(tail);
+        bufferApi(tail);
+        if (typeof parser.result?.result === "string") bufferApi(parser.result.result);
+        const apiDown = modelApiFailure(apiBuf);
         children?.delete(child);
         /** @type {import('../types.js').SandboxReport|undefined} */
         let sandboxReport;
@@ -233,7 +254,7 @@ export function createSpawn(ctx) {
             /* best effort */
           }
         }
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}) });
       });
     });
   }

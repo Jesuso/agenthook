@@ -260,6 +260,31 @@ export function egressReport(jsonl) {
   return { notes, extra };
 }
 
+/**
+ * What a run's upstream-failures.jsonl says: each distinct `host:port` the egress proxy
+ * couldn't reach for an allowed request, with the first error seen for it (dedup — a retrying
+ * agent can log the same failure many times). Pure; unparseable lines are skipped.
+ * @param {string} jsonl @returns {{host: string, port: number, error: string}[]}
+ */
+export function upstreamReport(jsonl) {
+  /** @type {Map<string, {host: string, port: number, error: string}>} */
+  const byKey = new Map();
+  for (const line of jsonl.split("\n")) {
+    if (!line.trim()) continue;
+    /** @type {any} */
+    let d;
+    try {
+      d = JSON.parse(line);
+    } catch {
+      continue; // a torn last line
+    }
+    if (typeof d?.host !== "string" || !Number.isInteger(d?.port) || typeof d?.error !== "string") continue;
+    const key = `${d.host}:${d.port}`;
+    if (!byKey.has(key)) byKey.set(key, { host: d.host, port: d.port, error: d.error });
+  }
+  return [...byKey.values()];
+}
+
 /** Read up to `max` bytes of a regular file ("" when missing or not a regular file).
  * @param {string} file @param {number} max */
 function readCapped(file, max) {
@@ -441,6 +466,10 @@ export function createContainerSandbox(cfg, { runtime, run = execRun, uid, gid, 
               await teardownNet(net);
               if (net.dir) {
                 report = egressReport(readCapped(path.join(net.dir, "denied.jsonl"), 4 * 1024 * 1024));
+                const upstreamFailures = upstreamReport(readCapped(path.join(net.dir, "upstream-failures.jsonl"), 4 * 1024 * 1024));
+                if (upstreamFailures.length) {
+                  report = { ...report, notes: [...(report.notes ?? []), ...upstreamFailures.map((f) => `egress upstream failed: ${f.host}:${f.port} (${f.error})`)], upstreamFailures };
+                }
                 rmDir(net.dir);
               }
             }

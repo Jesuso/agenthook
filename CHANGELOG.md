@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Harness breaker: trip on a connection-level model-API failure, not only a fast exit (#639). A
+  no-output, non-zero exit now also trips the breaker at **any** wall time — not just inside
+  `downGraceSeconds` — when the run's output reports a connection-level model-API failure
+  (`ECONNREFUSED`/`ENOTFOUND`/`EHOSTUNREACH`/`ETIMEDOUT`/`ECONNRESET`, an `agenthook egress: …
+  failed`/`cannot resolve` line, or `API Error: 502/503/504`); any 4xx `API Error` never trips. A
+  sandboxed run prefers the egress proxy's own `upstream-failures.jsonl` record (new, alongside
+  `denied.jsonl`) for the step's `ANTHROPIC_BASE_URL` host. `downGraceSeconds` still only governs
+  the original fast-exit signal. See
+  [docs/local-models.md](docs/local-models.md#when-a-harness-fails) and
+  [docs/sandbox.md](docs/sandbox.md#egress).
 - `ah ui --host <ip>` binds the dashboard to another address (`0.0.0.0` / `::` = every interface) so a browser on a trusted LAN can use it; default stays `127.0.0.1`. The Host guard then accepts the bound address (any of the machine's own interface addresses for `0.0.0.0`), never a DNS name; the launch token stays the only credential and the CLI warns on a non-loopback bind.
 - Named harnesses with slot pools (#619). A top-level `harnesses` record declares agent backends
   (`agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `sandbox.image`), each with its own
