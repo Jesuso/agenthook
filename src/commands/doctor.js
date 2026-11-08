@@ -169,9 +169,11 @@ export function harnessLanLints(cfg) {
     const hp = hostPort(url);
     if (!hp) continue;
     const kind = classifyHost(hp.host);
+    if (!kind) continue;
+    const routed = steps.filter((s) => harnessesOf(s).includes(name) && !s.env?.ANTHROPIC_BASE_URL);
+    if (!routed.length) continue;
     if (kind === "loopback") loopback(`harness "${name}"`, url, hp);
-    else if (kind === "private") {
-      const routed = steps.filter((s) => harnessesOf(s).includes(name) && !s.env?.ANTHROPIC_BASE_URL);
+    else {
       for (const s of routed) {
         const policy = egressPolicy(cfg, s);
         if (policy.mode === "allowlist" && !allowsPrivateRule(policy.allow, hp.host, hp.port)) {

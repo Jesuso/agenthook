@@ -1266,6 +1266,24 @@ test("harnessLanLints: a loopback harness ANTHROPIC_BASE_URL always warns, regar
   assert.match(lints[0].note, /is the container itself/);
 });
 
+test("harnessLanLints: a loopback harness endpoint is silent when the routed step opts out of the sandbox", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { local: { env: { ANTHROPIC_BASE_URL: "http://localhost:11434" } } },
+    pipeline: [{ id: "code", harness: "local", sandbox: false }],
+  });
+  assert.deepEqual(harnessLanLints(cfg), [], "step runs on the host — localhost there works fine");
+});
+
+test("harnessLanLints: a loopback harness no step routes through is silent", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { local: { env: { ANTHROPIC_BASE_URL: "http://localhost:11434" } } },
+    pipeline: [{ id: "triage", manual: true }],
+  });
+  assert.deepEqual(harnessLanLints(cfg), [], "unused harness");
+});
+
 test("harnessLanLints: a private (non-loopback) harness endpoint needs a matching !private rule on every routed step", () => {
   const url = "http://192.168.68.2:11434";
   const cfg = /** @type {any} */ ({
