@@ -248,6 +248,19 @@ test("createEngine on a never-started profile creates the state dir (0700), logs
   assert.equal(JSON.parse(fs.readFileSync(path.join(cfg.stateDir, "profile.json"), "utf8")).stateKey, "ah-prof-first-boot");
 });
 
+test("createEngine seeds heartbeat.queue from the queue: harness slots show before the first run", () => {
+  const configPath = writeConfig({
+    name: "ah-prof-harness-hb",
+    harnesses: { local: { model: "m", maxConcurrent: 2 }, cloud: {} },
+    tracker: { type: "asana", pipeline: [{ id: "code", harness: ["local", "cloud"] }] },
+  });
+  made.add("ah-prof-harness-hb");
+  const cfg = loadConfig({ configPath });
+  createEngine(cfg);
+  const hb = JSON.parse(fs.readFileSync(cfg.heartbeatFile, "utf8"));
+  assert.deepEqual(hb.queue, { active: 0, queued: 0, capped: 0, harnesses: { local: { active: 0, max: 2, state: "up" }, cloud: { active: 0, max: null, state: "up" } } });
+});
+
 test("no-arg status reads the state dir keyed by stateId, not by name", async () => {
   const { status } = await import("../src/commands/status.js");
   const configPath = writeConfig({ name: "ah-prof-label", stateId: "ah-prof-key" });
