@@ -3,6 +3,7 @@
 // shared runtime pieces: SENSITIVE_FIELDS and the import-free sensitiveChanges diff).
 export type { ProfileView, LastEvent, RecentRun, QuotaReading, QuotaTrip, TicketStatus, TicketRow, PrNeeds, Snapshot, UiEvent, RunView, LogFrame, InstructionFileView, InstructionsView, PromptPreview, ConfigView, RemovePreview, DigestView, TicketEpic, SandboxReadiness } from "../../src/ui/contract.js";
 export type { StatsView, DayStats } from "../../src/ui/stats.js";
+export type { StatsResult, StatsGroup } from "../../src/stats.js";
 export type { EpicStats, EpicDetail, EpicDetailTicket, EpicBucket } from "../../src/epics.js";
 import type { EpicStats, EpicDetail } from "../../src/epics.js";
 

@@ -190,6 +190,17 @@ describe("Overview", () => {
     expect(render(profile(), [])).not.toContain("data-harness");
   });
 
+  it("shows the Harnesses table when the profile configures named harnesses (#646)", () => {
+    const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 } } }), []);
+    expect(html).toContain("data-harnesses-table");
+    expect(html).toContain("Harnesses");
+  });
+
+  it("hides the Harnesses table for a profile with no harnesses configured and no prior run to show (#646)", () => {
+    const html = render(profile(), []);
+    expect(html).not.toContain("data-harnesses-table");
+  });
+
   it("shows waiting time on a queued row with a queuedAt stamp, and nothing with none", () => {
     const html = render(profile({ active: 1, maxConcurrent: 3, queued: 2 }), [
       ticket("q1", { status: "queued", queuePos: 0, queuedAt: new Date(NOW - 6 * 60_000).toISOString() }),

@@ -183,6 +183,18 @@ ran here won't show. `supported:false` (`epics:[]`/`epic:null`) means the tracke
 epic support. `tick {epics:true}` adds the same `epics` list (without per-day `velocity.days`, to
 stay small) plus `epicsLive`, or `epicsError` on failure/no support.
 
+`stats {by?, since?, step?, harness?}` (#646) → `{by, since, groups:[{key, runs,
+outcomes:{advance,changes,hold,fail,timeout,requeued,unknown}, successRate, wallP50Ms, wallP90Ms,
+turns, firstContext, peakContext, input, output, cacheRead, outPerMin, costUsd, estUsd, unpriced}]}`,
+groups sorted by `runs` desc. `by` (default `"harness"`) also takes `"model"`, `"step"` or `"agent"`;
+`since` (default `"7d"`) also takes `"24h"`, `"30d"` or `"all"`. Read-only from the state dir like
+`status` — works with the receiver down. The run set is every `run_end` plus any usage record it
+couldn't join to one (a timeout/spawn-error/breaker-trip run writes no usage row, so it would
+otherwise vanish); `successRate` excludes `requeued` from its denominator and is `null` when that's
+0; `wallP50Ms`/`wallP90Ms`/`turns`/`firstContext`/`peakContext`/`outPerMin` are `null` when no run in
+the group has that figure. `costUsd` is reported spend (never includes an `unpriced` run);
+`estUsd` is the rate-table estimate; `unpriced` is just a count.
+
 ## recipes
 
 **Supervisor loop** (replaces a hand-written poll script):

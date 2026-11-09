@@ -626,3 +626,19 @@ test("GET /api/stats: cookie-only, validates days/tz, buckets the whole events h
   assert.deepEqual(today.ticketCost, { n: 1, p10: 1.5, p50: 1.5, p90: 1.5 }, "the ticket's spend, counted once despite the duplicate pipeline_done");
   assert.ok(body.since);
 });
+
+test("GET /api/harness-stats: cookie-only, by:harness over the last 7 days", async () => {
+  const now = new Date().toISOString();
+  fs.writeFileSync(
+    path.join(DIGESTED.dir, "usage.jsonl"),
+    JSON.stringify({ ref: "H", stepId: "code", harness: "fast", startedAt: new Date(Date.now() - 60_000).toISOString(), endedAt: now, input: 10, output: 20, cacheRead: 0, cacheCreate: 0 }) + "\n",
+  );
+  fs.appendFileSync(path.join(DIGESTED.dir, "events.jsonl"), JSON.stringify({ ts: now, event: "run_end", ref: "H", step: "code", outcome: "advance", harness: "fast" }) + "\n");
+  assert.equal((await request("GET", "/api/harness-stats?profile=digested", undefined, { cookie: null })).status, 401);
+  assert.equal((await request("GET", "/api/harness-stats?profile=nope", undefined, {})).status, 404);
+  const res = await request("GET", "/api/harness-stats?profile=digested", undefined, {});
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.by, "harness");
+  assert.ok(body.groups.some((g) => g.key === "fast" && g.runs === 1));
+});

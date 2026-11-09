@@ -4,6 +4,8 @@
 // Static assets (the public frontend bundle) need no cookie — only `/api/*` exposes state.
 // `/api/stream` pushes UiEvent deltas over SSE from a dir watcher started on the first
 // stream connection. `/api/runs` + `/api/log/stream` back the run-log viewer (src/ui/logs.js).
+// `GET /api/harness-stats` (#646) is src/stats.js's `runStats` fixed to `by:"harness"` + the
+// last 7 days, read straight from usage.jsonl/events.jsonl — the Overview Harnesses table.
 // `/api/instructions*` + `/api/prompt-preview` are the instructions editor's read side
 // (src/ui/instructions.js); `PUT /api/instructions/file` is its write side — an allowlisted
 // instruction file. `GET /api/config` reads the profile's config (src/ui/config.js) and `PUT
@@ -38,6 +40,8 @@ import { canonicalLang } from "../digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
 import { readStats } from "./stats.js";
+import { runStats } from "../stats.js";
+import { createStore } from "../store.js";
 import { pricingOf } from "../pricing.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -677,6 +681,17 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
         if (!Number.isFinite(days) || !Number.isFinite(tz) || Math.abs(tz) > 14 * 60) return send(res, 400);
         const pricing = pricingOf(readProfile(params.get("profile") || "", registry)?.heartbeat);
         return sendJson(res, () => readStats(path.join(dir, "events.jsonl"), { days, tzOffset: tz, pricing }));
+      }
+      if (p === "/api/harness-stats") {
+        const profile = params.get("profile") || "";
+        const dir = profileDir(registry, profile);
+        if (!dir) return send(res, 404);
+        const pricing = pricingOf(readProfile(profile, registry)?.heartbeat);
+        return sendJson(res, () => {
+          const usage = createStore(dir).readUsage();
+          const events = readEventsTail(path.join(dir, "events.jsonl"));
+          return runStats(usage, events, { by: "harness", sinceMs: 7 * 24 * 3600 * 1000, pricing });
+        });
       }
       if (p === DIGEST) {
         const dir = profileDir(registry, params.get("profile") || "");

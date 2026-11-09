@@ -106,6 +106,28 @@ If `usage.jsonl` doesn't exist yet (no runs have completed), `ah usage` prints:
 no usage recorded yet
 ```
 
+## `ah stats`
+
+Follow-up to the named-harnesses epic (#618, #646): per-harness/model/step/agent run outcomes,
+wall time, context and cost, built from `usage.jsonl` joined to `events.jsonl`'s `run_end`s (so a
+timeout/spawn-error/breaker-trip run — which writes no usage record — still counts).
+
+```bash
+ah stats                          # --by harness --since 7d (defaults)
+ah stats --by model|step|agent    # group a different way
+ah stats --since 24h|30d|all      # a different window
+ah stats --step <id>              # one pipeline step's runs only
+ah stats --harness <name>         # one harness's runs only ("(none)" = no named harness)
+ah stats --json                   # the structured object instead of a table
+```
+
+Columns: `runs`, `ok%` (advance ÷ (runs − requeued); `—` when that's 0), the outcome breakdown
+`adv/chg/hold/fail/tmo/rq/unk`, wall-time `p50`/`p90`, mean `turns`/`ctx0`(first context)/`ctxPk`
+(peak context), `in`/`out`/`cacheR` tokens, `out/min` (output throughput), `$` (reported cost),
+`est$` (rate-table estimate) and `unpriced` (a count, same meaning as `ah usage`'s `unpriced` cell).
+A `fail` whose very next `failed` event names a timeout counts as `tmo`, not `fail`. `—` marks a
+figure with nothing to average (e.g. no run in the group reported `turns`).
+
 ## Surfaced columns in other commands
 
 Token and cost data appears wherever you look at running or past work:
