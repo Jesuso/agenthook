@@ -364,6 +364,8 @@ test("dispatch: a stand-in opencode replaying a priced run → live tally, usage
   const usage = store.readUsage();
   assert.equal(usage.length, 1);
   assert.deepEqual([usage[0].sessionId, usage[0].output, usage[0].costUsd, usage[0].unpriced], [SID, 58, 0.75, undefined]);
+  // opencode reports no duration_ms, so dispatch derives it from the run's wall time (#652).
+  assert.equal(usage[0].durationMs, Date.parse(usage[0].endedAt) - Date.parse(usage[0].startedAt));
   const end = events.find((e) => e.event === "run_end");
   assert.equal(end?.costUsd, 0.75);
   assert.equal(end?.outcome, "advance");

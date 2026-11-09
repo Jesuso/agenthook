@@ -55,7 +55,7 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `bin`         | string?  | The step's agent binary, only when it differs from `claudeBin` |
 | `startedAt`   | string   | ISO timestamp — when the run was spawned                 |
 | `endedAt`     | string   | ISO timestamp — when the run exited                     |
-| `durationMs`  | number?  | `result.duration_ms` if reported by the CLI             |
+| `durationMs`  | number?  | `result.duration_ms` if the adapter reports it (claude, cursor), else `endedAt - startedAt` — dispatch derives the wall time for agents that don't (opencode, hermes) |
 | `input`       | number   | `usage.input_tokens`                                    |
 | `output`      | number   | `usage.output_tokens`                                   |
 | `cacheRead`   | number   | `usage.cache_read_input_tokens`                         |

@@ -85,7 +85,14 @@ export function createFinish(ctx) {
     // decides `unpriced` (e.g. a local-model run — step `bin`, or a non-Claude model — whose
     // dollar figure is made up), so run_end drops the cost and the usage record is tagged.
     // Built even without a result: `unpriced` must still reach run_end.
-    const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt: new Date().toISOString() });
+    const endedAt = new Date().toISOString();
+    const usage = agent.usageRecord(result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt });
+    // An adapter that reports no `duration_ms` (opencode, hermes) still has a wall time: derive
+    // it from the run's own timestamps. Adapters that report their own (claude, cursor) keep it.
+    if (usage.durationMs === undefined) {
+      const d = Date.parse(endedAt) - Date.parse(startedAt);
+      if (Number.isFinite(d)) usage.durationMs = d;
+    }
     if (finalized) {
       for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) {
         if (typeof finalized[k] === "number" && Number.isFinite(finalized[k]) && finalized[k] >= 0) usage[k] = finalized[k];

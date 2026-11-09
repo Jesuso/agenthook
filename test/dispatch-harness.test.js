@@ -325,6 +325,23 @@ test("breaker: at the attempt cap a tripping run fails as before, and still repo
   assert.equal(events.find((e) => e.event === "run_end")?.outcome, "fail");
 });
 
+test("dispatch: the usage record's durationMs is kept when the adapter reports it, else derived from startedAt/endedAt (#652)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-dispatch-dur-"));
+  const binNoDur = path.join(dir, "no-dur.sh");
+  const binWithDur = path.join(dir, "with-dur.sh");
+  const result = (extra) => JSON.stringify({ type: "result", ...extra, total_cost_usd: 0.5, usage: { input_tokens: 10, output_tokens: 5 } });
+  fs.writeFileSync(binNoDur, `#!/bin/sh\nprintf '%s\\n' '${result({})}'\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  fs.writeFileSync(binWithDur, `#!/bin/sh\nprintf '%s\\n' '${result({ duration_ms: 1234 })}'\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const pipeline = [{ id: "code" }, { id: "done", manual: true }];
+  const plain = await dispatchOnce(dir, { pipeline, claudeBin: binNoDur });
+  const plainRec = plain.store.readUsage()[0];
+  assert.equal(typeof plainRec.durationMs, "number");
+  assert.equal(plainRec.durationMs, Date.parse(plainRec.endedAt) - Date.parse(plainRec.startedAt), "derived from the run's wall time");
+  const own = await dispatchOnce(dir, { pipeline, claudeBin: binWithDur });
+  const ownRec = own.store.readUsage()[1];
+  assert.equal(ownRec.durationMs, 1234, "the adapter's own duration_ms is kept");
+});
+
 test("breaker: a fast non-zero exit with no output trips its harness; a clean run reports no health", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-exit-"));
   const bad = path.join(dir, "bad.sh");
