@@ -105,11 +105,11 @@ export function createSpawn(ctx) {
    * raw stderr and final result text (the harness breaker's any-duration signal, src/dispatch/harness.js).
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}}} o
-    * `lastText` is the run's last output the question-hold detector inspects: the final result text
-    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
-    * (stdout only) — `undefined` when neither produced anything.
-    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
-    */
+   * `lastText` is the run's last output the question-hold detector inspects: the final result text
+   * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
+   * (stdout only) — `undefined` when neither produced anything.
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
+   */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {

@@ -113,7 +113,7 @@ export function endedWithQuestion(text) {
   // Ends in an ASCII or full-width question mark (a run of them), allowing trailing space,
   // OR carries one of the confirmation phrases — either marks a question.
   const questionish =
-    /[??？]+\s*$/.test(line) ||
+    /[?？]+\s*$/.test(line) ||
     QUESTION_PHRASES.some((p) => new RegExp(`\\b${p}\\b`, "i").test(line));
   if (!questionish) return undefined;
   return line.length > MAX_QUESTION_CHARS ? line.slice(0, MAX_QUESTION_CHARS - 1).trimEnd() + "…" : line;
