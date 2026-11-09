@@ -251,6 +251,14 @@ test("pipeline step opencodeConfig: a non-empty string passes; an empty one or a
   assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", opencodeConfig: null }])), { ok: true });
 });
 
+test("pipeline step contextTokens: a positive integer passes; 0, negative, non-integer or a string fails", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", contextTokens: 64000 }])), { ok: true });
+  /** @param {any} step */
+  const errs = (step) => /** @type {any} */ (validateRawConfig(raw({}, [{ id: "code", ...step }]))).errors;
+  for (const v of [0, -1, 1.5, "64000"]) assert.deepEqual(errs({ contextTokens: v }), [`config: pipeline step "code" contextTokens must be a positive integer.`], JSON.stringify(v));
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", contextTokens: null }])), { ok: true });
+});
+
 test("agent: unset or \"claude\" passes at the top level and on a step; unknown names and manual steps fail", () => {
   assert.deepEqual(validateRawConfig(raw({ agent: "claude" }, [{ id: "code", agent: "claude" }])), { ok: true });
   assert.deepEqual(validateRawConfig(raw({ agent: undefined }, [{ id: "code", agent: null }])), { ok: true });
@@ -569,6 +577,7 @@ test("harnesses: a bad agent, bin, provider, toolsets, env, model, maxConcurrent
   for (const v of [0, -1, 1.5, "2"]) assert.deepEqual(one({ maxConcurrent: v }), [`config: harness "x" maxConcurrent must be a positive integer.`], `maxConcurrent ${JSON.stringify(v)}`);
   assert.deepEqual(one({ sandbox: { image: "" } }), [`config: harness "x" sandbox.image must be a non-empty string.`]);
   assert.deepEqual(one({ sandbox: "img" }), [`config: harness "x" sandbox must be an object ({ "image": "…" }).`]);
+  for (const v of [0, -1, 1.5, "64000"]) assert.deepEqual(one({ contextTokens: v }), [`config: harness "x" contextTokens must be a positive integer.`], JSON.stringify(v));
 });
 
 test("harnesses: the breaker keys — cooldownMinutes is an integer 1-60, downGraceSeconds a positive integer", () => {

@@ -419,7 +419,7 @@ function envErrors(env, where) {
  */
 function harnessesErrors(hs) {
   if (hs == null) return [];
-  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig? }.`];
+  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig?, contextTokens? }.`];
   /** @type {string[]} */
   const errors = [];
   for (const [name, h] of Object.entries(hs)) {
@@ -438,6 +438,7 @@ function harnessesErrors(hs) {
     if (h.maxConcurrent != null && (!Number.isInteger(h.maxConcurrent) || h.maxConcurrent < 1)) errors.push(`config: ${where} maxConcurrent must be a positive integer.`);
     if (h.cooldownMinutes != null && (!Number.isInteger(h.cooldownMinutes) || h.cooldownMinutes < 1 || h.cooldownMinutes > 60)) errors.push(`config: ${where} cooldownMinutes must be an integer 1-60.`);
     if (h.downGraceSeconds != null && (!Number.isInteger(h.downGraceSeconds) || h.downGraceSeconds < 1)) errors.push(`config: ${where} downGraceSeconds must be a positive integer.`);
+    if (h.contextTokens != null && (!Number.isInteger(h.contextTokens) || h.contextTokens < 1)) errors.push(`config: ${where} contextTokens must be a positive integer.`);
     if (h.sandbox != null) {
       if (typeof h.sandbox !== "object" || Array.isArray(h.sandbox)) errors.push(`config: ${where} sandbox must be an object ({ "image": "…" }).`);
       else if (h.sandbox.image != null && (typeof h.sandbox.image !== "string" || !h.sandbox.image.trim())) errors.push(`config: ${where} sandbox.image must be a non-empty string.`);
@@ -540,6 +541,9 @@ export function validateRawConfig(raw) {
     }
     if (step.idleMinutes != null && (typeof step.idleMinutes !== "number" || !Number.isFinite(step.idleMinutes) || step.idleMinutes <= 0)) {
       errors.push(`config: pipeline step "${sid}" idleMinutes must be a number > 0.`);
+    }
+    if (step.contextTokens != null && (!Number.isInteger(step.contextTokens) || step.contextTokens < 1)) {
+      errors.push(`config: pipeline step "${sid}" contextTokens must be a positive integer.`);
     }
     const where = `pipeline step "${sid}"`;
     for (const k of /** @type {const} */ (["agent", "bin", "provider", "toolsets"])) {

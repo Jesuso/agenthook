@@ -34,9 +34,9 @@ const LIVE_TIMEOUT_MS = /** @type {Record<string, number>} */ ({ reconcile: 120_
 const clip = (v, n) => (typeof v === "string" && v.length > n ? v.slice(0, n - 1) + "…" : v);
 
 /** Keys that drift every call without the underlying state changing — excluded from the etag hash. */
-const ETAG_VOLATILE_KEYS = new Set(["at", "etag", "ageS", "outTok"]);
+const ETAG_VOLATILE_KEYS = new Set(["at", "etag", "ageS", "outTok", "ctx"]);
 
-/** Stable short hash of a payload, ignoring volatile keys (`at`, `etag`, `ageS`, `outTok`). @param {any} obj */
+/** Stable short hash of a payload, ignoring volatile keys (`at`, `etag`, `ageS`, `outTok`, `ctx`). @param {any} obj */
 export function etagOf(obj) {
   return crypto
     .createHash("sha1")
@@ -154,6 +154,8 @@ export function readStatus(entry, { now = Date.now() } = {}) {
         ...(r?.model ? { model: r.model } : {}),
         ...(r?.harness ? { harness: r.harness } : {}),
         ...(typeof r?.output === "number" ? { outTok: r.output } : {}),
+        ...(typeof r?.ctx === "number" ? { ctx: r.ctx } : {}),
+        ...(typeof r?.ctxMax === "number" ? { ctxMax: r.ctxMax } : {}),
       },
       state.refmeta[ref],
     );

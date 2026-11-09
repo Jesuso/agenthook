@@ -63,6 +63,19 @@ describe("Overview", () => {
     expect(html).toMatch(/max-sm:hidden" title="cost so far/);
   });
 
+  it("a running row shows ctx used/max when both are known, red past 90%, and nothing when either is unknown (#658)", () => {
+    const row = (html: string, ref: string) => html.slice(html.indexOf(`data-now-row="${ref}"`), html.indexOf("</li>", html.indexOf(`data-now-row="${ref}"`)));
+    const html = render(profile(), [
+      ticket("r", { status: "running", ctx: 54000, ctxMax: 200000 }),
+      ticket("h", { status: "running", ctx: 190000, ctxMax: 200000 }),
+      ticket("n", { status: "running" }),
+    ]);
+    expect(row(html, "r")).toMatch(/title="54,000 \/ 200,000 tokens"[^<]*>54K\/200K/);
+    expect(row(html, "r")).not.toContain("text-status-failed");
+    expect(row(html, "h")).toMatch(/text-status-failed[^"]*" title="190,000 \/ 200,000 tokens"[^<]*>190K\/200K/);
+    expect(row(html, "n")).not.toContain("tokens");
+  });
+
   it("hides a dismissed-but-undoable ticket from Needs you", () => {
     const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("g", { status: "failed", failReason: "y" })], { dismissing: new Set(["dev\u0000f"]) });
     expect(html).not.toContain('data-needs-row="f"');

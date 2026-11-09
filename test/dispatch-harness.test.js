@@ -66,6 +66,14 @@ test("resolveHarness: env merges harness under step (step keys win); both empty 
   assert.equal(Object.hasOwn(resolveHarness({ harnesses: HARNESSES }, { id: "code" }, "bare").step, "env"), false);
 });
 
+test("resolveHarness: contextTokens carries from the harness; the step's own wins (#658)", () => {
+  const harnesses = { ...HARNESSES, ctx: { contextTokens: 64000 } };
+  const viaHarness = resolveHarness({ harnesses }, { id: "code" }, "ctx").step;
+  assert.equal(viaHarness.contextTokens, 64000);
+  const stepOwn = resolveHarness({ harnesses }, { id: "code", contextTokens: 32000 }, "ctx").step;
+  assert.equal(stepOwn.contextTokens, 32000);
+});
+
 test("resolveHarness: escalate/lite still override a harness model", () => {
   const step = /** @type {any} */ ({ id: "code", escalate: { hard: { model: "claude-opus-5-5" } }, lite: { descriptionHeadings: ["Spec"], model: "lite-model" } });
   const eff = resolveHarness({ harnesses: HARNESSES }, step, "qwen").step;

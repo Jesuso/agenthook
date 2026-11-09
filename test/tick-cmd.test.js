@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { digest } from "../src/commands/tick.js";
+import { digest, formatTokens } from "../src/commands/tick.js";
 
 test("digest: one header line, RUN/WAIT/HELD rows, board, PRs, events, cursor", () => {
   const out = digest({
@@ -58,4 +58,29 @@ test("digest: one line per down or probing harness (#621); an up harness adds no
   assert.ok(lines.includes("  harness local-qwen: down until 14:32Z (spawn failed: ENOENT)"));
   assert.ok(lines.includes("  harness deepseek: probing (exited 1 with no output after 2s)"));
   assert.equal(lines.filter((l) => l.includes("harness")).length, 2);
+});
+
+test("formatTokens: K below 1M rounded to an integer, M (dropping a trailing .0) at or above", () => {
+  assert.equal(formatTokens(54000), "54K");
+  assert.equal(formatTokens(54321), "54K");
+  assert.equal(formatTokens(200000), "200K");
+  assert.equal(formatTokens(1000000), "1M");
+  assert.equal(formatTokens(1200000), "1.2M");
+});
+
+test("digest: RUN row appends · ctx used/max only when both are known (#658)", () => {
+  const out = digest({
+    profile: "p", up: true,
+    slots: { max: 2, active: 2, queued: 0, free: 0 },
+    running: [
+      { ref: "7", id: "ID-7", step: "code", ageS: 600, model: "m", harness: "qwen", ctx: 54000, ctxMax: 200000 },
+      { ref: "8", step: "code", ageS: 300, ctx: 1000 },
+      { ref: "9", step: "code", ageS: 300, ctxMax: 200000 },
+    ],
+    queue: [], held: [], events: [], cursor: 1,
+  });
+  const lines = out.split("\n");
+  assert.ok(lines.includes("  RUN  ID-7 code 10m · qwen · ctx 54K/200K"));
+  assert.ok(lines.includes("  RUN  8 code 5m"), "ctx alone, no ctxMax → no gauge");
+  assert.ok(lines.includes("  RUN  9 code 5m"), "ctxMax alone, no ctx → no gauge");
 });

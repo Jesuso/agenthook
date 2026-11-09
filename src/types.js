@@ -72,6 +72,7 @@
  * @property {number} [maxAttempts]            cap on how many times this step may run for one ref before a `changes` loop into it is forced to fail (default 3)
  * @property {number} [maxConcurrent]          max runs of this step at once, counted INSIDE the global `maxConcurrent` (default: bounded only by the global cap)
  * @property {number} [maxMinutes]             wall-clock cap on one run of this step; past it the agent is killed and the run fails with `timeout` (default 120, 0 = no cap)
+ * @property {number} [contextTokens]          the model's context window (tokens), for the running record's `ctxMax` (#658); wins over the harness's; unset falls back to src/models.js's built-in table (and, for opencode, its opencodeConfig's `limit.context`)
  * @property {number} [idleMinutes]            opt-in: kill the agent (fail with `timeout`) after this many minutes with no stream-json output (default off)
  * @property {boolean} [requireVerdict]        a clean exit with a missing/unparseable/unrecognized verdict holds (reason "no valid verdict") instead of advancing (default true); set false to opt out and advance on a clean exit as before
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
@@ -688,6 +689,7 @@
  * @property {number} [cooldownMinutes]        health breaker: how long a tripped harness stays down (1–60, default 10), doubled per repeat strike up to 60
  * @property {number} [downGraceSeconds]       health breaker: a non-zero exit with no model output inside this many seconds trips it (default 30)
  * @property {string} [opencodeConfig]         opencode only, sandbox only: host path to an OpenCode JSON config; a step's own `opencodeConfig` wins
+ * @property {number} [contextTokens]          the model's context window (tokens) on this harness, for the running record's `ctxMax` (#658); a step's own wins
  */
 
 /** A factory `(cfg, store) => Forge`.

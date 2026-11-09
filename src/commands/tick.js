@@ -6,6 +6,15 @@
 // a JSON object `{stateKey: offset}`.
 import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, readTick } from "../agent-api.js";
 
+/** "54K" / "200K" below 1M, "1M" / "1.2M" at or above. @param {number} n */
+export function formatTokens(n) {
+  if (n >= 1e6) {
+    const m = n / 1e6;
+    return `${Number.isInteger(m) ? m : Math.round(m * 10) / 10}M`;
+  }
+  return `${Math.round(n / 1000)}K`;
+}
+
 /** One-line text digest of a tick payload. @param {Record<string, any>} t */
 export function digest(t) {
   const s = t.slots;
@@ -16,7 +25,7 @@ export function digest(t) {
     if (h.state === "down" || h.state === "probing") lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`);
   }
   const fmt = (/** @type {any} */ r) => `${r.id ?? r.ref}${r.title ? ` "${r.title}"` : ""}`;
-  for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m${r.harness ? ` · ${r.harness}` : ""}`);
+  for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m${r.harness ? ` · ${r.harness}` : ""}${typeof r.ctx === "number" && typeof r.ctxMax === "number" ? ` · ctx ${formatTokens(r.ctx)}/${formatTokens(r.ctxMax)}` : ""}`);
   for (const q of t.queue) lines.push(`  WAIT ${fmt(q)} ${q.step}`);
   for (const h of t.held) lines.push(`  HELD ${fmt(h)} ${h.step}${h.why ? ` — ${h.why}` : ""}`);
   for (const p of t.followUp ?? []) lines.push(`  FOLLOWUP ${fmt(p)}${p.pr ? ` PR#${p.pr}` : ""}${p.tier ? ` tier=${p.tier}` : ""} — ${p.checks.join("; ")}`);

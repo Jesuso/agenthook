@@ -126,6 +126,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} step           current / last step id
  * @property {TicketStatus} status        `done` = the board's own done flag (a flag `board_done` since the last re-run; ADR 0008), never the terminal stage (`pipeline_done`) or a merged PR
  * @property {string|null} model          from running.json, else the last run_start
+ * @property {number} [ctx]               running.json's live prompt size (tokens, #658); present only while running and after the first turn
+ * @property {number} [ctxMax]            running.json's context window (tokens, #658); present only while running and known
  * @property {string|null} startedAt
  * @property {number} costUsd             sum of run_end.costUsd within the events tail (approximation)
  * @property {number} estUsd              sum of the tail's rate-table estimates (runs with no reported cost; src/pricing.js), never in costUsd
