@@ -1707,7 +1707,7 @@ test("run_end + usage record: turns/firstContext/peakContext/lastContext (#645) 
 test("run_end + usage record: no per-turn usage seen → turns/firstContext/peakContext/lastContext absent, not zero", async () => {
   const r = await timeoutRun(`echo '${RESULT_LINE}'`, {});
   const end = r.events.find((e) => e.event === "run_end");
-  for (const k of ["turns", "firstContext", "peakContext", "lastContext"]) {
+  for (const k of ["turns", "firstContext", "peakContext", "lastContext", "compactions"]) {
     assert.equal(k in end, false, `${k} absent from run_end`);
     assert.equal(k in r.usage[0], false, `${k} absent from the usage record`);
   }

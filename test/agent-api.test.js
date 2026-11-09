@@ -301,6 +301,10 @@ test("readRuns / readRunLogTail: newest run log tail, step filter, unknown ref",
   fs.writeFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts: "2026-01-01T00:00:10.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", turns: 3, firstContext: 1000, peakContext: 3000, lastContext: 2000 }) + "\n");
   const withTurns = readRuns("p", "7", dir, reg)[0];
   assert.deepEqual([withTurns.turns, withTurns.firstContext, withTurns.peakContext, withTurns.lastContext], [3, 1000, 3000, 2000]);
+  assert.equal(Object.hasOwn(withTurns, "compactions"), false, "no compactions on the run_end -> no key");
+  // compactions (#657) rides along only when the run_end has it, same as turns.
+  fs.writeFileSync(path.join(dir, "events.jsonl"), JSON.stringify({ ts: "2026-01-01T00:00:10.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", turns: 3, compactions: 2 }) + "\n");
+  assert.equal(readRuns("p", "7", dir, reg)[0].compactions, 2);
   const tail = readRunLogTail("p", "7", dir, { lines: 3 }, reg);
   assert.equal(tail.tail, "line 97\nline 98\nline 99");
   assert.match(String(readRunLogTail("p", "7", dir, { step: "nope" }, reg).error), /no run log/);

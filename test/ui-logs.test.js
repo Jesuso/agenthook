@@ -369,10 +369,22 @@ test("listRuns: turns/firstContext/peakContext/lastContext ride along only when 
   const names = ["2026-10-08T10-00-00-000Z-step-code-7.log", "2026-10-08T10-10-00-000Z-step-code-7.log"];
   for (const n of names) fs.writeFileSync(path.join(dir, n), "x");
   const events = [
-    { ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", turns: 3, firstContext: 1000, peakContext: 3000, lastContext: 2000 },
+    { ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", turns: 3, firstContext: 1000, peakContext: 3000, lastContext: 2000, compactions: 1 },
     { ts: "2026-10-08T10:15:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance" },
   ];
   const [newest, oldest] = listRuns(reg, "q", "7", events);
-  assert.deepEqual([oldest.turns, oldest.firstContext, oldest.peakContext, oldest.lastContext], [3, 1000, 3000, 2000]);
+  assert.deepEqual([oldest.turns, oldest.firstContext, oldest.peakContext, oldest.lastContext, oldest.compactions], [3, 1000, 3000, 2000, 1]);
   assert.equal("turns" in newest, false, "a run_end with no turns adds no key");
+  assert.equal("compactions" in newest, false, "a run_end with no turns adds no compactions key either");
+});
+
+test("listRuns: compactions is omitted when turns is set but compactions isn't (#657)", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
+  const dir = path.join(reg, "q", "logs");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-10-08T10-00-00-000Z-step-code-7.log"), "x");
+  const events = [{ ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", turns: 3 }];
+  const [run] = listRuns(reg, "q", "7", events);
+  assert.equal(run.turns, 3);
+  assert.equal("compactions" in run, false, "turns without compactions adds no compactions key");
 });

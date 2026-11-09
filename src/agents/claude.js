@@ -202,7 +202,8 @@ export function createStreamParser() {
       quota = quotaFromRateLimitEvent(ev) ?? quota;
       return "";
     }
-    if (ev.type === "system" && ev.subtype === "compact_boundary") {
+    // Same main-conversation rule as turns above: a sidechain's compaction isn't ours.
+    if (ev.type === "system" && ev.subtype === "compact_boundary" && ev.parent_tool_use_id == null) {
       tally.compactions++;
       return compactionLine(ev.compact_metadata);
     }

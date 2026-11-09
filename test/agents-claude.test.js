@@ -351,6 +351,19 @@ test("createStreamParser: a malformed compact_metadata still counts and never th
   assert.equal(p.tally.compactions, 3);
 });
 
+test("createStreamParser: a compact_boundary with parent_tool_use_id set (sidechain) is neither counted nor rendered", () => {
+  const p = createStreamParser();
+  const boundary = JSON.stringify({
+    type: "system",
+    subtype: "compact_boundary",
+    parent_tool_use_id: "toolu_1",
+    compact_metadata: { trigger: "auto", pre_tokens: 61992 },
+  });
+  const log = p.push(boundary + "\n");
+  assert.equal(log, "");
+  assert.equal(p.tally.compactions, 0);
+});
+
 test("buildUsageRecord: extracts totals/cost/session from the result event", () => {
   const p = createStreamParser();
   for (const l of fixtureLines) p.push(l + "\n");

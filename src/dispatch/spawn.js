@@ -110,7 +110,7 @@ export function createSpawn(ctx) {
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
