@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- A live context gauge (#658): a running row now carries `ctx` (the latest turn's live prompt
+  size) and `ctxMax` (the model's context window), so `status`/`tick`/the UI can show `ctx
+  54K/64K` on a running agent before an imminent compaction/stall happens, or spot a mis-sized
+  model/harness for a step. `ctxMax` resolves from a new step/harness `contextTokens` config key,
+  else (opencode only) a step's `opencodeConfig` `limit.context`, else a built-in table for the
+  Claude family (`src/models.js`); `ctx` is absent on hermes (no structured usage). The UI's Now
+  row shows the gauge in red past 90% used.
 - Context compactions are now marked and counted per run (#657). The run log renders a compaction
   as a one-line `🗜 compaction (…)` marker — claude from the `compact_boundary` system event
   (`{trigger, pre_tokens, post_tokens?}`); opencode by inferring one from a ≥20% prompt-size drop

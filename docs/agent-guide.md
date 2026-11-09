@@ -83,8 +83,9 @@ or with the timeout (`{events: [], cursor, summary, timedOut: true}`, exit 2). W
 wake is one `{"e":"actionable","events":[…],"cursor":…,"summary":…}` line. `--wake a,b` makes
 those event types always wake (e.g. `--wake followup_pending`, to hear about checks at approval); `--quiet a,b` makes them never wake.
 `tick {profiles: ["*"]}` (`agenthook tick --all --json`) returns one tick per profile.
-`ageS`/`outTok` never affect the etag, so `{"unchanged":true}` can fire while an agent is running;
-omit `ifNoneMatch` when you want fresh ages and token counts rather than the cheap unchanged check.
+`ageS`/`outTok`/`ctx` never affect the etag, so `{"unchanged":true}` can fire while an agent is
+running; omit `ifNoneMatch` when you want fresh ages and token counts rather than the cheap
+unchanged check.
 
 ## shapes
 
@@ -93,7 +94,7 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
 ```json
 {"profile":"acme","up":true,"tracker":"asana",
  "slots":{"max":3,"active":1,"queued":0,"free":2},
- "running":[{"ref":"123","id":"ID-1235","title":"…","step":"code","ageS":412,"model":"opus","outTok":18200}],
+ "running":[{"ref":"123","id":"ID-1235","title":"…","step":"code","ageS":412,"model":"opus","outTok":18200,"ctx":54000,"ctxMax":200000}],
  "queue":[{"ref":"124","step":"triage"}],
  "held":[{"ref":"125","id":"ID-1236","step":"code","why":"asked PO whether to close or duplicate","since":"2026-09-24T20:45:37Z"}],
  "etag":"c6f57be8087a"}
@@ -119,6 +120,14 @@ omit `ifNoneMatch` when you want fresh ages and token counts rather than the che
   `{"<name>": {"runs": n, "input": n, "output": n, "cacheRead": n, "cacheCreate": n}}` — token
   totals per harness, summed from the usage records. `set_concurrency {max, harness}` changes one
   harness's `max` live.
+- A `running[]` row carries `ctx`/`ctxMax` (#658) when known: `ctx` is the latest turn's live
+  prompt size (input + cache read + cache write — claude/opencode/cursor only, absent on hermes),
+  `ctxMax` the model's context window (an explicit step/harness `contextTokens`, else an opencode
+  step's `opencodeConfig` `limit.context`, else a built-in table for the Claude family — null when
+  none of those resolve). `ctxMax` rides `run_start` too, when known; `ctx` only reaches
+  `running.json` after the first turn. The `tick` text digest appends `· ctx 54K/64K` once both
+  are known — a context window close to full is the signal an imminent compaction/stall, or a
+  mis-sized model/harness for the step, is visible while it happens.
 - `up:false` → the receiver is down; `running`/`queue` are the last state on disk, not live.
 
 `tick` adds `board` (`[{step, resting:[{ref,id,title}]}]` — tickets sitting in each step's source

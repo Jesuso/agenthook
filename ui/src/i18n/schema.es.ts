@@ -56,6 +56,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "harnesses.*.sandbox": { label: "Sandbox del harness", help: "Ajustes del sandbox para las ejecuciones en este harness." },
   "harnesses.*.sandbox.image": { label: "Imagen del sandbox", help: "Imagen del agente para las ejecuciones en sandbox en este harness, en lugar de sandbox.image." },
   "harnesses.*.opencodeConfig": { label: "Ruta de config de OpenCode", help: "opencode, solo sandbox: ruta de un config JSON de OpenCode, copiado al sandbox HOME de la ejecución; gana la del paso." },
+  "harnesses.*.contextTokens": { label: "Ventana de contexto (tokens)", help: "La ventana de contexto del modelo en este harness, para mostrar ctx usado/máximo en una fila en ejecución; gana la del paso." },
 
   // Repos
   "repoPath": { label: "Ruta del repo", help: "El checkout en el que trabajan los agentes (perfiles de un solo repo); relativo al archivo de configuración." },
@@ -129,6 +130,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "tracker.pipeline.*.instructionsFile": { label: "Archivo de instrucciones", help: "Instrucciones permanentes de este paso; sin definir usa el instructionsFile del perfil." },
   "tracker.pipeline.*.maxAttempts": { label: "Máximo de intentos", help: "Ejecuciones permitidas por tarea antes de que un ciclo changes de vuelta a este paso falle." },
   "tracker.pipeline.*.maxMinutes": { label: "Límite de tiempo real (min)", help: "Detiene una ejecución tras estos minutos y la marca fallida por tiempo agotado; 0 = sin límite." },
+  "tracker.pipeline.*.contextTokens": { label: "Ventana de contexto (tokens)", help: "La ventana de contexto del modelo, para mostrar ctx usado/máximo en una fila en ejecución; sin definir usa una tabla incorporada." },
   "tracker.pipeline.*.idleMinutes": { label: "Tiempo de inactividad (min)", help: "Detiene una ejecución tras estos minutos sin salida del agente (debe ser > 0); desactivado si no se define." },
   "tracker.pipeline.*.requireVerdict": { label: "Exigir veredicto", help: "Una salida limpia sin archivo de veredicto válido retiene la tarea en lugar de avanzarla (predeterminado true)." },
   "tracker.pipeline.*.createsWorktree": { label: "Crea worktree", help: "Crea el worktree de git compartido de la tarea antes de que se ejecute el agente." },

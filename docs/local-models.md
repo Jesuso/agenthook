@@ -57,6 +57,7 @@ Steps that write code (`code`, a `createsWorktree` step) gain the most from a st
 | `maxConcurrent` | `1` when one GPU serves the model, so runs of this step queue instead of competing. The cap counts inside the global `maxConcurrent`. Several steps sharing one GPU: use a [harness](#several-backends-harnesses) instead. |
 | `maxMinutes` / `idleMinutes` | Local models are slower. Raise the wall-clock cap, and the idle cap if you set one. |
 | `maxAttempts` | Caps how many times a `changes` verdict can bounce back into a step. |
+| `contextTokens` | A local model's context window is the binding constraint (e.g. 64K). Set it on the step or the harness (the step's own wins) so `status`/`tick`/the UI show `ctx used/max` while a run is live — an opencode harness with `opencodeConfig` gets it automatically from that config's `limit.context`, so you only need this for other agents or an override. |
 
 A weaker model is more likely to loop: a local `review` can keep returning `changes` that `code`
 can't satisfy. `maxAttempts` (default 3) bounds that loop, then the task fails to a human.

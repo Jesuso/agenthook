@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatElapsed, elapsedTickMs, relativeTickMs, formatModel, formatTicketSpend } from "./format";
+import { formatUp, formatLastEvent, shortRef, ticketTitle, formatRelative, formatCost, profileLabel, profileBadge, formatDate, formatDuration, formatElapsed, elapsedTickMs, relativeTickMs, formatModel, formatTicketSpend, formatContext } from "./format";
 
 describe("formatUp", () => {
   it("reads up, with pid and port only in the tooltip", () => {
@@ -211,6 +211,18 @@ describe("formatModel", () => {
   });
   it("renders null as an em dash", () => {
     expect(formatModel(null)).toEqual({ text: "—" });
+  });
+});
+
+describe("formatContext", () => {
+  it("renders K/M text with an exact-token title, only while both ctx and ctxMax are known", () => {
+    expect(formatContext({ ctx: 54000, ctxMax: 200000 })).toEqual({ text: "54K/200K", title: "54,000 / 200,000 tokens" });
+    expect(formatContext({ ctx: 1_200_000, ctxMax: 1_000_000 })).toEqual({ text: "1.2M/1M", title: "1,200,000 / 1,000,000 tokens" });
+  });
+  it("is null when either side is missing", () => {
+    expect(formatContext({ ctx: 1000 })).toBeNull();
+    expect(formatContext({ ctxMax: 200000 })).toBeNull();
+    expect(formatContext({})).toBeNull();
   });
 });
 

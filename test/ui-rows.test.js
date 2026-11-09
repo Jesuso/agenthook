@@ -78,6 +78,21 @@ test("buildRows: one status per source, with precedence running > queued > board
   assert.equal(rows.length, 8);
 });
 
+test("buildRows: ctx/ctxMax come from a running row, only while present (#658)", () => {
+  const rows = buildRows(
+    "p",
+    state({
+      running: {
+        r1: { stepId: "code", startedAt: "t", model: "opus", ctx: 54000, ctxMax: 200000 },
+        r2: { stepId: "code", startedAt: "t", model: "opus" },
+      },
+    }),
+  );
+  assert.deepEqual([row(rows, "r1").ctx, row(rows, "r1").ctxMax], [54000, 200000]);
+  assert.equal(Object.hasOwn(row(rows, "r2"), "ctx"), false);
+  assert.equal(Object.hasOwn(row(rows, "r2"), "ctxMax"), false);
+});
+
 test("buildRows: up:false reads running as interrupted and queued as stalled; held/terminal/idle unchanged", () => {
   const s = state({
     running: { r1: { stepId: "code", startedAt: "t" } },

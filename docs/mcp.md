@@ -30,7 +30,7 @@ directory (or `--config`), else the only running profile, else an error listing 
 ## Token thrift (by design)
 
 - **`etag`**: `status`/`tick` return one; pass it back as `ifNoneMatch` and an unchanged
-  answer is `{"unchanged":true,…}` (~10 tokens). Volatile fields (`ageS`, `outTok`, `at`
+  answer is `{"unchanged":true,…}` (~10 tokens). Volatile fields (`ageS`, `outTok`, `ctx`, `at`
   timestamps) don't affect it.
 - **`cursor`**: `events`/`tick` return a byte offset into `events.jsonl`; pass it back to get
   only what's new. A half-written line is never returned (it arrives whole next time).

@@ -16,6 +16,7 @@ import { agentSpawnEnv } from "./spawn.js";
 import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 import { resolveHarness } from "./harness.js";
+import { resolveContextWindow } from "../models.js";
 import { needsReviewedHead, currentPrHead } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
@@ -238,13 +239,16 @@ export function createStep(ctx) {
     const headSha = needsReviewedHead(cfg, step.id) ? await currentPrHead(forge, store, job.ref) : null;
     const startedAt = new Date().toISOString();
     const agent = agentFor(cfg, spawnStep);
-    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null, harness, agent: agent.describe().name };
+    // The context window (#658) a live `ctx` can be measured against — resolved once, from the
+    // effective (harness-merged) step, so a harness's contextTokens/opencodeConfig already apply.
+    const ctxMax = resolveContextWindow({ step: spawnStep, model, agentName: agent.describe().name });
+    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null, harness, agent: agent.describe().name, ...(ctxMax !== null ? { ctxMax } : {}) };
     // `harness` rides on run_start/run_end only for a profile that has harnesses.
     const harnessField = cfg.harnesses ? { harness } : {};
     // A new agent run means any PR state learned earlier (closed, merged) no longer stands —
     // mirrors buildRows resetting its event-derived prState on run_start.
     store?.setRefMeta(job.ref, { prState: null });
-    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...harnessField, ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
+    emit?.("run_start", job.ref, step.id, { model: model ?? null, ...harnessField, ...(ctxMax !== null ? { ctxMax } : {}), ...(liteApplied ? { lite: true } : {}), ...(task.displayId ? { displayId: task.displayId } : {}) });
     /** @type {number|undefined} */
     let pid;
     const maxMinutes = step.maxMinutes ?? DEFAULT_MAX_MINUTES;
@@ -337,7 +341,7 @@ export function createStep(ctx) {
         // Live token tally onto the running record (throttled — per assistant/result event).
         onTally: (t) => {
           try {
-            store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate });
+            store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate, ...(typeof t.lastContext === "number" ? { ctx: t.lastContext } : {}) });
           } catch (e) {
             console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
           }

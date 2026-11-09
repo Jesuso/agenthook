@@ -116,6 +116,35 @@ test("readStatus: running rows carry harness from running.json, only when the ru
   assert.equal(Object.hasOwn(running[2], "harness"), false, "no field → no key");
 });
 
+test("readStatus: running rows carry ctx/ctxMax from running.json, only when present (#658)", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: {
+      7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctx: 54000, ctxMax: 200000 },
+      8: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctxMax: 200000 },
+      9: { stepId: "triage", startedAt: "2026-01-01T00:50:00Z" },
+    },
+  });
+  const running = readStatus(readProfile("p", reg)).running;
+  assert.deepEqual([running[0].ctx, running[0].ctxMax], [54000, 200000]);
+  assert.equal(Object.hasOwn(running[1], "ctx"), false, "no live ctx yet → no key");
+  assert.equal(running[1].ctxMax, 200000);
+  assert.equal(Object.hasOwn(running[2], "ctx"), false);
+  assert.equal(Object.hasOwn(running[2], "ctxMax"), false);
+});
+
+test("readStatus: live ctx drift does not change the etag; ctxMax is stable and so does not need to", () => {
+  const reg = registry();
+  const now = Date.parse("2026-01-01T01:00:00Z");
+  profile(reg, "o", {
+    running: { 7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctx: 1000, ctxMax: 200000 } },
+  });
+  const before = readStatus(readProfile("o", reg), { now });
+  fs.writeFileSync(path.join(reg, "o", "running.json"), JSON.stringify({ 7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctx: 90000, ctxMax: 200000 } }));
+  const after = readStatus(readProfile("o", reg), { now: now + 60000 });
+  assert.equal(before.etag, after.etag, "ctx drift does not change the etag");
+});
+
 test("pickProfile: explicit key, label, default, sole-up fallback, ambiguity", () => {
   const reg = registry();
   profile(reg, "a", { name: "Alpha" });

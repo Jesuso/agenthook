@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProfileView, Snapshot, StatsGroup, StatsResult, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatModel, formatSpend, formatTicketSpend, ticketTitle } from "./format";
+import { formatContext, formatCost, formatModel, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { harnessStatsUrl } from "./stats";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
@@ -555,6 +555,8 @@ function NowRow({ t, now, onOpen, position }: { t: TicketRow; now: number; onOpe
   const { t: tr, lang } = useT();
   const title = ticketTitle(t, lang);
   const model = formatModel(t.model);
+  const ctx = formatContext(t);
+  const ctxHot = typeof t.ctx === "number" && typeof t.ctxMax === "number" && t.ctx / t.ctxMax > 0.9;
   return (
     <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
       {position !== undefined ? <span className="w-5 font-mono text-label text-muted">{position}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
@@ -566,8 +568,9 @@ function NowRow({ t, now, onOpen, position }: { t: TicketRow; now: number; onOpe
       {t.step && <Pill>{t.step}</Pill>}
       {position === undefined ? (
         <>
-          {/* Narrow: model and cost go (the drawer has both); elapsed stays, it is the progress signal. */}
+          {/* Narrow: model, ctx and cost go (the drawer has them); elapsed stays, it is the progress signal. */}
           <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
+          {ctx && <span className={`font-mono text-label max-sm:hidden ${ctxHot ? "text-status-failed" : "text-muted"}`} title={ctx.title}>{ctx.text}</span>}
           <Elapsed iso={t.startedAt} seed={now} className="text-label" />
           <span className="font-mono text-label text-muted max-sm:hidden" title={tr("overview.costSoFar")}>{formatTicketSpend(t)}</span>
           <button type="button" className={`${LINK} ${REVEAL} max-sm:hidden`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>

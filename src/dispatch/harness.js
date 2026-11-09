@@ -2,7 +2,7 @@
 // a run spawns with once the queue picked one. Pure — no I/O.
 
 /** Spawn knobs a harness supplies where the step sets none of its own. */
-const HARNESS_KNOBS = /** @type {const} */ (["agent", "model", "bin", "provider", "toolsets", "opencodeConfig"]);
+const HARNESS_KNOBS = /** @type {const} */ (["agent", "model", "bin", "provider", "toolsets", "opencodeConfig", "contextTokens"]);
 
 /**
  * The harness names a step routes through, in order (a string is a one-element list); [] when

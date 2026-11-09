@@ -1762,6 +1762,52 @@ test("run_end + usage record: an unpriced run whose model has a `pricing` rate i
   assert.equal(r.usage[0].estUsd, 1.5);
 });
 
+// --- live context gauge (#658): ctxMax on run_start/running.json, ctx once a turn is seen ---
+
+test("run_start: ctxMax rides along only when the model's context window is known", async () => {
+  const known = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "claude-opus-5-5" });
+  assert.equal(known.events.find((e) => e.event === "run_start")?.ctxMax, 200000);
+  const unknown = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "qwen3-coder" });
+  assert.equal("ctxMax" in (unknown.events.find((e) => e.event === "run_start") ?? {}), false);
+});
+
+test("running.json: ctxMax is set from the start; ctx joins it once the parser sees a turn", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ctx-"));
+  const bin = path.join(dir, "fake-claude.sh");
+  const out = path.join(dir, "out");
+  const runningPath = path.join(dir, "running.json");
+  const ASSISTANT_LINE = JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [], usage: { input_tokens: 500, output_tokens: 5 } } });
+  fs.writeFileSync(
+    bin,
+    `#!/bin/sh\nprintf '%s\\n' '${ASSISTANT_LINE}'\nn=0; while ! grep -q '"ctx"' "${runningPath}" 2>/dev/null && [ $n -lt 100 ]; do sleep 0.05; n=$((n+1)); done\ncp "${runningPath}" "${out}.running"\nprintf '%s\\n' '${RESULT_LINE}'\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+    { mode: 0o755 },
+  );
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", model: "claude-opus-5-5" }, { id: "done", manual: true }],
+    claudeBin: bin,
+    repoPath: dir,
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {},
+  });
+  const run = createDispatcher(cfg, adapter, undefined, createStore(dir), () => {});
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = log;
+  }
+  const running = JSON.parse(fs.readFileSync(`${out}.running`, "utf8"))["42"];
+  assert.equal(running.ctxMax, 200000, "set from the first running.json write, before any turn");
+  assert.equal(running.ctx, 500, "lastContext from the parser's tally, after the first turn");
+});
+
 // --- quota (#397): a Claude run's rate_limit_event reaches opts.onQuota; other agents never do ---
 
 test("onQuota: a claude run's rate_limit_event reaches the hook stamped with asOf; a non-claude agent's never does", async () => {

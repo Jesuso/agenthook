@@ -405,6 +405,8 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       step: str(run?.stepId) ?? str(queued?.stepId) ?? str(held?.stepId) ?? lastStep,
       status,
       model: run ? str(run.model) : str(lastStart?.model),
+      ...(run && typeof run.ctx === "number" ? { ctx: run.ctx } : {}),
+      ...(run && typeof run.ctxMax === "number" ? { ctxMax: run.ctxMax } : {}),
       startedAt: run ? str(run.startedAt) : str(lastStart?.ts),
       costUsd,
       estUsd: Math.round(estUsd * 1e6) / 1e6,
