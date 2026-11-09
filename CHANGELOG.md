@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Context compactions are now marked and counted per run (#657). The run log renders a compaction
+  as a one-line `🗜 compaction (…)` marker — claude from the `compact_boundary` system event
+  (`{trigger, pre_tokens, post_tokens?}`); opencode by inferring one from a ≥20% prompt-size drop
+  between neighbouring `step_finish` events, since `opencode run --format json` (1.19.5) emits no
+  compaction event. The count rides along as `compactions` wherever `turns` (#645) does —
+  `usage.jsonl`, the `run_end` event, `runs` rows and `ah stats`' new `cmp` column — absent on
+  cursor/hermes. See [docs/usage.md](docs/usage.md#where-records-live).
 - OpenCode now runs inside the per-run sandbox (#647). The agent image installs `opencode-ai`
   alongside `claude` — an existing `agenthook-agent:<version>` image predates this; remove it and
   run `agenthook doctor --fix` to rebuild. A new `opencodeConfig` key (on a step or a harness; the

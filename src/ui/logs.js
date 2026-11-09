@@ -69,12 +69,12 @@ function energyOf(end) {
 }
 
 /** A run_end's per-turn stats (#645), when `turns` is a finite number; else `{}`.
- * @param {Record<string, any>|null} end @returns {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+ * @param {Record<string, any>|null} end @returns {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} */
 function turnStatsOf(end) {
   if (typeof end?.turns !== "number" || !Number.isFinite(end.turns)) return {};
-  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} */
   const out = { turns: end.turns };
-  for (const k of /** @type {const} */ (["firstContext", "peakContext", "lastContext"])) {
+  for (const k of /** @type {const} */ (["firstContext", "peakContext", "lastContext", "compactions"])) {
     if (typeof end[k] === "number" && Number.isFinite(end[k])) out[k] = end[k];
   }
   return out;

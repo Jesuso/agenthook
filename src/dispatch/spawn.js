@@ -14,16 +14,18 @@ const API_SCAN_BUF_BYTES = 64 * 1024;
 
 /** The defined subset of a parser's per-turn stats (#645), or undefined when the parser never
  * saw a turn (`tally.turns` unset) — so a result with no per-turn usage adds nothing to the
- * record rather than zeros. Pure.
- * @param {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} tally
- * @returns {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}|undefined} */
+ * record rather than zeros. `compactions` (#657) rides along the same guard — a tally without
+ * `turns` carries no `compactions` either, even when the agent can detect them. Pure.
+ * @param {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} tally
+ * @returns {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}|undefined} */
 export function pickTurnStats(tally) {
   if (typeof tally.turns !== "number") return undefined;
-  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} */
   const out = { turns: tally.turns };
   if (typeof tally.firstContext === "number") out.firstContext = tally.firstContext;
   if (typeof tally.peakContext === "number") out.peakContext = tally.peakContext;
   if (typeof tally.lastContext === "number") out.lastContext = tally.lastContext;
+  if (typeof tally.compactions === "number") out.compactions = tally.compactions;
   return out;
 }
 

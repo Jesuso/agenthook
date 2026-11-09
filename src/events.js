@@ -46,7 +46,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             summed into `costUsd`; when the agent returned a result, also `model?`, `input`, `output`,
  *             `cacheRead`, `cacheCreate` so readers can price it, plus `turns?`, `firstContext?`,
  *             `peakContext?`, `lastContext?` (#645) when the agent's parser saw at least one turn
- *             (claude/opencode today; absent on cursor/hermes); a step with `energy: true` adds
+ *             (claude/opencode today; absent on cursor/hermes), plus `compactions?` (#657) under
+ *             the same guard — context compactions the parser saw; a step with `energy: true` adds
  *             `energyKwh?`, `energyUsd?`, `energySource?` — measured electricity (src/energy.js), never
  *             summed into `costUsd`/`estUsd`)
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in

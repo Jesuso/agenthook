@@ -192,17 +192,17 @@ test("createStreamParser: renders assistant text only (no raw JSON), captures re
   // final tally mirrors result.usage (output replaced, not summed); cache fields from result event.
   // turns/firstContext/peakContext/lastContext (#645) come from the two id-less assistant events,
   // each its own turn: ctx 100 then 250 (no cache fields on either).
-  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30, compactions: 0, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
 });
 
 test("createStreamParser: tally grows across assistant events before the result", () => {
   const p = createStreamParser();
   p.push(fixtureLines[0] + "\n");
-  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 });
   p.push(fixtureLines[1] + "\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, compactions: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
   p.push(fixtureLines[2] + "\n"); // output sums (12+8), input tracks latest turn
-  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 0, cacheCreate: 0, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 0, cacheCreate: 0, compactions: 0, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
 });
 
 test("createStreamParser: tolerates lines split across chunk boundaries", () => {
@@ -212,7 +212,7 @@ test("createStreamParser: tolerates lines split across chunk boundaries", () => 
   let log = "";
   for (const ch of whole) log += p.push(ch);
   assert.equal(log, "Looking at the code.\nDone.\n");
-  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
+  assert.deepEqual(p.tally, { input: 250, output: 20, cacheRead: 1000, cacheCreate: 30, compactions: 0, turns: 2, firstContext: 100, peakContext: 250, lastContext: 250 });
   assert.equal(p.result.total_cost_usd, 0.0321);
 });
 
@@ -223,16 +223,16 @@ test("createStreamParser: skips non-JSON lines without crashing", () => {
   log += p.push(fixtureLines[1] + "\n");
   log += p.push("{ broken json\n");
   assert.equal(log, "Looking at the code.\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, compactions: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
 });
 
 test("createStreamParser: flush() processes a final line with no trailing newline", () => {
   const p = createStreamParser();
   p.push(fixtureLines[1]); // no newline — stays buffered
-  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 }, "unterminated line not parsed yet");
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 }, "unterminated line not parsed yet");
   const tail = p.flush();
   assert.equal(tail, "Looking at the code.\n");
-  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
+  assert.deepEqual(p.tally, { input: 100, output: 12, cacheRead: 0, cacheCreate: 0, compactions: 0, turns: 1, firstContext: 100, peakContext: 100, lastContext: 100 });
 });
 
 test("createStreamParser: cache_read/cache_creation tokens captured in tally from result event", () => {
@@ -268,7 +268,7 @@ test("createStreamParser: a second result event sums usage/duration, keeps the l
   assert.equal(p.result.usage.input_tokens, 550);
   assert.equal(p.result.usage.cache_read_input_tokens, 105);
   assert.equal(p.result.usage.cache_creation_input_tokens, 12);
-  assert.deepEqual(p.tally, { input: 550, output: 1115, cacheRead: 105, cacheCreate: 12 });
+  assert.deepEqual(p.tally, { input: 550, output: 1115, cacheRead: 105, cacheCreate: 12, compactions: 0 });
   const rec = buildUsageRecord({ ref: "1", stepId: "code", startedAt: "a", endedAt: "b", result: p.result });
   assert.equal(rec.output, 1115);
   assert.equal(rec.durationMs, 603476);
@@ -310,8 +310,45 @@ test("createStreamParser: an event with parent_tool_use_id set (a sub-agent side
 test("createStreamParser: no usage at all → turns/firstContext/peakContext/lastContext stay absent (#645)", () => {
   const p = createStreamParser();
   p.push(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }) + "\n");
-  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 });
   assert.ok(!("turns" in p.tally));
+});
+
+// --- compact_boundary (#657) ---
+
+test("createStreamParser: a compact_boundary system event renders 🗜 and counts a compaction", () => {
+  const p = createStreamParser();
+  const turn = JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [], usage: { input_tokens: 1000 } } });
+  const boundary = JSON.stringify({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 61992 } });
+  const log = p.push(turn + "\n") + p.push(boundary + "\n");
+  assert.equal(log, "🗜 compaction (auto, 61,992 tokens before)\n");
+  assert.equal(p.tally.compactions, 1);
+});
+
+test("createStreamParser: compact_boundary with post_tokens renders the → after clause", () => {
+  const p = createStreamParser();
+  const boundary = JSON.stringify({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 61992, post_tokens: 25099 } });
+  assert.equal(p.push(boundary + "\n"), "🗜 compaction (manual, 61,992 tokens before → 25,099 after)\n");
+});
+
+test("createStreamParser: a stream with turns but no boundary leaves compactions at 0 and renders no 🗜", () => {
+  const p = createStreamParser();
+  const turn = JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1000 } } });
+  const log = p.push(turn + "\n");
+  assert.equal(p.tally.compactions, 0);
+  assert.ok(!log.includes("🗜"));
+});
+
+test("createStreamParser: a malformed compact_metadata still counts and never throws", () => {
+  const p = createStreamParser();
+  for (const line of [
+    JSON.stringify({ type: "system", subtype: "compact_boundary" }),
+    JSON.stringify({ type: "system", subtype: "compact_boundary", compact_metadata: null }),
+    JSON.stringify({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: 5, pre_tokens: "x" } }),
+  ]) {
+    assert.doesNotThrow(() => p.push(line + "\n"));
+  }
+  assert.equal(p.tally.compactions, 3);
 });
 
 test("buildUsageRecord: extracts totals/cost/session from the result event", () => {

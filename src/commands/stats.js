@@ -117,7 +117,7 @@ export async function stats(args) {
     return;
   }
 
-  const header = [by, "runs", "ok%", "adv/chg/hold/fail/tmo/rq/unk", "p50", "p90", "turns", "ctx0", "ctxPk", "in", "out", "cacheR", "out/min", "$", "est$", "unpriced"];
+  const header = [by, "runs", "ok%", "adv/chg/hold/fail/tmo/rq/unk", "p50", "p90", "turns", "cmp", "ctx0", "ctxPk", "in", "out", "cacheR", "out/min", "$", "est$", "unpriced"];
   const rows = [header];
   for (const g of result.groups) {
     const o = g.outcomes;
@@ -129,6 +129,7 @@ export async function stats(args) {
       fmtMs(g.wallP50Ms),
       fmtMs(g.wallP90Ms),
       fmtNum(g.turns),
+      fmtNum(g.compactions),
       fmtNum(g.firstContext),
       fmtNum(g.peakContext),
       tok(g.input),

@@ -204,6 +204,7 @@
  * @property {number} [firstContext]  the first turn's prompt size (input + cache-read + cache-create), only when `turns` is set
  * @property {number} [peakContext]   the largest turn's prompt size, only when `turns` is set
  * @property {number} [lastContext]   the final turn's prompt size, only when `turns` is set
+ * @property {number} [compactions]   context compactions the parser saw (#657), only when `turns` is set; claude: `compact_boundary` events; opencode: inferred from a ≥20% prompt-size drop between steps; absent on cursor/hermes
  * @property {number} [costUsd]    result.total_cost_usd (kept raw even when `unpriced` — readers ignore it then)
  * @property {string} [sessionId]  result.session_id
  * @property {true} [unpriced]     local model (step `bin` or a non-Claude model): `costUsd` is not real spend
@@ -531,7 +532,7 @@
  * @typedef {object} AgentParser
  * @property {(chunk: string) => string} push   log text rendered from the completed lines
  * @property {() => string} flush               log text from a final unterminated line
- * @property {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} tally  live token estimate; turns/firstContext/peakContext/lastContext (#645) stay unset until the first turn with usage, when the agent reports per-turn usage at all
+ * @property {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} tally  live token estimate; turns/firstContext/peakContext/lastContext (#645) stay unset until the first turn with usage, when the agent reports per-turn usage at all; compactions (#657) is 0 from the start on claude/opencode (they can detect it), unset on cursor/hermes
  * @property {any} result                       the agent's final result record (null until seen); passed to `usageRecord`
  * @property {string|undefined} sessionId       the run's session id, once known
  * @property {(chunk: string) => void} [pushStderr]  stderr reaches the parser only through this (e.g. hermes' session id)

@@ -207,6 +207,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {number} [firstContext]      the first turn's prompt size; only when `turns` is set
  * @property {number} [peakContext]       the largest turn's prompt size; only when `turns` is set
  * @property {number} [lastContext]       the final turn's prompt size; only when `turns` is set
+ * @property {number} [compactions]       context compactions the agent's parser saw (#657); only when `turns` is set
  * @property {boolean} running            no outcome yet, newest run, and running.json has it
  * @property {number} bytes               log size when listed
  */

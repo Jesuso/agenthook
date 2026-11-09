@@ -100,6 +100,24 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, all
 }
 
 /**
+ * Render a `compact_boundary` system event as a one-line `🗜 compaction (…)` log entry (pure).
+ * `trigger` and the token clause are each dropped when their field is missing or not a finite
+ * number — a malformed `compact_metadata` still renders, just as the bare `🗜 compaction`.
+ * @param {any} meta `ev.compact_metadata`
+ * @returns {string}
+ */
+export function compactionLine(meta) {
+  const m = meta && typeof meta === "object" ? meta : {};
+  const trigger = typeof m.trigger === "string" && m.trigger ? m.trigger : null;
+  const pre = typeof m.pre_tokens === "number" && Number.isFinite(m.pre_tokens) ? m.pre_tokens : null;
+  const post = typeof m.post_tokens === "number" && Number.isFinite(m.post_tokens) ? m.post_tokens : null;
+  const parts = [];
+  if (trigger) parts.push(trigger);
+  if (pre !== null) parts.push(`${pre.toLocaleString("en-US")} tokens before${post !== null ? ` → ${post.toLocaleString("en-US")} after` : ""}`);
+  return parts.length ? `🗜 compaction (${parts.join(", ")})\n` : "🗜 compaction\n";
+}
+
+/**
  * Incremental parser for `claude -p --output-format stream-json --verbose` stdout:
  * one JSON object per line. Buffers partial lines across chunk boundaries, renders
  * assistant **text** content blocks to human-readable log text (non-text blocks and
@@ -108,12 +126,12 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, all
  * `rate_limit_event` (src/quota.js; a malformed one leaves it unchanged). Pure (no I/O),
  * stateful — feed chunks via push(), flush() any tail at EOF, then read `.tally` / `.result` /
  * `.quota`. Exported for unit tests.
- * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number,turns?:number,firstContext?:number,peakContext?:number,lastContext?:number}, result:any, quota:import('../quota.js').QuotaReading|null}}
+ * @returns {{push:(chunk:string)=>string, flush:()=>string, tally:{input:number,output:number,cacheRead:number,cacheCreate:number,turns?:number,firstContext?:number,peakContext?:number,lastContext?:number,compactions:number}, result:any, quota:import('../quota.js').QuotaReading|null}}
  */
 export function createStreamParser() {
   let buf = "";
-  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
-  const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions: number}} */
+  const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 };
   /** @type {any} */
   let result = null;
   /** @type {import('../quota.js').QuotaReading|null} */
@@ -183,6 +201,10 @@ export function createStreamParser() {
     if (ev.type === "rate_limit_event") {
       quota = quotaFromRateLimitEvent(ev) ?? quota;
       return "";
+    }
+    if (ev.type === "system" && ev.subtype === "compact_boundary") {
+      tally.compactions++;
+      return compactionLine(ev.compact_metadata);
     }
     return "";
   }

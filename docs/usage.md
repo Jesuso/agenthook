@@ -64,6 +64,7 @@ It is append-only, one JSON object per line. Each line is a `UsageRecord`:
 | `firstContext`| number?  | The first turn's prompt size (input + cache-read + cache-create); only when `turns` is set |
 | `peakContext` | number?  | The largest turn's prompt size; only when `turns` is set |
 | `lastContext` | number?  | The final turn's prompt size; only when `turns` is set  |
+| `compactions` | number?  | Context compactions the agent's parser saw (#657); only when `turns` is set. claude: `compact_boundary` events; opencode: inferred from a ≥20% prompt-size drop between steps (opencode's `run --format json` emits no compaction event as of 1.19.5); absent on cursor/hermes |
 | `costUsd`     | number?  | `result.total_cost_usd` (the CLI's own cost figure)     |
 | `sessionId`   | string?  | `result.session_id`                                     |
 | `unpriced`    | `true`?  | Local-model run: `costUsd` is kept for audit but left out of every spend total |
@@ -122,9 +123,10 @@ ah stats --json                   # the structured object instead of a table
 ```
 
 Columns: `runs`, `ok%` (advance ÷ (runs − requeued); `—` when that's 0), the outcome breakdown
-`adv/chg/hold/fail/tmo/rq/unk`, wall-time `p50`/`p90`, mean `turns`/`ctx0`(first context)/`ctxPk`
-(peak context), `in`/`out`/`cacheR` tokens, `out/min` (output throughput), `$` (reported cost),
-`est$` (rate-table estimate) and `unpriced` (a count, same meaning as `ah usage`'s `unpriced` cell).
+`adv/chg/hold/fail/tmo/rq/unk`, wall-time `p50`/`p90`, mean `turns`/`cmp`(compactions, #657)/`ctx0`
+(first context)/`ctxPk` (peak context), `in`/`out`/`cacheR` tokens, `out/min` (output throughput),
+`$` (reported cost), `est$` (rate-table estimate) and `unpriced` (a count, same meaning as
+`ah usage`'s `unpriced` cell).
 A `fail` whose very next `failed` event names a timeout counts as `tmo`, not `fail`. `—` marks a
 figure with nothing to average (e.g. no run in the group reported `turns`).
 

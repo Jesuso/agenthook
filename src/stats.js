@@ -49,6 +49,7 @@ export function quantile(sorted, q) {
  * @property {number|null} turns          mean, over runs that have it
  * @property {number|null} firstContext    mean, over runs that have it
  * @property {number|null} peakContext     mean, over runs that have it
+ * @property {number|null} compactions     mean, over runs that have it (#657)
  * @property {number} input
  * @property {number} output
  * @property {number} cacheRead
@@ -86,6 +87,7 @@ const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
  * @property {number|null} turns
  * @property {number|null} firstContext
  * @property {number|null} peakContext
+ * @property {number|null} compactions
  * @property {number} input
  * @property {number} output
  * @property {number} cacheRead
@@ -117,6 +119,7 @@ function runFromUsage(u, outcome) {
     turns: num(u.turns),
     firstContext: num(u.firstContext),
     peakContext: num(u.peakContext),
+    compactions: num(u.compactions),
     input: num(u.input) ?? 0,
     output: num(u.output) ?? 0,
     cacheRead: num(u.cacheRead) ?? 0,
@@ -142,6 +145,7 @@ function runFromEvent(e, u) {
     turns: num(e.turns),
     firstContext: num(e.firstContext),
     peakContext: num(e.peakContext),
+    compactions: num(e.compactions),
     input: num(e.input) ?? 0,
     output: num(e.output) ?? 0,
     cacheRead: num(e.cacheRead) ?? 0,
@@ -275,6 +279,7 @@ export function runStats(usage, events, o = {}) {
     const turns = mean(list.filter((r) => r.turns !== null).map((r) => /** @type {number} */ (r.turns)));
     const firstContext = mean(list.filter((r) => r.firstContext !== null).map((r) => /** @type {number} */ (r.firstContext)));
     const peakContext = mean(list.filter((r) => r.peakContext !== null).map((r) => /** @type {number} */ (r.peakContext)));
+    const compactions = mean(list.filter((r) => r.compactions !== null).map((r) => /** @type {number} */ (r.compactions)));
     let input = 0, output = 0, cacheRead = 0;
     let outSum = 0, wallMinSum = 0;
     let costUsd = 0, estUsd = 0, unpriced = 0;
@@ -301,6 +306,7 @@ export function runStats(usage, events, o = {}) {
       turns,
       firstContext,
       peakContext,
+      compactions,
       input,
       output,
       cacheRead,

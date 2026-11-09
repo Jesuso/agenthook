@@ -496,7 +496,7 @@ export function readRuns(profile, ref, dir, registry = registryDir) {
       ...(r.estUsd !== null ? { estUsd: r.estUsd } : {}),
       ...(r.costBasis !== null ? { costBasis: r.costBasis } : {}),
       ...(r.energyKwh !== undefined ? { energyKwh: r.energyKwh, energyUsd: r.energyUsd } : {}),
-      ...(r.turns !== undefined ? { turns: r.turns, ...(r.firstContext !== undefined ? { firstContext: r.firstContext } : {}), ...(r.peakContext !== undefined ? { peakContext: r.peakContext } : {}), ...(r.lastContext !== undefined ? { lastContext: r.lastContext } : {}) } : {}),
+      ...(r.turns !== undefined ? { turns: r.turns, ...(r.firstContext !== undefined ? { firstContext: r.firstContext } : {}), ...(r.peakContext !== undefined ? { peakContext: r.peakContext } : {}), ...(r.lastContext !== undefined ? { lastContext: r.lastContext } : {}), ...(r.compactions !== undefined ? { compactions: r.compactions } : {}) } : {}),
       ...(r.running ? { running: true } : {}),
       ...(isObj(s) && s.run === r.run && isObj(s.summary) ? { summary: s.summary } : {}),
     };
