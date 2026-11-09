@@ -9,6 +9,19 @@
 import { fenceUntrusted, newNonce, untrustedInline, untrustedPreamble } from "./untrusted.js";
 
 /**
+ * The unattended-run notice, prepended to every step prompt (all three shapes). The run's only
+ * audience is the receiver — no human reads its messages or answers its questions — so a model
+ * that ends a turn with a question holds with nothing to resume it. Small/local models fall into
+ * this habit far more often than frontier ones, so it is stated up front. Agent-neutral: no
+ * mention of any one CLI's tools or features.
+ */
+export const UNATTENDED_NOTICE = [
+  `This is an unattended run: no human reads your messages or answers questions while it runs.`,
+  `Never ask for confirmation or offer options and then stop — decide, act, and finish. If you genuinely`,
+  `can't proceed without a human, record that in your verdict below instead of ending on a question.`,
+].join("\n");
+
+/**
  * The verdict contract footer, appended to every agent prompt. The agent reports how
  * the step resolved by writing JSON to a file the receiver reads after exit; that
  * decides the section move (advance / hold / changes / fail). A crash (non-zero exit)
@@ -137,6 +150,8 @@ export function stepPrompt(task, meta, step, ctx) {
     return [
       untrustedPreamble(nonce),
       ``,
+      UNATTENDED_NOTICE,
+      ``,
       `You are triaging the "${step.id}" stage of a ${meta.platform} ${N} before any code is written.`,
       `No worktree, no branch, no PR — this is read-and-groom only. Follow the standing instructions`,
       `above (the org's triage rules).`,
@@ -198,6 +213,8 @@ export function stepPrompt(task, meta, step, ctx) {
     return [
       untrustedPreamble(nonce),
       ``,
+      UNATTENDED_NOTICE,
+      ``,
       `You are an INDEPENDENT reviewer for the "${step.id}" stage. Another agent worked this`,
       `${meta.platform} ${N} in the worktree below and ${artifact}. You did NOT write that`,
       `code and have no memory of it — that independence is the point. Read the diff and report;`,
@@ -251,6 +268,8 @@ export function stepPrompt(task, meta, step, ctx) {
     : `- "advance": the work is done, committed on the branch, and the relevant tests pass — hand it to review.`;
   return [
     untrustedPreamble(nonce),
+    ``,
+    UNATTENDED_NOTICE,
     ``,
     `You are working the "${step.id}" stage of a ${meta.platform} ${N}. Do the work autonomously`,
     `in the worktree below, following the standing instructions above and the repo's CLAUDE.md.`,

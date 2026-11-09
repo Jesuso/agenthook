@@ -77,6 +77,49 @@ const MAX_FINDINGS = 20000;
 export const NO_VALID_VERDICT = "no valid verdict";
 
 /**
+ * The hold reason for a clean exit with no valid verdict whose last line is a question.
+ * Distinct from NO_VALID_VERDICT: it names the specific failure mode (the agent ended its turn
+ * asking a question instead of acting) and carries the quoted question in the `reason` it
+ * produces (see endedWithQuestion / finish.js).
+ */
+export const QUESTION_HOLD = "no verdict: the agent ended by asking a question instead of acting";
+
+/** Max characters of a question line kept in a hold reason (a longer tail gets "…" clipped). */
+export const MAX_QUESTION_CHARS = 200;
+
+/**
+ * Phrases that mark a line as a question even without a trailing "?" — small/local models end a
+ * turn with a confirmation prompt ("want me to?", "should i…?") whose last line may drop the
+ * mark. Matched case-insensitively on word boundaries, in the whitespace-collapsed line.
+ */
+const QUESTION_PHRASES = ["want me to", "should i", "shall i", "do you want", "let me know"];
+
+/**
+ * Detect that a run's last output line is a question, so a clean exit with no verdict holds with a
+ * specific reason naming the question instead of the generic "no valid verdict". Takes the last
+ * non-empty line (whitespace-collapsed, trimmed), strips trailing quote/markdown chars, and
+ * reports it if it ends in "?" OR contains one of QUESTION_PHRASES. Returns the clipped question
+ * (≤ MAX_QUESTION_CHARS, "…" when clipped) or undefined when the text is not a question — which
+ * is the signal to fall back to the generic reason.
+ * @param {string|undefined} text  the run's last output line (its stdout tail, or the final result text)
+ * @returns {string|undefined}
+ */
+export function endedWithQuestion(text) {
+  if (typeof text !== "string") return undefined;
+  const lines = text.split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const last = lines[lines.length - 1];
+  if (!last) return undefined;
+  const line = last.replace(/["'`*_)\]]+$/, "");
+  // Ends in an ASCII or full-width question mark (a run of them), allowing trailing space,
+  // OR carries one of the confirmation phrases — either marks a question.
+  const questionish =
+    /[?？]+\s*$/.test(line) ||
+    QUESTION_PHRASES.some((p) => new RegExp(`\\b${p}\\b`, "i").test(line));
+  if (!questionish) return undefined;
+  return line.length > MAX_QUESTION_CHARS ? line.slice(0, MAX_QUESTION_CHARS - 1).trimEnd() + "…" : line;
+}
+
+/**
  * Resolve the run's verdict from (exit code, raw verdict-file text or null when
  * unreadable). A non-zero exit is a crashed/errored agent → fail, and its text is NOT
  * trusted. A clean exit honors a valid verdict; a missing/garbage one holds (a run that

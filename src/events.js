@@ -54,7 +54,9 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
  *             tool/the UI feed — see HIDDEN_BY_DEFAULT)
  *           | verdict_missing (a clean exit with a missing/unparseable/unrecognized verdict file, right before
- *             the hold it forces; `reason` = "no valid verdict"; a `blocked` event follows)
+ *             the hold it forces; `reason` = "no valid verdict", or the question form `no verdict: the agent ended
+ *             by asking a question instead of acting: "<line>"` when the run's last line is a question; a `blocked`
+ *             event follows)
  *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
  *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket, or a PR row's `prNeeds`, was acknowledged until the

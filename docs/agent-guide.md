@@ -218,7 +218,12 @@ reply, so write it as an instruction: concrete, self-contained, no secrets. When
 verbatim as `release`'s `comment` — same gate, same resume, no new mechanism. A `why` of
 `"no valid verdict"` means the agent exited cleanly without a usable verdict file (likely cut
 mid-edit, or a weak/local `bin` that didn't finish the work) — read the run's tail first;
-`release` re-runs the step, or `run {ref, force:true}` to re-enter it from scratch.
+`release` re-runs the step, or `run {ref, force:true}` to re-enter it from scratch. A `why` that
+starts `"no verdict: the agent ended by asking a question instead of acting: "<line>"` is the same
+missing-verdict hold made specific: the agent's last output line is a question (a trailing `?` or a
+"want me to / should I / …" prompt), so a weak/local model stalled waiting for an answer that no
+one can give on an unattended run. The quoted line is the exact question; `release {ref, comment}`
+answers it (the comment lands in the resumed run's prompt) or re-instructs the step.
 If the question no longer matters, complete the ticket on the board: its done webhook drops the
 hold and any queued resume (`hold_cleared {via:"board_done"}`), with no move on the tracker. Already
 completed but still in `held[]` (the done webhook was missed, or it landed before this behaviour)?

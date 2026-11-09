@@ -15,6 +15,17 @@ All notable changes to this project are documented here. The format is based on
   compaction event. The count rides along as `compactions` wherever `turns` (#645) does —
   `usage.jsonl`, the `run_end` event, `runs` rows and `ah stats`' new `cmp` column — absent on
   cursor/hermes. See [docs/usage.md](docs/usage.md#where-records-live).
+- Every step prompt now carries an unattended-run notice: it tells the agent no human reads its
+  messages or answers questions while the run is on, and that it must decide, act and finish
+  rather than ask for confirmation — and, if it genuinely can't proceed, say so in its verdict
+  instead of ending on a question (#655).
+- A clean exit with no valid verdict whose last output line is a question now holds with a
+  specific reason instead of the generic `"no valid verdict"`:
+  `no verdict: the agent ended by asking a question instead of acting: "<line>"`, quoting the
+  question (clipped to 200 chars) so the held `why` and the `blocked`/`verdict_missing` events say
+  exactly what the agent wanted to ask. A weak/local model ending its turn on "Want me to go
+  ahead?" instead of a verdict is now diagnosable from the hold alone (#655).
+  See [docs/local-models.md](docs/local-models.md).
 - OpenCode now runs inside the per-run sandbox (#647). The agent image installs `opencode-ai`
   alongside `claude` — an existing `agenthook-agent:<version>` image predates this; remove it and
   run `agenthook doctor --fix` to rebuild. A new `opencodeConfig` key (on a step or a harness; the
