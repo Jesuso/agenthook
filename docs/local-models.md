@@ -227,7 +227,10 @@ Notes from running it:
   definitions, the repo's `CLAUDE.md` and the step's instructions: about 20–25K tokens before
   the model has read a single file. On a 64K context that is more than a third of the window,
   and Claude Code assumes a 200K window when it decides to compact. Prefer a model tag with a
-  96K or 128K context for the `code` step; keep 64K for `triage`/`review`.
+  96K or 128K context for the `code` step; keep 64K for `triage`/`review`. A 64K window paid for
+  it directly: a `code` run on OpenCode + a 64K-context Qwen model compacted 6× in 40 minutes,
+  each compaction costing a burst of re-reads to rebuild context — visible as `🗜 compaction` in
+  the run log and tallied per run as `compactions` in `ah stats` (#657).
 - **Speed.** A 27B model on one consumer GPU wrote the same class of small PR in 11–50 minutes
   where the cloud model took 5–10. Set the step's `maxMinutes` accordingly (180 here).
 - **Harmless warning.** The run log starts with

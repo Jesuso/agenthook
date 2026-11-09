@@ -8,7 +8,7 @@ import type { ProfileView, StatsGroup, TicketRow } from "./contract";
 
 const statsGroup = (over: Partial<StatsGroup> = {}): StatsGroup => ({
   key: "(none)", runs: 1, outcomes: { advance: 1, changes: 0, hold: 0, fail: 0, timeout: 0, requeued: 0, unknown: 0 },
-  successRate: 1, wallP50Ms: 1000, wallP90Ms: 1000, turns: null, firstContext: null, peakContext: null,
+  successRate: 1, wallP50Ms: 1000, wallP90Ms: 1000, turns: null, firstContext: null, peakContext: null, compactions: null,
   input: 0, output: 0, cacheRead: 0, outPerMin: null, costUsd: 0, estUsd: 0, unpriced: 0, ...over,
 });
 

@@ -162,6 +162,16 @@ test("missing turns/context give null means", () => {
   assert.equal(r2.groups[0].peakContext, null);
 });
 
+test("compactions (#657): group mean ignores runs without the field, null when none have it", () => {
+  const u = [usage({ turns: 2, compactions: 2 }), usage({ ref: "2", turns: 1, compactions: 0 }), usage({ ref: "3" })];
+  const e = [runEnd("2026-11-08T12:00:00Z"), runEnd("2026-11-08T12:00:00Z", { ref: "2" }), runEnd("2026-11-08T12:00:00Z", { ref: "3" })];
+  const r = runStats(u, e, { by: "step", now: NOW });
+  assert.equal(r.groups[0].compactions, 1); // mean of 2 and 0, the ref-3 run (no field) excluded
+
+  const r2 = runStats([usage({ ref: "4" })], [runEnd("2026-11-08T12:00:00Z", { ref: "4" })], { by: "step", now: NOW });
+  assert.equal(r2.groups[0].compactions, null);
+});
+
 test("outPerMin only counts runs that have a wall time", () => {
   // Run A: output 60 over 1 minute wall -> outPerMin would be 60 if computed alone.
   // Run B: no usage row (no wall), but its own `output` on the run_end is large (1000) — it

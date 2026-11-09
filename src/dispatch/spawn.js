@@ -19,16 +19,18 @@ const STDOUT_TAIL_BUF_BYTES = 4 * 1024;
 
 /** The defined subset of a parser's per-turn stats (#645), or undefined when the parser never
  * saw a turn (`tally.turns` unset) — so a result with no per-turn usage adds nothing to the
- * record rather than zeros. Pure.
- * @param {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} tally
- * @returns {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}|undefined} */
+ * record rather than zeros. `compactions` (#657) rides along the same guard — a tally without
+ * `turns` carries no `compactions` either, even when the agent can detect them. Pure.
+ * @param {{turns?: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} tally
+ * @returns {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}|undefined} */
 export function pickTurnStats(tally) {
   if (typeof tally.turns !== "number") return undefined;
-  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
+  /** @type {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} */
   const out = { turns: tally.turns };
   if (typeof tally.firstContext === "number") out.firstContext = tally.firstContext;
   if (typeof tally.peakContext === "number") out.peakContext = tally.peakContext;
   if (typeof tally.lastContext === "number") out.lastContext = tally.lastContext;
+  if (typeof tally.compactions === "number") out.compactions = tally.compactions;
   return out;
 }
 
@@ -108,7 +110,7 @@ export function createSpawn(ctx) {
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });

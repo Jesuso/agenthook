@@ -42,14 +42,26 @@ const num = (n) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0
  * `part.cost`. The session id is the first `sessionID` any event carried. `result` is
  * non-null once a session id or a `step_finish` was seen, so dispatch records the usage
  * (and the id `ah resume` needs) even when the run is killed mid-way.
+ *
+ * Compaction (#657): the JSON stream emits no compaction event (OpenCode 1.19.5) — the
+ * `compaction` part type and `session.compacted` bus event exist internally but never reach
+ * `run --format json`. Heuristic instead: `prevCtx` is the last *nonzero* step's context; a
+ * `step_finish` whose context drops ≥20% below it is counted as a compaction and rendered at
+ * that step's own `step_finish` — i.e. after that step's tool calls, not at the compaction
+ * itself. A zero-context step_finish (e.g. an errored step) neither counts nor updates
+ * `prevCtx`. If a future OpenCode version streams a real compaction event, handle that too
+ * (count once, don't double-count against this heuristic).
  * @returns {import('../types.js').AgentParser}
  */
 export function createOpencodeParser() {
   let buf = "";
-  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number}} */
-  const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+  /** @type {{input: number, output: number, cacheRead: number, cacheCreate: number, turns?: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions: number}} */
+  const tally = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 };
   let cost = 0;
   let steps = 0;
+  // The last step_finish's nonzero context (#657) — the heuristic compaction detector compares
+  // each new context against it, then only advances it on a nonzero context of its own.
+  let prevCtx = 0;
   /** @type {string|undefined} */
   let sessionId;
 
@@ -81,6 +93,14 @@ export function createOpencodeParser() {
       if (tally.firstContext === undefined) tally.firstContext = ctx;
       tally.peakContext = tally.peakContext === undefined ? ctx : Math.max(tally.peakContext, ctx);
       tally.lastContext = ctx;
+      // Compaction heuristic (#657): a ≥20% context drop from the last nonzero step_finish.
+      let line = "";
+      if (ctx > 0 && prevCtx > 0 && ctx < 0.8 * prevCtx) {
+        tally.compactions++;
+        line = `🗜 compaction (ctx ${prevCtx.toLocaleString("en-US")} → ${ctx.toLocaleString("en-US")})\n`;
+      }
+      if (ctx > 0) prevCtx = ctx;
+      return line;
     }
     return "";
   }

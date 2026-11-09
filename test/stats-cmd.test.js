@@ -59,13 +59,13 @@ test("default --by harness --since 7d: one table, a group row per harness", asyn
     assert.ok(header, "header row");
     assert.deepEqual(
       header.trim().split(/\s{2,}/),
-      ["harness", "runs", "ok%", "adv/chg/hold/fail/tmo/rq/unk", "p50", "p90", "turns", "ctx0", "ctxPk", "in", "out", "cacheR", "out/min", "$", "est$", "unpriced"],
+      ["harness", "runs", "ok%", "adv/chg/hold/fail/tmo/rq/unk", "p50", "p90", "turns", "cmp", "ctx0", "ctxPk", "in", "out", "cacheR", "out/min", "$", "est$", "unpriced"],
     );
     const row = lines.find((l) => l.startsWith("fast"));
     assert.ok(row, "one group row for the harness");
     assert.deepEqual(
       row.trim().split(/\s{2,}/),
-      ["fast", "1", "100%", "1/0/0/0/0/0/0", "2.0m", "2.0m", "—", "—", "—", "100", "50", "0", "25", "$0.0100", "—", "—"],
+      ["fast", "1", "100%", "1/0/0/0/0/0/0", "2.0m", "2.0m", "—", "—", "—", "—", "100", "50", "0", "25", "$0.0100", "—", "—"],
     );
     assert.match(lines.join("\n"), /^since .* \(--by harness\)$/m);
   } finally {

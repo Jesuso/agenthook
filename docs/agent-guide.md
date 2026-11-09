@@ -135,9 +135,11 @@ an optional `"plain"` is the agent's one-sentence `summary.plain`, whitespace-co
 `reason` (clipped to 200 chars) appears on `blocked`/`failed`/`move_refused` (which also carries `outcome` and `detail`). `ci_green` / `ci_red` carry `pr`, `sha` and (`ci_green`) `mergeable` / `mergeState`; an absent `mergeable` means GitHub had not computed it yet — re-read `prs` before merging. `auto_merge_enabled` carries `pr`, `tier`, `method` (and `mergedNow` when it merged at once); `auto_merge_failed` carries `tier`, `reason` and usually `pr`. Result: `{events, cursor, more?,
 timedOut?}` — `more:true` means the page was full, call again with the new cursor.
 
-`runs {ref, tail?}` → `{runs:[{run,step,at,outcome,model?,harness?,costUsd,estUsd?,costBasis?,energyKwh?,energyUsd?,turns?,firstContext?,peakContext?,lastContext?,running?,summary?}], log?}`.
+`runs {ref, tail?}` → `{runs:[{run,step,at,outcome,model?,harness?,costUsd,estUsd?,costBasis?,energyKwh?,energyUsd?,turns?,firstContext?,peakContext?,lastContext?,compactions?,running?,summary?}], log?}`.
 `turns`/`firstContext`/`peakContext`/`lastContext` (#645) appear only when the agent's parser saw at
-least one turn (claude/opencode today; absent on cursor/hermes). `tail:N` adds the
+least one turn (claude/opencode today; absent on cursor/hermes). `compactions` (#657) rides the
+same guard — context compactions the parser saw (claude: `compact_boundary` events; opencode: a
+≥20% prompt-size drop between steps, since its JSON stream emits no compaction event). `tail:N` adds the
 last N transcript lines of the newest run (or `step` / `run`): the way to see *why* an agent held
 or failed. `summary` is the free-form object the agent wrote in its verdict (e.g. a reviewer's risk
 tier — its shape is whatever the project's instructions ask for); it appears only on the run that
@@ -185,13 +187,13 @@ stay small) plus `epicsLive`, or `epicsError` on failure/no support.
 
 `stats {by?, since?, step?, harness?}` (#646) → `{by, since, groups:[{key, runs,
 outcomes:{advance,changes,hold,fail,timeout,requeued,unknown}, successRate, wallP50Ms, wallP90Ms,
-turns, firstContext, peakContext, input, output, cacheRead, outPerMin, costUsd, estUsd, unpriced}]}`,
+turns, firstContext, peakContext, compactions, input, output, cacheRead, outPerMin, costUsd, estUsd, unpriced}]}`,
 groups sorted by `runs` desc. `by` (default `"harness"`) also takes `"model"`, `"step"` or `"agent"`;
 `since` (default `"7d"`) also takes `"24h"`, `"30d"` or `"all"`. Read-only from the state dir like
 `status` — works with the receiver down. The run set is every `run_end` plus any usage record it
 couldn't join to one (a timeout/spawn-error/breaker-trip run writes no usage row, so it would
 otherwise vanish); `successRate` excludes `requeued` from its denominator and is `null` when that's
-0; `wallP50Ms`/`wallP90Ms`/`turns`/`firstContext`/`peakContext`/`outPerMin` are `null` when no run in
+0; `wallP50Ms`/`wallP90Ms`/`turns`/`firstContext`/`peakContext`/`compactions`/`outPerMin` are `null` when no run in
 the group has that figure. `costUsd` is reported spend (never includes an `unpriced` run);
 `estUsd` is the rate-table estimate; `unpriced` is just a count.
 

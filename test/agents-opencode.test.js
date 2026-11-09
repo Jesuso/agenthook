@@ -85,15 +85,15 @@ test("parser: recorded run → tool + text in the log, tally summed over steps, 
   assert.equal(log, "🔧 read\nhello\n");
   // output = 45 + 13 summed; input/cache = the latest step's context
   // turns/firstContext/peakContext/lastContext (#645): 2 step_finish events, ctx 6925+1792=8717 then 108+8704=8812
-  assert.deepEqual(p.tally, { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0, turns: 2, firstContext: 8717, peakContext: 8812, lastContext: 8812 });
+  assert.deepEqual(p.tally, { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0, compactions: 0, turns: 2, firstContext: 8717, peakContext: 8812, lastContext: 8812 });
   assert.equal(p.sessionId, SID);
-  assert.deepEqual(p.result, { session_id: SID, tokens: { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0, turns: 2, firstContext: 8717, peakContext: 8812, lastContext: 8812 }, cost: 0 });
+  assert.deepEqual(p.result, { session_id: SID, tokens: { input: 108, output: 58, cacheRead: 8704, cacheCreate: 0, compactions: 0, turns: 2, firstContext: 8717, peakContext: 8812, lastContext: 8812 }, cost: 0 });
 });
 
 test("parser: reasoning tokens count as output", () => {
   const p = createOpencodeParser();
   p.push(JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input: 1, output: 2, reasoning: 30, cache: { read: 4, write: 5 } }, cost: 0 } }) + "\n");
-  assert.deepEqual(p.tally, { input: 1, output: 32, cacheRead: 4, cacheCreate: 5, turns: 1, firstContext: 10, peakContext: 10, lastContext: 10 });
+  assert.deepEqual(p.tally, { input: 1, output: 32, cacheRead: 4, cacheCreate: 5, compactions: 0, turns: 1, firstContext: 10, peakContext: 10, lastContext: 10 });
 });
 
 test("parser: 3 step_finish events give turns/firstContext/peakContext/lastContext (#645)", () => {
@@ -106,6 +106,42 @@ test("parser: 3 step_finish events give turns/firstContext/peakContext/lastConte
   assert.equal(p.tally.firstContext, 1000);
   assert.equal(p.tally.peakContext, 3000);
   assert.equal(p.tally.lastContext, 500);
+});
+
+// --- compaction heuristic (#657): a ≥20% context drop between step_finish events ---
+
+test("parser: step_finish ctx 30,000 → 61,992 → 25,099 renders exactly one 🗜 compaction", () => {
+  const p = createOpencodeParser();
+  const finish = (input) => JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input, output: 1, cache: { read: 0, write: 0 } }, cost: 0 } });
+  let log = p.push(finish(30000) + "\n");
+  log += p.push(finish(61992) + "\n");
+  log += p.push(finish(25099) + "\n");
+  assert.equal(log, "🗜 compaction (ctx 61,992 → 25,099)\n");
+  assert.equal(p.tally.compactions, 1);
+});
+
+test("parser: a monotonically increasing context stream gives 0 compactions and no marker", () => {
+  const p = createOpencodeParser();
+  const finish = (input) => JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input, output: 1, cache: { read: 0, write: 0 } }, cost: 0 } });
+  let log = p.push(finish(1000) + "\n");
+  log += p.push(finish(2000) + "\n");
+  log += p.push(finish(3000) + "\n");
+  assert.equal(log, "");
+  assert.equal(p.tally.compactions, 0);
+});
+
+test("parser: a zero-token step_finish neither counts a compaction nor resets the baseline", () => {
+  const p = createOpencodeParser();
+  const finish = (input) => JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input, output: 1, cache: { read: 0, write: 0 } }, cost: 0 } });
+  const errored = JSON.stringify({ type: "step_finish", sessionID: "s", part: { tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } }, cost: 0 } });
+  p.push(finish(10000) + "\n");
+  const log = p.push(errored + "\n");
+  assert.equal(log, "", "a zero-ctx step_finish doesn't count");
+  assert.equal(p.tally.compactions, 0);
+  // the baseline is still the last nonzero ctx (10000, not 0) — a real drop below it still counts
+  const log2 = p.push(finish(2000) + "\n");
+  assert.equal(log2, "🗜 compaction (ctx 10,000 → 2,000)\n");
+  assert.equal(p.tally.compactions, 1);
 });
 
 test("parser: a line split across chunks is buffered; one char at a time gives the same output", () => {
@@ -133,7 +169,7 @@ test("parser: unknown event types and non-JSON lines are ignored, never throw", 
   assert.equal(p.sessionId, undefined);
   // the malformed step_finish still counts as a turn (every step_finish is one, #645),
   // just with a zero context (its tokens field isn't an object)
-  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, turns: 1, firstContext: 0, peakContext: 0, lastContext: 0 });
+  assert.deepEqual(p.tally, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0, turns: 1, firstContext: 0, peakContext: 0, lastContext: 0 });
 });
 
 test("parser: an error event becomes a one-line ⚠ in the log, never throws on odd shapes", () => {
@@ -148,7 +184,7 @@ test("parser: result is null until an event, non-null from the first sessionID (
   const p = createOpencodeParser();
   assert.equal(p.result, null);
   p.push(FIXTURE.split("\n")[0] + "\n"); // step_start only
-  assert.deepEqual(p.result, { session_id: SID, tokens: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 }, cost: 0 });
+  assert.deepEqual(p.result, { session_id: SID, tokens: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 }, cost: 0 });
   const rec = opencode.usageRecord(p.result, { ref: "7", stepId: "code", startedAt: "s", endedAt: "e" });
   assert.equal(rec.sessionId, SID);
 });

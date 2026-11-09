@@ -41,7 +41,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {string|null} energyRun
  * @property {number} code
  * @property {any} result
- * @property {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number}} [turnStats]  the parser's per-turn stats (#645), when it saw at least one turn
+ * @property {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} [turnStats]  the parser's per-turn stats (#645), when it saw at least one turn; compactions (#657) rides along the same guard
  * @property {import('../quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
  * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
@@ -190,7 +190,8 @@ export function createFinish(ctx) {
 
     const costUsd = unpriced ? undefined : usage.costUsd;
     // Model + tokens ride along when a result was seen, so Stats can price from events.jsonl alone.
-    // turns/firstContext/peakContext/lastContext (#645) ride along only when the parser saw a turn.
+    // turns/firstContext/peakContext/lastContext/compactions (#645, #657) ride along only when
+    // the parser saw a turn.
     const tokens = result
       ? {
           ...(usage.model ? { model: usage.model } : {}),
@@ -202,6 +203,7 @@ export function createFinish(ctx) {
           ...(typeof usage.firstContext === "number" ? { firstContext: usage.firstContext } : {}),
           ...(typeof usage.peakContext === "number" ? { peakContext: usage.peakContext } : {}),
           ...(typeof usage.lastContext === "number" ? { lastContext: usage.lastContext } : {}),
+          ...(typeof usage.compactions === "number" ? { compactions: usage.compactions } : {}),
         }
       : {};
     // The agent's one plain sentence for a human (summary.plain), whitespace-collapsed; absent when none.

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveModelEffort, descriptionHasHeadings, lookupPr, createDispatcher, promptPathFor, parseSummary, parseVerdict, NO_VALID_VERDICT, QUESTION_HOLD, MAX_OPTION_CHARS, MAX_SUMMARY_CHARS, endedWithQuestion } from "../src/dispatch.js";
+import { pickTurnStats } from "../src/dispatch/spawn.js";
 
 // --- parseVerdict: requireVerdict x {valid, missing, garbage, unknown outcome, non-zero exit} ---
 
@@ -1706,10 +1707,28 @@ test("run_end + usage record: turns/firstContext/peakContext/lastContext (#645) 
 test("run_end + usage record: no per-turn usage seen → turns/firstContext/peakContext/lastContext absent, not zero", async () => {
   const r = await timeoutRun(`echo '${RESULT_LINE}'`, {});
   const end = r.events.find((e) => e.event === "run_end");
-  for (const k of ["turns", "firstContext", "peakContext", "lastContext"]) {
+  for (const k of ["turns", "firstContext", "peakContext", "lastContext", "compactions"]) {
     assert.equal(k in end, false, `${k} absent from run_end`);
     assert.equal(k in r.usage[0], false, `${k} absent from the usage record`);
   }
+});
+
+// --- pickTurnStats (src/dispatch/spawn.js): compactions (#657) rides the same `turns` guard ---
+
+test("pickTurnStats: compactions is copied only alongside turns", () => {
+  assert.deepEqual(pickTurnStats({ turns: 2, compactions: 1 }), { turns: 2, compactions: 1 });
+  assert.equal(pickTurnStats({ compactions: 0 }), undefined, "no turns → undefined, even with compactions set");
+  assert.deepEqual(pickTurnStats({ turns: 1 }), { turns: 1 }, "cursor/hermes-style tally (no compactions) yields no key");
+  assert.deepEqual(pickTurnStats({ turns: 3, firstContext: 10, peakContext: 30, lastContext: 20, compactions: 0 }), { turns: 3, firstContext: 10, peakContext: 30, lastContext: 20, compactions: 0 });
+});
+
+test("run_end + usage record: a compact_boundary event rides along as compactions (#657)", async () => {
+  const ASSISTANT_LINE = JSON.stringify({ type: "assistant", message: { id: "msg_1", content: [], usage: { input_tokens: 1000 } } });
+  const BOUNDARY_LINE = JSON.stringify({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 1000 } });
+  const r = await timeoutRun(`echo '${ASSISTANT_LINE}'\necho '${BOUNDARY_LINE}'\necho '${RESULT_LINE}'`, {});
+  const end = r.events.find((e) => e.event === "run_end");
+  assert.equal(end.compactions, 1);
+  assert.equal(r.usage[0].compactions, 1);
 });
 
 test("run_end: a non-Claude step model is unpriced — no costUsd", async () => {
