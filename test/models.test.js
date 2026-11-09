@@ -26,19 +26,26 @@ test("CONTEXT_WINDOWS: every key resolves through contextWindowOf", () => {
   }
 });
 
-test("resolveContextWindow: explicit step.contextTokens wins over everything", () => {
+test("resolveContextWindow: explicit step.contextTokens wins over everything, including opencodeConfig", () => {
   assert.equal(resolveContextWindow({ step: { contextTokens: 64000 }, model: "claude-opus-5-5" }), 64000);
   assert.equal(resolveContextWindow({ step: { contextTokens: 64000 }, model: "qwen3-coder" }), 64000);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-models-explicit-"));
+  const cfgPath = path.join(dir, "opencode.json");
+  fs.writeFileSync(cfgPath, JSON.stringify({ provider: { anthropic: { models: { "claude-opus-5-5": { limit: { context: 131072 } } } } } }));
+  const step = { contextTokens: 64000, opencodeConfig: cfgPath };
+  assert.equal(resolveContextWindow({ step, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 64000);
 });
 
 test("resolveContextWindow: opencodeConfig's limit.context wins over the built-in table", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-models-"));
   const cfgPath = path.join(dir, "opencode.json");
-  fs.writeFileSync(cfgPath, JSON.stringify({ provider: { ollama: { models: { "qwen3-coder": { limit: { context: 131072 } } } } } }));
+  // anthropic/claude-opus-5-5 is in the built-in table at 200000 — opencodeConfig must still override it.
+  fs.writeFileSync(cfgPath, JSON.stringify({ provider: { anthropic: { models: { "claude-opus-5-5": { limit: { context: 64000 } } } } } }));
   const step = { opencodeConfig: cfgPath };
-  assert.equal(resolveContextWindow({ step, model: "ollama/qwen3-coder", agentName: "opencode" }), 131072);
-  // Not opencode: the opencodeConfig is never consulted, even though it's set.
-  assert.equal(resolveContextWindow({ step, model: "ollama/qwen3-coder", agentName: "claude" }), null);
+  assert.equal(resolveContextWindow({ step, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 64000);
+  // Not opencode: the opencodeConfig is never consulted, even though it's set — falls through to the table.
+  assert.equal(resolveContextWindow({ step, model: "anthropic/claude-opus-5-5", agentName: "claude" }), 200000);
 });
 
 test("resolveContextWindow: an unreadable or invalid opencodeConfig falls through to the table, never throws", () => {
