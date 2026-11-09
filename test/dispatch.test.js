@@ -66,7 +66,7 @@ test("endedWithQuestion: confirmation phrases mark a question even without a '?'
   assert.equal(endedWithQuestion("Want me to go ahead"), "Want me to go ahead");
   assert.equal(endedWithQuestion("should i apply the fix"), "should i apply the fix");
   assert.equal(endedWithQuestion("Shall I open a PR for this"), "Shall I open a PR for this");
-  assert.equal(endedWithQuestion("do you want me to restart it"), "do you want me to restart it");
+  assert.equal(endedWithQuestion("Do you want the full refactor or just the fix"), "Do you want the full refactor or just the fix");
   assert.equal(endedWithQuestion("Let me know if that works."), "Let me know if that works.");
 });
 
@@ -514,6 +514,14 @@ test("dispatch: a clean exit, no verdict, last line a question -> QUESTION_HOLD 
 test("dispatch: a clean exit, no verdict, last line a statement -> plain NO_VALID_VERDICT", async () => {
   const dir = tmpDir();
   const h = questionHoldHarness(dir, printAndExit("Done with the fix."));
+  await h.runStep();
+  assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT);
+  assert.equal(h.events.find((e) => e.event === "verdict_missing")?.reason, NO_VALID_VERDICT);
+});
+
+test("dispatch: a clean exit, no verdict, question written only to stderr -> plain NO_VALID_VERDICT", async () => {
+  const dir = tmpDir();
+  const h = questionHoldHarness(dir, `printf '%s' "Want me to go ahead and start implementing fix 1?" >&2\nexit 0`);
   await h.runStep();
   assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT);
   assert.equal(h.events.find((e) => e.event === "verdict_missing")?.reason, NO_VALID_VERDICT);
