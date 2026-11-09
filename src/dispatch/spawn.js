@@ -12,6 +12,11 @@ import { modelApiFailure } from "./harness.js";
  * (`modelApiFailure`) keeps, tail-bounded — enough for the one line that matters, not the whole run. */
 const API_SCAN_BUF_BYTES = 64 * 1024;
 
+/** How much of a run's RENDERED stdout (stdout only, stderr excluded) the harness keeps to detect a
+ * run that ended its turn on a question (the question-hold reason, verdict.js `endedWithQuestion`) —
+ * the final line lives in the last few KB, so this is far smaller than the API-scan buffer. */
+const STDOUT_TAIL_BUF_BYTES = 4 * 1024;
+
 /** The defined subset of a parser's per-turn stats (#645), or undefined when the parser never
  * saw a turn (`tally.turns` unset) — so a result with no per-turn usage adds nothing to the
  * record rather than zeros. Pure.
@@ -100,8 +105,11 @@ export function createSpawn(ctx) {
    * raw stderr and final result text (the harness breaker's any-duration signal, src/dispatch/harness.js).
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number}) => void,
    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}}} o
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string}>}
-   */
+    * `lastText` is the run's last output the question-hold detector inspects: the final result text
+    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
+    * (stdout only) — `undefined` when neither produced anything.
+    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
+    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
@@ -217,6 +225,14 @@ export function createSpawn(ctx) {
         if (!s) return;
         apiBuf = (apiBuf + s).slice(-API_SCAN_BUF_BYTES);
       };
+      // Rendered stdout only (stderr excluded), for the question-hold detector: it inspects the
+      // last line of what the agent printed, so a small tail suffices.
+      let stdoutTail = "";
+      /** @param {string} s */
+      const bufferStdout = (s) => {
+        if (!s) return;
+        stdoutTail = (stdoutTail + s).slice(-STDOUT_TAIL_BUF_BYTES);
+      };
 
       let lastOut = 0;
       child.stdout.setEncoding("utf8");
@@ -225,6 +241,7 @@ export function createSpawn(ctx) {
         const text = parser.push(chunk);
         if (text) logStream.write(text);
         bufferApi(text);
+        bufferStdout(text);
         if (onTally && parser.tally.output !== lastOut) {
           lastOut = parser.tally.output;
           onTally(parser.tally);
@@ -245,8 +262,14 @@ export function createSpawn(ctx) {
         const tail = parser.flush();
         if (tail) logStream.write(tail);
         bufferApi(tail);
+        bufferStdout(tail);
         if (typeof parser.result?.result === "string") bufferApi(parser.result.result);
         const apiDown = modelApiFailure(apiBuf);
+        // The run's last output the question-hold detector inspects: the final result text when the
+        // parser captured one (a non-empty string), else the tail of its rendered stdout. Omitted
+        // when neither produced anything, so a run with no output can't trip the question-hold.
+        const resultText = typeof parser.result?.result === "string" && parser.result.result ? parser.result.result : undefined;
+        const lastText = resultText ?? (stdoutTail ? stdoutTail : undefined);
         children?.delete(child);
         /** @type {import('../types.js').SandboxReport|undefined} */
         let sandboxReport;
@@ -270,7 +293,7 @@ export function createSpawn(ctx) {
           }
         }
         const turnStats = pickTurnStats(parser.tally);
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}) });
       });
     });
   }

@@ -61,6 +61,17 @@ Steps that write code (`code`, a `createsWorktree` step) gain the most from a st
 A weaker model is more likely to loop: a local `review` can keep returning `changes` that `code`
 can't satisfy. `maxAttempts` (default 3) bounds that loop, then the task fails to a human.
 
+A second way a weak/local model stalls is ending its turn with a **question** instead of a verdict —
+"Want me to go ahead?", "Should I apply the fix?" — because it's unsure and there's no one to ask.
+With `requireVerdict` on (the default) that still holds the task, but instead of the generic
+`"no valid verdict"` the held reason (and the `blocked`/`verdict_missing` events) read
+`no verdict: the agent ended by asking a question instead of acting: "<the line>"`, quoting the
+question so you can see exactly what it wanted to know. The fix is the same as for a normal
+hold: answer it with `release {ref, comment}` (the comment lands in the resumed run's prompt) or
+re-instruct with `run {ref, force:true}`. Every step prompt already tells the agent it is
+unattended and must not stop to ask, but smaller models still do — this reason names when that
+happened.
+
 ## Several backends: harnesses
 
 A step's `maxConcurrent` caps one step. When two steps share one local GPU, they can still hit it
