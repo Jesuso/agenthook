@@ -51,10 +51,23 @@ test("default --by harness --since 7d: one table, a group row per harness", asyn
   const c = capture();
   try {
     await stats({ _: [], config: p.configPath });
-    const text = c.out.join("\n");
-    assert.match(text, /^harness\s+runs/m, "header row");
-    assert.match(text, /^fast\s+1\s+100%/m, "one group row for the harness");
-    assert.match(text, /^since .* \(--by harness\)$/m);
+    const lines = c.out.join("\n").split("\n");
+    // Full-row snapshot (not just a header/prefix match): every column, so a broken outcome
+    // count, wall, token, throughput or cost column fails this test. Wall is a fixed 2m here
+    // (STARTED_ISO is NOW - 2min), so only the trailing "since" line is clock-dependent.
+    const header = lines.find((l) => l.startsWith("harness"));
+    assert.ok(header, "header row");
+    assert.deepEqual(
+      header.trim().split(/\s{2,}/),
+      ["harness", "runs", "ok%", "adv/chg/hold/fail/tmo/rq/unk", "p50", "p90", "turns", "ctx0", "ctxPk", "in", "out", "cacheR", "out/min", "$", "est$", "unpriced"],
+    );
+    const row = lines.find((l) => l.startsWith("fast"));
+    assert.ok(row, "one group row for the harness");
+    assert.deepEqual(
+      row.trim().split(/\s{2,}/),
+      ["fast", "1", "100%", "1/0/0/0/0/0/0", "2.0m", "2.0m", "—", "—", "—", "100", "50", "0", "25", "$0.0100", "—", "—"],
+    );
+    assert.match(lines.join("\n"), /^since .* \(--by harness\)$/m);
   } finally {
     c.restore();
   }

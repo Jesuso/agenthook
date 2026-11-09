@@ -57,3 +57,23 @@ test("stats tool stays read-only (listed when readOnly)", () => {
   const t = createTools({ readOnly: true });
   assert.ok(t.list().some((x) => x.name === "stats"));
 });
+
+test("stats tool reads the whole events.jsonl, not just the UI's 256 KB tail", async () => {
+  // A run_end near the top of the file, followed by > 256 KB of unrelated events, used to fall
+  // outside readEventsTail's default window — the run_end was invisible, so its usage row
+  // (still fully read from usage.jsonl) counted as `unknown` instead of `advance`.
+  const registry = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-mcpstats-tail-"));
+  const dir = profile(registry, "p", {
+    usage: [{ ref: "1", stepId: "code", harness: "fast", startedAt: STARTED_ISO, endedAt: NOW_ISO, input: 10, output: 20, cacheRead: 0, cacheCreate: 0 }],
+  });
+  const lines = [JSON.stringify({ ts: NOW_ISO, event: "run_end", ref: "1", step: "code", outcome: "advance", harness: "fast" })];
+  const pad = JSON.stringify({ ts: NOW_ISO, event: "noop", pad: "x".repeat(500) });
+  while (Buffer.byteLength(lines.join("\n")) < 400 * 1024) lines.push(pad);
+  fs.writeFileSync(path.join(dir, "events.jsonl"), lines.join("\n") + "\n");
+
+  const t = createTools({ registry });
+  const r = await t.call("stats", { profile: "p" }, { signal: new AbortController().signal });
+  assert.equal(r.groups[0].key, "fast");
+  assert.equal(r.groups[0].outcomes.advance, 1);
+  assert.equal(r.groups[0].outcomes.unknown, 0);
+});

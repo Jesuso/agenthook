@@ -654,6 +654,17 @@ function fmtWallMs(ms: number | null): string {
  * group other than `(none)` (a harness ran before `harnesses` was removed from config, or before
  * the receiver booted this session) — otherwise there's nothing to route between, so it stays hidden.
  */
+/**
+ * Shown when the profile configures named harnesses (its slots chip is up, even with the
+ * receiver down), or when the 7-day result already has a group other than `(none)` (a harness
+ * ran before `harnesses` was removed from config, or before the receiver booted this session —
+ * data is read straight from the state dir, so it's available even then). Pulled out as a pure
+ * function so both branches are unit-testable without waiting on the fetch effect below.
+ */
+export function harnessesVisible(configured: boolean, groups: StatsGroup[]): boolean {
+  return configured || groups.some((g) => g.key !== "(none)");
+}
+
 function HarnessesZone({ profile }: { profile: ProfileView }) {
   const { t, lang } = useT();
   const [data, setData] = useState<StatsResult | null>(null);
@@ -670,8 +681,7 @@ function HarnessesZone({ profile }: { profile: ProfileView }) {
 
   const configured = !!profile.harnesses && Object.keys(profile.harnesses).length > 0;
   const groups = data?.groups ?? [];
-  const named = groups.some((g) => g.key !== "(none)");
-  if (!configured && !named) return null;
+  if (!harnessesVisible(configured, groups)) return null;
 
   return (
     <Zone title={t("overview.harnesses")}>

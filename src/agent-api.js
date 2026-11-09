@@ -14,7 +14,7 @@ import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "./epics.js";
 import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
 import { readProfileState, buildRows, readJson, isObj, harnessSlots, readEventsTail } from "./ui/rows.js";
-import { readHistory } from "./ui/stats.js";
+import { readHistory, READ_CAP_BYTES } from "./ui/stats.js";
 import { pricingOf } from "./pricing.js";
 import { normalizeQuota, normalizeTrip } from "./quota.js";
 import { pendingFollowUp } from "./followup.js";
@@ -226,7 +226,7 @@ export function readRunStats(entry, args = {}) {
   const sinceMs = sinceMsOf(since);
   if (sinceMs === undefined) throw new Error(`stats: "since" must be one of ${STATS_SINCE.join(", ")}`);
   const usage = createStore(entry.dir).readUsage();
-  const events = readEventsTail(path.join(entry.dir, "events.jsonl"));
+  const events = readEventsTail(path.join(entry.dir, "events.jsonl"), READ_CAP_BYTES); // stats need the whole window, not just the UI's 256 KB tail
   let steps = /** @type {{id: string, agent?: string}[]} */ ([]);
   let defaultAgent = "claude";
   if (entry.configPath) {

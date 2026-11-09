@@ -15,7 +15,7 @@ import { quantile } from "../stats.js";
 export { quantile };
 
 export const STATS_MAX_DAYS = 366;
-const READ_CAP_BYTES = 64 * 1024 * 1024; // a bigger history is read from its last 64 MB
+export const READ_CAP_BYTES = 64 * 1024 * 1024; // a bigger history is read from its last 64 MB
 const DAY_MS = 24 * 3600 * 1000;
 const KEEP = new Set(["pipeline_done", "board_done", "merged", "run_end", "run_start"]);
 const OUTCOMES = ["advance", "changes", "hold", "fail"];

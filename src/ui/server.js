@@ -39,7 +39,7 @@ import os from "node:os";
 import { canonicalLang } from "../digest-config.js";
 import { EPIC_REF_RE } from "../epics.js";
 import { readLocalEpics } from "../agent-api.js";
-import { readStats } from "./stats.js";
+import { readStats, READ_CAP_BYTES } from "./stats.js";
 import { runStats } from "../stats.js";
 import { createStore } from "../store.js";
 import { pricingOf } from "../pricing.js";
@@ -689,7 +689,8 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
         const pricing = pricingOf(readProfile(profile, registry)?.heartbeat);
         return sendJson(res, () => {
           const usage = createStore(dir).readUsage();
-          const events = readEventsTail(path.join(dir, "events.jsonl"));
+          // stats need the whole window, not just the live-tail routes' 256 KB default
+          const events = readEventsTail(path.join(dir, "events.jsonl"), READ_CAP_BYTES);
           return runStats(usage, events, { by: "harness", sinceMs: 7 * 24 * 3600 * 1000, pricing });
         });
       }

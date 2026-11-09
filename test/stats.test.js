@@ -40,6 +40,13 @@ test("agent falls back to the step's configured agent, then defaultAgent, then (
   assert.equal(r3.groups[0].key, "(unknown)");
 });
 
+test("usage.agent wins over the step's configured agent and defaultAgent", () => {
+  const u = [usage({ agent: "cursor" })];
+  const e = [runEnd("2026-11-08T12:00:00Z")];
+  const r = runStats(u, e, { by: "agent", now: NOW, steps: [{ id: "code", agent: "hermes" }], defaultAgent: "opencode" });
+  assert.equal(r.groups[0].key, "cursor");
+});
+
 test("success rate excludes requeued from the denominator", () => {
   const e = [
     runEnd("2026-11-08T11:00:00Z", { outcome: "advance" }),
@@ -86,6 +93,38 @@ test("nearest-within-5s join; each usage row consumed at most once", () => {
   assert.equal(r.groups[0].outcomes.advance, 2);
 });
 
+test("two run_ends within 5s of the same usage row: only the nearer one claims it", () => {
+  // A single usage row at T; run_ends at T+1s and T+2s both sit within JOIN_MS of it.
+  // Correct: the nearer run_end (gap 1s) claims it; the other gets no usage row (output 0),
+  // so the group's total output is 999 once, not 1998 (double-matched) nor 0 (unmatched).
+  const u = [usage({ ref: "a", endedAt: "2026-11-08T12:00:00Z", output: 999 })];
+  const e = [
+    runEnd("2026-11-08T12:00:01Z", { ref: "a", outcome: "advance" }),
+    runEnd("2026-11-08T12:00:02Z", { ref: "a", outcome: "advance" }),
+  ];
+  const r = runStats(u, e, { by: "step", now: NOW });
+  assert.equal(r.groups[0].runs, 2);
+  assert.equal(r.groups[0].outcomes.advance, 2);
+  assert.equal(r.groups[0].outcomes.unknown, 0);
+  assert.equal(r.groups[0].output, 999);
+});
+
+test("one run_end with two candidate usage rows: nearer gap wins, not iteration order", () => {
+  // Usage row A (gap 4s) is pushed first, usage row B (gap 1s) second — so "first row within
+  // the window" would wrongly pick A. The run_end must match B (nearest); A is left unmatched
+  // and counted as its own `unknown` run. Distinct `model` values on A/B let us tell which one
+  // the run_end actually joined to, since both runs otherwise land in the same `step` group.
+  const u = [
+    usage({ endedAt: "2026-11-08T12:00:04Z", model: "model-a" }),
+    usage({ endedAt: "2026-11-08T12:00:01Z", model: "model-b" }),
+  ];
+  const e = [runEnd("2026-11-08T12:00:00Z", { outcome: "advance" })];
+  const r = runStats(u, e, { by: "model", now: NOW });
+  const byKey = Object.fromEntries(r.groups.map((g) => [g.key, g]));
+  assert.equal(byKey["model-b"]?.outcomes.advance, 1, "the nearer row (gap 1s) must be the one the run_end joins to");
+  assert.equal(byKey["model-a"]?.outcomes.unknown, 1, "the farther row (gap 4s) is left unmatched");
+});
+
 test("fail + a following timeout: reason counts as timeout, not fail", () => {
   const e = [runEnd("2026-11-08T11:00:00Z", { outcome: "fail" }), failed("2026-11-08T11:00:02Z")];
   const r = runStats([], e, { by: "step", now: NOW });
@@ -115,8 +154,22 @@ test("missing turns/context give null means", () => {
   const e = [runEnd("2026-11-08T12:00:00Z"), runEnd("2026-11-08T12:00:00Z", { ref: "2" })];
   const r = runStats(u, e, { by: "step", now: NOW });
   assert.equal(r.groups[0].turns, 3);
+  assert.equal(r.groups[0].firstContext, 100);
+  assert.equal(r.groups[0].peakContext, 200);
   const r2 = runStats([usage({ ref: "3" })], [runEnd("2026-11-08T12:00:00Z", { ref: "3" })], { by: "step", now: NOW });
   assert.equal(r2.groups[0].turns, null);
+  assert.equal(r2.groups[0].firstContext, null);
+  assert.equal(r2.groups[0].peakContext, null);
+});
+
+test("outPerMin only counts runs that have a wall time", () => {
+  // Run A: output 60 over 1 minute wall -> outPerMin would be 60 if computed alone.
+  // Run B: no usage row (no wall), but its own `output` on the run_end is large (1000) — it
+  // must not inflate outPerMin's numerator or be treated as having a wall-minute denominator.
+  const u = [usage({ output: 60, startedAt: "2026-11-08T12:00:00Z", endedAt: "2026-11-08T12:01:00Z" })];
+  const e = [runEnd("2026-11-08T12:01:00Z", { outcome: "advance" }), runEnd("2026-11-08T12:00:00Z", { ref: "2", outcome: "fail", output: 1000 })];
+  const r = runStats(u, e, { by: "step", now: NOW });
+  assert.equal(r.groups[0].outPerMin, 60);
 });
 
 test("unpriced count excludes those runs from costUsd", () => {

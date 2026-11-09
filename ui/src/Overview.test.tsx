@@ -1,10 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Overview } from "./Overview";
+import { Overview, harnessesVisible } from "./Overview";
 import type { OverviewProps } from "./Overview";
 import type { ReleaseOutcome } from "./config";
-import type { ProfileView, TicketRow } from "./contract";
+import type { ProfileView, StatsGroup, TicketRow } from "./contract";
+
+const statsGroup = (over: Partial<StatsGroup> = {}): StatsGroup => ({
+  key: "(none)", runs: 1, outcomes: { advance: 1, changes: 0, hold: 0, fail: 0, timeout: 0, requeued: 0, unknown: 0 },
+  successRate: 1, wallP50Ms: 1000, wallP90Ms: 1000, turns: null, firstContext: null, peakContext: null,
+  input: 0, output: 0, cacheRead: 0, outPerMin: null, costUsd: 0, estUsd: 0, unpriced: 0, ...over,
+});
 
 const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
 const local = (h: number, day = 8) => new Date(2026, 9, day, h).toISOString();
@@ -199,6 +205,16 @@ describe("Overview", () => {
   it("hides the Harnesses table for a profile with no harnesses configured and no prior run to show (#646)", () => {
     const html = render(profile(), []);
     expect(html).not.toContain("data-harnesses-table");
+  });
+
+  // HarnessesZone fetches /api/harness-stats in a useEffect, which renderToStaticMarkup never
+  // runs — so the "receiver down, but the 7-day result has a named group" branch is exercised
+  // against the pure visibility predicate it's built on, not the live-fetch render (#646).
+  it("harnessesVisible: shown when harnesses are configured, or a named group exists even without config (#646)", () => {
+    expect(harnessesVisible(true, [])).toBe(true);
+    expect(harnessesVisible(false, [])).toBe(false);
+    expect(harnessesVisible(false, [statsGroup({ key: "(none)" })])).toBe(false);
+    expect(harnessesVisible(false, [statsGroup({ key: "qwen" })])).toBe(true);
   });
 
   it("shows waiting time on a queued row with a queuedAt stamp, and nothing with none", () => {
