@@ -195,7 +195,7 @@
  * @property {string} [harness]    the named harness that ran it — only on a harness run
  * @property {string} startedAt    ISO timestamp the run was spawned
  * @property {string} endedAt      ISO timestamp the run exited
- * @property {number} [durationMs] `result.duration_ms` if present
+ * @property {number} [durationMs] `result.duration_ms` if the adapter reports it, else `endedAt - startedAt` (dispatch derives it for agents like opencode/hermes that don't)
  * @property {number} input        usage.input_tokens
  * @property {number} output       usage.output_tokens
  * @property {number} cacheRead    usage.cache_read_input_tokens

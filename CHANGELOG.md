@@ -95,6 +95,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `usage.jsonl` records carry `durationMs` for every agent: dispatch derives it from `startedAt`/`endedAt` when the adapter reports no `duration_ms` (opencode, hermes), so `stats` and the digest's wall-time columns no longer skip those runs (#652).
 - `tick`/`status` show `slots.harnesses` (and `capped`) from boot: the heartbeat's queue state is seeded from the queue when the engine starts, not only after the first run.
 - Sandbox egress: an operator `!private` rule now replaces the plain rule for the same `host:port`, including the agent's own `ANTHROPIC_BASE_URL` rule. A model served on the LAN behind `ANTHROPIC_BASE_URL` was refused even when allowed with `!private`, because the proxy takes the first matching rule.
 - A missing agent binary (`ENOENT` at spawn) no longer crashes the receiver: the run fails with
