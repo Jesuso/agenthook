@@ -89,6 +89,9 @@ All notable changes to this project are documented here. The format is based on
 - `docs/local-models.md` gains a "Behind the sandbox" note on reaching a LAN model endpoint from a
   sandboxed run: `ANTHROPIC_BASE_URL` at the host's LAN IP, a `!private` egress rule, and the host
   firewall (`ufw`) that may still drop the Docker bridge traffic (#628).
+- `docs/local-models.md` gains an OpenCode variant of the Ollama worked example: a third `oc-local`
+  harness on the same Ollama behind a minimal `opencodeConfig`, with the shared-GPU
+  `maxConcurrent`/`OLLAMA_NUM_PARALLEL` note (#650).
 
 ### Fixed
 
