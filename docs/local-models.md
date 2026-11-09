@@ -235,6 +235,57 @@ Notes from running it:
 - **Firewall.** The container reaches Ollama through the egress proxy at the host's LAN address;
   a host firewall may drop that (`sudo ufw allow in on docker0 to any port 11434 proto tcp`).
 
+### Variant: OpenCode on the same Ollama
+
+OpenCode also runs inside the sandbox (#647), so the same example can spill through an OpenCode
+harness on the same Ollama — the `harnesses` block gains a third entry and the `code` step lists
+it first:
+
+```jsonc
+{
+  "harnesses": {
+    "oc-local": {
+      "agent": "opencode",
+      "model": "ollama/qwen3.8:27b-64k",
+      "opencodeConfig": "~/.agenthook/<profile>/opencode-lan.json",
+      "maxConcurrent": 1
+    },
+    "local": { "model": "qwen3.8:27b-64k", "env": { "ANTHROPIC_BASE_URL": "http://192.168.1.20:11434" }, "maxConcurrent": 2 },
+    "cloud": { "model": "claude-sonnet-5" }
+  },
+  "tracker": {
+    "pipeline": [
+      { "id": "code", "harness": ["oc-local", "local", "cloud"], "routing": "first-free", "createsWorktree": true, "maxMinutes": 180 }
+    ]
+  }
+}
+```
+
+`local` and `oc-local` share one GPU, so their `maxConcurrent` values should add up to what Ollama
+serves in parallel (`OLLAMA_NUM_PARALLEL`): here 2 + 1, so run Ollama with `OLLAMA_NUM_PARALLEL=3`
+(a third context on a two-slot server would queue inside Ollama and look like a stall).
+
+The harness's `opencodeConfig` is a minimal OpenCode config with the one provider and model:
+
+```jsonc
+{
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://192.168.1.20:11434/v1" },
+      "models": {
+        "qwen3.8:27b-64k": { "limit": { "context": 65536 } }
+      }
+    }
+  }
+}
+```
+
+See [OpenCode in the sandbox](sandbox.md#opencode-in-the-sandbox) for why this file is copied —
+never mounted — into the run's per-run sandbox HOME, and why `localhost` in it reaches the
+container, not the host. The `!private` egress rule and the `docker0` firewall note above apply
+to this URL too.
+
 ## Cost reporting
 
 `claude` prices every run from its own Claude price table, so a run on a local model still
