@@ -250,7 +250,7 @@ it first:
       "opencodeConfig": "~/.agenthook/<profile>/opencode-lan.json",
       "maxConcurrent": 1
     },
-    "local": { "model": "qwen3.8:27b-64k", "env": { "ANTHROPIC_BASE_URL": "http://192.168.1.20:11434" }, "maxConcurrent": 2 },
+    "local": { "model": "qwen3.8:27b-64k", "env": { "ANTHROPIC_BASE_URL": "http://192.168.1.20:11434" }, "maxConcurrent": 1 },
     "cloud": { "model": "claude-sonnet-5" }
   },
   "tracker": {
@@ -262,8 +262,8 @@ it first:
 ```
 
 `local` and `oc-local` share one GPU, so their `maxConcurrent` values should add up to what Ollama
-serves in parallel (`OLLAMA_NUM_PARALLEL`): here 2 + 1, so run Ollama with `OLLAMA_NUM_PARALLEL=3`
-(a third context on a two-slot server would queue inside Ollama and look like a stall).
+serves in parallel (`OLLAMA_NUM_PARALLEL`): here 1 + 1 on the two-slot server above (`local` drops
+from 2 to 1). A third context on a two-slot server would queue inside Ollama and look like a stall.
 
 The harness's `opencodeConfig` is a minimal OpenCode config with the one provider and model:
 
