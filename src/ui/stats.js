@@ -10,9 +10,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { costOf } from "../pricing.js";
 import { isBoardDone } from "../board-done.js";
+import { quantile } from "../stats.js";
+
+export { quantile };
 
 export const STATS_MAX_DAYS = 366;
-const READ_CAP_BYTES = 64 * 1024 * 1024; // a bigger history is read from its last 64 MB
+export const READ_CAP_BYTES = 64 * 1024 * 1024; // a bigger history is read from its last 64 MB
 const DAY_MS = 24 * 3600 * 1000;
 const KEEP = new Set(["pipeline_done", "board_done", "merged", "run_end", "run_start"]);
 const OUTCOMES = ["advance", "changes", "hold", "fail"];
@@ -53,15 +56,6 @@ const finiteNum = (v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ?
 
 /** @param {number} ts @param {number} tzOffset */
 const dayKey = (ts, tzOffset) => new Date(ts - tzOffset * 60000).toISOString().slice(0, 10);
-
-/** Linear-interpolated quantile of an ascending-sorted array. @param {number[]} sorted @param {number} q */
-export function quantile(sorted, q) {
-  if (!sorted.length) return 0;
-  const i = (sorted.length - 1) * q;
-  const lo = Math.floor(i);
-  const hi = Math.ceil(i);
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
-}
 
 /**
  * Bucket events (oldest first) into the last `days` local days. Pure. `pricing` = the profile's

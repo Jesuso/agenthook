@@ -11,6 +11,7 @@ import {
   mergeTagged,
   waitForEventsMulti,
   readStatus,
+  readRunStats,
   readProfiles,
   readTick,
   readRuns,
@@ -64,6 +65,18 @@ const TOOLS = {
     def: schema(
       "Live picture of one profile: slots {max,active,queued,free}, running agents (ref, step, ageS, model), queued jobs, held tasks (why), failed tasks (why — real failures not yet re-run or dismissed; with `held` this is the dashboard's \"needs you\" list), pause/restart flags. `free` is how many more tasks can start now. Pass `ifNoneMatch` with the last `etag` to get `{unchanged:true}` (near-zero tokens) when nothing changed. profile:\"*\" = all profiles.",
       { profile: PROFILE, ifNoneMatch: { type: "string", description: "etag from a previous status call" } },
+    ),
+  },
+  stats: {
+    def: schema(
+      "Per-harness/model/step/agent run statistics (#646): outcome counts (advance/changes/hold/fail/timeout/requeued/unknown), success rate, wall-time p50/p90, mean turns/context, token throughput and cost. Read-only from the state dir — works with the receiver down. Default groups by harness over the last 7 days.",
+      {
+        profile: PROFILE,
+        by: { type: "string", description: "harness (default) | model | step | agent" },
+        since: { type: "string", description: "24h | 7d (default) | 30d | all" },
+        step: { type: "string", description: "only this step's runs" },
+        harness: { type: "string", description: "only this harness's runs (\"(none)\" = runs with no named harness)" },
+      },
     ),
   },
   tick: {
@@ -300,6 +313,9 @@ export function createTools({ readOnly = false, defaultProfile = null, registry 
       if (args.profile === "*") return listProfiles(registry).filter((p) => !p.ghost && p.up).map((p) => readStatus(p));
       const s = readStatus(target(args));
       return args.ifNoneMatch && args.ifNoneMatch === s.etag ? { unchanged: true, etag: s.etag } : s;
+    },
+    async stats(args) {
+      return readRunStats(target(args), { by: args.by, since: args.since, step: args.step, harness: args.harness });
     },
     async tick(args) {
       const entries = targets(args);

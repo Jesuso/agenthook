@@ -30,6 +30,8 @@
 //   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
 //   agenthook digest [name] [--json] write + print a profile's Digest (no receiver needed)
 //   agenthook watch [name] [--event a,b] [--ref r] [--timeout s] [--follow]  block until the next event (--follow: stream JSON lines)
+//   agenthook stats [--by harness|model|step|agent] [--since 24h|7d|30d|all] [--step <id>] [--harness <n>] [--json]
+//                   per-harness/model/step/agent run outcomes, wall time, context and cost
 //
 // Global flag: --config <path> selects a config explicitly (default: discover
 // agenthook.config.json from the current dir upward).
@@ -53,6 +55,7 @@ import { recheck } from "../src/commands/recheck.js";
 import { doctor } from "../src/commands/doctor.js";
 import { alias } from "../src/commands/alias.js";
 import { usage } from "../src/commands/usage.js";
+import { stats } from "../src/commands/stats.js";
 import { events } from "../src/commands/events.js";
 import { ui } from "../src/commands/ui.js";
 import { mcp } from "../src/commands/mcp.js";
@@ -70,7 +73,7 @@ import { fileURLToPath } from "node:url";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "host", "cursor", "timeout", "heartbeat", "liveness", "wake", "quiet", "body", "file", "step", "name", "agent", "blocked-by"]);
+const VALUE_FLAGS = new Set(["config", "limit", "ref", "event", "repo", "port", "host", "cursor", "timeout", "heartbeat", "liveness", "wake", "quiet", "body", "file", "step", "name", "agent", "blocked-by", "by", "since", "harness"]);
 
 /** @param {string[]} argv */
 export function parse(argv) {
@@ -100,7 +103,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -178,6 +181,9 @@ usage: agenthook <command> [args] [--config <path>]
   doctor [--fix [--dry-run]]  preflight checks; --fix applies the safe local fixes, then re-checks
   alias [--remove]          add (or remove) an \`ah\` shortcut for \`agenthook\`
   usage [--ref <n>] [--day|--week] [--limit <n>]  token/cost records
+  stats [--by harness|model|step|agent] [--since 24h|7d|30d|all] [--step <id>] [--harness <name>] [--json]
+                            per-harness/model/step/agent run outcomes, wall time, context and cost from
+                            usage.jsonl + events.jsonl (default --by harness --since 7d)
   events [--follow] [--event <types>] [--ref <r|ID|#pr>] [--json]  read/tail the event bus
   ui [--port <n>] [--host <ip>] [--no-open]
                             local web dashboard + editors, all profiles (default 127.0.0.1:4180;

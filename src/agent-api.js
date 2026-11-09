@@ -7,19 +7,20 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { registryDir, peekConfig } from "./config.js";
+import { registryDir, peekConfig, loadConfig } from "./config.js";
 import { listProfiles } from "./heartbeat.js";
 import { HIDDEN_BY_DEFAULT } from "./events.js";
 import { EPIC_REF_RE, epicDetail, epicStats, localEpics } from "./epics.js";
 import { controlRequest, resolveProfileSock } from "./ui/control-client.js";
 import { listRuns, resolveRunLog } from "./ui/logs.js";
-import { readProfileState, buildRows, readJson, isObj, harnessSlots } from "./ui/rows.js";
-import { readHistory } from "./ui/stats.js";
+import { readProfileState, buildRows, readJson, isObj, harnessSlots, readEventsTail } from "./ui/rows.js";
+import { readHistory, READ_CAP_BYTES } from "./ui/stats.js";
 import { pricingOf } from "./pricing.js";
 import { normalizeQuota, normalizeTrip } from "./quota.js";
 import { pendingFollowUp } from "./followup.js";
 import { createStore } from "./store.js";
 import { harnessTotals } from "./harness-usage.js";
+import { runStats, sinceMsOf, STATS_BY, STATS_SINCE } from "./stats.js";
 
 const REASON_MAX = 200;
 const FAILED_MAX = 50;
@@ -207,6 +208,37 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     ...(entry.up ? {} : { note: "receiver down — running/queue are from the last state on disk (interrupted/stalled)" }),
   };
   return { ...out, etag: etagOf(out) };
+}
+
+/**
+ * Per-harness/model/step/agent run outcomes, wall time, context and cost (#646) — read-only
+ * from the state dir like `readStatus`, so it works with the receiver down. Steps/agent default
+ * and pricing overrides come from the profile's own config when `entry.configPath` still loads;
+ * otherwise those fall back to `"claude"` and no overrides — the stats themselves still work.
+ * @param {ReturnType<typeof listProfiles>[number]} entry
+ * @param {{ by?: string, since?: string, step?: string, harness?: string }} [args]
+ * @returns {import('./stats.js').StatsResult}
+ */
+export function readRunStats(entry, args = {}) {
+  const by = args.by ?? "harness";
+  if (!STATS_BY.includes(by)) throw new Error(`stats: "by" must be one of ${STATS_BY.join(", ")}`);
+  const since = args.since ?? "7d";
+  const sinceMs = sinceMsOf(since);
+  if (sinceMs === undefined) throw new Error(`stats: "since" must be one of ${STATS_SINCE.join(", ")}`);
+  const usage = createStore(entry.dir).readUsage();
+  const events = readEventsTail(path.join(entry.dir, "events.jsonl"), READ_CAP_BYTES); // stats need the whole window, not just the UI's 256 KB tail
+  let steps = /** @type {{id: string, agent?: string}[]} */ ([]);
+  let defaultAgent = "claude";
+  if (entry.configPath) {
+    try {
+      const cfg = loadConfig({ configPath: entry.configPath });
+      steps = cfg.pipeline ?? [];
+      defaultAgent = cfg.agent ?? "claude";
+    } catch {
+      /* best effort: the config may be gone/invalid — stats still work without the step-agent fallback */
+    }
+  }
+  return runStats(usage, events, { by, sinceMs, step: args.step, harness: args.harness, steps, defaultAgent, pricing: pricingOf(entry.heartbeat) });
 }
 
 /** Compact one-line-per-profile listing. @param {string} [registry] */

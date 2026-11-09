@@ -12,6 +12,11 @@ export function statsUrl(profile: string, days: number, tzOffset: number = new D
   return `/api/stats?profile=${encodeURIComponent(profile)}&days=${days}&tz=${tzOffset}`;
 }
 
+/** `GET /api/harness-stats` for the profile (#646): `runStats` fixed to `by:"harness"` + the last 7 days. */
+export function harnessStatsUrl(profile: string): string {
+  return `/api/harness-stats?profile=${encodeURIComponent(profile)}`;
+}
+
 export type StatsSummary = {
   finished: number;
   /** finished per day over the days that had passed (today counts as a day). */

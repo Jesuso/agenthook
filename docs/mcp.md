@@ -63,6 +63,7 @@ Reads (state dir; work with the receiver down):
 | `status` | `slots {max,active,queued,free}`, `running[]` (ref, step, `ageS`, model, output tokens), `queue[]`, `held[]` (+`why`), `paused`/`restartPending`/`draining`, `backlog` depth. `profile:"*"` = all up profiles |
 | `events` | events after `cursor` (`types`, `ref`, `limit`, `waitS`); no cursor → the current cursor (or `last` N events). `profiles: [..]` (`["*"]` = all) reads/waits on several profiles at once — see *Several profiles* |
 | `runs` | a ref's run history (step, outcome, cost, running?, `summary?` — the verdict's free-form summary, on the run that wrote it only; its `plain` key is the agent's one-sentence summary, also carried on `run_end` as `plain`) and, with `tail`, the last N lines of a run log |
+| `stats {by?, since?, step?, harness?}` | per-harness/model/step/agent (#646) run outcomes (`advance/changes/hold/fail/timeout/requeued/unknown`), success rate (excludes `requeued`), wall-time p50/p90, mean turns/context, token throughput and cost. `by` default `"harness"`, also `"model"`/`"step"`/`"agent"`; `since` default `"7d"`, also `"24h"`/`"30d"`/`"all"` |
 
 Live reads (control socket → tracker/forge, cached ~30 s, `fresh:true` bypasses):
 

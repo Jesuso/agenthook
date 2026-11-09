@@ -626,3 +626,39 @@ test("GET /api/stats: cookie-only, validates days/tz, buckets the whole events h
   assert.deepEqual(today.ticketCost, { n: 1, p10: 1.5, p50: 1.5, p90: 1.5 }, "the ticket's spend, counted once despite the duplicate pipeline_done");
   assert.ok(body.since);
 });
+
+test("GET /api/harness-stats: cookie-only, by:harness over the last 7 days", async () => {
+  const now = new Date().toISOString();
+  fs.writeFileSync(
+    path.join(DIGESTED.dir, "usage.jsonl"),
+    JSON.stringify({ ref: "H", stepId: "code", harness: "fast", startedAt: new Date(Date.now() - 60_000).toISOString(), endedAt: now, input: 10, output: 20, cacheRead: 0, cacheCreate: 0 }) + "\n",
+  );
+  fs.appendFileSync(path.join(DIGESTED.dir, "events.jsonl"), JSON.stringify({ ts: now, event: "run_end", ref: "H", step: "code", outcome: "advance", harness: "fast" }) + "\n");
+  assert.equal((await request("GET", "/api/harness-stats?profile=digested", undefined, { cookie: null })).status, 401);
+  assert.equal((await request("GET", "/api/harness-stats?profile=nope", undefined, {})).status, 404);
+  const res = await request("GET", "/api/harness-stats?profile=digested", undefined, {});
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.by, "harness");
+  assert.ok(body.groups.some((g) => g.key === "fast" && g.runs === 1));
+});
+
+test("GET /api/harness-stats: reads the whole events.jsonl, not just the live-tail routes' 256 KB default", async () => {
+  // A run_end buried under > 256 KB of unrelated events used to fall outside readEventsTail's
+  // default window, so its usage row counted as `unknown` instead of `advance` (#646).
+  const now = new Date().toISOString();
+  fs.writeFileSync(
+    path.join(DIGESTED.dir, "usage.jsonl"),
+    JSON.stringify({ ref: "T", stepId: "code", harness: "slow", startedAt: new Date(Date.now() - 60_000).toISOString(), endedAt: now, input: 10, output: 20, cacheRead: 0, cacheCreate: 0 }) + "\n",
+  );
+  const lines = [JSON.stringify({ ts: now, event: "run_end", ref: "T", step: "code", outcome: "advance", harness: "slow" })];
+  const pad = JSON.stringify({ ts: now, event: "noop", pad: "x".repeat(500) });
+  while (Buffer.byteLength(lines.join("\n")) < 400 * 1024) lines.push(pad);
+  fs.writeFileSync(path.join(DIGESTED.dir, "events.jsonl"), lines.join("\n") + "\n");
+  const res = await request("GET", "/api/harness-stats?profile=digested", undefined, {});
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  const g = body.groups.find((g) => g.key === "slow");
+  assert.equal(g?.outcomes.advance, 1);
+  assert.equal(g?.outcomes.unknown, 0);
+});

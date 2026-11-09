@@ -39,6 +39,8 @@ node bin/agenthook.js skill ls            # installed copies + versions (doctor 
 node bin/agenthook.js watch [name…|--all] [--event a,b] [--cursor <n|json>] [--timeout s]  # block until the next event (exit 2 on timeout; ≥2 names/--all = first event from any, object cursor)
 node bin/agenthook.js watch [name…|--all] --follow [--heartbeat s] [--timeout s]  # stream: one JSON line per event + its exact resume cursor, optional heartbeat lines, final {"e":"watch_end"} (exit 0 on SIGTERM/SIGINT, 2 on total --timeout)
 node bin/agenthook.js watch [name…|--all] --actionable [--follow] [--liveness s] [--wake a,b] [--quiet a,b] [--timeout s]  # wake only for events that need someone (src/actionable.js) + followup_due + daemon_down; --wake/--quiet add to/drop from that list; the rest rides along as a summary (counts + refs), also on the timeout
+node bin/agenthook.js usage [--ref <n>] [--day|--week] [--limit <n>]  # per-run token/cost records from usage.jsonl (src/commands/usage.js)
+node bin/agenthook.js stats [--by harness|model|step|agent] [--since 24h|7d|30d|all] [--step <id>] [--harness <n>] [--json]  # per-harness/model/step/agent run outcomes, wall time, context and cost (#646; src/stats.js + src/commands/stats.js)
 
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 npm test                                  # node:test suites in test/ (units + test/e2e.test.js: real receiver, local tracker, stub agent)
