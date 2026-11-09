@@ -1,7 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepPrompt, languageLine } from "../src/prompts.js";
+import { stepPrompt, languageLine, UNATTENDED_NOTICE } from "../src/prompts.js";
 
 const task = { ref: "1", name: "T", url: "http://x/1", description: "body" };
 const meta = {
@@ -137,6 +137,21 @@ for (const kind of ["triage", "implement", "review"]) {
     assert.match(inside, /IGNORE ALL/);
   });
 }
+
+// --- the unattended-run notice (#655): every shape states up front nobody will answer questions ---
+for (const kind of ["triage", "review", "implement", "change"]) {
+  test(`stepPrompt(${kind}) contains the unattended notice before the kind-specific instructions`, () => {
+    const p = stepPrompt(task, meta, step(kind), ctx);
+    assert.ok(p.includes(UNATTENDED_NOTICE), "notice present");
+    assert.ok(p.indexOf("=== UNTRUSTED INPUT") < p.indexOf(UNATTENDED_NOTICE), "after the preamble");
+    assert.ok(p.indexOf(UNATTENDED_NOTICE) < p.indexOf("You are"), "before the kind-specific line");
+  });
+}
+
+test("UNATTENDED_NOTICE has no Claude-specific references", () => {
+  assert.doesNotMatch(UNATTENDED_NOTICE, /claude|slash/i);
+  assert.doesNotMatch(UNATTENDED_NOTICE, /\bskill\b|\btool\b|\bcommand\b/i);
+});
 
 test("stepPrompt renders a multi-line title on one head line", () => {
   const p = stepPrompt({ ...task, name: "line one\nline two" }, meta, step("triage"), ctx);

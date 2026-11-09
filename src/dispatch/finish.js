@@ -7,7 +7,7 @@ import { CANCELLED_REASON, reportMoveFailure } from "../events.js";
 import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
-import { timeoutReason, NO_VALID_VERDICT } from "./verdict.js";
+import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion } from "./verdict.js";
 import { healthTrip } from "./harness.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
@@ -47,6 +47,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
  * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
  * @property {string|null} [headSha]  forge.autoMerge tier step: the PR head when the run started
+ * @property {string} [lastText]  the run's last output (its final result text, else rendered-stdout tail) for the question-hold detector
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -56,7 +57,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -221,6 +222,13 @@ export function createFinish(ctx) {
       ...(sandboxReport?.extra ?? {}),
     });
     const missingVerdict = verdict.outcome === "hold" && verdict.reason === NO_VALID_VERDICT;
+    // A clean exit (no kill, no timeout, no refusal) with no valid verdict whose last line is a
+    // question: name it specifically so the held reason and the blocked/verdict_missing events say
+    // the agent ended by asking a question instead of acting, quoting the line.
+    if (missingVerdict && code === 0 && !timedOut && !refused) {
+      const q = endedWithQuestion(lastText);
+      if (q) verdict.reason = `${QUESTION_HOLD}: "${q}"`;
+    }
     if (verdict.outcome === "hold") {
       if (missingVerdict) emit?.("verdict_missing", job.ref, step.id, { reason: verdict.reason });
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the
@@ -323,7 +331,7 @@ export function createFinish(ctx) {
     // The move to the next section is itself the event that fires the next step.
     console.log(
       missingVerdict
-        ? `[verdict] ${step.id} ${job.ref} -> hold (no valid verdict — set requireVerdict:false to advance on a clean exit)`
+        ? `[verdict] ${step.id} ${job.ref} -> hold (${verdict.reason} — set requireVerdict:false to advance on a clean exit)`
         : `[verdict] ${step.id} ${job.ref} -> ${verdict.outcome}${verdict.reason ? ` (${verdict.reason})` : ""}`
     );
     // Decided before the move (it reads only this verdict + stored summaries) so a pending enable
