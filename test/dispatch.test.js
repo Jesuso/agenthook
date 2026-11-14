@@ -590,6 +590,146 @@ test("dispatch: requireVerdict:false gets no repair spawn either (nothing to rep
   assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
 });
 
+test("dispatch: under 60s of maxMinutes left gets no repair spawn — byte-identical to no repair (#677 rework)", async () => {
+  const h = repairHarness({ steps: [{ id: "code", maxMinutes: 1 }, { id: "done", manual: true }] });
+  await h.runStep("code", {});
+  assert.equal(h.calls(), 1, "no resume spawn — not enough of maxMinutes left for a repair turn");
+  assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
+  assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT, "no repair-turn suffix");
+  assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
+  assert.equal(h.events.find((e) => e.event === "run_end")?.repaired, undefined);
+});
+
+test("dispatch: a timed-out run gets no repair spawn — byte-identical to no repair", async () => {
+  const r = await timeoutRun(`exec sleep 5`, { maxMinutes: 0.001 });
+  assert.equal(r.advanced[0].outcome, "fail");
+  assert.match(r.advanced[0].reason, /^timeout/);
+  assert.equal(r.events.find((e) => e.event === "verdict_repair"), undefined);
+  assert.equal(r.events.find((e) => e.event === "run_end")?.repaired, undefined);
+});
+
+test("dispatch: a cancelled run gets no repair spawn — resolves as fail, cancelled by operator", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(bin, "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code" }, { id: "done", manual: true }],
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ v) => advanced.push({ ref, step, ...v }),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit, undefined, undefined, { killGraceMs: 200 });
+  const log = console.log;
+  console.log = () => {};
+  const done = run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  try {
+    for (let i = 0; i < 200 && !store.listRunning()["42"]?.pid; i++) await new Promise((r) => setTimeout(r, 25));
+    assert.ok(store.listRunning()["42"]?.pid, "agent is running");
+    assert.equal(run.cancel("42"), true);
+    await done;
+  } finally {
+    console.log = log;
+  }
+  assert.equal(advanced.length, 1);
+  assert.equal(advanced[0].outcome, "fail");
+  assert.equal(advanced[0].reason, "cancelled by operator");
+  assert.equal(events.find((e) => e.event === "verdict_repair"), undefined);
+  assert.equal(events.find((e) => e.event === "run_end")?.repaired, undefined);
+});
+
+test("dispatch: an agent with no resumeArgs (hermes) gets no repair spawn — same hold as before #677", async () => {
+  const dir = tmpDir();
+  const h = questionHoldHarness(dir, printAndExit("Done with the fix."));
+  await h.runStep();
+  assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT);
+  assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
+  assert.equal(h.events.find((e) => e.event === "run_end")?.repaired, undefined);
+});
+
+// A sandboxed opencode run (sandboxResume:false) is covered end to end in
+// test/dispatch-sandbox.test.js, which already has the real-worktree + fake-docker harness
+// this needs (agent.sandbox(), sandbox.describe().home, trustedGitDirs on a real checkout).
+
+test("dispatch: a repair turn that crashes on its second call (not the first) resolves fail with the usual reason", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(
+    bin,
+    [
+      `#!/bin/sh`,
+      `n=0`,
+      `[ -f "$FAKE_COUNTER" ] && n=$(cat "$FAKE_COUNTER")`,
+      `n=$((n + 1))`,
+      `echo "$n" > "$FAKE_COUNTER"`,
+      `printf '{"type":"result","subtype":"success","session_id":"ses_123","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n'`,
+      `if [ "$n" -ge 2 ]; then exit 1; fi`,
+      `exit 0`,
+      ``,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code" }, { id: "done", manual: true }],
+    agentEnvPassthrough: ["FAKE_*"],
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ step, /** @type {any} */ v) => advanced.push({ ref, step, ...v }),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  process.env.FAKE_COUNTER = path.join(dir, "counter");
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = log;
+    delete process.env.FAKE_COUNTER;
+  }
+  assert.equal(fs.readFileSync(path.join(dir, "counter"), "utf8").trim(), "2", "the original run + exactly one repair turn, no more after it crashes");
+  assert.equal(advanced[0].outcome, "fail", "the crashed repair turn's own code resolves the run, not NO_VALID_VERDICT");
+  assert.equal(advanced[0].reason, "non-zero exit (1)");
+  assert.deepEqual(events.find((e) => e.event === "verdict_repair"), { event: "verdict_repair", result: "still_missing", turns: 1 });
+  assert.equal(events.find((e) => e.event === "run_end")?.repaired, false);
+});
+
+test("dispatch: repair-turn cost is summed into the run's usage record", async () => {
+  const h = repairHarness();
+  await h.runStep("code", { verdict: { outcome: "advance" }, goodAtTurn: 2 });
+  assert.equal(h.calls(), 2);
+  const usage = createStore(h.dir).readUsage();
+  const row = usage.find((/** @type {any} */ u) => u.ref === "42" && u.stepId === "code");
+  assert.ok(row, "a usage row was written");
+  assert.equal(row.costUsd, 0.02, "0.01 per call, summed across the original run and the repair turn");
+});
+
 // --- question-hold (#655): clean exit, no verdict, last output line is a question ---
 // A fake `hermes` (plain-text stdout, no verdict file) so the detector sees the run's
 // last rendered line — claude's parser drops non-JSON, so it can't reach this path.

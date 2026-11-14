@@ -400,6 +400,10 @@ export function createStep(ctx) {
         const after = readVerdict(result.code, verdictFile, step, agent);
         if (!(after.outcome === "hold" && after.reason === NO_VALID_VERDICT)) return { turns, repaired: true, results, turnStats, final };
       }
+      // Zero turns (a pre-loop cancel, or under 60s of maxMinutes left before the first turn) is
+      // not a repair attempt at all — fall through to the pre-feature hold, byte-identical to
+      // before this feature existed (no verdict_repair, no run_end.repaired).
+      if (turns === 0) return undefined;
       return { turns, repaired: false, results, turnStats, final };
     }
 
