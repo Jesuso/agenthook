@@ -111,6 +111,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- `agenthook init` now asks first where the work comes from — a local board (the default, Enter)
+  or a tracker. `init --local` and the new `init --remote` skip the question; `--yes` alone means
+  the local board; with no terminal and no flag it fails naming both commands instead of hanging.
+- `init` on a local board, run interactively, now defaults the `fullAuto` question to **yes**
+  (only you can add tickets to a local board, and without it the first ticket cannot edit a
+  file), offers the agent skill, and offers to start the receiver. Unattended behaviour is
+  unchanged: `--yes` never enables `fullAuto`, only `--full-auto` does. The tracker wizard's
+  `fullAuto` question still defaults to no.
+
 - `events` text output shows the harness: `run_start`/`run_end` lines print `harness=<name>` right
   after `model=` when the event carries one (absent or null without, so lines of profiles without
   harnesses are unchanged), and `harness_down`/`harness_up` print readably as

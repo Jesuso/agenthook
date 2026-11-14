@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { init, localScaffold, sanitizeName } from "../src/commands/init.js";
+import { init, initMode, localScaffold, sanitizeName } from "../src/commands/init.js";
 import { ticket, ticketBody, ticketRows } from "../src/commands/ticket.js";
 import { TICKET_BODY_MAX } from "../src/ops.js";
 import { firstFreePort } from "../src/port.js";
@@ -236,12 +236,12 @@ test("init --local --force over an existing profile keeps its own claimed port (
 
 test("init --local outside a git repo, or in one with no commits, refuses and writes nothing", async () => {
   const plain = tmp("ah-init-nogit-");
-  await assert.rejects(() => inDir(plain, () => init({ _: [], local: true, yes: true })), /must run inside a git repository \(git init && git commit first\)/);
+  await assert.rejects(() => inDir(plain, () => init({ _: [], local: true, yes: true })), /needs a git repository with a commit — run: git init && git commit --allow-empty/);
   assert.deepEqual(fs.readdirSync(plain), []);
 
   const empty = tmp("ah-init-nocommit-");
   git(empty, ["init", "-q"]);
-  await assert.rejects(() => inDir(empty, () => init({ _: [], local: true, yes: true })), /git init && git commit first/);
+  await assert.rejects(() => inDir(empty, () => init({ _: [], local: true, yes: true })), /git commit --allow-empty/);
   assert.deepEqual(fs.readdirSync(empty), [".git"]);
 });
 
@@ -327,4 +327,27 @@ test("CLI: --body/--file/--step/--name/--blocked-by are value flags; help lists 
   assert.match(HELP, /--blocked-by <ref,ref>/);
   assert.match(HELP, /ticket ls/);
   assert.match(HELP, /init --local/);
+});
+
+test("initMode: flags pick the scaffold; a terminal gets asked; --yes alone takes the local default", () => {
+  assert.equal(initMode({ local: true }, { isTTY: false }), "local");
+  assert.equal(initMode({ remote: true }, { isTTY: false }), "remote");
+  assert.equal(initMode({}, { isTTY: true }), "ask");
+  assert.equal(initMode({ yes: true }, { isTTY: false }), "local");
+  assert.throws(() => initMode({ local: true, remote: true }, { isTTY: true }), /not both/);
+});
+
+test("initMode: no terminal and no flag fails with the commands to run instead of hanging on a prompt", () => {
+  assert.throws(() => initMode({}, { isTTY: false }), /init --local --yes[\s\S]*init --remote/);
+});
+
+test("init --yes without --local writes the local-board profile, fullAuto still off", async () => {
+  const repo = tmp("ah-init-default-");
+  git(repo, ["init", "-q"]);
+  git(repo, ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "init"]);
+  const out = path.join(repo, "agenthook.config.json");
+  await inDir(repo, () => init({ _: [], yes: true, name: "ah-init-default", config: out }, { isTTY: false }));
+  const config = JSON.parse(fs.readFileSync(out, "utf8"));
+  assert.equal(config.tracker.type, "local");
+  assert.equal(config.fullAuto, false);
 });

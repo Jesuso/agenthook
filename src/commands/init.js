@@ -15,6 +15,7 @@ import { FORGES } from "../forges/index.js";
 import { forgeOffer, mergeStepCandidates, forgeBlock } from "../forges/github.js";
 import { parseGitlabRemote, forgeOffer as gitlabForgeOffer, forgeBlock as gitlabForgeBlock } from "../forges/gitlab.js";
 import { installAh } from "./alias.js";
+import { start } from "./start.js";
 import { claimedPorts, formatSkipped, pickPort, portInUse } from "../port.js";
 import { registryDir, loadEnv } from "../config.js";
 import { tildify } from "../profile.js";
@@ -198,15 +199,52 @@ function gitOut(cwd, gitArgs) {
 }
 
 /**
- * `agenthook init --local`: a zero-setup profile on the local tracker — no tracker token, ingress
- * or forge wizard. One summary confirmation (--yes skips it) and a separate fullAuto opt-in that
- * defaults to No: only an interactive "y" or --full-auto enables it, never --yes.
- * @param {any} args @param {string} out @param {{inUse?: (port: number) => Promise<boolean>}} [opts] test seam for the port probe
+ * Give a repo with no HEAD an empty first commit, leaving the index and working tree alone:
+ * `git commit --allow-empty` would also commit whatever is staged. @param {string} repoRoot
  */
-async function initLocal(args, out, { inUse = portInUse } = {}) {
-  const hint = "init --local must run inside a git repository (git init && git commit first)";
-  const repoRoot = gitOut(process.cwd(), ["rev-parse", "--show-toplevel"]);
-  if (!repoRoot || gitOut(repoRoot, ["rev-parse", "--verify", "HEAD"]) == null) throw new Error(hint); // worktrees need a HEAD; the CLI exits 1
+function firstEmptyCommit(repoRoot) {
+  try {
+    /** @type {import("node:child_process").ExecFileSyncOptionsWithStringEncoding} */
+    const o = { cwd: repoRoot, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] };
+    const tree = execFileSync("git", ["mktree"], { ...o, input: "" }).trim();
+    const commit = execFileSync("git", ["commit-tree", tree, "-m", "Initial commit"], { ...o, input: "" }).trim();
+    execFileSync("git", ["update-ref", "HEAD", commit], o);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `agenthook init --local`: a zero-setup profile on the local tracker — no tracker token, ingress
+ * or forge wizard. One summary confirmation (--yes skips it) and a separate fullAuto question that
+ * defaults to Yes when a person answers it: nothing outside this machine can reach a local board,
+ * and without it the first ticket cannot edit a file. Unattended (--yes) it stays off unless
+ * --full-auto is passed, so a script or an agent never grants it on the user's behalf.
+ * Interactively it then offers the agent skill and to start the receiver.
+ * @param {any} args @param {string} out
+ * @param {{inUse?: (port: number) => Promise<boolean>, boot?: (args: any) => Promise<void>}} [opts] test seams: the port probe, `start`
+ */
+async function initLocal(args, out, { inUse = portInUse, boot = start } = {}) {
+  // Agents work in git worktrees, which need a repository with a HEAD. A person gets offered
+  // both (a new folder is the common first try); unattended, the error names the exact commands.
+  const hint = 'init --local needs a git repository with a commit — run: git init && git commit --allow-empty -m "Initial commit"';
+  let repoRoot = gitOut(process.cwd(), ["rev-parse", "--show-toplevel"]);
+  const hasHead = () => !!repoRoot && gitOut(repoRoot, ["rev-parse", "--verify", "HEAD"]) != null;
+  if (!hasHead()) {
+    if (args.yes) throw new Error(hint); // the CLI exits 1
+    const what = repoRoot ? `${repoRoot} has no commits yet. Create an empty first commit` : `${process.cwd()} is not a git repository. Create one here, with an empty first commit`;
+    const { git } = await runWizard([{ key: "git", message: `${what}?`, type: "confirm", default: true }]);
+    if (!git) throw new Error(hint);
+    if (!repoRoot) {
+      execFileSync("git", ["init", "-q"], { cwd: process.cwd(), stdio: "ignore" });
+      repoRoot = gitOut(process.cwd(), ["rev-parse", "--show-toplevel"]);
+    }
+    if (!repoRoot || !firstEmptyCommit(repoRoot)) {
+      throw new Error(`could not create the first commit (is git's user.name / user.email set?) — ${hint}`);
+    }
+  }
+  repoRoot = /** @type {string} */ (repoRoot);
   const base = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "origin/HEAD"])?.replace(/^origin\//, "") || gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
   const name = sanitizeName(typeof args.name === "string" ? args.name : path.basename(repoRoot));
   // A --force rewrite of this same profile (or re-running --local over it) must not see its
@@ -243,7 +281,15 @@ async function initLocal(args, out, { inUse = portInUse } = {}) {
   let fullAuto = args["full-auto"] === true;
   if (!fullAuto && !args.yes) {
     ({ fullAuto } = await runWizard([
-      { key: "fullAuto", message: "fullAuto: run claude with --dangerously-skip-permissions (UNSANDBOXED code exec in this repo, no permission prompts)?", type: "confirm", default: false },
+      {
+        key: "fullAuto",
+        message:
+          "Let agents edit files and run commands without asking (fullAuto)?\n" +
+          "  Needed for the code step to change anything. Agents run UNSANDBOXED as you, on tickets only you\n" +
+          "  can add to this local board. Answer n to keep permission prompts on (docs/sandbox.md)",
+        type: "confirm",
+        default: true,
+      },
     ]));
   }
 
@@ -264,20 +310,74 @@ async function initLocal(args, out, { inUse = portInUse } = {}) {
         `allows Edit/Write/Bash, or you re-run \`agenthook init --local --force --full-auto\` (see docs/sandbox.md).`,
     );
   }
+  let started = false;
+  if (!args.yes) {
+    // Same offers the tracker wizard makes, plus the boot: everything short of the first ticket.
+    const { skill: wantSkill } = await runWizard([{ key: "skill", message: `Install the agenthook agent skill into ${repoRoot} (.agents/skills + detected agents)?`, type: "confirm", default: true }]);
+    if (wantSkill) {
+      const agents = [...new Set(["agents", ...detectAgents()])];
+      for (const r of installSkill(agents, { repoPath: repoRoot })) console.log(`  ${r.result.padEnd(9)} ${r.dir}`);
+    }
+    const { go } = await runWizard([{ key: "go", message: "Start the receiver now (in the background)?", type: "confirm", default: true }]);
+    if (go) {
+      try {
+        await boot({ config: out, detach: true });
+        started = true;
+      } catch (e) {
+        console.warn(`\n[warn] could not start the receiver: ${e.message}`);
+      }
+    }
+  }
   console.log(`\nNext:`);
-  console.log(`  agenthook start --detach           # boot the receiver`);
+  if (!started) console.log(`  agenthook start --detach           # boot the receiver`);
   console.log(`  agenthook ticket add "<what to do>" # the code step fires at once`);
   console.log(`  agenthook ui                       # watch it (or: agenthook events --follow)`);
   console.log(`  git log -p HEAD..agent/<ref>       # the result, once it reaches done`);
 }
 
-/** @param {any} args @param {{inUse?: (port: number) => Promise<boolean>}} [opts] test seam for `init --local`'s port probe */
+/**
+ * Which scaffold `init` runs: the local board (`--local`), the tracker wizard (`--remote`), or
+ * "ask" — the first question, local by default (so `--yes` alone means local). Without a terminal there is nobody to ask, and a
+ * guess would either hang on the wizard's prompts or write a profile nobody chose.
+ * @param {any} args @param {{isTTY?: boolean}} [o]
+ * @returns {"local"|"remote"|"ask"}
+ */
+export function initMode(args, { isTTY = !!process.stdin.isTTY } = {}) {
+  if (args.local && args.remote) throw new Error("init: pass --local or --remote, not both");
+  if (args.local) return "local";
+  if (args.remote) return "remote";
+  if (args.yes) return "local"; // --yes takes every default, and the local board is the default
+  if (!isTTY) {
+    throw new Error(
+      "init: no terminal to ask on — run `agenthook init --local --yes` for a local board " +
+        "(add --full-auto only if the user agreed to unsandboxed agents), or `agenthook init --remote` in a terminal for a tracker",
+    );
+  }
+  return "ask";
+}
+
+/** @param {any} args @param {{inUse?: (port: number) => Promise<boolean>, boot?: (args: any) => Promise<void>, isTTY?: boolean}} [opts] test seams: `init --local`'s port probe and `start`, the terminal check */
 export async function init(args, opts) {
   const out = args.config ? path.resolve(args.config) : path.join(process.cwd(), "agenthook.config.json");
   if (fs.existsSync(out) && !args.force) {
     throw new Error(`${out} already exists. Re-run with --force to overwrite.`);
   }
-  if (args.local) return initLocal(args, out, opts);
+  let mode = initMode(args, opts);
+  if (mode === "ask") {
+    ({ mode } = await runWizard([
+      {
+        key: "mode",
+        message: "Where does the work come from?",
+        type: "select",
+        default: "local",
+        choices: [
+          { title: "A local board — no account, no token, no tunnel (start here)", value: "local" },
+          { title: "A tracker — Asana, Jira, Linear, GitHub issues or Projects", value: "remote" },
+        ],
+      },
+    ]));
+  }
+  if (mode === "local") return initLocal(args, out, opts);
 
   // The wizard needs the live token to look up the workspace, and the prompts tell the user a .env
   // is enough — so read it (shell-exported vars still win), as loadConfig does for every other command.
@@ -306,7 +406,7 @@ export async function init(args, opts) {
 
   // --- tracker (type, token env, then adapter-driven live discovery) ---
   const trackerAns = await runWizard([
-    { key: "type", message: "Tracker", type: "select", choices: Object.keys(TRACKERS).map((t) => ({ title: t, value: t })) },
+    { key: "type", message: "Tracker", type: "select", choices: Object.keys(TRACKERS).filter((t) => t !== "local").map((t) => ({ title: t, value: t })) }, // the local board is the first question's other answer
   ]);
   // GitHub trackers may authenticate as a GitHub App instead of a personal token.
   const isGithub = trackerAns.type === "github" || trackerAns.type === "github-projects";

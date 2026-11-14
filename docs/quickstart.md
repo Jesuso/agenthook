@@ -20,9 +20,13 @@ agents work in git worktrees branched from it.
 
 ```bash
 cd ~/my-project
-agenthook init --local          # --yes skips the confirmation; --name <n> picks the profile name
-                                 # --port <n> picks the port explicitly (default: auto-pick from 4123)
+agenthook init                  # first question: local board (the default) or a tracker
 ```
+
+`agenthook init --local` skips that question; `--yes` skips every prompt (and means `--local`),
+`--name <n>` picks the profile name, `--port <n>` the port (default: auto-pick from 4123). Run
+interactively it also offers to install the agent skill and to start the receiver, so step 3 may
+already be done.
 
 This writes `agenthook.config.json` plus two starter instruction files, `INSTRUCTIONS_CODE.md` and
 `INSTRUCTIONS_REVIEW.md` (existing files are never overwritten). The pipeline has three steps:
@@ -39,8 +43,9 @@ agent does.
 > ⚠️ **fullAuto.** Without permission prompts a headless agent can't edit files, so the `code`
 > step needs either `fullAuto` (agents run `claude --dangerously-skip-permissions`, **unsandboxed**,
 > in this repo) or a `.claude/settings.json` in the repo that allows Edit/Write/Bash. `init --local`
-> asks, defaulting to **No**; `--full-auto` turns it on non-interactively (`--yes` never does). Only
-> enable it on a repo and host you trust, or add a per-run sandbox (`"sandbox": {"type": "podman"}`,
+> asks, defaulting to **Yes** — only you can add tickets to a local board, so nothing outside this
+> machine can trigger a run; answer `n` to keep permission prompts on. Unattended, `--full-auto`
+> turns it on (`--yes` never does). Only enable it on a repo and host you trust, or add a per-run sandbox (`"sandbox": {"type": "podman"}`,
 > [sandbox.md](sandbox.md#quick-start)) so each run sees only its worktree. `agenthook doctor`
 > shows the isolation report either way.
 
