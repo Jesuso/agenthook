@@ -125,7 +125,7 @@ export function createSpawn(ctx) {
         console.error(`[dispatch] prompt file write failed (${promptFile}):`, e.message);
       }
     }
-    const argOpts = { prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated, allow, deny, cwd, verdictFile };
+    const argOpts = { prompt, model, effort, provider, fullAuto: cfg.fullAuto, attribution: cfg.attribution, promptFile, maxMs, toolsets, isolated, allow, deny, cwd, verdictFile };
     const args = resumeSessionId && agent.resumeArgs ? agent.resumeArgs({ ...argOpts, sessionId: resumeSessionId }) : agent.buildArgs(argOpts);
     const agentBin = bin || agent.defaults.bin || cfg.claudeBin;
     // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
