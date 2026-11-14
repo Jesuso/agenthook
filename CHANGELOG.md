@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- The agent skill gains a first-time setup reference (`skills/agenthook/references/setup.md`):
+  prerequisites, `init --local`, `fullAuto` as the user's call, pointing steps at local models
+  (Claude Code / OpenCode / Hermes on Ollama) without overrunning the server's parallel slots,
+  then `doctor` → `start` → first ticket → `watch`. `SKILL.md` routes to it when no
+  `agenthook.config.json` exists yet, and its description now covers setup.
+- The source `SKILL.md` is stamped with the package version on every `npm version` (the new
+  `version` lifecycle script), so a skill installed straight from git with
+  `npx skills add Jesuso/agenthook@vX.Y.Z` carries its release and `agenthook doctor` can flag it
+  when it lags the installed CLI. The README documents `npx skills add` as an install path.
+
 - A live context gauge (#658): a running row now carries `ctx` (the latest turn's live prompt
   size) and `ctxMax` (the model's context window), so `status`/`tick`/the UI can show `ctx
   54K/64K` on a running agent before an imminent compaction/stall happens, or spot a mis-sized

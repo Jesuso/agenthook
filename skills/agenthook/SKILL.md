@@ -1,8 +1,8 @@
 ---
 name: agenthook
-description: Work with an agenthook pipeline — create tickets, epics and dependencies so the receiver tracks and runs them, see what is running / held / failed ("needs you"), answer a held agent, re-fire a stuck ticket. Use whenever a task mentions agenthook, the board, an epic, a ticket "needing you", or a pipeline step, before touching the tracker or reading agenthook's source.
+description: Set up and work with an agenthook pipeline — first-time setup on a local board or local models, create tickets, epics and dependencies so the receiver tracks and runs them, see what is running / held / failed ("needs you"), answer a held agent, re-fire a stuck ticket. Use whenever a task mentions agenthook, the board, an epic, a ticket "needing you", or a pipeline step, before touching the tracker or reading agenthook's source.
 ---
-<!-- agenthook-skill dev -->
+<!-- agenthook-skill 0.15.0 -->
 
 # agenthook
 
@@ -20,7 +20,8 @@ Everything works from a shell — `agenthook <cmd> --json` (walks up from cwd to
 connected, the same calls exist as tools (named in parentheses below) and are cheaper; neither is
 required for the other.
 
-Read before acting, once per session:
+No `agenthook.config.json` yet (`agenthook status` says so)? Start with
+[references/setup.md](references/setup.md). Otherwise, read before acting, once per session:
 
 ```
 agenthook guide authoring        # THIS profile's tracker, identity, step stages, epic rule, blockers
@@ -34,6 +35,7 @@ so never hardcode labels, section gids or logins from memory.
 
 | You need to… | Go to |
 |---|---|
+| set agenthook up: no `agenthook.config.json` yet, a first try, local models | [references/setup.md](references/setup.md) |
 | create a ticket, an epic, a chain of dependent tickets, split an epic | [references/authoring.md](references/authoring.md) |
 | see what needs a human, answer a held agent, re-fire or cancel, merge when green | [references/supervising.md](references/supervising.md) |
 | the exact API/CLI calls for this tracker | `references/trackers/<kind>.md` (`kind` is printed by `guide authoring`) |

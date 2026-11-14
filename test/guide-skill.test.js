@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AUTHORING, PROVIDERS, guideTopics, loadGuide, renderAuthoring } from "../src/guide.js";
-import { AGENT_DIRS, SKILL_SRC, detectAgents, installSkillInto, installedSkills, installedVersion, skillTargets } from "../src/skill-install.js";
+import { AGENT_DIRS, SKILL_SRC, detectAgents, installSkillInto, installedSkills, installedVersion, packageVersion, skillTargets, stampSourceSkill } from "../src/skill-install.js";
 import { skillLints } from "../src/commands/doctor.js";
 import { createTools } from "../src/mcp/tools.js";
 
@@ -69,7 +69,9 @@ test("skill: SKILL.md frontmatter + stamp; every guide topic and local link it n
   assert.ok(fm, "frontmatter");
   assert.match(fm[1], /^name: agenthook$/m);
   assert.match(fm[1], /^description: .{40,}/m);
-  assert.match(skill, /<!-- agenthook-skill dev -->/);
+  // Stamped with the package version (npm's `version` script runs stampSourceSkill), so a copy
+  // installed by `npx skills add Jesuso/agenthook@vX.Y.Z` carries the release it came from.
+  assert.match(skill, new RegExp(`<!-- agenthook-skill ${packageVersion().replaceAll(".", "\\.")} -->`));
   const files = walk(SKILL_SRC).filter((f) => f.endsWith(".md"));
   const topics = new Set([...guideTopics(), "all"]);
   for (const f of files) {
@@ -79,6 +81,15 @@ test("skill: SKILL.md frontmatter + stamp; every guide topic and local link it n
     assert.ok(!/mcp__|AskUserQuestion|\/caveman/.test(text), `${path.relative(SKILL_SRC, f)} is agent-neutral`);
   }
   for (const kind of Object.keys(PROVIDERS)) assert.ok(fs.existsSync(path.join(SKILL_SRC, "references", "trackers", `${kind}.md`)), `trackers/${kind}.md`);
+});
+
+test("skill: stampSourceSkill writes the given version into the source stamp and refuses an unstamped file", () => {
+  const src = tmp("ah-stamp-");
+  fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: agenthook\n---\n<!-- agenthook-skill dev -->\n# x\n");
+  assert.equal(stampSourceSkill({ src, version: "9.8.7" }), "9.8.7");
+  assert.equal(installedVersion(src), "9.8.7");
+  fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: agenthook\n---\n# no stamp\n");
+  assert.throws(() => stampSourceSkill({ src, version: "1.0.0" }), /no <!-- agenthook-skill/);
 });
 
 test("skill: the static guide topics the skill relies on still exist in docs/agent-guide.md", () => {

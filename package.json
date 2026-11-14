@@ -26,7 +26,8 @@
     "typecheck:ui": "tsc -p ui --noEmit",
     "test:ui": "vitest run --root ui",
     "prepublishOnly": "npm run typecheck && npm test && npm run build:ui",
-    "release:smoke": "node test/release/smoke.mjs"
+    "release:smoke": "node test/release/smoke.mjs",
+    "version": "node -e \"import('./src/skill-install.js').then((m) => console.log('stamped skill', m.stampSourceSkill()))\" && git add skills/agenthook/SKILL.md"
   },
   "engines": {
     "node": ">=22"
