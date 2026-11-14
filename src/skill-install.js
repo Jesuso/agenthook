@@ -74,6 +74,21 @@ export function installSkillInto(dir, version, { src = SKILL_SRC, dryRun = false
   return have === null ? "installed" : "updated";
 }
 
+/**
+ * Stamp the source skill (skills/agenthook/SKILL.md) with the package version. npm's `version`
+ * lifecycle script runs it on every bump, so the copy at a release tag already carries that
+ * version and an install straight from git (`npx skills add Jesuso/agenthook@vX.Y.Z`) is
+ * versioned like one from `agenthook skill install`. Returns the version written.
+ * @param {{src?: string, version?: string}} [o]
+ */
+export function stampSourceSkill({ src = SKILL_SRC, version = packageVersion() } = {}) {
+  const f = path.join(src, "SKILL.md");
+  const text = fs.readFileSync(f, "utf8");
+  if (!STAMP_RE.test(text)) throw new Error(`${f} has no <!-- agenthook-skill … --> stamp`);
+  fs.writeFileSync(f, text.replace(STAMP_RE, `<!-- agenthook-skill ${version} -->`));
+  return version;
+}
+
 /** Package version (the stamp a fresh install carries). */
 export function packageVersion() {
   return JSON.parse(fs.readFileSync(path.join(installDir, "package.json"), "utf8")).version;

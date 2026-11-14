@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Jesuso/agenthook/actions/workflows/ci.yml/badge.svg)](https://github.com/Jesuso/agenthook/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@jesuso/agenthook)](https://www.npmjs.com/package/@jesuso/agenthook)
+[![skills.sh](https://skills.sh/b/Jesuso/agenthook)](https://skills.sh/Jesuso/agenthook)
 
 **Turn your task board into a team of coding agents.** Move a ticket into a column and a Claude
 Code agent picks it up *the instant it lands*, works in its own git worktree, opens a draft PR,
@@ -277,10 +278,26 @@ one call, one wake-up). Write tools hand operator authority to the
 agent that holds them — read [docs/mcp.md](docs/mcp.md#safety) first. Agents learn the tools from
 the `guide` tool ([docs/agent-guide.md](docs/agent-guide.md), also `agenthook guide <topic>` from a
 shell). Its `authoring` topic is rendered from the live config and says how to create tickets, epics
-and dependencies that *this* receiver will pick up. A portable agent skill (open `SKILL.md` format —
-Claude Code, Cursor, Codex, OpenCode, Gemini CLI, Hermes…) ships in [`skills/agenthook`](skills/agenthook/SKILL.md):
-`agenthook skill install` puts it where the agents on your machine load skills from (`--repo` installs
-it into the code repo so the agents the receiver spawns there load it too), or `npx skills add Jesuso/agenthook`.
+and dependencies that *this* receiver will pick up. Shell-only agents get the same knowledge from the [agent skill](#agent-skill).
+
+## Agent skill
+
+A portable skill (open `SKILL.md` format) teaches your coding agent — Claude Code, Codex, Cursor,
+OpenCode, Hermes, Gemini CLI… — to set agenthook up (a local board, local models), write tickets
+the receiver will pick up, and supervise held and failed runs. It ships in
+[`skills/agenthook`](skills/agenthook/SKILL.md). Install it with the
+[skills](https://skills.sh) CLI:
+
+```bash
+npx skills add Jesuso/agenthook -g             # -g: for your user, not just this directory
+npx skills add Jesuso/agenthook@v<x.y.z> -g    # pinned to the agenthook you run (agenthook --version)
+```
+
+Skill first, no CLI yet? Ask your agent to "set up agenthook here": the skill's
+`scripts/ensure-cli.sh` installs the matching `@jesuso/agenthook` with npm (Node ≥ 22) and it
+takes it from there. The other way round, `agenthook init` offers to install the skill,
+or use `agenthook skill install` (`--repo` installs it into the code repo, so the agents the
+receiver spawns there load it too). `agenthook doctor` warns when the skill lags the installed CLI.
 
 ## Safety
 

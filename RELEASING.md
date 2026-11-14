@@ -9,8 +9,10 @@ Release when it's worth it — **at most weekly**. No release train, no deadline
 1. Move `[Unreleased]` entries in `CHANGELOG.md` into a new `## [x.y.z] — YYYY-MM-DD` heading, and
    update the compare link refs at the bottom: `[Unreleased]` becomes `vX.Y.Z...HEAD`, and add a new
    `[x.y.z]: vPREV...vX.Y.Z` line for the release.
-2. Bump the version: `npm version <minor|patch> --no-git-tag-version` (or edit `package.json` +
-   `package-lock.json` by hand).
+2. Bump the version: `npm version <minor|patch> --no-git-tag-version`. Its `version` script also
+   stamps `skills/agenthook/SKILL.md` with the new version (a test fails if they differ), so the
+   tag carries a versioned skill for `npx skills add Jesuso/agenthook@vX.Y.Z`. Editing
+   `package.json` + `package-lock.json` by hand? Update that stamp too.
 3. Open a release PR titled `chore(release): x.y.z`. Merge it.
 4. Run the release smoke on the merge commit with the **real** agent — CI already runs it with the
    stub on every PR: `npm run release:smoke -- --agent claude --upgrade-from latest` (a few cents of
