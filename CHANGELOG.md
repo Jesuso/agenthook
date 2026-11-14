@@ -119,6 +119,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Sandboxed Claude Code runs now honour the operator's attribution preference (#675). A run in a
+  per-run sandbox starts with an empty HOME, so `attribution` / `includeCoAuthoredBy` set off in
+  `~/.claude/settings.json` were ignored and agent commits carried `Co-authored-by: Claude`. Those
+  keys (and nothing else of that file) are now seeded into the sandbox; the new profile key
+  `attribution` (`false` = always off, `true` = the agent's default) overrides it.
 - A sandboxed run ignored the operator's own Claude commit/PR attribution preference (#675): the
   per-run HOME starts empty, so a sandboxed `claude -p` never saw `~/.claude/settings.json` and
   fell back to the CLI default (attribution on), even when the operator had turned it off for
