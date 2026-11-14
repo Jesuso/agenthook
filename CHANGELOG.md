@@ -111,6 +111,11 @@ All notable changes to this project are documented here. The format is based on
   `tick`/`status` show `max: 0`; `set_concurrency {harness, max: n}` with `n > 0` re-enables it.
   `0` is allowed only for a named harness: the global cap keeps its `1..64` range. The UI editor
   is unchanged.
+- The skill's setup reference now has the agent ask which agent CLI to use, not only which model:
+  it lists the installed ones, recommends OpenCode (then Hermes) over Claude Code for a local
+  model — Claude Code's own prompt takes a third of a 64K window — and asks for the server's
+  parallel slots in the same message. It says where each key goes (`agent` top-level; `model`,
+  `contextTokens`, `env` per step) and that OpenCode needs the provider in its own config.
 
 ### Changed
 

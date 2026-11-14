@@ -46,19 +46,55 @@ Ask the user in one line with that trade-off, and on an explicit yes scaffold wi
 `agenthook init --local --yes --full-auto` (add `--force` if you already scaffolded without it).
 A per-run sandbox (`"sandbox": {"type": "podman"}` or `"docker"`) limits each run to its worktree.
 
-## 3. Pick the model (cloud or local)
+## 3. Pick the agent CLI and the model
 
-Default: the `claude` CLI on the user's Anthropic account. Nothing to change.
+Two choices, both the user's. **Ask; do not default silently** — the scaffold's default (`claude`
+on the user's Anthropic account) is only right when the user wants cloud Claude.
 
-**Local models** (Ollama or any server the agent CLI can reach) are set per step or per *harness*
-in `agenthook.config.json`. Ask the user which model tag and how many requests their server serves
-in parallel (`OLLAMA_NUM_PARALLEL`); never guess either.
+**Cloud Claude:** nothing to change. Skip to step 4.
 
-- Claude Code on Ollama (0.14+ serves `/v1/messages`):
-  `{"model": "<tag>", "env": {"ANTHROPIC_BASE_URL": "http://localhost:11434"}}`.
-- OpenCode: `"agent": "opencode"`, `"model": "ollama/<tag>"`, plus an `opencodeConfig` file that
-  declares the Ollama provider and the model's `limit.context`.
-- Hermes: `"agent": "hermes"` with `provider` set to the Hermes provider that points at Ollama.
+**Local models** (Ollama, or any server the agent CLI can reach). First see which agent CLIs
+(*harnesses*) are installed, since the receiver can only spawn those:
+
+```bash
+for b in opencode hermes claude agent; do command -v "$b" >/dev/null && echo "$b"; done   # `agent` is Cursor's CLI
+```
+
+Then ask the user three things, in one message, with your recommendation:
+
+1. **Which harness.** Recommend the first installed one in this order:
+   - `opencode` — lightest prompt; the best fit for a local model.
+   - `hermes` — also light; needs a Hermes provider that points at the server.
+   - `claude` — works (Ollama 0.14+ serves `/v1/messages`), but its own prompt and tools cost
+     20–25K tokens before it reads a file: over a third of a 64K window, so it compacts often.
+     Say so if it is the only one installed.
+   - `cursor` — do not offer it for a local model unless the user says theirs is set up for one.
+2. **Which model tag** (`ollama list` shows them), and its context window.
+3. **How many requests the server serves in parallel** (`OLLAMA_NUM_PARALLEL`; 1 if they do not know).
+
+Never guess any of the three. Then edit `agenthook.config.json`. `agent` can be set once at the
+top level; `model`, `contextTokens` and `env` go on each pipeline step (`code` and `review`):
+
+- **OpenCode:** `"agent": "opencode"`, and per step `"model": "ollama/<tag>"`,
+  `"contextTokens": <window>`. OpenCode reaches the server through *its own* provider config, so
+  check it knows the model: `opencode models | grep '<tag>'`. Nothing printed → the user's
+  OpenCode config (`~/.config/opencode/opencode.json`) needs this provider; show it and ask
+  before editing their file:
+
+  ```json
+  { "provider": { "ollama": { "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://localhost:11434/v1" },
+      "models": { "<tag>": { "limit": { "context": 65536 } } } } } }
+  ```
+
+  (With a per-run sandbox, put that JSON in a file and name it in the step's `opencodeConfig`
+  instead: a sandboxed run does not see the user's own config.)
+- **Hermes:** `"agent": "hermes"`, and per step `"model": "<tag>"`, `"provider": "<the Hermes
+  provider that points at the server>"`, `"contextTokens": <window>`.
+- **Claude Code:** per step `"model": "<tag>"`,
+  `"env": {"ANTHROPIC_BASE_URL": "http://localhost:11434"}`, `"contextTokens": <window>`.
+
+Set the top-level `maxConcurrent` to the parallel count from question 3.
 
 Rules that keep local runs from stalling:
 
