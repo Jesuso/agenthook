@@ -111,6 +111,11 @@ All notable changes to this project are documented here. The format is based on
   `tick`/`status` show `max: 0`; `set_concurrency {harness, max: n}` with `n > 0` re-enables it.
   `0` is allowed only for a named harness: the global cap keeps its `1..64` range. The UI editor
   is unchanged.
+- The skill's setup reference now has the agent ask which agent CLI to use, not only which model:
+  it lists the installed ones and asks harness, model and (for a local model) context window and
+  the server's parallel slots in one message, proposing a pairing only when one is known to work
+  on that machine. It says where each key goes (`agent` top-level; `model`, `contextTokens`,
+  `provider`, `env` per step) and that OpenCode resolves the provider from its own config.
 
 ### Changed
 

@@ -46,29 +46,50 @@ Ask the user in one line with that trade-off, and on an explicit yes scaffold wi
 `agenthook init --local --yes --full-auto` (add `--force` if you already scaffolded without it).
 A per-run sandbox (`"sandbox": {"type": "podman"}` or `"docker"`) limits each run to its worktree.
 
-## 3. Pick the model (cloud or local)
+## 3. Pick the agent CLI and the model
 
-Default: the `claude` CLI on the user's Anthropic account. Nothing to change.
+Both are the user's choice. **Ask; do not default silently.** The scaffold's default (`claude` on
+the user's Anthropic account) is right only if that is what they want; then skip to step 4.
 
-**Local models** (Ollama or any server the agent CLI can reach) are set per step or per *harness*
-in `agenthook.config.json`. Ask the user which model tag and how many requests their server serves
-in parallel (`OLLAMA_NUM_PARALLEL`); never guess either.
+For anything else — another agent CLI, another provider, a local model — find out what is
+installed, since the receiver can only spawn those:
 
-- Claude Code on Ollama (0.14+ serves `/v1/messages`):
-  `{"model": "<tag>", "env": {"ANTHROPIC_BASE_URL": "http://localhost:11434"}}`.
-- OpenCode: `"agent": "opencode"`, `"model": "ollama/<tag>"`, plus an `opencodeConfig` file that
-  declares the Ollama provider and the model's `limit.context`.
-- Hermes: `"agent": "hermes"` with `provider` set to the Hermes provider that points at Ollama.
+```bash
+for b in claude opencode hermes agent; do command -v "$b" >/dev/null && echo "$b"; done   # `agent` is Cursor's CLI
+```
 
-Rules that keep local runs from stalling:
+Then ask the user, in one message:
 
-- Sum of `maxConcurrent` across everything that shares one GPU ≤ the server's parallel slots.
-  One more than that queues inside the server and looks like a hang.
-- Prefer a ≥ 64K context for `code`; the agent CLI's own prompt and tools cost 20K+ before it
-  reads a file. Set `contextTokens` so `tick` shows `ctx used/max`.
-- Raise `maxMinutes` (local runs are several times slower than cloud ones).
+1. **Which agent CLI** (*harness*) the steps should run, from the installed ones.
+2. **Which model**, as that CLI names it.
+3. For a model served on their own machine: **its context window** and **how many requests the
+   server handles in parallel**.
 
-Full recipes: <https://github.com/Jesuso/agenthook/blob/master/docs/local-models.md> and
+What already works on this machine is the best guide: if you or the user know a CLI + model
+pairing that runs well here, propose it. Otherwise lay out the options without ranking them by
+your own assumptions; one fact worth stating is that agent CLIs differ in how much of the context
+window their own prompt and tools take, which matters most on small local windows. Never guess
+an answer the user did not give.
+
+Then edit `agenthook.config.json`. `agent` can be set once at the top level; `model`,
+`contextTokens`, `provider` and `env` go on each pipeline step (`code` and `review`):
+
+- **Claude Code** (`"agent": "claude"`, the default): `"model": "<name>"`; for a server that
+  speaks the Anthropic API, `"env": {"ANTHROPIC_BASE_URL": "<server url>"}`.
+- **OpenCode** (`"agent": "opencode"`): `"model": "<provider>/<name>"`. OpenCode resolves the
+  provider from *its own* config, so confirm it lists the model (`opencode models`). If it does
+  not, the user's OpenCode config needs that provider and model; show what you would add and
+  ask before editing their file.
+- **Hermes** (`"agent": "hermes"`): `"model": "<name>"`, `"provider": "<a provider Hermes has configured>"`.
+- **Cursor** (`"agent": "cursor"`): `"model": "<name>"`.
+
+For a local model also set `contextTokens` to its window on each step (so `tick` shows
+`ctx used/max`) and the top-level `maxConcurrent` to the server's parallel count. More agents
+than the server serves at once queue inside it and look like a hang; several things sharing one
+GPU share that budget. Local runs are slower than cloud ones: raise the step's `maxMinutes` if
+runs time out.
+
+Full recipes, with worked examples: <https://github.com/Jesuso/agenthook/blob/master/docs/local-models.md> and
 <https://github.com/Jesuso/agenthook/blob/master/docs/agents.md>.
 
 ## 4. Check, start, first ticket
