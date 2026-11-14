@@ -6,7 +6,7 @@
 // `--fix` applies the safe, local, idempotent fixes a ✗/⚠ check carries, then re-checks.
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { installedSkills, installSkillInto, packageVersion } from "../skill-install.js";
+import { AGENT_DIRS, installedSkills, installSkillInto, packageVersion } from "../skill-install.js";
 import net from "node:net";
 import os from "node:os";
 import { claimedPorts, portInUse } from "../port.js";
@@ -958,22 +958,40 @@ export function uiBundleLints(bundle, { installDir, spawn = spawnSync }) {
 
 /**
  * Installed copies of the portable agent skill (skills/agenthook) older than this package: a stale
- * skill teaches agents yesterday's commands. Warn + fix (reinstall in place). Pure over `rows`.
- * @param {{agent: string, scope: string, dir: string, version: string}[]} rows @param {string} version
- * @param {{reinstall?: (dir: string) => void}} [io]
+ * skill teaches agents yesterday's commands. A link row (`linkTo`) is skipped — its version
+ * tracks the canonical copy, which gets its own row and warning. A row for a native agent's own
+ * (or legacy) dir is a leftover duplicate from before the symlink layout: its fix removes it
+ * rather than reinstalling, since that agent reads the canonical copy natively. Warn + fix. Pure
+ * over `rows`.
+ * @param {{agent: string, scope: string, dir: string, version: string, linkTo?: string}[]} rows @param {string} version
+ * @param {{reinstall?: (dir: string) => void, remove?: (dir: string) => void}} [io]
  * @returns {Finding[]}
  */
-export function skillLints(rows, version, { reinstall = (dir) => installSkillInto(dir, version) } = {}) {
+export function skillLints(
+  rows,
+  version,
+  { reinstall = (dir) => installSkillInto(dir, version), remove = (dir) => fs.rmSync(dir, { recursive: true, force: true }) } = {},
+) {
   return rows
-    .filter((r) => r.version !== version)
-    .map((r) =>
-      /** @type {Finding} */ ({
-        level: "warn",
-        label: `agent skill up to date (${r.agent}, ${r.scope})`,
-        note: `${r.dir} is ${r.version}; this agenthook is ${version} — run \`agenthook skill install\``,
-        fix: { describe: `reinstall the agent skill into ${r.dir}`, apply: () => reinstall(r.dir) },
-      }),
-    );
+    .filter((r) => !r.linkTo && r.version !== version)
+    .map((r) => {
+      const legacy = r.agent !== "agents" && AGENT_DIRS[r.agent]?.native[/** @type {'repo'|'global'} */ (r.scope)];
+      return /** @type {Finding} */ (
+        legacy
+          ? {
+              level: "warn",
+              label: `agent skill up to date (${r.agent}, ${r.scope})`,
+              note: `${r.dir} is a stale/duplicate copy — ${r.agent} reads the canonical .agents/skills copy natively — run \`agenthook skill install\``,
+              fix: { describe: `remove the stale copy at ${r.dir}`, apply: () => remove(r.dir) },
+            }
+          : {
+              level: "warn",
+              label: `agent skill up to date (${r.agent}, ${r.scope})`,
+              note: `${r.dir} is ${r.version}; this agenthook is ${version} — run \`agenthook skill install\``,
+              fix: { describe: `reinstall the agent skill into ${r.dir}`, apply: () => reinstall(r.dir) },
+            }
+      );
+    });
 }
 
 /** Per git repo: a missing worktree base (fix: create it), and worktrees git reports as

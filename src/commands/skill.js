@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { peekConfig } from "../config.js";
-import { AGENT_DIRS, detectAgents, installedSkills, installSkillInto, packageVersion, skillTargets } from "../skill-install.js";
+import { AGENT_DIRS, detectAgents, installedSkills, installSkillInto, linkSkillInto, packageVersion, planSkillInstall } from "../skill-install.js";
 
 /** @param {any} args */
 export async function skill(args) {
@@ -16,22 +16,35 @@ export async function skill(args) {
   if (sub === "ls") {
     const rows = installedSkills({ repoPath });
     if (!rows.length) return void console.log(`no agenthook skill installed (agenthook skill install); package version ${packageVersion()}`);
-    for (const r of rows) console.log(`${r.agent.padEnd(9)} ${r.scope.padEnd(6)} ${r.version.padEnd(8)} ${r.dir}`);
+    for (const r of rows) {
+      if (r.linkTo) console.log(`${r.agent.padEnd(9)} ${r.scope.padEnd(6)} link     -> ${r.linkTo}`);
+      else console.log(`${r.agent.padEnd(9)} ${r.scope.padEnd(6)} ${r.version.padEnd(8)} ${r.dir}`);
+    }
     return;
   }
   const agents = agentsArg(args);
   if (!agents.length) die(`no coding agent detected under ${process.env.HOME ?? "~"} — name one: --agent ${Object.keys(AGENT_DIRS).join("|")}`);
   const res = installSkill(agents, { repoPath, dryRun: args["dry-run"] === true });
-  for (const r of res) console.log(`${r.result.padEnd(9)} ${r.dir}`);
+  for (const r of res) console.log(`${r.result.padEnd(9)} ${r.kind.padEnd(6)} ${r.dir}${r.target ? ` -> ${r.target}` : ""}${r.note ? ` (${r.note})` : ""}`);
 }
 
 /**
  * @param {string[]} agents @param {{repoPath?: string|null, dryRun?: boolean, home?: string}} [o]
- * @returns {{agent: string, scope: string, dir: string, result: string}[]}
+ * @returns {{agent: string, scope: string, kind: 'copy'|'link'|'remove'|'foreign', dir: string, target?: string, result: string, note?: string}[]}
  */
 export function installSkill(agents, { repoPath = null, dryRun = false, home } = {}) {
   const version = packageVersion();
-  return skillTargets(agents, { repoPath, ...(home ? { home } : {}) }).map((t) => ({ ...t, result: installSkillInto(t.dir, version, { dryRun }) }));
+  const ho = home ? { home } : {};
+  return planSkillInstall(agents, { repoPath, ...ho }).map((a) => {
+    if (a.kind === "copy") return { ...a, result: installSkillInto(a.dir, version, { dryRun }) };
+    if (a.kind === "foreign") return { ...a, result: "foreign", note: "unstamped — left untouched" };
+    if (a.kind === "remove") {
+      if (!dryRun) fs.rmSync(a.dir, { recursive: true, force: true });
+      return { ...a, result: "removed" };
+    }
+    const { result, note } = linkSkillInto(a.dir, /** @type {string} */ (a.target), { dryRun });
+    return { ...a, result, ...(note ? { note } : {}) };
+  });
 }
 
 /** @param {any} args */

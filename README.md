@@ -302,7 +302,11 @@ Skill first, no CLI yet? Ask your agent to "set up agenthook here": the skill's
 `scripts/ensure-cli.sh` installs the matching `@jesuso/agenthook` with npm (Node ≥ 22) and it
 takes it from there. The other way round, `agenthook init` offers to install the skill,
 or use `agenthook skill install` (`--repo` installs it into the code repo, so the agents the
-receiver spawns there load it too). `agenthook doctor` warns when the skill lags the installed CLI.
+receiver spawns there load it too). Either way it keeps **one copy**, in
+`.agents/skills/agenthook` (`~/.agents/skills/agenthook` globally), and adds a symlink only for
+the agents that do not read that directory themselves (on Windows, a copy when a link cannot be
+made). `agenthook doctor` warns when the skill lags the installed CLI or an old per-agent copy is
+left over.
 
 ## Safety
 

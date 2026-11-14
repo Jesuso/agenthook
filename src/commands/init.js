@@ -337,7 +337,7 @@ async function initLocal(args, out, { inUse = portInUse, boot = start } = {}) {
     const { skill: wantSkill } = await runWizard([{ key: "skill", message: `Install the agenthook agent skill into ${repoRoot} (.agents/skills + detected agents)?`, type: "confirm", default: true }]);
     if (wantSkill) {
       const agents = [...new Set(["agents", ...detectAgents()])];
-      for (const r of installSkill(agents, { repoPath: repoRoot })) console.log(`  ${r.result.padEnd(9)} ${r.dir}`);
+      for (const r of installSkill(agents, { repoPath: repoRoot })) console.log(`  ${r.result.padEnd(9)} ${r.kind.padEnd(6)} ${r.dir}${r.target ? ` -> ${r.target}` : ""}`);
     }
     const { go } = await runWizard([{ key: "go", message: "Start the receiver now (in the background)?", type: "confirm", default: true }]);
     if (go) {
@@ -622,7 +622,7 @@ export async function init(args, opts) {
   const { skill: wantSkill } = await runWizard([{ key: "skill", message: `Install the agenthook agent skill into ${config.repoPath} (.agents/skills + detected agents)?`, type: "confirm", default: true }]);
   if (wantSkill) {
     const agents = [...new Set(["agents", ...detectAgents()])];
-    for (const r of installSkill(agents, { repoPath: path.resolve(path.dirname(out), config.repoPath) })) console.log(`  ${r.result.padEnd(9)} ${r.dir}`);
+    for (const r of installSkill(agents, { repoPath: path.resolve(path.dirname(out), config.repoPath) })) console.log(`  ${r.result.padEnd(9)} ${r.kind.padEnd(6)} ${r.dir}${r.target ? ` -> ${r.target}` : ""}`);
   }
 
   console.log(`\nNext:`);

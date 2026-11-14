@@ -151,8 +151,30 @@ All notable changes to this project are documented here. The format is based on
   harness on the same Ollama behind a minimal `opencodeConfig`, with the shared-GPU
   `maxConcurrent`/`OLLAMA_NUM_PARALLEL` note (#650).
 
+### Changed
+
+- `agenthook skill install` (and `init`'s skill offer) now installs **one canonical copy** at
+  `.agents/skills/agenthook` (or `~/.agents/skills/agenthook` globally) instead of a copy per
+  agent, plus a relative symlink for each requested agent that doesn't already read that
+  cross-agent dir natively at that scope — today that's Claude Code and Hermes at both scopes,
+  plus Cursor and Gemini CLI globally only (their repo-level dir is `.agents/skills`, but their
+  user-level dirs are `~/.cursor/skills` / `~/.gemini/skills`, not `~/.agents/skills`); Codex and
+  OpenCode read it directly at both scopes, so no dir at all is created for them. Re-installing
+  over an old per-agent copy migrates it: a stamped copy at a now-native agent's own dir is
+  removed, and one at a linked agent's dir becomes a symlink. A foreign (unstamped) `agenthook`
+  dir in a native agent's dir is left untouched either way, and is now reported as `foreign` (it
+  used to produce no output line at all) so a leftover foreign copy doesn't silently load twice.
+  On win32, where a symlink needs a privilege agenthook may not have, a failed link falls back to
+  a real copy instead. `agenthook skill ls` shows the canonical copy's version and each
+  link as `-> <canonical>`; `doctor`'s stale-skill warning follows the canonical copy (so its fix
+  never turns a link back into a copy) and separately flags a leftover per-agent copy as stale
+  (#667).
+
 ### Fixed
 
+- `agenthook skill install`'s OpenCode dirs were `.opencode/skill` / `.config/opencode/skill`
+  (singular); OpenCode actually reads `skills` (plural). The old singular dirs are now only
+  scanned for cleanup of a previously-installed stamped copy (#667).
 - UI: a ⋯ menu is no longer clipped by the card it sits in (#661). The menu now renders in a top
   layer, opens upward when there is no room below and shifts to stay inside the viewport; keyboard
   behaviour is unchanged.
