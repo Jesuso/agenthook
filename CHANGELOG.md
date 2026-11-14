@@ -145,8 +145,26 @@ All notable changes to this project are documented here. The format is based on
   harness on the same Ollama behind a minimal `opencodeConfig`, with the shared-GPU
   `maxConcurrent`/`OLLAMA_NUM_PARALLEL` note (#650).
 
+### Changed
+
+- `agenthook skill install` (and `init`'s skill offer) now installs **one canonical copy** at
+  `.agents/skills/agenthook` (or `~/.agents/skills/agenthook` globally) instead of a copy per
+  agent, plus a relative symlink for each requested agent that doesn't already read that
+  cross-agent dir natively — today that's Claude Code and Hermes; Cursor, Codex, OpenCode and
+  Gemini CLI read it directly, so no dir at all is created for them. Re-installing over an old
+  per-agent copy migrates it: a stamped copy at a now-native agent's own dir is removed, and one
+  at claude's/hermes's dir becomes a symlink. A foreign (unstamped) dir is left untouched either
+  way. On win32, where a symlink needs a privilege agenthook may not have, a failed link falls
+  back to a real copy instead. `agenthook skill ls` shows the canonical copy's version and each
+  link as `-> <canonical>`; `doctor`'s stale-skill warning follows the canonical copy (so its fix
+  never turns a link back into a copy) and separately flags a leftover per-agent copy as stale
+  (#667).
+
 ### Fixed
 
+- `agenthook skill install`'s OpenCode dirs were `.opencode/skill` / `.config/opencode/skill`
+  (singular); OpenCode actually reads `skills` (plural). The old singular dirs are now only
+  scanned for cleanup of a previously-installed stamped copy (#667).
 - `usage.jsonl` records carry `durationMs` for every agent: dispatch derives it from `startedAt`/`endedAt` when the adapter reports no `duration_ms` (opencode, hermes), so `stats` and the digest's wall-time columns no longer skip those runs (#652).
 - `tick`/`status` show `slots.harnesses` (and `capped`) from boot: the heartbeat's queue state is seeded from the queue when the engine starts, not only after the first run.
 - Sandbox egress: an operator `!private` rule now replaces the plain rule for the same `host:port`, including the agent's own `ANTHROPIC_BASE_URL` rule. A model served on the LAN behind `ANTHROPIC_BASE_URL` was refused even when allowed with `!private`, because the proxy takes the first matching rule.
