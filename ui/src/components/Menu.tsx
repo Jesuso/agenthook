@@ -42,9 +42,15 @@ export function Menu({ label, items, align = "right" }: { label: string; items: 
     reposition();
   }, [open]);
 
+  // Focus only once `pos` is set: before that the list is `visibility: hidden` (so `reposition()`
+  // can measure it without a flash), and a browser won't move focus into a hidden element.
+  useEffect(() => {
+    if (!open || !pos) return;
+    list.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [open, pos]);
+
   useEffect(() => {
     if (!open) return;
-    list.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (root.current?.contains(target) || list.current?.contains(target)) return;

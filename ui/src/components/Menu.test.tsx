@@ -14,6 +14,7 @@ let m: Mounted | null = null;
 afterEach(async () => {
   await m?.unmount();
   m = null;
+  vi.clearAllMocks();
 });
 
 const items = [
@@ -55,6 +56,17 @@ describe("Menu", () => {
     await act(async () => list.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("a mousedown on a portaled item does not close the menu, and the following click still fires onSelect", async () => {
+    m = await mount(createElement(Card));
+    await click(m.root.querySelector("button")!);
+    const remove = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === "Remove…")!;
+    await mousedown(remove);
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    await click(remove);
+    expect(items[1].onSelect).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("clicking an item inside the portaled list still fires onSelect, not a card navigation", async () => {
