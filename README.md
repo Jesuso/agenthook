@@ -38,7 +38,7 @@ edit files with it (on the host unless you add a [per-run sandbox](docs/sandbox.
 Full walkthrough, including chained tickets: [docs/quickstart.md](docs/quickstart.md) (also as
 [MP4](docs/img/quickstart.mp4); a real `claude -p` run, waits sped up).
 
-**No CLI to install, same result:** add the [agent skill](#agent-skill)
+**Prefer to start from your coding agent?** Add the [agent skill](#agent-skill)
 (`npx skills add Jesuso/agenthook -g`) and ask your coding agent to set agenthook up — it installs
 the CLI for you and takes it from there.
 
