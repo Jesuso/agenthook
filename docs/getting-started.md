@@ -57,7 +57,7 @@ NGROK_AUTHTOKEN=2x...          # only if you use the ngrok ingress
 ## 3. Scaffold the config
 
 ```bash
-agenthook init
+agenthook init --remote
 ```
 
 The wizard asks for the profile name, repo path, port, and `fullAuto` (default **no** — keep it),

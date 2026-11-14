@@ -5,7 +5,7 @@ Everything is one CLI: `bin/agenthook.js` (the `agenthook` bin). During developm
 from cwd); `--config <path>` selects one explicitly.
 
 ```bash
-node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd)
+node bin/agenthook.js init               # interactive scaffold of agenthook.config.json (cwd); asks local board (default) or tracker — `--remote` goes straight to the tracker wizard, no terminal + no flag is an error
 node bin/agenthook.js init --local [--yes] [--full-auto] [--name <n>] [--port <n>]  # zero-setup local-board profile in this git repo (no token/tunnel); port auto-picks from 4123, skipping ports listening or claimed by another registered profile
 node bin/agenthook.js start [--detach]   # ingress up → register webhook → serve (server owns ingress) (alias: serve)
 node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes its webhooks

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // agenthook CLI — one entry point for every subcommand. See docs/agenthook-v2.md.
 //
-//   agenthook init                 scaffold agenthook.config.json in the current dir
+//   agenthook init                 scaffold agenthook.config.json in the current dir (asks: local board or tracker)
+//   agenthook init --remote        straight to the tracker wizard
 //   agenthook init --local [--yes] [--full-auto] [--name <n>] [--port <n>]  zero-setup local-board profile (no token, no tunnel)
 //   agenthook start [--detach]     boot this profile (ingress up → register → serve) (alias: serve)
 //   agenthook stop [--keep-hooks]  stop the receiver (and delete its webhooks)
@@ -145,7 +146,8 @@ export const HELP = `agenthook — event-driven agentic development receiver
 
 usage: agenthook <command> [args] [--config <path>]
 
-  init                      scaffold agenthook.config.json (interactive)
+  init                      scaffold agenthook.config.json (interactive: local board, or a tracker)
+  init --remote             straight to the tracker wizard
   init --local [--yes] [--full-auto] [--name <n>] [--port <n>] [--force]
                             zero-setup profile on a local board in this git repo: no token, no tunnel
                             (fullAuto stays off unless --full-auto or an explicit yes)
