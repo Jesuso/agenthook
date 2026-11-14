@@ -500,6 +500,10 @@ export function validateRawConfig(raw) {
     errors.push(`config: "overlapGuard" must be true or false.`);
   }
 
+  if (cfg.attribution != null && typeof cfg.attribution !== "boolean") {
+    errors.push(`config: "attribution" must be true or false.`);
+  }
+
   if (cfg.language != null) {
     let valid = typeof cfg.language === "string" && cfg.language.trim() !== "";
     if (valid) {
