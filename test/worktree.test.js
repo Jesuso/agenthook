@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureWorktree, worktreePath } from "../src/worktree.js";
+import { ensureWorktree, worktreePath, branchName } from "../src/worktree.js";
 
 const ENV = {
   ...process.env,
@@ -111,6 +111,23 @@ test("HOST_GIT_SAFE: with a sandbox, every host git argv starts with it; without
   assert.deepEqual(HOST_GIT_SAFE, ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"]);
   assert.deepEqual(gitArgv({ sandbox: { type: "docker" } }, "/r", ["worktree", "add", "/w", "b"]), [...HOST_GIT_SAFE, "-C", "/r", "worktree", "add", "/w", "b"]);
   assert.deepEqual(gitArgv({}, "/r", ["worktree", "add", "/w", "b"]), ["-C", "/r", "worktree", "add", "/w", "b"]);
+});
+
+test("branchName: default prefix agent/, else the passed one", () => {
+  assert.equal(branchName("7"), "agent/7");
+  assert.equal(branchName("7", "local/"), "local/7");
+});
+
+test("ensureWorktree with cfg.branchPrefix creates a branch under that prefix (#674)", async () => {
+  const s = setup();
+  try {
+    const cfg = { ...s.cfg, branchPrefix: "local/" };
+    const r = await ensureWorktree(wtCfg(cfg), "11");
+    assert.equal(r.branch, "local/11");
+    assert.equal(g(r.worktree, ["rev-parse", "--abbrev-ref", "HEAD"]), "local/11");
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
 });
 
 test("HOST_GIT_SAFE: an agent-written hooksPath never runs on the host when a sandboxed worktree is re-added", async () => {

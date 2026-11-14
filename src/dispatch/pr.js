@@ -18,14 +18,14 @@ const execOut = (cmd, args, opts) =>
  * Best-effort PR number for a ref's deterministic branch (`gh pr list --head`). Any
  * error, timeout or empty result → undefined; never throws. Exported (with an
  * injectable exec) for offline tests.
- * @param {string} repoPath @param {string} ref @param {ExecFn} [exec]
+ * @param {string} repoPath @param {string} ref @param {ExecFn} [exec] @param {string} [branchPrefix]
  * @returns {Promise<number|undefined>}
  */
-export async function lookupPr(repoPath, ref, exec = execOut) {
+export async function lookupPr(repoPath, ref, exec = execOut, branchPrefix) {
   try {
     const out = await exec(
       "gh",
-      ["pr", "list", "--head", branchName(ref), "--state", "all", "--json", "number", "-q", ".[0].number"],
+      ["pr", "list", "--head", branchName(ref, branchPrefix), "--state", "all", "--json", "number", "-q", ".[0].number"],
       { cwd: repoPath, timeout: PR_LOOKUP_TIMEOUT_MS },
     );
     const n = Number(String(out).trim());

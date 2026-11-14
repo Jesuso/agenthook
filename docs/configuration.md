@@ -59,6 +59,7 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 | `name` | Profile name; keys the state dir unless `stateId` is set. Must be unique across running profiles. |
 | `stateId` | Optional stable state key (`[A-Za-z0-9._-]+`): the state dir is `~/.agenthook/<stateId>`, so `name` can be relabelled without moving state (`agenthook rename <new>`; `--move` moves the dir too and drops it). Renaming a profile *without* it makes `start` refuse (its config already owns another state dir — see `profile.json` there) rather than silently start on an empty dir. |
 | `repoPath` | The repo agents work in (worktrees are siblings). Relative paths resolve against the config. |
+| `branchPrefix` | Optional, default `agent/`. Prefix for every receiver-made branch. Two profiles pointed at the same repo (e.g. a GitHub-tracker profile and a local-board profile) need a **distinct** `branchPrefix` each, or the second reuses the first's branches — and also a distinct `worktreePrefix` (the default worktree directory is shared too; `agenthook doctor` warns about both). Changing the prefix on a profile with in-flight branches orphans them: their PRs are no longer recognised as agent PRs. |
 | `port` | Local receiver port. Distinct per parallel profile. |
 | `trigger` | Comment prefix reserved for agent-authored comments (default `@agent`). |
 | `maxConcurrent` | How many agents run at once (each in its own worktree). |

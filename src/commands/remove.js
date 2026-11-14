@@ -15,7 +15,7 @@ import { resolveProfile } from "../heartbeat.js";
 import { controlSockPath } from "../paths.js";
 import { readMarker } from "../profile.js";
 import { controlRequest } from "../ui/control-client.js";
-import { listWorktrees } from "../worktree.js";
+import { listWorktrees, DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 
 const USAGE = "usage: agenthook remove <name|key> [--purge] [--yes] [--keep-hooks]";
 
@@ -72,7 +72,7 @@ export async function removeProfile({
   } else if (!keepHooks && hooks) {
     log(unregisterHint(configPath, "before removing, while the state is still in place"));
   }
-  noteWorktrees(p.up ? p.heartbeat?.repos : reposFromConfig(configPath), configPath, log);
+  noteWorktrees(p.up ? p.heartbeat?.repos : reposFromConfig(configPath), configPath, branchPrefixFromConfig(configPath), log);
 
   if (!yes) {
     const answer = await ask("Type the profile name to confirm: ");
@@ -129,14 +129,27 @@ function reposFromConfig(configPath) {
   }
 }
 
-/** Mention leftover `agent/*` worktrees per repo. Never throws. @param {any} repos @param {string|null} configPath @param {(m: string) => void} log */
-function noteWorktrees(repos, configPath, log) {
+/** The removed profile's `branchPrefix` from its raw config file (no env interpolation),
+ * else the default. Best-effort: the default on any error. @param {string|null} configPath */
+function branchPrefixFromConfig(configPath) {
+  if (!configPath) return DEFAULT_BRANCH_PREFIX;
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    return typeof raw.branchPrefix === "string" && raw.branchPrefix ? raw.branchPrefix : DEFAULT_BRANCH_PREFIX;
+  } catch {
+    return DEFAULT_BRANCH_PREFIX;
+  }
+}
+
+/** Mention leftover branchPrefix worktrees per repo. Never throws.
+ * @param {any} repos @param {string|null} configPath @param {string} branchPrefix @param {(m: string) => void} log */
+function noteWorktrees(repos, configPath, branchPrefix, log) {
   if (!Array.isArray(repos)) return;
   for (const r of repos) {
     try {
       if (typeof r?.path !== "string") continue;
-      const n = listWorktrees(r.path).filter((w) => w.branch.startsWith("agent/")).length;
-      if (n > 0) log(`${n} agent/* worktree(s) in ${r.path} — prune done ones with \`agenthook cleanup --config ${configPath ?? "<path>"}\``);
+      const n = listWorktrees(r.path).filter((w) => w.branch.startsWith(branchPrefix)).length;
+      if (n > 0) log(`${n} ${branchPrefix}* worktree(s) in ${r.path} — prune done ones with \`agenthook cleanup --config ${configPath ?? "<path>"}\``);
     } catch {
       /* git/IO error: best-effort */
     }

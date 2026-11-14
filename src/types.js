@@ -629,8 +629,8 @@
  * @property {() => Promise<void>} unregisterWebhooks  deletes only this forge's hooks
  * @property {(prNumber: number|null, ref: string) => Promise<{number: number, sha: string, open: boolean}|null>} [prHead]  the ref's agent-branch PR (by number, else the open one), or null
  * @property {(prNumber: number) => Promise<'open'|'merged'|'closed'>} [prState]  one PR's state by number (any branch); throws on a non-2xx
- * @property {(since: string) => Promise<MergedAgentPr[]>} [listMergedAgentPrs]  PRs on `agent/<ref>` branches merged after `since` (ISO), any order; backs the explicit merge catch-up (`runMergeCatchup`), never a timer. Throws on a non-2xx
- * @property {() => Promise<AgentPr[]>} [listAgentPrs]  open PRs on receiver-made `agent/<ref>` branches of this repo, with CI + mergeability (read-only; the MCP `prs` tool)
+ * @property {(since: string) => Promise<MergedAgentPr[]>} [listMergedAgentPrs]  PRs on the profile's branchPrefix (default `agent/`) branches merged after `since` (ISO), any order; backs the explicit merge catch-up (`runMergeCatchup`), never a timer. Throws on a non-2xx
+ * @property {() => Promise<AgentPr[]>} [listAgentPrs]  open PRs on receiver-made branchPrefix (default `agent/`) branches of this repo, with CI + mergeability (read-only; the MCP `prs` tool)
  * @property {(prNumber: number, sha: string) => Promise<{mergeable: boolean|null, mergeState: string|null, ci: AgentPr['ci']}>} [ciStatus]  CI roll-up for one PR head + its mergeability (backs `ci_green`)
  * @property {(runId: number) => Promise<void>} [rerunFailedJobs]  re-run only the failed jobs of a run
  * @property {(runId: number, attempt: number) => Promise<string>} [failedLogTail]  tail of the failed jobs' logs (UNTRUSTED text); best-effort, "" on error
@@ -653,7 +653,7 @@
 /** One merged agent PR as `listMergedAgentPrs` reports it.
  * @typedef {object} MergedAgentPr
  * @property {number} pr
- * @property {string} ref        the task ref (branch minus `agent/`)
+ * @property {string} ref        the task ref (branch minus the profile's branchPrefix, default `agent/`)
  * @property {string} mergedAt   ISO timestamp
  * @property {boolean} [boardCloses]  the board closes the ticket itself (see `Job.boardCloses`); absent when not
  */
@@ -661,7 +661,7 @@
 /** One open agent PR as `listAgentPrs` reports it.
  * @typedef {object} AgentPr
  * @property {number} number
- * @property {string} ref        the task ref (branch minus `agent/`)
+ * @property {string} ref        the task ref (branch minus the profile's branchPrefix, default `agent/`)
  * @property {string} title
  * @property {string} url
  * @property {boolean} draft
@@ -737,6 +737,7 @@
  * @property {string} [agentProvider]  profile-default inference provider for a step's agent (hermes `--provider`); a step's `provider` overrides it
  * @property {string} claudeBin
  * @property {string} [worktreePrefix]
+ * @property {string} [branchPrefix]  prefix for every receiver-made branch (default "agent/"); two profiles sharing a repo need distinct ones so `ensureWorktree` doesn't reuse the other's branch
  * @property {string} dataDir
  * @property {string} logDir
  * @property {string} instructionsFile

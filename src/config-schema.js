@@ -111,6 +111,7 @@ export const CONFIG_SCHEMA = [
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),
   entry("worktreePrefix", "string", "Worktree prefix", "repos", "Where agent worktrees are created, resolved against the repo path.", { advanced: true, default: "../<repo-dir-name>-worktrees" }),
+  entry("branchPrefix", "string", "Branch prefix", "repos", "Prefix for every receiver-made branch; two profiles sharing a repo need distinct ones.", { advanced: true, default: "agent/" }),
   entry("repos", "array", "Repositories", "repos", "Several checkouts; a task's route keys pick the repo its agents work in."),
   entry("repos.*.id", "string", "Repo id", "repos", "Stable id (letters, digits, . _ -); names the worktree subdir."),
   entry("repos.*.path", "string", "Path", "repos", "This repo's checkout root; relative to the config file."),

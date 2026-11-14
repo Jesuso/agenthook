@@ -166,7 +166,7 @@ export function createStep(ctx) {
       console.log(`[worktree] ${wt.created ? "created" : "reuse"} ${worktree} (branch ${branch}${wt.base ? `, base ${wt.base.ref}@${wt.base.sha}` : ""})`);
     }
     const hasWorktree = fs.existsSync(worktree);
-    if (hasWorktree && !branch) branch = branchName(job.ref);
+    if (hasWorktree && !branch) branch = branchName(job.ref, cfg.branchPrefix);
     const cwd = hasWorktree ? worktree : repo.path;
 
     // One verdict file per run, under the state dir. Clear any stale one first so a

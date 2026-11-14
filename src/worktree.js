@@ -87,9 +87,13 @@ export function listWorktrees(repoPath) {
   return records;
 }
 
-/** @param {string} ref */
-export function branchName(ref) {
-  return `agent/${safeRef(ref)}`;
+/** The default branch prefix, overridden per-profile by `cfg.branchPrefix` — two profiles on
+ * the same repo need distinct ones or `ensureWorktree` reuses the other's branch. */
+export const DEFAULT_BRANCH_PREFIX = "agent/";
+
+/** @param {string} ref @param {string} [prefix] */
+export function branchName(ref, prefix = DEFAULT_BRANCH_PREFIX) {
+  return `${prefix}${safeRef(ref)}`;
 }
 
 /** repo's default branch (origin/HEAD), falling back to the current HEAD.
@@ -153,7 +157,7 @@ async function resolveBase(cfg, repo) {
  */
 export async function ensureWorktree(cfg, ref, repo = primaryRepo(cfg)) {
   const worktree = worktreePath(cfg, ref, repo);
-  const branch = branchName(ref);
+  const branch = branchName(ref, cfg.branchPrefix);
   if (fs.existsSync(worktree)) return { worktree, branch, created: false };
   fs.mkdirSync(path.dirname(worktree), { recursive: true });
   if (branchExists(cfg, repo.path, branch)) {

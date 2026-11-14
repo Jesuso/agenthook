@@ -11,7 +11,7 @@ import { loadConfig, peekConfig, validateRawConfig, registryDir } from "../src/c
 import { controlSockPath } from "../src/paths.js";
 import { createHeartbeat } from "../src/heartbeat.js";
 import { createEngine } from "../src/engine.js";
-import { writeProfileMarker, findRenameConflict, claimStateDir, isFreshStateDir } from "../src/profile.js";
+import { writeProfileMarker, findRenameConflict, claimStateDir, isFreshStateDir, registeredProfiles } from "../src/profile.js";
 
 const made = new Set();
 test.after(() => {
@@ -279,4 +279,70 @@ test("no-arg status reads the state dir keyed by stateId, not by name", async ()
   }
   assert.ok(!out.some((l) => /no such profile/.test(l)), out.join("\n"));
   assert.ok(out.some((l) => /tracker : asana/.test(l)), out.join("\n"));
+});
+
+// --- registeredProfiles (#674): backs doctor's sharedRepoLint ---
+
+const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "ah-regprof-"));
+
+/** A registered profile: a state dir with `profile.json`. @param {string} registry @param {string} stateKey
+ * @param {{ configPath?: string|null, name?: string }} [o] */
+function registerProfile(registry, stateKey, { configPath, name } = {}) {
+  const dir = path.join(registry, stateKey);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ configPath: configPath ?? null, stateKey, name: name ?? stateKey }));
+  return dir;
+}
+
+/** @param {string} dir @param {Record<string, any>} config */
+function writeRawConfig(dir, config) {
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify(config));
+  return file;
+}
+
+test("registeredProfiles: repoPath + repos resolved relative to the config file, default branchPrefix/worktree base", () => {
+  const registry = tmpDir();
+  const configDir = tmpDir();
+  const cfgFile = writeRawConfig(configDir, { repoPath: "./repo" });
+  registerProfile(registry, "alpha", { configPath: cfgFile });
+  const [p] = registeredProfiles({ registry });
+  assert.equal(p.name, "alpha");
+  assert.deepEqual(p.repoPaths, [path.resolve(configDir, "repo")]);
+  assert.equal(p.branchPrefix, "agent/");
+  assert.deepEqual(p.worktreeDirs, [path.resolve(configDir, "repo-worktrees")]);
+});
+
+test("registeredProfiles: an explicit branchPrefix and worktreePrefix (global and per-repo) are honored", () => {
+  const registry = tmpDir();
+  const configDir = tmpDir();
+  const cfgFile = writeRawConfig(configDir, {
+    branchPrefix: "local/",
+    worktreePrefix: "../wts",
+    repos: [{ id: "a", path: "./a" }, { id: "b", path: "./b", worktreePrefix: "../b-wts" }],
+  });
+  registerProfile(registry, "alpha", { configPath: cfgFile });
+  const [p] = registeredProfiles({ registry });
+  assert.equal(p.branchPrefix, "local/");
+  assert.deepEqual(p.repoPaths, [path.resolve(configDir, "a"), path.resolve(configDir, "b")]);
+  assert.deepEqual(p.worktreeDirs, [path.resolve(configDir, "a", "../wts"), path.resolve(configDir, "b", "../b-wts")]);
+});
+
+test("registeredProfiles: never-started (no marker) and missing/unparsable config are skipped — never throws", () => {
+  const registry = tmpDir();
+  fs.mkdirSync(path.join(registry, "ghost"), { recursive: true });
+  registerProfile(registry, "missing-config", { configPath: path.join(registry, "nope.json") });
+  const badFile = path.join(registry, "bad.json");
+  fs.writeFileSync(badFile, "{not json");
+  registerProfile(registry, "bad-config", { configPath: badFile });
+  assert.deepEqual(registeredProfiles({ registry }), []);
+});
+
+test("registeredProfiles: exclude by stateKey drops that profile", () => {
+  const registry = tmpDir();
+  const configDir = tmpDir();
+  const cfgFile = writeRawConfig(configDir, { repoPath: "./repo" });
+  registerProfile(registry, "alpha", { configPath: cfgFile });
+  assert.deepEqual(registeredProfiles({ registry, exclude: { stateKey: "alpha" } }), []);
+  assert.equal(registeredProfiles({ registry }).length, 1);
 });

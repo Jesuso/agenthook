@@ -148,6 +148,11 @@ test("refFromBranch maps agent/<ref> and rejects anything else", () => {
   assert.equal(refFromBranch(undefined), null);
 });
 
+test("refFromBranch: an explicit prefix maps that prefix and rejects agent/ (#674)", () => {
+  assert.equal(refFromBranch("local/12", "local/"), "12");
+  assert.equal(refFromBranch("agent/12", "local/"), null);
+});
+
 test("isForgePath tolerates a trailing slash and nothing else", () => {
   assert.equal(isForgePath("/forge"), true);
   assert.equal(isForgePath("/forge/"), true);
@@ -188,6 +193,14 @@ test("a generated secret is persisted under forge:github:webhookSecret and verif
 test("merged PR on agent/<ref> → one merge job keyed merged:<n>, stepId = completeOnMerge step", async () => {
   const jobs = await forge().processEvents(ctx(merged()));
   assert.deepEqual(jobs, [{ kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77" }]);
+});
+
+test("cfg.branchPrefix: a merged local/<ref> PR maps, and a plain agent/<ref> one is ignored (#674)", async () => {
+  const f = forge({}, pipeline, makeStore(), { branchPrefix: "local/" });
+  assert.deepEqual(await f.processEvents(ctx(merged({ head: { ref: "local/123" } }))), [
+    { kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77" },
+  ]);
+  assert.deepEqual(await f.processEvents(ctx(merged())), [], "agent/<ref> is not this profile's prefix");
 });
 
 /** A `pull_request` synchronize payload. @param {any} [over] */
@@ -336,6 +349,13 @@ test("cancelled/in-progress, non-agent branch, fork, flags off → no ci job", a
   await none(redRun({ head_repository: { full_name: "evil/r" } }));
   await none(redRun({ head_repository: null }));
   await none(redRun(), forge({ redCi: false }));
+});
+
+test("cfg.branchPrefix: a red run on local/<ref> maps, and a plain agent/<ref> one is ignored (#674)", async () => {
+  const f = forge({}, pipeline, makeStore(), { branchPrefix: "local/" });
+  const [j] = await f.processEvents(ctx(redRun({ head_branch: "local/123" }), "workflow_run"));
+  assert.equal(j.ref, "123");
+  assert.deepEqual(await f.processEvents(ctx(redRun(), "workflow_run")), []);
 });
 
 test("green workflow_run on agent/<ref> → one ci_green candidate keyed per (ref, sha); redCi:false does not hide it", async () => {
@@ -814,6 +834,22 @@ test("listAgentPrs: only same-repo agent/<ref> PRs, with CI roll-up and mergeabi
       [2, "11", "failure", false, "dirty", false],
       [5, "13", "pending", null, "unknown", true],
     ]);
+  } finally {
+    s.restore();
+  }
+});
+
+test("cfg.branchPrefix: listAgentPrs maps local/<ref> and skips agent/<ref> (#674)", async () => {
+  const pr = (number, ref, extra = {}) => ({ number, title: `t${number}`, html_url: `u${number}`, draft: false, updated_at: "now", head: { ref, sha: `sha${number}`, repo: { full_name: "o/r" } }, ...extra });
+  const s = stubFetch({
+    "GET /repos/o/r/pulls?state=open&per_page=100&page=1": { json: [pr(1, "local/10"), pr(2, "agent/11")] },
+    "GET /repos/o/r/pulls/1": { json: { mergeable: true, mergeable_state: "clean" } },
+    "GET /repos/o/r/commits/sha1/check-runs?per_page=100": { json: { check_runs: [] } },
+  });
+  try {
+    const f = forge({}, pipeline, makeStore(), { branchPrefix: "local/" });
+    const out = await /** @type {any} */ (f).listAgentPrs();
+    assert.deepEqual(out.map((p) => [p.number, p.ref]), [[1, "10"]]);
   } finally {
     s.restore();
   }

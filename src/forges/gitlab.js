@@ -30,9 +30,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { FORGE_PATH, refFromBranch, fenceLog } from "./github.js";
+import { DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 import { urlRule } from "../sandbox/egress.js";
 
-const BRANCH_PREFIX = "agent/";
 const SECRET_KEY = "forge:gitlab:webhookSecret";
 export const DEFAULT_BASE_URL = "https://gitlab.com";
 const LOG_TAIL_LINES = 60;
@@ -103,6 +103,7 @@ export const gitlabForgeEgressHosts = (fc) => {
 /** @type {import('../types.js').ForgeFactory} */
 export function createGitlabForge(cfg, store) {
   const fc = cfg.forge || /** @type {import('../types.js').ForgeConfig} */ ({ type: "gitlab" });
+  const prefix = cfg.branchPrefix || DEFAULT_BRANCH_PREFIX;
   const token = fc.token;
   const project = String(fc.project || "");
   const baseUrl = String(fc.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -199,9 +200,9 @@ export function createGitlabForge(cfg, store) {
     const mr = ev?.merge_request || null;
     // An MR pipeline's ref is `refs/merge-requests/<iid>/head` — the branch is on the MR.
     const branch = mr ? mr.source_branch : p?.tag ? null : p?.ref;
-    const ref = refFromBranch(branch);
+    const ref = refFromBranch(branch, prefix);
     if (!ref) {
-      console.log(`[forge] ignore pipeline ${p?.id} — "${branch ?? "?"}" is not an agent/* branch`);
+      console.log(`[forge] ignore pipeline ${p?.id} — "${branch ?? "?"}" is not a ${JSON.stringify(prefix)} branch`);
       return [];
     }
     const from = String(ev?.project?.path_with_namespace || "");
@@ -278,9 +279,9 @@ export function createGitlabForge(cfg, store) {
         console.log(`[forge] ignore MR !${mr?.iid ?? "?"} (${mr?.action ?? "?"})`);
         return [];
       }
-      const ref = refFromBranch(mr?.source_branch);
+      const ref = refFromBranch(mr?.source_branch, prefix);
       if (!ref) {
-        console.log(`[forge] ignore merged MR !${mr.iid} — source "${mr.source_branch}" is not an agent/* branch`);
+        console.log(`[forge] ignore merged MR !${mr.iid} — source "${mr.source_branch}" is not a ${JSON.stringify(prefix)} branch`);
         return [];
       }
       if (!sameProject(mr) || mr.target_project_id !== ev?.project?.id) {
@@ -337,13 +338,13 @@ export function createGitlabForge(cfg, store) {
         all = all.concat(batch);
         if (batch.length < 100) break;
       }
-      const mrs = all.filter((/** @type {any} */ m) => refFromBranch(m.source_branch) && sameProject(m));
+      const mrs = all.filter((/** @type {any} */ m) => refFromBranch(m.source_branch, prefix) && sameProject(m));
       return Promise.all(
         mrs.map(async (/** @type {any} */ m) => {
           const { mergeable, mergeState, ci } = await mrStatus(m.iid, m.sha);
           return {
             number: m.iid,
-            ref: /** @type {string} */ (refFromBranch(m.source_branch)),
+            ref: /** @type {string} */ (refFromBranch(m.source_branch, prefix)),
             title: String(m.title ?? ""),
             url: String(m.web_url ?? ""),
             draft: !!(m.draft ?? m.work_in_progress),
@@ -367,7 +368,7 @@ export function createGitlabForge(cfg, store) {
     // The open-or-not MR for a ref's agent branch and its current head sha. By iid when the
     // pipeline names one, else the open MR from `agent/<ref>`.
     async prHead(iid, ref) {
-      const branch = `${BRANCH_PREFIX}${ref}`;
+      const branch = `${prefix}${ref}`;
       let mr;
       if (iid) {
         const res = await api(`${projPath()}/merge_requests/${iid}`);
