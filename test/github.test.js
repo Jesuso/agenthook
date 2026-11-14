@@ -4,10 +4,14 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createGithubAdapter, epicChangeFromEvent, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
 import { ticketBucket } from "../src/epics.js";
 import { resetGithubAuthCache } from "../src/github-auth.js";
+import { createStore } from "../src/store.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -347,9 +351,8 @@ test("rework reaches done twice: run --force back to code, then re-advance into 
     { id: "review", sourceLabel: "agent:review", successLabel: "agent:done" },
     { id: "done", sourceLabel: "agent:done", manual: true },
   ];
-  // The fake issue: labels kept as a set. Starts already resting in "agent:done" (the
-  // first pipeline_done already happened once), mirroring issue #667's reported state.
-  const labels = new Set(["agent:done"]);
+  // The fake issue: labels kept as a set, starting mid-pipeline in "agent:review".
+  const labels = new Set(["agent:review"]);
   /** @type {any[]} */
   const doneJobs = [];
   let deliverySeq = 0;
@@ -392,24 +395,41 @@ test("rework reaches done twice: run --force back to code, then re-advance into 
   };
   try {
     a = createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }), /** @type {any} */ (makeStore()));
+    // review finishes — the issue's FIRST genuine arrival at agent:done.
+    await a.advance("42", "review", { outcome: "advance" });
+    assert.equal(doneJobs.length, 1, "the first arrival at agent:done produced its own job");
+    assert.equal(doneJobs[0].stepId, "done");
+
     // `agenthook run 42 code --force`: enters "code" and must drop the stale agent:done.
     await a.enterStage("42", "code", { assign: false });
     assert.ok(!labels.has("agent:done"), "agent:done must be dropped on re-entry into code");
-    // review finishes and advances back into agent:done — a fresh label add this time.
+    // review finishes again and advances back into agent:done — a fresh label add this time.
     await a.advance("42", "review", { outcome: "advance" });
-    assert.equal(doneJobs.length, 1, "the second arrival at agent:done produced its own job");
-    assert.equal(doneJobs[0].stepId, "done");
-    assert.notEqual(doneJobs[0].dedupKey, "secmove:guid-1", "a fresh delivery id, not the first done arrival's");
+    assert.equal(doneJobs.length, 2, "the second arrival at agent:done produced its own job");
+    assert.equal(doneJobs[1].stepId, "done");
+    assert.notEqual(doneJobs[1].dedupKey, doneJobs[0].dedupKey, "a fresh delivery id, not the first done arrival's");
 
     // Same x-github-delivery delivered twice yields the identical dedupKey intake's `seen`
     // store dedups on — i.e. a re-delivered webhook (not a genuine re-entry) stays coalesced.
-    const sameDelivery = doneJobs[0].dedupKey.slice("secmove:".length);
+    const sameDelivery = doneJobs[1].dedupKey.slice("secmove:".length);
     const replay = await a.processEvents(
       /** @type {any} */ (
-        evt({ action: "labeled", label: { name: "agent:done" }, issue: { number: 42, labels: [{ name: "agent:done" }], assignees: [{ login: "bot" }] } }, { "x-github-delivery": sameDelivery })
+        evt({ action: "labeled", label: { name: "agent:done" }, issue: { number: 42, labels: [...labels].map((n) => ({ name: n })), assignees: [{ login: "bot" }] } }, { "x-github-delivery": sameDelivery })
       ),
     );
-    assert.equal(replay[0].dedupKey, doneJobs[0].dedupKey);
+    assert.equal(replay[0].dedupKey, doneJobs[1].dedupKey);
+
+    // Drive both deliveries through the real dedup gate `intake` uses (disk-backed
+    // seen store): the genuine second arrival is accepted, the replayed delivery is not.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-github-672-"));
+    const store = createStore(dir);
+    const accept = (/** @type {any} */ job) => {
+      if (!job.dedupKey || store.hasSeen(job.dedupKey)) return false;
+      store.markSeen(job.dedupKey);
+      return true;
+    };
+    assert.equal(accept(doneJobs[1]), true, "the second genuine done arrival is accepted");
+    assert.equal(accept(replay[0]), false, "the re-delivered webhook (same x-github-delivery) is dropped");
   } finally {
     global.fetch = orig;
   }
