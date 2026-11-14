@@ -175,6 +175,27 @@ export function localScaffold({ repoRoot, name, port, fullAuto, base = "main" })
   };
 }
 
+/** Which tracker the type question defaults to: the first (in `types`' order) whose default
+ * token env var is already set in `env`; with none set, the first entry. Pure.
+ * @param {string[]} types @param {Record<string, string|undefined>} env */
+export function preselectTracker(types, env) {
+  return types.find((t) => DEFAULT_TOKEN_ENV[t] && env[DEFAULT_TOKEN_ENV[t]]) || types[0];
+}
+
+/** A tracker choice's title: the type name, plus which env var already holds a token when one
+ * does. Pure. @param {string} type @param {Record<string, string|undefined>} env */
+export function trackerChoiceTitle(type, env) {
+  const v = DEFAULT_TOKEN_ENV[type];
+  return v && env[v] ? `${type}  (${v} found)` : type;
+}
+
+/** The message `init` prints when a tracker token (or App key) is missing: names the variable
+ * and where init looked for it. Nothing has been written at this point. Pure.
+ * @param {string} varName @param {string} envPath */
+export function missingTokenMessage(varName, envPath) {
+  return `${varName} is not set. init looked in the shell environment and in ${envPath} — neither has it.\nNothing has been written yet.`;
+}
+
 /** A profile name from free text: [A-Za-z0-9._-] only. @param {string} raw */
 export function sanitizeName(raw) {
   return String(raw).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "local";
@@ -381,8 +402,91 @@ export async function init(args, opts) {
 
   // The wizard needs the live token to look up the workspace, and the prompts tell the user a .env
   // is enough — so read it (shell-exported vars still win), as loadConfig does for every other command.
-  loadEnv(path.join(path.dirname(out), ".env"));
+  const envPath = path.join(path.dirname(out), ".env");
+  loadEnv(envPath);
   if (path.resolve(process.cwd()) !== path.dirname(out)) loadEnv(path.join(process.cwd(), ".env"));
+
+  // --- tracker (type first, then its token/App key) — before the core questions, so a missing
+  // token aborts having asked exactly one thing instead of six.
+  const trackerTypes = Object.keys(TRACKERS).filter((t) => t !== "local"); // the local board is `init`'s first question's other answer
+  const trackerAns = await runWizard([
+    {
+      key: "type",
+      message: "Tracker",
+      type: "select",
+      default: preselectTracker(trackerTypes, process.env),
+      choices: trackerTypes.map((t) => ({ title: trackerChoiceTitle(t, process.env), value: t })),
+    },
+  ]);
+  // GitHub trackers may authenticate as a GitHub App instead of a personal token.
+  const isGithub = trackerAns.type === "github" || trackerAns.type === "github-projects";
+  const { _auth: authKind } = isGithub
+    ? await runWizard([
+        {
+          key: "_auth",
+          message: "Authenticate with",
+          type: "select",
+          choices: [
+            { title: "Personal token", value: "token" },
+            { title: "GitHub App (narrow per-repo permissions, short-lived tokens)", value: "app" },
+          ],
+        },
+      ])
+    : { _auth: "token" };
+
+  // Missing token/key is not a dead end: offer the local board instead of losing every answer
+  // collected so far. Nothing has been written at this point either way.
+  const offerLocalFallback = async (/** @type {string} */ message) => {
+    console.log(`\n${message}`);
+    const { useLocal } = await runWizard([{ key: "useLocal", message: "Set up a local board for now instead?", type: "confirm", default: true }]);
+    if (!useLocal) return false;
+    await initLocal(args, out, opts);
+    return true;
+  };
+
+  let tokenEnv = "";
+  /** @type {Record<string, any>} */
+  const probePc = { type: trackerAns.type };
+  if (authKind === "app") {
+    const app = await runWizard([
+      { key: "appId", message: "GitHub App id (App settings → General)", validate: (v) => (/^\d+$/.test(String(v).trim()) ? true : "a number") },
+      { key: "installationId", message: "Installation id (the number in …/settings/installations/<id>)", validate: (v) => (/^\d+$/.test(String(v).trim()) ? true : "a number") },
+      { key: "privateKey", message: "Private key: env var holding the PEM, or a path to the .pem file", default: "GITHUB_APP_PRIVATE_KEY" },
+      { key: "assigneeLogin", message: "Your GitHub login (the human the App acts for — work is scoped to issues assigned to it)", validate: (v) => (String(v).trim() ? true : "required") },
+    ]);
+    const authBlock = githubAppAuthBlock({ appId: String(app.appId).trim(), installationId: String(app.installationId).trim(), privateKey: app.privateKey });
+    const pem = authBlock.privateKeyPath ? readPem(path.resolve(authBlock.privateKeyPath)) : process.env[String(app.privateKey).trim()];
+    if (!pem) {
+      const notReadable = authBlock.privateKeyPath && `${authBlock.privateKeyPath} is not readable`;
+      if (await offerLocalFallback(notReadable || missingTokenMessage(String(app.privateKey).trim(), envPath))) return;
+      throw new Error(`${notReadable || `${String(app.privateKey).trim()} is not set. Export it (or add it to a .env here)`}, then re-run \`agenthook init\` — the App's key is needed to look up your repo/project.`);
+    }
+    console.log(`\n${githubAppPermissionLines(trackerAns.type).join("\n")}`);
+    trackerAns.auth = authBlock;
+    trackerAns.assigneeLogin = String(app.assigneeLogin).trim();
+    probePc.auth = { ...authBlock, privateKey: pem };
+  } else {
+    tokenEnv = (
+      await runWizard([
+        {
+          key: "tokenEnv",
+          message: `Env var holding the ${trackerAns.type} API token`,
+          default: DEFAULT_TOKEN_ENV[trackerAns.type] || "API_TOKEN",
+        },
+      ])
+    ).tokenEnv;
+
+    const token = process.env[tokenEnv];
+    if (!token) {
+      if (await offerLocalFallback(missingTokenMessage(tokenEnv, envPath))) return;
+      throw new Error(
+        `${tokenEnv} is not set. Export it (or add it to a .env here), then re-run \`agenthook init\` — ` +
+          `the live token is needed to look up your workspace/project/repo.`,
+      );
+    }
+    trackerAns.tokenEnv = tokenEnv;
+    probePc.token = token;
+  }
 
   // --- core ---
   /** @type {Record<string, any>} */
@@ -403,68 +507,6 @@ export async function init(args, opts) {
     ],
     core,
   );
-
-  // --- tracker (type, token env, then adapter-driven live discovery) ---
-  const trackerAns = await runWizard([
-    { key: "type", message: "Tracker", type: "select", choices: Object.keys(TRACKERS).filter((t) => t !== "local").map((t) => ({ title: t, value: t })) }, // the local board is the first question's other answer
-  ]);
-  // GitHub trackers may authenticate as a GitHub App instead of a personal token.
-  const isGithub = trackerAns.type === "github" || trackerAns.type === "github-projects";
-  const { _auth: authKind } = isGithub
-    ? await runWizard([
-        {
-          key: "_auth",
-          message: "Authenticate with",
-          type: "select",
-          choices: [
-            { title: "Personal token", value: "token" },
-            { title: "GitHub App (narrow per-repo permissions, short-lived tokens)", value: "app" },
-          ],
-        },
-      ])
-    : { _auth: "token" };
-
-  let tokenEnv = "";
-  /** @type {Record<string, any>} */
-  const probePc = { type: trackerAns.type };
-  if (authKind === "app") {
-    const app = await runWizard([
-      { key: "appId", message: "GitHub App id (App settings → General)", validate: (v) => (/^\d+$/.test(String(v).trim()) ? true : "a number") },
-      { key: "installationId", message: "Installation id (the number in …/settings/installations/<id>)", validate: (v) => (/^\d+$/.test(String(v).trim()) ? true : "a number") },
-      { key: "privateKey", message: "Private key: env var holding the PEM, or a path to the .pem file", default: "GITHUB_APP_PRIVATE_KEY" },
-      { key: "assigneeLogin", message: "Your GitHub login (the human the App acts for — work is scoped to issues assigned to it)", validate: (v) => (String(v).trim() ? true : "required") },
-    ]);
-    const authBlock = githubAppAuthBlock({ appId: String(app.appId).trim(), installationId: String(app.installationId).trim(), privateKey: app.privateKey });
-    const pem = authBlock.privateKeyPath ? readPem(path.resolve(authBlock.privateKeyPath)) : process.env[String(app.privateKey).trim()];
-    if (!pem) {
-      const what = authBlock.privateKeyPath ? `${authBlock.privateKeyPath} is not readable` : `${String(app.privateKey).trim()} is not set. Export it (or add it to a .env here)`;
-      throw new Error(`${what}, then re-run \`agenthook init\` — the App's key is needed to look up your repo/project.`);
-    }
-    console.log(`\n${githubAppPermissionLines(trackerAns.type).join("\n")}`);
-    trackerAns.auth = authBlock;
-    trackerAns.assigneeLogin = String(app.assigneeLogin).trim();
-    probePc.auth = { ...authBlock, privateKey: pem };
-  } else {
-    tokenEnv = (
-      await runWizard([
-        {
-          key: "tokenEnv",
-          message: `Env var holding the ${trackerAns.type} API token`,
-          default: DEFAULT_TOKEN_ENV[trackerAns.type] || "API_TOKEN",
-        },
-      ])
-    ).tokenEnv;
-
-    const token = process.env[tokenEnv];
-    if (!token) {
-      throw new Error(
-        `${tokenEnv} is not set. Export it (or add it to a .env here), then re-run \`agenthook init\` — ` +
-          `the live token is needed to look up your workspace/project/repo.`,
-      );
-    }
-    trackerAns.tokenEnv = tokenEnv;
-    probePc.token = token;
-  }
 
   // Build a throwaway adapter purely for its wizardSteps() discovery.
   /** @type {any} */
