@@ -302,16 +302,11 @@ Skill first, no CLI yet? Ask your agent to "set up agenthook here": the skill's
 `scripts/ensure-cli.sh` installs the matching `@jesuso/agenthook` with npm (Node ≥ 22) and it
 takes it from there. The other way round, `agenthook init` offers to install the skill,
 or use `agenthook skill install` (`--repo` installs it into the code repo, so the agents the
-receiver spawns there load it too). Either way it keeps **one canonical copy** at
-`.agents/skills/agenthook` (or `~/.agents/skills/agenthook` globally) plus a relative symlink for
-each detected agent that doesn't already read that cross-agent dir natively at that scope —
-today that's Claude Code and Hermes at both scopes, plus Cursor and Gemini CLI globally only
-(they read `.agents/skills` in a repo, but their user-level dirs are `~/.cursor/skills` /
-`~/.gemini/skills`, not `~/.agents/skills`). Codex and OpenCode read it directly at both scopes,
-so no copy or link is created for them. On Windows, where a symlink needs a privilege agenthook
-may not have, it falls back to a real copy instead. `agenthook doctor` warns when the canonical
-copy (or a fallback copy) lags the installed CLI, and flags any pre-upgrade per-agent copy left
-over as a stale duplicate.
+receiver spawns there load it too). Either way it keeps **one copy**, in
+`.agents/skills/agenthook` (`~/.agents/skills/agenthook` globally), and adds a symlink only for
+the agents that do not read that directory themselves (on Windows, a copy when a link cannot be
+made). `agenthook doctor` warns when the skill lags the installed CLI or an old per-agent copy is
+left over.
 
 ## Safety
 
