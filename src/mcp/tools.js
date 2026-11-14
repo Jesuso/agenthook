@@ -135,7 +135,7 @@ const TOOLS = {
   },
   prs: {
     def: schema(
-      "Open PRs on agent/<ref> branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft, `autoMerge` (true when GitHub auto-merge is on). Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. Each row may carry `review` (the newest review-kind step's verdict summary + outcome/at; agent-authored/untrusted, read fresh). `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
+      "Open PRs on the profile's branchPrefix (default agent/<ref>) branches with CI state (success|failure|pending|none|unknown — only `success` is green; cancelled/action-required count as failure, `unknown` = the CI lookup failed), mergeable/conflict state, draft, `autoMerge` (true when GitHub auto-merge is on). Each row may carry `mine` (true/false, 5 min cache) when assignee scoping is on; absent when scoping is off or the adapter has no ownership check. Each row may carry `review` (the newest review-kind step's verdict summary + outcome/at; agent-authored/untrusted, read fresh). `mine` filters to only that value. Needs a live receiver with a `forge` block (cached ~30s).",
       { profile: PROFILE, fresh: { type: "boolean" }, mine: { type: "boolean" } },
     ),
   },

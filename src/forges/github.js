@@ -37,9 +37,9 @@ import fs from "node:fs";
 import { verifyHubSignature } from "../hmac.js";
 import { createGithubAuth, githubFetch } from "../github-auth.js";
 import { githubRunCredentials, originUrl } from "../github-run-token.js";
+import { DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 
 export const FORGE_PATH = "/forge";
-const BRANCH_PREFIX = "agent/";
 const SECRET_KEY = "forge:github:webhookSecret";
 // Conclusions that count as red. `cancelled` (superseded push, human stop) does not.
 const RED = new Set(["failure", "timed_out"]);
@@ -49,11 +49,11 @@ const FAILING = new Set([...RED, "cancelled", "startup_failure", "action_require
 const LOG_TAIL_LINES = 60;
 const LOG_TAIL_MAX = 6000;
 
-/** The task ref an agent branch belongs to (`agent/123` → `123`), or null for any
- * other branch. @param {string|null|undefined} branch @returns {string|null} */
-export function refFromBranch(branch) {
-  if (typeof branch !== "string" || !branch.startsWith(BRANCH_PREFIX)) return null;
-  const ref = branch.slice(BRANCH_PREFIX.length);
+/** The task ref an agent branch belongs to (`<prefix>123` → `123`), or null for any
+ * other branch. @param {string|null|undefined} branch @param {string} [prefix] @returns {string|null} */
+export function refFromBranch(branch, prefix = DEFAULT_BRANCH_PREFIX) {
+  if (typeof branch !== "string" || !branch.startsWith(prefix)) return null;
+  const ref = branch.slice(prefix.length);
   return ref || null;
 }
 
@@ -131,6 +131,7 @@ export const githubForgeEgressHosts = () => ["github.com", "api.github.com", "up
 /** @type {import('../types.js').ForgeFactory} */
 export function createGithubForge(cfg, store) {
   const fc = cfg.forge || /** @type {import('../types.js').ForgeConfig} */ ({ type: "github" });
+  const prefix = cfg.branchPrefix || DEFAULT_BRANCH_PREFIX;
   const auth = createGithubAuth(fc); // a token, or a GitHub App's installation token
   const [owner, repo] = fc.repository ? String(fc.repository).split("/") : [fc.owner, fc.repo];
   // A github tracker on this same repo closes the issue itself when the PR says `Closes #<ref>`
@@ -244,9 +245,9 @@ export function createGithubForge(cfg, store) {
       console.log(`[forge] ignore workflow_run ${run?.id ?? "?"} (${ev?.action}${run?.conclusion ? `, ${run.conclusion}` : ""})`);
       return [];
     }
-    const ref = refFromBranch(run?.head_branch);
+    const ref = refFromBranch(run?.head_branch, prefix);
     if (!ref) {
-      console.log(`[forge] ignore red run ${run?.id} — head "${run?.head_branch}" is not an agent/* branch`);
+      console.log(`[forge] ignore red run ${run?.id} — head "${run?.head_branch}" is not a ${JSON.stringify(prefix)} branch`);
       return [];
     }
     const from = String(run?.head_repository?.full_name || "");
@@ -349,7 +350,7 @@ export function createGithubForge(cfg, store) {
       // forge.autoMerge: a new commit on an agent PR that has auto-merge on → `pr_push` signal
       // (src/auto-merge.js createPrPushGuard turns it off when the approval was for an older head).
       if (ev?.action === "synchronize") {
-        const pushRef = cfg.forge?.autoMerge && pr?.auto_merge ? refFromBranch(pr?.head?.ref) : null;
+        const pushRef = cfg.forge?.autoMerge && pr?.auto_merge ? refFromBranch(pr?.head?.ref, prefix) : null;
         if (!pushRef || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) return [];
         console.log(`[forge] PR #${pr.number} new head ${String(pr.head.sha).slice(0, 7)} with auto-merge on → pr_push ${pushRef}`);
         return [{ kind: "pr_push", ref: pushRef, stepId: "", dedupKey: `prpush:${pr.number}:${pr.head.sha}`, push: { prNumber: pr.number, headSha: String(pr.head.sha) } }];
@@ -358,9 +359,9 @@ export function createGithubForge(cfg, store) {
         console.log(`[forge] ignore PR #${pr?.number ?? "?"} (${ev?.action}${ev?.action === "closed" ? ", not merged" : ""})`);
         return [];
       }
-      const ref = refFromBranch(pr?.head?.ref);
+      const ref = refFromBranch(pr?.head?.ref, prefix);
       if (!ref) {
-        console.log(`[forge] ignore merged PR #${pr?.number} — head "${pr?.head?.ref}" is not an agent/* branch`);
+        console.log(`[forge] ignore merged PR #${pr?.number} — head "${pr?.head?.ref}" is not a ${JSON.stringify(prefix)} branch`);
         return [];
       }
       const step = cfg.pipeline?.find((s) => s.completeOnMerge);
@@ -417,14 +418,14 @@ export function createGithubForge(cfg, store) {
       }
       const prs = all.filter(
         (/** @type {any} */ p) =>
-          refFromBranch(p.head?.ref) && p.head?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase(),
+          refFromBranch(p.head?.ref, prefix) && p.head?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase(),
       );
       return Promise.all(
         prs.map(async (/** @type {any} */ p) => {
           const { mergeable, mergeState, ci } = await prStatus(p.number, p.head.sha);
           return {
             number: p.number,
-            ref: /** @type {string} */ (refFromBranch(p.head.ref)),
+            ref: /** @type {string} */ (refFromBranch(p.head.ref, prefix)),
             title: String(p.title ?? ""),
             url: String(p.html_url ?? ""),
             draft: !!p.draft,
@@ -450,7 +451,7 @@ export function createGithubForge(cfg, store) {
         if (!res.ok) throw new Error(`list closed PRs ${res.status}`);
         const batch = (await json(res)) || [];
         for (const p of batch) {
-          const ref = refFromBranch(p.head?.ref);
+          const ref = refFromBranch(p.head?.ref, prefix);
           if (!(ref && p.merged_at && Date.parse(p.merged_at) > sinceMs)) continue;
           out.push({ pr: p.number, ref, mergedAt: String(p.merged_at), ...(boardCloses(p, ref) ? { boardCloses: true } : {}) });
         }
@@ -471,7 +472,7 @@ export function createGithubForge(cfg, store) {
     // The open-or-not PR for a ref's agent branch and its current head sha. By number
     // when the run names one, else the open PR whose head is `<owner>:agent/<ref>`.
     async prHead(prNumber, ref) {
-      const branch = `${BRANCH_PREFIX}${ref}`;
+      const branch = `${prefix}${ref}`;
       let pr;
       if (prNumber) {
         const res = await api(`${repoPath()}/pulls/${prNumber}`);
@@ -497,7 +498,7 @@ export function createGithubForge(cfg, store) {
       const res = await api(`${repoPath()}/pulls/${prNumber}`);
       if (!res.ok) throw new Error(`get PR #${prNumber} ${res.status}`);
       const pr = await json(res);
-      if (!refFromBranch(pr?.head?.ref) || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+      if (!refFromBranch(pr?.head?.ref, prefix) || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
         throw new Error(`PR #${prNumber} is not an agent PR of ${owner}/${repo}`);
       }
       if (pr.merged_at) return { status: "merged", readied: false };
@@ -532,7 +533,7 @@ export function createGithubForge(cfg, store) {
       const res = await api(`${repoPath()}/pulls/${prNumber}`);
       if (!res.ok) throw new Error(`get PR #${prNumber} ${res.status}`);
       const pr = await json(res);
-      if (!refFromBranch(pr?.head?.ref) || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+      if (!refFromBranch(pr?.head?.ref, prefix) || pr.head?.repo?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
         throw new Error(`PR #${prNumber} is not an agent PR of ${owner}/${repo}`);
       }
       if (pr.merged_at) return { status: "merged" };

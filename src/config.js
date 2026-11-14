@@ -171,6 +171,10 @@ function readRawConfig(explicit) {
 
 const NAME_ERROR = `config: "name" is required and must match [A-Za-z0-9._-]+ (it keys the state dir).`;
 
+/** `branchPrefix` shape: non-empty slash-separated components, ending in "/" (the finer-grained
+ * ".."/leading-"."/trailing-".lock" checks run separately — a plain regex can't express them). */
+const BRANCH_PREFIX_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*\/$/;
+
 /** @param {any} name */
 export function validName(name) {
   return !!name && typeof name === "string" && /^[A-Za-z0-9._-]+$/.test(name);
@@ -474,6 +478,20 @@ export function validateRawConfig(raw) {
   }
 
   errors.push(...reposErrors(cfg.repos));
+
+  if (cfg.branchPrefix != null) {
+    const bp = cfg.branchPrefix;
+    const ok =
+      typeof bp === "string" &&
+      BRANCH_PREFIX_RE.test(bp) &&
+      !bp.includes("..") &&
+      bp.slice(0, -1).split("/").every((c) => !c.startsWith(".") && !c.endsWith(".lock"));
+    if (!ok) {
+      errors.push(
+        `config: "branchPrefix" must be slash-separated components of [A-Za-z0-9._-]+ ending in "/" (e.g. "agent/", "team/bot/"); no "..", and no component starting with "." or ending with ".lock".`,
+      );
+    }
+  }
 
   if (cfg.agent != null && !isAgentName(cfg.agent)) {
     errors.push(`config: "agent" ${JSON.stringify(cfg.agent)} is not a known agent (${AGENT_NAMES.join(", ")}).`);

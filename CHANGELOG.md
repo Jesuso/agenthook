@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- A `branchPrefix` config key (#674), default `agent/`: two profiles pointed at the same repo
+  (e.g. a GitHub-tracker profile and a local-board profile) can now give their receiver-made
+  branches distinct prefixes instead of colliding on `agent/<ref>`. `agenthook doctor` gains a
+  lint that warns when another registered profile shares a repo with the same effective
+  `branchPrefix` or the same worktree directory, naming the fix (a distinct `branchPrefix` and/or
+  `worktreePrefix`).
 - The agent skill gains a first-time setup reference (`skills/agenthook/references/setup.md`):
   prerequisites, `init --local`, `fullAuto` as the user's call, pointing steps at local models
   (Claude Code / OpenCode / Hermes on Ollama) without overrunning the server's parallel slots,

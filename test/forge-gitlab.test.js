@@ -111,6 +111,14 @@ test("merged MR with no completeOnMerge step → stepId is empty", async () => {
   assert.equal(jobs[0].stepId, "");
 });
 
+test("cfg.branchPrefix: a merged local/<ref> MR maps, and a plain agent/<ref> one is ignored (#674)", async () => {
+  const f = forge({}, pipeline, makeStore(), { branchPrefix: "local/" });
+  assert.deepEqual(await f.processEvents(ctx(mergedMr({ source_branch: "local/123" }))), [
+    { kind: "merge", ref: "123", stepId: "done", dedupKey: "merged:77" },
+  ]);
+  assert.deepEqual(await f.processEvents(ctx(mergedMr())), [], "agent/<ref> is not this profile's prefix");
+});
+
 test("MR merge on a non-agent branch, from a fork, or with action ≠ merge → []", async () => {
   const f = forge();
   assert.deepEqual(await f.processEvents(ctx(mergedMr({ source_branch: "feature/x" }))), []);
@@ -148,6 +156,13 @@ test("failed branch pipeline → ci job from object_attributes.ref, prNumber nul
   assert.equal(j.ref, "123");
   assert.equal(j.ci?.prNumber, null);
   assert.equal(j.ci?.url, `https://gitlab.com/${PROJECT}/-/pipelines/901`);
+});
+
+test("cfg.branchPrefix: a failed pipeline on local/<ref> maps, and a plain agent/<ref> one is ignored (#674)", async () => {
+  const f = forge({}, pipeline, makeStore(), { branchPrefix: "local/" });
+  const [j] = await f.processEvents(ctx(mrPipeline({}, { source_branch: "local/123" }), "Pipeline Hook"));
+  assert.equal(j.ref, "123");
+  assert.deepEqual(await f.processEvents(ctx(mrPipeline(), "Pipeline Hook")), []);
 });
 
 test("after rerunFailedJobs(id), the next failure of that pipeline is attempt 2 with a distinct dedupKey", async () => {
@@ -398,6 +413,25 @@ test("listAgentPrs: same-project agent/* MRs only, with mergeability + head pipe
   );
   assert.equal(rows?.[0].url, "u1");
   assert.equal(rows?.[0].title, "A");
+});
+
+test("cfg.branchPrefix: listAgentPrs maps local/<ref> and skips agent/<ref> (#674)", async () => {
+  const s = stubFetch({
+    "GET /merge_requests?state=opened&per_page=100&page=1": {
+      json: [
+        { iid: 1, source_branch: "local/10", sha: "s1", source_project_id: PID, target_project_id: PID, title: "A", web_url: "u1", updated_at: "t1" },
+        { iid: 2, source_branch: "agent/11", sha: "s2", source_project_id: PID, target_project_id: PID },
+      ],
+    },
+    "GET /merge_requests/1": { json: { detailed_merge_status: "mergeable", head_pipeline: { status: "success", sha: "s1" } } },
+  });
+  try {
+    const f = forge({}, pipeline, makeStore(), { branchPrefix: "local/" });
+    const rows = await /** @type {any} */ (f).listAgentPrs();
+    assert.deepEqual(rows.map((/** @type {any} */ r) => [r.number, r.ref]), [[1, "10"]]);
+  } finally {
+    s.restore();
+  }
 });
 
 test("listAgentPrs: a failing list call throws", async () => {
