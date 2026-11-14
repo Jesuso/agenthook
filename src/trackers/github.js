@@ -729,6 +729,13 @@ export function createGithubAdapter(cfg, store) {
       if (!step.sourceLabel) throw new Error(`step "${stepId}" has no sourceLabel to enter`);
       if (opts.assign !== false) await assignToUs(ref);
       await addLabel(ref, step.sourceLabel);
+      // Labels aren't single-occupancy: a terminal step's label (e.g. `agent:done`) stays on
+      // the issue even after `run --force` moves it elsewhere. Re-adding that label on a later
+      // advance back into it is then a no-op on GitHub's side — no `labeled` webhook fires, so
+      // the terminal step never runs again. Drop every OTHER manual step's source label here.
+      for (const other of pipeline || []) {
+        if (other.manual && other.sourceLabel && norm(other.sourceLabel) !== norm(step.sourceLabel)) await removeLabel(ref, other.sourceLabel);
+      }
       // Labels aren't single-occupancy: leaving the step's queue stage means dropping its
       // queueLabel too (a queue pull, or `run` on a queued issue). Add-then-remove, same
       // crash-safe order as advance; removeLabel tolerates a 404 (label not on the issue).

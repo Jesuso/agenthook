@@ -26,8 +26,12 @@
   `issue_comment` (`created` only, PRs skipped) for the `@agent` resume (dedup `trigger:<comment.id>`),
   and `sub_issues` + `issues` `typed`/`untyped` → a read-only `{kind:'epic_changed', ref:<epic>}` signal
   (dedup `epic:<delivery>`) that `src/epic-changed.js` emits outside the queue, dropping ops' epics cache;
-  since a resumed issue carries the step's `holdLabel`, `advance` removes that too. 'Us' = the token's login
-  from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues + Webhooks RW (fine-grained).
+  since a resumed issue carries the step's `holdLabel`, `advance` removes that too. Labels aren't
+  single-occupancy, so `enterStage` (`run`/`run --force`) also drops every OTHER manual step's
+  `sourceLabel` on entry (e.g. a stale `agent:done`) — otherwise a later `advance` back into it
+  re-adds a label the issue already has, and GitHub fires no `labeled` event for that no-op. 'Us'
+  = the token's login from `/user`. Token needs `repo` + `admin:repo_hook` (classic) or Issues +
+  Webhooks RW (fine-grained).
 - **GitHub Projects v2** — the *other* GitHub tracker: steps bind a board's **Status single-select
   options** (`sourceStatus`/… — Jira's keys), not labels. API is **GraphQL** (`/graphql`, Bearer);
   board is `tracker.project:"owner/number"` (org or user), `ref` = the issue number (resolved to its
