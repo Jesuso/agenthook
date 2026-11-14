@@ -22,6 +22,7 @@ export function Menu({ label, items, align = "right" }: { label: string; items: 
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const focusedOnOpen = useRef(false);
   const id = useId();
 
   const reposition = () => {
@@ -42,10 +43,18 @@ export function Menu({ label, items, align = "right" }: { label: string; items: 
     reposition();
   }, [open]);
 
-  // Focus only once `pos` is set: before that the list is `visibility: hidden` (so `reposition()`
-  // can measure it without a flash), and a browser won't move focus into a hidden element.
+  // Focus only once per open, the first time `pos` is set: before that the list is
+  // `visibility: hidden` (so `reposition()` can measure it without a flash), and a browser won't
+  // move focus into a hidden element. `reposition()` re-runs on every scroll/resize while open and
+  // always sets a new `pos` object, so guard with a ref rather than depending on `pos` alone —
+  // otherwise a scroll or resize would steal focus back to the first item mid-navigation (#661).
   useEffect(() => {
-    if (!open || !pos) return;
+    if (!open) {
+      focusedOnOpen.current = false;
+      return;
+    }
+    if (!pos || focusedOnOpen.current) return;
+    focusedOnOpen.current = true;
     list.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [open, pos]);
 

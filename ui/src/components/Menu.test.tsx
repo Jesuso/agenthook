@@ -77,4 +77,43 @@ describe("Menu", () => {
     expect(items[1].onSelect).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });
+
+  it("a scroll or resize while open does not move focus back to the first item", async () => {
+    m = await mount(createElement(Card));
+    await click(m.root.querySelector("button")!);
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    await act(async () => buttons[1].focus());
+    expect(document.activeElement).toBe(buttons[1]);
+
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(document.activeElement).toBe(buttons[1]);
+
+    await act(async () => window.dispatchEvent(new Event("scroll")));
+    expect(document.activeElement).toBe(buttons[1]);
+  });
+
+  it("opens upward when there isn't room below the trigger", async () => {
+    m = await mount(createElement(Card));
+    const trigger = m.root.querySelector<HTMLButtonElement>("button")!;
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({ top: 580, bottom: 600, left: 100, right: 140, width: 40, height: 20, x: 100, y: 580, toJSON: () => {} } as DOMRect);
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    await click(trigger);
+    const list = document.querySelector<HTMLElement>('[role="menu"]')!;
+    vi.spyOn(list, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 80, left: 0, right: 144, width: 144, height: 80, x: 0, y: 0, toJSON: () => {} } as DOMRect);
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(parseFloat(list.style.top)).toBeCloseTo(580 - 80 - 4);
+  });
+
+  it("shifts left to stay inside a narrow viewport instead of overflowing the right edge", async () => {
+    m = await mount(createElement(Card));
+    const trigger = m.root.querySelector<HTMLButtonElement>("button")!;
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({ top: 20, bottom: 40, left: 350, right: 390, width: 40, height: 20, x: 350, y: 20, toJSON: () => {} } as DOMRect);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    await click(trigger);
+    const list = document.querySelector<HTMLElement>('[role="menu"]')!;
+    vi.spyOn(list, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 80, left: 0, right: 144, width: 144, height: 80, x: 0, y: 0, toJSON: () => {} } as DOMRect);
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(parseFloat(list.style.left)).toBeCloseTo(360 - 144 - 4);
+  });
 });
