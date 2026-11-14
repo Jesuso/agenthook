@@ -144,15 +144,15 @@ ticket through code → review → done ([docs/quickstart.md](docs/quickstart.md
 
 ```bash
 cd ~/my-project
-agenthook init --local            # local-board profile; fullAuto stays off unless you opt in
-agenthook start --detach
+agenthook init                    # Enter picks the local board; offers to start the receiver
 agenthook ticket add "add a subtract(a, b) function to math.js, with a test"
 agenthook ui                      # watch it (or: agenthook events --follow)
 git log -p HEAD..agent/1          # the result, once the ticket reaches done
 agenthook stop
 ```
 
-The code step can only edit files with `--full-auto` (on the host unless you add a
+`init` asks before turning on `fullAuto` (default yes on a local board): the code step can only
+edit files with it (on the host unless you add a
 [per-run sandbox](docs/sandbox.md) — read the [quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile))
 or a repo `.claude/settings.json` that allows edits.
 
@@ -181,7 +181,7 @@ there like a `tsconfig.json`, while runtime state lives centrally in `~/.agentho
 ```bash
 cd ~/my-project
 
-agenthook init            # interactive: pick tracker + ingress, fetches your
+agenthook init --remote   # interactive: pick tracker + ingress, fetches your
                           # workspace/project so you choose from a list
                           # → writes ./agenthook.config.json (with TODO_* section gids)
 
