@@ -13,6 +13,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "maxConcurrent": { label: "Máximo de agentes simultáneos", help: "Cuántos agentes pueden ejecutarse a la vez, sumando todos los pasos." },
   "port": { label: "Puerto local", help: "Puerto local en el que escucha el receptor; el ingress le reenvía los webhooks." },
   "fullAuto": { label: "Automático total (sin permisos)", help: "--dangerously-skip-permissions. Apagado: headless; llamadas privilegiadas denegadas salvo que una regla allow del repo/paso lo permita." },
+  "attribution": { label: "Atribución de commits", help: "Solo claude. Sin definir: sigue tu propia configuración de Claude (se transmite a las ejecuciones en sandbox). Falso: siempre desactivada." },
   "agentEnvPassthrough": { label: "Variables de entorno heredadas", help: "Variables del receptor que los agentes también reciben (NAME o PREFIX*); el resto se elimina. \"*\" = heredar todas (0.9)." },
   "githubRunToken": { label: "Token de GitHub por ejecución", help: "Con auth de GitHub App, da a cada ejecución su propio token de 1 h limitado a su repo en lugar de tu token." },
   "agent": { label: "Agente", help: "La CLI de agente de código que lanzan los pasos, salvo que un paso indique la suya." },
