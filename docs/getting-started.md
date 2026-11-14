@@ -60,9 +60,12 @@ NGROK_AUTHTOKEN=2x...          # only if you use the ngrok ingress
 agenthook init --remote
 ```
 
-The wizard asks for the profile name, repo path, port, and `fullAuto` (default **no** — keep it),
-then uses your token to let you **pick** your workspace/project from a live list (no gid pasting
-for those). It writes `./agenthook.config.json`.
+The wizard asks for the tracker first (defaulting to whichever one already has a token in your
+env), checks its token right away — if it's missing, it explains where it looked and offers a
+local board instead of losing your other answers — then asks for the profile name, repo path,
+port, and `fullAuto` (default **no** — keep it), and finally uses your token to let you **pick**
+your workspace/project from a live list (no gid pasting for those). It writes
+`./agenthook.config.json`.
 
 **What `init` does _not_ do yet:** it leaves the pipeline as a single placeholder `code` step with
 `TODO_*` section gids. You fill those in next. (`agenthook doctor` flags any `TODO_*` left behind,

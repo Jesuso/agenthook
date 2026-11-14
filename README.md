@@ -11,8 +11,39 @@ receiver, the pipeline and the dashboard that make that safe to leave running.
 
 ![A real run: init --local, start, ticket add, the dashboard as the ticket goes code → review → done, then the diff](docs/img/quickstart.gif)
 
-**Try it in five commands — no token, no tunnel:** [docs/quickstart.md](docs/quickstart.md).
-(Also as [MP4](docs/img/quickstart.mp4); a real `claude -p` run, waits sped up.)
+## Install & try it
+
+Needs Node ≥ 22, `git`, and one coding-agent CLI — the [`claude` CLI](https://claude.com/claude-code)
+by default.
+
+```bash
+npm i -g @jesuso/agenthook
+agenthook init          # in your project folder: Enter picks a local board, offers to start the receiver
+```
+
+That's a local board: no token, no tunnel. Prove it works:
+
+```bash
+agenthook ticket add "add a subtract(a, b) function to math.js, with a test"
+```
+
+Watch it with `agenthook ui` (or `agenthook events --follow`); once the ticket reaches `done`, read
+the result with `git log -p HEAD..agent/<ref>`.
+
+`init` asks before turning on `fullAuto` (default yes on a local board): the code step can only
+edit files with it (on the host unless you add a [per-run sandbox](docs/sandbox.md) — read the
+[quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile)) or a repo
+`.claude/settings.json` that allows edits.
+
+Full walkthrough, including chained tickets: [docs/quickstart.md](docs/quickstart.md) (also as
+[MP4](docs/img/quickstart.mp4); a real `claude -p` run, waits sped up).
+
+**Prefer to start from your coding agent?** Add the [agent skill](#agent-skill)
+(`npx skills add Jesuso/agenthook -g`) and ask your coding agent to set agenthook up — it installs
+the CLI for you and takes it from there.
+
+Ready for a real tracker instead of the local board? `agenthook init --remote` walks the wizard —
+see [Pick your stack](#pick-your-stack) for what each piece needs.
 
 ![Needs you, Now and Progress for one profile](docs/img/ui-overview.png)
 
@@ -126,40 +157,14 @@ graph as you type and validates before it saves.
 Stage-by-stage setup for your tracker is in the [Getting Started guide](docs/getting-started.md#4-map-your-sections-to-steps--the-part-that-actually-matters);
 every field is in [docs/configuration.md](docs/configuration.md).
 
-## Install
-
-Requires Node ≥ 22, the [`claude` CLI](https://claude.com/claude-code), `git`, and — for the
-ngrok ingress — [`ngrok`](https://ngrok.com), or for the cloudflared ingress —
-[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), or for the
-tailscale ingress — [`tailscale`](https://tailscale.com/download). Plus a tracker API token, except for the local
-quickstart below.
-
-```bash
-npm i -g @jesuso/agenthook   # installs the `agenthook` command; or run ad-hoc with `npx @jesuso/agenthook <cmd>`
-```
-
-## Quickstart
-
-**Try it first — no token, no tunnel.** In any git repo with a commit, a local board drives a
-ticket through code → review → done ([docs/quickstart.md](docs/quickstart.md)):
-
-```bash
-cd ~/my-project
-agenthook init                    # Enter picks the local board; offers to start the receiver
-agenthook ticket add "add a subtract(a, b) function to math.js, with a test"
-agenthook ui                      # watch it (or: agenthook events --follow)
-git log -p HEAD..agent/1          # the result, once the ticket reaches done
-agenthook stop
-```
-
-`init` asks before turning on `fullAuto` (default yes on a local board): the code step can only
-edit files with it (on the host unless you add a
-[per-run sandbox](docs/sandbox.md) — read the [quickstart's note](docs/quickstart.md#2-scaffold-a-local-profile))
-or a repo `.claude/settings.json` that allows edits.
-
 ## Pick your stack
 
-Each axis is one adapter; pick one per row. Every link is that option's setup page.
+Each axis is one adapter; pick one per row. Every link is that option's setup page. Beyond Node ≥
+22, `git` and a coding-agent CLI, a real tracker needs its own API token (`agenthook init --remote`
+prints which one), and ngrok/cloudflared/Tailscale ingress needs the matching CLI —
+[`ngrok`](https://ngrok.com),
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/),
+or [`tailscale`](https://tailscale.com/download). None of that is needed for the local board.
 
 | Axis | Options |
 |---|---|

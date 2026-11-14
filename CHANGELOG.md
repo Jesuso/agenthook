@@ -122,6 +122,12 @@ All notable changes to this project are documented here. The format is based on
 - `agenthook init` now asks first where the work comes from — a local board (the default, Enter)
   or a tracker. `init --local` and the new `init --remote` skip the question; `--yes` alone means
   the local board; with no terminal and no flag it fails naming both commands instead of hanging.
+- `init --remote`'s tracker wizard now asks the tracker first, before the profile/name/repo
+  questions, defaulting to whichever tracker already has a token set in the environment (shown
+  next to its name, e.g. `github  (GITHUB_TOKEN found)`). The token (or GitHub App key) is checked
+  right after, before any other question: a missing one no longer loses every answer collected so
+  far — it names the variable, says where it looked (shell env or a `.env` beside the config), and
+  offers to fall back to a local board instead.
 - `init` on a local board, run interactively, now defaults the `fullAuto` question to **yes**
   (only you can add tickets to a local board, and without it the first ticket cannot edit a
   file), offers the agent skill, and offers to start the receiver. Unattended behaviour is
@@ -167,6 +173,9 @@ All notable changes to this project are documented here. The format is based on
 - `agenthook skill install`'s OpenCode dirs were `.opencode/skill` / `.config/opencode/skill`
   (singular); OpenCode actually reads `skills` (plural). The old singular dirs are now only
   scanned for cleanup of a previously-installed stamped copy (#667).
+- UI: a ⋯ menu is no longer clipped by the card it sits in (#661). The menu now renders in a top
+  layer, opens upward when there is no room below and shifts to stay inside the viewport; keyboard
+  behaviour is unchanged.
 - `usage.jsonl` records carry `durationMs` for every agent: dispatch derives it from `startedAt`/`endedAt` when the adapter reports no `duration_ms` (opencode, hermes), so `stats` and the digest's wall-time columns no longer skip those runs (#652).
 - `tick`/`status` show `slots.harnesses` (and `capped`) from boot: the heartbeat's queue state is seeded from the queue when the engine starts, not only after the first run.
 - Sandbox egress: an operator `!private` rule now replaces the plain rule for the same `host:port`, including the agent's own `ANTHROPIC_BASE_URL` rule. A model served on the LAN behind `ANTHROPIC_BASE_URL` was refused even when allowed with `!private`, because the proxy takes the first matching rule.
