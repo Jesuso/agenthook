@@ -122,6 +122,12 @@ All notable changes to this project are documented here. The format is based on
 - `agenthook init` now asks first where the work comes from — a local board (the default, Enter)
   or a tracker. `init --local` and the new `init --remote` skip the question; `--yes` alone means
   the local board; with no terminal and no flag it fails naming both commands instead of hanging.
+- `init --remote`'s tracker wizard now asks the tracker first, before the profile/name/repo
+  questions, defaulting to whichever tracker already has a token set in the environment (shown
+  next to its name, e.g. `github  (GITHUB_TOKEN found)`). The token (or GitHub App key) is checked
+  right after, before any other question: a missing one no longer loses every answer collected so
+  far — it names the variable, says where it looked (shell env or a `.env` beside the config), and
+  offers to fall back to a local board instead.
 - `init` on a local board, run interactively, now defaults the `fullAuto` question to **yes**
   (only you can add tickets to a local board, and without it the first ticket cannot edit a
   file), offers the agent skill, and offers to start the receiver. Unattended behaviour is
