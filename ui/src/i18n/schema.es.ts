@@ -61,6 +61,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   // Repos
   "repoPath": { label: "Ruta del repo", help: "El checkout en el que trabajan los agentes (perfiles de un solo repo); relativo al archivo de configuración." },
   "worktreePrefix": { label: "Prefijo de worktree", help: "Dónde se crean los worktrees de los agentes, resuelto respecto a la ruta del repo." },
+  "branchPrefix": { label: "Prefijo de rama", help: "Prefijo de cada rama creada por el receiver; dos perfiles que comparten un repo necesitan uno distinto cada uno." },
   "repos": { label: "Repositorios", help: "Varios checkouts; las claves de ruta de una tarea eligen el repo en el que trabajan sus agentes." },
   "repos.*.id": { label: "Id del repo", help: "Id estable (letras, dígitos, . _ -); da nombre al subdirectorio del worktree." },
   "repos.*.path": { label: "Ruta", help: "La raíz del checkout de este repo; relativa al archivo de configuración." },
