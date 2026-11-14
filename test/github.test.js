@@ -4,10 +4,14 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createGithubAdapter, epicChangeFromEvent, extractRouteKeys, isEpicIssue, mapEpics, mapEpicTickets } from "../src/trackers/github.js";
 import { MoveRefusedError } from "../src/trackers/owner.js";
 import { ticketBucket } from "../src/epics.js";
 import { resetGithubAuthCache } from "../src/github-auth.js";
+import { createStore } from "../src/store.js";
 
 /** Minimal in-memory Store stub. */
 function makeStore() {
@@ -305,8 +309,130 @@ test("enterStage drops the step's failure label after adding the source one (ret
   assert.ok(!routed.some((c) => c.startsWith("DELETE")), `expected no label drop; got:\n${routed.join("\n")}`);
 });
 
+test("enterStage drops a manual (terminal) step's source label after adding the entered step's one, but never a non-manual step's (#672)", async () => {
+  /** @param {any[]} pl */
+  const run = async (pl) => {
+    /** @type {string[]} */
+    const calls = [];
+    const orig = global.fetch;
+    // @ts-ignore - test stub
+    global.fetch = async (url, init = {}) => {
+      calls.push(`${init.method || "GET"} ${decodeURIComponent(String(url))}`);
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+    };
+    try {
+      const a = createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }), /** @type {any} */ (makeStore()));
+      await /** @type {any} */ (a).enterStage("42", "code", { assign: false });
+    } finally {
+      global.fetch = orig;
+    }
+    return calls;
+  };
+  const withDone = [
+    { id: "code", sourceLabel: "agent:code", successLabel: "agent:review" },
+    { id: "review", sourceLabel: "agent:review", successLabel: "agent:done" },
+    { id: "done", sourceLabel: "agent:done", manual: true },
+  ];
+  const calls = await run(withDone);
+  const add = calls.findIndex((c) => c.startsWith("POST") && c.includes("/issues/42/labels"));
+  const drop = calls.findIndex((c) => c.startsWith("DELETE") && c.endsWith("/issues/42/labels/agent:done"));
+  assert.ok(add >= 0 && drop > add, `expected add agent:code, then drop manual agent:done; got:\n${calls.join("\n")}`);
+  // "review" isn't manual: its source label must never be dropped this way.
+  assert.ok(!calls.some((c) => c.startsWith("DELETE") && c.endsWith("/issues/42/labels/agent:review")), `expected agent:review untouched; got:\n${calls.join("\n")}`);
+});
+
 test("enterStage throws on an unknown step", async () => {
   await assert.rejects(() => /** @type {any} */ (adapter()).enterStage("42", "nope", { assign: false }), /unknown step/);
+});
+
+test("rework reaches done twice: run --force back to code, then re-advance into agent:done, fires a fresh labeled delivery each time (#672)", async () => {
+  const pl = [
+    { id: "code", sourceLabel: "agent:code", successLabel: "agent:review" },
+    { id: "review", sourceLabel: "agent:review", successLabel: "agent:done" },
+    { id: "done", sourceLabel: "agent:done", manual: true },
+  ];
+  // The fake issue: labels kept as a set, starting mid-pipeline in "agent:review".
+  const labels = new Set(["agent:review"]);
+  /** @type {any[]} */
+  const doneJobs = [];
+  let deliverySeq = 0;
+  /** @type {any} */
+  let a;
+  const orig = global.fetch;
+  // @ts-ignore - test stub
+  global.fetch = async (/** @type {any} */ url, /** @type {any} */ init = {}) => {
+    const u = decodeURIComponent(String(url));
+    const method = init.method || "GET";
+    if (u.endsWith("/user")) return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ login: "bot" }) });
+    if (method === "GET" && /\/issues\/42$/.test(u)) {
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({ state: "open", labels: [...labels].map((name) => ({ name })), assignees: [{ login: "bot" }] }) });
+    }
+    if (method === "POST" && u.endsWith("/issues/42/labels")) {
+      const body = JSON.parse(init.body);
+      // Real GitHub fires a `labeled` webhook only for a label NEWLY added to the issue.
+      for (const name of body.labels) {
+        if (labels.has(name)) continue;
+        labels.add(name);
+        deliverySeq++;
+        const jobs = await a.processEvents(
+          /** @type {any} */ (
+            evt(
+              { action: "labeled", label: { name }, issue: { number: 42, labels: [...labels].map((n) => ({ name: n })), assignees: [{ login: "bot" }] } },
+              { "x-github-delivery": `guid-${deliverySeq}` },
+            )
+          ),
+        );
+        if (name === "agent:done") doneJobs.push(...jobs);
+      }
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+    }
+    if (method === "POST" && u.endsWith("/issues/42/assignees")) return /** @type {any} */ ({ ok: true, status: 201, json: async () => ({}) });
+    if (method === "DELETE") {
+      labels.delete(decodeURIComponent(u.split("/").pop() || ""));
+      return /** @type {any} */ ({ ok: true, status: 200, json: async () => ({}) });
+    }
+    return /** @type {any} */ ({ ok: true, status: 200, json: async () => [] });
+  };
+  try {
+    a = createGithubAdapter(/** @type {any} */ ({ trigger: "@agent", pipeline: pl, providerConfig: { type: "github", token: "t", repository: "o/r", assigneeFilter: false } }), /** @type {any} */ (makeStore()));
+    // review finishes — the issue's FIRST genuine arrival at agent:done.
+    await a.advance("42", "review", { outcome: "advance" });
+    assert.equal(doneJobs.length, 1, "the first arrival at agent:done produced its own job");
+    assert.equal(doneJobs[0].stepId, "done");
+
+    // `agenthook run 42 code --force`: enters "code" and must drop the stale agent:done.
+    await a.enterStage("42", "code", { assign: false });
+    assert.ok(!labels.has("agent:done"), "agent:done must be dropped on re-entry into code");
+    // review finishes again and advances back into agent:done — a fresh label add this time.
+    await a.advance("42", "review", { outcome: "advance" });
+    assert.equal(doneJobs.length, 2, "the second arrival at agent:done produced its own job");
+    assert.equal(doneJobs[1].stepId, "done");
+    assert.notEqual(doneJobs[1].dedupKey, doneJobs[0].dedupKey, "a fresh delivery id, not the first done arrival's");
+
+    // Same x-github-delivery delivered twice yields the identical dedupKey intake's `seen`
+    // store dedups on — i.e. a re-delivered webhook (not a genuine re-entry) stays coalesced.
+    const sameDelivery = doneJobs[1].dedupKey.slice("secmove:".length);
+    const replay = await a.processEvents(
+      /** @type {any} */ (
+        evt({ action: "labeled", label: { name: "agent:done" }, issue: { number: 42, labels: [...labels].map((n) => ({ name: n })), assignees: [{ login: "bot" }] } }, { "x-github-delivery": sameDelivery })
+      ),
+    );
+    assert.equal(replay[0].dedupKey, doneJobs[1].dedupKey);
+
+    // Drive both deliveries through the real dedup gate `intake` uses (disk-backed
+    // seen store): the genuine second arrival is accepted, the replayed delivery is not.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-github-672-"));
+    const store = createStore(dir);
+    const accept = (/** @type {any} */ job) => {
+      if (!job.dedupKey || store.hasSeen(job.dedupKey)) return false;
+      store.markSeen(job.dedupKey);
+      return true;
+    };
+    assert.equal(accept(doneJobs[1]), true, "the second genuine done arrival is accepted");
+    assert.equal(accept(replay[0]), false, "the re-delivered webhook (same x-github-delivery) is dropped");
+  } finally {
+    global.fetch = orig;
+  }
 });
 
 test("forgeCatchup exposes the matched step when the issue rests in a source label", async () => {
