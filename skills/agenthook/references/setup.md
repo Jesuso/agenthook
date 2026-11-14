@@ -48,63 +48,48 @@ A per-run sandbox (`"sandbox": {"type": "podman"}` or `"docker"`) limits each ru
 
 ## 3. Pick the agent CLI and the model
 
-Two choices, both the user's. **Ask; do not default silently** — the scaffold's default (`claude`
-on the user's Anthropic account) is only right when the user wants cloud Claude.
+Both are the user's choice. **Ask; do not default silently.** The scaffold's default (`claude` on
+the user's Anthropic account) is right only if that is what they want; then skip to step 4.
 
-**Cloud Claude:** nothing to change. Skip to step 4.
-
-**Local models** (Ollama, or any server the agent CLI can reach). First see which agent CLIs
-(*harnesses*) are installed, since the receiver can only spawn those:
+For anything else — another agent CLI, another provider, a local model — find out what is
+installed, since the receiver can only spawn those:
 
 ```bash
-for b in opencode hermes claude agent; do command -v "$b" >/dev/null && echo "$b"; done   # `agent` is Cursor's CLI
+for b in claude opencode hermes agent; do command -v "$b" >/dev/null && echo "$b"; done   # `agent` is Cursor's CLI
 ```
 
-Then ask the user three things, in one message, with your recommendation:
+Then ask the user, in one message:
 
-1. **Which harness.** Recommend the first installed one in this order:
-   - `opencode` — lightest prompt; the best fit for a local model.
-   - `hermes` — also light; needs a Hermes provider that points at the server.
-   - `claude` — works (Ollama 0.14+ serves `/v1/messages`), but its own prompt and tools cost
-     20–25K tokens before it reads a file: over a third of a 64K window, so it compacts often.
-     Say so if it is the only one installed.
-   - `cursor` — do not offer it for a local model unless the user says theirs is set up for one.
-2. **Which model tag** (`ollama list` shows them), and its context window.
-3. **How many requests the server serves in parallel** (`OLLAMA_NUM_PARALLEL`; 1 if they do not know).
+1. **Which agent CLI** (*harness*) the steps should run, from the installed ones.
+2. **Which model**, as that CLI names it.
+3. For a model served on their own machine: **its context window** and **how many requests the
+   server handles in parallel**.
 
-Never guess any of the three. Then edit `agenthook.config.json`. `agent` can be set once at the
-top level; `model`, `contextTokens` and `env` go on each pipeline step (`code` and `review`):
+What already works on this machine is the best guide: if you or the user know a CLI + model
+pairing that runs well here, propose it. Otherwise lay out the options without ranking them by
+your own assumptions; one fact worth stating is that agent CLIs differ in how much of the context
+window their own prompt and tools take, which matters most on small local windows. Never guess
+an answer the user did not give.
 
-- **OpenCode:** `"agent": "opencode"`, and per step `"model": "ollama/<tag>"`,
-  `"contextTokens": <window>`. OpenCode reaches the server through *its own* provider config, so
-  check it knows the model: `opencode models | grep '<tag>'`. Nothing printed → the user's
-  OpenCode config (`~/.config/opencode/opencode.json`) needs this provider; show it and ask
-  before editing their file:
+Then edit `agenthook.config.json`. `agent` can be set once at the top level; `model`,
+`contextTokens`, `provider` and `env` go on each pipeline step (`code` and `review`):
 
-  ```json
-  { "provider": { "ollama": { "npm": "@ai-sdk/openai-compatible",
-      "options": { "baseURL": "http://localhost:11434/v1" },
-      "models": { "<tag>": { "limit": { "context": 65536 } } } } } }
-  ```
+- **Claude Code** (`"agent": "claude"`, the default): `"model": "<name>"`; for a server that
+  speaks the Anthropic API, `"env": {"ANTHROPIC_BASE_URL": "<server url>"}`.
+- **OpenCode** (`"agent": "opencode"`): `"model": "<provider>/<name>"`. OpenCode resolves the
+  provider from *its own* config, so confirm it lists the model (`opencode models`). If it does
+  not, the user's OpenCode config needs that provider and model; show what you would add and
+  ask before editing their file.
+- **Hermes** (`"agent": "hermes"`): `"model": "<name>"`, `"provider": "<a provider Hermes has configured>"`.
+- **Cursor** (`"agent": "cursor"`): `"model": "<name>"`.
 
-  (With a per-run sandbox, put that JSON in a file and name it in the step's `opencodeConfig`
-  instead: a sandboxed run does not see the user's own config.)
-- **Hermes:** `"agent": "hermes"`, and per step `"model": "<tag>"`, `"provider": "<the Hermes
-  provider that points at the server>"`, `"contextTokens": <window>`.
-- **Claude Code:** per step `"model": "<tag>"`,
-  `"env": {"ANTHROPIC_BASE_URL": "http://localhost:11434"}`, `"contextTokens": <window>`.
+For a local model also set `contextTokens` to its window on each step (so `tick` shows
+`ctx used/max`) and the top-level `maxConcurrent` to the server's parallel count. More agents
+than the server serves at once queue inside it and look like a hang; several things sharing one
+GPU share that budget. Local runs are slower than cloud ones: raise the step's `maxMinutes` if
+runs time out.
 
-Set the top-level `maxConcurrent` to the parallel count from question 3.
-
-Rules that keep local runs from stalling:
-
-- Sum of `maxConcurrent` across everything that shares one GPU ≤ the server's parallel slots.
-  One more than that queues inside the server and looks like a hang.
-- Prefer a ≥ 64K context for `code`; the agent CLI's own prompt and tools cost 20K+ before it
-  reads a file. Set `contextTokens` so `tick` shows `ctx used/max`.
-- Raise `maxMinutes` (local runs are several times slower than cloud ones).
-
-Full recipes: <https://github.com/Jesuso/agenthook/blob/master/docs/local-models.md> and
+Full recipes, with worked examples: <https://github.com/Jesuso/agenthook/blob/master/docs/local-models.md> and
 <https://github.com/Jesuso/agenthook/blob/master/docs/agents.md>.
 
 ## 4. Check, start, first ticket
