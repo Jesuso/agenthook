@@ -105,14 +105,18 @@ export function createSpawn(ctx) {
    * model output tokens (the harness breaker's fast-exit signal). `apiDown` is the first
    * connection-level model-API failure line found in a bounded tail of the run's rendered stdout,
    * raw stderr and final result text (the harness breaker's any-duration signal, src/dispatch/harness.js).
+   * `resumeSessionId` (#677): a verdict-repair turn resuming the same session — the argv comes
+   * from `agent.resumeArgs` (same options plus the session id) instead of `buildArgs`; everything
+   * else (env incl. AGENTHOOK_VERDICT_FILE, the sandbox wrap, timers, parser, the same `logPath`
+   * appended to) is unchanged. Ignored when the agent has no `resumeArgs`.
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}) => void,
-   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}}} o
+   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}, resumeSessionId?: string}} o
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
    */
-  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed }) {
+  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -121,7 +125,8 @@ export function createSpawn(ctx) {
         console.error(`[dispatch] prompt file write failed (${promptFile}):`, e.message);
       }
     }
-    const args = agent.buildArgs({ prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated, allow, deny, cwd, verdictFile });
+    const argOpts = { prompt, model, effort, provider, fullAuto: cfg.fullAuto, promptFile, maxMs, toolsets, isolated, allow, deny, cwd, verdictFile };
+    const args = resumeSessionId && agent.resumeArgs ? agent.resumeArgs({ ...argOpts, sessionId: resumeSessionId }) : agent.buildArgs(argOpts);
     const agentBin = bin || agent.defaults.bin || cfg.claudeBin;
     // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
     // read it after exit to route the step (advance/hold/changes/fail).

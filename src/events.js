@@ -49,14 +49,21 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             (claude/opencode today; absent on cursor/hermes), plus `compactions?` (#657) under
  *             the same guard — context compactions the parser saw; a step with `energy: true` adds
  *             `energyKwh?`, `energyUsd?`, `energySource?` — measured electricity (src/energy.js), never
- *             summed into `costUsd`/`estUsd`)
+ *             summed into `costUsd`/`estUsd`; `repaired?: true|false` only when a verdict-repair turn ran
+ *             (#677, see `verdict_repair` below) — the sums above already include every repair turn's usage)
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in
  *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
  *             tool/the UI feed — see HIDDEN_BY_DEFAULT)
- *           | verdict_missing (a clean exit with a missing/unparseable/unrecognized verdict file, right before
- *             the hold it forces; `reason` = "no valid verdict", or the question form `no verdict: the agent ended
- *             by asking a question instead of acting: "<line>"` when the run's last line is a question; a `blocked`
- *             event follows)
+ *           | verdict_repair (a clean exit with no valid verdict got one receiver-driven repair turn — the
+ *             same agent session resumed with a fixed prompt — before a human is involved (#677); `turns` =
+ *             how many ran (up to the step's `verdictRepairs`, default 1); `result` = "repaired" (the last
+ *             turn wrote a valid verdict) or "still_missing" (it never did — the run then holds exactly like
+ *             an unrepaired one, with the reason naming the repair attempt); fires right before `run_end`)
+ *           | verdict_missing (a clean exit with a missing/unparseable/unrecognized verdict file (after any
+ *             verdict-repair turns), right before the hold it forces; `reason` = "no valid verdict", or the
+ *             question form `no verdict: the agent ended by asking a question instead of acting: "<line>"`
+ *             when the run's last line is a question, each with an optional ` (after N repair turn(s))` suffix
+ *             when a repair ran and still found nothing; a `blocked` event follows)
  *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
  *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket, or a PR row's `prNeeds`, was acknowledged until the

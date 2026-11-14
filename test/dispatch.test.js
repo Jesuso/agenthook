@@ -234,6 +234,83 @@ function heldHarness({ steps, meta, cfg: cfgOver, forge } = {}) {
   return { store, advanced, events, runStep, run, dir };
 }
 
+// --- verdict-repair (#677): a fake `claude` that counts its own invocations, writes a
+// stream-json `result` with a session id every call, and writes $FAKE_VERDICT to the verdict
+// file only once its invocation count reaches $FAKE_GOOD_AT_TURN (unset = never). Detects
+// whether it was resumed (argv carries `-r <sessionId>`) and records that too.
+
+/** @param {{steps?: any[], cfg?: any}} [o] */
+function repairHarness({ steps, cfg: cfgOver } = {}) {
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-claude.sh");
+  const counterFile = path.join(dir, "counter");
+  const resumedFile = path.join(dir, "resumed");
+  fs.writeFileSync(
+    bin,
+    [
+      `#!/bin/sh`,
+      `n=0`,
+      `[ -f "$FAKE_COUNTER" ] && n=$(cat "$FAKE_COUNTER")`,
+      `n=$((n + 1))`,
+      `echo "$n" > "$FAKE_COUNTER"`,
+      `resumed=0`,
+      `prev=""`,
+      `for a in "$@"; do [ "$prev" = "-r" ] && resumed=1; prev="$a"; done`,
+      `echo "$n:$resumed" >> "$FAKE_RESUMED"`,
+      `printf '{"type":"result","subtype":"success","session_id":"ses_123","usage":{"input_tokens":%d,"output_tokens":%d},"total_cost_usd":0.01}\\n' "$n" "$n"`,
+      `if [ -n "$FAKE_GOOD_AT_TURN" ] && [ "$n" -ge "$FAKE_GOOD_AT_TURN" ]; then printf '%s' "$FAKE_VERDICT" > "$AGENTHOOK_VERDICT_FILE"; fi`,
+      `exit "\${FAKE_EXIT:-0}"`,
+      ``,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const cfg = /** @type {any} */ ({
+    pipeline: steps || [{ id: "code" }, { id: "done", manual: true }],
+    agentEnvPassthrough: ["FAKE_*"],
+    claudeBin: bin,
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+    ...cfgOver,
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push([ref, stepId, verdict.outcome]),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  /** @param {string} stepId @param {{verdict?: any, goodAtTurn?: number, exit?: number}} [o] */
+  const runStep = async (stepId, { verdict, goodAtTurn, exit } = {}) => {
+    process.env.FAKE_COUNTER = counterFile;
+    process.env.FAKE_RESUMED = resumedFile;
+    process.env.FAKE_VERDICT = verdict ? JSON.stringify(verdict) : "";
+    if (goodAtTurn) process.env.FAKE_GOOD_AT_TURN = String(goodAtTurn);
+    else delete process.env.FAKE_GOOD_AT_TURN;
+    if (exit) process.env.FAKE_EXIT = String(exit);
+    else delete process.env.FAKE_EXIT;
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await run({ kind: "pipeline", ref: "42", stepId, dedupKey: `k:${stepId}` });
+    } finally {
+      console.log = log;
+    }
+  };
+  /** How many times the fake was spawned. */
+  const calls = () => (fs.existsSync(counterFile) ? Number(fs.readFileSync(counterFile, "utf8").trim()) : 0);
+  /** Each call's "<n>:<resumed 0|1>" line, in order. */
+  const resumedLog = () => (fs.existsSync(resumedFile) ? fs.readFileSync(resumedFile, "utf8").trim().split("\n") : []);
+  return { store, advanced, events, runStep, calls, resumedLog, dir };
+}
+
 // --- provider/maxMs passthrough: step.provider ?? cfg.agentProvider and maxMs reach buildArgs ---
 
 test("runStep passes step.provider (over cfg.agentProvider) and maxMs through to buildArgs", async () => {
@@ -453,6 +530,64 @@ test("dispatch: requireVerdict:false restores the old advance-on-clean-exit defa
   assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
   assert.equal(h.store.getHeld("42"), undefined);
   assert.equal(h.events.find((e) => e.event === "verdict_missing"), undefined);
+});
+
+// --- verdict-repair (#677): a clean exit with no valid verdict gets one receiver-driven
+// resume turn (default verdictRepairs: 1) before a human is involved ---
+
+test("dispatch: a clean exit with no verdict gets resumed once and advances once the resume turn writes one", async () => {
+  const h = repairHarness();
+  await h.runStep("code", { verdict: { outcome: "advance" }, goodAtTurn: 2 });
+  assert.equal(h.calls(), 2, "the original run + exactly one repair turn");
+  assert.deepEqual(h.resumedLog(), ["1:0", "2:1"], "the repair turn's argv carries -r <sessionId>");
+  assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
+  assert.equal(h.store.getHeld("42"), undefined);
+  const repairEvt = h.events.find((e) => e.event === "verdict_repair");
+  const endEvt = h.events.find((e) => e.event === "run_end");
+  assert.deepEqual(repairEvt, { event: "verdict_repair", result: "repaired", turns: 1 });
+  assert.equal(endEvt?.repaired, true);
+  assert.ok(h.events.indexOf(repairEvt) < h.events.indexOf(endEvt), "verdict_repair fires before run_end");
+  // Usage summed across both turns (1 + 2 tokens each of input/output).
+  assert.equal(endEvt?.input, 3);
+  assert.equal(endEvt?.output, 3);
+});
+
+test("dispatch: a repair turn that also writes nothing holds, naming the repair attempt in the reason", async () => {
+  const h = repairHarness();
+  await h.runStep("code", {});
+  assert.equal(h.calls(), 2, "the original run + exactly verdictRepairs (default 1) repair turns, no more");
+  assert.deepEqual(h.resumedLog(), ["1:0", "2:1"]);
+  assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
+  assert.equal(h.store.getHeld("42")?.reason, `${NO_VALID_VERDICT} (after 1 repair turn)`);
+  assert.deepEqual(h.events.find((e) => e.event === "verdict_repair"), { event: "verdict_repair", result: "still_missing", turns: 1 });
+  assert.equal(h.events.find((e) => e.event === "run_end")?.repaired, false);
+  assert.equal(h.events.find((e) => e.event === "verdict_missing")?.reason, `${NO_VALID_VERDICT} (after 1 repair turn)`);
+});
+
+test("dispatch: verdictRepairs: 0 disables the repair turn — byte-identical to before #677", async () => {
+  const h = repairHarness({ steps: [{ id: "code", verdictRepairs: 0 }, { id: "done", manual: true }] });
+  await h.runStep("code", {});
+  assert.equal(h.calls(), 1, "no resume spawn");
+  assert.deepEqual(h.advanced, [["42", "code", "hold"]]);
+  assert.equal(h.store.getHeld("42")?.reason, NO_VALID_VERDICT, "no repair-turn suffix");
+  assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
+  assert.equal(h.events.find((e) => e.event === "run_end")?.repaired, undefined);
+});
+
+test("dispatch: a crashed (non-zero exit) run gets no repair spawn", async () => {
+  const h = repairHarness();
+  await h.runStep("code", { exit: 1 });
+  assert.equal(h.calls(), 1, "no resume spawn — a crash is never repaired");
+  assert.deepEqual(h.advanced, [["42", "code", "fail"]]);
+  assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
+});
+
+test("dispatch: requireVerdict:false gets no repair spawn either (nothing to repair)", async () => {
+  const h = repairHarness({ steps: [{ id: "code", requireVerdict: false }, { id: "done", manual: true }] });
+  await h.runStep("code", {});
+  assert.equal(h.calls(), 1, "no resume spawn");
+  assert.deepEqual(h.advanced, [["42", "code", "advance"]]);
+  assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
 });
 
 // --- question-hold (#655): clean exit, no verdict, last output line is a question ---

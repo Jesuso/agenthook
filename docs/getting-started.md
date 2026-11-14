@@ -158,6 +158,12 @@ Extra step fields you'll want to know:
   file holds the task, so a weaker/local `bin` that exits 0 without doing the work (or a run cut
   mid-edit) doesn't get silently pushed to the next step. Set `false` to opt out and advance on a
   clean exit as before. Not valid on a `manual` step.
+- `verdictRepairs` (default 1, 0 disables) — before that hold fires, the agent's own session is
+  resumed this many times with a fixed prompt ("finish the work, then write your verdict") — one
+  receiver-driven repair turn, agent-agnostic, before a human is involved. Needs the step's agent
+  to support headless resume (claude, cursor, opencode; hermes never repairs) and a captured
+  session id; a sandboxed opencode run is never repaired (its session lives in a per-run sandbox
+  HOME, deleted at teardown). See the `verdict_repair` event in [events.md](events.md).
 - `sandbox` — `false` runs this step on the host even when the profile has a top-level `sandbox`
   block (needed for a `cursor`/`hermes`/`opencode` step, which the sandbox refuses). Not valid on a
   `manual` step. See [Sandboxed runs](sandbox.md#quick-start).

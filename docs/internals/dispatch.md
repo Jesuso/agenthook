@@ -16,7 +16,25 @@
   `AGENTHOOK_VERDICT_FILE`) → `finish.js` (usage, verdict, run_end, `adapter.advance`, then the opt-in
   `forge.autoMerge` call in `src/auto-merge.js` when the approving step's move succeeded, or `auto_merge_skipped`; the enable is pinned to the PR head `step.js` recorded when the tier step started. A `changes`/`fail` first turns auto-merge off via `disableAutoMergeOnBounce` — as do a red-CI bounce in `ci.js`, `ops.cancel` and restart recovery — and a failed disable turns a `changes` into a `hold`. A `pr_push` signal job (forge `synchronize` webhook) runs `createPrPushGuard` outside the queue). **Verdict**:
   non-zero exit → `fail`; clean exit + valid file → its outcome; clean exit + no file → `hold` by
-  default (`requireVerdict` defaults to `true`; set `false` on the step to advance instead).
+  default (`requireVerdict` defaults to `true`; set `false` on the step to advance instead). Before
+  that hold fires, `step.js` tries up to `step.verdictRepairs` (default 1, 0 disables) **repair
+  turns** (#677): right after the first `spawnAgent` resolves, inside the same `try` block, before
+  `creds.dispose()` in the `finally` — the seam has to be here, not `finish.js`, because run creds
+  and the `onPid`/cancel wiring are disposed/torn down right after. A repair turn resumes the same
+  session (`agent.resumeArgs`, the same options as `buildArgs` plus `sessionId`) with
+  `prompts.js`'s `verdictRepairPrompt`, needs a captured `result.session_id` and is skipped outright
+  for an agent with no `resumeArgs` (hermes), a sandboxed run of an agent whose
+  `describe().sandboxResume === false` (opencode: its session db lives in the per-run sandbox HOME,
+  gone at teardown), or less than 60s of `maxMinutes` left (`maxMinutes: 0` = no cap, always enough).
+  Only the final turn's `code`/`timedOut`/`lastText` become the run's (crash/timeout/question-hold
+  resolve off it); the harness-health signals (`preflightDown`/`noOutput`/`apiDown`/`sandboxReport`)
+  stay the first turn's. `finish.js` sums every repair turn's `usageRecord` into the one usage
+  record (tokens/cost/duration add, `peakContext` is the max, `lastContext`/`sessionId` are the
+  final turn's), emits `verdict_repair {result, turns}` right before `run_end` (which then carries
+  `repaired: true|false`), and — only when still missing after every turn — appends
+  `(after N repair turn(s))` to the hold reason (`verdict_missing`/`blocked` keep firing off it, via
+  `verdict.js`'s shared `guardSandboxVerdict`, the same sandboxed-verdict lstat/size guard a repair
+  turn's own pre-check uses before trusting the file).
   `changes` is capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A
   `merge` job spawns no agent; it is the **bridge** for boards that can't hear merges: fail-closed
   assignee check → `adapter.enterStage` into the `completeOnMerge` (manual) step (its own webhook
@@ -25,7 +43,10 @@
 - `src/agents/*.js` — agent adapters: the coding-agent CLI a step spawns (`claude`, `cursor`, `hermes`, `opencode`). Interface
   `AgentAdapter` (`src/types.js`): `describe` (optional `promptFile: true` — dispatch passes the prompt via a
   file, not argv, e.g. hermes' `--query-file`; optional `policy: {allow, deny}` — which step policies the CLI
-  enforces, claude only), `buildArgs` (also gets the step's `allow`/`deny`, `cwd` and `verdictFile`), `createParser` (stdout → log text + tally +
+  enforces, claude only; optional `sandboxResume: false` — a sandboxed run of this agent can never resume a
+  session, opencode only), `buildArgs` (also gets the step's `allow`/`deny`, `cwd` and `verdictFile`), optional
+  `resumeArgs` (same options plus `sessionId` — a verdict-repair turn, #677; claude/cursor/opencode, not hermes),
+  `createParser` (stdout → log text + tally +
   `result`/`sessionId`; optional `pushStderr` feeds stderr to the parser, e.g. hermes' `session_id:` line),
   `usageRecord(result|null, ctx)` (decides `unpriced`), `sessions`
   (`{transcriptDir, resumeCommand, files, cwdDirs}` or null — backs `follow`/`resume`/`sessions.js`, which union every agent the profile + its steps run; a null-`sessions` agent with an optional top-level `resumeCommand` — opencode — is resumed from `usage.jsonl` session ids instead), `defaults`

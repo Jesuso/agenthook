@@ -3,7 +3,8 @@
 import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
 import path from "node:path";
-import { stepPrompt } from "../prompts.js";
+import { stepPrompt, verdictRepairPrompt } from "../prompts.js";
+import { guardSandboxVerdict, NO_VALID_VERDICT } from "./verdict.js";
 import { newNonce } from "../untrusted.js";
 import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
 import { ensureWorktree, drainWorktree, worktreePath, branchName } from "../worktree.js";
@@ -19,12 +20,12 @@ import { resolveHarness } from "./harness.js";
 import { resolveContextWindow } from "../models.js";
 import { needsReviewedHead, currentPrHead } from "../auto-merge.js";
 
-/** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./finish.js').Finish} ctx */
+/** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./verdict.js').VerdictOps & import('./finish.js').Finish} ctx */
 export function createStep(ctx) {
   const { cfg, adapter, store, emit, releaseOverlap, meta, forge, pids, cancelled, preSpawn, sandbox } = ctx;
   const { resolveRoute, leavePipeline, recordPr } = ctx;
   const { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight } = ctx;
-  const { startEnergy, stopEnergy, finishStep } = ctx;
+  const { startEnergy, stopEnergy, finishStep, readVerdict } = ctx;
 
   /** @param {import('../types.js').Job} job */
   async function runStep(job) {
@@ -302,8 +303,110 @@ export function createStep(ctx) {
     }
     // Energy (#396): only an opted-in step that actually spawns is sampled.
     const energyRun = !refused && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
+    const onPid = (/** @type {number|undefined} */ p) => {
+      pid = p;
+      if (p) pids.set(job.ref, p);
+      // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
+      preSpawn.delete(job.ref);
+      if (p && cancelled.has(job.ref)) killNow(job.ref, p);
+      try {
+        store?.setRunning(job.ref, { ...baseRunning, pid });
+      } catch (e) {
+        console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
+      }
+    };
+    // Live token tally onto the running record (throttled — per assistant/result event). Shared
+    // with a verdict-repair turn below (#677) — same running record, same ref.
+    const onTally = (/** @type {{input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}} */ t) => {
+      try {
+        store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate, ...(typeof t.lastContext === "number" ? { ctx: t.lastContext } : {}) });
+      } catch (e) {
+        console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
+      }
+    };
+
+    /**
+     * One receiver-driven repair turn after a clean exit with no valid verdict (#677): resume the
+     * same agent session with a fixed prompt, up to step.verdictRepairs times (default 1, 0
+     * disables), before a human is involved. Every gate below must hold just to ATTEMPT the first
+     * turn — missing any one of them (incl. an agent with no `resumeArgs`, e.g. hermes) means no
+     * repair spawn at all, so the run falls through to the usual hold exactly as before this
+     * feature existed. Reuses this run's creds, env, sandbox wrap and running-record callbacks;
+     * never a new run_start, never a new attempt — still the same run.
+     * @param {Awaited<ReturnType<typeof spawnAgent>>} firstSpawned
+     * @returns {Promise<{turns: number, repaired: boolean, results: any[], turnStats: any[], final: Awaited<ReturnType<typeof spawnAgent>>}|undefined>}
+     */
+    async function repairMissingVerdict(firstSpawned) {
+      if (!step) return undefined; // narrowing from the outer scope doesn't cross this closure
+      const verdictRepairs = step.verdictRepairs ?? 1;
+      if (!verdictRepairs) return undefined;
+      if (firstSpawned.spawnError || firstSpawned.code !== 0 || firstSpawned.timedOut || cancelled.has(job.ref)) return undefined;
+      if (!(step.requireVerdict ?? agent.defaults.requireVerdict ?? true)) return undefined;
+      if (!agent.resumeArgs) return undefined;
+      // opencode's sandbox HOME (its session db) is deleted at teardown — a fresh container for
+      // the repair turn would never find the session to resume.
+      if (sandboxed && agent.describe().sandboxResume === false) return undefined;
+      let sessionId = typeof firstSpawned.result?.session_id === "string" ? firstSpawned.result.session_id : undefined;
+      if (!sessionId) return undefined;
+      if (sandboxed) guardSandboxVerdict(verdictFile);
+      const first = readVerdict(firstSpawned.code, verdictFile, step, agent);
+      if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
+
+      const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
+      /** @type {any[]} */
+      const results = [];
+      /** @type {any[]} */
+      const turnStats = [];
+      let final = firstSpawned;
+      let turns = 0;
+      while (turns < verdictRepairs) {
+        if (cancelled.has(job.ref)) break;
+        const remainingMs = totalMaxMs ? Math.max(0, totalMaxMs - (Date.now() - Date.parse(startedAt))) : 0;
+        if (totalMaxMs && remainingMs < 60000) break; // not enough of maxMinutes left for a repair turn
+        turns++;
+        const result = await spawnAgent({
+          agent,
+          prompt: verdictRepairPrompt(verdictFile),
+          cwd,
+          logPath,
+          promptFile,
+          model,
+          effort,
+          provider,
+          toolsets: spawnStep.toolsets,
+          isolated: step.isolated,
+          allow: step.allow,
+          deny: step.deny,
+          bin: spawnStep.bin,
+          agentEnv,
+          creds,
+          env: spawnStep.env,
+          verdictFile,
+          sandboxed: sandboxedRun,
+          maxMs: totalMaxMs ? remainingMs : 0,
+          ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
+          resumeSessionId: sessionId,
+          onPid,
+          onTally,
+        });
+        results.push(result);
+        if (result.turnStats) turnStats.push(result.turnStats);
+        final = result;
+        // A crashed, timed-out or spawn-errored repair turn resolves the whole run that way —
+        // no further repair turns (finishStep reads this turn's code/timedOut as the run's).
+        if (result.spawnError || result.code !== 0 || result.timedOut) break;
+        if (typeof result.result?.session_id === "string") sessionId = result.result.session_id;
+        if (sandboxed) guardSandboxVerdict(verdictFile);
+        const after = readVerdict(result.code, verdictFile, step, agent);
+        if (!(after.outcome === "hold" && after.reason === NO_VALID_VERDICT)) return { turns, repaired: true, results, turnStats, final };
+      }
+      return { turns, repaired: false, results, turnStats, final };
+    }
+
     /** @type {Awaited<ReturnType<typeof spawnAgent>>} */
     let spawned;
+    /** @type {{turns: number, repaired: boolean, results: any[], turnStats: any[]}|undefined} */
+    let repair;
     try {
       spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
         agent,
@@ -326,30 +429,21 @@ export function createStep(ctx) {
         sandboxed: sandboxedRun,
         maxMs: maxMinutes * 60000,
         ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
-        onPid: (p) => {
-          pid = p;
-          if (p) pids.set(job.ref, p);
-          // A cancel that landed before the agent existed (worktree/fetch phase): stop it at birth.
-          preSpawn.delete(job.ref);
-          if (p && cancelled.has(job.ref)) killNow(job.ref, p);
-          try {
-            store?.setRunning(job.ref, { ...baseRunning, pid });
-          } catch (e) {
-            console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
-          }
-        },
-        // Live token tally onto the running record (throttled — per assistant/result event).
-        onTally: (t) => {
-          try {
-            store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate, ...(typeof t.lastContext === "number" ? { ctx: t.lastContext } : {}) });
-          } catch (e) {
-            console.error(`[dispatch] running.json write failed (continuing): ${e.message}`);
-          }
-        },
+        onPid,
+        onTally,
       }).catch(async (e) => {
         if (energyRun) await stopEnergy(energyRun); // never leave the sampler counting a dead run
         throw e;
       });
+      if (!refused) {
+        const r = await repairMissingVerdict(spawned);
+        if (r) {
+          repair = { turns: r.turns, repaired: r.repaired, results: r.results, turnStats: r.turnStats };
+          // The final repair turn's code/timedOut/lastText become the run's (finishStep resolves
+          // the verdict/health from these); the harness-health signals below stay the first run's.
+          spawned = { ...spawned, code: r.final.code, timedOut: r.final.timedOut, lastText: r.final.lastText ?? spawned.lastText, ...(r.final.spawnError ? { spawnError: r.final.spawnError } : {}) };
+        }
+      }
     } finally {
       // The run has settled (exit, timeout or cancel kill, spawn error): stop refreshing and revoke.
       try {
@@ -360,7 +454,7 @@ export function createStep(ctx) {
     }
     const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, lastText } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText });
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText, repair });
   }
 
   return { runStep };

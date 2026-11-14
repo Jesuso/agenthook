@@ -307,3 +307,20 @@ export function stepPrompt(task, meta, step, ctx) {
     ], paths),
   ].join("\n");
 }
+
+/**
+ * The one receiver-driven repair turn (#677) for a clean exit that ended with no valid
+ * verdict: resumes the same agent session and asks it to finish the step (if it hasn't)
+ * and then write the verdict it was already asked for. Kept intentionally short — the
+ * original step prompt (with its own verdict footer and schema) is still in the resumed
+ * session's context.
+ * @param {string} verdictFile
+ * @returns {string}
+ */
+export function verdictRepairPrompt(verdictFile) {
+  return [
+    `Your run ended without a verdict. If the work this step asked for is not finished, finish it now.`,
+    `Then write the verdict JSON to \`${verdictFile}\` (same schema and valid outcomes as in your original`,
+    `instructions: \`{"outcome": …, "reason": …, "summary": {"plain": …}}\`) and stop.`,
+  ].join("\n");
+}

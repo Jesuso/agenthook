@@ -14,7 +14,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-cursor-"));
 process.env.HOME = HOME;
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 
-const { buildCursorArgs, createCursorStreamParser, buildCursorUsageRecord, cursorProjectDir, cursor } = await import("../src/agents/cursor.js");
+const { buildCursorArgs, resumeCursorArgs, createCursorStreamParser, buildCursorUsageRecord, cursorProjectDir, cursor } = await import("../src/agents/cursor.js");
 const { cursorMangle, claudeProjectDir } = await import("../src/paths.js");
 const { listSessions, refRepo } = await import("../src/sessions.js");
 const { resumeCommand } = await import("../src/commands/resume.js");
@@ -231,4 +231,16 @@ test("listSessions + resume + follow: a cursor step in a claude profile", () => 
   assert.deepEqual(got.dirs, [claudeProjectDir(wt), cursorProjectDir(wt)]);
   assert.ok(got.searched.includes(path.join(HOME, ".cursor", "projects", `${cursorMangle("/m/wt")}-*`, "agent-transcripts")));
   assert.deepEqual(got.files.map((f) => f.id), ["cl-1", "cur-2"]);
+});
+
+// --- resumeCursorArgs (#677): a verdict-repair turn resumes the same session headlessly ---
+
+test("resumeCursorArgs: --resume <id> inserted right before the positional prompt", () => {
+  const args = resumeCursorArgs({ prompt: "hi", model: "gpt-5", fullAuto: true, sessionId: "ses_1" });
+  assert.deepEqual(args, ["-p", "--output-format", "stream-json", "--trust", "--model", "gpt-5", "--force", "--resume", "ses_1", "hi"]);
+  assert.equal(cursor.resumeArgs, resumeCursorArgs);
+});
+
+test("resumeCursorArgs: default model, no fullAuto — same shape minus --force", () => {
+  assert.deepEqual(resumeCursorArgs({ prompt: "hi", sessionId: "ses_2" }), ["-p", "--output-format", "stream-json", "--trust", "--model", "auto", "--resume", "ses_2", "hi"]);
 });

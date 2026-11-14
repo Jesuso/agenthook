@@ -4,7 +4,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // and the usage record / unpriced tagging. Moved verbatim from test/dispatch.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildClaudeArgs, claudePolicyArgs, claudePermissionArgs, claudeSettingsGuardArgs, claude, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
+import { buildClaudeArgs, resumeClaudeArgs, claudePolicyArgs, claudePermissionArgs, claudeSettingsGuardArgs, claude, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -472,4 +472,18 @@ test("claude sandbox hook: only this cwd's transcript dir (receiver-owned for a 
   assert.match(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: true, env: {} }) ?? "", /claude setup-token/);
   assert.equal(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: true, env: { ANTHROPIC_API_KEY: "k" } }), undefined);
   assert.equal(sandboxCredentialProblem({ CLAUDE_CODE_USE_BEDROCK: "1" }), undefined);
+});
+
+// --- resumeClaudeArgs (#677): a verdict-repair turn resumes the same session headlessly ---
+
+test("resumeClaudeArgs: -r <id> spliced right after the prompt, rest identical to buildClaudeArgs", () => {
+  const args = resumeClaudeArgs({ prompt: "hi", model: "claude-opus-4-8", effort: "high", sessionId: "ses_1" });
+  assert.deepEqual(args, ["-p", "hi", "-r", "ses_1", ...SJ, "--model", "claude-opus-4-8", "--effort", "high", ...PIN]);
+});
+
+test("resumeClaudeArgs: fullAuto/allow/deny/cwd/verdictFile all still reach the permission tail", () => {
+  const args = resumeClaudeArgs({ prompt: "hi", fullAuto: true, deny: { commands: ["curl"] }, cwd: "/w", verdictFile: "/d/v.json", sessionId: "ses_2" });
+  const plain = buildClaudeArgs({ prompt: "hi", fullAuto: true, deny: { commands: ["curl"] }, cwd: "/w", verdictFile: "/d/v.json" });
+  assert.deepEqual(args, [plain[0], plain[1], "-r", "ses_2", ...plain.slice(2)]);
+  assert.equal(claude.resumeArgs, resumeClaudeArgs);
 });

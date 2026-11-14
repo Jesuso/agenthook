@@ -16,7 +16,7 @@ import { formatEnergy } from "../energy.js";
 // test/events-cmd.test.js scans src/ for emit("…") calls and fails when one is missing here.
 export const VALID_EVENTS = new Set([
   "enqueued", "dequeued", "run_start", "run_end", "pipeline_done", "blocked", "failed", "merged", "pulled",
-  "ci_red", "ci_green", "dismissed", "coalesced", "verdict_missing", "move_refused",
+  "ci_red", "ci_green", "dismissed", "coalesced", "verdict_missing", "verdict_repair", "move_refused",
   "epic_changed", "epic_skipped", "board_done", "hold_cleared",
   "auto_merge_enabled", "auto_merge_skipped", "auto_merge_failed", "auto_merge_disabled",
   "followup_pending", "followup_due", "followup_done",
