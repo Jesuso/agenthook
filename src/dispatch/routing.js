@@ -47,7 +47,7 @@ export function createRouting(ctx) {
    * @param {string} ref @param {import('../types.js').RepoConfig} [repo]  the checkout `gh` runs in */
   async function recordPr(ref, repo = stickyRepo(ref)) {
     if (!store || meta.usesPR === false || store.getRefMeta(ref)?.pr) return;
-    const pr = await lookupPr(repo.path, ref);
+    const pr = await lookupPr(repo.path, ref, undefined, cfg.branchPrefix);
     if (pr) store.setRefMeta(ref, { pr });
   }
 

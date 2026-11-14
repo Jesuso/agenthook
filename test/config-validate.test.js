@@ -607,6 +607,17 @@ test("step routing: without a list, or an unknown value, fails", () => {
   assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", "bare"], routing: "random" }]), [`config: pipeline step "code" routing must be "first-free" or "round-robin".`]);
 });
 
+test("branchPrefix: rejects empty/no-trailing-slash/'..'/space/'//'/leading-dot/'.lock' components; accepts slash-separated names (#674)", () => {
+  for (const bad of ["", "agent", "a..b/", "a b/", "a//", ".x/", "x.lock/"]) {
+    assert.deepEqual(validateRawConfig(raw({ branchPrefix: bad })).errors, [
+      `config: "branchPrefix" must be slash-separated components of [A-Za-z0-9._-]+ ending in "/" (e.g. "agent/", "team/bot/"); no "..", and no component starting with "." or ending with ".lock".`,
+    ], JSON.stringify(bad));
+  }
+  for (const good of ["agent/", "local/", "team/bot/"]) {
+    assert.deepEqual(validateRawConfig(raw({ branchPrefix: good })), { ok: true }, good);
+  }
+});
+
 test("step harness: on a manual step fails (no agent runs)", () => {
   assert.deepEqual(hErrs(HARNESSES, [{ id: "code" }, { id: "done", manual: true, harness: "opus" }]), [`config: pipeline step "done" harness has no effect on a manual step (no agent runs).`]);
 });

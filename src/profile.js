@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ensurePrivateDir, registryDir } from "./config.js";
+import { DEFAULT_BRANCH_PREFIX } from "./worktree.js";
 
 export const MARKER = "profile.json";
 
@@ -148,4 +149,64 @@ export function requireStarted(cfg) {
 /** The "never started" line read-only commands print for a missing state dir. @param {import('./types.js').Config} cfg */
 export function neverStarted(cfg) {
   return `profile "${cfg.name}" has never been started (no state at ${tildify(cfg.stateDir)}/)`;
+}
+
+/** `p` resolved against `base` (config-file-relative), `~` expanded. @param {string} base @param {string} p */
+function resolveRepoPath(base, p) {
+  const home = p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+  return path.isAbsolute(home) ? home : path.resolve(base, home);
+}
+
+/**
+ * Every OTHER registered profile's repos/branchPrefix/worktree bases, read from each one's raw
+ * config file (no env interpolation, no loadConfig — a sibling profile's config may be broken or
+ * use env vars this process never set). Backs doctor's `sharedRepoLint` (two profiles pointed at
+ * the same repo need distinct `branchPrefix` AND `worktreePrefix`). Never throws: a marker with no
+ * `configPath`, or a config that's missing/unparsable, is skipped.
+ * @param {{ registry?: string, exclude?: { stateKey?: string, configPath?: string } }} [opts]
+ * @returns {{ name: string, repoPaths: string[], branchPrefix: string, worktreeDirs: string[] }[]}
+ */
+export function registeredProfiles({ registry = registryDir, exclude } = {}) {
+  /** @type {{ name: string, repoPaths: string[], branchPrefix: string, worktreeDirs: string[] }[]} */
+  const out = [];
+  /** @type {string[]} */
+  let stateKeys = [];
+  try {
+    stateKeys = fs
+      .readdirSync(registry, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return out; // registry not created yet
+  }
+  const excludeConfig = exclude?.configPath ? canonical(exclude.configPath) : null;
+  for (const stateKey of stateKeys) {
+    if (exclude?.stateKey && stateKey === exclude.stateKey) continue;
+    const marker = readMarker(path.join(registry, stateKey));
+    if (!marker || typeof marker.configPath !== "string") continue;
+    if (excludeConfig && canonical(marker.configPath) === excludeConfig) continue;
+    /** @type {any} */
+    let raw;
+    try {
+      raw = JSON.parse(fs.readFileSync(marker.configPath, "utf8"));
+    } catch {
+      continue; // config missing/unparsable — skip, never throw
+    }
+    const base = path.dirname(marker.configPath);
+    const entries = Array.isArray(raw?.repos) && raw.repos.length ? raw.repos : raw?.repoPath ? [{ path: raw.repoPath }] : [];
+    const branchPrefix = typeof raw?.branchPrefix === "string" && raw.branchPrefix ? raw.branchPrefix : DEFAULT_BRANCH_PREFIX;
+    /** @type {string[]} */
+    const repoPaths = [];
+    /** @type {string[]} */
+    const worktreeDirs = [];
+    for (const r of entries) {
+      if (!r || typeof r.path !== "string") continue;
+      const repoPath = resolveRepoPath(base, r.path);
+      repoPaths.push(repoPath);
+      const prefix = (typeof r.worktreePrefix === "string" && r.worktreePrefix) || (typeof raw?.worktreePrefix === "string" && raw.worktreePrefix) || `../${path.basename(repoPath)}-worktrees`;
+      worktreeDirs.push(path.resolve(repoPath, prefix));
+    }
+    out.push({ name: typeof marker.name === "string" && marker.name ? marker.name : stateKey, repoPaths, branchPrefix, worktreeDirs });
+  }
+  return out;
 }

@@ -15,8 +15,9 @@ import { execFile, spawnSync } from "node:child_process";
 import { loadConfig, ensurePrivateDir } from "../config.js";
 import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo, primaryRepo } from "../repos.js";
-import { listWorktrees } from "../worktree.js";
+import { listWorktrees, DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 import { readProfile, isAlive, instructionTargets } from "../heartbeat.js";
+import { registeredProfiles } from "../profile.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 import { fileURLToPath } from "node:url";
 import { agentFor } from "../agents/index.js";
@@ -805,6 +806,42 @@ export function claimedPortLint(port, claimed) {
   return hit ? [{ level: "warn", label: `port ${port} is also configured by profile "${hit.name}"`, fix: { manual: `set a different "port" in the config` } }] : [];
 }
 
+/** A ⚠ for each other registered profile sharing a repo with this one: one naming it when they'd
+ * also reuse the same branch (same effective `branchPrefix`), another when they'd also reuse the
+ * same worktree directory (same effective worktree base) — a distinct `branchPrefix` alone isn't
+ * enough, since `ensureWorktree` returns an existing worktree dir without checking its branch. Pure.
+ * @param {import('../types.js').Config} cfg
+ * @param {{ name: string, repoPaths: string[], branchPrefix: string, worktreeDirs: string[] }[]} others
+ * @returns {Finding[]} */
+export function sharedRepoLint(cfg, others) {
+  const ourPrefix = cfg.branchPrefix || DEFAULT_BRANCH_PREFIX;
+  const ours = reposOf(cfg);
+  const ourRepoPaths = ours.map((r) => path.resolve(r.path));
+  const ourWorktreeDirs = ours.map((r) => worktreeDir(cfg, r));
+  /** @type {Finding[]} */
+  const out = [];
+  for (const other of others) {
+    if (!other.repoPaths.some((p) => ourRepoPaths.includes(p))) continue;
+    if (other.branchPrefix === ourPrefix) {
+      out.push({
+        level: "warn",
+        label: `shares a repo with profile "${other.name}", same branch prefix "${ourPrefix}"`,
+        note: "receiver-made branches would collide",
+        fix: { manual: `set a different "branchPrefix" in the config` },
+      });
+    }
+    if (other.worktreeDirs.some((d) => ourWorktreeDirs.includes(d))) {
+      out.push({
+        level: "warn",
+        label: `shares a repo with profile "${other.name}", same worktree directory`,
+        note: "ensureWorktree would reuse the other profile's worktree",
+        fix: { manual: `set a different "worktreePrefix" in the config` },
+      });
+    }
+  }
+  return out;
+}
+
 /** A check's remedy: a safe local fix (`describe` is its `--dry-run` text) or the manual
  * action for a problem that is never auto-fixed. Only ✗/⚠ checks carry one.
  * @typedef {{ describe: string, apply: () => void|Promise<void> } | { manual: string }} Fix */
@@ -1269,6 +1306,7 @@ export function tokenVar(configPath) {
  *   env?: Record<string, string|undefined>,
  *   userClaudeSettings?: any,
  *   claimedPorts?: (opts?: { exclude?: { stateKey?: string, configPath?: string } }) => { port: number, stateKey: string, name: string }[],
+ *   registeredProfiles?: (opts?: { exclude?: { stateKey?: string, configPath?: string } }) => { name: string, repoPaths: string[], branchPrefix: string, worktreeDirs: string[] }[],
  * }} DoctorIo */
 
 /** Parsed ~/.claude/settings.json, or null (missing/unreadable). Read only, never written. */
@@ -1308,6 +1346,7 @@ export async function runChecks(cfg, io = {}) {
     env = process.env,
     userClaudeSettings = readUserClaudeSettings(),
     claimedPorts: claimedPortsFn = claimedPorts,
+    registeredProfiles: registeredProfilesFn = registeredProfiles,
   } = io;
   /** @type {Check[]} */
   const checks = [];
@@ -1407,6 +1446,7 @@ export async function runChecks(cfg, io = {}) {
   if (pc.level === "info") info(pc.label, pc.note);
   else add(pc.level === "ok", pc.label, pc.note, { manual: `stop whatever listens on port ${cfg.port}, or set a different "port" in the config` });
   claimedPortLint(cfg.port, claimedPortsFn({ exclude: { stateKey: cfg.stateKey } })).forEach(finding);
+  sharedRepoLint(cfg, registeredProfilesFn({ exclude: { stateKey: cfg.stateKey } })).forEach(finding);
 
   const unfilled = unfilledBindings(cfg.pipeline);
   add(!unfilled.length, "pipeline bindings filled", unfilled.length ? `unfilled/placeholder: ${unfilled.join(", ")}` : "", { manual: `fill ${unfilled.join(", ")} in the config with real tracker stages` });

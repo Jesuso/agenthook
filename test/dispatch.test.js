@@ -1114,6 +1114,16 @@ test("lookupPr: empty output, garbage, or a failing gh → undefined", async () 
   assert.equal(await lookupPr("/r", "1", async () => { throw new Error("ENOENT gh"); }), undefined);
 });
 
+test("lookupPr: an explicit branchPrefix looks up that branch instead of agent/ (#674)", async () => {
+  /** @type {any[]} */
+  const calls = [];
+  await lookupPr("/repo", "94", async (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    return "123\n";
+  }, "local/");
+  assert.deepEqual(calls[0].args.slice(0, 4), ["pr", "list", "--head", "local/94"]);
+});
+
 test("descriptionHasHeadings: markers, case, whitespace", () => {
   const d = "intro\n  ## technical notes\nh2. Acceptance Criteria\n**Extra**";
   assert.equal(descriptionHasHeadings(d, ["Technical Notes", "ACCEPTANCE criteria", "extra"]), true);

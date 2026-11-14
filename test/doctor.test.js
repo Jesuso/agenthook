@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, harnessLanLints, opencodeConfigLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, harnessLanLints, opencodeConfigLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, sharedRepoLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -261,6 +261,27 @@ test("claimedPortLint: no collision → no findings", () => {
   assert.deepEqual(claimedPortLint(4180, []), []);
 });
 
+test("sharedRepoLint (#674): same repo + same branchPrefix warns naming the other profile; different prefix warns only about the worktree", () => {
+  const { cfg } = cleanProfile();
+  const repoPath = cfg.repos[0].path;
+  const sameBoth = [{ name: "other", repoPaths: [repoPath], branchPrefix: "agent/", worktreeDirs: [worktreeDir(cfg)] }];
+  const branchFindings = sharedRepoLint(cfg, sameBoth);
+  assert.equal(branchFindings.length, 2, "branch + worktree both collide");
+  assert.ok(branchFindings.some((f) => f.level === "warn" && /other/.test(f.label) && /branch prefix/.test(f.label)));
+  assert.ok(branchFindings.some((f) => f.level === "warn" && /worktree directory/.test(f.label)));
+
+  const diffPrefix = [{ name: "other", repoPaths: [repoPath], branchPrefix: "local/", worktreeDirs: [worktreeDir(cfg)] }];
+  const prefixFindings = sharedRepoLint(cfg, diffPrefix);
+  assert.equal(prefixFindings.length, 1, "only the worktree collision remains");
+  assert.ok(prefixFindings[0].label.includes("worktree directory"));
+});
+
+test("sharedRepoLint (#674): a different repo path → no findings", () => {
+  const { cfg } = cleanProfile();
+  const other = [{ name: "other", repoPaths: ["/not/the/same/repo"], branchPrefix: "agent/", worktreeDirs: ["/not/the/same/repo-worktrees"] }];
+  assert.deepEqual(sharedRepoLint(cfg, other), []);
+});
+
 test("runChecks: warns when cfg.port is also claimed by another registered profile, excluding the current one", () => {
   const { cfg } = cleanProfile();
   const claimedPorts = ({ exclude } = {}) => [
@@ -297,6 +318,24 @@ test("runChecks: passes exclude.stateKey matching cfg.stateKey to claimedPorts",
   };
   await runChecks(cfg, io({ claimedPorts }));
   assert.equal(received?.exclude?.stateKey, cfg.stateKey);
+});
+
+test("runChecks: warns about a sharing profile via the injected registeredProfiles, excluding the current one (#674)", async () => {
+  const { cfg } = cleanProfile();
+  let received;
+  const registeredProfiles = (opts) => {
+    received = opts;
+    return [{ name: "other-profile", repoPaths: [cfg.repos[0].path], branchPrefix: cfg.branchPrefix || "agent/", worktreeDirs: [worktreeDir(cfg)] }];
+  };
+  const checks = await runChecks(cfg, io({ registeredProfiles }));
+  assert.equal(received?.exclude?.stateKey, cfg.stateKey);
+  assert.ok(checks.some((c) => c.warn && /other-profile/.test(c.label)));
+});
+
+test("runChecks: no shared-repo warning when registeredProfiles reports nothing", async () => {
+  const { cfg } = cleanProfile();
+  const checks = await runChecks(cfg, io({ registeredProfiles: () => [] }));
+  assert.ok(!checks.some((c) => c.warn && /shares a repo/.test(c.label)));
 });
 
 test("uiBundleState: no ui/src → no-src, quiet even with no dist", () => {
