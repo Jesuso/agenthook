@@ -466,15 +466,28 @@ export async function init(args, opts) {
     trackerAns.assigneeLogin = String(app.assigneeLogin).trim();
     probePc.auth = { ...authBlock, privateKey: pem };
   } else {
-    tokenEnv = (
-      await runWizard([
-        {
-          key: "tokenEnv",
-          message: `Env var holding the ${trackerAns.type} API token`,
-          default: DEFAULT_TOKEN_ENV[trackerAns.type] || "API_TOKEN",
-        },
-      ])
-    ).tokenEnv;
+    // Only ask which env var holds the token when the default one is already set (so the user
+    // can still point at a custom name) — otherwise go straight to the missing-token message
+    // instead of asking a question whose answer we're about to say doesn't exist.
+    const defaultTokenEnv = DEFAULT_TOKEN_ENV[trackerAns.type] || "API_TOKEN";
+    const askTokenEnv = async () =>
+      (
+        await runWizard([
+          {
+            key: "tokenEnv",
+            message: `Env var holding the ${trackerAns.type} API token`,
+            default: defaultTokenEnv,
+          },
+        ])
+      ).tokenEnv;
+
+    if (process.env[defaultTokenEnv]) {
+      tokenEnv = await askTokenEnv();
+    } else if (await offerLocalFallback(missingTokenMessage(defaultTokenEnv, envPath))) {
+      return;
+    } else {
+      tokenEnv = await askTokenEnv();
+    }
 
     const token = process.env[tokenEnv];
     if (!token) {
