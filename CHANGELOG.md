@@ -153,9 +153,11 @@ All notable changes to this project are documented here. The format is based on
   cross-agent dir natively — today that's Claude Code and Hermes; Cursor, Codex, OpenCode and
   Gemini CLI read it directly, so no dir at all is created for them. Re-installing over an old
   per-agent copy migrates it: a stamped copy at a now-native agent's own dir is removed, and one
-  at claude's/hermes's dir becomes a symlink. A foreign (unstamped) dir is left untouched either
-  way. On win32, where a symlink needs a privilege agenthook may not have, a failed link falls
-  back to a real copy instead. `agenthook skill ls` shows the canonical copy's version and each
+  at claude's/hermes's dir becomes a symlink. A foreign (unstamped) `agenthook` dir in a native
+  agent's dir is left untouched either way, and is now reported as `foreign` (it used to produce
+  no output line at all) so a leftover foreign copy doesn't silently load twice. On win32, where
+  a symlink needs a privilege agenthook may not have, a failed link falls back to a real copy
+  instead. `agenthook skill ls` shows the canonical copy's version and each
   link as `-> <canonical>`; `doctor`'s stale-skill warning follows the canonical copy (so its fix
   never turns a link back into a copy) and separately flags a leftover per-agent copy as stale
   (#667).

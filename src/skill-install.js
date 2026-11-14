@@ -74,10 +74,12 @@ function canonicalDir(base, scope) {
 /**
  * Plan what installing `agents` would do: always one canonical copy; a `link` for each requested
  * agent that doesn't read `.agents/skills` natively at this scope; a `remove` for each requested
- * native agent whose own (or legacy) dir still holds a stamped copy left over from before this
- * (a non-stamped dir there is foreign and is left alone, so it's never planned).
+ * native agent whose own (or legacy) dir still holds a stamped copy left over from before this; a
+ * `foreign` row (never touched, reported only) for a native agent's own (or legacy) dir that holds
+ * an unstamped `agenthook` skill someone else put there — left alone, but flagged since the agent
+ * would otherwise load it alongside the canonical one.
  * @param {string[]} agents @param {{home?: string, repoPath?: string|null}} [o]
- * @returns {{agent: string, scope: 'global'|'repo', kind: 'copy'|'link'|'remove', dir: string, target?: string}[]}
+ * @returns {{agent: string, scope: 'global'|'repo', kind: 'copy'|'link'|'remove'|'foreign', dir: string, target?: string}[]}
  */
 export function planSkillInstall(agents, { home = os.homedir(), repoPath = null } = {}) {
   const scope = repoPath ? "repo" : "global";
@@ -95,6 +97,7 @@ export function planSkillInstall(agents, { home = os.homedir(), repoPath = null 
       for (const rel of [d[scope], ...(d.legacy?.[scope] ?? [])]) {
         const dir = path.join(base, rel, SKILL_NAME);
         if (installedVersion(dir) !== null) out.push({ agent: a, scope, kind: "remove", dir });
+        else if (fs.existsSync(path.join(dir, "SKILL.md"))) out.push({ agent: a, scope, kind: "foreign", dir });
       }
     }
   }

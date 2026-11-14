@@ -158,6 +158,25 @@ test("planSkillInstall: unrequested/undetected agents get no dir at all", () => 
   assert.deepEqual(plan.map((a) => a.agent).sort(), ["agents", "claude"]);
 });
 
+test("planSkillInstall: a foreign (unstamped) dir in a native agent's own or legacy dir is reported, never removed", () => {
+  const home = tmp("ah-skill-plan-foreign-");
+  const foreignGemini = path.join(home, ".gemini", "skills", "agenthook");
+  fs.mkdirSync(foreignGemini, { recursive: true });
+  fs.writeFileSync(path.join(foreignGemini, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's\n");
+  const foreignLegacy = path.join(home, ".config", "opencode", "skill", "agenthook");
+  fs.mkdirSync(foreignLegacy, { recursive: true });
+  fs.writeFileSync(path.join(foreignLegacy, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's too\n");
+  const plan = planSkillInstall(["agents", "gemini", "opencode"], { home });
+  const foreignRows = plan.filter((a) => a.kind === "foreign");
+  assert.deepEqual(foreignRows.map((a) => [a.agent, a.dir]).sort(), [
+    ["gemini", foreignGemini],
+    ["opencode", foreignLegacy],
+  ]);
+  for (const dir of [foreignGemini, foreignLegacy]) {
+    assert.match(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8"), /someone else's/);
+  }
+});
+
 test("linkSkillInto: link, current, relink over a stale stamped copy, foreign untouched, dry-run writes nothing", () => {
   const home = tmp("ah-skill-link-");
   const canonical = path.join(home, ".agents", "skills", "agenthook");
@@ -217,25 +236,35 @@ test("installedSkills: canonical copy + links (version read through the link) + 
   ]);
 });
 
-test("doctor skillLints: a stale canonical copy warns with a reinstall fix; a native agent's leftover warns with a remove fix; link rows and current copies are silent", () => {
+test("doctor skillLints: a stale canonical copy and a stale non-native fallback copy warn with a reinstall fix; a native agent's leftover warns with a remove fix; link rows and current copies are silent", () => {
   const rows = [
     { agent: "agents", scope: "repo", dir: "/r/.agents/skills/agenthook", version: "0.9.0" },
     { agent: "codex", scope: "global", dir: "/h/.codex/skills/agenthook", version: "0.9.0" },
-    { agent: "claude", scope: "global", dir: "/h/.claude/skills/agenthook", version: "0.9.0", linkTo: "/h/.agents/skills/agenthook" },
+    { agent: "claude", scope: "global", dir: "/h/.claude/skills/agenthook", version: "0.9.0" },
   ];
   const reinstalled = [];
   const removed = [];
   const f = skillLints(rows, "0.11.0", { reinstall: (d) => reinstalled.push(d), remove: (d) => removed.push(d) });
-  assert.equal(f.length, 2);
+  assert.equal(f.length, 3);
   const canonicalFinding = f.find((x) => x.note.includes("/r/.agents"));
   assert.match(canonicalFinding.note, /0\.9\.0; this agenthook is 0\.11\.0/);
   const legacyFinding = f.find((x) => x.note.includes("/h/.codex"));
   assert.match(legacyFinding.note, /stale\/duplicate copy/);
+  // claude isn't native — a stale real copy there is a plain fallback copy, not a leftover: it
+  // must warn with the reinstall fix, never the remove fix (claude has no .agents alternative).
+  const fallbackFinding = f.find((x) => x.note.includes("/h/.claude"));
+  assert.match(fallbackFinding.note, /0\.9\.0; this agenthook is 0\.11\.0/);
   canonicalFinding.fix.apply();
   legacyFinding.fix.apply();
-  assert.deepEqual(reinstalled, ["/r/.agents/skills/agenthook"]);
+  fallbackFinding.fix.apply();
+  assert.deepEqual(reinstalled.sort(), ["/h/.claude/skills/agenthook", "/r/.agents/skills/agenthook"].sort());
   assert.deepEqual(removed, ["/h/.codex/skills/agenthook"]);
-  assert.deepEqual(skillLints(rows.filter((r) => r.agent !== "codex" && r.agent !== "agents"), "0.11.0"), []);
+  // a link row (claude, now relinked to the canonical copy) never warns, nor does a current copy
+  const linked = [
+    { agent: "agents", scope: "repo", dir: "/r/.agents/skills/agenthook", version: "0.11.0" },
+    { agent: "claude", scope: "global", dir: "/h/.claude/skills/agenthook", version: "0.9.0", linkTo: "/h/.agents/skills/agenthook" },
+  ];
+  assert.deepEqual(skillLints(linked, "0.11.0"), []);
 });
 
 // The skill's CLI bootstrap (skills/agenthook/scripts/ensure-cli.sh): what a skill-first user's
@@ -312,4 +341,47 @@ test("installSkill: --dry-run writes nothing", () => {
   const rows = installSkill(["agents", "claude"], { home, dryRun: true });
   assert.ok(rows.every((r) => r.result === "installed" || r.result === "linked"));
   assert.ok(!fs.existsSync(path.join(home, ".agents")), "dry-run touched nothing");
+});
+
+test("installSkill: a foreign dir in a native agent's dir is reported and left byte-for-byte untouched", () => {
+  const home = tmp("ah-installskill-foreign-");
+  const foreign = path.join(home, ".gemini", "skills", "agenthook");
+  fs.mkdirSync(foreign, { recursive: true });
+  fs.writeFileSync(path.join(foreign, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's\n");
+  const before = fs.readFileSync(path.join(foreign, "SKILL.md"), "utf8");
+  const rows = installSkill(["agents", "gemini"], { home });
+  const foreignRow = rows.find((r) => r.agent === "gemini");
+  assert.equal(foreignRow.kind, "foreign");
+  assert.equal(foreignRow.result, "foreign");
+  assert.equal(fs.readFileSync(path.join(foreign, "SKILL.md"), "utf8"), before);
+});
+
+test("installSkill: fresh repo-scope install — relative symlinks, no dirs for other native agents", () => {
+  const repo = tmp("ah-installskill-repo-fresh-");
+  const agents = ["agents", "claude", "cursor", "codex", "opencode", "hermes", "gemini"];
+  installSkill(agents, { repoPath: repo });
+  const canonical = path.join(repo, ".agents", "skills", "agenthook");
+  assert.ok(fs.existsSync(canonical) && !fs.lstatSync(canonical).isSymbolicLink());
+  for (const a of ["claude", "hermes"]) {
+    const link = path.join(repo, `.${a}`, "skills", "agenthook");
+    assert.ok(fs.lstatSync(link).isSymbolicLink(), `${a} should be a link`);
+    assert.ok(!path.isAbsolute(fs.readlinkSync(link)), `${a}'s link target should be relative`);
+    assert.equal(fs.realpathSync(link), fs.realpathSync(canonical));
+  }
+  for (const a of ["cursor", "codex", "opencode", "gemini"]) assert.ok(!fs.existsSync(path.join(repo, `.${a}`)), `no .${a} dir`);
+});
+
+test("installSkill: re-installing over a stale canonical copy updates it to the new stamp while links report current and stay links", () => {
+  const home = tmp("ah-installskill-stale-canonical-");
+  installSkillInto(path.join(home, ".agents", "skills", "agenthook"), "0.9.0");
+  const first = installSkill(["agents", "claude"], { home });
+  assert.equal(first.find((r) => r.kind === "copy").result, "updated");
+  assert.equal(first.find((r) => r.kind === "link").result, "linked");
+  assert.equal(installedVersion(path.join(home, ".agents", "skills", "agenthook")), packageVersion());
+  // re-run on the now-linked layout, even with the canonical copy already current
+  const second = installSkill(["agents", "claude"], { home });
+  assert.equal(second.find((r) => r.kind === "copy").result, "current");
+  assert.equal(second.find((r) => r.kind === "link").result, "current");
+  const link = path.join(home, ".claude", "skills", "agenthook");
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), "still a link after two installs");
 });

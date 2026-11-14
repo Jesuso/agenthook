@@ -30,13 +30,14 @@ export async function skill(args) {
 
 /**
  * @param {string[]} agents @param {{repoPath?: string|null, dryRun?: boolean, home?: string}} [o]
- * @returns {{agent: string, scope: string, kind: 'copy'|'link'|'remove', dir: string, target?: string, result: string, note?: string}[]}
+ * @returns {{agent: string, scope: string, kind: 'copy'|'link'|'remove'|'foreign', dir: string, target?: string, result: string, note?: string}[]}
  */
 export function installSkill(agents, { repoPath = null, dryRun = false, home } = {}) {
   const version = packageVersion();
   const ho = home ? { home } : {};
   return planSkillInstall(agents, { repoPath, ...ho }).map((a) => {
     if (a.kind === "copy") return { ...a, result: installSkillInto(a.dir, version, { dryRun }) };
+    if (a.kind === "foreign") return { ...a, result: "foreign", note: "unstamped — left untouched" };
     if (a.kind === "remove") {
       if (!dryRun) fs.rmSync(a.dir, { recursive: true, force: true });
       return { ...a, result: "removed" };
