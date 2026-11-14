@@ -20,7 +20,10 @@ const STAMP_RE = /<!-- agenthook-skill (\S+) -->/;
  * @type {Record<string, {repo: string, global: string, detect: string, native: {repo: boolean, global: boolean}, legacy?: {repo?: string[], global?: string[]}}>} */
 export const AGENT_DIRS = {
   claude: { repo: ".claude/skills", global: ".claude/skills", detect: ".claude", native: { repo: false, global: false } },
-  cursor: { repo: ".cursor/skills", global: ".cursor/skills", detect: ".cursor", native: { repo: true, global: true } },
+  // Cursor and Gemini CLI read `.agents/skills` at the repo level, but at the user level the
+  // `skills` CLI's own agent table has them reading `~/.cursor/skills` / `~/.gemini/skills`
+  // instead — not `~/.agents/skills` — so a global install still needs a link for them.
+  cursor: { repo: ".cursor/skills", global: ".cursor/skills", detect: ".cursor", native: { repo: true, global: false } },
   codex: { repo: ".codex/skills", global: ".codex/skills", detect: ".codex", native: { repo: true, global: true } },
   opencode: {
     repo: ".opencode/skills",
@@ -30,7 +33,7 @@ export const AGENT_DIRS = {
     legacy: { repo: [".opencode/skill"], global: [".config/opencode/skill"] },
   },
   hermes: { repo: ".hermes/skills", global: ".hermes/skills", detect: ".hermes", native: { repo: false, global: false } },
-  gemini: { repo: ".gemini/skills", global: ".gemini/skills", detect: ".gemini", native: { repo: true, global: true } },
+  gemini: { repo: ".gemini/skills", global: ".gemini/skills", detect: ".gemini", native: { repo: true, global: false } },
   agents: { repo: ".agents/skills", global: ".agents/skills", detect: ".agents", native: { repo: true, global: true } },
 };
 

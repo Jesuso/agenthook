@@ -142,14 +142,23 @@ test("planSkillInstall: one canonical copy; links for non-native agents; removes
   installSkillInto(opencodeLegacy, "1.0.0");
   const plan = planSkillInstall(["agents", "claude", "cursor", "codex", "opencode", "hermes", "gemini"], { home });
   assert.deepEqual(plan.filter((a) => a.kind === "copy"), [{ agent: "agents", scope: "global", kind: "copy", dir: canonical }]);
+  // cursor/gemini aren't native globally, so they get links at this (global) scope too
   const links = plan.filter((a) => a.kind === "link").map((a) => a.agent).sort();
-  assert.deepEqual(links, ["claude", "hermes"]);
+  assert.deepEqual(links, ["claude", "cursor", "gemini", "hermes"]);
   assert.equal(plan.find((a) => a.agent === "claude").target, canonical);
   const removes = plan.filter((a) => a.kind === "remove").map((a) => a.dir).sort();
   assert.deepEqual(removes, [codexOld, opencodeLegacy].sort());
-  // cursor/gemini are native but have no leftover copy — no action for them
-  assert.ok(!plan.some((a) => a.agent === "cursor" || a.agent === "gemini"));
+  // codex/opencode are native globally but have no leftover copy beyond the one just removed above
+  assert.ok(!plan.some((a) => (a.agent === "codex" || a.agent === "opencode") && a.kind !== "remove"));
   assert.throws(() => planSkillInstall(["nope"], { home }), /unknown agent "nope"/);
+});
+
+test("planSkillInstall: repo scope — cursor/gemini are native (unlike global), codex/opencode stay native", () => {
+  const repo = tmp("ah-skill-plan-repo-");
+  const plan = planSkillInstall(["agents", "claude", "cursor", "codex", "opencode", "hermes", "gemini"], { repoPath: repo });
+  const links = plan.filter((a) => a.kind === "link").map((a) => a.agent).sort();
+  assert.deepEqual(links, ["claude", "hermes"]);
+  assert.ok(!plan.some((a) => a.agent === "cursor" || a.agent === "gemini" || a.agent === "codex" || a.agent === "opencode"));
 });
 
 test("planSkillInstall: unrequested/undetected agents get no dir at all", () => {
@@ -160,19 +169,19 @@ test("planSkillInstall: unrequested/undetected agents get no dir at all", () => 
 
 test("planSkillInstall: a foreign (unstamped) dir in a native agent's own or legacy dir is reported, never removed", () => {
   const home = tmp("ah-skill-plan-foreign-");
-  const foreignGemini = path.join(home, ".gemini", "skills", "agenthook");
-  fs.mkdirSync(foreignGemini, { recursive: true });
-  fs.writeFileSync(path.join(foreignGemini, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's\n");
+  const foreignCodex = path.join(home, ".codex", "skills", "agenthook");
+  fs.mkdirSync(foreignCodex, { recursive: true });
+  fs.writeFileSync(path.join(foreignCodex, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's\n");
   const foreignLegacy = path.join(home, ".config", "opencode", "skill", "agenthook");
   fs.mkdirSync(foreignLegacy, { recursive: true });
   fs.writeFileSync(path.join(foreignLegacy, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's too\n");
-  const plan = planSkillInstall(["agents", "gemini", "opencode"], { home });
+  const plan = planSkillInstall(["agents", "codex", "opencode"], { home });
   const foreignRows = plan.filter((a) => a.kind === "foreign");
   assert.deepEqual(foreignRows.map((a) => [a.agent, a.dir]).sort(), [
-    ["gemini", foreignGemini],
+    ["codex", foreignCodex],
     ["opencode", foreignLegacy],
   ]);
-  for (const dir of [foreignGemini, foreignLegacy]) {
+  for (const dir of [foreignCodex, foreignLegacy]) {
     assert.match(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8"), /someone else's/);
   }
 });
@@ -305,22 +314,23 @@ test("ensure-cli.sh: a Node older than 22 stops with the reason, installing noth
   assert.doesNotMatch(r.stdout + r.stderr, /SHOULD-NOT-RUN/);
 });
 
-test("installSkill: fresh install — one canonical copy, symlinks only for claude/hermes, no dirs for the other native agents", () => {
+test("installSkill: fresh install — one canonical copy, symlinks for claude/hermes/cursor/gemini, no dirs for the native-at-every-scope agents", () => {
   const home = tmp("ah-installskill-fresh-");
   const agents = ["agents", "claude", "cursor", "codex", "opencode", "hermes", "gemini"];
   const rows = installSkill(agents, { home });
   const canonical = path.join(home, ".agents", "skills", "agenthook");
   assert.ok(fs.existsSync(canonical) && !fs.lstatSync(canonical).isSymbolicLink());
-  for (const a of ["claude", "hermes"]) {
+  // cursor/gemini aren't native globally (unlike repo scope), so a global install links them too
+  for (const a of ["claude", "hermes", "cursor", "gemini"]) {
     const link = path.join(home, `.${a}`, "skills", "agenthook");
     assert.ok(fs.lstatSync(link).isSymbolicLink(), `${a} should be a link`);
     assert.equal(fs.realpathSync(link), fs.realpathSync(canonical));
   }
-  for (const a of ["cursor", "codex", "opencode", "gemini"]) assert.ok(!fs.existsSync(path.join(home, `.${a}`)), `no .${a} dir`);
-  assert.deepEqual(rows.filter((r) => r.kind === "link").map((r) => r.agent).sort(), ["claude", "hermes"]);
+  for (const a of ["codex", "opencode"]) assert.ok(!fs.existsSync(path.join(home, `.${a}`)), `no .${a} dir`);
+  assert.deepEqual(rows.filter((r) => r.kind === "link").map((r) => r.agent).sort(), ["claude", "cursor", "gemini", "hermes"]);
 });
 
-test("installSkill: re-install over old per-agent copies migrates native ones to a removal and claude/hermes to links; the canonical copy updates", () => {
+test("installSkill: re-install over old per-agent copies migrates native ones to a removal and claude/hermes/cursor/gemini to links; the canonical copy updates", () => {
   const home = tmp("ah-installskill-reinstall-");
   for (const a of ["claude", "cursor", "codex", "opencode", "hermes", "gemini"]) installSkillInto(path.join(home, AGENT_DIRS[a].global, "agenthook"), "0.9.0");
   const rows = installSkill(["agents", "claude", "cursor", "codex", "opencode", "hermes", "gemini"], { home });
@@ -328,12 +338,12 @@ test("installSkill: re-install over old per-agent copies migrates native ones to
   assert.equal(byAgentKind["agents:copy"], "installed");
   assert.equal(byAgentKind["claude:link"], "relinked");
   assert.equal(byAgentKind["hermes:link"], "relinked");
-  assert.equal(byAgentKind["cursor:remove"], "removed");
+  assert.equal(byAgentKind["cursor:link"], "relinked");
+  assert.equal(byAgentKind["gemini:link"], "relinked");
   assert.equal(byAgentKind["codex:remove"], "removed");
-  assert.equal(byAgentKind["gemini:remove"], "removed");
   assert.equal(byAgentKind["opencode:remove"], "removed");
   assert.equal(installedVersion(path.join(home, ".agents", "skills", "agenthook")), packageVersion());
-  for (const a of ["cursor", "codex", "opencode", "gemini"]) assert.ok(!fs.existsSync(path.join(home, AGENT_DIRS[a].global, "agenthook")));
+  for (const a of ["codex", "opencode"]) assert.ok(!fs.existsSync(path.join(home, AGENT_DIRS[a].global, "agenthook")));
 });
 
 test("installSkill: --dry-run writes nothing", () => {
@@ -345,12 +355,12 @@ test("installSkill: --dry-run writes nothing", () => {
 
 test("installSkill: a foreign dir in a native agent's dir is reported and left byte-for-byte untouched", () => {
   const home = tmp("ah-installskill-foreign-");
-  const foreign = path.join(home, ".gemini", "skills", "agenthook");
+  const foreign = path.join(home, ".codex", "skills", "agenthook");
   fs.mkdirSync(foreign, { recursive: true });
   fs.writeFileSync(path.join(foreign, "SKILL.md"), "---\nname: agenthook\n---\nsomeone else's\n");
   const before = fs.readFileSync(path.join(foreign, "SKILL.md"), "utf8");
-  const rows = installSkill(["agents", "gemini"], { home });
-  const foreignRow = rows.find((r) => r.agent === "gemini");
+  const rows = installSkill(["agents", "codex"], { home });
+  const foreignRow = rows.find((r) => r.agent === "codex");
   assert.equal(foreignRow.kind, "foreign");
   assert.equal(foreignRow.result, "foreign");
   assert.equal(fs.readFileSync(path.join(foreign, "SKILL.md"), "utf8"), before);
@@ -362,6 +372,7 @@ test("installSkill: fresh repo-scope install — relative symlinks, no dirs for 
   installSkill(agents, { repoPath: repo });
   const canonical = path.join(repo, ".agents", "skills", "agenthook");
   assert.ok(fs.existsSync(canonical) && !fs.lstatSync(canonical).isSymbolicLink());
+  // cursor/gemini are native at repo scope (unlike global), so only claude/hermes get links here
   for (const a of ["claude", "hermes"]) {
     const link = path.join(repo, `.${a}`, "skills", "agenthook");
     assert.ok(fs.lstatSync(link).isSymbolicLink(), `${a} should be a link`);
