@@ -40,10 +40,13 @@ async function render(tickets: TicketRow[], over: Partial<OverviewProps> = {}, u
 }
 
 const row = (ref: string) => document.querySelector(`[data-needs-row="${ref}"]`) as HTMLElement;
-/** Open a row's ⋯ menu and return its items' labels → buttons. */
+/** Open a row's ⋯ menu and return its items' labels → buttons. The list portals to `document.body`
+ * (#661), so it's no longer a descendant of the row — read the most recently opened one instead. */
 async function openMenu(ref: string) {
   await click(row(ref).querySelector("[data-needs-pr-menu] button[aria-haspopup]")!);
-  return new Map([...row(ref).querySelectorAll<HTMLButtonElement>("[role=menuitem]")].map((b) => [b.textContent ?? "", b]));
+  const lists = document.querySelectorAll<HTMLElement>('[role="menu"]');
+  const list = lists[lists.length - 1];
+  return new Map([...list.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].map((b) => [b.textContent ?? "", b]));
 }
 
 describe("Needs you: PR row actions", () => {

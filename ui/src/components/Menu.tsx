@@ -1,27 +1,64 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconButton } from "./IconButton";
 
 export type MenuItem = { label: string; onSelect: () => void; danger?: boolean; disabled?: boolean };
 
+type Pos = { top: number; left: number };
+
+const GAP = 4;
+const EDGE = 4;
+
 /**
  * A ⋯ overflow menu: the trigger toggles a list of items; Escape or an outside click closes it
- * (Escape returns focus to the trigger), ArrowUp/ArrowDown move between items.
+ * (Escape returns focus to the trigger), ArrowUp/ArrowDown move between items. The list portals to
+ * `document.body` and is positioned `fixed` from the trigger's rect so it can float free of an
+ * `overflow-hidden` ancestor (e.g. a profile card, #661), flipping above the trigger when there's
+ * no room below and shifting to stay inside the viewport horizontally.
  */
 export function Menu({ label, items, align = "right" }: { label: string; items: MenuItem[]; align?: "left" | "right" }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<Pos | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const id = useId();
 
+  const reposition = () => {
+    const t = trigger.current;
+    const l = list.current;
+    if (!t || !l) return;
+    const tr = t.getBoundingClientRect();
+    const lr = l.getBoundingClientRect();
+    const openUp = tr.bottom + lr.height + GAP > window.innerHeight && tr.top - lr.height - GAP >= 0;
+    const top = openUp ? tr.top - lr.height - GAP : tr.bottom + GAP;
+    const rawLeft = align === "right" ? tr.right - lr.width : tr.left;
+    const left = Math.min(Math.max(rawLeft, EDGE), window.innerWidth - lr.width - EDGE);
+    setPos({ top, left });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    reposition();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     list.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (root.current?.contains(target) || list.current?.contains(target)) return;
+      setOpen(false);
     };
+    const onReposition = () => reposition();
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
   }, [open]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -44,30 +81,33 @@ export function Menu({ label, items, align = "right" }: { label: string; items: 
       <IconButton ref={trigger} label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
         ⋯
       </IconButton>
-      {open && (
-        <div
-          ref={list}
-          id={id}
-          role="menu"
-          className={`absolute z-30 mt-1 min-w-36 rounded-md border border-border-strong bg-overlay py-1 shadow-lg ${align === "right" ? "right-0" : "left-0"}`}
-        >
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              className={`block w-full px-3 py-1 text-left text-label hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none disabled:opacity-50 ${item.danger ? "text-status-failed" : "text-fg"}`}
-              onClick={() => {
-                setOpen(false);
-                item.onSelect();
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={list}
+            id={id}
+            role="menu"
+            style={{ position: "fixed", top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? "visible" : "hidden" }}
+            className="z-30 min-w-36 rounded-md border border-border-strong bg-overlay py-1 shadow-lg"
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                className={`block w-full px-3 py-1 text-left text-label hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none disabled:opacity-50 ${item.danger ? "text-status-failed" : "text-fg"}`}
+                onClick={() => {
+                  setOpen(false);
+                  item.onSelect();
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
