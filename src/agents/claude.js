@@ -5,6 +5,7 @@
 // dispatch / follow / resume reach all of it through the AgentAdapter interface
 // (src/types.js) — this is the reference adapter.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { claudeProjectDir, mangle, sandboxClaudeProjectDir } from "../paths.js";
 import { quotaFromRateLimitEvent } from "../quota.js";
@@ -79,13 +80,57 @@ export function claudePermissionArgs({ fullAuto, allow, deny, cwd, verdictFile }
 }
 
 /**
+ * The attribution keys from a parsed host `~/.claude/settings.json` worth carrying into a
+ * sandboxed run (pure): `attribution.commit`/`attribution.pr` (string) and `includeCoAuthoredBy`
+ * (boolean). Anything else on `raw` (permissions, hooks, env, …) is dropped. `undefined` when
+ * `raw` isn't an object or carries none of these with the right type — "no preference".
+ * @param {any} raw
+ * @returns {{attribution?: {commit?: string, pr?: string}, includeCoAuthoredBy?: boolean}|undefined}
+ */
+export function claudeAttributionSettings(raw) {
+  if (!raw || typeof raw !== "object") return undefined;
+  /** @type {{commit?: string, pr?: string}} */
+  const attribution = {};
+  const a = raw.attribution;
+  if (a && typeof a === "object") {
+    if (typeof a.commit === "string") attribution.commit = a.commit;
+    if (typeof a.pr === "string") attribution.pr = a.pr;
+  }
+  /** @type {{attribution?: {commit?: string, pr?: string}, includeCoAuthoredBy?: boolean}} */
+  const out = {};
+  if (Object.keys(attribution).length) out.attribution = attribution;
+  if (typeof raw.includeCoAuthoredBy === "boolean") out.includeCoAuthoredBy = raw.includeCoAuthoredBy;
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * The operator's claude attribution preference, read off their host `~/.claude/settings.json`
+ * (or `file`). A missing/unreadable file, invalid JSON, or a non-object gives `undefined`
+ * ("no preference") — never throws.
+ * @param {string} [file]
+ * @returns {{attribution?: {commit?: string, pr?: string}, includeCoAuthoredBy?: boolean}|undefined}
+ */
+export function hostClaudeAttribution(file = path.join(os.homedir(), ".claude", "settings.json")) {
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return undefined;
+  }
+  return claudeAttributionSettings(raw);
+}
+
+/** The `--settings` JSON that forces attribution off (`attribution: false`). */
+const ATTRIBUTION_OFF_SETTINGS = JSON.stringify({ attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false });
+
+/**
  * Build the `claude -p` argv (pure, exported so the flag wiring is unit-testable
- * without a real spawn). Order is stable: prompt, then --model, --effort, then the permission
- * tail (claudePermissionArgs) last.
- * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, maxMs?: number, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
+ * without a real spawn). Order is stable: prompt, then --model, --effort, --settings (when
+ * `attribution` is `false`), then the permission tail (claudePermissionArgs) last.
+ * @param {{prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, attribution?: boolean, maxMs?: number, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, cwd?: string, verdictFile?: string}} o
  * @returns {string[]}
  */
-export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, allow, deny, cwd, verdictFile }) {
+export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, attribution, allow, deny, cwd, verdictFile }) {
   // --output-format stream-json + --verbose: stdout becomes JSONL we parse for the
   // per-run log (assistant text) and the token/cost tally (the final `result` event).
   const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
@@ -95,6 +140,7 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, all
     else console.warn(`[dispatch] ignoring invalid effort "${effort}" (expected ${EFFORT_LEVELS.join("|")})`);
   }
   if (provider) console.warn(`[dispatch] ignoring provider "${provider}" — claude has no provider flag`);
+  if (attribution === false) args.push("--settings", ATTRIBUTION_OFF_SETTINGS);
   args.push(...claudePermissionArgs({ fullAuto, allow, deny, cwd, verdictFile }));
   return args;
 }
@@ -422,6 +468,16 @@ export const claude = {
   sandbox({ cfg, cwd, ownsCwd, home }) {
     const dir = ownsCwd ? claudeProjectDir(cwd) : sandboxClaudeProjectDir(cfg.stateDir, cwd);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    /** @type {{dst: string, content: string, mode?: number}[]} */
+    const files = [];
+    // Unset attribution preference: a sandboxed run starts with an empty HOME, so it never sees
+    // the operator's own ~/.claude/settings.json the way an unsandboxed run does (the user
+    // setting-source reads it straight off the host). Seed only the attribution keys — nothing
+    // else of the host file (permissions, hooks, env, …) crosses into the container.
+    if (cfg.attribution === undefined) {
+      const hostAttribution = hostClaudeAttribution();
+      if (hostAttribution) files.push({ dst: path.posix.join(home, ".claude", "settings.json"), content: JSON.stringify(hostAttribution) });
+    }
     return {
       mounts: [{ path: dir, dst: path.posix.join(home, ".claude", "projects", mangle(cwd)) }],
       env: {
@@ -432,6 +488,7 @@ export const claude = {
         // default temp dir (uid-owned-by-root check). Point it under the uid-owned HOME instead.
         CLAUDE_CODE_TMPDIR: path.posix.join(home, ".tmp"),
       },
+      ...(files.length ? { files } : {}),
     };
   },
   defaults: {},

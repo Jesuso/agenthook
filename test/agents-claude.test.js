@@ -4,7 +4,10 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // and the usage record / unpriced tagging. Moved verbatim from test/dispatch.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildClaudeArgs, claudePolicyArgs, claudePermissionArgs, claudeSettingsGuardArgs, claude, createStreamParser, buildUsageRecord, isUnpriced } from "../src/agents/claude.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { buildClaudeArgs, claudePolicyArgs, claudePermissionArgs, claudeSettingsGuardArgs, claude, createStreamParser, buildUsageRecord, isUnpriced, claudeAttributionSettings, hostClaudeAttribution } from "../src/agents/claude.js";
 
 // stream-json + --verbose are always present (stdout is the parsed JSONL); they sit
 // right after the prompt, ahead of the per-step --model/--effort/--dangerously flags.
@@ -472,4 +475,91 @@ test("claude sandbox hook: only this cwd's transcript dir (receiver-owned for a 
   assert.match(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: true, env: {} }) ?? "", /claude setup-token/);
   assert.equal(pre({ cfg: /** @type {any} */ ({}), step: { id: "code" }, sandboxed: true, env: { ANTHROPIC_API_KEY: "k" } }), undefined);
   assert.equal(sandboxCredentialProblem({ CLAUDE_CODE_USE_BEDROCK: "1" }), undefined);
+});
+
+// --- attribution (#675) ---
+
+test("claudeAttributionSettings: picks only attribution.commit/pr + includeCoAuthoredBy, drops everything else", () => {
+  assert.deepEqual(
+    claudeAttributionSettings({ attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false, permissions: { allow: ["Bash"] }, hooks: {}, env: { X: "1" } }),
+    { attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false },
+  );
+});
+
+test("claudeAttributionSettings: partial fields, wrong types, or no match", () => {
+  assert.deepEqual(claudeAttributionSettings({ attribution: { commit: "" } }), { attribution: { commit: "" } });
+  assert.deepEqual(claudeAttributionSettings({ includeCoAuthoredBy: true }), { includeCoAuthoredBy: true });
+  assert.equal(claudeAttributionSettings({ attribution: { commit: 5 } }), undefined, "wrong type dropped, nothing left");
+  assert.equal(claudeAttributionSettings({ includeCoAuthoredBy: "false" }), undefined, "string, not boolean");
+  assert.equal(claudeAttributionSettings({ permissions: {} }), undefined, "no attribution keys at all");
+  assert.equal(claudeAttributionSettings(null), undefined);
+  assert.equal(claudeAttributionSettings("nope"), undefined);
+  assert.equal(claudeAttributionSettings([]), undefined);
+});
+
+test("hostClaudeAttribution: reads + filters a real file; absent/invalid JSON/non-object never throw", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-claude-attr-"));
+  const file = path.join(dir, "settings.json");
+  fs.writeFileSync(file, JSON.stringify({ attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false, hooks: { PreToolUse: [] } }));
+  assert.deepEqual(hostClaudeAttribution(file), { attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false });
+
+  assert.equal(hostClaudeAttribution(path.join(dir, "missing.json")), undefined, "missing file");
+  fs.writeFileSync(path.join(dir, "broken.json"), "{ not json");
+  assert.equal(hostClaudeAttribution(path.join(dir, "broken.json")), undefined, "invalid JSON");
+  fs.writeFileSync(path.join(dir, "no-attr.json"), JSON.stringify({ permissions: { allow: ["Bash"] } }));
+  assert.equal(hostClaudeAttribution(path.join(dir, "no-attr.json")), undefined, "no attribution keys");
+  fs.writeFileSync(path.join(dir, "array.json"), "[1,2,3]");
+  assert.equal(hostClaudeAttribution(path.join(dir, "array.json")), undefined, "non-object JSON");
+});
+
+test("buildClaudeArgs: attribution false adds --settings before the permission tail; true/unset leave argv unchanged", () => {
+  const off = buildClaudeArgs({ prompt: "hi", model: "m", attribution: false });
+  const settingsIdx = off.indexOf("--settings");
+  assert.ok(settingsIdx > 0, "--settings present");
+  assert.deepEqual(JSON.parse(off[settingsIdx + 1]), { attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false });
+  assert.ok(settingsIdx < off.indexOf("--setting-sources"), "placed before the permission tail");
+  assert.deepEqual(off, ["-p", "hi", ...SJ, "--model", "m", "--settings", off[settingsIdx + 1], ...PIN]);
+
+  assert.deepEqual(buildClaudeArgs({ prompt: "hi", model: "m", attribution: true }), ["-p", "hi", ...SJ, "--model", "m", ...PIN]);
+  assert.deepEqual(buildClaudeArgs({ prompt: "hi", model: "m" }), ["-p", "hi", ...SJ, "--model", "m", ...PIN]);
+});
+
+test("claude sandbox hook: unset attribution seeds the host's attribution keys only into the sandbox HOME", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-claude-attr-sbx-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ah-claude-attr-home-"));
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false, permissions: { allow: ["Bash"] }, hooks: { PreToolUse: [] }, env: { X: "1" } }));
+  const saved = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const sbx = /** @type {NonNullable<typeof claude.sandbox>} */ (claude.sandbox);
+    const stateDir = path.join(dir, "state");
+    const got = sbx({ cfg: /** @type {any} */ ({ stateDir }), step: { id: "code" }, cwd: "/w/agenthook-worktrees/42", ownsCwd: true, home: "/home/agent" });
+    assert.deepEqual(got.files, [{ dst: "/home/agent/.claude/settings.json", content: JSON.stringify({ attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false }) }]);
+
+    // attribution: false (profile forces it off through --settings, not seeding) → no files.
+    const withFalse = sbx({ cfg: /** @type {any} */ ({ stateDir, attribution: false }), step: { id: "code" }, cwd: "/w/agenthook-worktrees/42", ownsCwd: true, home: "/home/agent" });
+    assert.equal(withFalse.files, undefined);
+
+    // attribution: true (leave the CLI's own default) → no files either.
+    const withTrue = sbx({ cfg: /** @type {any} */ ({ stateDir, attribution: true }), step: { id: "code" }, cwd: "/w/agenthook-worktrees/42", ownsCwd: true, home: "/home/agent" });
+    assert.equal(withTrue.files, undefined);
+  } finally {
+    process.env.HOME = saved;
+  }
+});
+
+test("claude sandbox hook: no host attribution preference (file absent) → no files seeded, no throw", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-claude-attr-none-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ah-claude-attr-nonehome-"));
+  const saved = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const sbx = /** @type {NonNullable<typeof claude.sandbox>} */ (claude.sandbox);
+    const stateDir = path.join(dir, "state");
+    const got = sbx({ cfg: /** @type {any} */ ({ stateDir }), step: { id: "code" }, cwd: "/w/agenthook-worktrees/42", ownsCwd: true, home: "/home/agent" });
+    assert.equal(got.files, undefined);
+  } finally {
+    process.env.HOME = saved;
+  }
 });
