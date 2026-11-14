@@ -10,12 +10,18 @@ if the user will later connect Jira, Linear, GitHub or Asana; the pipeline is th
 ## 1. Check the prerequisites
 
 ```bash
-node --version          # ≥ 22
-agenthook --version     # missing → npm i -g @jesuso/agenthook (or npx @jesuso/agenthook <cmd>)
+sh <this skill's directory>/scripts/ensure-cli.sh   # installs the agenthook CLI if it is missing (needs Node ≥ 22)
 git -C <repo> log -1    # the repo needs at least one commit: agents work in worktrees branched from it
 ```
 
-New project? `git init`, add a README, commit it, then continue.
+`ensure-cli.sh` prints where `agenthook` is; if it says the CLI is not on `PATH`, use the full path
+it prints in every command below. If it reports a missing Node, tell the user and stop.
+
+No repository or no commit yet (a new project)? `init --yes` will not create them for you:
+
+```bash
+git init && git commit --allow-empty -m "Initial commit"
+```
 
 The agent CLI the steps spawn must be installed and working on its own: `claude` by default;
 `opencode`, `hermes` or `cursor` if the user picks one (step 3).
@@ -32,10 +38,13 @@ This writes `agenthook.config.json`, `INSTRUCTIONS_CODE.md` and `INSTRUCTIONS_RE
 overwrites existing files). Pipeline: `code` → `review` → `done`; failures land in `blocked`,
 questions in `held`.
 
-**`fullAuto` is the user's decision, never yours.** Without it a headless agent cannot edit files
-unless the repo's agent settings allow it. With it, agents run unattended with permission prompts
-skipped. Ask the user, state that trade-off in one line, and pass `--full-auto` only on an explicit
-yes. A per-run sandbox (`"sandbox": {"type": "podman"}` or `"docker"`) limits each run to its worktree.
+**`fullAuto` is the user's decision, never yours — and `--yes` leaves it off.** Without it a
+headless agent cannot edit files (unless the repo's agent settings allow it), so the first ticket
+does nothing useful. With it, agents run unattended, unsandboxed, with permission prompts skipped;
+on a local board only the user can add tickets, which is why most people say yes for a first try.
+Ask the user in one line with that trade-off, and on an explicit yes scaffold with
+`agenthook init --local --yes --full-auto` (add `--force` if you already scaffolded without it).
+A per-run sandbox (`"sandbox": {"type": "podman"}` or `"docker"`) limits each run to its worktree.
 
 ## 3. Pick the model (cloud or local)
 
@@ -81,5 +90,6 @@ When a ticket reaches `done`, its work is on branch `agent/<ref>`:
 Watch progress with `agenthook ui` (dashboard) or `agenthook watch --actionable`;
 held / blocked tickets → [supervising](supervising.md). `agenthook stop` stops the receiver.
 
-Moving to a real tracker later: `agenthook init` (without `--local`), pick the tracker, then
+Moving to a real tracker later: the user runs `agenthook init --remote` in a terminal (it is an
+interactive wizard that needs the tracker's token; do not drive it yourself), then
 <https://github.com/Jesuso/agenthook/blob/master/docs/getting-started.md>.

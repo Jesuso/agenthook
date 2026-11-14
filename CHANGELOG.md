@@ -17,7 +17,10 @@ All notable changes to this project are documented here. The format is based on
   `version` lifecycle script), so a skill installed straight from git with
   `npx skills add Jesuso/agenthook@vX.Y.Z` carries its release and `agenthook doctor` can flag it
   when it lags the installed CLI. The README documents `npx skills add` as an install path.
-
+- The skill ships `scripts/ensure-cli.sh` for whoever installs the skill before the CLI: it
+  reports the `agenthook` on `PATH`, or installs the version the skill is stamped with via npm
+  (falling back to `~/.local` when the global prefix is not writable), or says Node ≥ 22 is
+  missing. `SKILL.md` and the setup reference point agents at it.
 - A live context gauge (#658): a running row now carries `ctx` (the latest turn's live prompt
   size) and `ctxMax` (the model's context window), so `status`/`tick`/the UI can show `ctx
   54K/64K` on a running agent before an imminent compaction/stall happens, or spot a mis-sized

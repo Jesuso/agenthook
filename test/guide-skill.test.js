@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { AUTHORING, PROVIDERS, guideTopics, loadGuide, renderAuthoring } from "../src/guide.js";
 import { AGENT_DIRS, SKILL_SRC, detectAgents, installSkillInto, installedSkills, installedVersion, packageVersion, skillTargets, stampSourceSkill } from "../src/skill-install.js";
 import { skillLints } from "../src/commands/doctor.js";
@@ -139,4 +140,42 @@ test("doctor skillLints: stale copies warn with a reinstall fix; current ones ar
   f[0].fix.apply();
   assert.deepEqual(reinstalled, ["/h/.claude/skills/agenthook"]);
   assert.deepEqual(skillLints(rows.slice(1), "0.11.0"), []);
+});
+
+// The skill's CLI bootstrap (skills/agenthook/scripts/ensure-cli.sh): what a skill-first user's
+// agent runs when `agenthook` is not installed. Driven with a stub PATH so nothing is installed.
+const ENSURE = path.join(SKILL_SRC, "scripts", "ensure-cli.sh");
+/** @param {Record<string, string>} bins name → script body ("" = symlink the real node) @param {string[]} [argv] */
+function runEnsure(bins, argv = []) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ensure-"));
+  for (const [name, body] of Object.entries(bins)) {
+    if (body === "") fs.symlinkSync(process.execPath, path.join(dir, name));
+    else fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  }
+  const r = spawnSync("sh", [ENSURE, ...argv], { encoding: "utf8", env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir } });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return r;
+}
+
+test("ensure-cli.sh: a missing CLI installs the version stamped in SKILL.md (--dry-run names the command)", { skip: process.platform === "win32" }, () => {
+  const r = runEnsure({ node: "", npm: "exit 0" }, ["--dry-run"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`Would run: npm install -g @jesuso/agenthook@${packageVersion().replaceAll(".", "\\.")}\\n`));
+});
+
+test("ensure-cli.sh: an installed CLI is reported and left alone; another version is a note, not an error", { skip: process.platform === "win32" }, () => {
+  const same = runEnsure({ agenthook: `echo ${packageVersion()}` });
+  assert.equal(same.status, 0, same.stderr);
+  assert.match(same.stdout, new RegExp(`^agenthook ${packageVersion().replaceAll(".", "\\.")} is installed: `));
+  assert.doesNotMatch(same.stdout, /note:/);
+  const old = runEnsure({ agenthook: "echo 0.0.1" });
+  assert.equal(old.status, 0, old.stderr);
+  assert.match(old.stdout, /note: this skill was written for agenthook /);
+});
+
+test("ensure-cli.sh: a Node older than 22 stops with the reason, installing nothing", { skip: process.platform === "win32" }, () => {
+  const r = runEnsure({ node: 'case "$1" in -p) echo 18;; *) echo v18.0.0;; esac', npm: "echo SHOULD-NOT-RUN; exit 0" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /needs Node\.js 22 or newer; this is v18\.0\.0/);
+  assert.doesNotMatch(r.stdout + r.stderr, /SHOULD-NOT-RUN/);
 });

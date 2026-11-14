@@ -293,7 +293,10 @@ npx skills add Jesuso/agenthook -g             # -g: for your user, not just thi
 npx skills add Jesuso/agenthook@v<x.y.z> -g    # pinned to the agenthook you run (agenthook --version)
 ```
 
-or with `agenthook skill install` (`--repo` installs it into the code repo, so the agents the
+Skill first, no CLI yet? Ask your agent to "set up agenthook here": the skill's
+`scripts/ensure-cli.sh` installs the matching `@jesuso/agenthook` with npm (Node ≥ 22) and it
+takes it from there. The other way round, `agenthook init` offers to install the skill,
+or use `agenthook skill install` (`--repo` installs it into the code repo, so the agents the
 receiver spawns there load it too). `agenthook doctor` warns when the skill lags the installed CLI.
 
 ## Safety

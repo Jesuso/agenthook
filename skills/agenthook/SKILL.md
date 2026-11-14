@@ -20,6 +20,9 @@ Everything works from a shell — `agenthook <cmd> --json` (walks up from cwd to
 connected, the same calls exist as tools (named in parentheses below) and are cheaper; neither is
 required for the other.
 
+`agenthook: command not found`? Run `sh scripts/ensure-cli.sh` from this skill's directory (the
+one holding this file): it installs the matching version with npm, or says what is missing.
+
 No `agenthook.config.json` yet (`agenthook status` says so)? Start with
 [references/setup.md](references/setup.md). Otherwise, read before acting, once per session:
 
