@@ -51,6 +51,10 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
   "harnesses.*.env",
   "harnesses.*.sandbox.image",
   "harnesses.*.opencodeConfig",
+  "harnesses.*.remote.host",
+  "harnesses.*.remote.user",
+  "harnesses.*.remote.identityFile",
+  "harnesses.*.remote.bin",
 ]);
 
 /**

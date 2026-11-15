@@ -107,6 +107,16 @@ export const CONFIG_SCHEMA = [
   entry("harnesses.*.sandbox.image", "string", "Sandbox image", "basics", "Agent image for sandboxed runs on this harness, instead of sandbox.image.", { advanced: true, sensitive: true }),
   entry("harnesses.*.opencodeConfig", "string", "OpenCode config path", "basics", "opencode, sandbox only: host path to an OpenCode JSON config, copied into the run's sandbox HOME; a step's own wins.", { advanced: true, sensitive: true }),
   entry("harnesses.*.contextTokens", "number", "Context window (tokens)", "basics", "The model's context window on this harness, so a running row can show ctx used/max; a step's own wins.", { min: 1, advanced: true }),
+  // Remote harness (#689, experimental): runs on this harness go over ssh to a worker instead
+  // of the host/sandbox. Code transport is a later ticket — the agent runs in an existing
+  // directory on the worker (remote.workDir).
+  entry("harnesses.*.remote", "object", "Remote worker (experimental)", "basics", "Run this harness's agents over ssh on a worker instead of the host/sandbox.", { advanced: true }),
+  entry("harnesses.*.remote.host", "string", "Host", "basics", "ssh host (DNS name or IP) of the worker.", { advanced: true, sensitive: true }),
+  entry("harnesses.*.remote.user", "string", "User", "basics", "ssh user; unset uses the local ssh client's own.", { advanced: true, sensitive: true }),
+  entry("harnesses.*.remote.port", "number", "Port", "basics", "ssh port.", { min: 1, max: 65535, default: 22, advanced: true }),
+  entry("harnesses.*.remote.identityFile", "string", "Identity file", "basics", "Path to a private key, passed as ssh -i.", { advanced: true, sensitive: true }),
+  entry("harnesses.*.remote.workDir", "string", "Work dir", "basics", "Absolute path on the worker the agent runs in; its code and branches are the worker's own.", { advanced: true }),
+  entry("harnesses.*.remote.bin", "string", "Agent binary", "basics", "The agent CLI on the worker (a name on PATH or an absolute path); default \"claude\".", { advanced: true, sensitive: true }),
 
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),
