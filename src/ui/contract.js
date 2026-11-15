@@ -198,6 +198,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
  * @property {string} [model]             run_end.model; absent when the run_end has none
  * @property {string} [harness]           run_end.harness: the named harness that ran it; absent on a profile without harnesses
+ * @property {'agent'|'repaired'|'deduced'} [verdictSource]  run_end.verdictSource (#680): where the outcome came from; absent for a receiver-forced verdict or the requireVerdict:false assumed-advance
  * @property {string} [plain]             run_end.plain: the agent's one-sentence summary.plain (agent-authored — untrusted); absent when none
  * @property {number|null} costUsd
  * @property {boolean} unpriced           run_end.unpriced: no real cost (non-Claude agent or local model; costUsd null)

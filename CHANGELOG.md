@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Deduced verdict (#680): on an `implement`/`change` step, a clean exit with no valid verdict is
+  often a plain fact — the run added commits to the ticket branch — rather than something only
+  another model turn can answer. Before the #677 repair turn runs, the receiver now deduces
+  `advance` from the worktree branch's commit count when every gate holds (clean exit, no
+  question-hold, a non-manual success target, at least one commit since the run started — a dirty
+  tree with no commit doesn't count), skipping the repair spawn entirely. This is where repair
+  never helped anyway: hermes has no `resumeArgs`, and a sandboxed opencode run's session is
+  already gone by the time a repair would need it. Opt-out per step via the new `deduceVerdict`
+  config key (default `true`). `run_end` gains `verdictSource` (`"agent"`\|`"repaired"`\|
+  `"deduced"`), also stored on the per-step summary record, so the UI run caption can mark a
+  deduced/repaired outcome as the receiver's call rather than the agent's own claim.
 - Verdict repair (#677): a clean exit with no valid verdict ("decided, not delivered" — the agent
   said it finished but never wrote the file — or "stopped early") now gets one receiver-driven
   repair turn — the same agent session resumed with a fixed prompt — before holding for a human.

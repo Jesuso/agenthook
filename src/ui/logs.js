@@ -147,6 +147,7 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
       outcome,
       ...(end && typeof end.model === "string" && end.model ? { model: end.model } : {}),
       ...(end && typeof end.harness === "string" && end.harness ? { harness: end.harness } : {}),
+      ...(end && ["agent", "repaired", "deduced"].includes(end.verdictSource) ? { verdictSource: end.verdictSource } : {}),
       ...(end && typeof end.plain === "string" && end.plain ? { plain: end.plain.slice(0, 300) } : {}),
       costUsd: end && typeof end.costUsd === "number" && Number.isFinite(end.costUsd) ? end.costUsd : null,
       unpriced: !!end && end.unpriced === true,

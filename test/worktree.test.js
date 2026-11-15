@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureWorktree, worktreePath, branchName } from "../src/worktree.js";
+import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince } from "../src/worktree.js";
 
 const ENV = {
   ...process.env,
@@ -150,6 +150,36 @@ test("HOST_GIT_SAFE: an agent-written hooksPath never runs on the host when a sa
     drainWorktree(wtCfg(s.cfg), "9");
     await ensureWorktree(wtCfg(s.cfg), "9");
     assert.equal(fs.existsSync(marker), true);
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+// --- branchHead / commitsSince (#680): the deduced-verdict ladder's git reads, fail-closed ---
+
+test("branchHead: the branch's current HEAD sha; null on any git error", async () => {
+  const s = setup();
+  try {
+    const r = await ensureWorktree(wtCfg(s.cfg), "20");
+    assert.equal(branchHead(wtCfg(s.cfg), r.worktree), g(r.worktree, ["rev-parse", "HEAD"]));
+    assert.equal(branchHead(wtCfg(s.cfg), path.join(s.root, "does-not-exist")), null);
+  } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+test("commitsSince: counts commits past a sha; 0 when the tree is only dirty, or on any git error", async () => {
+  const s = setup();
+  try {
+    const r = await ensureWorktree(wtCfg(s.cfg), "21");
+    const before = branchHead(wtCfg(s.cfg), r.worktree);
+    assert.equal(commitsSince(wtCfg(s.cfg), r.worktree, before), 0, "no new commits yet");
+    fs.writeFileSync(path.join(r.worktree, "dirty.txt"), "uncommitted");
+    assert.equal(commitsSince(wtCfg(s.cfg), r.worktree, before), 0, "a dirty tree with no commit does not count");
+    g(r.worktree, ["commit", "--allow-empty", "-m", "c1"]);
+    g(r.worktree, ["commit", "--allow-empty", "-m", "c2"]);
+    assert.equal(commitsSince(wtCfg(s.cfg), r.worktree, before), 2);
+    assert.equal(commitsSince(wtCfg(s.cfg), r.worktree, "not-a-sha"), 0, "an invalid start point fails closed to 0");
   } finally {
     fs.rmSync(s.root, { recursive: true, force: true });
   }

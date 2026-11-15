@@ -96,6 +96,12 @@ const MAX_FINDINGS = 20000;
 /** The hold reason for a clean exit with a missing/unparseable/unrecognized verdict file. */
 export const NO_VALID_VERDICT = "no valid verdict";
 
+/** Reason suffix parseVerdict stamps on its `requireVerdict:false` assumed-advance fallback (a
+ * missing/garbage/unrecognized verdict the step opted out of requiring) — distinguishes that
+ * receiver-assumed outcome from an agent's own verdict whose reason happens to look similar
+ * (src/dispatch/finish.js `verdictSource`, #680). */
+export const ASSUMED_ADVANCE_SUFFIX = " — defaulting to advance";
+
 /**
  * The hold reason for a clean exit with no valid verdict whose last line is a question.
  * Distinct from NO_VALID_VERDICT: it names the specific failure mode (the agent ended its turn
@@ -154,20 +160,20 @@ export function parseVerdict(code, text, { requireVerdict = true } = {}) {
   if (text === null) {
     return requireVerdict
       ? { outcome: "hold", reason: NO_VALID_VERDICT }
-      : { outcome: "advance", reason: "no verdict file — defaulting to advance" };
+      : { outcome: "advance", reason: `no verdict file${ASSUMED_ADVANCE_SUFFIX}` };
   }
   try {
     raw = JSON.parse(text);
   } catch {
     return requireVerdict
       ? { outcome: "hold", reason: NO_VALID_VERDICT }
-      : { outcome: "advance", reason: "no verdict file — defaulting to advance" };
+      : { outcome: "advance", reason: `no verdict file${ASSUMED_ADVANCE_SUFFIX}` };
   }
   const allowed = ["advance", "fail", "hold", "changes"];
   if (!allowed.includes(raw?.outcome)) {
     return requireVerdict
       ? { outcome: "hold", reason: NO_VALID_VERDICT }
-      : { outcome: "advance", reason: `unrecognized verdict ${JSON.stringify(raw?.outcome)} — defaulting to advance` };
+      : { outcome: "advance", reason: `unrecognized verdict ${JSON.stringify(raw?.outcome)}${ASSUMED_ADVANCE_SUFFIX}` };
   }
   return {
     outcome: raw.outcome,
