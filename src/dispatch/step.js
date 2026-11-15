@@ -224,7 +224,7 @@ export function createStep(ctx) {
       nonce: newNonce(),
       ...(cfg.multiRepo ? { repo: { id: repo.id, path: repo.path } } : {}),
     });
-    const prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
+    let prompt = standing ? `${standing}\n\n=== TICKET ===\n\n${base}` : base;
 
     const logPath = logPathFor(step.id, job.ref);
     console.log(`[run] step ${step.id} ${job.ref} "${task.name}" -> ${logPath}`);
@@ -234,8 +234,10 @@ export function createStep(ctx) {
     } catch (e) {
       console.error(`[run] log header failed for ${job.ref}:`, e.message);
     }
-    // Sidecar for the UI's "what the agent sees" preview (src/ui) — exact prompt bytes,
-    // no front-matter; contract: filename + the `=== TICKET ===` marker above.
+    // Sidecar for the UI's "what the agent sees" preview (src/ui) — the full standing + marker
+    // + ticket form, even when a sandboxed run below dedupes `prompt` down to the ticket half
+    // (the standing text went into the agent's instructions file instead); src/ui splits this
+    // sidecar on the `=== TICKET ===` marker.
     try {
       fs.writeFileSync(promptPathFor(logPath), prompt, { mode: 0o600 });
     } catch (e) {
@@ -317,6 +319,10 @@ export function createStep(ctx) {
           ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
           : [];
         sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}), ...(own.files ? { files: own.files } : {}) };
+        // #731: the standing text is already in the agent's `instructions` file (own.files) —
+        // drop it from the run prompt so the model doesn't see it twice. Keep the marker: the
+        // standing text itself refers to "the `=== TICKET ===` marker".
+        if (own.standingInInstructions) prompt = `=== TICKET ===\n\n${base}`;
       } catch (e) {
         refused = `sandbox setup failed: ${e.message}`;
         try {

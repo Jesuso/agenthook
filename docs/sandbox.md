@@ -542,9 +542,11 @@ hardcoded post-compaction "stop and ask" message means here; the verdict file/fo
 
 A sandboxed opencode run also gets the step's standing instructions as a second
 `.config/opencode/agenthook-standing.md` file with an `instructions` entry, so repo and step
-guidance survive a context compaction. The standing text is kept in the run prompt too
-(duplicating the token cost), and when it exceeds 16 KB the file is not written (a `console.warn`
-is emitted instead). The ticket text itself is not included in the standing file.
+guidance survive a context compaction. When that file is written, the standing text is dropped
+from the run prompt — the model sees it once, not twice — and the run prompt keeps only the
+`=== TICKET ===` marker and the ticket text. When the standing text exceeds 16 KB the file is not
+written (a `console.warn` is emitted instead), and in that case the standing text stays in the
+run prompt, the only copy. The ticket text itself is not included in the standing file.
 
 A `provider.*.options.baseURL` pointing at a LAN model server needs the same care as a harness's
 `ANTHROPIC_BASE_URL` (see [Network](#network) above): `localhost`/`127.0.0.1` never reaches your

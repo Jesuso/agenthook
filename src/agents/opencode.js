@@ -301,13 +301,17 @@ export const opencode = {
 
     // Standing instructions (#716): a second `instructions` file so the step's standing
     // text survives compaction in a sandboxed run. The ticket text is already in the
-    // one-shot prompt; only repo + step instructions go here.
+    // one-shot prompt; only repo + step instructions go here. When this file is written,
+    // dispatch drops the standing text from the run prompt (#731) — `standingInInstructions`
+    // tells it that happened.
+    let standingInInstructions = false;
     if (typeof standing === "string" && standing) {
       const standingBytes = Buffer.byteLength(standing, "utf8");
       if (standingBytes <= STANDING_MAX_BYTES) {
         const standingDst = path.posix.join(home, ".config", "opencode", "agenthook-standing.md");
         files.push({ dst: standingDst, content: standing, mode: 0o600 });
         config.instructions = Array.from(new Set([...config.instructions, standingDst]));
+        standingInInstructions = true;
       } else {
         console.warn(`[dispatch] step ${step.id}: standing instructions are ${standingBytes} bytes (> ${STANDING_MAX_BYTES}) — not written to opencode instructions; they stay in the run prompt only`);
       }
@@ -318,6 +322,7 @@ export const opencode = {
       mounts: [],
       files,
       env: { OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" },
+      ...(standingInInstructions ? { standingInInstructions: true } : {}),
     };
   },
   defaults: { bin: "opencode" },
