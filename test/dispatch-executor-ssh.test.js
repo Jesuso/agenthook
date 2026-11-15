@@ -1017,6 +1017,23 @@ test("ssh executor code transport (#690): every hub-side git call in a full roun
     for (const call of hubCalls) {
       assert.deepEqual(call.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"], `every hub call must be HOST_GIT_SAFE-hardened, got ${JSON.stringify(call)}`);
     }
+
+    // A no-worktree (export) step's hub calls — against repoPath, not the worktree path — are a
+    // separate code path (`archiveToWorker`/`submoduleOrLfsPath`), so it's checked separately.
+    const repoPath = hubWorktree;
+    const { cwd: exportCwd, verdictFile: exportVerdictFile } = executor.paths({ stepId: "triage", ref: "7", hasWorktree: false });
+    const exportHub = { repoId: "default", repoPath };
+    const exportResult = await spawnAgent({ agent: fakeAgent(), prompt: "go", cwd: exportCwd, logPath: path.join(root, "run-export.log"), verdictFile: exportVerdictFile, sandboxed: { ref: "7", stepId: "triage", step: {}, mounts: [], hub: exportHub }, executor });
+    assert.equal(exportResult.code, 0, JSON.stringify(exportResult));
+
+    const exportCalls = rec.callsFor(repoPath).slice(hubCalls.length);
+    const exportOps = new Set(exportCalls.map((a) => a[a.indexOf("-C") + 2]));
+    for (const op of ["show", "archive"]) {
+      assert.ok(exportOps.has(op), `expected a hub-side "${op}" call for the no-worktree export, saw ops ${JSON.stringify([...exportOps])}`);
+    }
+    for (const call of exportCalls) {
+      assert.deepEqual(call.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"], `every hub call for a no-worktree export must be HOST_GIT_SAFE-hardened, got ${JSON.stringify(call)}`);
+    }
   } finally {
     rec.restore();
     ssh.restore();
