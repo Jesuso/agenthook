@@ -4,6 +4,9 @@ import { appendControlAudit } from "../ops.js";
 import { createQuotaPacer, evaluateQuota } from "../quota.js";
 import { writeQuota } from "../quota-file.js";
 import { quotaGroupOf } from "../dispatch/harness.js";
+import { diffConfig } from "../config-reload.js";
+import { buildHarnessing } from "./harnessing.js";
+import { pruneOverrides, heartbeatOverrides } from "../overrides.js";
 
 /**
  * The control-socket `restart` request: validate, then pause the queue and fire once
@@ -212,5 +215,84 @@ export function createHarnessQuota({ cfg, queue, heartbeat, now }) {
       if (until > tnow()) suppressed.set(name, until);
     },
     stop() {},
+  };
+}
+
+/**
+ * The control-socket `reload` request (#725): re-read + validate the config, then apply only the
+ * reloadable keys to runs that start after. Running agents keep the config they started with — the
+ * shared `cfg` keys are *replaced*, never mutated in place. Refused while a restart/decommission/
+ * shutdown holds the queue; an invalid config or any restart-required key applies nothing (the
+ * error names every restart-required key). On success emits exactly one `config_reloaded` with the
+ * dotted `changed` keys; a no-op emits none. `.env` values already in the process are not re-read.
+ * @param {{
+ *   cfg: import('../types.js').Config,
+ *   loadConfig: () => import('../types.js').Config,
+ *   checkImages?: (next: import('../types.js').Config) => Promise<{ok: boolean, reason?: string}>,
+ *   isLocked: () => boolean,
+ *   store: { getOverrides(): import('../types.js').Overrides, setOverrides(o: import('../types.js').Overrides): void },
+ *   queue: { reconfigure(next: import('./harnessing.js').HarnessingShape & {max?: number}, overrides: {maxConcurrent?: number, harnesses?: Record<string, number>}): void, state(): {active: number, queued: number} },
+ *   quotaPacer?: { setThresholds(t: import('../quota.js').QuotaConfig | null | undefined): void },
+ *   heartbeat: { update(p: Record<string, unknown>): void },
+ *   emit: (event: string, ref: string, step: string, extra?: Record<string, unknown>) => void,
+ * }} deps  loadConfig throws on an invalid config (apply nothing); checkImages verifies a newly
+ *   gained run image before anything applies; isLocked reflects a restart/decommission/drain.
+ * @returns {() => Promise<{changed: string[], note: string}>}
+ */
+export function createReloadRequester({ cfg, loadConfig, checkImages, isLocked, store, queue, quotaPacer, heartbeat, emit }) {
+  return async function reload() {
+    if (isLocked()) throw new Error("reload: a restart/decommission/shutdown is pending");
+    const next = loadConfig(); // throws on an invalid config → apply nothing
+    const { changed, restartRequired } = diffConfig(cfg, next);
+    if (restartRequired.length) throw new Error(`reload: restart required for: ${restartRequired.join(", ")}`);
+    if (!changed.length) return { changed: [], note: "no changes" };
+
+    if (checkImages) {
+      const check = await checkImages(next);
+      if (!check.ok) throw new Error(`reload: sandbox check failed: ${check.reason}`);
+    }
+
+    // Apply: replace the reloadable keys with `next`'s values. A running run holds the step/harness
+    // objects it resolved at start, so replacing these references (never mutating the old objects)
+    // is what keeps "running agents keep their config" true.
+    cfg.maxConcurrent = next.maxConcurrent;
+    cfg.quota = next.quota;
+    cfg.harnesses = next.harnesses;
+    cfg.pipeline = next.pipeline;
+    cfg.tracker.pipeline = /** @type {import('../types.js').Step[]} */ (next.pipeline);
+    if (cfg.sandbox && next.sandbox) cfg.sandbox = { ...cfg.sandbox, egress: next.sandbox.egress };
+
+    quotaPacer?.setThresholds(next.quota ?? null); // the no-harness pacer re-checks its last reading
+
+    // Re-apply active operator overrides before the queue reconfigure pumps, so an override still
+    // wins over the new config value; a harness override for a harness removed from the config is
+    // dropped (and persisted).
+    const { overrides, dropped } = pruneOverrides(cfg, store.getOverrides());
+    for (const line of dropped) console.warn(line);
+    if (dropped.length) store.setOverrides(overrides);
+
+    const nextShape = buildHarnessing(cfg);
+    queue.reconfigure(
+      {
+        max: cfg.maxConcurrent,
+        stepCaps: nextShape.stepCaps,
+        steps: nextShape.steps,
+        caps: nextShape.caps,
+        cooldowns: nextShape.cooldowns,
+        unharnessedShared: nextShape.unharnessedShared,
+        unharnessedAgents: nextShape.unharnessedAgents,
+      },
+      { maxConcurrent: overrides.maxConcurrent, harnesses: overrides.harnesses },
+    );
+
+    heartbeat.update({
+      maxConcurrent: overrides.maxConcurrent !== undefined ? overrides.maxConcurrent : cfg.maxConcurrent,
+      overrides: heartbeatOverrides(cfg, overrides),
+      queue: queue.state(),
+    });
+
+    emit("config_reloaded", "", "", { changed });
+
+    return { changed, note: `reloaded ${changed.length} key(s)` };
   };
 }

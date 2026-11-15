@@ -799,3 +799,42 @@ test("reconfigure: drops breaker entries for removed harnesses and persists", as
   assert.equal(b.q.harnessState().local, undefined, "local is gone from the config");
   assert.deepEqual(b.persisted(), {}, "its breaker entry was dropped and persisted");
 });
+
+test("reconfigure: a job waiting on a quota-closed only-harness starts on a harness the reload adds", async () => {
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 } });
+  q.closeForQuota(["local"], { until: Date.now() + 60_000, reason: "closed for quota" });
+  q.enqueue(job("A", "code"));
+  assert.deepEqual(started, [], "the only harness is quota-closed → A waits");
+  q.reconfigure({ steps: { code: { harnesses: ["local", "cloud"] } }, caps: { local: 1, cloud: 2 } });
+  assert.deepEqual(started, ["A:cloud"], "the reload-added harness picks up the waiting job");
+  await done("A");
+  await q.onIdle();
+});
+
+test("reconfigure: an operator harness override (drained) is applied before the pump, so it wins over the new config cap", async () => {
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 } });
+  q.enqueue(job("A", "code"));
+  assert.deepEqual(started, ["A:local"]);
+  // Reload raises local to 4 and adds cloud; the operator drained local (override 0).
+  q.reconfigure({ steps: { code: { harnesses: ["local", "cloud"] } }, caps: { local: 4, cloud: 2 } }, { harnesses: { local: 0 } });
+  q.enqueue(job("B", "code"));
+  assert.deepEqual(started, ["A:local", "B:cloud"], "drained local stays drained; B routes to cloud");
+  await done("A");
+  await done("B");
+  await q.onIdle();
+});
+
+test("reconfigure: a global maxConcurrent override is applied before the pump, so it holds a waiting backlog", async () => {
+  const { q, started, done } = harnessed(1, { steps: { code: { harnesses: ["local"] } }, caps: { local: 4 } });
+  for (const r of ["A", "B", "C"]) q.enqueue(job(r, "code"));
+  assert.deepEqual(started, ["A:local"], "initial max 1 → only A runs");
+  q.reconfigure({ max: 4, steps: { code: { harnesses: ["local"] } }, caps: { local: 4 } }, { maxConcurrent: 1 });
+  assert.equal(q.max(), 1, "the override max 1 still holds after the reload");
+  assert.deepEqual(started, ["A:local"], "B and C stay waiting despite config max 4");
+  await done("A");
+  assert.deepEqual(started.slice(1), ["B:local"]);
+  await done("B");
+  assert.deepEqual(started.slice(2), ["C:local"]);
+  await done("C");
+  await q.onIdle();
+});

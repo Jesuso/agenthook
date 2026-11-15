@@ -10,15 +10,18 @@ import { DEFAULT_AGENT } from "../agents/names.js";
  * construction (and that `queue.reconfigure` re-applies on a reload). `unharnessedShared` lists
  * the step ids whose unharnessed claude runs share the profile's quota group; `unharnessedAgents`
  * maps every unharnessed step to the agent CLI its runs spawn under (for `state().unharnessed`).
+ * @typedef {object} HarnessingShape
+ * @property {Record<string, number>} stepCaps
+ * @property {Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>} steps
+ * @property {Record<string, number|undefined>} caps
+ * @property {Record<string, number|undefined>} cooldowns
+ * @property {string[]} unharnessedShared
+ * @property {Record<string, string>} unharnessedAgents
+ */
+
+/**
  * @param {import('../types.js').Config} cfg
- * @returns {{
- *   stepCaps: Record<string, number>,
- *   steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>,
- *   caps: Record<string, number|undefined>,
- *   cooldowns: Record<string, number|undefined>,
- *   unharnessedShared: string[],
- *   unharnessedAgents: Record<string, string>,
- * }}
+ * @returns {HarnessingShape}
  */
 export function buildHarnessing(cfg) {
   /** @type {Record<string, number>} */

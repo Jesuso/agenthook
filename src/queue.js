@@ -565,13 +565,15 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
      * Apply a reloaded config (#725): replace the copied maps with the freshly built shapes so
      * runs that start after this pick up the new values, then pump so waiting jobs re-route.
      * Active runs keep the harness they resolved at start (a removed harness's runs still count
-     * until they settle — nothing here crashes on them). A per-harness slot override (applied by
-     * the caller via `setHarnessMax` afterwards) wins over the new cap, as does a `maxConcurrent`
-     * override via `setMax`. Breaker `health` entries for harnesses removed from the config are
-     * dropped and persisted (`onHealth`).
+     * until they settle — nothing here crashes on them). `overrides` (the surviving operator
+     * overrides, pruned to the new config by the caller) are applied *before* the pump, so a
+     * per-harness slot override still wins over the new cap and a `maxConcurrent` override over
+     * the new global max — a drained harness stays drained through the reload. Breaker `health`
+     * entries for harnesses removed from the config are dropped and persisted (`onHealth`).
      * @param {{max?: number, stepCaps?: Record<string, number>, steps?: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps?: Record<string, number|undefined>, cooldowns?: Record<string, number|undefined>, unharnessedShared?: string[], unharnessedAgents?: Record<string, string>}} next
+     * @param {{maxConcurrent?: number, harnesses?: Record<string, number>}} [overrides]
      */
-    reconfigure({ max: nextMax, stepCaps: nextStepCaps, steps: nextSteps, caps: nextHarnessCaps, cooldowns: nextCooldowns, unharnessedShared: nextShared, unharnessedAgents: nextAgents }) {
+    reconfigure({ max: nextMax, stepCaps: nextStepCaps, steps: nextSteps, caps: nextHarnessCaps, cooldowns: nextCooldowns, unharnessedShared: nextShared, unharnessedAgents: nextAgents }, overrides = {}) {
       if (nextMax !== undefined) max = nextMax;
       caps.clear();
       for (const [id, n] of Object.entries(nextStepCaps ?? {})) caps.set(id, n);
@@ -588,6 +590,12 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       // Drop breaker entries for harnesses no longer in the config, then persist what remains.
       for (const name of [...health.keys()]) if (!Object.hasOwn(harnessCaps, name)) health.delete(name);
       persistHealth();
+      // Operator overrides win over the new config values — applied before the pump so the queue
+      // re-routes waiting jobs under the override caps, not the freshly loaded ones.
+      if (overrides.maxConcurrent !== undefined) max = overrides.maxConcurrent;
+      for (const [name, n] of Object.entries(overrides.harnesses ?? {})) {
+        if (Object.hasOwn(harnessCaps, name)) harnessCaps[name] = n;
+      }
       report();
       pump();
     },

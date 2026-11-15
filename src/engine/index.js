@@ -56,7 +56,6 @@ import { readQuota, writeQuota } from "../quota-file.js";
 import { createEmitter } from "../events.js";
 import { createSinks } from "../sinks.js";
 import { loadConfig } from "../config.js";
-import { diffConfig } from "../config-reload.js";
 import { harnessImages } from "../sandbox/container.js";
 import { needsEgressProxy } from "../sandbox/egress.js";
 import { DEFAULT_IMAGE } from "../sandbox/image.js";
@@ -64,15 +63,15 @@ import { checkMove } from "../state-move.js";
 import { createOverlapReleaser, releaseOnSettle } from "./recovery.js";
 import { createPushSink, intakeEvent } from "./intake.js";
 import { buildHarnessing } from "./harnessing.js";
-import { createDecommissionRequester, createHarnessQuota, createQuotaControl, createRestartRequester } from "./controllers.js";
+import { createDecommissionRequester, createHarnessQuota, createQuotaControl, createReloadRequester, createRestartRequester } from "./controllers.js";
 import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
-import { seedOverrides, pruneOverrides, heartbeatOverrides } from "../overrides.js";
+import { seedOverrides } from "../overrides.js";
 
 export { crashRecord, releaseOnSettle, createOverlapReleaser, recoverInterrupted } from "./recovery.js";
 export { intakeEvent, createPushSink } from "./intake.js";
-export { createRestartRequester, createDecommissionRequester, createQuotaControl, createHarnessQuota } from "./controllers.js";
+export { createRestartRequester, createDecommissionRequester, createQuotaControl, createHarnessQuota, createReloadRequester } from "./controllers.js";
 export { unregisterAll, runDecommission, waitForExit, finishTeardown } from "./teardown.js";
 
 /**
@@ -263,77 +262,39 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const isLocked = () => state.draining || restarter.isPending() || decommissioner.isPending();
 
   // `agenthook reload` / control op `reload` (#725): re-read + validate the config, then apply
-  // only the reloadable keys to runs that start after. Running agents keep the config they
-  // started with — the shared `cfg` keys are replaced, never mutated in place.
-  const reloadConfig = async () => {
-    if (isLocked()) throw new Error("reload: a restart/decommission/shutdown is pending");
-    const next = loadConfig({ configPath: cfg.configPath }); // throws on an invalid config → apply nothing
-    const { changed, restartRequired } = diffConfig(cfg, next);
-    if (restartRequired.length) {
-      throw new Error(`reload: restart required for: ${restartRequired.join(", ")}`);
-    }
-    if (!changed.length) return { changed: [], note: "no changes" };
-
-    // A new run image (a harness's sandbox image, or the egress proxy now needed by a mode
-    // change) must be present before the next run can use it — verify it before applying.
-    if (sandbox) {
-      const before = new Set([...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
-      const after = new Set([...harnessImages(next), ...(needsEgressProxy(next) ? [DEFAULT_IMAGE] : [])]);
-      const gained = [...after].filter((img) => !before.has(img));
-      if (gained.length) {
-        const nextSandbox = createSandbox(next);
-        if (!nextSandbox) throw new Error("reload: sandbox check failed: no sandbox config");
-        const check = await nextSandbox.check();
-        if (!check.ok) throw new Error(`reload: sandbox check failed: ${check.reason}`);
-      }
-    }
-
-    // Apply: replace the reloadable keys with `next`'s values. A running run holds the step/
-    // harness objects it resolved at start, so replacing these references is what keeps
-    // "running agents keep their config" true.
-    cfg.maxConcurrent = next.maxConcurrent;
-    cfg.quota = next.quota;
-    cfg.harnesses = next.harnesses;
-    cfg.pipeline = next.pipeline;
-    cfg.tracker.pipeline = /** @type {import('../types.js').Step[]} */ (next.pipeline);
-    if (cfg.sandbox && next.sandbox) cfg.sandbox.egress = next.sandbox.egress;
-
-    quotaPacer?.setThresholds(next.quota ?? null); // no-harness pacer reads thresholds from here; the harness quota reads cfg.quota live
-
-    const nextShape = buildHarnessing(cfg);
-    queue.reconfigure({
-      max: cfg.maxConcurrent,
-      stepCaps: nextShape.stepCaps,
-      steps: nextShape.steps,
-      caps: nextShape.caps,
-      cooldowns: nextShape.cooldowns,
-      unharnessedShared: nextShape.unharnessedShared,
-      unharnessedAgents: nextShape.unharnessedAgents,
-    });
-
-    // Re-apply active operator overrides so an override still wins over the new config value;
-    // a harness override for a harness removed from the config is dropped (and republished).
-    const o = store.getOverrides();
-    const { overrides, dropped } = pruneOverrides(cfg, o);
-    for (const line of dropped) console.warn(line);
-    if (dropped.length) store.setOverrides(overrides);
-    for (const [name, n] of Object.entries(overrides.harnesses ?? {})) queue.setHarnessMax(name, n);
-    if (overrides.maxConcurrent !== undefined) queue.setMax(overrides.maxConcurrent);
-
-    heartbeat.update({
-      maxConcurrent: overrides.maxConcurrent !== undefined ? overrides.maxConcurrent : cfg.maxConcurrent,
-      overrides: heartbeatOverrides(cfg, overrides),
-      queue: queue.state(),
-    });
-
-    emit("config_reloaded", "", "", { changed });
-
-    return { changed, note: `reloaded ${changed.length} key(s)` };
-  };
+  // only the reloadable keys to runs that start after. The logic lives in `createReloadRequester`
+  // (src/engine/controllers.js); here it is wired with the sandbox image check, which verifies a
+  // newly gained run image before anything applies. Running agents keep the config they started
+  // with — the shared `cfg` keys are replaced, never mutated in place.
+  const reload = createReloadRequester({
+    cfg,
+    loadConfig: () => loadConfig({ configPath: cfg.configPath }),
+    ...(sandbox
+      ? {
+          checkImages: async (next) => {
+            const before = new Set([...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
+            const after = new Set([...harnessImages(next), ...(needsEgressProxy(next) ? [DEFAULT_IMAGE] : [])]);
+            const gained = [...after].filter((img) => !before.has(img));
+            if (!gained.length) return { ok: true };
+            const nextSandbox = createSandbox(next);
+            if (!nextSandbox) return { ok: false, reason: "no sandbox config" };
+            const check = await nextSandbox.check();
+            if (check.ok) return { ok: true };
+            return { ok: false, reason: check.reason };
+          },
+        }
+      : {}),
+    isLocked,
+    store,
+    queue,
+    quotaPacer,
+    heartbeat,
+    emit,
+  });
 
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer, harnessQuota,
-    reload: reloadConfig,
+    reload,
     onEpicChanged: (reset) => { resetEpics = reset; },
     digester: createDigester({
       cfg, emit, repository: repositoryOf(cfg),

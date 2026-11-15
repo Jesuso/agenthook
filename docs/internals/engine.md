@@ -69,9 +69,12 @@ and takes the boot-failure path above, so the ingress is downed rather than orph
   to `cfg.providerConfig` so adapters are unchanged; `cfg.provider` = `tracker.type`.
 - `src/config-reload.js` — the pure `diffConfig(cur, next)` behind `agenthook reload` / the `reload`
   control op (#725): an allowlist diff returning the reloadable keys (`changed`, dotted paths) and
-  the restart-required ones. `index.js` wires the `reload` dep (refused while a
-  restart/decommission holds the queue; a new run image is `createSandbox(next).check()`-ed first;
-  then it *replaces* `cfg`'s reloadable keys, calls `quotaPacer.setThresholds`, `queue.reconfigure`
-  (with the shape from `src/engine/harnessing.js` `buildHarnessing`), re-applies operator overrides
-  and emits `config_reloaded`). Running agents keep the config they started with because the shared
-  objects are replaced, never mutated.
+  the restart-required ones. `src/engine/controllers.js` `createReloadRequester` wires the `reload`
+  dep (refused while a restart/decommission holds the queue; a new run image is
+  `createSandbox(next).check()`-ed first via the injected `checkImages`; then it *replaces* `cfg`'s
+  reloadable keys, calls `quotaPacer.setThresholds`, re-prunes + re-applies operator overrides
+  *before* `queue.reconfigure` (with the shape from `src/engine/harnessing.js` `buildHarnessing`) so
+  an override still wins, and emits one `config_reloaded`). Running agents keep the config they
+  started with because the shared objects are replaced, never mutated. One known exception: a run
+  that *settles* after a reload reads its harness's `downGraceSeconds` from the current (new) config
+  (`src/dispatch/finish.js`), not from when it started — the breaker grace is a settle-time knob.
