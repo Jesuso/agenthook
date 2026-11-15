@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format is based on
   documents the required `variants` shape and how to turn off tools an unattended opencode run
   can't use via a `permission` block in `opencodeConfig`.
 
+- A profile with `harnesses`: a running pipeline job on a step that names no `harness` now shows
+  up (#726). It's counted under an implicit entry named after the agent CLI it spawns (`claude`,
+  `cursor`, `hermes`, `opencode`), separate from `harnesses` so the puller budget, breaker,
+  `set_concurrency`/`harness_reset` and `doctor` never see a fake harness. `tick`'s JSON carries
+  `slots.unharnessed` ({[agent]: count}) and its digest/`status` print a line for it; the web UI's
+  harness chip row shows a dashed, uncapped chip per implicit entry alongside the configured ones.
+  A profile without harnesses, or whose runs are all harnessed, is unchanged.
+
 - Quota pacing now closes only the harnesses that share an exhausted Claude subscription, instead
   of the whole receiver (#723). On a profile with `harnesses`, a reading at/above a `quota`
   threshold closes the run's subscription group (every `claude` harness with no own
@@ -402,6 +410,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `doctor` no longer hides a persisted global pause or `maxConcurrent` override on a profile
+  without `harnesses`: the harness slot lints returned early before checking the global overrides,
+  so `status`/`tick` showed the override but `doctor` printed nothing.
+- A gate-cap hold's reason now keeps the *last* 1000 characters of the gate output tail (test
+  totals and tsc errors are usually at the end), not the first.
 - `agenthook skill install`'s OpenCode dirs were `.opencode/skill` / `.config/opencode/skill`
   (singular); OpenCode actually reads `skills` (plural). The old singular dirs are now only
   scanned for cleanup of a previously-installed stamped copy (#667).

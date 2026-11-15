@@ -108,6 +108,7 @@ export const messages = {
   "overview.harnessSlots": "harness slots",
   "overview.harnessTitle": "harness {name}: {active} of {max} slots in use",
   "overview.harnessUncapped": "harness {name}: {active} running, no cap of its own",
+  "overview.harnessImplicit": "{n} run(s) on steps with no harness, using {agent}",
   "needs.harnessDown": "harness down",
   "needs.harnessProbing": "harness probing",
   "overview.harnessDownUntil": "down until {when}",

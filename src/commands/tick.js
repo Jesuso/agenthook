@@ -29,6 +29,7 @@ export function digest(t) {
       else lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""} — fix the cause, then harness_reset ${name}`);
     }
   }
+  for (const [agent, n] of Object.entries(s.unharnessed ?? {})) lines.push(`  no-harness: ${agent} ${n}`);
   for (const entry of overrideEntries(t.overrides)) lines.push(`  override ${entry}`);
   const fmt = (/** @type {any} */ r) => `${r.id ?? r.ref}${r.title ? ` "${r.title}"` : ""}`;
   for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m${r.harness ? ` · ${r.harness}${r.host ? `@${r.host}` : ""}` : ""}${typeof r.ctx === "number" && typeof r.ctxMax === "number" ? (ctxOverflow(r.ctx, r.ctxMax) ? ` · ctx ${formatTokens(r.ctx)}` : ` · ctx ${formatTokens(r.ctx)}/${formatTokens(r.ctxMax)}`) : ""}`);

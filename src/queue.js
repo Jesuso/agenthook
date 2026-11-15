@@ -43,7 +43,7 @@ export function planRestore(queued, runningRefs, stepIds) {
  *   strict FIFO as before, and `state()` carries no `capped`.
  * @param {{steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps: Record<string, number|undefined>,
  *   cooldowns?: Record<string, number|undefined>, health?: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, now?: () => number,
- *   unharnessedShared?: string[], unharnessedUntil?: string|null,
+ *   unharnessedShared?: string[], unharnessedUntil?: string|null, unharnessedAgents?: Record<string, string>,
  *   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (t: NodeJS.Timeout) => void,
  *   onHealth?: (down: Record<string, {until: string, strikes: number, reason: string, cause: 'health'|'quota'}>, unharnessedUntil: string|null) => void,
  *   onHarnessDown?: (name: string, info: {reason: string, until: string, cause: 'health'|'quota', window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}) => void,
@@ -63,7 +63,10 @@ export function planRestore(queued, runningRefs, stepIds) {
  *   reads `down` until `until` then `up` (never `probing`), and reopens on a one-shot timer
  *   (`setTimer`/`clearTimer`; `stop()` disarms it). `unharnessedShared` lists the step ids whose
  *   unharnessed claude runs share the quota group; `unharnessedUntil` seeds the queue-level gate
- *   that waits those steps while the shared group is closed.
+ *   that waits those steps while the shared group is closed. `unharnessedAgents` maps a
+ *   harness-less step id to the agent CLI it spawns; a pipeline job on such a step is counted in
+ *   `state().unharnessed` by that agent name, never in `harnesses` (a chip a reader could mistake
+ *   for a configured harness, and which the puller/breaker/doctor would then treat as one).
  */
 export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, harnessing) {
   let max = initialMax;
@@ -87,6 +90,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   let unharnessedUntil = null;
   const seededGate = harnessing?.unharnessedUntil;
   if (typeof seededGate === "string" && Number.isFinite(Date.parse(seededGate))) unharnessedUntil = Date.parse(seededGate);
+  const unharnessedAgents = new Map(Object.entries(harnessing?.unharnessedAgents ?? {}));
   /** @param {string} name @returns {'up'|'down'|'probing'} */
   const healthOf = (name) => {
     const h = health.get(name);
@@ -160,6 +164,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const activeByStep = new Map();
   /** @type {Map<string, number>} harness name → running jobs on it */
   const activeByHarness = new Map();
+  /** @type {Map<string, number>} agent CLI name → running pipeline jobs on a harness-less step that spawns it */
+  const activeByAgent = new Map();
   /** @type {Map<string, number>} stepId → its round-robin cursor (the next list index to try) */
   const rrNext = new Map();
   /** @param {import('./types.js').Job} job */
@@ -281,6 +287,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     queued: queue.length,
     ...(capping ? { capped: cappedCount() } : {}),
     ...(harnessing ? { harnesses: harnessState() } : {}),
+    ...(harnessing && activeByAgent.size ? { unharnessed: Object.fromEntries(activeByAgent) } : {}),
   });
   const report = () => onChange?.(snapshot());
   const resolveIdle = () => {
@@ -317,6 +324,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
         job.harness = harness;
         activeByHarness.set(harness, (activeByHarness.get(harness) ?? 0) + 1);
       }
+      const agent = !harness && isPipeline(job) ? unharnessedAgents.get(job.stepId) : undefined;
+      if (agent) activeByAgent.set(agent, (activeByAgent.get(agent) ?? 0) + 1);
       active++;
       if (isPipeline(job)) activeByStep.set(job.stepId, (activeByStep.get(job.stepId) ?? 0) + 1);
       report();
@@ -349,6 +358,11 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
             if (n > 0) activeByHarness.set(harness, n);
             else activeByHarness.delete(harness);
             settleHealth(harness, signal);
+          }
+          if (agent) {
+            const n = (activeByAgent.get(agent) ?? 1) - 1;
+            if (n > 0) activeByAgent.set(agent, n);
+            else activeByAgent.delete(agent);
           }
           if (harness && signal?.requeue) {
             // Back to the front, still in flight: its work key and ref count stay, so no duplicate
@@ -447,7 +461,9 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     /**
      * {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap, or whose harnesses
      * are all full or down) only when step caps or harnesses are set; `harnesses` ({[name]: {active,
-     * max, state, until?, reason?}}) only when the profile has harnesses.
+     * max, state, until?, reason?}}) only when the profile has harnesses; `unharnessed` ({[agent]:
+     * count}) only when harnesses are set and at least one pipeline job is running on a
+     * harness-less step.
      */
     state: snapshot,
     /** Every configured harness's {active, max, state, until?, reason?, cause?} (max null = uncapped) — the puller's harness budget; {} without harnesses. */
