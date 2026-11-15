@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardSections, localMidnight, readBoardTab, writeBoardTab } from "./board";
+import { FINISHED_CAP, QUEUE_CAP, board, localMidnight } from "./board";
 import type { TicketRow } from "./contract";
 
 const base: TicketRow = {
@@ -31,85 +31,76 @@ const base: TicketRow = {
 
 const row = (over: Partial<TicketRow>): TicketRow => ({ ...base, ...over });
 
-describe("boardSections", () => {
-  it("one section per pipeline step, in order", () => {
-    const { steps } = boardSections([], ["triage", "code", "review"], Date.now());
-    expect(steps.map((s) => s.id)).toEqual(["triage", "code", "review"]);
+const NOW = new Date(2026, 4, 10, 15, 0, 0).getTime();
+const at = (minsAgo: number) => new Date(NOW - minsAgo * 60_000).toISOString();
+const STEPS = ["triage", "code", "review"];
+
+describe("board", () => {
+  it("columns are the pipeline's steps, in order; none while they are unknown", () => {
+    expect(board([], STEPS, [], NOW).columns).toEqual(STEPS);
+    expect(board([row({})], [], [], NOW).columns).toEqual([]);
   });
 
-  it("buckets a running ticket into its step's section, longest-running first", () => {
-    const now = Date.now();
-    const older = row({ ref: "a", status: "running", startedAt: new Date(now - 60_000).toISOString() });
-    const newer = row({ ref: "b", status: "running", startedAt: new Date(now - 1_000).toISOString() });
-    const { steps } = boardSections([newer, older], ["code"], now);
-    expect(steps[0].entries.map((e) => e.ticket.ref)).toEqual(["a", "b"]);
-    expect(steps[0].entries.every((e) => e.clock === "running")).toBe(true);
+  it("a manual step is a column only while it holds a ticket", () => {
+    const steps = [...STEPS, "ship"];
+    expect(board([], steps, ["ship"], NOW).columns).toEqual(STEPS);
+    expect(board([row({ status: "queued", step: "ship" })], steps, ["ship"], NOW).columns).toEqual(steps);
+    expect(board([row({ status: "held", step: "ship" })], steps, ["ship"], NOW).columns).toEqual(steps);
   });
 
-  it("queued tickets follow running ones, in queue order, with a muted clock", () => {
-    const running = row({ ref: "r", status: "running" });
-    const q1 = row({ ref: "q1", status: "queued", queuePos: 1 });
-    const q0 = row({ ref: "q0", status: "queued", queuePos: 0 });
-    const { steps } = boardSections([q1, running, q0], ["code"], Date.now());
-    expect(steps[0].entries.map((e) => e.ticket.ref)).toEqual(["r", "q0", "q1"]);
-    expect(steps[0].entries.map((e) => e.clock)).toEqual(["running", "queued", "queued"]);
+  it("rows: running first, longest running first, then the queue in its own order", () => {
+    const b = board(
+      [
+        row({ ref: "q2", status: "queued", queuePos: 2 }),
+        row({ ref: "new", status: "running", startedAt: at(1) }),
+        row({ ref: "q1", status: "queued", queuePos: 1 }),
+        row({ ref: "old", status: "running", startedAt: at(9) }),
+      ],
+      STEPS,
+      [],
+      NOW,
+    );
+    expect(b.rows.map((e) => [e.ticket.ref, e.clock])).toEqual([["old", "running"], ["new", "running"], ["q1", "queued"], ["q2", "queued"]]);
+    expect([b.runningCount, b.queuedCount]).toEqual([2, 2]);
   });
 
-  it("held and failed tickets never appear in a step section", () => {
-    const held = row({ ref: "h", status: "held" });
-    const failed = row({ ref: "f", status: "failed" });
-    const { steps, other } = boardSections([held, failed], ["code"], Date.now());
-    expect(steps[0].entries).toEqual([]);
-    expect(other).toBeNull();
+  it("interrupted reads as running and stalled as queued (the receiver is down)", () => {
+    const b = board([row({ ref: "i", status: "interrupted" }), row({ ref: "s", status: "stalled" })], STEPS, [], NOW);
+    expect(b.rows.map((e) => e.clock)).toEqual(["running", "queued"]);
   });
 
-  it("caps at 6 entries with the remainder in moreCount", () => {
-    const rows = Array.from({ length: 8 }, (_, i) => row({ ref: `r${i}`, status: "running", startedAt: new Date(Date.now() - i * 1000).toISOString() }));
-    const { steps } = boardSections(rows, ["code"], Date.now());
-    expect(steps[0].entries).toHaveLength(6);
-    expect(steps[0].moreCount).toBe(2);
+  it("held and failed tickets are not rows, but count toward the step they stopped in", () => {
+    const b = board([row({ ref: "h", status: "held", step: "review" }), row({ ref: "f", status: "failed", step: "review" }), row({ ref: "r", status: "running", step: "code" })], STEPS, [], NOW);
+    expect(b.rows.map((e) => e.ticket.ref)).toEqual(["r"]);
+    expect(b.counts).toEqual({ review: 2, code: 1 });
   });
 
-  it("buckets a row whose step matches no pipeline step into Other, only when non-empty", () => {
-    const stray = row({ ref: "s", status: "running", step: "ghost-step" });
-    const { other } = boardSections([stray], ["code"], Date.now());
-    expect(other?.entries.map((e) => e.ticket.ref)).toEqual(["s"]);
-
-    const { other: empty } = boardSections([], ["code"], Date.now());
-    expect(empty).toBeNull();
+  it("every running ticket shows; the queue is capped, the rest counted", () => {
+    const queued = Array.from({ length: QUEUE_CAP + 3 }, (_, i) => row({ ref: `q${i}`, status: "queued", queuePos: i + 1 }));
+    const running = Array.from({ length: 12 }, (_, i) => row({ ref: `r${i}`, status: "running" }));
+    const b = board([...queued, ...running], STEPS, [], NOW);
+    expect(b.rows).toHaveLength(12 + QUEUE_CAP);
+    expect(b.moreQueued).toBe(3);
+    expect(b.queuedCount).toBe(QUEUE_CAP + 3);
   });
 
-  it("done today: only rows finished since local midnight, newest first, with a total count", () => {
-    const now = Date.now();
-    const midnight = localMidnight(now);
-    const today = row({ ref: "today", status: "done", finishedAt: new Date(midnight + 1000).toISOString() });
-    const todayLater = row({ ref: "today2", status: "done", finishedAt: new Date(midnight + 5000).toISOString() });
-    const yesterday = row({ ref: "yesterday", status: "done", finishedAt: new Date(midnight - 1000).toISOString() });
-    const { doneToday } = boardSections([today, todayLater, yesterday], ["code"], now);
-    expect(doneToday.section.entries.map((e) => e.ticket.ref)).toEqual(["today2", "today"]);
-    expect(doneToday.total).toBe(2);
-    expect(doneToday.section.entries.every((e) => e.clock === "done")).toBe(true);
+  it("finished: only since local midnight, newest first, capped, with the full count", () => {
+    const today = Array.from({ length: FINISHED_CAP + 2 }, (_, i) => row({ ref: `d${i}`, status: "done", finishedAt: at(i + 1) }));
+    const b = board([...today, row({ ref: "old", status: "done", finishedAt: new Date(localMidnight(NOW) - 1).toISOString() })], STEPS, [], NOW);
+    expect(b.finished.total).toBe(FINISHED_CAP + 2);
+    expect(b.finished.tickets.map((t) => t.ref)).toEqual(today.slice(0, FINISHED_CAP).map((t) => t.ref));
   });
 
-  it("excludes isNeedsYou rows from Done today when forge is true", () => {
-    const now = Date.now();
-    const midnight = localMidnight(now);
-    const today = row({ ref: "today", status: "done", finishedAt: new Date(midnight + 1000).toISOString() });
-    const needsYou = row({ ref: "ny", status: "done", finishedAt: new Date(midnight + 2000).toISOString(), prNeeds: "awaitingMerge" });
-    const { doneToday: included } = boardSections([today], ["code"], now, true);
-    const { doneToday: excluded } = boardSections([today, needsYou], ["code"], now, true);
-    expect(included.total).toBe(1);
-    expect(excluded.total).toBe(1);
-    expect(excluded.section.entries.map((e) => e.ticket.ref)).toEqual(["today"]);
+  it("a finished ticket whose PR needs you is Needs you's, not Finished today's (forge profiles)", () => {
+    const flagged = row({ ref: "pr", status: "done", finishedAt: at(5), prUrl: "https://example.test/pr/1", prNeeds: "awaitingMerge" });
+    expect(board([flagged], STEPS, [], NOW, true).finished.total).toBe(0);
+    expect(board([flagged], STEPS, [], NOW, false).finished.total).toBe(1);
   });
 });
 
-describe("board tab preference", () => {
-  it("defaults to table and persists board", () => {
-    const store = new Map<string, string>();
-    const fake = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };
-    expect(readBoardTab(fake)).toBe("table");
-    writeBoardTab("board", fake);
-    expect(readBoardTab(fake)).toBe("board");
+describe("localMidnight", () => {
+  it("is the start of the browser-local day", () => {
+    const d = new Date(localMidnight(NOW));
+    expect([d.getHours(), d.getMinutes(), d.getDate()]).toEqual([0, 0, new Date(NOW).getDate()]);
   });
 });

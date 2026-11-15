@@ -7,8 +7,7 @@ import type { MessageKey } from "./i18n";
 /** Inline SVG render of `layoutPipeline`'s output (docs/web-ui.md § v3 "Pipeline graph"). Draws
  *  the routes the layout computed — no geometry decisions here. */
 
-/** Shared with `BoardView.tsx` (#697): the Board's connectors reuse these colours and labels
- * instead of a second copy. */
+/** One colour and dash per edge type, for the paths and the legend alike. */
 export const EDGE_STYLE: Record<GraphEdge["type"], { stroke: string; dash?: string }> = {
   advance: { stroke: "var(--color-accent)" },
   fail: { stroke: "var(--color-err)" },
@@ -150,7 +149,6 @@ function StagePill(props: { node: StageNode }) {
   );
 }
 
-/** Shared with `BoardView.tsx` (#697). */
 export function Legend() {
   const { t } = useT();
   const types: GraphEdge["type"][] = ["advance", "fail", "hold", "changes", "queue"];

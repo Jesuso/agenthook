@@ -987,39 +987,48 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
 - Progress is today vs yesterday (browser-local days) over the tail, plus the rework rate
   (`changes` / runs), hidden under 10 runs. Longer ranges: see "Daily stats".
 
-### Board (built, #697 — ticket 1 of 3 of #696)
+### The board (built, #697 → #696)
 
-The *All tickets* section (above) grew a second tab, **Board**, beside the renamed **Table**
-(the old view, unchanged). Table stays the default and the choice persists per browser
-(`ui/src/board.ts` `readBoardTab`/`writeBoardTab`, `localStorage` — same pattern as the log
-viewer's `logview.ts`); any active status/epic/step filter forces Table, the same way a filter
-already auto-opened the section. Selecting a tab opens the section.
+The Board started (#697) as a second tab of *All tickets*: the Config graph redrawn with
+fixed-size step boxes, connectors, a legend and its own copy of Needs you. The #696 critique
+found it buried (sixth zone, collapsed on every load), a duplicate of Now, and clipped to a
+1152px page column while half of a wide screen sat empty beside it. Two attempts to fit a
+column-per-step strip inside that column were rejected for the same reason; the fix was the page,
+not the strip. The Overview now uses the whole window, and the board is its main view.
 
-The Board draws the pipeline exactly as the Config graph lays it out
-(`ui/src/pipelineGraph.ts` `layoutPipeline`, now taking an optional trailing `{stepW, stepH}` so
-the Board can ask for one uniform, fixed-size box per step regardless of ticket count — callers
-that omit it, including every existing Config-graph test, get today's layout unchanged) — one
-fixed-size box per step, joined by the same `advance`/`fail`/`hold`/`changes`/`queue` connectors
-and colours (`EDGE_STYLE`/`EDGE_LABEL`, exported from `PipelineGraph.tsx` so the Board doesn't
-duplicate the palette; its connector paths are drawn as simple polylines, not the Config graph's
-rounded-bend routing — motion and nicer bends are #696's later tickets). A box's entries come from
-`ui/src/board.ts`'s pure `boardSections` (Vitest-covered): running (longest first) then queued
-(queue order) — the same order `zones.ts`'s `nowItems` uses — with `interrupted`/`stalled`
-joining their respective group when the profile is down; capped at 6 with a "+N more" that
-switches the Table tab to a new **step filter** (`TicketFilter.step`, `tickets.ts`). A **Done
-today** box sits at the pipeline's end (newest-first, capped, with the full count in the header);
-an **Other** box appears only when a running/queued ticket's `step` matches no pipeline step.
-Held/failed tickets and a flagged PR never appear in a step box — they're the same **Needs you**
-zone as the profile page (`NeedsYouZone.tsx`, factored out of `Overview.tsx` so both share it),
-fixed full-width above the diagram, present only when non-empty.
+**One row per ticket, the pipeline's steps as columns** (`ui/src/Departures.tsx`). Every row is
+drawn up to the step its ticket is in: a line through the steps behind it and a mark on its own
+(filled and pulsing = running, hollow = waiting, held and failed in their status hue). The rows
+that **need you** come first, lit with a flat tint of their status and carrying their action; they
+are `NeedsYouZone`'s rows, drawn on the board's grid (its `board` prop), so the page still has one
+Needs-you list and one headline count. Then what runs (longest first) and what waits (queue
+order, capped at 8 with "+N more queued"), then **Finished today** (newest first, capped at 6, the
+count in its heading). The board's first row says what is in flight ("3 running · 4 queued", the
+free slots) and heads each step column with its name and how many tickets sit in it; a step's
+name opens *All tickets* on a **step filter** (`TicketFilter.step`, `tickets.ts`), the "+N more"
+rows open it on a status. Rows carry `data-now-row`/`data-now-open`, so `j`/`k` walk them.
 
-No new endpoint: the Board fetches `GET /api/config?profile=` (parsed with `readSteps`/
-`stageKeysFor`, exactly ConfigView's own calls) for the steps/stage-binding keys, and
-`GET /api/discover` for stage labels only while the profile is up (down, labels fall back to step
-ids — `layoutPipeline`'s own rule). Below `lg` (1024px) the sections stack vertically in pipeline
-order (Needs you first) and the SVG connectors + legend are dropped, via a `matchMedia`
-`(min-width: 1024px)` check (`useWide`, mirroring `LiveTime.tsx`'s `useReducedMotion`) rather than
-a CSS-only toggle, so the connector `<svg>` is never in the DOM on a narrow page.
+- The data is `board.ts`'s pure `board()` (Vitest-covered): `interrupted` reads as running and
+  `stalled` as queued when the profile is down; held and failed tickets are not its rows but count
+  toward the step they stopped in.
+- A **manual** step runs no agent, so it is a column only while it holds a ticket (a queued
+  worktree drain). A ticket whose `step` is none of the columns names it under its title instead.
+- Nothing of the pipeline's shape beyond the order of its steps is drawn here (no connectors, exit
+  stages or legend): that changes with the config, not with the tickets, and lives on Config.
+
+Width. One CSS grid holds every row (`subgrid`), so state, id, title, steps, clock and action line
+up down the whole card: the title takes four shares, each step one (never less than its name
+needs; a long pipeline shares a little over half the card between its steps). The step columns
+show once the **card** is 56rem wide (a container query, so a narrow window and a narrow column
+behave alike); below that each row names its step under its title and a Needs-you row puts its
+action there too. The page itself: from `2xl` (1536px) the board and *All tickets* fill the left
+and a rail (22–30rem) holds Catch me up, Progress and Activity; below it those zones sit side by
+side under the board, as many as fit, and stack on a phone. Checked at 480, 640, 1280, 1920 and
+2560px in both themes.
+
+No new endpoint: `usePipelineSteps` reads `GET /api/config?profile=` (parsed with `readSteps`,
+ConfigView's own call) for the step ids. Until that answers, and if it fails (with a one-line
+note), the board has no step columns and every row names its step.
 
 ### New ticket (local boards, built)
 

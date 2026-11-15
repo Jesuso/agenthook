@@ -269,7 +269,9 @@ sentence-case or lowercase headings on the same page.
 ## Layout
 
 A single centered column (max width 72rem / `max-w-6xl`) under a sticky 44px app bar, with 24px
-between zones and 8-12px inside them. Spacing is a 4px base scale. Lists are full-width rows inside a
+between zones and 8-12px inside them. The profile Overview is the exception: it is the board, so it
+uses the whole window, with its reading zones in a right rail from 1536px and side by side under the
+board below that. Spacing is a 4px base scale. Lists are full-width rows inside a
 bordered card, divided by hairlines, with fixed-width columns for state, step and age, and the action
 so they align down the board; the title column flexes. Breakpoints follow Tailwind's defaults
 (`sm` 640px, `md` 768px, `lg` 1024px); the app bar wraps its nav below `lg`. Tiles flow in a wrapping

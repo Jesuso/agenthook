@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { TicketRow } from "./contract";
 import type { HarnessAttentionItem, NeedsItem } from "./zones";
 import { ticketTitle } from "./format";
@@ -6,6 +7,7 @@ import { failureSummary } from "./failure";
 import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
 import { ReleasePanel } from "./ReleasePanel";
+import { BoardFrame, ROW, SUBGRID, StepName, Track } from "./Departures";
 import { Ago, Menu, Pill, SpeakButton, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { useT } from "./i18n/react";
@@ -13,11 +15,13 @@ import type { MessageKey, T } from "./i18n";
 
 /**
  * The Needs-you zone (docs/web-ui.md § v4 "Needs you"): held/failed tickets plus a flagged PR row
- * (forge profiles) and a down/probing harness, worst first. Shared by the profile Overview (full
- * width, its own headline) and the Board (#697, hidden entirely when empty — the caller decides
- * whether to render it at all; this component's own zero-count branch is the Overview's "all
- * clear" banner).
+ * (forge profiles) and a down/probing harness, worst first, under the page's headline count (or
+ * "All clear"). Given a `board` (#696), its rows are the first rows of that board: same grid, same
+ * step columns, each row marked on the step it stopped in, and the board's own rows follow.
  */
+
+/** The board the rows are drawn on: its step columns, its first row, and the rows after ours. */
+export type NeedsBoard = { columns: string[]; head: ReactNode; rest: ReactNode };
 
 export type Ref = { profile: string; ref: string };
 
@@ -34,6 +38,9 @@ const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-la
 /** The headline count takes the tone of the worst thing waiting: failed, then held. */
 const headlineTone = (items: NeedsItem[]) =>
   items.some((i) => i.kind === "failed") ? "text-status-failed" : items.some((i) => i.kind === "held") ? "text-status-held" : "text-fg";
+
+/** On the board, a row that waits on you is lit: a flat tint of its own status, never an accent. */
+const TINT: Record<NeedsItem["kind"], string> = { failed: "bg-status-failed-bg/40", held: "bg-status-held-bg/40", pr: "" };
 
 type Retry = { state: "busy" | "started" } | { state: "error"; error: string };
 
@@ -54,7 +61,7 @@ export function needsSpeech(item: NeedsItem, tr: T, lang: string): string {
   return sub ? `${titleText}. ${sub}` : titleText;
 }
 
-export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDismiss, onRelease, onRetry, onRecheck, onCloseOnBoard }: { items: NeedsItem[]; attention: HarnessAttentionItem[]; profile: string; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry: (t: Ref) => Promise<ReleaseOutcome>; onRecheck?: (profile: string, ref: string | null) => Promise<ReleaseOutcome>; onCloseOnBoard?: (t: Ref) => Promise<ReleaseOutcome> }) {
+export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDismiss, onRelease, onRetry, onRecheck, onCloseOnBoard, board }: { board?: NeedsBoard; items: NeedsItem[]; attention: HarnessAttentionItem[]; profile: string; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry: (t: Ref) => Promise<ReleaseOutcome>; onRecheck?: (profile: string, ref: string | null) => Promise<ReleaseOutcome>; onCloseOnBoard?: (t: Ref) => Promise<ReleaseOutcome> }) {
   const { t: tr, lang } = useT();
   const [releasing, setReleasing] = useState<string | null>(null);
   // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
@@ -92,11 +99,20 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
   ];
   const anyPr = items.some((i) => i.kind === "pr");
   const count = attention.length + items.length;
+  const frame = (rows: ReactNode) =>
+    board && (
+      <BoardFrame columns={board.columns}>
+        {board.head}
+        {rows}
+        {board.rest}
+      </BoardFrame>
+    );
   if (count === 0) {
     return (
       // The calm verdict takes the same headline slot as "N need you": the second-screen glance has
       // to read "look away" as loudly as "look here". Down, it stays neutral: someone must restart it.
-      <section data-all-clear>
+      <section data-all-clear className={board ? "flex flex-col gap-3" : undefined}>
+        <div>
         <h2 className="flex items-baseline gap-2">
           {up && (
             <span aria-hidden="true" className="text-stat font-semibold text-success">
@@ -108,11 +124,13 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
         <p className="text-label text-muted">
           {up ? tr("overview.allClearHint") : tr("overview.downHint")}
         </p>
+        </div>
+        {frame(null)}
       </section>
     );
   }
-  return (
-    <section>
+  const headline = (
+    <>
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="flex items-baseline gap-2">
           <span className={`font-mono text-stat font-semibold ${attention.length ? "text-status-failed" : headlineTone(items)}`}>{count}</span>{" "}
@@ -132,8 +150,11 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
           {prErrors[""]}
         </p>
       )}
-      <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
-        {attention.map((a) => <HarnessAttentionRow key={a.harness} item={a} />)}
+    </>
+  );
+  const rows = (
+      <ul data-needs-you-zone className={`divide-y divide-border-subtle ${board ? SUBGRID : "overflow-hidden rounded-lg border border-border bg-surface"}`}>
+        {attention.map((a) => <HarnessAttentionRow key={a.harness} item={a} wide={!!board} />)}
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
           // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
@@ -144,33 +165,49 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
           const kindText = tr(KIND[kind].text);
           const rerun = retries[t.ref];
           const pr = prNumber(t.prUrl);
+          const speak = <SpeakButton text={needsSpeech(item, tr, lang)} label={tr("speak.needsRow", { id: t.displayId })} className="shrink-0" />;
+          // The row's title: it opens the drawer; the agent's sentence (or the reason) sits under it.
+          const titleButton = (cls: string, subCls: string) => (
+            <button
+              type="button"
+              data-needs-open
+              aria-label={`${t.displayId} ${titleText}, ${kindText}${said ? `: ${said}` : ""}`}
+              className={cls}
+              title={t.summary ? tr("overview.titleOpenDetails", { title: t.summary }) : tr("overview.openDetails")}
+              onClick={() => onOpen({ profile: t.profile, ref: t.ref })}
+            >
+              <span className={title.unknown ? "text-muted" : ""}>{titleText}</span>
+              {sub && <span className={subCls} data-needs-sub title={subTitle}>{sub}</span>}
+            </button>
+          );
           return (
-            <li key={t.ref} data-needs-row={t.ref} data-kind={kind}>
-              {/* Below sm (a half-width window, a phone) the row stacks: kind, id, age and the action on
-                  one line, the title and its reason full width underneath, instead of squeezing to "…". */}
-              <div className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1">
-                <span className="w-[4.5rem] shrink-0 max-sm:w-auto"><Pill tone={KIND[kind].tone}>{kindText}</Pill></span>
+            <li key={t.ref} data-needs-row={t.ref} data-kind={kind} className={board ? `${SUBGRID} ${TINT[kind]}` : undefined}>
+              {/* Narrow (a half-width window, a phone) the row stacks: kind, id and age on one line with
+                  the title and its reason beside them, the action underneath, instead of squeezing to "…". */}
+              <div className={board ? `group ${ROW} focus-within:bg-surface-raised` : "group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1"}>
+                <span className={board ? "" : "w-[4.5rem] shrink-0 max-sm:w-auto"}><Pill tone={KIND[kind].tone}>{kindText}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
-                <SpeakButton text={needsSpeech(item, tr, lang)} label={tr("speak.needsRow", { id: t.displayId })} className="shrink-0" />
-                <button
-                  type="button"
-                  data-needs-open
-                  aria-label={`${t.displayId} ${titleText}, ${kindText}${said ? `: ${said}` : ""}`}
-                  className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full"
-                  title={t.summary ? tr("overview.titleOpenDetails", { title: t.summary }) : tr("overview.openDetails")}
-                  onClick={() => onOpen({ profile: t.profile, ref: t.ref })}
-                >
-                  <span className={title.unknown ? "text-muted" : ""}>{titleText}</span>
-                  {sub && <span className="block truncate text-label text-muted" data-needs-sub title={subTitle}>{sub}</span>}
-                </button>
-                <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
-                  {t.step ? `${t.step} · ` : ""}
+                {!board && speak}
+                {board ? (
+                  <span className="flex min-w-0 items-start gap-2 py-2">
+                    <span className="min-w-0 flex-1">
+                      {titleButton(`block w-full text-left font-medium focus-visible:outline-2 focus-visible:outline-accent`, "block text-label font-normal text-muted @4xl:line-clamp-2")}
+                      <StepName columns={board.columns} step={t.step} />
+                    </span>
+                    {speak}
+                  </span>
+                ) : (
+                  titleButton("min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full", "block truncate text-label text-muted")
+                )}
+                {board && <Track columns={board.columns} step={t.step} mark={kind === "pr" ? "pr" : kind} />}
+                <span className={board ? "whitespace-nowrap text-label text-muted" : "w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto"}>
+                  {!board && t.step ? `${t.step} · ` : ""}
                   <Ago iso={since} seed={now} />
                 </span>
-                {/* One primary action per row, always visible, in a fixed-width slot so the columns line
-                    up; a failed row adds the quieter Dismiss before it. A PR link on a held/failed row
+                {/* One primary action per row, always visible, in its own column so the rows line up; a
+                    failed row adds the quieter Dismiss before it. A PR link on a held/failed row
                     lives in the drawer header; the title opens the drawer. */}
-                <span className="flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto">
+                <span className={board ? "flex items-center justify-end gap-1 @max-4xl:col-start-3 @max-4xl:col-end-[-1] @max-4xl:justify-start @max-4xl:pb-2" : "flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto"}>
                   {kind === "pr" && (
                     <span data-needs-pr-menu>
                       <Menu label={tr("overview.prMenu", { id: t.displayId })} items={prMenu(t)} />
@@ -215,20 +252,29 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
                 </span>
               </div>
               {prErrors[t.ref] !== undefined && (
-                <p role="alert" data-pr-action-error className="px-3 pb-2 text-label text-status-failed">
+                <p role="alert" data-pr-action-error className="col-span-full px-3 pb-2 text-label text-status-failed">
                   {tr("overview.prActionError", { id: t.displayId, error: prErrors[t.ref] })}
                 </p>
               )}
               {rerun?.state === "error" && (
-                <p role="alert" data-retry-error className="px-3 pb-2 text-label text-status-failed">
+                <p role="alert" data-retry-error className="col-span-full px-3 pb-2 text-label text-status-failed">
                   {tr("overview.retryError", { id: t.displayId, error: rerun.error })}
                 </p>
               )}
-              {kind === "held" && releasing === t.ref && <ReleasePanel ticket={item.ticket} onRelease={onRelease} onClose={() => setReleasing(null)} />}
+              {kind === "held" && releasing === t.ref && (
+                <div className="col-span-full">
+                  <ReleasePanel ticket={item.ticket} onRelease={onRelease} onClose={() => setReleasing(null)} />
+                </div>
+              )}
             </li>
           );
         })}
       </ul>
+  );
+  return (
+    <section>
+      {headline}
+      {board ? frame(rows) : rows}
     </section>
   );
 }
@@ -245,10 +291,10 @@ function clockTime(iso: string): string {
  * is a diagnosis (name, pill, reason, until) plus the fix: run `harness_reset`. It disappears on
  * its own once `harness_up` fires — there is nothing to dismiss or click.
  */
-function HarnessAttentionRow({ item }: { item: HarnessAttentionItem }) {
+function HarnessAttentionRow({ item, wide }: { item: HarnessAttentionItem; wide: boolean }) {
   const { t: tr } = useT();
   return (
-    <li data-needs-row={`harness:${item.harness}`} data-kind="harness" data-harness-state={item.state}>
+    <li data-needs-row={`harness:${item.harness}`} data-kind="harness" data-harness-state={item.state} className={wide ? `col-span-full ${TINT.failed}` : undefined}>
       <div className="flex items-center gap-3 px-3 py-2 max-sm:flex-wrap max-sm:gap-y-1">
         <span className="w-[4.5rem] shrink-0 max-sm:w-auto">
           <Pill tone="failed">{tr(item.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")}</Pill>
