@@ -55,17 +55,21 @@ export function HomePage({ snapshot, now, menuItems, note }: HomePageProps) {
 }
 
 
-/** The card's headline: how many tickets need a human; red when any failed, amber when only held. */
-function NeedsYou({ n, hasFailed }: { n: number; hasFailed: boolean }) {
+/** The card's headline: how many tickets need a human; red when any failed, amber when only held;
+ * muted (with an "as of" age) when the count is from a stopped receiver, not a live read. */
+function NeedsYou({ n, hasFailed, stale, asOf }: { n: number; hasFailed: boolean; stale: boolean; asOf: string | null }) {
   const { t } = useT();
-  const tone = n === 0 ? "text-muted" : hasFailed ? "text-status-failed" : "text-status-held";
+  const tone = n === 0 || stale ? "text-muted" : hasFailed ? "text-status-failed" : "text-status-held";
   return (
-    <div data-needs-you={n}>
+    <div data-needs-you={n} data-stale={stale || undefined}>
       <div className="text-label uppercase tracking-wide text-muted">{t("home.needsYou")}</div>
       {n === 0 ? (
         <div className="text-title leading-8 text-muted">{t("home.allClear")}</div>
       ) : (
-        <div className={`font-mono text-stat font-semibold tabular-nums ${tone}`}>{n}</div>
+        <div className="flex items-baseline gap-2">
+          <div className={`font-mono text-stat font-semibold tabular-nums ${tone}`}>{n}</div>
+          {stale && asOf && <div className="text-label text-muted">{t("home.asOf", { when: asOf })}</div>}
+        </div>
       )}
     </div>
   );
@@ -73,14 +77,16 @@ function NeedsYou({ n, hasFailed }: { n: number; hasFailed: boolean }) {
 
 function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel; now: number; lastEventId: string | null; items: MenuItem[]; note: string }) {
   const { t, lang } = useT();
-  const { profile: p, summary, hasFailed } = card;
+  const { profile: p, summary, hasFailed, died, stale } = card;
   const badge = profileBadge(p, lang);
   const last = formatLastEvent(p.lastEvent, lastEventId, now, lang);
+  const asOf = useAgo(p.lastSeenAt, now);
   return (
     <article
       data-profile-card={p.name}
+      data-died={died || undefined}
       style={accentStyle(p.color)}
-      className="relative overflow-hidden rounded-lg border border-border bg-surface p-4 transition-colors hover:border-border-strong hover:bg-surface-raised focus-within:border-border-strong"
+      className={`relative overflow-hidden rounded-lg border bg-surface p-4 transition-colors hover:bg-surface-raised focus-within:border-border-strong ${died ? "border-status-failed" : "border-border hover:border-border-strong"}`}
     >
       <span aria-hidden="true" data-accent-bar className="absolute inset-x-0 top-0 h-[3px] bg-[var(--profile-accent)]" />
       <div className="flex items-start gap-3">
@@ -95,6 +101,11 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             <ReceiverStatus p={p} />
+            {died && (
+              <Pill tone="failed" title={t("home.diedTitle")}>
+                {t("home.died")}
+              </Pill>
+            )}
             {p.paused === true && (
               <Pill tone="held" title={t("home.pausedTitle")}>
                 {t("home.paused")}
@@ -119,7 +130,7 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
       </div>
 
       <div className="mt-4">
-        <NeedsYou n={summary.needsYou} hasFailed={hasFailed} />
+        <NeedsYou n={summary.needsYou} hasFailed={hasFailed} stale={stale} asOf={stale ? asOf : null} />
       </div>
 
       <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">

@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format is based on
   inline in the dialog. A stopped local board still reads as `tracker: "local"` because the profile
   marker now carries the tracker's `provider`, and an up local board's overview advertises its
   ticketable steps via the heartbeat's `ticketSteps`.
+- Home now ranks cards by what the operator can act on now (#694): died profiles (crashed or
+  killed rather than stopped) first, then up profiles, then stopped profiles with something still
+  pending — a stopped profile's stale Needs-you count no longer outranks a live one or renders as
+  a live red/amber alert; it shows muted with an "as of \<age\>" label instead. A fatal exit
+  (`onFatal`) now leaves its pidfile in place (it used to delete it alongside the clean-shutdown
+  path), so a crash is told apart from a deliberate `agenthook stop`: the new `ProfileView.died`
+  flag drives a "stopped unexpectedly" pill and a failed-tone card border.
 - **Experimental** remote harness, phase 2 (#689): a harness can set `remote: {host, user?,
   port?, identityFile?, workDir, bin?}` to run its agent over ssh on another machine instead of
   the host or the profile's sandbox, via a new `ssh` executor (`src/dispatch/executor-ssh.js`).
@@ -185,6 +192,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- The live context gauge's window table was stale: every Claude model was listed at 200,000
+  tokens, so a run past 200K (current models run in a 1M window) read as a false over-limit. The
+  table now holds Anthropic's published default windows (no beta header,
+  https://platform.claude.com/docs/en/about-claude/models/overview): 1,000,000 for every current
+  model — fable/mythos 5-1 and 5, opus 5-5/5/4-8/4-7/4-6, sonnet 5-5/5/4-6, haiku 5-5 and the
+  `opus`/`sonnet`/`haiku`/`fable` aliases — and 200,000 for Claude Haiku 4.5. When the observed
+  `ctx` exceeds `ctxMax` (proving the table or an explicit `contextTokens` wrong for that model),
+  `status`/`tick` rows omit `ctxMax`, the `tick` digest prints the bare `· ctx 212K` instead of
+  `212K/200K`, and dispatch logs one warning per run naming the model and both figures.
 - `restart` keeps stale `.env` values (#684): every detached respawn (`restart`, and the
   `start --detach` hop it goes through) inherited the parent's whole environment, and `.env`
   loading never overwrites an already-set var — so an edited `.env` value was never re-read

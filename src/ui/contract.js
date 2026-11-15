@@ -95,6 +95,9 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} lastSeenAt     heartbeat.updatedAt, else the later of profile.json updatedAt / events.jsonl mtime
  * @property {boolean} ghost              no receiver ever ran here: no marker, no heartbeat, nothing but an empty logs/
  * @property {boolean} configMissing      configPath is set but the file no longer exists
+ * @property {boolean} died                receiver not up but its pidfile still names a (dead) pid — it crashed or was
+ *                                        killed rather than stopped; cleared by `agenthook stop`, `doctor`'s stale-pidfile
+ *                                        fix, or the next start
  * @property {string|null} forge         the forge adapter type (`github`) when one is configured, else null — a ready PR only counts as Needs you where merges are observable
  * @property {RecentRun[]} recentRuns     every `run_end` in the events tail's last 48 h, oldest first (outcome per run: the Overview's rework rate)
  * @property {RecentCost[]} recentCosts   `run_end` costs from the events tail's last 48 h, oldest

@@ -18,7 +18,7 @@ import { installSpeech, uninstallSpeech } from "./speechMock";
 const prof = (name: string) =>
   ({ name, label: name, up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
     startedAt: null, updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-    lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null }) as ProfileView;
+    lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null }) as ProfileView;
 const t = (profile: string, ref: string, status: TicketRow["status"], extra: Partial<TicketRow> = {}): TicketRow => ({
   profile, ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null,
   prUrl: null, summary: null, plain: null, options: null, heldReason: status === "held" ? "Which **API**?" : null, heldAt: null, failReason: status === "failed" ? "x" : null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null,

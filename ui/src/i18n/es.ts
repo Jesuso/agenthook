@@ -89,6 +89,9 @@ export const messages: Record<MessageKey, Message> = {
   "home.quotaPaused": "pausa por cuota",
   "home.costToday": "costo hoy",
   "home.lastSeen": "visto {when}",
+  "home.asOf": "a partir de {when}",
+  "home.died": "se detuvo inesperadamente",
+  "home.diedTitle": "El receptor se cayó o fue terminado — no está en ejecución. Reinícialo, o ejecuta `agenthook stop` para quitar esto.",
 
   // Overview
   "overview.profileActions": "acciones del perfil",
