@@ -143,6 +143,13 @@ All notable changes to this project are documented here. The format is based on
   on that machine. It says where each key goes (`agent` top-level; `model`, `contextTokens`,
   `provider`, `env` per step) and that OpenCode resolves the provider from its own config.
 
+### Internal
+
+- The executor axis (#682, remote-harness epic #681 phase 1): which launcher a run uses (host or
+  the profile's sandbox) is now picked per run, after the harness resolves, via a new
+  `src/dispatch/executor.js` instead of naming the sandbox directly in spawn/kill/timeout/boot
+  reap/shutdown. No behaviour change.
+
 ### Fixed
 
 - `restart` keeps stale `.env` values (#684): every detached respawn (`restart`, and the

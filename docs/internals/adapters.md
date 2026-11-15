@@ -56,6 +56,11 @@ Each lives behind its own one-interface adapter. See `docs/agenthook-v2.md` for 
   `egressHosts(env)`, the tracker meta's and forge `describe()`'s `egressHosts`, the origin —
   so `src/sandbox/` names no tracker, forge or agent (`TRACKER_EGRESS_HOSTS` /
   `FORGE_EGRESS_HOSTS` give doctor the same lists without building an adapter).
+  The sandbox itself is never named directly outside `src/sandbox/` and `src/dispatch/executor.js`
+  any more (#682): `createExecutors({sandbox, spawnPaths})` wraps `wrap()`/`reap()` into an
+  `Executor` (`host`/`sandbox` today), and `executorFor(cfg, step, harnessName, executors)` —
+  still exactly `isSandboxed(cfg, step)` — picks it per run; see
+  [dispatch.md](dispatch.md#the-executor-axis-srcdispatchexecutorjs-682).
 - `src/forges/*.js` + `index.js` — optional forge adapters (`github`, `gitlab`). Registry `FORGES` keyed by
   `cfg.forge.type`; no `forge` block → `createForge` returns null and nothing changes. Interface:
   `describe`, `authenticate` (sync), `processEvents`, `registerWebhook`, `unregisterWebhooks`. The

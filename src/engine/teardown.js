@@ -7,6 +7,7 @@ import { restartSpawnArgs, spawnDetached, underSystemdUnit, writeReconcileMarker
 import { moveStateDir } from "../state-move.js";
 import { archiveStateDir } from "../archive.js";
 import { crashRecord } from "./recovery.js";
+import { createExecutors } from "../dispatch/executor.js";
 
 /** How long a forced or fatal exit waits on the sandbox reap before exiting anyway. */
 const REAP_WAIT_MS = 3000;
@@ -148,11 +149,15 @@ export function finishTeardown({ cfg, respawn, moveTo, archive }, deps = {}) {
  *   store: import('../types.js').Store,
  *   quotaPacer: {stop(): void},
  *   sandbox?: import('../types.js').Sandbox | null,
+ *   executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor},
  *   isRestartPending: () => boolean,
  *   isDecommissionPending: () => boolean,
  * }} deps
  */
-export function createExits({ cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox, isRestartPending, isDecommissionPending }) {
+export function createExits({ cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox, executors, isRestartPending, isDecommissionPending }) {
+  // Engine passes its own (shared with dispatch); a caller that only sets `sandbox` (tests) gets
+  // an equivalent one built on the fly — same reap() either way.
+  const execs = executors ?? createExecutors({ sandbox: sandbox ?? null, spawnPaths: undefined });
   /** SIGTERM every live agent; a sandboxed one's pid is its runtime client, so then also remove
    * its container (bounded to REAP_WAIT_MS — an exit must not hang on the runtime). */
   async function killChildren() {
@@ -163,11 +168,11 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
         /* already gone */
       }
     }
-    if (!sandbox) return;
+    if (!execs.sandbox?.reap) return;
     /** @type {NodeJS.Timeout|undefined} */
     let timer;
     await Promise.race([
-      sandbox.reap().catch((e) => console.error(`[shutdown] sandbox reap failed: ${e.message}`)),
+      execs.sandbox.reap().catch((e) => console.error(`[shutdown] sandbox reap failed: ${e.message}`)),
       new Promise((r) => (timer = setTimeout(r, REAP_WAIT_MS))),
     ]);
     clearTimeout(timer);

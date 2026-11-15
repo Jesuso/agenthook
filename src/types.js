@@ -531,6 +531,27 @@
 /** A factory `(cfg) => Sandbox`; `run` replaces the CLI runner in tests.
  * @typedef {(cfg: Config, opts?: { run?: IngressRun }) => Sandbox} SandboxFactory */
 
+/** A run launched by an Executor (#682): identical to SandboxRun — `id` is empty and `done()`
+ * yields no report for the host executor's trivial launch.
+ * @typedef {SandboxRun} ExecutorRun */
+
+/**
+ * Which launcher runs a job (#682 phase 1 — the remote-harness epic #681): `'host'` (a plain
+ * spawn) or `'sandbox'` (the profile's per-run container) today; a later `'ssh'` (phase 2, a
+ * remote host) joins the union. Chosen per run, after the harness resolves, by `executorFor`
+ * (src/dispatch/executor.js) — today it answers exactly what `isSandboxed` answered before this
+ * axis existed.
+ * @typedef {object} Executor
+ * @property {'host'|'sandbox'|string} name
+ * @property {(o: {stepId: string, ref: string, worktree: string, hasWorktree: boolean, repoPath: string}) => {cwd: string, worktree: string|undefined, verdictFile: string}} paths
+ *   the run's paths AS THE AGENT SEES THEM. For host and sandbox these equal the hub's own
+ *   `worktree`/`repoPath` (host: `verdictPathFor`; sandbox: `sandboxVerdictPathFor`) — the seam
+ *   exists for a future executor (e.g. a remote host) whose worktree/cwd/verdict paths differ
+ *   from the hub's own.
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}) => Promise<ExecutorRun>} launch
+ * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox only today)
+ */
+
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
  * push() chunks, flush() the tail at EOF, then read `result` / `sessionId`.
  * @typedef {object} AgentParser
