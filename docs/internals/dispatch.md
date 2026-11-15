@@ -58,6 +58,21 @@
   (`hermes-home.js`: own `HERMES_HOME` at `<stateDir>/hermes-home`, only `config.yaml` copied, local providers only). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →
   `cfg.agent` → `claude`); `names.js` = the import-free `AGENT_NAMES` the config schema + validation use.
 
+## The executor axis (`src/dispatch/executor.js`, #682)
+
+Which launcher runs a job — the host (a plain spawn) or the profile's sandbox (a per-run
+container) — is an **executor**, picked per run by `executorFor(cfg, step, harnessName,
+executors)` right after `resolveHarness` (before the prompt is built, so the prompt's
+`verdictFile` already comes from the chosen executor's `paths()`). `createExecutors({cfg,
+sandbox, spawnPaths})` builds the `host` executor (always) and, when the profile configures one,
+the `sandbox` executor — its `launch`/`reap` wrap `sandbox.wrap()`/`sandbox.reap()` verbatim.
+`executorFor` answers exactly what `isSandboxed(cfg, step)` (`src/sandbox/names.js`) answered
+before this axis existed; `harnessName` rides along for a future executor that varies by harness
+(e.g. a remote host, epic #681 phase 2) but never changes today's answer. The engine builds one
+executor set (`createEngine`) shared by dispatch (which run picks) and boot/teardown (which reap
+it); `killNow`/timeout-SIGKILL/cancel-during-launch go through the picked run's `executor.launch()`
+result (`executorRuns`, a per-ref map of live sandboxed runs — host runs are never stored there).
+
 ## CI and merge jobs (forge-driven, `src/dispatch/ci.js` + `merge.js`)
 
 A `github` forge turns a merged PR on an `agent/<ref>` branch into a

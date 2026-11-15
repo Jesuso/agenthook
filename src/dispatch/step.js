@@ -11,7 +11,7 @@ import { ensureWorktree, drainWorktree, worktreePath, branchName } from "../work
 import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
-import { isSandboxed } from "../sandbox/names.js";
+import { executorFor } from "./executor.js";
 import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
 import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
@@ -22,9 +22,9 @@ import { needsReviewedHead, currentPrHead } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./verdict.js').VerdictOps & import('./finish.js').Finish} ctx */
 export function createStep(ctx) {
-  const { cfg, adapter, store, emit, releaseOverlap, meta, forge, pids, cancelled, preSpawn, sandbox } = ctx;
+  const { cfg, adapter, store, emit, releaseOverlap, meta, forge, pids, cancelled, preSpawn, sandbox, executors } = ctx;
   const { resolveRoute, leavePipeline, recordPr } = ctx;
-  const { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight } = ctx;
+  const { killNow, spawnAgent, logPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight } = ctx;
   const { startEnergy, stopEnergy, finishStep, readVerdict } = ctx;
 
   /** @param {import('../types.js').Job} job */
@@ -168,13 +168,22 @@ export function createStep(ctx) {
     }
     const hasWorktree = fs.existsSync(worktree);
     if (hasWorktree && !branch) branch = branchName(job.ref, cfg.branchPrefix);
-    const cwd = hasWorktree ? worktree : repo.path;
 
+    // The harness the queue picked supplies the spawn knobs the step leaves unset: every spawn
+    // read below goes through `spawnStep`; id, verdict and advance stay on `step`. Resolved before
+    // the executor pick and the prompt build (#682) — a later harness-aware executor needs it,
+    // and the verdict path the prompt embeds comes from the executor.
+    const { step: spawnStep, harness, sandboxImage } = resolveHarness(cfg, step, job.harness);
+
+    // The executor axis (#682): which launcher this run uses — the host or the profile's
+    // sandbox — picked after the harness resolves (the harness never flips it today). `sandboxed`
+    // stays a plain boolean for the preflight/verdict/repair/finish checks below.
+    const executor = executorFor(cfg, step, harness, executors);
+    const sandboxed = executor.name === "sandbox";
     // One verdict file per run, under the state dir. Clear any stale one first so a
     // crashed prior run can't leave a verdict the agent didn't write this time. A sandboxed
     // run gets its own dir — the only part of the state dir its container sees.
-    const sandboxed = !!sandbox && isSandboxed(cfg, step);
-    const verdictFile = sandboxed ? sandboxVerdictPathFor(step.id, job.ref) : verdictPathFor(step.id, job.ref);
+    const { cwd, worktree: promptWorktree, verdictFile } = executor.paths({ stepId: step.id, ref: job.ref, worktree, hasWorktree, repoPath: repo.path });
     try {
       fs.rmSync(verdictFile, { force: true });
     } catch {
@@ -188,7 +197,7 @@ export function createStep(ctx) {
     const pending = store?.getFindings(job.ref);
     const findings = pending && pending.target === step.id ? pending : undefined;
     const base = stepPrompt(task, meta, step, {
-      worktree: hasWorktree ? worktree : undefined,
+      worktree: promptWorktree,
       branch,
       verdictFile,
       findings,
@@ -217,10 +226,6 @@ export function createStep(ctx) {
     }
     // A rework pass already has a branch (and maybe a PR): pick it up before spawning.
     if (hasWorktree) await recordPr(job.ref, repo);
-
-    // The harness the queue picked supplies the spawn knobs the step leaves unset: every spawn
-    // read below goes through `spawnStep`; id, verdict and advance stay on `step`.
-    const { step: spawnStep, harness, sandboxImage } = resolveHarness(cfg, step, job.harness);
     // Apply difficulty escalation: if a prior step (e.g. triage) stored a difficulty
     // tag and this step has a matching `escalate` key, override the base model/effort.
     const storedDifficulty = store?.getDifficulty(job.ref);
@@ -383,6 +388,7 @@ export function createStep(ctx) {
           env: spawnStep.env,
           verdictFile,
           sandboxed: sandboxedRun,
+          executor,
           maxMs: totalMaxMs ? remainingMs : 0,
           ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
           resumeSessionId: sessionId,
@@ -431,6 +437,7 @@ export function createStep(ctx) {
         env: spawnStep.env,
         verdictFile,
         sandboxed: sandboxedRun,
+        executor,
         maxMs: maxMinutes * 60000,
         ...(step.idleMinutes ? { idleMs: step.idleMinutes * 60000 } : {}),
         onPid,

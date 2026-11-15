@@ -16,6 +16,7 @@ import { runMergeCatchup, runReconcile } from "../commands/reconcile.js";
 import { recoverInterrupted } from "./recovery.js";
 import { fullAutoBanner } from "./banner.js";
 import { retryTrackerCall } from "./boot-retry.js";
+import { createExecutors } from "../dispatch/executor.js";
 
 /**
  * Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
@@ -45,6 +46,7 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
  *   forge: import('../types.js').Forge | null,
  *   ingress: import('../types.js').Ingress,
  *   sandbox: import('../types.js').Sandbox | null,
+ *   executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor},
  *   heartbeat: ReturnType<typeof import('../heartbeat.js').createHeartbeat>,
  *   queue: ReturnType<typeof import('../queue.js').createQueue>,
  *   puller: ReturnType<typeof import('../pull.js').createPuller>,
@@ -64,6 +66,9 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
  */
 export function createServe(deps) {
   const { cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, puller, quotaPacer, emit, intake, releaseOverlap, startedAt, restart, decommission, ops, shutdown, reconcileOnBoot, retry = {} } = deps;
+  // Engine passes its own (shared with dispatch); a caller that only sets `sandbox` (tests) gets
+  // an equivalent one built on the fly — same reap() either way.
+  const executors = deps.executors ?? createExecutors({ sandbox, spawnPaths: undefined });
   return async function serve() {
     const meta = ingress.describe();
     console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}${sandbox ? `, sandbox ${sandbox.describe().name}` : ""}`);
@@ -176,9 +181,9 @@ export function createServe(deps) {
       // A run that outlived a killed receiver keeps editing its worktree (and could write a
       // verdict for a run the board shows as failed): remove it before failing its record.
       // Best-effort — the runs fail below either way, and a later reap finishes the job.
-      if (sandbox) {
+      if (executors.sandbox?.reap) {
         try {
-          const reaped = await sandbox.reap();
+          const reaped = await executors.sandbox.reap();
           if (reaped.containers.length || reaped.networks.length) {
             const left = reaped.runs.length ? `run ${reaped.runs.join(", ")}` : "a previous run";
             console.log(`[recover] reaped ${reaped.containers.length} container(s), ${reaped.networks.length} network(s) left by ${left}`);

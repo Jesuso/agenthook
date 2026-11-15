@@ -6,7 +6,7 @@
 // The receiver OWNS the worktree: the step that sets createsWorktree gets one made
 // (shared by task ref across all its steps, cwd = it); drainWorktree removes it.
 import { createEnergySampler } from "../energy-sampler.js";
-import { KILL_GRACE_MS, createSpawn } from "./spawn.js";
+import { KILL_GRACE_MS, createSpawn, verdictPathFor, sandboxVerdictPathFor } from "./spawn.js";
 import { FINALIZE_TIMEOUT_MS, createUsage } from "./usage.js";
 import { createVerdictOps } from "./verdict.js";
 import { createRouting } from "./routing.js";
@@ -14,6 +14,7 @@ import { createMerge } from "./merge.js";
 import { createCi } from "./ci.js";
 import { createFinish } from "./finish.js";
 import { createStep } from "./step.js";
+import { createExecutors } from "./executor.js";
 
 export { timeoutReason, MAX_SUMMARY_CHARS, MAX_OPTION_CHARS, parseSummary, parseVerdict, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion } from "./verdict.js";
 export { lookupPr } from "./pr.js";
@@ -57,11 +58,14 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   /** @type {Map<string, NodeJS.Timeout>} */
   const killTimers = new Map();
   const sandbox = opts.sandbox ?? null;
-  /** @type {Map<string, import('../types.js').SandboxRun>} */
-  const sandboxRuns = new Map();
+  // The executor axis (#682): built once per dispatcher from the profile's sandbox, unless the
+  // engine already built one (and passed it via opts, so boot/teardown share the same instance).
+  const executors = opts.executors ?? createExecutors({ sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
+  /** @type {Map<string, import('../types.js').ExecutorRun>} */
+  const executorRuns = new Map();
 
   /** @type {import('./context.js').DispatchState} */
-  const state = { cfg, adapter, children, store, emit, forge, releaseOverlap, opts, meta, energySampler, killGraceMs, finalizeTimeoutMs, busy, pids, cancelled, preSpawn, killTimers, sandbox, sandboxRuns };
+  const state = { cfg, adapter, children, store, emit, forge, releaseOverlap, opts, meta, energySampler, killGraceMs, finalizeTimeoutMs, busy, pids, cancelled, preSpawn, killTimers, sandbox, executors, executorRuns };
   const base = { ...state, ...createRouting(state), ...createSpawn(state), ...createUsage(state), ...createVerdictOps(state) };
   const { runMerge } = createMerge(base);
   const { bounceCi, runCi } = createCi(base);

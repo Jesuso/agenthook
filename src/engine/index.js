@@ -46,6 +46,8 @@ import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
 import { harnessesOf } from "../dispatch/harness.js";
+import { createExecutors } from "../dispatch/executor.js";
+import { verdictPathFor, sandboxVerdictPathFor } from "../dispatch/spawn.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
 import { createDigester } from "../digest.js";
 import { createSummarizer } from "../summarize.js";
@@ -82,6 +84,9 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   writeProfileMarker(cfg, { webhooks: adapter.describe().webhooks !== false || !!forge });
   const ingress = createIngress(cfg);
   const sandbox = createSandbox(cfg); // null = agents run on the host
+  // The executor axis (#682): built once, shared by dispatch (which run picks it) and boot/
+  // teardown (which reap it) — same instance everywhere, no behaviour change yet.
+  const executors = createExecutors({ sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
   const heartbeat = createHeartbeat(cfg);
   const startedAt = new Date().toISOString();
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);
@@ -99,6 +104,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const boardDone = createBoardDone({ store, emit, queue: { remove: (ref, stepId, only) => queue.remove(ref, stepId, only) } });
   const runClaude = createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, {
     sandbox,
+    executors,
     // A Claude run's quota reading: persisted (readable with the receiver down), shown, paced.
     onQuota: (q) => {
       try {
@@ -283,7 +289,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   });
 
   const { shutdown, onFatal } = createExits({
-    cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox,
+    cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox, executors,
     isRestartPending: () => restarter.isPending(),
     isDecommissionPending: () => decommissioner.isPending(),
   });
@@ -291,7 +297,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   process.on("unhandledRejection", (err) => onFatal("unhandledRejection", err));
 
   const serve = createServe({
-    cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, queue, puller, quotaPacer, emit, intake, releaseOverlap, startedAt,
+    cfg, state, store, adapter, forge, ingress, sandbox, executors, heartbeat, queue, puller, quotaPacer, emit, intake, releaseOverlap, startedAt,
     restart: restarter.request, decommission: decommissioner.request, ops, shutdown, reconcileOnBoot,
   });
 

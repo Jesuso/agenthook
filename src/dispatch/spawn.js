@@ -54,9 +54,29 @@ export function agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env })
   return buildAgentEnv({ source: process.env, allow, strip: creds?.strip, layers: [agentEnv, creds?.env, env] });
 }
 
+/** The path the agent writes its verdict to (one per run, under the state dir so a
+ * worktree drain can't take it). @param {import('../types.js').Config} cfg @param {string} stepId @param {string} ref */
+export function verdictPathFor(cfg, stepId, ref) {
+  const dir = path.join(cfg.dataDir, "verdicts");
+  fs.mkdirSync(dir, { recursive: true });
+  const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+  return path.join(dir, `${safeRef}-${stepId}.json`);
+}
+
+/** A sandboxed run's verdict path: its own dir (`verdicts/run-<ref>-<step>/`, 0700, emptied
+ * first), the only one mounted into its container — mounting `verdicts/` would let one
+ * ticket's agent write another running ticket's verdict. @param {import('../types.js').Config} cfg @param {string} stepId @param {string} ref */
+export function sandboxVerdictPathFor(cfg, stepId, ref) {
+  const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
+  const dir = path.join(cfg.dataDir, "verdicts", `run-${safeRef}-${stepId}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return path.join(dir, "verdict.json");
+}
+
 /** @param {import('./context.js').DispatchState} ctx */
 export function createSpawn(ctx) {
-  const { cfg, adapter, children, killGraceMs, killTimers, meta, forge, sandbox, sandboxRuns, cancelled } = ctx;
+  const { cfg, adapter, children, killGraceMs, killTimers, meta, forge, sandbox, executorRuns, cancelled } = ctx;
   /** SIGTERM now, SIGKILL after the grace (cleared when the run ends, so a recycled pid is never hit).
    * A sandboxed run's pid is the runtime client's, whose SIGKILL would leave the container
    * running: an operator stop force-stops the container too, right away.
@@ -67,7 +87,7 @@ export function createSpawn(ctx) {
     } catch {
       return false;
     }
-    sandboxRuns.get(ref)?.kill().catch((e) => console.error(`[sandbox] kill failed for ${ref}: ${e.message}`));
+    executorRuns.get(ref)?.kill().catch((e) => console.error(`[sandbox] kill failed for ${ref}: ${e.message}`));
     clearTimeout(killTimers.get(ref));
     killTimers.set(
       ref,
@@ -110,13 +130,13 @@ export function createSpawn(ctx) {
    * else (env incl. AGENTHOOK_VERDICT_FILE, the sandbox wrap, timers, parser, the same `logPath`
    * appended to) is unchanged. Ignored when the agent has no `resumeArgs`.
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}) => void,
-   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}, resumeSessionId?: string}} o
+   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}, executor?: import('../types.js').Executor, resumeSessionId?: string}} o
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
    * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
    */
-  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, resumeSessionId }) {
+  async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, executor, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     if (promptFile) {
       try {
@@ -133,9 +153,9 @@ export function createSpawn(ctx) {
     const runEnv = { ...agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, creds, env }), ...(sandboxed?.env ?? {}), ...(verdictFile ? { AGENTHOOK_VERDICT_FILE: verdictFile } : {}) };
     /** @type {{bin: string, args: string[], env: Record<string, string>}} */
     let launch = { bin: agentBin, args, env: runEnv };
-    /** @type {import('../types.js').SandboxRun|undefined} */
+    /** @type {import('../types.js').ExecutorRun|undefined} */
     let box;
-    if (sandboxed && sandbox) {
+    if (sandboxed && executor) {
       const { ref } = sandboxed;
       /** Nothing was (or will be) spawned: close the log, drop the prompt file. @param {string} [note] */
       const unspawned = (note) => {
@@ -144,18 +164,18 @@ export function createSpawn(ctx) {
         if (promptFile) fs.rmSync(promptFile, { force: true });
       };
       try {
-        box = await sandbox.wrap({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}) });
+        box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}) });
       } catch (e) {
-        const reason = `sandbox (${sandbox.describe().name}) could not start the run: ${e.message}`;
+        const reason = `sandbox (${sandbox?.describe().name}) could not start the run: ${e.message}`;
         unspawned(reason);
         return { code: 1, result: null, quota: null, refused: reason };
       }
-      sandboxRuns.set(ref, box);
-      // A cancel that landed while wrap() was pending: never spawn.
+      executorRuns.set(ref, box);
+      // A cancel that landed while launch() was pending: never spawn.
       if (cancelled.has(ref)) {
         await box.kill().catch((e) => console.error(`[sandbox] kill failed for ${ref}: ${e.message}`));
         await box.done().catch(() => {});
-        sandboxRuns.delete(ref);
+        executorRuns.delete(ref);
         unspawned();
         return { code: 1, result: null, quota: null };
       }
@@ -288,7 +308,7 @@ export function createSpawn(ctx) {
           } catch (e) {
             console.error(`[sandbox] post-run cleanup failed for ${run.id}: ${e.message}`);
           }
-          sandboxRuns.delete(sandboxed.ref);
+          executorRuns.delete(sandboxed.ref);
           for (const note of sandboxReport?.notes ?? []) logStream.write(`[agenthook] ${note}\n`);
         }
         logStream.end();
@@ -312,15 +332,6 @@ export function createSpawn(ctx) {
     return path.join(cfg.logDir, `${stamp}-step-${stepId}-${safeRef}.log`);
   }
 
-
-  /** The path the agent writes its verdict to (one per run, under the state dir so a
-   * worktree drain can't take it). @param {string} stepId @param {string} ref */
-  function verdictPathFor(stepId, ref) {
-    const dir = path.join(cfg.dataDir, "verdicts");
-    fs.mkdirSync(dir, { recursive: true });
-    const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
-    return path.join(dir, `${safeRef}-${stepId}.json`);
-  }
 
   /** The per-run dir an adapter's `runCredentials` may own (#474): `<dataDir>/run-creds/<safeRef>-<stepId>`.
    * Not created here — the adapter wipes and creates it. @param {string} stepId @param {string} ref */
@@ -355,17 +366,6 @@ export function createSpawn(ctx) {
     } catch (e) {
       console.error(`[run] log write failed for ${logPath}:`, e.message);
     }
-  }
-
-  /** A sandboxed run's verdict path: its own dir (`verdicts/run-<ref>-<step>/`, 0700, emptied
-   * first), the only one mounted into its container — mounting `verdicts/` would let one
-   * ticket's agent write another running ticket's verdict. @param {string} stepId @param {string} ref */
-  function sandboxVerdictPathFor(stepId, ref) {
-    const safeRef = String(ref).replace(/[^A-Za-z0-9_.-]/g, "_");
-    const dir = path.join(cfg.dataDir, "verdicts", `run-${safeRef}-${stepId}`);
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    return path.join(dir, "verdict.json");
   }
 
   /** The path an agent whose CLI takes the prompt from a file (`describe().promptFile`,
@@ -417,7 +417,18 @@ export function createSpawn(ctx) {
     return { reason, ...(health ? { health: /** @type {const} */ (true) } : {}) };
   }
 
-  return { killNow, spawnAgent, logPathFor, verdictPathFor, sandboxVerdictPathFor, promptFilePathFor, runCredsDirFor, runCredentials, logLine, agentPreflight };
+  return {
+    killNow,
+    spawnAgent,
+    logPathFor,
+    verdictPathFor: (/** @type {string} */ stepId, /** @type {string} */ ref) => verdictPathFor(cfg, stepId, ref),
+    sandboxVerdictPathFor: (/** @type {string} */ stepId, /** @type {string} */ ref) => sandboxVerdictPathFor(cfg, stepId, ref),
+    promptFilePathFor,
+    runCredsDirFor,
+    runCredentials,
+    logLine,
+    agentPreflight,
+  };
 }
 
 /** @typedef {ReturnType<typeof createSpawn>} Spawn */
