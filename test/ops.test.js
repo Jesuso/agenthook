@@ -88,7 +88,8 @@ test("pause / resume: queue holds, heartbeat flag, resume is refused while a res
   const p = await s.ops.pause({ actor: "test" });
   assert.equal(p.paused, true);
   assert.equal(s.queue.isPaused(), true);
-  assert.deepEqual(s.beats.at(-1), { paused: true });
+  assert.ok(s.beats.some((b) => b.paused === true), "heartbeat paused flag set");
+  assert.deepEqual(s.beats.at(-1), { overrides: { paused: true } }, "the persisted override is published too");
   const r = await s.ops.resume({});
   assert.equal(r.paused, false);
   assert.equal(s.queue.isPaused(), false);
@@ -125,18 +126,19 @@ test("cancel + forge.autoMerge: a held ref's auto-merge is turned off before it 
 
 test("set_concurrency {harness}: changes that harness's cap live, never the global one; 0 drains; unknown names reject", async () => {
   const s = setup({ harnessing: { steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 1, opus: undefined } } });
+  s.cfg.harnesses = { qwen: { maxConcurrent: 1 }, opus: { maxConcurrent: undefined } };
+  s.cfg.maxConcurrent = 5;
   s.queue.setMax(5);
   s.queue.enqueue({ kind: "pipeline", ref: "A", stepId: "code", dedupKey: "a" }); // runs on qwen (never settles)
   s.queue.enqueue({ kind: "pipeline", ref: "B", stepId: "code", dedupKey: "b" }); // waits on qwen
   assert.equal(s.queue.state().active, 1);
-  const beats = s.beats.length;
   const r = await s.ops.set_concurrency({ max: 3, harness: "qwen" });
   assert.equal(r.harness, "qwen");
   assert.equal(r.maxConcurrent, 3);
-  assert.match(r.note, /runtime only/);
+  assert.match(r.note, /persists until reset/);
   assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 3, state: "up" }, "the raise started the waiting job");
   assert.equal(s.queue.max(), 5, "global maxConcurrent unchanged");
-  assert.equal(s.beats.length, beats, "heartbeat.maxConcurrent is not touched");
+  assert.ok(!s.beats.some((b) => "maxConcurrent" in b), "heartbeat.maxConcurrent is not touched");
   // 0 drains the harness: no new starts until re-enabled; running agents finish
   const d = await s.ops.set_concurrency({ max: 0, harness: "qwen" });
   assert.equal(d.maxConcurrent, 0);
@@ -144,14 +146,14 @@ test("set_concurrency {harness}: changes that harness's cap live, never the glob
   assert.deepEqual(s.queue.state().harnesses?.qwen, { active: 2, max: 0, state: "up" });
   const re = await s.ops.set_concurrency({ max: 2, harness: "qwen" });
   assert.equal(re.maxConcurrent, 2);
-  assert.match(re.note, /runtime only/);
-  assert.equal(s.beats.length, beats, "drain/re-enable never touches heartbeat.maxConcurrent");
+  assert.match(re.note, /persists until reset/);
+  assert.ok(!s.beats.some((b) => "maxConcurrent" in b), "drain/re-enable never touches heartbeat.maxConcurrent");
   await assert.rejects(() => s.ops.set_concurrency({ max: 0 }), /1\.\.64/); // 0 without a harness
-  await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "nope" }), /unknown harness "nope"/);
+  await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "nope" }), /no harness "nope"/);
   await assert.rejects(() => s.ops.set_concurrency({ max: 99, harness: "qwen" }), /0\.\.64/);
   await assert.rejects(() => s.ops.set_concurrency({ max: 2, harness: "" }), /harness is required/);
   // a profile without harnesses: any name rejects
-  await assert.rejects(() => setup().ops.set_concurrency({ max: 2, harness: "qwen" }), /unknown harness "qwen"/);
+  await assert.rejects(() => setup().ops.set_concurrency({ max: 2, harness: "qwen" }), /no harness "qwen"/);
 });
 
 test("set_concurrency validates and applies; cancel kills a running ref and/or dequeues waiting ones", async () => {
