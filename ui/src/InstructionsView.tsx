@@ -254,7 +254,7 @@ export default function InstructionsView(props: {
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("instructions.noProfiles")}</p>;
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
+    <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col max-md:h-auto sm:px-2 2xl:px-4">
       <div className="mb-3 flex min-w-0 items-center gap-3 text-sm">
         <select
           className="shrink-0 border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
@@ -273,8 +273,9 @@ export default function InstructionsView(props: {
           </span>
         )}
       </div>
-      <div className="flex min-h-0 flex-1 gap-4">
-        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48">
+      {/* Narrow, the file list sits above the editor instead of squeezing it. */}
+      <div className="flex min-h-0 flex-1 gap-4 max-md:flex-col">
+        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48 max-md:max-h-40 max-md:w-full">
           {list.kind === "loading" && <p className="text-muted">{t("instructions.loadingFiles")}</p>}
           {list.kind === "ok" &&
             groupFiles(list.body.files, lang).map((g) => (
@@ -326,8 +327,10 @@ export default function InstructionsView(props: {
           {open && (
             <>
               <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
-                <span className="min-w-0 flex-1 basis-32 truncate font-mono" title={open.path}>
-                  {open.path}
+                {/* The name first: a long folder is what gets cut, not the file. */}
+                <span className="flex min-w-0 flex-1 basis-32 items-baseline gap-2 font-mono" title={open.path} data-open-path>
+                  <span className="shrink-0">{baseName(open.path)}</span>
+                  <span className="min-w-0 truncate text-xs text-muted max-sm:hidden">{open.path.slice(0, open.path.length - baseName(open.path).length)}</span>
                 </span>
                 {phase === "saving" ? (
                   <span className="shrink-0 text-muted">{t("instructions.saving")}</span>
@@ -343,7 +346,7 @@ export default function InstructionsView(props: {
                   ]}
                   onChange={setSide}
                 />
-                <span className="ml-auto flex shrink-0 items-center gap-2">
+                <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
                   {!dirty && phase === "editing" && <span className="text-label text-muted">{t("instructions.noChanges")}</span>}
                   <button
@@ -376,8 +379,8 @@ export default function InstructionsView(props: {
                   </span>
                 </div>
               )}
-              <div className="flex min-h-0 flex-1 gap-3">
-                <div className="min-w-0 flex-1">
+              <div className="flex min-h-0 flex-1 gap-3 max-md:flex-col">
+                <div className="min-w-0 flex-1 max-md:h-[70vh] max-md:flex-none">
                   <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
                 </div>
                 {side === "preview" && doc && (
