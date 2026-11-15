@@ -24,6 +24,9 @@ jobs:
         run: npm run typecheck
       - name: tests
         run: npm test
+      - name: typecheck (test/) — non-blocking, see #711
+        continue-on-error: true
+        run: npm run typecheck:test
       - name: syntax check (node --check)
         run: |
           status=0

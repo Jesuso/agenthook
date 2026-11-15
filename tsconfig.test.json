@@ -1,0 +1,5 @@
+{
+  "//": "Type-check test files. Extends root tsconfig and only changes include.",
+  "extends": "./tsconfig.json",
+  "include": ["test/**/*.js", "test/**/*.mjs"]
+}

@@ -45,7 +45,11 @@ node bin/agenthook.js stats [--by harness|model|step|agent] [--since 24h|7d|30d|
 npm run typecheck                         # tsc --noEmit over the JSDoc types (no build)
 npm test                                  # node:test suites in test/ (units + test/e2e.test.js: real receiver, local tracker, stub agent)
 node --check bin/agenthook.js src/**/*.js # syntax check
+npm run typecheck:test                    # tsc over test/** (tsconfig.test.json); CI runs it non-blocking for now (#711)
 ```
+
+`npm test` also runs `test/any-ratchet.test.js`, a ratchet on explicit `any` tokens (JSDoc in
+`src/`, TS in `ui/src/`) against `test/any-baseline.json` — the count may only go down.
 
 No build step, no bundler — plain Node ESM (`"type": "module"`, Node ≥ 22). The code ships as JS
 and runs unbuilt; TypeScript is used **only as a checker** via JSDoc + `checkJs` (`tsconfig.json`,
