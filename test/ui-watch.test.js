@@ -258,6 +258,7 @@ test("a clean stop (pidfile gone, then socket closes) never flashes died", { ski
 
   await waitFor((e) => e.type === "profile" && e.profile.up);
   fs.writeFileSync(path.join(dir, "server.pid"), "4242");
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "p" }));
   await sleep(SETTLE);
 
   events.length = 0;
@@ -285,6 +286,7 @@ test("socket close with the pidfile still present reads as died", { skip: proces
 
   await waitFor((e) => e.type === "profile" && e.profile.up);
   fs.writeFileSync(path.join(dir, "server.pid"), "4242");
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "p" }));
   await sleep(SETTLE);
 
   events.length = 0;
