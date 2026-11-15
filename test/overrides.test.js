@@ -11,7 +11,24 @@ import { createQuotaPacer } from "../src/quota.js";
 import { seedOverrides, overrideEntries, fileOverrideEntries } from "../src/overrides.js";
 import { digest } from "../src/commands/tick.js";
 import { harnessSlotLints } from "../src/commands/doctor.js";
+import { loadConfig, registryDir } from "../src/config.js";
+import { createEngine } from "../src/engine.js";
 import { HELP, suggestCommand } from "../bin/agenthook.js";
+
+// Registry-backed tests (createEngine boot wiring + the `status` command) run against a real
+// config under the test AGENTHOOK_HOME, like test/profile.test.js.
+const made = new Set();
+test.after(() => {
+  for (const k of made) fs.rmSync(path.join(registryDir, k), { recursive: true, force: true });
+});
+
+/** Write a real config file under a temp dir; returns its path. @param {any} over */
+function writeConfig(over = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ovr-cfg-"));
+  const file = path.join(dir, "agenthook.config.json");
+  fs.writeFileSync(file, JSON.stringify({ name: "ah-ovr-boot", repoPath: dir, tracker: { type: "asana", pipeline: [{ id: "code" }] }, ...over }));
+  return file;
+}
 
 /** Build a store + queue + heartbeat over a temp dir, with optional persisted overrides. */
 function setup({ harnesses, maxConcurrent = 1, stepHarnesses, overrides } = {}) {
@@ -224,4 +241,62 @@ test("pause / unpause / concurrency are registered in HELP and resolvable", () =
   assert.equal(suggestCommand("paus"), "pause");
   assert.equal(suggestCommand("unpuse"), "unpause");
   assert.equal(suggestCommand("concurrenc"), "concurrency");
+});
+
+// --- engine boot wiring (the seedOverrides call inside createEngine) ---
+
+test("createEngine applies a persisted pause + harness drain to a fresh engine", () => {
+  const configPath = writeConfig({
+    name: "ah-ovr-engine-boot",
+    harnesses: { local: { model: "m", maxConcurrent: 1 } },
+    tracker: { type: "asana", pipeline: [{ id: "code", harness: ["local"] }] },
+  });
+  made.add("ah-ovr-engine-boot");
+  const cfg = loadConfig({ configPath });
+  fs.mkdirSync(cfg.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(cfg.stateDir, "overrides.json"), JSON.stringify({ paused: true, harnesses: { local: 0 } }));
+  createEngine(cfg);
+  const hb = JSON.parse(fs.readFileSync(cfg.heartbeatFile, "utf8"));
+  assert.equal(hb.paused, true, "the persisted pause is re-applied at boot");
+  assert.equal(hb.queue.harnesses.local.max, 0, "the drained harness stays drained");
+  assert.deepEqual(hb.overrides, { paused: true, harnesses: { local: { value: 0, config: 1 } } });
+});
+
+// --- status rendering (the override lines in `agenthook status`) ---
+
+test("status shows an override line from the heartbeat while up", async () => {
+  const { status } = await import("../src/commands/status.js");
+  const configPath = writeConfig({ name: "ah-ovr-status-up" });
+  made.add("ah-ovr-status-up");
+  const cfg = loadConfig({ configPath });
+  fs.mkdirSync(cfg.stateDir, { recursive: true });
+  fs.writeFileSync(cfg.heartbeatFile, JSON.stringify({ name: "ah-ovr-status-up", stateKey: "ah-ovr-status-up", tracker: "asana", overrides: { harnesses: { "oc-local": { value: 0, config: 1 } } } }));
+  fs.writeFileSync(cfg.pidFile, String(process.pid));
+  /** @type {string[]} */ const out = [];
+  const log = console.log;
+  console.log = (/** @type {any[]} */ ...a) => void out.push(a.join(" "));
+  try {
+    await status({ _: [], config: configPath });
+  } finally {
+    console.log = log;
+  }
+  assert.ok(out.some((l) => l.includes("override : oc-local: 0 slots (override; config 1)")), out.join("\n"));
+});
+
+test("status shows a persisted override line from overrides.json while down", async () => {
+  const { status } = await import("../src/commands/status.js");
+  const configPath = writeConfig({ name: "ah-ovr-status-down" });
+  made.add("ah-ovr-status-down");
+  const cfg = loadConfig({ configPath });
+  fs.mkdirSync(cfg.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(cfg.stateDir, "overrides.json"), JSON.stringify({ paused: true }));
+  /** @type {string[]} */ const out = [];
+  const log = console.log;
+  console.log = (/** @type {any[]} */ ...a) => void out.push(a.join(" "));
+  try {
+    await status({ _: [], config: configPath });
+  } finally {
+    console.log = log;
+  }
+  assert.ok(out.some((l) => l.includes("override : paused (persisted — applies on start)")), out.join("\n"));
 });

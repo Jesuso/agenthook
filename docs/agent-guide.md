@@ -337,9 +337,10 @@ bouncing. Conflicts (`conflict:true`) are not auto-fixed.
 events still queue); `resume` undoes it. Use `pause` + wait for `status.slots.active == 0` before
 a deploy, then `restart` (restarts when idle, queue preserved). These overrides **persist across
 restarts** (they are written to `overrides.json`) until reset — unlike before, a restart no longer
-silently drops a pause or a drained harness. Reset spelling: `resume` (or `pause {harness}` + a
-`resume {harness}`) clears a pause; `set_concurrency {reset: true}` (with `harness` for just that
-harness) clears a cap override back to the config value. `set_concurrency {max}` changes the global
+silently drops a pause or a drained harness. Reset spelling: `resume` clears the global pause,
+`resume {harness}` clears a harness drain (back to the config value); `set_concurrency
+{reset: true}` (with `harness` for just that harness) clears a cap override back to the config
+value. `set_concurrency {max}` changes the global
 cap, `set_concurrency {max, harness}` only that named harness's slot cap (the global cap is
 untouched; lowering it below its running count kills nothing, it only gates new starts). `max: 0`
 is allowed with `harness` only — it drains that harness (no new starts, running agents finish), the
