@@ -15,52 +15,73 @@ const __dirname = join(fileURLToPath(import.meta.url), '..');
 const ROOT = join(__dirname, '..');
 
 // ---------------------------------------------------------------------------
-// Explicit-`any` detection — one documented pattern set, applied only to text
-// already known to be a *type position*:
-//   - src/*.js, src/*.mjs: the inside of a JSDoc tag's `{...}` type
-//     annotation (@param/@returns/@type/@typedef/@property/@yields/@throws/
-//     @callback), extracted by balanced-brace matching so it also covers a
-//     multi-line object type like `@param {{ ... }} deps`. Prose that
-//     follows the type's closing `}` on the same line is never scanned.
-//   - ui/src/*.ts(x): the whole file with `/* ... */` and `// ...` comments
-//     stripped first, so prose like "(primary subtag, any case)" inside a
-//     doc comment is never scanned either.
+// Explicit-`any` detection — count the word, not enumerated shapes. The
+// reviewer's round-2 decision: a fixed shape list always lags the forms the
+// code actually uses, so instead we reduce each file to text that is known to
+// be a *type position* and count whole `any` words in it.
+//
+//   - src/*.js, src/*.mjs: only the inside of a JSDoc tag's `{...}` type
+//     annotation (the tags listed in JSDOC_TYPE_TAGS), extracted by
+//     balanced-brace matching so a multi-line object type like
+//     `@param {{ ... }} deps` is captured whole. Prose outside the type
+//     braces — descriptions, "before any further await" — is dropped.
+//   - ui/src/*.ts(x): the whole file with string literals blanked first
+//     (so a URL like 'http://…' can't truncate the rest of its line), then
+//     comments stripped, then every `any` word that is not member access
+//     (`Promise.any(`) is counted.
+//
+// Either way the count is the number of /any/ whole-word matches in the
+// reduced text — a new `any` shape can never slip past, and a line whose
+// prose contains the word never counts, whatever word it happens to be.
 // ---------------------------------------------------------------------------
-const ANY_PATTERNS = [
-  /\{any\[\]\}/g, // {any[]} — bare any-array JSDoc type (checked before {any})
-  /\{any\}/g, // {any} — bare any JSDoc type
-  /Promise<any>/g, // Promise<any>
-  /Record<string,\s*any>/g, // Record<string, any>
-  /\bas any\b/g, // TS type assertion: `x as any`
-  /:\s*any\b/g, // `: any` type annotation (JSDoc member or TS)
-  /<any\b/g, // generic type arg: `Foo<any`, `Array<any>`...
-  /\bany\[\]/g, // `any[]` array shorthand
-  /\|\s*any\b/g, // union member: `X | any`
-];
 
-/** Count `any` tokens in `text` using ANY_PATTERNS, left to right, without
- * double-counting overlapping matches (e.g. `{any[]}` also contains `any[]`). */
+const ANY_WORD = /\bany\b/g;
+
+/** Tags whose argument is a `{...}` type annotation. `@type`/`@typedef`/
+ * `@callback` may take the braces without a name; the rest need a name. */
+const JSDOC_TYPE_TAGS =
+  /@(?:param|arg|argument|returns?|type|typedef|property|prop|yields|throws|callback|template|this|satisfies|enum)\b/g;
+
+/** Blank quoted literals ('…', "…", `…`) so prose inside quotes is never
+ * scanned. No escapes in a *reduced* type region can hide a quote, and the
+ * ui/src scan runs on code where a quoted `"` inside `'…'` is legal — hence
+ * the quote-char-aware walk rather than three regexes. */
+function blankLiterals(text) {
+  let out = '';
+  let quote = null;
+  for (const ch of text) {
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/** Count `any` whole-word tokens in text already reduced to type position
+ * (quoted literals blanked). An `any` preceded by `.` is member access
+ * (`Promise.any(`), not a type, and is not counted. */
 function countAny(text) {
-  let remaining = text;
   let count = 0;
-  for (const pattern of ANY_PATTERNS) {
-    const matches = remaining.match(pattern);
-    if (matches) count += matches.length;
-    remaining = remaining.replace(pattern, (m) => ' '.repeat(m.length));
+  ANY_WORD.lastIndex = 0;
+  let m;
+  while ((m = ANY_WORD.exec(text))) {
+    if (m.index === 0 || text[m.index - 1] !== '.') count++;
   }
   return count;
 }
-
-const JSDOC_TAG_RE = /@(?:param|returns?|type|typedef|property|yields|throws|callback)\b/g;
 
 /** Extract the `{...}` type-annotation text following each JSDoc tag in
  * `block`, matching braces by depth so a multi-line object type is captured
  * whole. Text outside a tag's type braces (prose, descriptions) is dropped. */
 function extractJsdocTypeRegions(block) {
   const regions = [];
-  JSDOC_TAG_RE.lastIndex = 0;
+  JSDOC_TYPE_TAGS.lastIndex = 0;
   let m;
-  while ((m = JSDOC_TAG_RE.exec(block))) {
+  while ((m = JSDOC_TYPE_TAGS.exec(block))) {
     let i = m.index + m[0].length;
     while (i < block.length && (block[i] === ' ' || block[i] === '\t')) i++;
     if (block[i] !== '{') continue;
@@ -82,7 +103,7 @@ function extractJsdocTypeRegions(block) {
  * annotations (not its prose). */
 function countJsdocBlock(block) {
   let count = 0;
-  for (const region of extractJsdocTypeRegions(block)) count += countAny(region);
+  for (const region of extractJsdocTypeRegions(block)) count += countAny(blankLiterals(region));
   return count;
 }
 
@@ -95,16 +116,48 @@ function countJsdocAny(filepath) {
   return total;
 }
 
-/** Strip `/* ... *\/` and `// ...` comments so prose inside them is never
- * scanned for `any`. */
-function stripTsComments(content) {
-  return content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+/** Reduce a TypeScript file to its code: a single left-to-right pass that
+ * blanks block and line comments and `'…'`/`"…"`/backtick string literals
+ * (honouring backslash escapes), so the remaining text is pure code and a
+ * `any` in a comment, a string, or after a URL on a code line is never
+ * counted. One pass (not regex strip-then-blank) because an apostrophe in a
+ * line comment ("aren't") must not open a phantom string. */
+function reduceTsText(content) {
+  let out = '';
+  let i = 0;
+  const n = content.length;
+  while (i < n) {
+    const c = content[i];
+    const c2 = content[i + 1];
+    if (c === '/' && c2 === '*') { // block comment
+      i += 2;
+      while (i < n && !(content[i] === '*' && content[i + 1] === '/')) i++;
+      i = i < n ? i + 2 : n;
+    } else if (c === '/' && c2 === '/') { // line comment
+      i += 2;
+      while (i < n && content[i] !== '\n') i++;
+    } else if (c === "'" || c === '"' || c === '`') { // string literal
+      const quote = c;
+      i++;
+      while (i < n && content[i] !== quote) {
+        if (content[i] === '\\') i++; // skip escaped char
+        i++;
+      }
+      i = i < n ? i + 1 : n; // skip closing quote
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
 }
 
-/** Count explicit `any` tokens in a TypeScript source file, outside comments. */
+/** Count explicit `any` tokens in a TypeScript source file, outside
+ * comments and strings (member-access `any` like `Promise.any(` is not
+ * counted). */
 function countTsAny(filepath) {
   const content = readFileSync(filepath, 'utf8');
-  return countAny(stripTsComments(content));
+  return countAny(reduceTsText(content));
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +225,22 @@ describe('any-ratchet', () => {
     assert.strictEqual(countJsdocBlock('@param {{ results: any[], }} opts'), 1);
     assert.strictEqual(countJsdocBlock('@param {string | any} x'), 1);
     assert.strictEqual(countJsdocBlock('@param {any} x @param {any} y'), 2);
+    // Reviewer round 2: every common shape, no matter where the word sits.
+    assert.strictEqual(countJsdocBlock('@param {() => any} fn'), 1);
+    assert.strictEqual(countJsdocBlock('@param {Map<string, any>} m'), 1);
+    assert.strictEqual(countJsdocBlock('@param {any|null} x'), 1);
+    assert.strictEqual(countJsdocBlock('@param {any | undefined} x'), 1);
+    assert.strictEqual(countJsdocBlock('@param {[any, string]} pair'), 1);
+    // Record<string, any> right after another match on the same line (real:
+    // src/engine/controllers.js).
+    assert.strictEqual(countJsdocBlock('@param {Record<string, any>, Record<string, any>} x'), 2);
+    assert.strictEqual(countJsdocBlock('@prop {any} x'), 1);
+    assert.strictEqual(countJsdocBlock('@arg {any} x'), 1);
+    assert.strictEqual(countJsdocBlock('@argument {any} x'), 1);
+    assert.strictEqual(countJsdocBlock('@template {any} T'), 1);
+    assert.strictEqual(countJsdocBlock('@this {any}'), 1);
+    assert.strictEqual(countJsdocBlock('@satisfies {any} x'), 1);
+    assert.strictEqual(countJsdocBlock('@enum {any}'), 1);
     // Real multi-line case: src/ci-green.js:9 — any inside a nested object type.
     assert.strictEqual(
       countJsdocBlock(
@@ -199,7 +268,7 @@ describe('any-ratchet', () => {
     assert.strictEqual(countJsdocBlock('let any = false'), 0);
   });
 
-  test('countTsAny — structural matches (string input via countAny)', () => {
+  test('countAny / reduceTsText — structural matches', () => {
     assert.strictEqual(countAny(': any'), 1);
     assert.strictEqual(countAny('as any'), 1);
     assert.strictEqual(countAny('<any'), 1);
@@ -207,23 +276,34 @@ describe('any-ratchet', () => {
     assert.strictEqual(countAny('| any'), 1);
     assert.strictEqual(countAny('x: any | string'), 1);
     assert.strictEqual(countAny('const x: any[] = []'), 1);
+    // Reviewer round 2: function-shape types in ui/src/state.ts.
+    assert.strictEqual(countAny('const f = (x: Map<string, any>) => x'), 1);
+    assert.strictEqual(countAny('const g = (): (() => any) => () => undefined'), 1);
+    // Member access is not a type.
+    assert.strictEqual(countAny('Promise.any(promiseArray)'), 0);
+    assert.strictEqual(countAny('const x: any; Promise.any([p])'), 1);
   });
 
-  test('stripTsComments — real comment prose with "any" is removed', () => {
+  test('reduceTsText — comments and string literals carry no "any"', () => {
     // Real lines: ui/src/speech.ts, ui/src/EpicPage.tsx, src/ui/server.js.
     assert.strictEqual(
-      countAny(stripTsComments('/** The first voice (primary subtag, any case), preferring default */')),
+      countAny(reduceTsText('/** The first voice (primary subtag, any case), preferring default */')),
       0,
     );
     assert.strictEqual(
-      countAny(stripTsComments("/** A done ticket's PR link, any state, for the muted link */")),
+      countAny(reduceTsText("/** A done ticket's PR link, any state, for the muted link */")),
       0,
     );
     assert.strictEqual(
-      countAny(stripTsComments('// Bound to every interface (`0.0.0.0` / `::`), any `ip:<port>` whose ip')),
+      countAny(reduceTsText('// Bound to every interface (`0.0.0.0` / `::`), any `ip:<port>` whose ip')),
       0,
     );
-    assert.strictEqual(countAny(stripTsComments('before any further await')), 0);
+    // A URL string followed by code on the same line must not swallow the
+    // type `any` after it (blankLiterals runs before `//` stripping).
+    assert.strictEqual(
+      countAny(reduceTsText("const u = 'http://example.com/x'; const v: any = u;")),
+      1,
+    );
   });
 });
 
