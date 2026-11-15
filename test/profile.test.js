@@ -110,7 +110,7 @@ test("writeProfileMarker writes the marker 0600 and keeps createdAt on rewrite",
   writeProfileMarker(cfg);
   const file = path.join(cfg.stateDir, "profile.json");
   const first = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.deepEqual(Object.keys(first).sort(), ["configPath", "createdAt", "name", "stateKey", "updatedAt"]);
+  assert.deepEqual(Object.keys(first).sort(), ["configPath", "createdAt", "name", "provider", "stateKey", "updatedAt"]);
   assert.equal(first.configPath, "/x/agenthook.config.json");
   assert.equal(first.stateKey, "A");
   if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
@@ -139,6 +139,23 @@ test("writeProfileMarker carries over a prior webhooks value when called without
 
   writeProfileMarker(cfg, { webhooks: true });
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).webhooks, true);
+});
+
+test("writeProfileMarker writes cfg.provider, and carries over the prior value when the caller has none (a rename)", () => {
+  const reg = tmpRegistry();
+  const cfg = stub(reg, "D", "/x/agenthook.config.json");
+  mkState(cfg.stateDir);
+  const file = path.join(cfg.stateDir, "profile.json");
+
+  writeProfileMarker({ ...cfg, provider: "local" });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).provider, "local");
+
+  // A rename's pseudo-cfg (src/state-move.js) has no provider — the marker keeps the last one.
+  writeProfileMarker(cfg);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).provider, "local");
+
+  writeProfileMarker({ ...cfg, provider: "github" });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).provider, "github");
 });
 
 test("isFreshStateDir: absent or only an empty logs/ is fresh; anything else is not", () => {

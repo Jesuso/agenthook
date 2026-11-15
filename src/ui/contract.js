@@ -60,7 +60,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
 /**
  * One profile under ~/.agenthook. With no heartbeat (profile down, or never started)
  * only `name`/`label`/`up`/`pid` and the provenance fields (`configPath` … `configMissing`, from
- * the state dir's profile.json) are set; every other field is null.
+ * the state dir's profile.json) are set; every other field is null. `tracker` falls back to the
+ * marker's `provider` (profile.json), so a stopped local board still reads `"local"`.
  * @typedef {object} ProfileView
  * @property {string} name                the state key (state-dir name) — the stable id every
  *                                        API `profile` param and SSE `profile` field carries
@@ -68,7 +69,9 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {boolean} up                 pidfile pid is alive
  * @property {number|null} pid
  * @property {number|null} port
- * @property {string|null} tracker
+ * @property {string|null} tracker          heartbeat's tracker, else profile.json's `provider` (a stopped local board still reads "local")
+ * @property {string[]|null} ticketSteps    (local board, receiver up) the ids of the non-manual pipeline steps that have a
+ *                                          `sourceStatus`, in pipeline order — the "New ticket" starting-step picker; null otherwise
  * @property {string|null} ingress
  * @property {boolean|null} fullAuto
  * @property {string} color               palette id (src/identity.js): the heartbeat's `ui.color` if valid, else derived from `name`

@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- A "New ticket" action on the web UI's profile overview for local-board profiles (#698): a button
+  (and the `n` key) opens a dialog with a title, an optional markdown body, the starting step
+  (defaulting to the pipeline's first non-manual step), and optional comma-separated blockers. It
+  creates the ticket by calling the running receiver's `ticket_add` op over the control socket
+  (`POST /api/ticket`, same guards as the other control actions) — the UI still never loads a config
+  or writes the board. The button is hidden on non-local profiles and disabled while the receiver is
+  down (a 503 reads "start the receiver to add tickets"); a server refusal (e.g. a bad step) is shown
+  inline in the dialog. A stopped local board still reads as `tracker: "local"` because the profile
+  marker now carries the tracker's `provider`, and an up local board's overview advertises its
+  ticketable steps via the heartbeat's `ticketSteps`.
 - Home now ranks cards by what the operator can act on now (#694): died profiles (crashed or
   killed rather than stopped) first, then up profiles, then stopped profiles with something still
   pending — a stopped profile's stale Needs-you count no longer outranks a live one or renders as

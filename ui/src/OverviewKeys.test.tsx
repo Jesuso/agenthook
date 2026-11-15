@@ -7,7 +7,7 @@ import type { ProfileView, TicketRow } from "./contract";
 import { mount } from "./domHarness";
 import type { Mounted } from "./domHarness";
 
-const p = { name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
+const p = { name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ticketSteps: null, ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
   startedAt: null, updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
   lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null } as ProfileView;
 const t = (ref: string, status: TicketRow["status"]): TicketRow => ({

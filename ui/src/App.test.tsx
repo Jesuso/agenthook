@@ -15,6 +15,7 @@ const base: ProfileView = {
   pid: 1,
   port: 4180,
   tracker: "asana",
+  ticketSteps: null,
   ingress: "ngrok",
   fullAuto: false,
   color: "sky",
