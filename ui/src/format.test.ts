@@ -215,12 +215,16 @@ describe("formatModel", () => {
 });
 
 describe("formatContext", () => {
-  it("renders K/M text with an exact-token title, only while both ctx and ctxMax are known", () => {
+  it("renders K/M text with an exact-token title", () => {
     expect(formatContext({ ctx: 54000, ctxMax: 200000 })).toEqual({ text: "54K/200K", title: "54,000 / 200,000 tokens" });
-    expect(formatContext({ ctx: 1_200_000, ctxMax: 1_000_000 })).toEqual({ text: "1.2M/1M", title: "1,200,000 / 1,000,000 tokens" });
+    expect(formatContext({ ctx: 900_000, ctxMax: 1_000_000 })).toEqual({ text: "900K/1M", title: "900,000 / 1,000,000 tokens" });
   });
-  it("is null when either side is missing", () => {
-    expect(formatContext({ ctx: 1000 })).toBeNull();
+  it("stands alone when the max is unknown, or provably wrong (ctx above it)", () => {
+    expect(formatContext({ ctx: 1000 })).toEqual({ text: "1K", title: "1,000 tokens" });
+    expect(formatContext({ ctx: 212_000, ctxMax: 200_000 })).toEqual({ text: "212K", title: "212,000 tokens" });
+    expect(formatContext({ ctx: 1_200_000, ctxMax: 1_000_000 })).toEqual({ text: "1.2M", title: "1,200,000 tokens" });
+  });
+  it("is null when ctx is unknown", () => {
     expect(formatContext({ ctxMax: 200000 })).toBeNull();
     expect(formatContext({})).toBeNull();
   });

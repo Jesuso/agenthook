@@ -2558,7 +2558,7 @@ test("run_end + usage record: an unpriced run whose model has a `pricing` rate i
 
 test("run_start: ctxMax rides along only when the model's context window is known", async () => {
   const known = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "claude-opus-5-5" });
-  assert.equal(known.events.find((e) => e.event === "run_start")?.ctxMax, 200000);
+  assert.equal(known.events.find((e) => e.event === "run_start")?.ctxMax, 1000000);
   const unknown = await timeoutRun(`echo '${RESULT_LINE}'`, { model: "qwen3-coder" });
   assert.equal("ctxMax" in (unknown.events.find((e) => e.event === "run_start") ?? {}), false);
 });
@@ -2596,8 +2596,54 @@ test("running.json: ctxMax is set from the start; ctx joins it once the parser s
     console.log = log;
   }
   const running = JSON.parse(fs.readFileSync(`${out}.running`, "utf8"))["42"];
-  assert.equal(running.ctxMax, 200000, "set from the first running.json write, before any turn");
+  assert.equal(running.ctxMax, 1000000, "set from the first running.json write, before any turn");
   assert.equal(running.ctx, 500, "lastContext from the parser's tally, after the first turn");
+});
+
+test("onTally: a run whose ctx exceeds ctxMax logs one warning naming the model, never more (#700)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ctx-overflow-"));
+  const bin = path.join(dir, "fake-claude.sh");
+  const out = path.join(dir, "out");
+  const runningPath = path.join(dir, "running.json");
+  const turn = (id) => JSON.stringify({ type: "assistant", message: { id, content: [], usage: { input_tokens: 212000, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } });
+  fs.writeFileSync(
+    bin,
+    `#!/bin/sh\nprintf '%s\\n' '${turn("msg_1")}'\nprintf '%s\\n' '${turn("msg_2")}'\nn=0; while ! grep -q '"ctx"' "${runningPath}" 2>/dev/null && [ $n -lt 100 ]; do sleep 0.05; n=$((n+1)); done\nsleep 0.3\nprintf '%s\\n' '${RESULT_LINE}'\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`,
+    { mode: 0o755 },
+  );
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", model: "claude-haiku-4-5" }, { id: "done", manual: true }],
+    claudeBin: bin,
+    repoPath: dir,
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {},
+  });
+  const run = createDispatcher(cfg, adapter, undefined, createStore(dir), () => {});
+  const log = console.log;
+  const warn = console.warn;
+  const warnings = [];
+  console.log = () => {};
+  console.warn = (/** @type {any} */ m) => warnings.push(String(m));
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = log;
+    console.warn = warn;
+  }
+  assert.equal(warnings.length, 1, "exactly one console.warn for the run");
+  assert.match(warnings[0], /claude-haiku-4-5/);
+  assert.match(warnings[0], /212,000/);
+  assert.match(warnings[0], /200,000/);
+  const logFile = fs.readdirSync(dir).find((f) => f.endsWith("-step-code-42.log"));
+  assert.ok(logFile, "run log exists");
+  const logLines = fs.readFileSync(path.join(dir, logFile), "utf8").split("\n");
+  assert.equal(logLines.filter((l) => l.includes("context window for model")).length, 1, "one warning line in the run log");
 });
 
 // --- quota (#397): a Claude run's rate_limit_event reaches opts.onQuota; other agents never do ---

@@ -9,7 +9,7 @@ const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
 const profile = (name: string, over: Partial<ProfileView> = {}): ProfileView => ({
   name, label: name, up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 2,
   startedAt: null, updatedAt: null, active: 1, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
+  lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
 });
 const held = (p: string, ref: string): TicketRow => ({
   profile: p, ref, displayId: ref, title: null, step: null, status: "held", model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null, prUrl: null,
@@ -48,5 +48,30 @@ describe("HomePage", () => {
   it("orders cards by Needs you", () => {
     const html = render({ profiles: [profile("a"), profile("b")], tickets: [held("b", "1")] });
     expect(html.indexOf('data-profile-card="b"')).toBeLessThan(html.indexOf('data-profile-card="a"'));
+  });
+
+  it("renders an up profile's count red/amber, live", () => {
+    const html = render({ profiles: [profile("dev")], tickets: [held("dev", "1")] });
+    expect(html).toMatch(/tabular-nums text-status-held/);
+    expect(html).not.toContain('data-stale="true"');
+  });
+
+  it("mutes a stopped profile's count and shows its as-of age, instead of a live red/amber alert", () => {
+    const html = render({ profiles: [profile("dev", { up: false, pid: null, died: false, lastSeenAt: "2026-10-08T11:00:00.000Z" })], tickets: [held("dev", "1")] });
+    expect(html).toContain('data-stale="true"');
+    expect(html).toContain("as of");
+    expect(html).not.toMatch(/tabular-nums text-status-(held|failed)/);
+  });
+
+  it("shows the 'stopped unexpectedly' pill on a died profile", () => {
+    const html = render({ profiles: [profile("dev", { up: false, pid: 1234, died: true })], tickets: [held("dev", "1")] });
+    expect(html).toContain('data-died="true"');
+    expect(html).toContain("stopped unexpectedly");
+  });
+
+  it("shows no died pill on a stopped-but-not-died profile", () => {
+    const html = render({ profiles: [profile("dev", { up: false, pid: null, died: false })], tickets: [held("dev", "1")] });
+    expect(html).not.toContain('data-died="true"');
+    expect(html).not.toContain("stopped unexpectedly");
   });
 });

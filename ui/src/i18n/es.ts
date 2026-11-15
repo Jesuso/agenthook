@@ -89,6 +89,9 @@ export const messages: Record<MessageKey, Message> = {
   "home.quotaPaused": "pausa por cuota",
   "home.costToday": "costo hoy",
   "home.lastSeen": "visto {when}",
+  "home.asOf": "a partir de {when}",
+  "home.died": "se detuvo inesperadamente",
+  "home.diedTitle": "El receptor se cayó o fue terminado — no está en ejecución. Reinícialo, o ejecuta `agenthook stop` para quitar esto.",
 
   // Overview
   "overview.profileActions": "acciones del perfil",
@@ -145,8 +148,6 @@ export const messages: Record<MessageKey, Message> = {
   "overview.elapsed": "Transcurrido",
   "overview.waiting": "esperando {duration}",
   "overview.waitingTitle": "Tiempo en cola",
-  "overview.costSoFar": "costo hasta ahora (aprox.)",
-  "overview.followLog": "Seguir registro",
   "overview.now": "Ahora",
   "overview.nothingRunning": "Nada en curso · ",
   "overview.freeSlots": { one: "{count} espacio libre", other: "{count} espacios libres" },
@@ -519,6 +520,7 @@ export const messages: Record<MessageKey, Message> = {
 
   // TicketDrawer
   "drawer.aria": "Ticket {id}",
+  "drawer.contextTitle": "contexto en uso en el último turno",
   "drawer.costTitle": "costo total: la suma de los costos de run_end que siguen en la cola de eventos (una aproximación); ~est. = estimación por tabla de tarifas para ejecuciones sin costo reportado",
   "drawer.close": "Cerrar",
   "drawer.whyFailed": "Por qué falló",

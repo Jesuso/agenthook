@@ -133,6 +133,22 @@ test("readStatus: running rows carry ctx/ctxMax from running.json, only when pre
   assert.equal(Object.hasOwn(running[2], "ctxMax"), false);
 });
 
+test("readStatus: an observed ctx above ctxMax omits ctxMax — the window is wrong, not the run (#700)", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: {
+      7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctx: 212000, ctxMax: 200000 },
+      8: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctx: 54000, ctxMax: 200000 },
+      9: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", ctxMax: 200000 },
+    },
+  });
+  const running = readStatus(readProfile("p", reg)).running;
+  assert.equal(running[0].ctx, 212000);
+  assert.equal(Object.hasOwn(running[0], "ctxMax"), false, "overflowed → ctxMax omitted");
+  assert.equal(running[1].ctxMax, 200000, "under → kept");
+  assert.equal(running[2].ctxMax, 200000, "no live ctx yet → kept");
+});
+
 test("readStatus: live ctx drift does not change the etag; ctxMax is stable and so does not need to", () => {
   const reg = registry();
   const now = Date.parse("2026-01-01T01:00:00Z");

@@ -243,6 +243,61 @@ test("liveness: hello → up; socket close → up:false at once; a re-created so
   await waitFor((e) => e.type === "profile" && !e.profile.up);
 });
 
+test("a clean stop (pidfile gone, then socket closes) never flashes died", { skip: process.platform === "win32" }, async () => {
+  const { dir, events, waitFor, w } = setup(["p"]);
+  const sockPath = path.join(dir, "control.sock");
+  /** @type {Set<net.Socket>} */
+  const conns = new Set();
+  const srv = net.createServer((s) => {
+    conns.add(s);
+    s.on("close", () => conns.delete(s));
+    s.write(JSON.stringify({ type: "hello", name: "p", pid: 4242, startedAt: "x" }) + "\n");
+  });
+  await new Promise((resolve) => srv.listen(sockPath, resolve));
+  cleanups.push(() => srv.close());
+
+  await waitFor((e) => e.type === "profile" && e.profile.up);
+  fs.writeFileSync(path.join(dir, "server.pid"), "4242");
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "p" }));
+  await sleep(SETTLE);
+
+  events.length = 0;
+  // teardown()'s order: pidfile removed, then the control socket closes.
+  fs.rmSync(path.join(dir, "server.pid"));
+  srv.close();
+  for (const s of conns) s.destroy();
+  await waitFor((e) => e.type === "profile" && !e.profile.up);
+  assert.equal(events.find((e) => e.type === "profile" && e.profile.died), undefined);
+  assert.equal(w.snapshot().profiles[0].died, false);
+});
+
+test("socket close with the pidfile still present reads as died", { skip: process.platform === "win32" }, async () => {
+  const { dir, events, waitFor, w } = setup(["p"]);
+  const sockPath = path.join(dir, "control.sock");
+  /** @type {Set<net.Socket>} */
+  const conns = new Set();
+  const srv = net.createServer((s) => {
+    conns.add(s);
+    s.on("close", () => conns.delete(s));
+    s.write(JSON.stringify({ type: "hello", name: "p", pid: 4242, startedAt: "x" }) + "\n");
+  });
+  await new Promise((resolve) => srv.listen(sockPath, resolve));
+  cleanups.push(() => srv.close());
+
+  await waitFor((e) => e.type === "profile" && e.profile.up);
+  fs.writeFileSync(path.join(dir, "server.pid"), "4242");
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "p" }));
+  await sleep(SETTLE);
+
+  events.length = 0;
+  // Hard kill: the socket drops but nothing removed the pidfile.
+  srv.close();
+  for (const s of conns) s.destroy();
+  const off = await waitFor((e) => e.type === "profile" && e.profile.died);
+  assert.equal(off.profile.up, false);
+  assert.equal(w.snapshot().profiles[0].died, true);
+});
+
 test("liveness: a profile going down re-emits its running ticket as interrupted", { skip: process.platform === "win32" }, async () => {
   const { dir, events, waitFor, w } = setup(["p"]);
   fs.writeFileSync(path.join(dir, "running.json"), RUN);

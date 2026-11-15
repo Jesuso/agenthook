@@ -513,13 +513,20 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
 - Last-opened profile remembered in `localStorage` (try/catch, page works without it).
 
 ### Home
-- One **large card per profile, ~3 per row**, ordered by Needs-you desc, then running, idle.
+- One **large card per profile, ~3 per row**, ordered by what the operator can act on now: **died**
+  profiles first (Needs-you desc, then name), then **up** profiles (Needs-you desc, then running,
+  then name), then **stopped** profiles that still have something pending (Needs-you desc, then
+  name).
 - Card: emoji + color tile, name, status dot (up/down/paused/restarting), **Needs you N** as the
   headline (red if any failed, amber if only held/PR, calm "all clear" at 0), then
   `agents · queued · cost today · done today`, last activity, tracker pill, fullAuto shield, ⋯ menu
   (restart when idle, pause/resume, remove — kept from today).
-- Down and ghost profiles collapse into a muted **Inactive** strip below; a down profile that still
-  has held/failed tickets keeps a full card.
+  - When the receiver is stopped, the count is **muted** (not red/amber — it's the last value the
+    receiver wrote, not a live read) and carries an "as of \<age\>" label.
+  - When the receiver **died** — crashed or was killed rather than stopped cleanly (its pidfile
+    still names a dead pid) — the card gets a failed-tone border and a "stopped unexpectedly" pill.
+- Down and ghost profiles with nothing pending collapse into a muted **Inactive** strip below; a
+  down profile that still has held/failed tickets, or one that died, keeps a full card.
 - No cross-profile table, activity rail or global totals.
 
 ### Needs you

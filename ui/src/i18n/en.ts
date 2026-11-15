@@ -87,6 +87,9 @@ export const messages = {
   "home.quotaPaused": "quota paused",
   "home.costToday": "cost today",
   "home.lastSeen": "last seen {when}",
+  "home.asOf": "as of {when}",
+  "home.died": "stopped unexpectedly",
+  "home.diedTitle": "The receiver crashed or was killed — it is not running. Restart it, or run `agenthook stop` to clear this.",
 
   // Overview
   "overview.profileActions": "profile actions",
@@ -143,8 +146,6 @@ export const messages = {
   "overview.elapsed": "Elapsed",
   "overview.waiting": "waiting {duration}",
   "overview.waitingTitle": "Time in queue",
-  "overview.costSoFar": "cost so far (approx.)",
-  "overview.followLog": "Follow log",
   "overview.now": "Now",
   "overview.nothingRunning": "Nothing running · ",
   "overview.freeSlots": { one: "{count} free slot", other: "{count} free slots" },
@@ -517,6 +518,7 @@ export const messages = {
 
   // TicketDrawer
   "drawer.aria": "Ticket {id}",
+  "drawer.contextTitle": "context in use on the last turn",
   "drawer.costTitle": "total cost: the sum of run_end costs still in the events tail (an approximation); ~est. = rate-table estimate for runs with no reported cost",
   "drawer.close": "Close",
   "drawer.whyFailed": "Why it failed",
