@@ -141,18 +141,23 @@ const TOOLS = {
   },
   pause: {
     write: true,
-    def: schema("Stop STARTING new agents and pulling backlog (running ones finish; new events still queue). `status.slots.free` reads 0 while paused. Reverse with `resume`.", { profile: PROFILE }),
+    def: schema(
+      "Stop STARTING new agents and pulling backlog (running ones finish; new events still queue). With `harness`, drain that harness instead (its slot override becomes 0: no new starts on it, running agents finish). Persists across restarts until reset (`resume`, or `set_concurrency {reset:true}`).",
+      { profile: PROFILE, harness: { type: "string", description: "drain this named harness only (omit to pause the whole profile)" } },
+    ),
   },
   resume: {
     write: true,
-    def: schema("Undo `pause`: start queued work and pull the backlog into free slots. No effect while a restart/shutdown owns the queue.", { profile: PROFILE }),
+    def: schema(
+      "Undo `pause`: start queued work and pull the backlog into free slots. With `harness`, remove that harness's slot override (back to its config value) without touching a global pause. No effect while a restart/shutdown owns the queue.",
+      { profile: PROFILE, harness: { type: "string", description: "remove this named harness's override (omit to resume the whole profile)" } },
+    ),
   },
   set_concurrency: {
     write: true,
     def: schema(
-      "Change the concurrent-agent cap at runtime (1..64). With `harness`, change that named harness's slot cap instead (the global cap is untouched; lowering it kills no running agent). `max: 0` is allowed WITH `harness` only: it drains that harness — no new starts, running agents finish — while `max: 0` without a harness is rejected. Not persisted: a restart returns to the config value.",
-      { profile: PROFILE, max: { type: "integer", minimum: 0, maximum: 64 }, harness: { type: "string" } },
-      ["max"],
+      "Change the concurrent-agent cap at runtime, persisted across restarts. `max` sets a global cap (1..64), or with `harness` that harness's slot cap (0..64; `max: 0` drains the harness — no new starts, running agents finish). `reset: true` (instead of `max`) removes the override, back to the config value — with `harness`, only that harness's. Give exactly one of `max` / `reset: true`; setting a value equal to the config value also clears it.",
+      { profile: PROFILE, max: { type: "integer", minimum: 0, maximum: 64 }, harness: { type: "string" }, reset: { type: "boolean" } },
     ),
   },
   harness_reset: {

@@ -818,6 +818,16 @@
  */
 
 /**
+ * Operator runtime overrides persisted in overrides.json (src/store.js) and re-applied at boot
+ * (src/engine/index.js). Only the operator's own `pause`/`resume`/`set_concurrency` write these;
+ * a restart/decommission/quota pause is never persisted.
+ * @typedef {object} Overrides
+ * @property {true} [paused]           global operator pause (a resume clears it)
+ * @property {number} [maxConcurrent]  global cap override (1..64; a reset removes the entry)
+ * @property {Record<string, number>} [harnesses]  per-harness slot override (name → 0..64; 0 drains, a reset removes an entry)
+ */
+
+/**
  * The JSON-file store (src/store.js).
  * @typedef {object} Store
  * @property {(key: string) => string|undefined} getSecret
@@ -876,6 +886,8 @@
  * @property {(iso: string) => void} setMergeWatermark               persist the merge catch-up watermark
  * @property {() => Record<string, {until: string, strikes: number, reason: string}>} getHarnessHealth  harness breaker entries (harness-health.json `down`); {} when none
  * @property {(down: Record<string, {until: string, strikes: number, reason: string}>) => void} setHarnessHealth  persist the harness breaker entries
+ * @property {() => Overrides} getOverrides  operator runtime overrides (overrides.json); {} when missing/corrupt
+ * @property {(o: Overrides) => void} setOverrides  persist the overrides; deletes the file when `o` has no entries
  */
 
 export {};

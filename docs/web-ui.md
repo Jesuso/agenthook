@@ -431,8 +431,8 @@ A **resume while a restart, decommission or shutdown holds the queue** does noth
 — the dashboard surfaces that note (and every non-`200`) as a toast, never as success. Every
 outcome after profile resolution appends `{ts, action:'pause'|'resume', profile, status}` to the
 profile's `ui-audit.jsonl` via `appendAudit`; a guard failure writes nothing. The pause is
-**in-memory** (the queue's flag + `heartbeat.paused`): a restart — including Restart when idle —
-starts unpaused.
+**persisted** in `overrides.json` (the queue's flag + `heartbeat.paused`) and survives a restart —
+clear it with the same toggle or `agenthook unpause`.
 
 **Removing a profile.** Each dashboard profile row has a **Remove…** action that archives the
 state dir — never a hard delete (permanent purge is CLI-only). The modal first fetches `GET

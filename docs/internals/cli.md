@@ -12,6 +12,9 @@ node bin/agenthook.js stop [--keep-hooks]# SIGTERM the receiver; also deletes it
 node bin/agenthook.js service install|uninstall|status [name] [--dry-run] [--no-enable] [--stop]  # Linux: systemd --user unit running `start` (src/service.js); enable only, never sudo/linger
 node bin/agenthook.js rename <newName> [--move]  # relabel (inserts stateId); --move also moves the state dir (at idle if running)
 node bin/agenthook.js restart            # restart the running receiver once idle
+node bin/agenthook.js pause [--harness <name>]  # pause the profile (persists across restarts); --harness drains one harness (0 slots)
+node bin/agenthook.js unpause [--harness <name>]  # clear the pause / a harness's drain (the MCP `resume` op)
+node bin/agenthook.js concurrency <n|reset> [--harness <name>]  # set (or reset) the global cap / a harness's slots, persisted until reset
 node bin/agenthook.js remove <name|key> [--purge] [--yes] [--keep-hooks]  # retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
 node bin/agenthook.js ls                 # table of ALL profiles under ~/.agenthook + live status
 node bin/agenthook.js status [name]      # one profile in detail (url, queue, recent runs)
@@ -65,7 +68,10 @@ lint config.
 
 - `bin/agenthook.js` — CLI router. Parses argv (global `--config`) and dispatches to `src/commands/*`.
 - `src/commands/*.js` — one file per subcommand (init/start/stop/ls/status/follow/resume/agents/cleanup/
-  webhook/catchup/reconcile/doctor/alias). These replace the old bash `scripts/`.
+  webhook/catchup/reconcile/doctor/alias/pause). These replace the old bash `scripts/`.
+  `pause`/`unpause`/`concurrency` (`src/commands/pause.js`) send the `pause`/`resume`/`set_concurrency`
+  ops over the control socket; the CLI uses `unpause` (not `resume`) because `agenthook resume`
+  already means agent-session resume.
 - `src/sessions.js` — ref → worktree → Claude transcript dir resolution, plus `recentRuns` (last-N
   from the per-run logs) and `listSessions` (every session a ref has, each labelled with its pipeline
   step by correlating the session's first-message time to the nearest run-log start). Backs `resume`.
