@@ -535,6 +535,11 @@ executes in the next one. The copy is gone with the rest of the per-run HOME at 
 `opencodeConfig` only applies to sandboxed runs; on the host OpenCode reads your own
 `~/.config/opencode` as usual.
 
+A sandboxed run also gets an extra `.config/opencode/agenthook-unattended.md` file and an
+`instructions` entry pointing at it, carrying the unattended contract (never ask; what OpenCode's
+hardcoded post-compaction "stop and ask" message means here; the verdict file/format) — see
+[Small windows and compaction](local-models.md#small-windows-and-compaction).
+
 A `provider.*.options.baseURL` pointing at a LAN model server needs the same care as a harness's
 `ANTHROPIC_BASE_URL` (see [Network](#network) above): `localhost`/`127.0.0.1` never reaches your
 host from inside the container, so use the host's LAN IP, and allowlist mode needs a
