@@ -15,10 +15,12 @@ import { pause, unpause } from "../src/commands/pause.js";
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-pause-cmd-"));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
+/** @param {any} v */
 const json = (v) => JSON.stringify(v, null, 2) + "\n";
 
 /** A profile with a config file + state dir + live pidfile and a fake control socket that records
- * each request (`{cmd, args}`) and replies `result` (defaulting to a success note). */
+ * each request (`{cmd, args}`) and replies `result` (defaulting to a success note).
+ * @param {string} stateKey @param {any} [result] */
 async function profile(stateKey, result) {
   const stateDir = path.join(registryDir, stateKey);
   fs.mkdirSync(stateDir, { recursive: true });
@@ -27,7 +29,7 @@ async function profile(stateKey, result) {
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, json({ name: stateKey, repoPath: "/repo", tracker: { type: "github", pipeline: [{ id: "code" }] } }));
   const sockPath = controlSockPath(stateDir, stateKey);
-  const requests = [];
+  /** @type {any[]} */ const requests = [];
   const server = net.createServer((socket) => {
     socket.write(JSON.stringify({ type: "hello", name: stateKey, pid: 1, startedAt: "t" }) + "\n");
     let buf = "";
@@ -50,7 +52,7 @@ async function profile(stateKey, result) {
   return { configPath, stateDir, server, requests };
 }
 
-/** Run one pause/unpause command, restoring console + exitCode. */
+/** Run one pause/unpause command, restoring console + exitCode. @param {(args: any) => Promise<any>} fn @param {string} configPath */
 async function run(fn, configPath) {
   const origLog = console.log;
   console.log = () => {};

@@ -119,7 +119,7 @@ test("an unknown-harness override is dropped at boot with a log line and the fil
 
 // --- ops persistence ---
 
-/** Build ops over a temp store/queue. */
+/** Build ops over a temp store/queue. @param {any} opts */
 function opsSetup({ harnesses, maxConcurrent = 1, stepHarnesses, overrides, locked = false, pacer } = {}) {
   const s = setup({ harnesses, maxConcurrent, stepHarnesses, overrides });
   const ops = createOps({

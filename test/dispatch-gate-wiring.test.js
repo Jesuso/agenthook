@@ -141,7 +141,7 @@ test("dispatch gate: a gate that never passes holds once maxAttempts is spent â€
   const end = h.events.find((e) => e.event === "run_end");
   assert.equal(end?.gate, "fail");
   assert.equal(end.verdictSource, undefined, "a gate-cap hold is receiver-forced: run_end has no verdictSource");
-  assert.equal(h.store.getSummaries("42").code.verdictSource, undefined, "neither does the stored summary");
+  assert.equal(h.store.getSummaries("42")?.code?.verdictSource, undefined, "neither does the stored summary");
   assert.equal(h.events.filter((e) => e.event === "gate_fail").length, h.gateCalls());
   assert.equal(h.events.find((e) => e.event === "gate_pass"), undefined);
   // default maxAttempts (3): the initial run already counts as attempt 1, so only 2 more
