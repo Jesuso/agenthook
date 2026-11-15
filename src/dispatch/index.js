@@ -60,7 +60,7 @@ export function createDispatcher(cfg, adapter, children, store, emit, forge, rel
   const sandbox = opts.sandbox ?? null;
   // The executor axis (#682): built once per dispatcher from the profile's sandbox, unless the
   // engine already built one (and passed it via opts, so boot/teardown share the same instance).
-  const executors = opts.executors ?? createExecutors({ sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
+  const executors = opts.executors ?? createExecutors({ cfg, sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
   /** @type {Map<string, import('../types.js').ExecutorRun>} */
   const executorRuns = new Map();
 

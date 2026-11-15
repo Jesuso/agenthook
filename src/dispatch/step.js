@@ -180,12 +180,20 @@ export function createStep(ctx) {
     // stays a plain boolean for the preflight/verdict/repair/finish checks below.
     const executor = executorFor(cfg, step, harness, executors);
     const sandboxed = executor.name === "sandbox";
-    // One verdict file per run, under the state dir. Clear any stale one first so a
-    // crashed prior run can't leave a verdict the agent didn't write this time. A sandboxed
-    // run gets its own dir — the only part of the state dir its container sees.
-    const { cwd, worktree: promptWorktree, verdictFile } = executor.paths({ stepId: step.id, ref: job.ref, worktree, hasWorktree, repoPath: repo.path });
+    // A remote harness's run (#689, experimental): like a sandboxed run, its verdict needs the
+    // untrusted-writer guard, and it never goes through the profile's own sandbox wrap.
+    const remote = executor.name === "ssh";
+    // One verdict file per run, under the state dir. `verdictFile` is what the AGENT sees (the
+    // prompt, AGENTHOOK_VERDICT_FILE); for host/sandbox that's also the file the hub reads, but a
+    // remote executor's agent-facing path lives on the worker, so `hubVerdictFile` names the local
+    // copy `done()` writes back — every hub-side read/guard/clear below targets that instead.
+    const { cwd, worktree: promptWorktree, verdictFile, hubVerdictFile } = executor.paths({ stepId: step.id, ref: job.ref, worktree, hasWorktree, repoPath: repo.path });
+    const localVerdictFile = hubVerdictFile ?? verdictFile;
+    // Clear any stale one first so a crashed prior run can't leave a verdict the agent didn't
+    // write this time. A sandboxed run gets its own dir — the only part of the state dir its
+    // container sees.
     try {
-      fs.rmSync(verdictFile, { force: true });
+      fs.rmSync(localVerdictFile, { force: true });
     } catch {
       /* nothing to clear */
     }
@@ -308,9 +316,15 @@ export function createStep(ctx) {
           /* best effort */
         }
       }
+    } else if (remote && !refused) {
+      // A remote harness's run (#689): no mounts/egress — the worker's `workDir` is an existing
+      // directory on another machine, not something the hub wraps. `ref`/`stepId`/`step` are what
+      // spawn.js's generic box-run plumbing (executorRuns, kill/done on exit) actually needs.
+      sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts: [] };
     }
-    // Energy (#396): only an opted-in step that actually spawns is sampled.
-    const energyRun = !refused && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
+    // Energy (#396): only an opted-in step that actually spawns is sampled; a remote run's power
+    // draw is the worker's, not this host's.
+    const energyRun = !refused && !remote && step.energy === true && cfg.energy ? startEnergy(job.ref, step.id, startedAt, logPath) : null;
     const onPid = (/** @type {number|undefined} */ p) => {
       pid = p;
       if (p) pids.set(job.ref, p);
@@ -353,8 +367,8 @@ export function createStep(ctx) {
       const successStage = key ? /** @type {Record<string, unknown>} */ (step)[key] : undefined;
       const target = typeof successStage === "string" ? stepForStage(cfg, successStage) : null;
       if (!target || target.manual) return undefined;
-      if (sandboxed) guardSandboxVerdict(verdictFile);
-      const first = readVerdict(firstSpawned.code, verdictFile, step, agent);
+      if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
+      const first = readVerdict(firstSpawned.code, localVerdictFile, step, agent);
       if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
       if (endedWithQuestion(firstSpawned.lastText)) return undefined;
       const commits = commitsSince(cfg, cwd, headBefore);
@@ -385,8 +399,8 @@ export function createStep(ctx) {
       if (sandboxed && agent.describe().sandboxResume === false) return undefined;
       let sessionId = typeof firstSpawned.result?.session_id === "string" ? firstSpawned.result.session_id : undefined;
       if (!sessionId) return undefined;
-      if (sandboxed) guardSandboxVerdict(verdictFile);
-      const first = readVerdict(firstSpawned.code, verdictFile, step, agent);
+      if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
+      const first = readVerdict(firstSpawned.code, localVerdictFile, step, agent);
       if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
 
       const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
@@ -434,8 +448,8 @@ export function createStep(ctx) {
         // no further repair turns (finishStep reads this turn's code/timedOut as the run's).
         if (result.spawnError || result.code !== 0 || result.timedOut) break;
         if (typeof result.result?.session_id === "string") sessionId = result.result.session_id;
-        if (sandboxed) guardSandboxVerdict(verdictFile);
-        const after = readVerdict(result.code, verdictFile, step, agent);
+        if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
+        const after = readVerdict(result.code, localVerdictFile, step, agent);
         if (!(after.outcome === "hold" && after.reason === NO_VALID_VERDICT)) return { turns, repaired: true, results, turnStats, final };
       }
       // Zero turns (a pre-loop cancel, or under 60s of maxMinutes left before the first turn) is
@@ -502,7 +516,10 @@ export function createStep(ctx) {
     }
     const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, lastText } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText, repair, deduced });
+    // Pacing (finish.js): a remote run's subscription-quota reading is the worker's, not paced
+    // by this hub (#689). `sandboxed` here also covers a remote run — its verdict needs the same
+    // untrusted-writer guard finish.js applies before trusting a container's.
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile: localVerdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota: remote ? null : quota, turnStats, timedOut, sandboxed: executor.name !== "host", sandboxReport, headSha, lastText, repair, deduced });
   }
 
   return { runStep };

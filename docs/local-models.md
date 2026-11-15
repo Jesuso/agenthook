@@ -137,6 +137,42 @@ A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConc
 A step without `harness` behaves exactly as before, and a profile without `harnesses` reports the
 same `slots` and events as before. Worktree, verdict and advance never depend on the harness.
 
+### Remote worker (experimental, #689)
+
+A harness can run its agent on another machine instead of the host or the sandbox — add
+`remote`:
+
+```jsonc
+{
+  "harnesses": {
+    "worker-1": {
+      "remote": {
+        "host": "10.0.0.5",
+        "user": "agenthook",
+        "identityFile": "/home/me/.ssh/agenthook_worker",
+        "workDir": "/home/agenthook/work/some-repo"
+      }
+    }
+  }
+}
+```
+
+`workDir` is an **existing** directory on the worker — this ticket doesn't bring code there; the
+hub's own worktree/branch bookkeeping, and anything the remote agent edits, stay where they are
+(a later ticket adds code transport). Only `claude` is supported there yet, and a step on a
+remote harness refuses to even start if: it's sandboxed (`sandbox: false` it, or drop the
+harness's own `sandbox`); per-run GitHub App credentials would be minted for it (set
+`"githubRunToken": false`, or stop using App auth); its effective agent isn't `claude`; or
+`tracker.type` isn't `local`. None of these can be lifted yet.
+
+The agent's prompt and environment travel over the ssh connection's own stdin, never in argv on
+either side, through a strict allowlist — nothing from your tracker/forge tokens, `ANTHROPIC_*`/
+`CLAUDE_*`, or an ssh agent socket ever reaches the worker. A closed connection (the receiver
+restarting, a dropped link, an explicit cancel) kills the remote agent's whole process group; a
+boot or shutdown reap sweeps up anything a crashed receiver left running there. See
+[docs/internals/dispatch.md](internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-experimental)
+for the protocol and its security posture.
+
 ### When a harness fails
 
 A health breaker keeps a dead backend (Ollama stopped, a provider refusing, a missing `bin`) from

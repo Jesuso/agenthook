@@ -86,7 +86,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   const sandbox = createSandbox(cfg); // null = agents run on the host
   // The executor axis (#682): built once, shared by dispatch (which run picks it) and boot/
   // teardown (which reap it) — same instance everywhere, no behaviour change yet.
-  const executors = createExecutors({ sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
+  const executors = createExecutors({ cfg, sandbox, spawnPaths: { verdictPathFor: (stepId, ref) => verdictPathFor(cfg, stepId, ref), sandboxVerdictPathFor: (stepId, ref) => sandboxVerdictPathFor(cfg, stepId, ref) } });
   const heartbeat = createHeartbeat(cfg);
   const startedAt = new Date().toISOString();
   const emit = createEmitter(cfg.dataDir, cfg.sinks?.length ? createSinks(cfg) : undefined);

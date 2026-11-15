@@ -2,7 +2,7 @@
 // is built from. One object per dispatcher — two dispatchers never share any of it.
 
 /**
- * @typedef {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof import('../energy-sampler.js').createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../quota.js').QuotaReading) => void, sandbox?: import('../types.js').Sandbox|null, executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor}}} DispatchOpts
+ * @typedef {{killGraceMs?: number, finalizeTimeoutMs?: number, energySampler?: Pick<ReturnType<typeof import('../energy-sampler.js').createEnergySampler>, "start"|"stop">, onQuota?: (q: import('../quota.js').QuotaReading) => void, sandbox?: import('../types.js').Sandbox|null, executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor, ssh?: Record<string, import('../types.js').Executor>}}} DispatchOpts
  */
 
 /**
@@ -25,7 +25,7 @@
  * @property {Set<string>} preSpawn  refs between runClaude() starting and the agent being spawned
  * @property {Map<string, NodeJS.Timeout>} killTimers  pending SIGKILL per ref
  * @property {import('../types.js').Sandbox|null} sandbox  the profile's sandbox (null = runs on the host)
- * @property {{host: import('../types.js').Executor, sandbox?: import('../types.js').Executor}} executors  the executor axis (#682): which launcher a run picks, per step (src/dispatch/executor.js)
+ * @property {{host: import('../types.js').Executor, sandbox?: import('../types.js').Executor, ssh?: Record<string, import('../types.js').Executor>}} executors  the executor axis (#682, #689): which launcher a run picks, per step (src/dispatch/executor.js)
  * @property {Map<string, import('../types.js').ExecutorRun>} executorRuns  live sandboxed run per ref (kill paths); host runs are never stored here
  */
 

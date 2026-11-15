@@ -85,6 +85,7 @@ const GROUPS = [
   ["Step.escalate", [...STEP, "escalate", "*"], literalKeys(stepProps.get("escalate") ?? "")],
   ["Harness", ["harnesses", "*"], [...typedefProps("Harness").keys()]],
   ["Harness.sandbox", ["harnesses", "*", "sandbox"], literalKeys(typedefProps("Harness").get("sandbox") ?? "")],
+  ["RemoteHarness", ["harnesses", "*", "remote"], [...typedefProps("RemoteHarness").keys()]],
 ];
 
 const schemaPaths = new Set(CONFIG_SCHEMA.map((e) => e.path.join(".")));

@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Experimental** remote harness, phase 2 (#689): a harness can set `remote: {host, user?,
+  port?, identityFile?, workDir, bin?}` to run its agent over ssh on another machine instead of
+  the host or the profile's sandbox, via a new `ssh` executor (`src/dispatch/executor-ssh.js`).
+  The agent runs in an existing directory on the worker (`workDir`) — code transport/worktrees
+  there is a later ticket, so the hub's own worktree/branch bookkeeping is unchanged and nothing
+  the remote agent edits is brought back yet. The prompt and a strict env allowlist travel over
+  the ssh connection's own stdin, never in argv on either side; a closed connection kills the
+  remote agent's process group; boot/shutdown reap sweeps up anything a crashed receiver left
+  running on a remote worker. Config validation refuses a step on a remote harness that is
+  sandboxed, would get per-run GitHub App credentials, resolves to a non-`claude` agent, or runs
+  on a non-`local` tracker — none of these can be lifted yet. See
+  [docs/local-models.md](docs/local-models.md#remote-worker-experimental-689) and
+  [docs/internals/dispatch.md](docs/internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-experimental).
 - Deduced verdict (#680): on an `implement`/`change` step, a clean exit with no valid verdict is
   often a plain fact — the run added commits to the ticket branch — rather than something only
   another model turn can answer. Before the #677 repair turn runs, the receiver now deduces
