@@ -72,7 +72,7 @@ export async function removeProfile({
   } else if (!keepHooks && hooks) {
     log(unregisterHint(configPath, "before removing, while the state is still in place"));
   }
-  noteWorktrees(p.up ? p.heartbeat?.repos : reposFromConfig(configPath), configPath, branchPrefixFromConfig(configPath), log);
+  noteWorktrees(p.up ? p.heartbeat?.repos : reposFromConfig(configPath), configPath, branchPrefixFromConfig(configPath), hostGitSafeCfgFromConfig(configPath), log);
 
   if (!yes) {
     const answer = await ask("Type the profile name to confirm: ");
@@ -141,14 +141,28 @@ function branchPrefixFromConfig(configPath) {
   }
 }
 
+/** The removed profile's `sandbox`/`harnesses` from its raw config file (no env interpolation) —
+ * just enough for `listWorktrees`' `hostGitSafe` check (#690: a remote-harness profile's git
+ * calls must stay hardened here too). `{}` (unhardened) on any error. @param {string|null} configPath
+ * @returns {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} */
+function hostGitSafeCfgFromConfig(configPath) {
+  if (!configPath) return {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    return { sandbox: raw.sandbox, harnesses: raw.harnesses };
+  } catch {
+    return {};
+  }
+}
+
 /** Mention leftover branchPrefix worktrees per repo. Never throws.
- * @param {any} repos @param {string|null} configPath @param {string} branchPrefix @param {(m: string) => void} log */
-function noteWorktrees(repos, configPath, branchPrefix, log) {
+ * @param {any} repos @param {string|null} configPath @param {string} branchPrefix @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} hostGitSafeCfg @param {(m: string) => void} log */
+function noteWorktrees(repos, configPath, branchPrefix, hostGitSafeCfg, log) {
   if (!Array.isArray(repos)) return;
   for (const r of repos) {
     try {
       if (typeof r?.path !== "string") continue;
-      const n = listWorktrees({}, r.path).filter((w) => w.branch.startsWith(branchPrefix)).length;
+      const n = listWorktrees(hostGitSafeCfg, r.path).filter((w) => w.branch.startsWith(branchPrefix)).length;
       if (n > 0) log(`${n} ${branchPrefix}* worktree(s) in ${r.path} — prune done ones with \`agenthook cleanup --config ${configPath ?? "<path>"}\``);
     } catch {
       /* git/IO error: best-effort */

@@ -209,18 +209,19 @@ async function pushWorktreeToWorker(cfg, remote, worktree, gitPath, branch) {
   return sha;
 }
 
-/** Add (or replace) the worker's worktree for this branch, pruning first so a stale dir at the
- * same path never blocks `worktree add`. @param {import('../types.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath @param {string} branch */
+/** Prune the bare repo's worktree admin and remove any dir at `wtPath` — a prior run's branch
+ * must not still be "currently checked out" in a linked worktree, or the force-push itself is
+ * refused by receive-pack. Called before the push (not just before `worktree add`) so a leftover
+ * worktree a crashed run's best-effort cleanup never reaped doesn't block every later run on that
+ * ref. @param {import('../types.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath */
+async function clearWorkerWorktree(remote, gitPath, wtPath) {
+  await runRemoteChecked(remote, [`git -C ${shQuote(gitPath)} worktree prune`, `rm -rf ${shQuote(wtPath)}`, `git -C ${shQuote(gitPath)} worktree prune`].join(" && "));
+}
+
+/** Add the worker's worktree for this branch at `wtPath` (already cleared by `clearWorkerWorktree`
+ * before the push). @param {import('../types.js').RemoteHarness} remote @param {string} gitPath @param {string} wtPath @param {string} branch */
 async function addWorkerWorktree(remote, gitPath, wtPath, branch) {
-  await runRemoteChecked(
-    remote,
-    [
-      `git -C ${shQuote(gitPath)} worktree prune`,
-      `rm -rf ${shQuote(wtPath)}`,
-      `mkdir -p ${shQuote(path.posix.dirname(wtPath))}`,
-      `git -C ${shQuote(gitPath)} worktree add ${shQuote(wtPath)} ${shQuote(branch)}`,
-    ].join(" && "),
-  );
+  await runRemoteChecked(remote, [`mkdir -p ${shQuote(path.posix.dirname(wtPath))}`, `git -C ${shQuote(gitPath)} worktree add ${shQuote(wtPath)} ${shQuote(branch)}`].join(" && "));
 }
 
 /** Stream a tracked-only `git archive HEAD` of `repoPath` straight into a fresh dir on the worker
@@ -318,6 +319,7 @@ async function syncBefore(cfg, remote, stateKey, hub, cwd) {
     refuseIfSubmoduleOrLfs(cfg, hub.worktree, "HEAD", "the worktree");
     const gitPath = remoteRepoGitPath(remote, stateKey, hub.repoId);
     await ensureWorkerBareRepo(remote, gitPath);
+    await clearWorkerWorktree(remote, gitPath, cwd);
     const beforeSha = await pushWorktreeToWorker(cfg, remote, hub.worktree, gitPath, hub.branch);
     await addWorkerWorktree(remote, gitPath, cwd, hub.branch);
     return beforeSha;

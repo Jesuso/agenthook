@@ -763,12 +763,20 @@ test("ssh executor code transport (#690): a worktree step's agent commits on the
     assert.match(execFileSync("git", ["-C", hubWorktree, "log", "-1", "--format=%s"], { encoding: "utf8" }), /worker commit r1\.txt/);
     assert.ok(!fs.existsSync(cwd), "the worker worktree must be removed after done()");
 
-    // Simulate a crashed prior run: the worker's bare repo branch now points somewhere other
-    // than the hub's current branch (never fast-forwarded, could even be "ahead" of it) — the
-    // hub is authoritative, so the next launch's force-push must overwrite it outright, not
-    // merge or refuse.
+    // Simulate a crashed prior run: its done() never got to run, so the worker worktree is
+    // still linked to the branch AND has a commit the hub never got — diverged and ahead, not
+    // behind. The next launch must (a) clear that stale worktree before the push (receive-pack
+    // refuses to move a branch "currently checked out"), and (b) force-overwrite the divergent
+    // tip outright — a plain fast-forward push would be rejected too. The hub is authoritative.
     const gitPath = path.join(workerRoot, ".agenthook", "p", "repos", "default.git");
-    execFileSync("git", ["-C", gitPath, "update-ref", `refs/heads/${branch}`, headBefore]);
+    const staleWorktree = cwd; // the SAME deterministic path a real crash would have left linked
+    execFileSync("git", ["-C", gitPath, "worktree", "add", "-f", staleWorktree, branch], { stdio: "ignore" });
+    execFileSync("git", ["-C", staleWorktree, "config", "user.email", "a@test.local"], { stdio: "ignore" });
+    execFileSync("git", ["-C", staleWorktree, "config", "user.name", "a"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(staleWorktree, "stale.txt"), "stale\n");
+    execFileSync("git", ["-C", staleWorktree, "add", "stale.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", staleWorktree, "commit", "--quiet", "-m", "stale worker-only commit"], { stdio: "ignore" });
+    assert.ok(fs.existsSync(staleWorktree), "the stale worktree must still be linked, simulating a crash before cleanup");
 
     // Rework: a second remote run on the same ref pushes the hub's now-advanced branch and works.
     remote.bin = writeCommitAgent(workerRoot, "r2.txt");
@@ -778,6 +786,8 @@ test("ssh executor code transport (#690): a worktree step's agent commits on the
     assert.ok(!r2.sandboxReport?.failed, JSON.stringify(r2.sandboxReport));
     assert.notEqual(headOf(hubWorktree), headBeforeRework, "the second run must also advance the hub worktree");
     assert.match(execFileSync("git", ["-C", hubWorktree, "log", "-1", "--format=%s"], { encoding: "utf8" }), /worker commit r2\.txt/);
+    assert.ok(!fs.existsSync(staleWorktree), "the stale worktree must have been cleared before the force-push");
+    assert.doesNotMatch(execFileSync("git", ["-C", hubWorktree, "log", "--format=%s"], { encoding: "utf8" }), /stale worker-only commit/, "the divergent worker-only commit must have been overwritten, not merged in");
   } finally {
     ssh.restore();
     fs.rmSync(root, { recursive: true, force: true });
@@ -946,6 +956,74 @@ test("ssh executor code transport (#690): the hub push is HOST_GIT_SAFE-hardened
   }
 });
 
+/** A fake `git` on PATH that records its full argv (one JSON line per call) then execs the real
+ * one — for asserting the exact argv a hub-side call built, not just its observable effect. The
+ * fake ssh double already runs its remote script through the same PATH, so a worker-side `git`
+ * call (inside the shell script executor-ssh.js sends over ssh) is ALSO recorded; callers filter
+ * by `-C <path>` to tell hub calls (always hardened, #690) from worker-side ones (never wrapped
+ * by `gitArgv` — only the hub is a HOST_GIT_SAFE concern). */
+function withArgvRecordingGit() {
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-git-bin-"));
+  const bin = path.join(dir, "git");
+  const record = path.join(dir, "record.jsonl");
+  fs.writeFileSync(
+    bin,
+    `#!/usr/bin/env node\nimport fs from "node:fs";\nimport { spawnSync } from "node:child_process";\nconst args = process.argv.slice(2);\nfs.appendFileSync(${JSON.stringify(record)}, JSON.stringify(args) + "\\n");\nconst r = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });\nprocess.exit(r.status ?? 1);\n`,
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    /** @param {string} forPath only calls with `-C <forPath>` */
+    callsFor: (forPath) =>
+      (fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []).filter(
+        (a) => a[a.indexOf("-C") + 1] === forPath,
+      ),
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+test("ssh executor code transport (#690): every hub-side git call in a full round trip (dirty/submodule probe, push, fetch, merge --ff-only, update-ref) is HOST_GIT_SAFE-hardened", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-sync-hardening-"));
+  const workerRoot = path.join(root, "worker");
+  const hubWorktree = path.join(root, "hub-worktree");
+  fs.mkdirSync(workerRoot, { recursive: true });
+  initGitRepo(hubWorktree);
+  const branch = "agent/7";
+  execFileSync("git", ["-C", hubWorktree, "checkout", "-b", branch], { stdio: "ignore" });
+  // Recording starts only after this test's own setup git calls (unhardened on purpose, never
+  // through gitArgv) so they don't pollute what's asserted below.
+  const rec = withArgvRecordingGit();
+  try {
+    const remote = { host: "worker.test", workDir: workerRoot, bin: writeCommitAgent(workerRoot, "hardening.txt") };
+    const cfg = { harnesses: { worker: { remote } } };
+    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") }, cfg });
+    const { cwd, verdictFile } = executor.paths({ stepId: "code", ref: "7", hasWorktree: true });
+    const hub = { repoId: "default", repoPath: hubWorktree, worktree: hubWorktree, branch };
+    const { spawnAgent } = spawnCtx();
+    const result = await spawnAgent({ agent: fakeAgent(), prompt: "go", cwd, logPath: path.join(root, "run.log"), verdictFile, sandboxed: { ref: "7", stepId: "code", step: {}, mounts: [], hub }, executor });
+    assert.equal(result.code, 0, JSON.stringify(result));
+
+    const hubCalls = rec.callsFor(hubWorktree);
+    const ops = new Set(hubCalls.map((a) => a[a.indexOf("-C") + 2]));
+    for (const op of ["status", "show", "rev-parse", "push", "fetch", "merge", "update-ref"]) {
+      assert.ok(ops.has(op), `expected a hub-side "${op}" call, saw ops ${JSON.stringify([...ops])}`);
+    }
+    for (const call of hubCalls) {
+      assert.deepEqual(call.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"], `every hub call must be HOST_GIT_SAFE-hardened, got ${JSON.stringify(call)}`);
+    }
+  } finally {
+    rec.restore();
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ssh executor code transport (#690): GIT_SSH_COMMAND carries BatchMode=yes and the harness's port/identity/user; never -A", async () => {
   const ssh = withFakeSsh();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-sync-gitssh-"));
@@ -985,6 +1063,186 @@ test("ssh executor code transport (#690): GIT_SSH_COMMAND carries BatchMode=yes 
   } finally {
     ssh.restore();
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- code transport (#690) at the full-pipeline level: step.js/finish.js, not just spawnAgent ---
+
+/** A real git repo + a `claude`-shaped fake bin, for a dispatch-level (`createDispatcher`) test
+ * of a remote `createsWorktree` step. Mirrors `deduceHarness` in test/dispatch.test.js, but the
+ * step's harness is a remote one, so the agent actually runs on the "worker" (the fake-ssh
+ * double) against the worktree #690 synced there — not directly in the hub worktree.
+ * @param {{pipeline: any[]}} o */
+function remoteWorktreeHarness({ pipeline }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-pipeline-"));
+  const repoDir = path.join(dir, "repo");
+  const workDir = path.join(dir, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  initGitRepo(repoDir);
+  // The harness's `bin` path is fixed at cfg-build time (createDispatcher builds its executors
+  // once, from the cfg as it stood then — a later `cfg.harnesses` mutation would never be seen).
+  // Each run instead (re)writes the SCRIPT at this fixed path before calling run().
+  const agentScript = path.join(workDir, "agent.sh");
+  const cfg = /** @type {any} */ ({
+    pipeline,
+    repoPath: repoDir,
+    worktreePrefix: path.join(dir, "wt"),
+    stateKey: "p",
+    stateDir: dir,
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+    harnesses: { worker: { remote: { host: "worker.test", workDir, bin: agentScript } } },
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({
+      platform: "GitHub",
+      taskNoun: "issue",
+      trigger: "@agent",
+      commentHowTo: "comment",
+      stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failLabel", hold: "holdLabel", queue: "queueLabel" },
+    }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push({ ref, stepId, ...verdict }),
+  });
+  const run = createDispatcher(cfg, adapter, undefined, store, () => {});
+  /** @param {string} stepId @param {string} scriptBody the fixed `agentScript`'s new contents */
+  const runStep = async (stepId, scriptBody) => {
+    fs.writeFileSync(agentScript, scriptBody, { mode: 0o755 });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      return await run({ kind: "pipeline", ref: "55", stepId, dedupKey: `k:${stepId}`, harness: "worker" });
+    } finally {
+      console.log = log;
+    }
+  };
+  return { cfg, store, advanced, runStep, dir, repoDir, workDir, agentScript };
+}
+
+const WORKTREE_PIPELINE = [
+  { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0 },
+  { id: "review", sourceLabel: "src:review" },
+];
+
+// No verdictRepairs: 0 here on purpose, same reasoning as test/dispatch.test.js's own deduce
+// test: the default (1 repair turn) applies, so calls()===1 below actually proves deduction
+// pre-empted the repair spawn, not just that repairs were disabled.
+const WORKTREE_PIPELINE_WITH_REPAIR = [
+  { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review" },
+  { id: "review", sourceLabel: "src:review" },
+];
+
+test("dispatch: a remote worktree run whose sync-back is refused (non-ff) fails the run, not advances — even though the agent's own verdict says advance", async () => {
+  const ssh = withFakeSsh();
+  const h = remoteWorktreeHarness({ pipeline: WORKTREE_PIPELINE });
+  const scriptBody = [
+    "#!/bin/sh",
+    "cat > /dev/null",
+    "git config user.email a@test.local",
+    "git config user.name a",
+    "echo hi > r.txt",
+    "git add r.txt",
+    // Amends the commit that was just pushed (the current HEAD) IN PLACE, giving it a new sha
+    // with the same parent — a sibling of what was pushed, not a descendant of it, so the
+    // ancestor check fails exactly like a history rewrite/reset on the worker would.
+    'git commit -q --amend -m "rewritten"',
+    'mkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"',
+    'echo \'{"outcome":"advance","reason":"the agent itself thinks it succeeded"}\' > "$AGENTHOOK_VERDICT_FILE"',
+    'printf \'{"type":"result","subtype":"success","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n\'',
+    "exit 0",
+    "",
+  ].join("\n");
+  try {
+    const headBefore = execFileSync("git", ["-C", h.repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const result = await h.runStep("code", scriptBody);
+    assert.equal(result.code, 0, "the agent's own process exited clean");
+    assert.equal(h.advanced.length, 1);
+    assert.equal(h.advanced[0].outcome, "fail", `a refused sync-back must fail the run, never advance on the agent's say-so (got ${JSON.stringify(h.advanced[0])})`);
+    assert.match(h.advanced[0].reason, /rewritten|diverged/);
+    const headAfter = execFileSync("git", ["-C", h.repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    assert.equal(headAfter, headBefore, "the hub worktree/branch must stay exactly where it was");
+  } finally {
+    ssh.restore();
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("dispatch: a remote worktree run's deduced verdict counts the commits the sync-back fast-forwarded in, not just a local HEAD the worker never actually reached", async () => {
+  const ssh = withFakeSsh();
+  const h = remoteWorktreeHarness({ pipeline: WORKTREE_PIPELINE_WITH_REPAIR });
+  const counter = path.join(h.dir, "counter");
+  const scriptBody = [
+    "#!/bin/sh",
+    "cat > /dev/null",
+    `n=0; [ -f ${shQuote(counter)} ] && n=$(cat ${shQuote(counter)})`,
+    "n=$((n + 1))",
+    `echo "$n" > ${shQuote(counter)}`,
+    "git config user.email a@test.local",
+    "git config user.name a",
+    "echo hi > r.txt",
+    "git add r.txt",
+    'git commit -q -m "worker commit, no verdict written"',
+    'printf \'{"type":"result","subtype":"success","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n\'',
+    "exit 0",
+    "",
+  ].join("\n");
+  try {
+    const result = await h.runStep("code", scriptBody);
+    assert.equal(result.code, 0, JSON.stringify(result));
+    assert.equal(h.advanced.length, 1);
+    assert.deepEqual(h.advanced[0], { ref: "55", stepId: "code", outcome: "advance", reason: "no verdict written; advanced because the run added 1 commit" });
+    assert.equal(Number(fs.readFileSync(counter, "utf8").trim()), 1, "the agent was spawned exactly once — deduction (reading the hub worktree AFTER sync-back fast-forwarded it) pre-empted the repair spawn");
+  } finally {
+    ssh.restore();
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("dispatch: a remote run's verdict-REPAIR turn is the one that rewrites history — its own sync-back refusal must still fail the run, not get dropped in favor of the first turn's clean sync", async () => {
+  const ssh = withFakeSsh();
+  const h = remoteWorktreeHarness({ pipeline: WORKTREE_PIPELINE_WITH_REPAIR });
+  const counter = path.join(h.dir, "counter");
+  const scriptBody = [
+    "#!/bin/sh",
+    "cat > /dev/null",
+    `n=0; [ -f ${shQuote(counter)} ] && n=$(cat ${shQuote(counter)})`,
+    "n=$((n + 1))",
+    `echo "$n" > ${shQuote(counter)}`,
+    // Turn 1: no commit, no verdict — NO_VALID_VERDICT, so step.js's repair ladder fires.
+    // Turn 2 (the repair, resuming the same session): amends the commit it just synced IN
+    // PLACE (a sibling, not a descendant — same non-ff shape the earlier non-ff test uses) and
+    // THIS time writes a valid verdict, so repairMissingVerdict stops here and returns this
+    // turn's own result as `final` — the one whose sandboxReport must be trusted.
+    'if [ "$n" -ge 2 ]; then',
+    "  git config user.email a@test.local",
+    "  git config user.name a",
+    "  echo hi > r.txt",
+    "  git add r.txt",
+    '  git commit -q --amend -m "rewritten by the repair turn"',
+    '  mkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"',
+    "  echo '{\"outcome\":\"advance\",\"reason\":\"the repair turn itself thinks it succeeded\"}' > \"$AGENTHOOK_VERDICT_FILE\"",
+    "fi",
+    'printf \'{"type":"result","subtype":"success","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n\'',
+    "exit 0",
+    "",
+  ].join("\n");
+  try {
+    const headBefore = execFileSync("git", ["-C", h.repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const result = await h.runStep("code", scriptBody);
+    assert.equal(result.code, 0, "both turns' own processes exited clean");
+    assert.equal(Number(fs.readFileSync(counter, "utf8").trim()), 2, "exactly one repair turn ran");
+    assert.equal(h.advanced.length, 1);
+    assert.equal(h.advanced[0].outcome, "fail", `the repair turn's own refused sync-back must fail the run, never advance on its say-so (got ${JSON.stringify(h.advanced[0])})`);
+    assert.match(h.advanced[0].reason, /rewritten|diverged/);
+    const headAfter = execFileSync("git", ["-C", h.repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    assert.equal(headAfter, headBefore, "the hub worktree/branch must stay exactly where it was");
+  } finally {
+    ssh.restore();
+    fs.rmSync(h.dir, { recursive: true, force: true });
   }
 });
 

@@ -510,7 +510,9 @@ export function createStep(ctx) {
             repair = { turns: r.turns, repaired: r.repaired, results: r.results, turnStats: r.turnStats };
             // The final repair turn's code/timedOut/lastText become the run's (finishStep resolves
             // the verdict/health from these); the harness-health signals below stay the first run's.
-            spawned = { ...spawned, code: r.final.code, timedOut: r.final.timedOut, lastText: r.final.lastText ?? spawned.lastText, ...(r.final.spawnError ? { spawnError: r.final.spawnError } : {}) };
+            // sandboxReport also comes from the repair turn (#690: its own sync-back, not the
+            // first turn's) — a refusal there must still fail the run, not get dropped silently.
+            spawned = { ...spawned, code: r.final.code, timedOut: r.final.timedOut, lastText: r.final.lastText ?? spawned.lastText, sandboxReport: r.final.sandboxReport ?? spawned.sandboxReport, ...(r.final.spawnError ? { spawnError: r.final.spawnError } : {}) };
           }
         }
       }
