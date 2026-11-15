@@ -199,6 +199,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- Overview "Now": each running or queued ticket is one line of essentials — id, title, step and its
+  clock. The model, context, cost and the agent's sentence moved to the ticket drawer (one click),
+  and "Follow log" went (the row already opens it). The context figure is no longer coloured as an
+  alarm, and stands alone when it exceeds the listed window (the listed value is then provably wrong).
 - `agenthook init` now asks first where the work comes from — a local board (the default, Enter)
   or a tracker. `init --local` and the new `init --remote` skip the question; `--yes` alone means
   the local board; with no terminal and no flag it fails naming both commands instead of hanging.

@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import Markdown from "react-markdown";
 import type { LogFrame, RunView, TicketRow, TicketStatus } from "./contract";
 import type { ReleaseOutcome } from "./config";
-import { formatDuration, formatRelative, formatTicketSpend, ticketTitle } from "./format";
+import { formatContext, formatDuration, formatModel, formatRelative, formatTicketSpend, ticketTitle } from "./format";
 import { prNumber } from "./tickets";
 import { AnswerOptions } from "./AnswerOptions";
 import {
@@ -158,6 +158,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   const startedAgo = useAgo(selected?.startedAt ?? null, now);
   const label = ticket?.displayId ?? ticketRef;
   const pr = prNumber(ticket?.prUrl ?? null);
+  const ctx = ticket ? formatContext(ticket) : null;
   const seq = chronological(list);
   const order = stepOrder(list);
   const span = timeScale(seq.map((r) => ({ start: Date.parse(r.startedAt), end: Math.max(runEndMs(r, now), Date.parse(r.startedAt) + 1000) })));
@@ -200,6 +201,17 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             <a className="text-label text-accent hover:underline" href={ticket.prUrl} target="_blank" rel="noopener noreferrer">
               PR #{pr}
             </a>
+          )}
+          {/* The run's figures live here, not on the Overview row: model and context only while it runs. */}
+          {ticket?.status === "running" && ticket.model && (
+            <span data-drawer-model className="font-mono text-label text-muted" title={formatModel(ticket.model).title}>
+              {formatModel(ticket.model).text}
+            </span>
+          )}
+          {ticket?.status === "running" && ctx && (
+            <span data-drawer-ctx className="font-mono text-label text-muted" title={`${t("drawer.contextTitle")}: ${ctx.title}`}>
+              {ctx.text}
+            </span>
           )}
           {ticket && (
             <span className="text-label text-muted" title={t("drawer.costTitle")}>
