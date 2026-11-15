@@ -146,6 +146,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       cooldowns: shape.cooldowns,
       health: seeded,
       unharnessedShared: shape.unharnessedShared,
+      unharnessedAgents: shape.unharnessedAgents,
       unharnessedUntil: stored.unharnessedUntil,
       onHealth: (down, unharnessedUntil) => store.setHarnessHealth(down, unharnessedUntil),
       onHarnessDown: (harness, { reason, until, cause = "health", window, utilization, threshold }) =>
@@ -307,6 +308,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       caps: nextShape.caps,
       cooldowns: nextShape.cooldowns,
       unharnessedShared: nextShape.unharnessedShared,
+      unharnessedAgents: nextShape.unharnessedAgents,
     });
 
     // Re-apply active operator overrides so an override still wins over the new config value;

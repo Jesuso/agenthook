@@ -165,7 +165,9 @@ export function Overview(props: OverviewProps) {
                 <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
                 {t("common.agents")}
               </span>
-              {profile.harnesses && <HarnessChips harnesses={profile.harnesses} />}
+              {(profile.harnesses || profile.unharnessed) && (
+                <HarnessChips harnesses={profile.harnesses ?? {}} unharnessed={profile.unharnessed ?? {}} />
+              )}
               <span>
                 <span className="font-mono text-fg">{profile.queued ?? 0}</span> {t("common.queued")}
               </span>
@@ -457,7 +459,13 @@ function SlotPips({ active, max, up }: { active: number; max: number; up: boolea
  * `∞`. A down/probing one (#688) tints status-failed, its title naming the reason — the full
  * diagnosis is the Needs-you row above; this is just a glance-level flag. A `cause:"quota"` closure
  * instead shows its reopen time. */
-function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harnesses"]> }) {
+function HarnessChips({
+  harnesses,
+  unharnessed,
+}: {
+  harnesses: NonNullable<ProfileView["harnesses"]>;
+  unharnessed?: NonNullable<ProfileView["unharnessed"]>;
+}) {
   const { t } = useT();
   return (
     <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
@@ -480,6 +488,16 @@ function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harne
           </span>
         );
       })}
+      {Object.entries(unharnessed ?? {}).map(([agent, n]) => (
+        <span
+          key={agent}
+          data-harness-implicit={agent}
+          className="rounded border border-dashed border-border-strong px-1.5 font-mono text-muted"
+          title={t("overview.harnessImplicit", { agent, n })}
+        >
+          {agent} <span className="text-fg">{n}</span>
+        </span>
+      ))}
     </span>
   );
 }

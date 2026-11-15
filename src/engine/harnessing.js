@@ -3,11 +3,13 @@
 // the event/persist callbacks stay in `createEngine`; reload reuses only these shapes.
 
 import { harnessesOf, quotaGroupOf } from "../dispatch/harness.js";
+import { DEFAULT_AGENT } from "../agents/names.js";
 
 /**
  * The step caps, harness routing and per-harness slot caps/cooldowns the queue copies at
  * construction (and that `queue.reconfigure` re-applies on a reload). `unharnessedShared` lists
- * the step ids whose unharnessed claude runs share the profile's quota group.
+ * the step ids whose unharnessed claude runs share the profile's quota group; `unharnessedAgents`
+ * maps every unharnessed step to the agent CLI its runs spawn under (for `state().unharnessed`).
  * @param {import('../types.js').Config} cfg
  * @returns {{
  *   stepCaps: Record<string, number>,
@@ -15,6 +17,7 @@ import { harnessesOf, quotaGroupOf } from "../dispatch/harness.js";
  *   caps: Record<string, number|undefined>,
  *   cooldowns: Record<string, number|undefined>,
  *   unharnessedShared: string[],
+ *   unharnessedAgents: Record<string, string>,
  * }}
  */
 export function buildHarnessing(cfg) {
@@ -30,9 +33,13 @@ export function buildHarnessing(cfg) {
   const cooldowns = {};
   /** @type {string[]} */
   const unharnessedShared = [];
+  /** @type {Record<string, string>} */
+  const unharnessedAgents = {};
   if (cfg.harnesses) {
     for (const s of cfg.pipeline || []) {
-      if (!s.manual && !harnessesOf(s).length && quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
+      if (s.manual || harnessesOf(s).length) continue;
+      if (quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
+      unharnessedAgents[s.id] = s.agent ?? cfg.agent ?? DEFAULT_AGENT;
     }
     for (const s of cfg.pipeline || []) {
       if (!s.manual && harnessesOf(s).length) steps[s.id] = { harnesses: harnessesOf(s), routing: s.routing ?? "first-free" };
@@ -42,5 +49,5 @@ export function buildHarnessing(cfg) {
       cooldowns[name] = h.cooldownMinutes;
     }
   }
-  return { stepCaps, steps, caps, cooldowns, unharnessedShared };
+  return { stepCaps, steps, caps, cooldowns, unharnessedShared, unharnessedAgents };
 }

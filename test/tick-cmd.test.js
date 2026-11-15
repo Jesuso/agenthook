@@ -75,6 +75,23 @@ test("digest: one line per down or probing harness (#621); an up harness adds no
   assert.equal(lines.filter((l) => l.includes("harness")).length, 2);
 });
 
+test("digest: one no-harness line per implicit agent entry (#726); absent without slots.unharnessed", () => {
+  const out = digest({
+    profile: "p", up: true,
+    slots: { max: 3, active: 1, queued: 0, free: 2, unharnessed: { claude: 3 } },
+    running: [], queue: [], held: [], events: [], cursor: 1,
+  });
+  const lines = out.split("\n");
+  assert.ok(lines.includes("  no-harness: claude 3"));
+
+  const plain = digest({
+    profile: "p", up: true,
+    slots: { max: 3, active: 0, queued: 0, free: 3 },
+    running: [], queue: [], held: [], events: [], cursor: 1,
+  });
+  assert.equal(plain.split("\n").some((l) => l.includes("no-harness")), false);
+});
+
 test("formatTokens: K below 1M rounded to an integer, M (dropping a trailing .0) at or above", () => {
   assert.equal(formatTokens(54000), "54K");
   assert.equal(formatTokens(54321), "54K");

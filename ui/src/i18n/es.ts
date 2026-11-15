@@ -110,6 +110,7 @@ export const messages: Record<MessageKey, Message> = {
   "overview.harnessSlots": "espacios por harness",
   "overview.harnessTitle": "harness {name}: {active} de {max} espacios en uso",
   "overview.harnessUncapped": "harness {name}: {active} en curso, sin límite propio",
+  "overview.harnessImplicit": "{n} ejecución(es) en pasos sin harness, usando {agent}",
   "needs.harnessDown": "harness caído",
   "needs.harnessProbing": "harness en prueba",
   "overview.harnessDownUntil": "caído hasta {when}",

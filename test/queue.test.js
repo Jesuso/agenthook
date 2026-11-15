@@ -555,6 +555,52 @@ test("no harnesses: state() has no `harnesses` and harnessState() is empty", () 
   assert.deepEqual(q.harnessState(), {});
 });
 
+// --- implicit (harness-less) runs counted by agent (#726) ---
+
+test("unharnessed: a job on a step with no harness counts under its agent, not in `harnesses`; absent once it settles", async () => {
+  const { q, started, done } = harnessed(4, { ...CODE_QR, unharnessedAgents: { triage: "claude" } });
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  q.enqueue(job("C", "triage"));
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "C:-"]);
+  const s = q.state();
+  assert.equal(s.active, 3);
+  assert.deepEqual(s.unharnessed, { claude: 1 });
+  const harnessActive = Object.values(s.harnesses).reduce((n, h) => n + h.active, 0);
+  assert.equal(harnessActive + Object.values(s.unharnessed).reduce((n, v) => n + v, 0), s.active);
+  await done("C");
+  assert.equal(q.state().unharnessed, undefined);
+  await done("A");
+  await done("B");
+  await q.onIdle();
+});
+
+test("unharnessed: a harness-less step naming agent opencode counts under opencode, not claude", async () => {
+  const { q, started, done } = harnessed(2, { ...CODE_QR, unharnessedAgents: { triage: "opencode" } });
+  q.enqueue(job("A", "triage"));
+  assert.deepEqual(started, ["A:-"]);
+  assert.deepEqual(q.state().unharnessed, { opencode: 1 });
+  await done("A");
+  await q.onIdle();
+});
+
+test("unharnessed: merge/ci jobs are never counted under an implicit agent entry", async () => {
+  const { q, started, done } = harnessed(3, { ...CODE_QR, unharnessedAgents: { triage: "claude" } });
+  q.enqueue({ kind: "merge", ref: "M", stepId: "triage", dedupKey: "merged:1" });
+  q.enqueue({ kind: "ci", ref: "X", stepId: "triage", dedupKey: "ci:1:1" });
+  assert.deepEqual(started, ["M:-", "X:-"]);
+  assert.equal(q.state().unharnessed, undefined);
+  await done("M");
+  await done("X");
+  await q.onIdle();
+});
+
+test("unharnessed: without harnesses configured, state() carries no `unharnessed` key", () => {
+  const q = createQueue(1, () => new Promise(() => {}));
+  q.enqueue(job("T1", "triage"));
+  assert.deepEqual(q.state(), { active: 1, queued: 0 });
+});
+
 // --- harness health breaker (#621): a failing harness goes down, is routed around, then probed ---
 
 /**
