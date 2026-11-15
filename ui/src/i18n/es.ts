@@ -102,6 +102,10 @@ export const messages: Record<MessageKey, Message> = {
   "overview.stopped": "El receptor está detenido, así que no se ejecutará ningún agente.",
   "overview.stoppedWait": "Los tickets movidos en el tablero esperan en su etapa.",
   "overview.stoppedStart": "Inícialo y luego recoge lo que se movió mientras tanto:",
+  "overview.newTicket": "Nuevo ticket",
+  "overview.newTicketDisabled": "inicia el receptor para añadir tickets",
+  "ticket.blockedNotice": "Estará bloqueado por {by} — se ejecutará cuando lleguen a hecho",
+  "ticket.createdBlocked": "{ref} está bloqueado por {by} — se ejecutará cuando lleguen a hecho",
   "overview.slotsTitle": "{active} de {max} espacios en uso",
   "overview.harnessSlots": "espacios por harness",
   "overview.harnessTitle": "harness {name}: {active} de {max} espacios en uso",
@@ -175,6 +179,22 @@ export const messages: Record<MessageKey, Message> = {
   "shortcuts.overview.dismiss": "Descartar el ticket fallido enfocado",
   "shortcuts.overview.undo": "Deshacer el último descarte (en 5 s)",
   "shortcuts.overview.help": "Mostrar esta lista (Esc la cierra)",
+  "shortcuts.overview.new": "Nuevo ticket en este tablero local",
+
+  // New ticket (local boards)
+  "ticket.title": "Título",
+  "ticket.titleRequired": "se necesita un título",
+  "ticket.body": "Cuerpo",
+  "ticket.startStep": "Paso inicial",
+  "ticket.blockedBy": "Bloqueado por",
+  "ticket.blockedByPlaceholder": "refs separados por comas, p. ej. 3, 7",
+  "ticket.create": "Crear ticket",
+  "ticket.creating": "Creando…",
+  "ticket.cancel": "Cancelar",
+  "ticket.down": "inicia el receptor para añadir tickets",
+  "ticket.timeout": "el receptor no respondió a tiempo",
+  "ticket.network": "no se pudo hacer la petición",
+  "ticket.statusN": "el servidor respondió {status}",
 
   // DigestPanel
   "digest.title": "Ponme al día",

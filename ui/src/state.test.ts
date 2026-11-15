@@ -9,6 +9,7 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     pid: 1,
     port: 8787,
     tracker: "github",
+    ticketSteps: null,
     ingress: "ngrok",
     fullAuto: false,
     color: "sky",

@@ -55,6 +55,8 @@ test("move after a label rename: dir renamed with its state, stateId dropped, ol
     { source: "cli", action: "move", from: "mv-old", to: "mv-label" },
   );
   assert.equal(readMarker(stateDir).stateKey, "mv-label");
+  // moveStateDir's refresh is a pseudo-cfg with no `provider` — the prior marker's carries over.
+  assert.equal(readMarker(stateDir).provider, "github");
 });
 
 test("move to a key other than the label: stateId rewritten", () => {

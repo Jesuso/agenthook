@@ -554,6 +554,8 @@ Decisions from the design session; vocabulary is in `CONTEXT.md`, the "why" for 
   rework rate; hidden below ~10 runs. Longer ranges: see "Daily stats" below.
 - Activity feed: **collapsed bottom panel** with an unread count. Raw ticket table is an
   "All tickets" drill-down.
+- **New ticket** button (local boards only; the `n` key): creates a ticket through the receiver —
+  see "New ticket (local boards, built)" below.
 
 ### Profile identity
 - Optional config block `ui: { color, emoji }`: fixed ~10-hue palette tuned for light/dark, curated
@@ -1007,3 +1009,29 @@ ids — `layoutPipeline`'s own rule). Below `lg` (1024px) the sections stack ver
 order (Needs you first) and the SVG connectors + legend are dropped, via a `matchMedia`
 `(min-width: 1024px)` check (`useWide`, mirroring `LiveTime.tsx`'s `useReducedMotion`) rather than
 a CSS-only toggle, so the connector `<svg>` is never in the DOM on a narrow page.
+
+### New ticket (local boards, built)
+
+A **New ticket** button on the profile Overview — and the `n` key — creates a ticket on a
+*local-board* profile (`tracker: "local"`). It is hidden on every other tracker and disabled while
+the receiver is down, with the reason ("start the receiver to add tickets") shown as visible text
+next to the button, not just a tooltip — the `n` key is then a no-op. The dialog takes a **title**
+(required), an optional markdown **body**, the **starting step** (a select defaulting to the
+pipeline's first non-manual step, listed in order — the up local board advertises them via the
+heartbeat's `ticketSteps`), and optional **blocked by** (comma-separated refs).
+
+It never loads a config or writes the board: it posts `POST /api/ticket` — the same guard chain as
+the other control actions (cookie → Origin → `X-AH-UI` → JSON ≤ 256 KB) — with body
+`{profile, title, body?, step?, blockedBy?}`. The server validates it (a blank title, or an
+over-`TICKET_BODY_MAX` body → 400; a non-local tracker → 409; an unknown profile → 404), then
+sends `{cmd:'ticket_add', args:{title, body?, step?, blockedBy?}}` over the control socket,
+so the receiver does the board write in-process. The reply maps through the usual control statuses
+(200 created; 502 a refusal, with the local adapter's `local: ` prefix stripped; 503 → "start the
+receiver to add tickets"; 504 a timeout). On success the dialog closes and the new ticket's drawer
+opens (it fills in when its row arrives on the next snapshot); if the reply names `blockedBy`, an
+Overview notice also reads "#N is blocked by #a, #b — it runs when they reach done" (a blocked
+ticket gets no row until its blockers reach done, so the drawer stays a placeholder until then). On
+failure the reason is shown inline in the dialog. The outcome lands in `ui-audit.jsonl` as
+`{action:'ticket-add', profile, status[, ref]}` — the title and body are never logged. A stopped
+local board still reads as `tracker: "local"` (so the button is there, disabled) because the
+profile marker now carries the tracker's `provider`.

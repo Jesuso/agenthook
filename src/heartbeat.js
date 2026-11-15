@@ -103,6 +103,10 @@ export function createHeartbeat(cfg) {
     instructions: instructionTargets(cfg),
     repos: reposOf(cfg).map((r) => ({ id: r.id, path: r.path })),
     repository: repositoryOf(cfg),
+    // The steps a local-board ticket can start at (the UI's "New ticket" picker); local only.
+    ...(cfg.provider === "local"
+      ? { ticketSteps: (cfg.pipeline || []).filter((s) => !s.manual && typeof s.sourceStatus === "string" && s.sourceStatus).map((s) => s.id) }
+      : {}),
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     queue: { active: 0, queued: 0 },
@@ -158,9 +162,10 @@ function mtimeIso(f) {
  * - `ghost`: no marker, no heartbeat, and nothing but an empty `logs/` — a dir some command made by
  *   reading a config, where no receiver ever ran. A legacy pre-marker dir holding state is not one.
  * - `configMissing`: `configPath` is set but the file is gone.
+ * - `provider`: the marker's `provider` (the tracker, known even while the profile is stopped).
  * @param {string} dir @param {any} heartbeat parsed heartbeat.json, or null
  * @param {any} [marker] parsed profile.json (default: read it)
- * @returns {{ configPath: string|null, createdAt: string|null, lastSeenAt: string|null, ghost: boolean, configMissing: boolean }}
+ * @returns {{ configPath: string|null, createdAt: string|null, lastSeenAt: string|null, ghost: boolean, configMissing: boolean, provider: string|null }}
  */
 export function profileMeta(dir, heartbeat, marker = readMarker(dir)) {
   const m = marker && typeof marker === "object" ? marker : null;
@@ -187,6 +192,7 @@ export function profileMeta(dir, heartbeat, marker = readMarker(dir)) {
     lastSeenAt,
     ghost: !!st && !m && !hb && isFreshStateDir(dir),
     configMissing: configPath !== null && !fs.existsSync(configPath),
+    provider: typeof m?.provider === "string" ? m.provider : null,
   };
 }
 

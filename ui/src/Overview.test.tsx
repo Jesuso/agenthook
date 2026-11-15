@@ -16,7 +16,7 @@ const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
 const local = (h: number, day = 8) => new Date(2026, 9, day, h).toISOString();
 
 const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
-  name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
+  name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ticketSteps: null, ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
   startedAt: null, updatedAt: null, active: 1, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
   lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
 });
