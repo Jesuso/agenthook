@@ -211,8 +211,9 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
   const noteCol = open.some((e) => e.readyToClose || e.eta || paceOf(e).stalled);
   return (
     <div className="flex flex-col gap-3 2xl:grid 2xl:grid-cols-2 2xl:items-start 2xl:gap-4">
-      {!body.live && <LiveNote />}
-      {body.epics.length === 0 && <EmptyState title={t("epics.none")} hint={body.live ? undefined : t("epics.noneDownHint")} />}
+      {/* Wide, open and closed epics sit side by side; a note or the empty state spans both. */}
+      {!body.live && <div className="col-span-full"><LiveNote /></div>}
+      {body.epics.length === 0 && <div className="col-span-full"><EmptyState title={t("epics.none")} hint={body.live ? undefined : t("epics.noneDownHint")} /></div>}
       {open.length > 0 && (
         <div className="flex flex-col gap-2">
           <ul className="rounded-lg border border-border bg-surface" data-epics-open>
