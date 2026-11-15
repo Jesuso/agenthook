@@ -76,6 +76,7 @@
  * @property {number} [idleMinutes]            opt-in: kill the agent (fail with `timeout`) after this many minutes with no stream-json output (default off)
  * @property {boolean} [requireVerdict]        a clean exit with a missing/unparseable/unrecognized verdict holds (reason "no valid verdict") instead of advancing (default true); set false to opt out and advance on a clean exit as before
  * @property {number} [verdictRepairs]         how many receiver-driven repair turns (#677) a clean exit with no valid verdict gets — each resumes the same agent session with a fixed prompt — before the hold above fires (default 1, 0 disables); needs the agent's `resumeArgs` and a captured session id
+ * @property {boolean} [deduceVerdict]         (#680) a clean exit with no valid verdict, on an `implement`/`change` step whose worktree branch gained commits, advances with a deduced verdict instead of running a repair turn (default true); false opts out, falling through to `verdictRepairs` then the hold
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
  * @property {{descriptionHeadings: string[], model?: string, effort?: 'low'|'medium'|'high'|'xhigh'|'max'}} [lite]  description-gated override (intended for triage): when every heading starts a line of the task description, use this model/effort as the base; `escalate` still wins on top
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
@@ -128,6 +129,7 @@
  * @property {string} run           the run log basename (matches a `runs` row's `run`)
  * @property {string} at            ISO time the run finished
  * @property {string} [headSha]     forge.autoMerge tier step only: the PR head when the run started (what it judged)
+ * @property {'agent'|'repaired'|'deduced'} [verdictSource]  where the outcome came from (#680): a verdict file the agent wrote, the #677 repair turn's, or deduced from commits; absent for a receiver-forced verdict or the `requireVerdict:false` assumed-advance
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).

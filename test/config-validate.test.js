@@ -234,6 +234,16 @@ test("pipeline step verdictRepairs: a non-negative integer passes; -1, 1.5, \"2\
   assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" verdictRepairs has no effect on a manual step (no agent runs).`]);
 });
 
+test("pipeline step deduceVerdict: a boolean passes; a non-boolean and a manual step fail", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "triage", deduceVerdict: true }, { id: "code", deduceVerdict: false }])), { ok: true });
+  for (const v of [0, 1, "true"]) {
+    const r = validateRawConfig(raw({}, [{ id: "triage", deduceVerdict: v }]));
+    assert.deepEqual(!r.ok && r.errors, [`config: pipeline step "triage" deduceVerdict must be a boolean.`], `deduceVerdict ${JSON.stringify(v)}`);
+  }
+  const m = validateRawConfig(raw({}, [{ id: "code" }, { id: "done", manual: true, deduceVerdict: false }]));
+  assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" deduceVerdict has no effect on a manual step (no agent runs).`]);
+});
+
 test("pipeline step bin/env: a valid pair and ${VAR} values pass; bad shapes, names and the reserved key fail", () => {
   const ok = validateRawConfig(raw({}, [{ id: "code", bin: "claude-local", env: { CLAUDE_CONFIG_DIR: "/home/x/.claude-alt", API_KEY: "${ALT_KEY}", _x1: "" } }]));
   assert.deepEqual(ok, { ok: true });

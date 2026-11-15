@@ -179,3 +179,25 @@ export function drainWorktree(cfg, ref, repo = primaryRepo(cfg)) {
   git(cfg, repo.path, ["worktree", "remove", "--force", worktree]);
   return true;
 }
+
+/** The branch's current HEAD sha in `dir`, or null on any git error (fail closed — a
+ * caller deducing a verdict from "commits since" must never deduce from an unknown start point).
+ * @param {{sandbox?: unknown}} cfg @param {string} dir */
+export function branchHead(cfg, dir) {
+  try {
+    return git(cfg, dir, ["rev-parse", "HEAD"]);
+  } catch {
+    return null;
+  }
+}
+
+/** How many commits `dir`'s current HEAD has past `sha` (`git rev-list --count sha..HEAD`); 0 on
+ * any git error — fail closed, same reasoning as `branchHead`.
+ * @param {{sandbox?: unknown}} cfg @param {string} dir @param {string} sha */
+export function commitsSince(cfg, dir, sha) {
+  try {
+    return Number(git(cfg, dir, ["rev-list", "--count", `${sha}..HEAD`])) || 0;
+  } catch {
+    return 0;
+  }
+}

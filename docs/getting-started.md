@@ -164,6 +164,13 @@ Extra step fields you'll want to know:
   to support headless resume (claude, cursor, opencode; hermes never repairs) and a captured
   session id; a sandboxed opencode run is never repaired (its session lives in a per-run sandbox
   HOME, deleted at teardown). See the `verdict_repair` event in [events.md](events.md).
+- `deduceVerdict` (default on) — before the repair turn above runs, a clean exit with no valid
+  verdict on an `implement`/`change` step whose worktree branch gained at least one commit (a
+  dirty tree with no commit doesn't count) advances instead, skipping the repair turn entirely —
+  this is where repair never helps anyway: hermes has no `resumeArgs`, and a sandboxed opencode
+  run's session is already gone. Only fires on a clean exit that didn't end by asking a question
+  (`#655`) and whose success target is another non-manual pipeline step. Set `false` to opt out.
+  `run_end.verdictSource` is `"deduced"` on the run this resolves — see [events.md](events.md).
 - `sandbox` — `false` runs this step on the host even when the profile has a top-level `sandbox`
   block (needed for a `cursor`/`hermes`/`opencode` step, which the sandbox refuses). Not valid on a
   `manual` step. See [Sandboxed runs](sandbox.md#quick-start).

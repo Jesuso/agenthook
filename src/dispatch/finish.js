@@ -7,7 +7,7 @@ import { CANCELLED_REASON, reportMoveFailure } from "../events.js";
 import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
-import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
+import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, ASSUMED_ADVANCE_SUFFIX, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
 import { healthTrip } from "./harness.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
@@ -46,6 +46,7 @@ import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMer
  * @property {string|null} [headSha]  forge.autoMerge tier step: the PR head when the run started
  * @property {string} [lastText]  the run's last output (its final result text, else rendered-stdout tail) for the question-hold detector
  * @property {{turns: number, repaired: boolean, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [repair]  the receiver-driven verdict-repair turns (#677) this run took, when any did: `turns` = how many ran, `repaired` = the last one wrote a valid verdict, `results`/`turnStats` = each repair spawnAgent() result / its turnStats, oldest first — absent when no repair was attempted
+ * @property {{commits: number}} [deduced]  a verdict deduced from commits (#680, src/dispatch/step.js `deduceVerdict`) instead of a repair turn — `commits` = how many the branch gained since the run started; absent when none was deduced
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -55,7 +56,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -197,7 +198,7 @@ export function createFinish(ctx) {
 
     // computed before run_end below: missingVerdict must still name the base case even after the
     // question-hold and repair-suffix rewrites below touch verdict.reason (#655, #677).
-    const missingVerdict = verdict.outcome === "hold" && verdict.reason === NO_VALID_VERDICT;
+    let missingVerdict = verdict.outcome === "hold" && verdict.reason === NO_VALID_VERDICT;
     // A clean exit (no kill, no timeout, no refusal) with no valid verdict whose last line is a
     // question: name it specifically so the held reason and the blocked/verdict_missing events say
     // the agent ended by asking a question instead of acting, quoting the line.
@@ -216,6 +217,29 @@ export function createFinish(ctx) {
         verdict.reason = `${verdict.reason} (after ${repair.turns} repair turn${repair.turns === 1 ? "" : "s"})`;
       }
     }
+    // Deduced verdict (#680): step.js's `deduceVerdict` already gated this on a qualifying
+    // implement/change step whose branch gained commits, skipping the repair turn above entirely —
+    // so it only ever competes with the still-missing case, never with a repair's outcome.
+    let deducedApplied = false;
+    if (deduced && missingVerdict) {
+      verdict.outcome = "advance";
+      verdict.reason = `no verdict written; advanced because the run added ${deduced.commits} commit${deduced.commits === 1 ? "" : "s"}`;
+      missingVerdict = false;
+      deducedApplied = true;
+    }
+    // Absent for a hold with no verdict, every receiver-forced verdict (refused/spawn-failed/
+    // cancelled/timeout/non-zero exit — none of those is anyone's verdict claim), and the
+    // existing `requireVerdict:false` assumed-advance fallback (its reason carries the
+    // ASSUMED_ADVANCE_SUFFIX parseVerdict stamps on it, never a real verdict file).
+    const assumedAdvance = typeof verdict.reason === "string" && verdict.reason.endsWith(ASSUMED_ADVANCE_SUFFIX);
+    /** @type {'agent'|'repaired'|'deduced'|undefined} */
+    const verdictSource = deducedApplied
+      ? "deduced"
+      : repair?.repaired
+      ? "repaired"
+      : !missingVerdict && !assumedAdvance && !refused && !spawnError && !wasCancelled && !timedOut && code === 0
+      ? "agent"
+      : undefined;
 
     const costUsd = unpriced ? undefined : usage.costUsd;
     // Model + tokens ride along when a result was seen, so Stats can price from events.jsonl alone.
@@ -242,6 +266,7 @@ export function createFinish(ctx) {
     emit?.("run_end", job.ref, step.id, {
       outcome: verdict.outcome,
       ...harnessField,
+      ...(verdictSource ? { verdictSource } : {}),
       ...(plain ? { plain } : {}),
       ...(options ? { options } : {}),
       ...(costUsd !== undefined ? { costUsd } : {}),
@@ -326,7 +351,7 @@ export function createFinish(ctx) {
     // drops the step's earlier summary, so a stale one never outlives a re-run.
     if (store) {
       if (verdict.summary) {
-        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString(), ...(run.headSha ? { headSha: run.headSha } : {}) });
+        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString(), ...(run.headSha ? { headSha: run.headSha } : {}), ...(verdictSource ? { verdictSource } : {}) });
       } else {
         store.clearSummary(job.ref, step.id);
       }

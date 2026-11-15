@@ -22,6 +22,7 @@ import {
   readWrap,
   runDurationMs,
   runsUrl,
+  verdictSourceLabel,
   visibleRange,
   writeLogView,
   writeWrap,
@@ -310,6 +311,11 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
               <span className="font-medium text-fg">{selected.step}</span>
               <Pill tone={outcomeTone(selected)}>{formatOutcome(selected, lang)}</Pill>
+              {verdictSourceLabel(selected, lang) && (
+                <span className="text-muted" title={t("drawer.verdictSourceTitle")}>
+                  {verdictSourceLabel(selected, lang)}
+                </span>
+              )}
               {selected.running && !selected.endedAt ? (
                 <Elapsed iso={selected.startedAt} seed={now} className="text-muted" />
               ) : (
