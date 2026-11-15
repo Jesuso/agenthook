@@ -171,7 +171,7 @@ or [`tailscale`](https://tailscale.com/download). None of that is needed for the
 | **Tracker** | [Asana](docs/asana-setup.md) · [Jira](docs/jira-setup.md) · [GitHub Issues](docs/github-setup.md) · [GitHub Projects v2](docs/github-projects-setup.md) · [Linear](docs/linear-setup.md) · [local board](docs/quickstart.md) |
 | **Ingress** | [ngrok · cloudflared · Tailscale Funnel · hosted](docs/configuration.md#ingress-how-the-webhook-reaches-you) |
 | **Forge** (optional) | [GitHub](docs/configuration.md#forge-optional--what-happened-to-the-code) · [GitLab](docs/gitlab.md) |
-| **Agent** | [Claude Code · Cursor · OpenCode · Hermes (experimental)](docs/agents.md) · [local models via Ollama](docs/local-models.md) |
+| **Agent** | [Claude Code · Cursor · OpenCode · Hermes (experimental)](docs/agents.md) · [local models via Ollama](docs/local-models.md) · [a remote worker over ssh (experimental)](docs/remote.md) |
 
 On GitHub, a [GitHub App](docs/github-app.md) can stand in for the personal token (optional).
 

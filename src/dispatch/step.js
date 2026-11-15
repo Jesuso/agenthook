@@ -263,7 +263,10 @@ export function createStep(ctx) {
     // The context window (#658) a live `ctx` can be measured against — resolved once, from the
     // effective (harness-merged) step, so a harness's contextTokens/opencodeConfig already apply.
     const ctxMax = resolveContextWindow({ step: spawnStep, model, agentName: agent.describe().name });
-    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null, harness, agent: agent.describe().name, ...(ctxMax !== null ? { ctxMax } : {}) };
+    // A remote run (#691) carries the worker host too, for `tick`/`status` — the agent itself
+    // runs there, not on the hub.
+    const remoteHost = executor.name === "ssh" && harness ? cfg.harnesses?.[harness]?.remote?.host : undefined;
+    const baseRunning = { stepId: step.id, startedAt, worktree: cwd, model: model ?? null, harness, agent: agent.describe().name, ...(ctxMax !== null ? { ctxMax } : {}), ...(remoteHost ? { host: remoteHost } : {}) };
     // `harness` rides on run_start/run_end only for a profile that has harnesses.
     const harnessField = cfg.harnesses ? { harness } : {};
     // A new agent run means any PR state learned earlier (closed, merged) no longer stands —

@@ -33,6 +33,21 @@ All notable changes to this project are documented here. The format is based on
   additionally clears leftover synced worktrees/exports and prunes the bare repos. See
   [docs/local-models.md](docs/local-models.md#remote-worker-experimental-689) and
   [docs/internals/dispatch.md](docs/internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-launchkillenv-690-code-transport).
+- **Experimental** remote harness, doctor + status/tick + docs (#691, phase 2, ticket 3 of 3 of
+  #681): `agenthook doctor` now knows remote harnesses exist. It probes each `harnesses.<name>.
+  remote`'s worker over ssh (using the same connection options the `ssh` executor itself builds,
+  not a copy of the command) for reachability, `git`, the agent bin (+ its `--version`), a
+  writable `workDir`, and — warning, not failing, and never printing a value — whether a
+  credential source (`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN`, the
+  credentials file, or `apiKeyHelper`) is visible there. An unreachable worker reports one ✗ and
+  skips the rest of that harness's probes. The existing host-side bin checks now skip a remote
+  harness's own `bin` (it runs on the worker, not the host) and a step routed only through remote
+  harness(es). A running remote run's `running.json` record, `tick`'s `running[]`, and the
+  `status` op now carry the worker's `host`; the `tick` text digest reads `· <harness>@<host>`
+  instead of `· <harness>`, and `status` prints a `remote` line per in-flight remote run. New
+  [docs/remote.md](docs/remote.md): the trust model, worker setup, what never crosses, and
+  current limits, linked from `README.md`, `docs/local-models.md` and the portable skill's
+  `setup.md`.
 - Web UI: a **Board** tab on the profile page's ticket section (#697, ticket 1 of 3 of #696),
   beside the existing table (now **Table**, still the default): one box per pipeline step holding
   its running/queued tickets, joined by the Config graph's own connectors, plus a **Done today**
@@ -213,6 +228,13 @@ All notable changes to this project are documented here. The format is based on
   the server's parallel slots in one message, proposing a pairing only when one is known to work
   on that machine. It says where each key goes (`agent` top-level; `model`, `contextTokens`,
   `provider`, `env` per step) and that OpenCode resolves the provider from its own config.
+
+### Security
+
+- The remote-harness sync-back `git fetch` (#691, from #701 review) now passes `--no-tags`: a
+  worker could otherwise plant a tag pointing into the commits it fetches back — git's default
+  auto-follow would pull it straight into the hub repo. The commits themselves still fast-forward
+  exactly as before; only tag auto-follow is turned off.
 
 ### Internal
 

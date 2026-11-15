@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { shQuote, framePayload, remoteEnvAllowlist, createSshExecutor, createSshExecutors } from "../src/dispatch/executor-ssh.js";
+import { shQuote, framePayload, remoteEnvAllowlist, remoteProbeArgv, createSshExecutor, createSshExecutors } from "../src/dispatch/executor-ssh.js";
 import { createExecutors, executorFor, reapAll } from "../src/dispatch/executor.js";
 import { createSpawn, sandboxVerdictPathFor } from "../src/dispatch/spawn.js";
 import { healthTrip } from "../src/dispatch/harness.js";
@@ -638,6 +638,61 @@ test("a remote run never forwards its quota reading to onQuota, and never starts
     assert.equal(result.code, 0, JSON.stringify(result));
     assert.equal(onQuotaCalls, 0, "a remote run's quota reading must not reach the pacer");
     assert.equal(energyStarted, 0, "a remote run must not start the energy sampler");
+  } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("dispatch: a remote run's running.json record carries `host` (the worker's) while in flight (#691)", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-host-"));
+  const workDir = path.join(root, "work");
+  const repoPath = path.join(root, "repo");
+  fs.mkdirSync(workDir, { recursive: true });
+  initGitRepo(repoPath);
+  try {
+    const marker = path.join(workDir, "started");
+    const goFile = path.join(workDir, "go");
+    const agentScript = path.join(workDir, "slow-agent.sh");
+    fs.writeFileSync(
+      agentScript,
+      `#!/bin/sh\ncat > /dev/null\ntouch ${shQuote(marker)}\nwhile [ ! -f ${shQuote(goFile)} ]; do sleep 0.05; done\nmkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"\necho '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const cfg = /** @type {any} */ ({
+      pipeline: [{ id: "code", harness: "worker" }],
+      harnesses: { worker: { remote: { host: "worker.test", workDir, bin: agentScript } } },
+      repoPath,
+      stateKey: "p",
+      stateDir: root,
+      dataDir: root,
+      logDir: root,
+      instructionsFile: path.join(root, "none.md"),
+    });
+    const store = createStore(root);
+    const adapter = /** @type {any} */ ({
+      describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+      fetchTask: async (ref) => ({ ref, name: "t", description: "d", url: "https://example.test/1", completed: false, assignedToUs: true }),
+      advance: async () => {},
+    });
+    const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 300 });
+    const l = console.log;
+    console.log = () => {};
+    const promise = run({ kind: "pipeline", ref: "55", stepId: "code", dedupKey: "k:55", harness: "worker" });
+    try {
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(marker) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      assert.ok(fs.existsSync(marker), "the agent never started");
+      const running = store.listRunning();
+      assert.equal(running["55"]?.host, "worker.test", JSON.stringify(running));
+      assert.equal(running["55"]?.harness, "worker");
+      fs.writeFileSync(goFile, "");
+      const result = await promise;
+      assert.equal(result.code, 0, JSON.stringify(result));
+    } finally {
+      console.log = l;
+    }
   } finally {
     ssh.restore();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1341,4 +1396,91 @@ test("boot: a remote harness's leftover runs are reaped and logged distinctly fr
   }
   assert.ok(lines.some((l2) => l2.includes("[recover] reaped run(s) 12/code left on a remote worker")), lines.join("\n"));
   assert.ok(emitted.some((e) => e.event === "sandbox_reaped" && e.runs?.includes("12/code")));
+});
+
+// --- hardening: sync-back must not follow worker-planted tags (#691) ---
+
+test("ssh executor code transport (#691): the sync-back fetch argv carries --no-tags", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-sync-notags-argv-"));
+  const workerRoot = path.join(root, "worker");
+  const hubWorktree = path.join(root, "hub-worktree");
+  fs.mkdirSync(workerRoot, { recursive: true });
+  initGitRepo(hubWorktree);
+  const branch = "agent/notags";
+  execFileSync("git", ["-C", hubWorktree, "checkout", "-b", branch], { stdio: "ignore" });
+  const rec = withArgvRecordingGit();
+  try {
+    const remote = { host: "worker.test", workDir: workerRoot, bin: writeCommitAgent(workerRoot, "notags.txt") };
+    const cfg = { harnesses: { worker: { remote } } };
+    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") }, cfg });
+    const { cwd, verdictFile } = executor.paths({ stepId: "code", ref: "notags", hasWorktree: true });
+    const hub = { repoId: "default", repoPath: hubWorktree, worktree: hubWorktree, branch };
+    const { spawnAgent } = spawnCtx();
+    const result = await spawnAgent({ agent: fakeAgent(), prompt: "go", cwd, logPath: path.join(root, "run.log"), verdictFile, sandboxed: { ref: "notags", stepId: "code", step: {}, mounts: [], hub }, executor });
+    assert.equal(result.code, 0, JSON.stringify(result));
+    const fetchCall = rec.callsFor(hubWorktree).find((a) => a.includes("fetch"));
+    assert.ok(fetchCall, "expected a hub-side fetch call");
+    assert.ok(fetchCall.includes("--no-tags"), `fetch argv must carry --no-tags, got ${JSON.stringify(fetchCall)}`);
+  } finally {
+    rec.restore();
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ssh executor code transport (#691): a tag the worker plants on its new commit never reaches the hub repo; the commit itself still fast-forwards", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-sync-notags-e2e-"));
+  const workerRoot = path.join(root, "worker");
+  const hubWorktree = path.join(root, "hub-worktree");
+  fs.mkdirSync(workerRoot, { recursive: true });
+  initGitRepo(hubWorktree);
+  const branch = "agent/notags2";
+  execFileSync("git", ["-C", hubWorktree, "checkout", "-b", branch], { stdio: "ignore" });
+  try {
+    // A worker agent that commits AND tags its own new commit — the tag must never auto-follow
+    // into the hub repo, even though it points straight into the fetched history.
+    const agentScript = path.join(workerRoot, "tagging-agent.sh");
+    fs.writeFileSync(
+      agentScript,
+      `#!/bin/sh\ncat > /dev/null\ngit config user.email a@test.local\ngit config user.name a\necho hi > tagged.txt\ngit add tagged.txt\ngit commit --quiet -m "worker commit with a tag"\ngit tag planted-tag\nmkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"\necho '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const remote = { host: "worker.test", workDir: workerRoot, bin: agentScript };
+    const cfg = { harnesses: { worker: { remote } } };
+    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") }, cfg });
+    const { cwd, verdictFile } = executor.paths({ stepId: "code", ref: "notags2", hasWorktree: true });
+    const hub = { repoId: "default", repoPath: hubWorktree, worktree: hubWorktree, branch };
+    const { spawnAgent } = spawnCtx();
+    const headBefore = headOf(hubWorktree);
+    const tagsBefore = execFileSync("git", ["-C", hubWorktree, "tag", "-l"], { encoding: "utf8" }).trim();
+    const result = await spawnAgent({ agent: fakeAgent(), prompt: "go", cwd, logPath: path.join(root, "run.log"), verdictFile, sandboxed: { ref: "notags2", stepId: "code", step: {}, mounts: [], hub }, executor });
+    assert.equal(result.code, 0, JSON.stringify(result));
+    assert.ok(!result.sandboxReport?.failed, JSON.stringify(result.sandboxReport));
+    assert.notEqual(headOf(hubWorktree), headBefore, "the commit itself must still fast-forward into the hub worktree");
+    assert.equal(execFileSync("git", ["-C", hubWorktree, "tag", "-l"], { encoding: "utf8" }).trim(), tagsBefore, "no new tag must have reached the hub repo");
+  } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- doctor: remoteHarnessChecks / remoteProbeArgv (#691) ---
+
+test("remoteProbeArgv: BatchMode=yes always present, never -A, carries port/identityFile/user, and shQuotes the remote script", () => {
+  const remote = { host: "worker.test", port: 2222, identityFile: "/home/me/.ssh/k", user: "agenthook", workDir: "/w" };
+  const argv = remoteProbeArgv(remote, "echo hi");
+  assert.ok(!argv.includes("-A"));
+  const oIdx = argv.indexOf("-o");
+  assert.equal(argv[oIdx + 1], "BatchMode=yes");
+  const pIdx = argv.indexOf("-p");
+  assert.equal(argv[pIdx + 1], "2222");
+  const iIdx = argv.indexOf("-i");
+  assert.equal(argv[iIdx + 1], "/home/me/.ssh/k");
+  const lIdx = argv.indexOf("-l");
+  assert.equal(argv[lIdx + 1], "agenthook");
+  assert.equal(argv.at(-1), shQuote("echo hi"));
+  assert.equal(argv.at(-2), shQuote("-c"));
+  assert.equal(argv.at(-3), shQuote("sh"));
 });

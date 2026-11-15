@@ -116,6 +116,19 @@ test("readStatus: running rows carry harness from running.json, only when the ru
   assert.equal(Object.hasOwn(running[2], "harness"), false, "no field → no key");
 });
 
+test("readStatus: running rows carry `host` from running.json, only for a run on a remote harness (#691)", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: {
+      7: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", harness: "worker", host: "worker.test" },
+      8: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", model: "m", harness: "qwen" },
+    },
+  });
+  const running = readStatus(readProfile("p", reg)).running;
+  assert.equal(running[0].host, "worker.test");
+  assert.equal(Object.hasOwn(running[1], "host"), false, "no host field → no key");
+});
+
 test("readStatus: running rows carry ctx/ctxMax from running.json, only when present (#658)", () => {
   const reg = registry();
   profile(reg, "p", {

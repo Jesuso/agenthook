@@ -92,6 +92,37 @@ runs time out.
 Full recipes, with worked examples: <https://github.com/Jesuso/agenthook/blob/master/docs/local-models.md> and
 <https://github.com/Jesuso/agenthook/blob/master/docs/agents.md>.
 
+### Add a remote machine (experimental)
+
+A harness can run its agent on another machine over ssh instead of this host — add a `remote`
+block to `harnesses.<name>` in `agenthook.config.json`:
+
+```jsonc
+{
+  "harnesses": {
+    "worker-1": {
+      "remote": {
+        "host": "10.0.0.5",
+        "user": "agenthook",
+        "identityFile": "/home/me/.ssh/agenthook_worker",
+        "workDir": "/home/agenthook/work/some-repo"
+      }
+    }
+  }
+}
+```
+
+On the worker: a dedicated unprivileged user owning `workDir`, `git` and the agent CLI
+(`claude` by default) on its `PATH`, and an API key with a spend cap set up for it (not a
+subscription login — the hub can run code as that user). Then run `agenthook doctor` from this
+profile — it probes the worker over ssh (reachable, git, the agent bin, `workDir` writable, a
+credential source) and reports what's missing. Only `claude` and the `local` tracker are
+supported with a remote harness today, and it can't be sandboxed or combined with per-run GitHub
+App tokens.
+
+Full writeup — the trust model, worker setup, what never crosses, current limits:
+<https://github.com/Jesuso/agenthook/blob/master/docs/remote.md>.
+
 ## 4. Check, start, first ticket
 
 ```bash
