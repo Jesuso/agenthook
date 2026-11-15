@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileEnvKeys, loadConfig, loadEnv, peekConfig, rawAgentBins, registryDir, withoutFileEnv } from "../src/config.js";
+import { detachedEnv } from "../src/respawn.js";
 
 /** Write a config and load it. @param {any} over @param {any[]} pipeline */
 function load(pipeline, over = {}) {
@@ -262,8 +263,9 @@ test("loadEnv + withoutFileEnv round trip: a shell-exported var survives, an edi
   fs.writeFileSync(file, "AH_TEST_RT_KEEP=v1\nAH_TEST_RT_REMOVE=v1\n");
   loadEnv(file); // first boot: records AH_TEST_RT_KEEP and AH_TEST_RT_REMOVE as file-sourced
 
-  // A detached respawn's child env: the parent's env, stripped of file-sourced keys.
-  const childEnv = withoutFileEnv(process.env);
+  // A detached respawn's child env: the parent's env, stripped of file-sourced keys
+  // (detachedEnv, the function production spawns actually call, with its default strip).
+  const childEnv = detachedEnv(process.env);
   assert.equal(childEnv.AH_TEST_RT_SHELL, "shell-value", "shell-exported var is never stripped");
   assert.equal(childEnv.AH_TEST_RT_KEEP, undefined, "stripped so the child re-reads it");
   assert.equal(childEnv.AH_TEST_RT_REMOVE, undefined, "stripped so the child re-reads it");

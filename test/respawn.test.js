@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup, spawnDetached, detachedEnv, RESTART_EXIT_CODE, REFUSED_EXIT_CODE } from "../src/respawn.js";
 import { parse } from "../bin/agenthook.js";
-import { loadEnv, withoutFileEnv } from "../src/config.js";
+import { loadEnv } from "../src/config.js";
 
 const cfg = { installDir: "/opt/agenthook", configPath: "/p/agenthook.config.json" };
 const bin = path.join("/opt/agenthook", "bin", "agenthook.js");
@@ -152,7 +152,7 @@ test("detachedEnv: the two-hop case — a stale key the server's own loadEnv rec
   // is what records it as file-sourced for the *next* respawn.
   loadEnv(file);
   assert.equal(process.env.AH_TEST_TWOHOP, "v1");
-  const childEnv = detachedEnv(process.env, withoutFileEnv);
+  const childEnv = detachedEnv(process.env); // default strip — this is the path production spawns use
   assert.equal(childEnv.AH_TEST_TWOHOP, undefined, "a second detached hop strips it so the real child re-reads .env");
 });
 
