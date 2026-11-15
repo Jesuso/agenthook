@@ -360,16 +360,15 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
  * "unbounded"), plus a ⚠ when every harness a step's `harness` list names has an explicit cap
  * and their caps sum to 0 — the step can never run. With `overrides` (overrides.json), an
  * overridden harness shows "N slots (override; config M)" and a global pause/max override gets an
- * ℹ line; a harness entry not in the config is flagged as dropped-on-boot. `[]` without
- * `cfg.harnesses`. Pure.
+ * ℹ line; a harness entry not in the config is flagged as dropped-on-boot. `[]` only with neither
+ * `cfg.harnesses` nor a global override. Pure.
  * @param {Pick<import('../types.js').Config, 'harnesses'|'pipeline'|'maxConcurrent'>} cfg
  * @param {import('../types.js').Overrides} [overrides]
  * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
 export function harnessSlotLints(cfg, overrides = {}) {
-  if (!cfg.harnesses) return [];
   /** @type {{ level: 'info'|'warn', label: string, note: string }[]} */
   const out = [];
-  for (const [name, h] of Object.entries(cfg.harnesses)) {
+  for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
     const config = h.maxConcurrent == null ? null : h.maxConcurrent;
     const ov = overrides.harnesses?.[name];
     const note = ov !== undefined ? `${ov} slots (override; config ${config == null ? "unbounded" : config})` : config == null ? "unbounded" : `${config} slot(s)`;
@@ -377,16 +376,18 @@ export function harnessSlotLints(cfg, overrides = {}) {
   }
   if (overrides.paused === true) out.push({ level: "info", label: "operator pause", note: "paused (override; unpause to clear)" });
   if (overrides.maxConcurrent !== undefined) out.push({ level: "info", label: "global maxConcurrent", note: `${overrides.maxConcurrent} (override; config ${cfg.maxConcurrent})` });
-  for (const s of cfg.pipeline ?? []) {
-    const names = harnessesOf(s);
-    if (!names.length) continue;
-    const caps = names.map((n) => (overrides.harnesses?.[n] !== undefined ? overrides.harnesses[n] : cfg.harnesses?.[n]?.maxConcurrent));
-    if (caps.every((c) => c != null) && caps.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) === 0) {
-      out.push({ level: "warn", label: `step "${s.id}" harness slots`, note: `every harness it can use (${names.join(", ")}) is capped at 0 — this step can never run` });
+  if (cfg.harnesses) {
+    for (const s of cfg.pipeline ?? []) {
+      const names = harnessesOf(s);
+      if (!names.length) continue;
+      const caps = names.map((n) => (overrides.harnesses?.[n] !== undefined ? overrides.harnesses[n] : cfg.harnesses?.[n]?.maxConcurrent));
+      if (caps.every((c) => c != null) && caps.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) === 0) {
+        out.push({ level: "warn", label: `step "${s.id}" harness slots`, note: `every harness it can use (${names.join(", ")}) is capped at 0 — this step can never run` });
+      }
     }
   }
   for (const name of Object.keys(overrides.harnesses ?? {})) {
-    if (!Object.hasOwn(cfg.harnesses, name)) out.push({ level: "info", label: `override for harness "${name}"`, note: "not in the config — will be dropped on boot" });
+    if (!Object.hasOwn(cfg.harnesses ?? {}, name)) out.push({ level: "info", label: `override for harness "${name}"`, note: "not in the config — will be dropped on boot" });
   }
   return out;
 }

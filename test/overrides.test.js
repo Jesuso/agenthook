@@ -173,6 +173,38 @@ test("setting a value equal to the config value removes the entry", async () => 
   assert.deepEqual(s.store.getOverrides(), {}, "harness entry removed");
 });
 
+test("pause {harness} drains one harness and persists it; resume {harness} restores the config value", async () => {
+  const s = opsSetup({ harnesses: { a: { maxConcurrent: 2 } }, stepHarnesses: ["a"] });
+  const r = await s.ops.pause({ harness: "a" });
+  assert.deepEqual(s.store.getOverrides(), { harnesses: { a: 0 } });
+  assert.deepEqual(s.queue.harnessState().a, { active: 0, max: 0, state: "up" });
+  assert.equal(s.queue.isPaused(), false, "a harness drain must not pause the whole queue");
+  assert.equal(r.note, `draining "a": no new starts until it is unpaused; persists across restarts`);
+
+  const back = await s.ops.resume({ harness: "a" });
+  assert.deepEqual(s.store.getOverrides(), {}, "resume clears the persisted harness override");
+  assert.deepEqual(s.queue.harnessState().a, { active: 0, max: 2, state: "up" }, "max back to the config value");
+  assert.match(back.note, /back to its config value/);
+});
+
+test("resume {harness} with no override returns the no-override note and writes nothing", async () => {
+  const s = opsSetup({ harnesses: { a: { maxConcurrent: 2 } }, stepHarnesses: ["a"] });
+  const r = await s.ops.resume({ harness: "a" });
+  assert.equal(r.note, `no override for harness "a"`);
+  assert.deepEqual(s.store.getOverrides(), {});
+  assert.equal(fs.existsSync(path.join(s.dir, "overrides.json")), false);
+});
+
+test("pause/resume {harness} reject an unknown harness and a profile without harnesses", async () => {
+  const s = opsSetup({ harnesses: { a: { maxConcurrent: 2 } } });
+  await assert.rejects(() => s.ops.pause({ harness: "b" }), /no harness "b"/);
+  await assert.rejects(() => s.ops.resume({ harness: "b" }), /no harness "b"/);
+
+  const bare = opsSetup();
+  await assert.rejects(() => bare.ops.pause({ harness: "a" }), /no harness "a" — this profile has no harnesses/);
+  await assert.rejects(() => bare.ops.resume({ harness: "a" }), /no harness "a" — this profile has no harnesses/);
+});
+
 test("resume while a restart holds the queue leaves the persisted pause in force", async () => {
   const s = opsSetup({ locked: true });
   await s.ops.pause({});
@@ -230,6 +262,17 @@ test("doctor harnessSlotLints shows the override wording and flags unknown entri
   assert.ok(lints.some((l) => l.label === "operator pause" && l.note === "paused (override; unpause to clear)"));
   assert.ok(lints.some((l) => l.label === "global maxConcurrent" && l.note === "5 (override; config 3)"));
   assert.ok(lints.some((l) => l.label === `override for harness "gone"` && /dropped on boot/.test(l.note)));
+});
+
+test("doctor harnessSlotLints still shows global overrides on a profile without harnesses", () => {
+  assert.deepEqual(harnessSlotLints(/** @type {any} */ ({})), []);
+  assert.deepEqual(harnessSlotLints(/** @type {any} */ ({}), {}), []);
+  const lints = harnessSlotLints(/** @type {any} */ ({ maxConcurrent: 2, pipeline: [] }), { paused: true, maxConcurrent: 4 });
+  assert.ok(lints.some((l) => l.label === "operator pause" && l.note === "paused (override; unpause to clear)"), JSON.stringify(lints));
+  assert.ok(lints.some((l) => l.label === "global maxConcurrent" && l.note === "4 (override; config 2)"), JSON.stringify(lints));
+  // a stray per-harness override on a profile without harnesses is flagged dropped-on-boot, no throw
+  const stray = harnessSlotLints(/** @type {any} */ ({ pipeline: [] }), { harnesses: { gone: 0 } });
+  assert.ok(stray.some((l) => l.label === `override for harness "gone"` && /dropped on boot/.test(l.note)), JSON.stringify(stray));
 });
 
 // --- CLI ---

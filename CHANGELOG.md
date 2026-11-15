@@ -390,6 +390,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `doctor` no longer hides a persisted global pause or `maxConcurrent` override on a profile
+  without `harnesses`: the harness slot lints returned early before checking the global overrides,
+  so `status`/`tick` showed the override but `doctor` printed nothing.
+- A gate-cap hold's reason now keeps the *last* 1000 characters of the gate output tail (test
+  totals and tsc errors are usually at the end), not the first.
 - `agenthook skill install`'s OpenCode dirs were `.opencode/skill` / `.config/opencode/skill`
   (singular); OpenCode actually reads `skills` (plural). The old singular dirs are now only
   scanned for cleanup of a previously-installed stamped copy (#667).
