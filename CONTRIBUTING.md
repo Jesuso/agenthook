@@ -57,11 +57,15 @@ CI (`.github/workflows/ci.yml`) runs exactly these on Node 22 & 24. Run them loc
 npm run typecheck        # tsc --noEmit over the JSDoc types — must be green
 npm test                 # node:test suites in test/
 node --check bin/agenthook.js   # (CI checks every file under bin/ and src/)
+npm run typecheck:test   # tsc over test/**; CI runs it non-blocking (continue-on-error) for now
 ```
 
 Keep `npm run typecheck` green for any change under `src/`. Add or update a test in `test/` when you
 touch a pure unit (`paths`, `pipeline`, `queue`, `store`, …). Engine/adapter paths that need network
 or a real `claude -p` aren't unit-tested yet — describe the manual smoke test you ran in the PR.
+`test/any-ratchet.test.js` fails `npm test` if explicit `any` tokens (JSDoc in `src/`, TS in
+`ui/src/`) grow past `test/any-baseline.json` — new code must not add them without lowering the
+count elsewhere first.
 
 ## Adding a tracker or ingress adapter
 

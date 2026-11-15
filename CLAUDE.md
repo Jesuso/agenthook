@@ -105,6 +105,9 @@ returning the wrong shape fails `npm run typecheck` — that's the whole point o
   asks the active adapter (`fetchTask().completed`) whether an item is done.
 - `agenthook.config.example.json` / `.env.example` / `INSTRUCTIONS.example.md` are the committed
   templates for the gitignored files above.
+- A new test file stays under ~25 KB; add tests to an existing file only if it stays under that.
+  Shared fixtures go in an underscore-prefixed `test/_<area>-helpers.js` — not matched by the
+  `test/*.test.js` glob `npm test` runs.
 
 ## Security posture
 

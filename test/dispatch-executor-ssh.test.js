@@ -1197,7 +1197,7 @@ test("ssh executor code transport (#690): GIT_SSH_COMMAND carries BatchMode=yes 
 // --- code transport (#690) at the full-pipeline level: step.js/finish.js, not just spawnAgent ---
 
 /** A real git repo + a `claude`-shaped fake bin, for a dispatch-level (`createDispatcher`) test
- * of a remote `createsWorktree` step. Mirrors `deduceHarness` in test/dispatch.test.js, but the
+ * of a remote `createsWorktree` step. Mirrors `deduceHarness` in test/dispatch-deduce.test.js, but the
  * step's harness is a remote one, so the agent actually runs on the "worker" (the fake-ssh
  * double) against the worktree #690 synced there — not directly in the hub worktree.
  * @param {{pipeline: any[]}} o */
@@ -1256,7 +1256,7 @@ const WORKTREE_PIPELINE = [
   { id: "review", sourceLabel: "src:review" },
 ];
 
-// No verdictRepairs: 0 here on purpose, same reasoning as test/dispatch.test.js's own deduce
+// No verdictRepairs: 0 here on purpose, same reasoning as test/dispatch-deduce.test.js's own deduce
 // test: the default (1 repair turn) applies, so calls()===1 below actually proves deduction
 // pre-empted the repair spawn, not just that repairs were disabled.
 const WORKTREE_PIPELINE_WITH_REPAIR = [

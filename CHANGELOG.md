@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format is based on
   `gate_pass`/`gate_fail` events. The ssh executor gained an opt-in `raw` launch mode so a remote
   step's gate runs on the worker, never the hub.
 
+- A ratchet test (`test/any-ratchet.test.js`, baseline `test/any-baseline.json`) fails `npm test`
+  if explicit `any` tokens (JSDoc in `src/`, TS in `ui/src/`) grow past the committed baseline;
+  `test/**` now has its own `tsconfig.test.json` and `npm run typecheck:test`, run non-blocking in
+  CI for now (1300+ pre-existing errors) (#711).
+
 - Sandboxed opencode runs (`oc-local`-style small-window harnesses) now carry an unattended
   contract as a config `instructions` file, so it survives a context compaction (#712).
   OpenCode's own post-compaction continuation message ("stop and ask for clarification…") is
