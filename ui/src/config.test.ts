@@ -361,6 +361,7 @@ const prof = (over: Partial<ProfileView>): ProfileView => ({
   pid: 100,
   port: null,
   tracker: null,
+  ticketSteps: null,
   ingress: null,
   fullAuto: null,
   color: "sky",

@@ -234,6 +234,23 @@ test("createHeartbeat records the configured ui identity, null when unset", () =
   assert.deepEqual(write({ color: "teal", emoji: "🚀" }), { color: "teal", emoji: "🚀" });
 });
 
+test("createHeartbeat adds ticketSteps for a local board (non-manual, sourceStatus-bearing steps, in order); omits it otherwise", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hb-ticketsteps-"));
+  const pipeline = [
+    { id: "triage", manual: true, sourceStatus: "Triage", instructionsFile: "/cfg/triage.md" },
+    { id: "code", sourceStatus: "Code", instructionsFile: "/cfg/code.md" },
+    { id: "review", sourceStatus: "Review", instructionsFile: "/cfg/review.md" },
+    { id: "done", instructionsFile: "/cfg/done.md" },
+  ];
+  const heartbeatFile = path.join(dir, "local.json");
+  createHeartbeat(/** @type {any} */ ({ name: "n", stateKey: "n", heartbeatFile, pipeline, repoPath: dir, provider: "local" }));
+  assert.deepEqual(JSON.parse(fs.readFileSync(heartbeatFile, "utf8")).ticketSteps, ["code", "review"]);
+
+  const nonLocalFile = path.join(dir, "github.json");
+  createHeartbeat(/** @type {any} */ ({ name: "n", stateKey: "n", heartbeatFile: nonLocalFile, pipeline, repoPath: dir, provider: "github" }));
+  assert.equal("ticketSteps" in JSON.parse(fs.readFileSync(nonLocalFile, "utf8")), false);
+});
+
 test("createHeartbeat carries the pricing overrides, null when unset", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hb-pricing-"));
   const write = (/** @type {any} */ pricing) => {

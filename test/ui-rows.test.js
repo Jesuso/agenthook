@@ -286,6 +286,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     forge: null,
     recentRuns: [],
     recentCosts: [],
+    ticketSteps: null,
   });
   const down = snap.profiles[0];
   assert.equal(down.up, false);
@@ -484,6 +485,15 @@ test("buildSnapshot: provenance — tildified configPath, created/last-seen from
   assert.equal(ghost.configPath, null);
   assert.match(String(ghost.createdAt), /^\d{4}-/);
   assert.ok(!JSON.stringify(snap).includes(os.homedir() + path.sep + ".ah-ui-rows"), "configPath is tildified");
+});
+
+test("buildSnapshot: a stopped profile's tracker falls back to the marker's provider; up falls back too, absent either", () => {
+  const reg = tmp();
+  writeState(path.join(reg, "stopped-local"), { "profile.json": { name: "stopped-local", stateKey: "stopped-local", provider: "local" } });
+  writeState(path.join(reg, "stopped-bare"), { "profile.json": { name: "stopped-bare", stateKey: "stopped-bare" } });
+  const snap = buildSnapshot(reg);
+  assert.equal(profileNamed(snap.profiles, "stopped-local").tracker, "local");
+  assert.equal(profileNamed(snap.profiles, "stopped-bare").tracker, null);
 });
 
 test("buildRows: an operator cancel reads cancelled, not failed; dismissed clears failed/cancelled; a re-run supersedes it", () => {

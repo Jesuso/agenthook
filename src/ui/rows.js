@@ -435,11 +435,12 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
  * read as stale live state. `maxConcurrent`, `lastEvent`, `startedAt`, `updatedAt` are history/config,
  * not live counts, so they survive.
  * `name` is the state key; `label` is the heartbeat's name, else the passed-in label (profile.json's).
+ * `tracker` is the heartbeat's, else the marker's `provider` (a stopped local board still reads "local").
  * The provenance fields come from the optional heartbeat.js `profileMeta` inputs (default null/false).
  * `recentCosts` is derived from the optional `events` tail (default none) relative to `now`.
  * @param {{ name: string, label?: string, pid: number, up: boolean, heartbeat: any,
  *   configPath?: string|null, createdAt?: string|null, lastSeenAt?: string|null, ghost?: boolean, configMissing?: boolean,
- *   events?: Record<string, any>[], now?: number, quota?: any }} p
+ *   provider?: string|null, events?: Record<string, any>[], now?: number, quota?: any }} p
  * @returns {import('./contract.js').ProfileView}
  */
 export function profileView(p) {
@@ -454,7 +455,8 @@ export function profileView(p) {
     up: p.up,
     pid: p.pid || null,
     port: num(hb?.port),
-    tracker: str(hb?.tracker),
+    tracker: str(hb?.tracker) ?? str(p.provider),
+    ticketSteps: p.up && Array.isArray(hb?.ticketSteps) ? hb.ticketSteps.filter((/** @param {unknown} s */ (s) => typeof s === "string")) : null,
     ingress: str(hb?.ingress),
     fullAuto: typeof hb?.fullAuto === "boolean" ? hb.fullAuto : null,
     ...identityOf(p.name, hb?.ui),

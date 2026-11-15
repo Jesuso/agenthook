@@ -27,7 +27,9 @@
 // /api/recheck` and `POST /api/close-on-board` (same guards) re-ask the tracker/forge about a
 // Needs-you PR row (or every flagged row), and close a shipped one's ticket on the tracker. `POST /api/release` (same guards) answers a held ticket: the receiver
 // re-runs the held step with the optional comment as the agent's reply (the `@agent` resume gate,
-// reused as the MCP `release` tool). `GET /api/epics[/<ref>]` asks the receiver's `epics` op (the
+// reused as the MCP `release` tool). `POST /api/ticket` (same guards) creates a ticket on a
+// local-board profile through the receiver's `ticket_add` op — the UI still never loads a config
+// or writes the board; receiver down → 503 "start the receiver to add tickets". `GET /api/epics[/<ref>]` asks the receiver's `epics` op (the
 // tracker read); receiver down → a `live:false` view built from the profile's refmeta.epic.
 // `GET /api/sandbox-readiness` (src/ui/sandbox.js) is the Basics form's read-only sandbox card:
 // doctor's runtime/image probes (`which`, `<runtime> info`, `image inspect` — never a build) and
@@ -49,6 +51,8 @@ import http from "node:http";
 import path from "node:path";
 import { archiveRoot, archiveStateDir } from "../archive.js";
 import { registryDir } from "../config.js";
+import { TICKET_BODY_MAX } from "../ops.js";
+import { normalizeBlockedBy } from "../trackers/local.js";
 import { readProfile } from "../heartbeat.js";
 import { readMarker, tildify } from "../profile.js";
 import { readConfigFile, writeConfigFile } from "./config.js";
@@ -98,6 +102,7 @@ const DIGEST = "/api/digest";
 const SUMMARY = "/api/summary";
 const PAUSE = "/api/pause";
 const RESUME = "/api/resume";
+const TICKET = "/api/ticket";
 
 /** `GET /api/epics` (list) and `GET /api/epics/<ref>` (one epic). */
 const EPICS = "/api/epics";
@@ -216,7 +221,7 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
 
   /**
    * The guard prelude shared by the two PUTs and every POST (`/api/restart`, `/api/pause`,
-   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/retry`, `/api/recheck`, `/api/close-on-board`, `/api/release`), in order: cookie (Host already checked) → 401;
+   * `/api/resume`, `/api/profile/remove`, `/api/dismiss`, `/api/retry`, `/api/recheck`, `/api/close-on-board`, `/api/release`, `/api/ticket`), in order: cookie (Host already checked) → 401;
    * `Origin` exactly `http://<host>` → 403; `X-AH-UI: 1` → 403; JSON Content-Type → 415;
    * body ≤ UI_MAX_BYTES → 413; body parses as JSON → 400; then `cb(body)`. Nothing is awaited
    * after the body is read, so a synchronous `cb` serialises concurrent saves.
@@ -432,6 +437,48 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
       });
     });
 
+  /**
+   * `POST /api/ticket` — readGuardedJson, then `{profile}` a string, `title` a string non-empty
+   * after trim, `body` (when present) a string whose JSON-encoded bytes fit `TICKET_BODY_MAX`,
+   * `step` (when present) a non-empty string, `blockedBy` (when present) an array of strings or a
+   * comma string that normalizes to at least one ref → else 400; unknown profile → 404 (socket
+   * never contacted); a non-local tracker (heartbeat's, else the marker's `provider`; an unknown
+   * one falls through to the receiver) → 409. Sends `{cmd:'ticket_add', args:{title, body?,
+   * step?, blockedBy?}}` and maps the reply via `callControl`; a 503 (down) reads "start the
+   * receiver to add tickets" and a 502 strips the local adapter's `local: ` prefix. Audits
+   * `{ts, action:'ticket-add', profile, status[, ref]}` — the title and body text are never
+   * logged (the release audit's rule).
+   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} host the validated Host
+   */
+  const postTicket = (req, res, host) =>
+    readGuardedJson(req, res, host, (body) => {
+      const { profile, title, body: bodyText, step, blockedBy } = body;
+      if (typeof profile !== "string") return send(res, 400);
+      if (typeof title !== "string" || !title.trim()) return sendStatusJson(res, 400, { error: "a title is required" });
+      if (bodyText !== undefined && typeof bodyText !== "string") return send(res, 400);
+      if (typeof bodyText === "string" && Buffer.byteLength(JSON.stringify(bodyText)) > TICKET_BODY_MAX)
+        return sendStatusJson(res, 400, { error: `the body is too long — keep it under ${TICKET_BODY_MAX} bytes encoded` });
+      if (step !== undefined && (typeof step !== "string" || !step)) return send(res, 400);
+      let blockers = null;
+      if (blockedBy !== undefined) {
+        blockers = normalizeBlockedBy(blockedBy);
+        if (!blockers.length) return send(res, 400);
+      }
+      const sock = resolveProfileSock(registry, profile);
+      if (!sock) return send(res, 404);
+      const prof = readProfile(profile, registry);
+      const tracker = typeof prof.heartbeat?.tracker === "string" ? prof.heartbeat.tracker : prof.provider;
+      if (tracker && tracker !== "local")
+        return sendStatusJson(res, 409, { error: "ticket add is for local-board profiles — add work on the tracker's board" });
+      const args = { title, ...(typeof bodyText === "string" && bodyText ? { body: bodyText } : {}), ...(step ? { step } : {}), ...(blockers ? { blockedBy: blockers } : {}) };
+      callControl(sock.sockPath, "ticket_add", args, releaseTimeoutMs).then(({ status, body: result }) => {
+        if (status === 503) result = { error: "start the receiver to add tickets" };
+        else if (status === 502 && typeof result?.error === "string" && result.error.startsWith("local: ")) result = { error: result.error.slice("local: ".length) };
+        appendAudit(sock.dir, { ts: new Date().toISOString(), action: "ticket-add", profile, status, ...(typeof result?.ref === "string" ? { ref: result.ref } : {}) });
+        sendStatusJson(res, status, result);
+      });
+    });
+
   /** A canonical BCP-47 tag, or null when `v` is not one. @param {unknown} v */
   const langOrNull = (v) => {
     try {
@@ -611,7 +658,8 @@ export function createUiServer({ port, token, distDir, host: listenHost = "127.0
     if (req.method === "POST" && p === SUMMARY) return postSummary(req, res, host);
     if (req.method === "POST" && p === PAUSE) return postPause(req, res, host);
     if (req.method === "POST" && p === RESUME) return postResume(req, res, host);
-    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RECHECK || p === CLOSE_ON_BOARD || p === RELEASE || p === PAUSE || p === RESUME || p === SUMMARY) {
+    if (req.method === "POST" && p === TICKET) return postTicket(req, res, host);
+    if (p === RESTART || p === REMOVE || p === DISMISS || p === RETRY || p === RECHECK || p === CLOSE_ON_BOARD || p === RELEASE || p === PAUSE || p === RESUME || p === SUMMARY || p === TICKET) {
       res.setHeader("Allow", "POST");
       return send(res, 405);
     }

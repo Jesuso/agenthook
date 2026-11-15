@@ -2,7 +2,7 @@
 // a modifier, never under an open dialog) are testable without a DOM.
 import type { MessageKey } from "./i18n";
 
-export type OverviewAction = "next" | "prev" | "release" | "dismiss" | "help";
+export type OverviewAction = "next" | "prev" | "release" | "dismiss" | "new" | "help";
 
 /** What the shortcuts sheet lists, in order; `what` is a dictionary key (i18n/en.ts), translated by Overview. */
 export const OVERVIEW_SHORTCUTS: { keys: string; what: MessageKey }[] = [
@@ -10,11 +10,12 @@ export const OVERVIEW_SHORTCUTS: { keys: string; what: MessageKey }[] = [
   { keys: "Enter", what: "shortcuts.overview.open" },
   { keys: "r", what: "shortcuts.overview.release" },
   { keys: "d", what: "shortcuts.overview.dismiss" },
+  { keys: "n", what: "shortcuts.overview.new" },
   { keys: "Ctrl / ⌘ + Z", what: "shortcuts.overview.undo" },
   { keys: "?", what: "shortcuts.overview.help" },
 ];
 
-const KEYS: Record<string, OverviewAction> = { j: "next", k: "prev", r: "release", d: "dismiss", "?": "help" };
+const KEYS: Record<string, OverviewAction> = { j: "next", k: "prev", r: "release", d: "dismiss", n: "new", "?": "help" };
 
 type KeyLike = { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; target: EventTarget | null };
 
