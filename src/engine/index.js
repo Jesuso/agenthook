@@ -45,7 +45,6 @@ import { createQueue } from "../queue.js";
 import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
-import { harnessesOf, quotaGroupOf } from "../dispatch/harness.js";
 import { createExecutors } from "../dispatch/executor.js";
 import { verdictPathFor, sandboxVerdictPathFor } from "../dispatch/spawn.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
@@ -57,14 +56,19 @@ import { readQuota, writeQuota } from "../quota-file.js";
 import { createEmitter } from "../events.js";
 import { createSinks } from "../sinks.js";
 import { loadConfig } from "../config.js";
+import { diffConfig } from "../config-reload.js";
+import { harnessImages } from "../sandbox/container.js";
+import { needsEgressProxy } from "../sandbox/egress.js";
+import { DEFAULT_IMAGE } from "../sandbox/image.js";
 import { checkMove } from "../state-move.js";
 import { createOverlapReleaser, releaseOnSettle } from "./recovery.js";
 import { createPushSink, intakeEvent } from "./intake.js";
+import { buildHarnessing } from "./harnessing.js";
 import { createDecommissionRequester, createHarnessQuota, createQuotaControl, createRestartRequester } from "./controllers.js";
 import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
-import { seedOverrides } from "../overrides.js";
+import { seedOverrides, pruneOverrides, heartbeatOverrides } from "../overrides.js";
 
 export { crashRecord, releaseOnSettle, createOverlapReleaser, recoverInterrupted } from "./recovery.js";
 export { intakeEvent, createPushSink } from "./intake.js";
@@ -122,13 +126,13 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       }
     },
   });
-  // Per-step caps (`maxConcurrent` on a step), counted inside the global cap.
-  /** @type {Record<string, number>} */
-  const stepCaps = {};
-  for (const s of cfg.pipeline || []) if (!s.manual && s.maxConcurrent != null) stepCaps[s.id] = s.maxConcurrent;
-  // Named harnesses: each harnessed step's list + routing, and each harness's own slot cap.
-  // The health breaker is seeded from harness-health.json (a harness since removed from the
-  // config is dropped), persisted on every change, and its transitions are events.
+  // Per-step caps (`maxConcurrent` on a step), counted inside the global cap; the harnessed
+  // steps' lists + routing, and each harness's own slot cap — all built in one shared helper
+  // (src/engine/harnessing.js) so boot and `reload` cannot drift apart.
+  const shape = buildHarnessing(cfg);
+  const stepCaps = shape.stepCaps;
+  // Named harnesses: the health breaker is seeded from harness-health.json (a harness since
+  // removed from the config is dropped), persisted on every change, and its transitions are events.
   /** @type {Parameters<typeof createQueue>[5]} */
   let harnessing;
   if (cfg.harnesses) {
@@ -136,32 +140,18 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     const stored = store.getHarnessHealth();
     const seeded = Object.fromEntries(Object.entries(stored.down).filter(([name]) => Object.hasOwn(harnesses, name)));
     if (Object.keys(seeded).length !== Object.keys(stored.down).length) store.setHarnessHealth(seeded, stored.unharnessedUntil);
-    /** @type {Record<string, number|undefined>} */
-    const cooldowns = {};
-    /** @type {string[]} */
-    const unharnessedShared = [];
-    for (const s of cfg.pipeline || []) {
-      if (!s.manual && !harnessesOf(s).length && quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
-    }
     harnessing = {
-      steps: {},
-      caps: {},
-      cooldowns,
+      steps: shape.steps,
+      caps: shape.caps,
+      cooldowns: shape.cooldowns,
       health: seeded,
-      unharnessedShared,
+      unharnessedShared: shape.unharnessedShared,
       unharnessedUntil: stored.unharnessedUntil,
       onHealth: (down, unharnessedUntil) => store.setHarnessHealth(down, unharnessedUntil),
       onHarnessDown: (harness, { reason, until, cause = "health", window, utilization, threshold }) =>
         emit("harness_down", "", "", { harness, reason, until, cause, ...(window ? { window, utilization, threshold } : {}) }),
       onHarnessUp: (harness, info) => emit("harness_up", "", "", { harness, cause: info?.cause ?? "health" }),
     };
-    for (const s of cfg.pipeline || []) {
-      if (!s.manual && harnessesOf(s).length) harnessing.steps[s.id] = { harnesses: harnessesOf(s), routing: s.routing ?? "first-free" };
-    }
-    for (const [name, h] of Object.entries(harnesses)) {
-      harnessing.caps[name] = h.maxConcurrent;
-      cooldowns[name] = h.cooldownMinutes;
-    }
   }
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
@@ -266,8 +256,82 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // `restoreQueued` — so a restored job never starts on a drained harness or while paused.
   seedOverrides({ cfg, store, queue, quotaPacer, heartbeat });
 
+  // A restart/decommission/shutdown owns the queue pause — shared by ops (`resume` must not
+  // undo it) and `reload` (refused while one is pending). References `restarter`/`decommissioner`
+  // below, but is only ever called after boot, when they exist.
+  const isLocked = () => state.draining || restarter.isPending() || decommissioner.isPending();
+
+  // `agenthook reload` / control op `reload` (#725): re-read + validate the config, then apply
+  // only the reloadable keys to runs that start after. Running agents keep the config they
+  // started with — the shared `cfg` keys are replaced, never mutated in place.
+  const reloadConfig = async () => {
+    if (isLocked()) throw new Error("reload: a restart/decommission/shutdown is pending");
+    const next = loadConfig({ configPath: cfg.configPath }); // throws on an invalid config → apply nothing
+    const { changed, restartRequired } = diffConfig(cfg, next);
+    if (restartRequired.length) {
+      throw new Error(`reload: restart required for: ${restartRequired.join(", ")}`);
+    }
+    if (!changed.length) return { changed: [], note: "no changes" };
+
+    // A new run image (a harness's sandbox image, or the egress proxy now needed by a mode
+    // change) must be present before the next run can use it — verify it before applying.
+    if (sandbox) {
+      const before = new Set([...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
+      const after = new Set([...harnessImages(next), ...(needsEgressProxy(next) ? [DEFAULT_IMAGE] : [])]);
+      const gained = [...after].filter((img) => !before.has(img));
+      if (gained.length) {
+        const nextSandbox = createSandbox(next);
+        if (!nextSandbox) throw new Error("reload: sandbox check failed: no sandbox config");
+        const check = await nextSandbox.check();
+        if (!check.ok) throw new Error(`reload: sandbox check failed: ${check.reason}`);
+      }
+    }
+
+    // Apply: replace the reloadable keys with `next`'s values. A running run holds the step/
+    // harness objects it resolved at start, so replacing these references is what keeps
+    // "running agents keep their config" true.
+    cfg.maxConcurrent = next.maxConcurrent;
+    cfg.quota = next.quota;
+    cfg.harnesses = next.harnesses;
+    cfg.pipeline = next.pipeline;
+    cfg.tracker.pipeline = /** @type {import('../types.js').Step[]} */ (next.pipeline);
+    if (cfg.sandbox && next.sandbox) cfg.sandbox.egress = next.sandbox.egress;
+
+    quotaPacer?.setThresholds(next.quota ?? null); // no-harness pacer reads thresholds from here; the harness quota reads cfg.quota live
+
+    const nextShape = buildHarnessing(cfg);
+    queue.reconfigure({
+      max: cfg.maxConcurrent,
+      stepCaps: nextShape.stepCaps,
+      steps: nextShape.steps,
+      caps: nextShape.caps,
+      cooldowns: nextShape.cooldowns,
+      unharnessedShared: nextShape.unharnessedShared,
+    });
+
+    // Re-apply active operator overrides so an override still wins over the new config value;
+    // a harness override for a harness removed from the config is dropped (and republished).
+    const o = store.getOverrides();
+    const { overrides, dropped } = pruneOverrides(cfg, o);
+    for (const line of dropped) console.warn(line);
+    if (dropped.length) store.setOverrides(overrides);
+    for (const [name, n] of Object.entries(overrides.harnesses ?? {})) queue.setHarnessMax(name, n);
+    if (overrides.maxConcurrent !== undefined) queue.setMax(overrides.maxConcurrent);
+
+    heartbeat.update({
+      maxConcurrent: overrides.maxConcurrent !== undefined ? overrides.maxConcurrent : cfg.maxConcurrent,
+      overrides: heartbeatOverrides(cfg, overrides),
+      queue: queue.state(),
+    });
+
+    emit("config_reloaded", "", "", { changed });
+
+    return { changed, note: `reloaded ${changed.length} key(s)` };
+  };
+
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer, harnessQuota,
+    reload: reloadConfig,
     onEpicChanged: (reset) => { resetEpics = reset; },
     digester: createDigester({
       cfg, emit, repository: repositoryOf(cfg),
@@ -288,7 +352,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       store.clearOverlap(ref);
       releaseOverlap?.(ref);
     },
-    isLocked: () => state.draining || restarter.isPending() || decommissioner.isPending(),
+    isLocked,
   });
 
   const restarter = createRestartRequester({

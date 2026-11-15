@@ -115,11 +115,14 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
  *   onEpicChanged?: (reset: () => void) => void,
  *   pacer?: { operatorPause(): void, operatorResume(): string|null },
  *   harnessQuota?: { suppress(name: string, until: number): void },
+ *   reload?: () => Promise<{ changed: string[], note: string }>,
  * }} deps  isLocked: a restart/decommission/shutdown owns the queue pause — `resume` must not undo it.
  *   pacer: the quota pacer (src/quota.js) — told about operator pauses so its reset never undoes one,
  *   and an operator `resume` overrides a quota pause until that window resets.
  *   harnessQuota: the harnessed quota controller — `harness_reset` on a quota-closed harness tells it
  *   to suppress re-closing that harness until the trip's reset.
+ *   reload: the engine's config hot-reload (#725) — re-reads + validates the config and applies the
+ *   reloadable keys; throws (audited as failed) when nothing could be applied, returns {changed, note}.
  *   onEpicChanged: handed the epics-cache reset so the engine can drop it on an `epic_changed`
  *   signal — a callback, not a property of the returned map (every own property is a control op)
  * @returns {Record<string, (args: any) => Promise<any>>}
@@ -127,6 +130,7 @@ export function ttlCache(fn, ttlMs, now = Date.now) {
 export function createOps(deps) {
   const { cfg, store, adapter, forge, queue, cancelRun, intake, emit, heartbeat, pull, isLocked, leavePipeline, pacer } = deps;
   const harnessQuota = deps.harnessQuota;
+  const reload = deps.reload;
   const digester = deps.digester;
   const summarizer = deps.summarizer;
   const now = deps.now ?? Date.now;
@@ -719,6 +723,14 @@ export function createOps(deps) {
       const lang = canonicalLang(args?.lang);
       return await summarizer.request({ ref, lang });
     },
+    // Re-read + validate the config and apply its reloadable keys to runs that start after the
+    // reload; running agents keep the config they started with. Refused (audited as failed) while
+    // a restart/decommission/shutdown is pending, when the new config is invalid, or when a key
+    // needs a restart. The engine owns the actual apply (the `reload` dep).
+    reload: write("reload", async () => {
+      if (!reload) throw new Error("reload is not available on this receiver");
+      return await reload();
+    }),
     pull: write("pull", async () => {
       await pull();
       return { ...queue.state() };

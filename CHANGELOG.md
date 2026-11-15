@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
+  then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
+  remove/rename/any field except `remote`), and per-step spawn knobs (`harness`, `routing`,
+  `model`, `effort`, `escalate`, `lite`, `instructionsFile`, `egress`, `maxConcurrent`) — to runs
+  that **start after** the reload, with no restart (#725). Running agents keep the config they
+  started with (the shared `cfg` keys are replaced, never mutated). The new config must be valid,
+  must not change a restart-required key (adding/removing/reordering steps, `name`/`stateId`/
+  `tracker`/`repos`, `remote`, adding or removing the `sandbox` or `harnesses` block — the error
+  names every such key), and any newly-gained run image is verified via a sandbox check before
+  anything is applied. Active operator overrides still win after a reload; a harness override for
+  a removed harness is dropped. Emits a `config_reloaded` event; `.env` is not re-read (use
+  `restart` for that).
+
 - Quota pacing now closes only the harnesses that share an exhausted Claude subscription, instead
   of the whole receiver (#723). On a profile with `harnesses`, a reading at/above a `quota`
   threshold closes the run's subscription group (every `claude` harness with no own

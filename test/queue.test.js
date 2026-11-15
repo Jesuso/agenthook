@@ -727,3 +727,29 @@ test("breaker: resetHarness clears the entry, reports up, persists and starts wa
   assert.deepEqual(b.started, ["A:local", "B:local"]);
   assert.equal(b.q.resetHarness("local").reset, false, "already up");
 });
+
+test("reconfigure: replaces caps/steps live and pumps — a raised cap starts waiting work, a removed harness stops new starts", async () => {
+  const caps = { qwen: 1, deepseek: 1 };
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["qwen", "deepseek"] } }, caps });
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  assert.deepEqual(started, ["A:qwen", "B:deepseek"]);
+  q.enqueue(job("C", "code"));
+  assert.equal(started.length, 2, "both harnesses full → C waits");
+  // Drop deepseek and raise qwen to 2: C re-routes to qwen (now with a free slot) and starts.
+  q.reconfigure({ max: 9, steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 2 } });
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "C:qwen"]);
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 2, max: 2, state: "up" } }, "deepseek is gone from the config");
+  for (const r of ["A", "B", "C"]) await done(r);
+  await q.onIdle();
+});
+
+test("reconfigure: drops breaker entries for removed harnesses and persists", async () => {
+  const b = breaker(4, { ...PAIR, cooldowns: { local: 10 } });
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", b.trip("local"));
+  assert.equal(b.q.harnessState().local.state, "down");
+  b.q.reconfigure({ steps: { code: { harnesses: ["cloud"] } }, caps: { cloud: 2 } });
+  assert.equal(b.q.harnessState().local, undefined, "local is gone from the config");
+  assert.deepEqual(b.persisted(), {}, "its breaker entry was dropped and persisted");
+});

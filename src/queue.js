@@ -71,6 +71,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const harnessSteps = new Map(Object.entries(harnessing?.steps ?? {}));
   // Queue-owned copy: setHarnessMax changes a cap at runtime without touching the engine's.
   const harnessCaps = { ...(harnessing?.caps ?? {}) };
+  // Queue-owned copy of the cooldowns (a reload replaces them; the engine's stays intact).
+  const cooldowns = { ...(harnessing?.cooldowns ?? {}) };
   const now = harnessing?.now ?? Date.now;
   const setTimer = harnessing?.setTimer ?? setTimeout;
   const clearTimer = harnessing?.clearTimer ?? clearTimeout;
@@ -153,7 +155,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     }
     armQuotaTimer(); // any later deadline still ahead
   }
-  const capping = caps.size > 0 || harnessSteps.size > 0 || !!harnessing;
+  // Live, not a const: a reload can add the first step cap (turning capping on) or remove the last.
+  const capping = () => caps.size > 0 || harnessSteps.size > 0 || !!harnessing;
   // Re-arm on boot: a persisted quota closure must reopen (and emit harness_up) without a new reading.
   armQuotaTimer();
   /** @type {Map<string, number>} stepId → running pipeline jobs of that step */
@@ -183,11 +186,12 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
    * @param {string} name @param {{reason: string}|undefined} signal
    */
   const settleHealth = (name, signal) => {
+    if (!Object.hasOwn(harnessCaps, name)) return; // a harness removed by a reload never re-trips
     const h = healthOf(name);
     const cur = health.get(name);
     if (signal && h !== "down") {
       const strikes = cur ? cur.strikes + 1 : 1;
-      const cd = harnessing?.cooldowns?.[name] ?? DEFAULT_COOLDOWN_MINUTES;
+      const cd = cooldowns[name] ?? DEFAULT_COOLDOWN_MINUTES;
       const until = now() + cooldownFor(cd, strikes) * 60000;
       health.set(name, { until, strikes, reason: signal.reason, cause: "health" });
       persistHealth();
@@ -237,7 +241,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     }
     return out;
   };
-  const cappedCount = () => (capping ? queue.filter(blocked).length : 0);
+  const cappedCount = () => (capping() ? queue.filter(blocked).length : 0);
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -279,7 +283,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const snapshot = () => ({
     active,
     queued: queue.length,
-    ...(capping ? { capped: cappedCount() } : {}),
+    ...(capping() ? { capped: cappedCount() } : {}),
     ...(harnessing ? { harnesses: harnessState() } : {}),
   });
   const report = () => onChange?.(snapshot());
@@ -303,7 +307,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       // First waiting job whose step is under its cap and has a harness with room: a capped
       // job never blocks the startable ones behind it, and the jobs left behind keep their
       // relative order.
-      const i = capping ? queue.findIndex((j) => !blocked(j)) : 0;
+      const i = capping() ? queue.findIndex((j) => !blocked(j)) : 0;
       if (i < 0) break;
       const [job] = queue.splice(i, 1);
       if (!job) break;
@@ -538,6 +542,34 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     setHarnessMax(name, n) {
       if (!Object.hasOwn(harnessCaps, name)) throw new Error(`unknown harness "${name}"`);
       harnessCaps[name] = n ?? undefined;
+      report();
+      pump();
+    },
+    /**
+     * Apply a reloaded config (#725): replace the copied maps with the freshly built shapes so
+     * runs that start after this pick up the new values, then pump so waiting jobs re-route.
+     * Active runs keep the harness they resolved at start (a removed harness's runs still count
+     * until they settle — nothing here crashes on them). A per-harness slot override (applied by
+     * the caller via `setHarnessMax` afterwards) wins over the new cap, as does a `maxConcurrent`
+     * override via `setMax`. Breaker `health` entries for harnesses removed from the config are
+     * dropped and persisted (`onHealth`).
+     * @param {{max?: number, stepCaps?: Record<string, number>, steps?: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps?: Record<string, number|undefined>, cooldowns?: Record<string, number|undefined>, unharnessedShared?: string[]}} next
+     */
+    reconfigure({ max: nextMax, stepCaps: nextStepCaps, steps: nextSteps, caps: nextHarnessCaps, cooldowns: nextCooldowns, unharnessedShared: nextShared }) {
+      if (nextMax !== undefined) max = nextMax;
+      caps.clear();
+      for (const [id, n] of Object.entries(nextStepCaps ?? {})) caps.set(id, n);
+      harnessSteps.clear();
+      for (const [id, r] of Object.entries(nextSteps ?? {})) harnessSteps.set(id, r);
+      for (const name of Object.keys(harnessCaps)) delete harnessCaps[name];
+      Object.assign(harnessCaps, nextHarnessCaps ?? {});
+      for (const name of Object.keys(cooldowns)) delete cooldowns[name];
+      Object.assign(cooldowns, nextCooldowns ?? {});
+      unharnessedShared.clear();
+      for (const id of nextShared ?? []) unharnessedShared.add(id);
+      // Drop breaker entries for harnesses no longer in the config, then persist what remains.
+      for (const name of [...health.keys()]) if (!Object.hasOwn(harnessCaps, name)) health.delete(name);
+      persistHealth();
       report();
       pump();
     },

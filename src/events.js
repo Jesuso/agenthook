@@ -86,6 +86,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
+ *           | config_reloaded (control-socket/CLI `reload`, #725: the config was re-read, validated and its reloadable
+ *             keys applied to runs that start after; ref/step ""; `changed` = the reloaded dotted key paths; not in the sinks' default set)
  *           | sandbox_reaped (boot reaped a dead receiver's leftover sandbox containers/networks; ref/step ""; `containers`,
  *             `networks` (counts), `runs` (the distinct "<ref>/<step>" values the removed containers' labels named, best-effort,
  *             may be empty); not in the sinks' default set)
