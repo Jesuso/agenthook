@@ -26,6 +26,7 @@ function profile(overrides: Partial<ProfileView> & { name: string }): ProfileVie
     lastSeenAt: null,
     ghost: false,
     configMissing: false,
+    died: false,
     recentCosts: [],
     forge: null,
     recentRuns: [], quotaPaused: null, quota: null,

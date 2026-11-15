@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Home now ranks cards by what the operator can act on now (#694): died profiles (crashed or
+  killed rather than stopped) first, then up profiles, then stopped profiles with something still
+  pending — a stopped profile's stale Needs-you count no longer outranks a live one or renders as
+  a live red/amber alert; it shows muted with an "as of \<age\>" label instead. A fatal exit
+  (`onFatal`) now leaves its pidfile in place (it used to delete it alongside the clean-shutdown
+  path), so a crash is told apart from a deliberate `agenthook stop`: the new `ProfileView.died`
+  flag drives a "stopped unexpectedly" pill and a failed-tone card border.
 - **Experimental** remote harness, phase 2 (#689): a harness can set `remote: {host, user?,
   port?, identityFile?, workDir, bin?}` to run its agent over ssh on another machine instead of
   the host or the profile's sandbox, via a new `ssh` executor (`src/dispatch/executor-ssh.js`).

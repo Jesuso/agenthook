@@ -32,6 +32,7 @@ const base: ProfileView = {
   lastSeenAt: null,
   ghost: false,
   configMissing: false,
+  died: false,
   recentCosts: [],
   forge: null,
   recentRuns: [], quotaPaused: null, quota: null,

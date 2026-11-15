@@ -18,7 +18,7 @@ const local = (h: number, day = 8) => new Date(2026, 9, day, h).toISOString();
 const profile = (over: Partial<ProfileView> = {}): ProfileView => ({
   name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
   startedAt: null, updatedAt: null, active: 1, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
+  lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null, ...over,
 });
 const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "idle", model: "claude-opus-5-5", startedAt: local(9), costUsd: 1.5, estUsd: 0, trackerUrl: null,
