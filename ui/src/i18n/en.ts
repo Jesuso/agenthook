@@ -103,6 +103,7 @@ export const messages = {
   "overview.newTicket": "New ticket",
   "overview.newTicketDisabled": "start the receiver to add tickets",
   "ticket.blockedNotice": "It will be blocked by {by} — it runs when they reach done",
+  "ticket.createdBlocked": "{ref} is blocked by {by} — it runs when they reach done",
   "overview.slotsTitle": "{active} of {max} slots in use",
   "overview.harnessSlots": "harness slots",
   "overview.harnessTitle": "harness {name}: {active} of {max} slots in use",

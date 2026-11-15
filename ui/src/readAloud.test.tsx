@@ -16,7 +16,7 @@ import { stopSpeech } from "./speech";
 import { installSpeech, uninstallSpeech } from "./speechMock";
 
 const prof = (name: string) =>
-  ({ name, label: name, up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
+  ({ name, label: name, up: true, pid: 1, port: null, tracker: "github", ticketSteps: null, ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
     startedAt: null, updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
     lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null }) as ProfileView;
 const t = (profile: string, ref: string, status: TicketRow["status"], extra: Partial<TicketRow> = {}): TicketRow => ({

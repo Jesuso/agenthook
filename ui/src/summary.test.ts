@@ -9,6 +9,7 @@ function profile(overrides: Partial<ProfileView> & { name: string; up: boolean }
     pid: null,
     port: null,
     tracker: null,
+    ticketSteps: null,
     ingress: null,
     fullAuto: null,
     color: "sky",

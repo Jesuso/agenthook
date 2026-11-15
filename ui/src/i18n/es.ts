@@ -105,6 +105,7 @@ export const messages: Record<MessageKey, Message> = {
   "overview.newTicket": "Nuevo ticket",
   "overview.newTicketDisabled": "inicia el receptor para añadir tickets",
   "ticket.blockedNotice": "Estará bloqueado por {by} — se ejecutará cuando lleguen a hecho",
+  "ticket.createdBlocked": "{ref} está bloqueado por {by} — se ejecutará cuando lleguen a hecho",
   "overview.slotsTitle": "{active} de {max} espacios en uso",
   "overview.harnessSlots": "espacios por harness",
   "overview.harnessTitle": "harness {name}: {active} de {max} espacios en uso",

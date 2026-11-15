@@ -18,10 +18,11 @@ vi.mock("./MarkdownEditor", () => ({
 const local = {
   name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "local", ingress: null, fullAuto: null, color: "teal", emoji: "🚀",
   forge: null, maxConcurrent: 3, startedAt: null, updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null,
-  configPath: null, createdAt: null, lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null,
+  configPath: null, createdAt: null, lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null,
   ticketSteps: ["code", "review"],
 } as ProfileView;
 const github = { ...local, tracker: "github", ticketSteps: null } as ProfileView;
+const stoppedLocal = { ...local, up: false, pid: null, active: null, queued: null, paused: null, restartPending: null } as ProfileView;
 const t = (ref: string): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: "running", model: null, startedAt: null, costUsd: 0, estUsd: 0,
   trackerUrl: null, prUrl: null, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null, prState: null, prNeeds: null,
@@ -80,17 +81,19 @@ describe("Overview New ticket (local boards)", () => {
     expect(document.querySelector("[data-new-ticket-open]")).toBeNull();
   });
 
-  it("shows it on a local board, disabled while the receiver is down", async () => {
+  it("shows it on a local board, disabled with a visible reason while the receiver is down", async () => {
     stubFetch(() => new Response("{}", { status: 200 }));
     await render(local);
     expect(document.querySelector<HTMLButtonElement>("[data-new-ticket-open]")?.disabled).toBe(false);
+    expect(document.querySelector("[data-new-ticket-disabled-reason]")).toBeNull();
     await m!.unmount();
     m = null;
-    await render({ ...local, up: false } as ProfileView);
+    await render(stoppedLocal);
     expect(document.querySelector<HTMLButtonElement>("[data-new-ticket-open]")?.disabled).toBe(true);
+    expect(document.querySelector("[data-new-ticket-disabled-reason]")?.textContent).toBe("start the receiver to add tickets");
   });
 
-  it("`n` opens the dialog (and is a no-op off a non-local board)", async () => {
+  it("`n` opens the dialog (and is a no-op off a non-local board, or a disabled button)", async () => {
     stubFetch(() => new Response("{}", { status: 200 }));
     await render(local);
     await press("n");
@@ -98,6 +101,11 @@ describe("Overview New ticket (local boards)", () => {
     await m!.unmount();
     m = null;
     await render(github);
+    await press("n");
+    expect(dialog()).toBeNull();
+    await m!.unmount();
+    m = null;
+    await render(stoppedLocal);
     await press("n");
     expect(dialog()).toBeNull();
   });
@@ -133,6 +141,20 @@ describe("Overview New ticket (local boards)", () => {
     expect(created).toEqual([{ profile: "dev", ref: "9" }]);
     expect(calls.some((c) => c.url.includes("/api/ticket"))).toBe(true);
     expect(dialog()).toBeNull(); // closes on success
+  });
+
+  it("shows a blocked notice with the new ref and blockers once the dialog closes", async () => {
+    stubFetch(() => new Response(JSON.stringify({ ref: "9", step: "code", stage: "agent:code", blockedBy: ["3", "7"] }), { status: 200 }));
+    const created: { profile: string; ref: string }[] = [];
+    await render(local, (t) => created.push(t));
+    await open();
+    await setInput(dialog()!.querySelector<HTMLInputElement>("[role='dialog'] input")!, "Fix the flaky test");
+    await act(async () => {
+      dialog()!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    });
+    await until(() => created.length === 1);
+    expect(dialog()).toBeNull();
+    expect(document.querySelector("[data-blocked-notice]")?.textContent).toBe("#9 is blocked by #3, #7 — it runs when they reach done");
   });
 
   it("shows a server error inline and stays open", async () => {

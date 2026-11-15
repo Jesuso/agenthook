@@ -141,6 +141,23 @@ test("writeProfileMarker carries over a prior webhooks value when called without
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).webhooks, true);
 });
 
+test("writeProfileMarker writes cfg.provider, and carries over the prior value when the caller has none (a rename)", () => {
+  const reg = tmpRegistry();
+  const cfg = stub(reg, "D", "/x/agenthook.config.json");
+  mkState(cfg.stateDir);
+  const file = path.join(cfg.stateDir, "profile.json");
+
+  writeProfileMarker({ ...cfg, provider: "local" });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).provider, "local");
+
+  // A rename's pseudo-cfg (src/state-move.js) has no provider — the marker keeps the last one.
+  writeProfileMarker(cfg);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).provider, "local");
+
+  writeProfileMarker({ ...cfg, provider: "github" });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).provider, "github");
+});
+
 test("isFreshStateDir: absent or only an empty logs/ is fresh; anything else is not", () => {
   const reg = tmpRegistry();
   const dir = path.join(reg, "B");

@@ -487,6 +487,15 @@ test("buildSnapshot: provenance — tildified configPath, created/last-seen from
   assert.ok(!JSON.stringify(snap).includes(os.homedir() + path.sep + ".ah-ui-rows"), "configPath is tildified");
 });
 
+test("buildSnapshot: a stopped profile's tracker falls back to the marker's provider; up falls back too, absent either", () => {
+  const reg = tmp();
+  writeState(path.join(reg, "stopped-local"), { "profile.json": { name: "stopped-local", stateKey: "stopped-local", provider: "local" } });
+  writeState(path.join(reg, "stopped-bare"), { "profile.json": { name: "stopped-bare", stateKey: "stopped-bare" } });
+  const snap = buildSnapshot(reg);
+  assert.equal(profileNamed(snap.profiles, "stopped-local").tracker, "local");
+  assert.equal(profileNamed(snap.profiles, "stopped-bare").tracker, null);
+});
+
 test("buildRows: an operator cancel reads cancelled, not failed; dismissed clears failed/cancelled; a re-run supersedes it", () => {
   const rows = buildRows(
     "p",

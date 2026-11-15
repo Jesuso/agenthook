@@ -47,7 +47,7 @@ const ADDED = profile("ticket-added");
 const ADDED_FAIL = profile("ticket-fail");
 const NOT_LOCAL = profile("ticket-notlocal");
 const DOWN_LOCAL = profile("ticket-down");
-// The tracker a stopped profile reads from its heartbeat (the button is hidden when it is absent).
+// The server's tracker check reads the heartbeat's `tracker` field.
 fs.writeFileSync(path.join(ADDED.dir, "heartbeat.json"), JSON.stringify({ tracker: "local" }));
 fs.writeFileSync(path.join(ADDED_FAIL.dir, "heartbeat.json"), JSON.stringify({ tracker: "local" }));
 fs.writeFileSync(path.join(NOT_LOCAL.dir, "heartbeat.json"), JSON.stringify({ tracker: "github" }));
@@ -692,7 +692,16 @@ test("POST /api/ticket: creates on a local board, sends {cmd:'ticket_add'}, audi
   const lines = fs.readFileSync(path.join(ADDED.dir, "ui-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.deepEqual(lines.at(-1), { ts: lines.at(-1).ts, action: "ticket-add", profile: "ticket-added", status: 200, ref: "42" });
   assert.ok(!JSON.stringify(lines.at(-1)).includes("Fix the flaky test")); // title/body never logged
-  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-down", title: "x" }))).status, 503);
+  const down = await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-down", title: "x" }));
+  assert.equal(down.status, 503);
+  assert.deepEqual(JSON.parse(down.body), { error: "start the receiver to add tickets" });
+});
+
+test("POST /api/ticket: no cookie → 401, socket never contacted", async () => {
+  const n = calls.ticket.length;
+  const res = await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added", title: "x" }), { cookie: null });
+  assert.equal(res.status, 401);
+  assert.equal(calls.ticket.length, n);
 });
 
 test("POST /api/ticket: validation → 400; unknown profile → 404; non-local tracker → 409; refusal → 502 with the local: prefix stripped", async () => {

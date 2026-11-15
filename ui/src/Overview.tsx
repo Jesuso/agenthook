@@ -27,6 +27,7 @@ import type { MessageKey, T } from "./i18n";
 import { Modal } from "./Modal";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ticketAddOutcome, ticketAddRequest } from "./ticketAdd";
+import type { TicketCreated } from "./ticketAdd";
 
 type Ref = { profile: string; ref: string };
 
@@ -82,6 +83,7 @@ export function Overview(props: OverviewProps) {
   const [help, setHelp] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
   const [newTicket, setNewTicket] = useState(false);
+  const [blockedNotice, setBlockedNotice] = useState<{ ref: string; by: string[] } | null>(null);
   const newTicketBtn = useRef<HTMLButtonElement>(null);
   const filtered = props.statusFilter !== "" || props.epicFilter !== "";
   const ticketsShown = ticketsOpen || filtered;
@@ -115,17 +117,20 @@ export function Overview(props: OverviewProps) {
           <div className="ml-auto flex items-center gap-2">
             {props.note && <span className="text-label text-status-held">{props.note}</span>}
             {profile.tracker === "local" && (
-              <button
-                ref={newTicketBtn}
-                type="button"
-                data-new-ticket-open
-                disabled={!profile.up}
-                title={profile.up ? t("shortcuts.overview.new") : t("overview.newTicketDisabled")}
-                onClick={() => setNewTicket(true)}
-                className="rounded-md border border-border px-2 py-1 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("overview.newTicket")}
-              </button>
+              <span className="flex items-center gap-2">
+                <button
+                  ref={newTicketBtn}
+                  type="button"
+                  data-new-ticket-open
+                  disabled={!profile.up}
+                  title={profile.up ? t("shortcuts.overview.new") : t("overview.newTicketDisabled")}
+                  onClick={() => setNewTicket(true)}
+                  className="rounded-md border border-border px-2 py-1 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t("overview.newTicket")}
+                </button>
+                {!profile.up && <span data-new-ticket-disabled-reason className="text-label text-muted">{t("overview.newTicketDisabled")}</span>}
+              </span>
             )}
             <ShortcutsButton onClick={() => setHelp(true)} />
             <Menu label={t("overview.profileActions")} items={props.menuItems} />
@@ -153,6 +158,12 @@ export function Overview(props: OverviewProps) {
       </div>
 
       {!profile.up && <StoppedBanner profile={profile} />}
+
+      {blockedNotice && (
+        <p data-blocked-notice className="text-label text-status-held">
+          {t("ticket.createdBlocked", { ref: `#${blockedNotice.ref}`, by: blockedNotice.by.map((b) => `#${b}`).join(", ") })}
+        </p>
+      )}
 
       {/* Screen readers hear the headline change (a ticket arrives or is handled), not every re-render. */}
       <p className="sr-only" aria-live="polite" data-needs-live>
@@ -204,7 +215,16 @@ export function Overview(props: OverviewProps) {
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
 
-      {newTicket && profile.tracker === "local" && <NewTicketModal profile={profile} onCreated={(ref) => props.onCreated?.({ profile: profile.name, ref })} onClose={() => setNewTicket(false)} />}
+      {newTicket && profile.tracker === "local" && (
+        <NewTicketModal
+          profile={profile}
+          onCreated={(ticket) => {
+            props.onCreated?.({ profile: profile.name, ref: ticket.ref });
+            setBlockedNotice(ticket.blockedBy && ticket.blockedBy.length > 0 ? { ref: ticket.ref, by: ticket.blockedBy } : null);
+          }}
+          onClose={() => setNewTicket(false)}
+        />
+      )}
       {help && <ShortcutSheet rows={OVERVIEW_SHORTCUTS.map((s) => ({ keys: s.keys, what: t(s.what) }))} onClose={() => setHelp(false)} />}
     </div>
   );
@@ -216,7 +236,7 @@ export function Overview(props: OverviewProps) {
  * comma-separated blockers. It can only be opened with the receiver up (the button is the only
  * trigger), so every failure is the server's, shown inline.
  */
-function NewTicketModal({ profile, onCreated, onClose }: { profile: ProfileView; onCreated: (ref: string) => void; onClose: () => void }) {
+function NewTicketModal({ profile, onCreated, onClose }: { profile: ProfileView; onCreated: (ticket: TicketCreated) => void; onClose: () => void }) {
   const { t, lang } = useT();
   const steps = profile.ticketSteps ?? [];
   const [title, setTitle] = useState("");
@@ -245,7 +265,7 @@ function NewTicketModal({ profile, onCreated, onClose }: { profile: ProfileView;
     }
     const out = ticketAddOutcome(status, parsed, lang);
     if (out.ok) {
-      onCreated(out.ticket.ref);
+      onCreated(out.ticket);
       return onClose();
     }
     setBusy(false);
