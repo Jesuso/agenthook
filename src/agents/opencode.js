@@ -215,6 +215,43 @@ export function readOpencodeConfig(configPath) {
   return content;
 }
 
+/**
+ * The unattended contract written into a sandboxed run's OpenCode config `instructions` (#712).
+ * OpenCode rebuilds its system prompt from config `instructions` on every step, so unlike the
+ * one-shot prompt, this text survives a context compaction. Needed because OpenCode's own
+ * post-compaction message is a hardcoded, unconfigurable string ("Continue if you have next
+ * steps, or stop and ask for clarification if you are unsure how to proceed.") that a
+ * small-window model reads as an invitation to stop and ask — so this file names that exact
+ * message and tells the agent what it means here. Pure; exported for tests.
+ * @param {string} verdictFile
+ * @returns {string}
+ */
+export function opencodeContract(verdictFile) {
+  return `# Unattended run
+
+This run is unattended: no human reads your messages or answers questions while it works. Never
+end on a question or ask for confirmation. Decide, act, and finish the task yourself.
+
+## After a context compaction
+
+OpenCode may compact the conversation and then add a message that says: "Continue if you have
+next steps, or stop and ask for clarification if you are unsure how to proceed." In this run that
+message always means **continue**: use the summary you were given, carry on with the task, and
+never stop to ask.
+
+## Verdict
+
+Before exiting, write your verdict as JSON to this exact file: ${verdictFile} (also available as
+the environment variable \$AGENTHOOK_VERDICT_FILE):
+
+\`{"outcome": "...", "reason": "...", "summary": {"plain": "..."}}\`
+
+\`outcome\` is one of the values the task's VERDICT section lists. If you are blocked on a human
+decision, write \`"hold"\` with the question in \`reason\` instead of asking — that is the only way
+to ask a question in this run.
+`;
+}
+
 /** @type {import('../types.js').AgentAdapter} */
 export const opencode = {
   // sandboxResume: false — a sandboxed run's session database lives in the per-run sandbox
@@ -237,13 +274,27 @@ export const opencode = {
   // OPENCODE_DISABLE_AUTOUPDATE / OPENCODE_DISABLE_MODELS_FETCH skip OpenCode's own non-essential
   // network calls (the update check and the models.dev catalog fetch) — verified against the
   // installed CLI's env var names, not guessed.
-  sandbox({ step, home }) {
+  sandbox({ step, home, verdictFile }) {
     /** @type {{dst: string, content: string, mode?: number}[]} */
     const files = [];
-    if (step.opencodeConfig) {
-      const content = readOpencodeConfig(step.opencodeConfig);
-      files.push({ dst: path.posix.join(home, ".config", "opencode", "opencode.json"), content, mode: 0o600 });
+    const configDst = path.posix.join(home, ".config", "opencode", "opencode.json");
+    const rawConfig = step.opencodeConfig ? readOpencodeConfig(step.opencodeConfig) : null;
+    if (!verdictFile) {
+      if (rawConfig) files.push({ dst: configDst, content: rawConfig, mode: 0o600 });
+      return {
+        mounts: [],
+        files,
+        env: { OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" },
+      };
     }
+    // The contract file (#712): survives compaction because OpenCode rebuilds its system
+    // prompt from config `instructions` every step, unlike the one-shot run prompt.
+    const contractDst = path.posix.join(home, ".config", "opencode", "agenthook-unattended.md");
+    files.push({ dst: contractDst, content: opencodeContract(verdictFile), mode: 0o600 });
+    const config = rawConfig ? JSON.parse(rawConfig) : {};
+    const existing = Array.isArray(config.instructions) ? config.instructions : [];
+    config.instructions = Array.from(new Set([...existing, contractDst]));
+    files.push({ dst: configDst, content: JSON.stringify(config, null, 2), mode: 0o600 });
     return {
       mounts: [],
       files,

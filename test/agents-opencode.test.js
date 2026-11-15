@@ -14,7 +14,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-opencode-"));
 process.env.HOME = HOME;
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 
-const { buildOpencodeArgs, resumeOpencodeArgs, createOpencodeParser, buildOpencodeUsageRecord, opencode } = await import("../src/agents/opencode.js");
+const { buildOpencodeArgs, resumeOpencodeArgs, createOpencodeParser, buildOpencodeUsageRecord, opencode, opencodeContract } = await import("../src/agents/opencode.js");
 const { AGENTS } = await import("../src/agents/index.js");
 const { listSessions, agentSessions } = await import("../src/sessions.js");
 const { resumeCommand, resumeArgs, lookedIn } = await import("../src/commands/resume.js");
@@ -297,6 +297,45 @@ test("sandbox: a symlinked opencodeConfig is rejected (lstat, never followed)", 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("sandbox: verdictFile with no opencodeConfig → contract file + opencode.json with just the contract in instructions", () => {
+  const verdictFile = "/verdict/run-712/verdict.json";
+  const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile });
+  const contractDst = "/home/agent/.config/opencode/agenthook-unattended.md";
+  const contract = own.files.find((f) => f.dst === contractDst);
+  assert.ok(contract, "contract file present");
+  assert.equal(contract.mode, 0o600);
+  assert.match(contract.content, /\/verdict\/run-712\/verdict\.json/);
+  assert.match(contract.content, /never[\s\S]*(end on a question|ask for confirmation)/i);
+  assert.match(contract.content, /stop and ask for clarification/);
+  const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
+  assert.deepEqual(JSON.parse(configFile.content), { instructions: [contractDst] });
+});
+
+test("sandbox: verdictFile with an opencodeConfig → provider block kept, contract path appended to instructions, no dupes", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-cfg-verdict-"));
+  const cfgPath = path.join(dir, "opencode.json");
+  fs.writeFileSync(cfgPath, JSON.stringify({ instructions: ["x.md"], provider: { ollama: { options: { baseURL: "http://localhost:11434/v1" } } } }));
+  try {
+    const verdictFile = "/verdict/run-712/verdict.json";
+    const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code", opencodeConfig: cfgPath }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile });
+    const contractDst = "/home/agent/.config/opencode/agenthook-unattended.md";
+    const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
+    const parsed = JSON.parse(configFile.content);
+    assert.deepEqual(parsed.instructions, ["x.md", contractDst]);
+    assert.deepEqual(parsed.provider, { ollama: { options: { baseURL: "http://localhost:11434/v1" } } });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("opencodeContract: mentions the verdict path, never-ask, and the compaction-continue rule", () => {
+  const text = opencodeContract("/verdict/run-1/verdict.json");
+  assert.match(text, /\/verdict\/run-1\/verdict\.json/);
+  assert.match(text, /AGENTHOOK_VERDICT_FILE/);
+  assert.match(text, /stop and ask for clarification/);
+  assert.match(text, /continue/i);
 });
 
 /** @param {Partial<import('../src/types.js').UsageRecord>[]} recs */

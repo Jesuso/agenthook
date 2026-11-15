@@ -363,6 +363,24 @@ never mounted — into the run's per-run sandbox HOME, and why `localhost` in it
 container, not the host. The `!private` egress rule and the `docker0` firewall note above apply
 to this URL too.
 
+### Small windows and compaction
+
+A 64k window like `qwen3.8:27b-64k` above compacts often. When OpenCode auto-compacts, it appends
+a synthetic user message with a hardcoded, unconfigurable string: "Continue if you have next
+steps, or stop and ask for clarification if you are unsure how to proceed." A small model reading
+that after losing most of its context tends to take the second option and ends the run on a
+question — fatal in an unattended run, since nobody answers it (#712).
+
+OpenCode rebuilds its system prompt from the config `instructions` list on every step, so unlike
+the one-shot run prompt, an `instructions` file survives compaction. A **sandboxed** opencode run
+(`oc-local` above) carries the unattended contract — never ask, what the compaction-continue
+message means here, and the verdict file/format — as exactly such a file, wired into that run's
+`opencode.json` `instructions` (see [OpenCode in the sandbox](sandbox.md#opencode-in-the-sandbox)).
+The hardcoded continuation text itself can't be changed from config — only a plugin (JS code,
+out of scope here) could rewrite or suppress it. A **host or ssh** opencode run gets the contract
+only in the one-shot run prompt, same as before; it has no agenthook-owned config to add
+`instructions` to.
+
 ## Cost reporting
 
 `claude` prices every run from its own Claude price table, so a run on a local model still

@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Sandboxed opencode runs (`oc-local`-style small-window harnesses) now carry an unattended
+  contract as a config `instructions` file, so it survives a context compaction (#712).
+  OpenCode's own post-compaction continuation message ("stop and ask for clarification…") is
+  hardcoded and unconfigurable; a small model reading it after losing context could end an
+  unattended run on a question. Host and ssh opencode runs, and the claude adapter, are
+  unchanged.
+
 - **Experimental** remote harness, code transport (#690): before every ssh-executor run, the
   hub now syncs the ticket's code to the worker over git+SSH (no forge) instead of running in a
   fixed `remote.workDir` — the hub worktree stays the only real copy. A worktree step force-pushes
