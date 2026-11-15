@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { peekConfig } from "../config.js";
 import { readProfile, resolveProfile } from "../heartbeat.js";
+import { readProfileState } from "../ui/rows.js";
 import { createStore } from "../store.js";
 import { classifyCgroup } from "../respawn.js";
 import { ago, day } from "./ls.js";
@@ -137,6 +138,12 @@ export async function status(args) {
   if (quota) console.log(`quota   : ${quota}`);
   const trip = p.up ? normalizeTrip(hb.quotaPaused) : null;
   if (trip) console.log(`paced   : new runs paused — ${trip.window} at ${Math.round(trip.utilization * 100)}% ≥ ${Math.round(trip.threshold * 100)}%, resumes at ${trip.resetsAt}`);
+  // One line per in-flight run on a remote (ssh) harness — the agent runs on that worker, not here.
+  if (p.up) {
+    for (const [ref, r] of Object.entries(readProfileState(p.dir).running)) {
+      if (r?.host) console.log(`remote  : ${ref} ${r.stepId} on "${r.harness}" @ ${r.host}`);
+    }
+  }
   if (hb.seen != null) console.log(`seen    : ${hb.seen} item(s)`);
   if (hb.startedAt) console.log(`started : ${ago(hb.startedAt)}`);
   if (hb.lastEvent) {

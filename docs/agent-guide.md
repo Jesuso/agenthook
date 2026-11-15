@@ -120,6 +120,11 @@ unchanged check.
   lists it until `harness_up` fires (#688), and the `tick` text digest's harness line ends with
   `— fix the cause, then harness_reset <name>`; a routed-around spill (a step's other harness
   picking up the work) produces nothing in either place.
+- A `running[]` row carries `host` (#691) only when the run is on a **remote** harness
+  (`harnesses.<name>.remote`) — the worker machine it's actually running on, from the
+  `running.json` record's own `host`. The `tick` text digest then reads `· <harness>@<host>`
+  instead of `· <harness>`; `status` prints a `remote  : <ref> <step> on "<harness>" @ <host>`
+  line per such run. See [remote.md](remote.md).
 - `harnessUsage` (present only when the profile has `harnesses` and some run used one) is
   `{"<name>": {"runs": n, "input": n, "output": n, "cacheRead": n, "cacheCreate": n}}` — token
   totals per harness, summed from the usage records. `set_concurrency {max, harness}` changes one

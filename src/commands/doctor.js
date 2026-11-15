@@ -34,6 +34,7 @@ import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
 import { harnessesOf } from "../dispatch/harness.js";
+import { remoteProbeArgv, shQuote } from "../dispatch/executor-ssh.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
 import { FORGE_AGENT_ENV, FORGE_EGRESS_HOSTS } from "../forges/index.js";
@@ -63,13 +64,18 @@ export function onPath(bin) {
  * (`step.bin || agent.defaults.bin || cfg.claudeBin`) for every non-manual step, each with
  * its agent and the step ids that use it — doctor checks each is on PATH. A sandboxed step's
  * binary resolves inside the image instead (sandboxChecks). Pure.
- * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'pipeline'|'sandbox'>} cfg
+ * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'pipeline'|'sandbox'|'harnesses'>} cfg
  * @returns {{ bin: string, agent: string, steps: string[] }[]} */
 export function agentBinChecks(cfg) {
   /** @type {Map<string, { bin: string, agent: string, steps: string[] }>} */
   const byKey = new Map();
   for (const s of cfg.pipeline ?? []) {
     if (s.manual || isSandboxed(cfg, s)) continue;
+    // A step routed only through remote harness(es) resolves its binary on the WORKER, not the
+    // host — checked instead by remoteHarnessChecks. A step mixing a local harness still needs
+    // the host check (it can still land there).
+    const names = harnessesOf(s);
+    if (names.length && names.every((n) => cfg.harnesses?.[n]?.remote)) continue;
     const agent = agentFor(cfg, s);
     const bin = s.bin || agent.defaults.bin || cfg.claudeBin;
     const name = agent.describe().name;
@@ -86,7 +92,8 @@ export function agentBinChecks(cfg) {
  * (`h.bin || agent.defaults.bin || cfg.claudeBin`) — a harness that only inherits the profile's
  * agent/bin is already covered by agentBinChecks. A harness only routed through sandboxed steps
  * resolves its binary inside the image instead (like agentBinChecks skips those steps), so it's
- * excluded unless at least one non-manual, unsandboxed step also routes through it. Pure.
+ * excluded unless at least one non-manual, unsandboxed step also routes through it. A remote
+ * (`h.remote`) harness's bin runs on the worker, not the host — remoteHarnessChecks checks that. Pure.
  * @param {Pick<import('../types.js').Config, 'claudeBin'|'agent'|'harnesses'|'pipeline'|'sandbox'>} cfg
  * @returns {{ name: string, bin: string }[]} */
 export function harnessBinChecks(cfg) {
@@ -95,9 +102,89 @@ export function harnessBinChecks(cfg) {
   const out = [];
   for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
     if (!hostRouted.has(name)) continue;
+    if (h.remote) continue; // its bin runs on the worker — remoteHarnessChecks checks that instead
     if (!h.bin && (!h.agent || h.agent === (cfg.agent ?? DEFAULT_AGENT))) continue;
     const agent = agentFor(cfg, { agent: h.agent });
     out.push({ name, bin: h.bin || agent.defaults.bin || cfg.claudeBin });
+  }
+  return out;
+}
+
+/** Timeout for one ssh probe to a remote harness's worker (#691) — network, so more generous than
+ * a local check, but short enough that an unreachable worker doesn't stall the rest of `doctor`. */
+const REMOTE_PROBE_TIMEOUT_MS = 10_000;
+
+/** The worker-side credential probe (#691): echoes only WHICH source was found (never a value) —
+ * an env var, the credentials file, or `apiKeyHelper` in settings.json — exit 1 when none is. */
+const REMOTE_CREDENTIAL_PROBE = [
+  "for v in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do",
+  '  eval "val=\\$$v"',
+  '  if [ -n "$val" ]; then echo "env:$v"; exit 0; fi',
+  "done",
+  '[ -s "$HOME/.claude/.credentials.json" ] && { echo "file:~/.claude/.credentials.json"; exit 0; }',
+  'grep -q apiKeyHelper "$HOME/.claude/settings.json" 2>/dev/null && { echo "apiKeyHelper:~/.claude/settings.json"; exit 0; }',
+  "exit 1",
+].join("\n");
+
+/** doctor's preflight for every `harnesses.<name>.remote` (#691): reachability, git, the agent
+ * bin (+ its version), a writable `workDir`, and (warn-only, no tokens spent) whether a
+ * credential source is visible on the worker. Each probe runs through `io.run("ssh", …)` with
+ * the SAME argv the ssh executor itself would build (`remoteProbeArgv`) — never a copy of the
+ * ssh command. An unreachable worker reports one ✗ and skips the rest of that harness's probes,
+ * rather than cascading failures from a host that was never going to answer.
+ * @param {Pick<import('../types.js').Config, 'harnesses'>} cfg
+ * @param {{run: import('../types.js').IngressRun}} io
+ * @returns {Promise<Check[]>} */
+export async function remoteHarnessChecks(cfg, { run }) {
+  /** @type {Check[]} */
+  const out = [];
+  for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
+    if (!h.remote) continue;
+    const remote = h.remote;
+    const label = (/** @type {string} */ what) => `remote harness "${name}" ${what}`;
+    /** @param {string} script */
+    const probe = (script) =>
+      run("ssh", remoteProbeArgv(remote, script), { timeoutMs: REMOTE_PROBE_TIMEOUT_MS }).catch((e) => ({ code: 1, stdout: "", stderr: e.message }));
+
+    const reach = await probe("true");
+    if (reach.code !== 0) {
+      const firstLine = (reach.stderr || reach.stdout || "").trim().split("\n")[0] || `ssh exited ${reach.code}`;
+      out.push({
+        ok: false,
+        label: label("is reachable"),
+        note: firstLine,
+        fix: { manual: `check ssh access to ${remote.host} (e.g. ssh-copy-id${remote.port ? ` -p ${remote.port}` : ""} ${remote.user ? `${remote.user}@` : ""}${remote.host}), host/user/port/identityFile in the config, or run ssh -v yourself` },
+      });
+      continue; // the rest would just be the same unreachable host failing again
+    }
+    out.push({ ok: true, label: label("is reachable") });
+
+    const git = await probe("command -v git");
+    out.push({ ok: git.code === 0, label: label("has git"), note: git.code === 0 ? "" : "not found on the worker", fix: { manual: "install git on the worker" } });
+
+    const bin = remote.bin || "claude";
+    const binCheck = await probe(`command -v ${shQuote(bin)}`);
+    if (binCheck.code !== 0) {
+      out.push({ ok: false, label: label(`has agent bin ${JSON.stringify(bin)}`), note: "not found on the worker", fix: { manual: `install ${bin} on the worker, or set harnesses.${name}.remote.bin to its path there` } });
+    } else {
+      const ver = await probe(`${shQuote(bin)} --version`);
+      out.push({ ok: true, label: label(`has agent bin ${JSON.stringify(bin)}`), note: (ver.stdout || "").trim().split("\n")[0] });
+    }
+
+    const wd = await probe(`mkdir -p ${shQuote(remote.workDir)} && test -w ${shQuote(remote.workDir)}`);
+    out.push({ ok: wd.code === 0, label: label(`workDir writable: ${remote.workDir}`), note: wd.code === 0 ? "" : "could not create it or it isn't writable", fix: { manual: `make ${remote.workDir} on the worker writable by ${remote.user || "the ssh user"}` } });
+
+    const cred = await probe(REMOTE_CREDENTIAL_PROBE);
+    if (cred.code === 0) out.push({ ok: true, label: label("has agent credentials"), note: (cred.stdout || "").trim() });
+    else {
+      out.push({
+        ok: true,
+        warn: true,
+        label: label("has agent credentials"),
+        note: "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/CLAUDE_CODE_OAUTH_TOKEN, no ~/.claude/.credentials.json, no apiKeyHelper — Bedrock/Vertex and other setups are also possible",
+        fix: { manual: `log claude in on the worker, or set an API key there with a spend cap` },
+      });
+    }
   }
   return out;
 }
@@ -1411,6 +1498,7 @@ export async function runChecks(cfg, io = {}) {
   for (const { name, bin } of harnessBinChecks(cfg)) {
     add(have(bin), `harness "${name}" binary ${JSON.stringify(bin)}`, have(bin) ? "" : "not found", { manual: `install ${bin} or put it on PATH` });
   }
+  checks.push(...(await remoteHarnessChecks(cfg, { run })));
   for (const l of agentLints(cfg)) warn(l.label, l.note);
   policyLints(cfg).forEach(finding);
   for (const l of agentEnvLints(cfg, { env, platform })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note, l.fix);

@@ -154,6 +154,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
         ageS: Number.isNaN(started) ? null : Math.max(0, Math.round((now - started) / 1000)),
         ...(r?.model ? { model: r.model } : {}),
         ...(r?.harness ? { harness: r.harness } : {}),
+        ...(r?.host ? { host: r.host } : {}),
         ...(typeof r?.output === "number" ? { outTok: r.output } : {}),
         ...(typeof r?.ctx === "number" ? { ctx: r.ctx } : {}),
         // An observed ctx above the listed window proves the window (or override) is wrong —

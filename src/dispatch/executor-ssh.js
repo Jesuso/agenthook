@@ -75,8 +75,16 @@ function sshOptionArgs(remote) {
 }
 
 /** The base ssh argv (options + host), before the trailing remote command. @param {import('../types.js').RemoteHarness} remote @returns {string[]} */
-function sshBaseArgs(remote) {
+export function sshBaseArgs(remote) {
   return ["-T", ...sshOptionArgs(remote), remote.host];
+}
+
+/** The full `ssh` argv for a one-off probe of `script` on this harness's worker (#691 doctor
+ * checks): the same base argv the executor's own `runRemote`/`runRemoteChecked` use, so doctor
+ * never builds its own copy of the ssh command. Each remote-command element is individually
+ * shQuoted, same as `runRemote`. @param {import('../types.js').RemoteHarness} remote @param {string} script @returns {string[]} */
+export function remoteProbeArgv(remote, script) {
+  return [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)];
 }
 
 /** `GIT_SSH_COMMAND` for a hub git-transport call (push/fetch) against this harness's worker
@@ -274,7 +282,7 @@ function archiveToWorker(cfg, remote, repoPath, dir) {
 /** Fetch the worker branch into the hub repo under a temporary ref (#690's sync-back, step 1).
  * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {import('../types.js').RemoteHarness} remote @param {string} worktree @param {string} gitPath @param {string} branch @param {string} tmpRef */
 async function fetchWorkerBranch(cfg, remote, worktree, gitPath, branch, tmpRef) {
-  await execFileP("git", gitArgv(cfg, worktree, ["fetch", gitSshUrl(remote, gitPath), `+refs/heads/${branch}:${tmpRef}`]), {
+  await execFileP("git", gitArgv(cfg, worktree, ["fetch", "--no-tags", gitSshUrl(remote, gitPath), `+refs/heads/${branch}:${tmpRef}`]), {
     env: hubTransportEnv(remote),
     timeout: HUB_GIT_TRANSPORT_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,

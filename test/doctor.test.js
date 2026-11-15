@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { execFileSync, spawnSync } from "node:child_process";
-import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, harnessLanLints, opencodeConfigLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, sharedRepoLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
+import { unfilledBindings, repoLints, legacyOrphans, forgeLints, agentBinChecks, harnessBinChecks, remoteHarnessChecks, harnessLanLints, opencodeConfigLints, harnessSlotLints, agentLints, policyLints, portCheck, claimedPortLint, sharedRepoLint, runChecks, applyFixes, fixableCount, report, instructionLints, ingressChecks, ingressLivenessLints, githubAppChecks, sandboxChecks, sandboxRuntimeChecks, agentEnvLints, ghAuthLints, egressLints, runTokenLints, isolationReport, parseForceSshRewrites } from "../src/commands/doctor.js";
 import crypto from "node:crypto";
 import { resetGithubAuthCache } from "../src/github-auth.js";
 import { worktreeDir } from "../src/paths.js";
@@ -1324,6 +1324,140 @@ test("harnessBinChecks: a harness routed through an unsandboxed step is checked,
     pipeline: [{ id: "code", harness: "local", sandbox: false }],
   });
   assert.deepEqual(harnessBinChecks(cfg), [{ name: "local", bin: "missing-claude" }]);
+});
+
+test("harnessBinChecks: a remote harness's bin runs on the worker — never checked on the host (#691)", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    harnesses: { worker: { remote: { host: "h", workDir: "/w", bin: "not-on-this-host" } } },
+    pipeline: [{ id: "code", harness: "worker" }],
+  });
+  assert.deepEqual(harnessBinChecks(cfg), []);
+});
+
+test("agentBinChecks: a step routed only through remote harness(es) is omitted — its bin runs on the worker (#691)", () => {
+  const cfg = /** @type {any} */ ({
+    claudeBin: "claude",
+    harnesses: { worker: { remote: { host: "h", workDir: "/w" } }, local: {} },
+    pipeline: [
+      { id: "code", harness: "worker" },
+      { id: "mixed", harness: ["worker", "local"] },
+      { id: "host-only" },
+    ],
+  });
+  const groups = agentBinChecks(cfg);
+  const steps = groups.flatMap((g) => g.steps);
+  assert.ok(!steps.includes("code"), "a step routed only through remote harnesses must be omitted");
+  assert.ok(steps.includes("mixed"), "a step with a local harness in its list still needs the host check");
+  assert.ok(steps.includes("host-only"));
+});
+
+// --- remoteHarnessChecks (#691): doctor's ssh preflight for every harnesses.<name>.remote ---
+
+/** shQuote's inverse (src/dispatch/executor-ssh.js), for reading back the probe script a
+ * remoteHarnessChecks call sent as the last element of its ssh argv. */
+function unshQuote(q) {
+  return q.slice(1, -1).replace(/'\\''/g, "'");
+}
+
+/** A fake `io.run` for remoteHarnessChecks: routes each probe script to the matching override
+ * (default: succeeds with no output), so a test only has to say what's different. */
+function fakeRemoteRun(overrides = {}) {
+  return async (bin, args) => {
+    assert.equal(bin, "ssh");
+    const script = unshQuote(args.at(-1));
+    if (script === "true") return overrides.reach ?? { code: 0, stdout: "", stderr: "" };
+    if (script === "command -v git") return overrides.git ?? { code: 0, stdout: "", stderr: "" };
+    if (script.includes("--version")) return overrides.version ?? { code: 0, stdout: "claude 1.2.3\n", stderr: "" };
+    if (script.startsWith("command -v ")) return overrides.bin ?? { code: 0, stdout: "", stderr: "" };
+    if (script.startsWith("mkdir -p") && script.includes("test -w")) return overrides.workDir ?? { code: 0, stdout: "", stderr: "" };
+    if (script.includes("ANTHROPIC_API_KEY")) return overrides.cred ?? { code: 1, stdout: "", stderr: "" };
+    throw new Error(`unexpected probe script: ${script}`);
+  };
+}
+
+test("remoteHarnessChecks: [] without any remote harness", async () => {
+  const checks = await remoteHarnessChecks(/** @type {any} */ ({ harnesses: { local: {} } }), {
+    run: async () => {
+      throw new Error("must not be called");
+    },
+  });
+  assert.deepEqual(checks, []);
+});
+
+test("remoteHarnessChecks: an unreachable worker is one ✗, and the rest of that harness's probes are skipped", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "worker.test", workDir: "/w" } } } });
+  const run = fakeRemoteRun({ reach: { code: 255, stdout: "", stderr: "ssh: connect to host worker.test port 22: Connection refused\n" } });
+  const checks = await remoteHarnessChecks(cfg, { run });
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].ok, false);
+  assert.match(checks[0].label, /is reachable/);
+  assert.match(checks[0].note, /Connection refused/);
+});
+
+test("remoteHarnessChecks: missing git on the worker is a ✗", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } });
+  const checks = await remoteHarnessChecks(cfg, { run: fakeRemoteRun({ git: { code: 1, stdout: "", stderr: "" } }) });
+  const gitCheck = checks.find((c) => c.label.includes("has git"));
+  assert.equal(gitCheck.ok, false);
+});
+
+test("remoteHarnessChecks: a missing remote.bin is a ✗", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "h", workDir: "/w", bin: "claude" } } } });
+  const checks = await remoteHarnessChecks(cfg, { run: fakeRemoteRun({ bin: { code: 1, stdout: "", stderr: "" } }) });
+  const binCheck = checks.find((c) => c.label.includes("has agent bin"));
+  assert.equal(binCheck.ok, false);
+});
+
+test("remoteHarnessChecks: an unwritable workDir is a ✗", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } });
+  const checks = await remoteHarnessChecks(cfg, { run: fakeRemoteRun({ workDir: { code: 1, stdout: "", stderr: "" } }) });
+  const wd = checks.find((c) => c.label.includes("workDir writable"));
+  assert.equal(wd.ok, false);
+});
+
+test("remoteHarnessChecks: no credential source found is a ⚠, never a ✗", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } });
+  const checks = await remoteHarnessChecks(cfg, { run: fakeRemoteRun({ cred: { code: 1, stdout: "", stderr: "" } }) });
+  const cred = checks.find((c) => c.label.includes("has agent credentials"));
+  assert.equal(cred.ok, true);
+  assert.equal(cred.warn, true);
+});
+
+test("remoteHarnessChecks: all good — ok lines including the agent's --version output; the credential probe only names a source, never a value", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "h", workDir: "/w", bin: "claude" } } } });
+  const run = fakeRemoteRun({
+    version: { code: 0, stdout: "2.0.1 (Claude Code)\n", stderr: "" },
+    cred: { code: 0, stdout: "env:ANTHROPIC_API_KEY\n", stderr: "" },
+  });
+  const checks = await remoteHarnessChecks(cfg, { run });
+  assert.ok(checks.every((c) => c.ok), JSON.stringify(checks));
+  const binCheck = checks.find((c) => c.label.includes("has agent bin"));
+  assert.match(binCheck.note, /2\.0\.1/);
+  const cred = checks.find((c) => c.label.includes("has agent credentials"));
+  assert.equal(cred.note, "env:ANTHROPIC_API_KEY");
+  assert.ok(!/sk-|AKIA|Bearer /.test(cred.note), "a credential value must never be echoed, only its source");
+});
+
+test("remoteHarnessChecks: every probe's ssh argv carries BatchMode=yes, never -A, and the harness's port/identityFile/user", async () => {
+  const cfg = /** @type {any} */ ({ harnesses: { worker: { remote: { host: "h", port: 2201, identityFile: "/k", user: "u", workDir: "/w" } } } });
+  /** @type {string[][]} */
+  const calls = [];
+  const inner = fakeRemoteRun();
+  const run = async (bin, args) => {
+    calls.push(args);
+    return inner(bin, args);
+  };
+  await remoteHarnessChecks(cfg, { run });
+  assert.ok(calls.length > 1);
+  for (const argv of calls) {
+    assert.ok(!argv.includes("-A"), "never agent-forward");
+    const oIdx = argv.indexOf("-o");
+    assert.equal(argv[oIdx + 1], "BatchMode=yes");
+    assert.equal(argv[argv.indexOf("-p") + 1], "2201");
+    assert.equal(argv[argv.indexOf("-i") + 1], "/k");
+    assert.equal(argv[argv.indexOf("-l") + 1], "u");
+  }
 });
 
 test("harnessLanLints: [] without sandbox or without harnesses", () => {

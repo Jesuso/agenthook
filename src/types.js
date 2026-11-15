@@ -147,6 +147,7 @@
  * @property {string|null} [model]   the model the run was launched with (null = CLI default)
  * @property {string|null} [harness] the harness the run was routed to (null = the step has none)
  * @property {string} [agent]        the agent adapter the run spawned (after the step's and the harness's `agent`)
+ * @property {string} [host]         the worker host this run is on, for a remote harness (#691; the ssh executor)
  */
 
 /** Durable per-ref display metadata (refmeta.json). Never cleared: `status`/`events`

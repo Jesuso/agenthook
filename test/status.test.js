@@ -130,6 +130,20 @@ test("status: a live profile whose heartbeat says `starting` prints it verbatim 
   assert.equal((await runStatus("status-started"))[1], `status  : UP (pid ${process.pid})`);
 });
 
+test("status: a running.json entry with `host` prints a `remote` line; one with no host prints nothing (#691)", async () => {
+  const dir = path.join(registryDir, "status-remote");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "R", stateKey: "status-remote", configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+  fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: "R", stateKey: "status-remote", tracker: "local", updatedAt: new Date().toISOString(), starting: null }));
+  fs.writeFileSync(path.join(dir, "running.json"), JSON.stringify({
+    55: { stepId: "code", startedAt: "2026-01-01T00:50:00Z", harness: "worker", host: "worker.test" },
+    56: { stepId: "triage", startedAt: "2026-01-01T00:50:00Z", harness: "local" },
+  }));
+  const lines = (await runStatus("status-remote")).filter((l) => l.startsWith("remote"));
+  assert.deepEqual(lines, [`remote  : 55 code on "worker" @ worker.test`]);
+});
+
 test("status: harness lines show the breaker state (down/probing) and include 0-run harnesses (#638)", async () => {
   /** @param {string} key @param {any} hb */
   const seed = (key, hb) => {
