@@ -53,7 +53,7 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
   const empty = data !== null && days.every((d) => d.runs === 0 && d.finished === 0);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4" data-stats-view>
+    <div className="flex flex-col gap-4 sm:px-2 2xl:px-4" data-stats-view>
       <div className="flex flex-wrap items-center gap-3">
         <ProfileMark p={profile} />
         <h1 className="text-title font-semibold">
@@ -66,20 +66,21 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
       {failed && !data && <p className="text-label text-muted">{t("stats.loadFailed")}</p>}
       {data && (
         <>
-          <Card title={t("statsView.finishedPerDay")} note={t("statsView.calendarNote", { count: Math.min(CALENDAR_DAYS / 7, Math.ceil(all.length / 7)) })}>
-            <Calendar days={all} />
-          </Card>
+          {/* Two charts a row from lg; from 2xl the calendar and the cost chart share rows too. */}
           <div className="grid gap-4 lg:grid-cols-2">
+            <Card wide title={t("statsView.finishedPerDay")} note={t("statsView.calendarNote", { count: Math.min(CALENDAR_DAYS / 7, Math.ceil(all.length / 7)) })}>
+              <Calendar days={all} />
+            </Card>
             <Card title={t("statsView.spendByStep")} note={t("statsView.spendByStepNote")}>
               <Stacked days={days} />
             </Card>
             <Card title={t("statsView.howRunsEnded")} note={t("statsView.howRunsEndedNote")}>
               <Diverging days={days} />
             </Card>
+            <Card wide title={t("statsView.ticketCost")} note={t("statsView.ticketCostNote")}>
+              <Range days={days} />
+            </Card>
           </div>
-          <Card title={t("statsView.ticketCost")} note={t("statsView.ticketCostNote")}>
-            <Range days={days} />
-          </Card>
           {empty && <p className="text-label text-muted">{t("statsView.empty")}</p>}
           <p className="text-meta text-muted">{data.since ? `${t("statsView.since", { date: shortDate(data.since.slice(0, 10), lang) })} ` : ""}{t("statsView.midnight")}</p>
         </>
@@ -88,9 +89,9 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
   );
 }
 
-function Card({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
+function Card({ title, note, wide, children }: { title: string; note: string; wide?: boolean; children: React.ReactNode }) {
   return (
-    <section className="min-w-0 rounded-lg border border-border bg-surface px-3 py-3">
+    <section className={`min-w-0 rounded-lg border border-border bg-surface px-3 py-3 ${wide ? "lg:col-span-2 2xl:col-span-1" : ""}`}>
       <h2 className="text-label font-semibold uppercase tracking-wide text-muted">{title}</h2>
       <p className="mb-2 text-meta text-muted">{note}</p>
       {children}

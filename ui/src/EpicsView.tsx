@@ -86,7 +86,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
   const cfg = profile.configPath ? ` --config ${profile.configPath}` : "";
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4" data-epics-view>
+    <div className="flex flex-col gap-4 sm:px-2 2xl:px-4" data-epics-view>
       <div className="flex flex-wrap items-center gap-3">
         <ProfileMark p={profile} />
         <h1 className="text-title font-semibold">
@@ -210,7 +210,7 @@ export function EpicsList({ body, profile, focusRef }: { body: EpicsResponse; pr
   const needCol = open.some((e) => e.needsYou.length > 0);
   const noteCol = open.some((e) => e.readyToClose || e.eta || paceOf(e).stalled);
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 2xl:grid 2xl:grid-cols-2 2xl:items-start 2xl:gap-4">
       {!body.live && <LiveNote />}
       {body.epics.length === 0 && <EmptyState title={t("epics.none")} hint={body.live ? undefined : t("epics.noneDownHint")} />}
       {open.length > 0 && (
