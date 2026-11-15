@@ -97,6 +97,9 @@ export const messages = {
   "overview.stopped": "The receiver is stopped, so no agents will run.",
   "overview.stoppedWait": "Tickets moved on the board wait in their stage.",
   "overview.stoppedStart": "Start it, then pick up what moved meanwhile:",
+  "overview.newTicket": "New ticket",
+  "overview.newTicketDisabled": "start the receiver to add tickets",
+  "ticket.blockedNotice": "It will be blocked by {by} — it runs when they reach done",
   "overview.slotsTitle": "{active} of {max} slots in use",
   "overview.harnessSlots": "harness slots",
   "overview.harnessTitle": "harness {name}: {active} of {max} slots in use",
@@ -170,6 +173,22 @@ export const messages = {
   "shortcuts.overview.dismiss": "Dismiss the focused failed ticket",
   "shortcuts.overview.undo": "Undo the last dismiss (within 5 s)",
   "shortcuts.overview.help": "Show this list (Esc closes it)",
+  "shortcuts.overview.new": "New ticket on this local board",
+
+  // New ticket (local boards)
+  "ticket.title": "Title",
+  "ticket.titleRequired": "a title is required",
+  "ticket.body": "Body",
+  "ticket.startStep": "Starting step",
+  "ticket.blockedBy": "Blocked by",
+  "ticket.blockedByPlaceholder": "comma-separated refs, e.g. 3, 7",
+  "ticket.create": "Create ticket",
+  "ticket.creating": "Creating…",
+  "ticket.cancel": "Cancel",
+  "ticket.down": "start the receiver to add tickets",
+  "ticket.timeout": "the receiver timed out",
+  "ticket.network": "the request could not be made",
+  "ticket.statusN": "the server answered {status}",
 
   // DigestPanel
   "digest.title": "Catch me up",

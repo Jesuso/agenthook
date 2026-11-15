@@ -285,6 +285,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     forge: null,
     recentRuns: [],
     recentCosts: [],
+    ticketSteps: null,
   });
   const down = snap.profiles[0];
   assert.equal(down.up, false);

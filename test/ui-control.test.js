@@ -43,6 +43,15 @@ const RELEASE_REFUSED = profile("release-refused");
 const RELEASE_SLOW = profile("release-slow");
 const TOGGLED = profile("toggled");
 const DIGESTED = profile("digested");
+const ADDED = profile("ticket-added");
+const ADDED_FAIL = profile("ticket-fail");
+const NOT_LOCAL = profile("ticket-notlocal");
+const DOWN_LOCAL = profile("ticket-down");
+// The tracker a stopped profile reads from its heartbeat (the button is hidden when it is absent).
+fs.writeFileSync(path.join(ADDED.dir, "heartbeat.json"), JSON.stringify({ tracker: "local" }));
+fs.writeFileSync(path.join(ADDED_FAIL.dir, "heartbeat.json"), JSON.stringify({ tracker: "local" }));
+fs.writeFileSync(path.join(NOT_LOCAL.dir, "heartbeat.json"), JSON.stringify({ tracker: "github" }));
+fs.writeFileSync(path.join(DOWN_LOCAL.dir, "heartbeat.json"), JSON.stringify({ tracker: "local" }));
 
 /**
  * Starts a fake control socket at `sockPath`: writes the `hello` line on connect, then calls
@@ -67,8 +76,8 @@ function fakeControl(sockPath, onLine) {
   return new Promise((resolve) => server.listen(sockPath, () => resolve(server)));
 }
 
-/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[], retry: any[], recheck: any[]}} */
-const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [], retry: [], recheck: [] };
+/** @type {{restart: any[], dismiss: any[], toggle: any[], release: any[], digest: any[], retry: any[], recheck: any[], ticket: any[]}} */
+const calls = { restart: [], dismiss: [], toggle: [], release: [], digest: [], retry: [], recheck: [], ticket: [] };
 
 /** @type {net.Server[]} */
 const fakes = [];
@@ -123,6 +132,13 @@ test.before(async () => {
           : { paused: true, note: "a restart/decommission/shutdown holds the queue; not resumed", active: 0, queued: 0 };
       s.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
     }),
+    // Mimics src/ops.js ticket_add on the local adapter: {ref, step, stage[, blockedBy]}.
+    await fakeControl(ADDED.sockPath, (s, req) => {
+      calls.ticket.push(req);
+      s.write(JSON.stringify({ id: req.id, ok: true, result: { ref: "42", step: "code", stage: "agent:code", ...(req.args.blockedBy?.length && { blockedBy: req.args.blockedBy }) } }) + "\n");
+    }),
+    // The local adapter's refusal is prefixed `local: ` (src/trackers/local.js).
+    await fakeControl(ADDED_FAIL.sockPath, (s, req) => s.write(JSON.stringify({ id: req.id, ok: false, error: `local: no step "${req.args.step}" in the pipeline` }) + "\n")),
   );
 });
 test.after(() => Promise.all(fakes.map((f) => new Promise((r) => f.close(r)))));
@@ -661,4 +677,33 @@ test("GET /api/harness-stats: reads the whole events.jsonl, not just the live-ta
   const g = body.groups.find((g) => g.key === "slow");
   assert.equal(g?.outcomes.advance, 1);
   assert.equal(g?.outcomes.unknown, 0);
+});
+
+test("POST /api/ticket: creates on a local board, sends {cmd:'ticket_add'}, audits it; down → 503 with the start hint", async () => {
+  const res = await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added", title: "Fix the flaky test", body: "it fails on CI", step: "code", blockedBy: "3, 7" }));
+  assert.equal(res.status, 200);
+  const out = JSON.parse(res.body);
+  assert.equal(out.ref, "42");
+  assert.equal(out.step, "code");
+  assert.deepEqual(out.blockedBy, ["3", "7"]);
+  assert.equal(calls.ticket.length, 1);
+  assert.equal(calls.ticket[0].cmd, "ticket_add");
+  assert.deepEqual(calls.ticket[0].args, { title: "Fix the flaky test", body: "it fails on CI", step: "code", blockedBy: ["3", "7"] });
+  const lines = fs.readFileSync(path.join(ADDED.dir, "ui-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(lines.at(-1), { ts: lines.at(-1).ts, action: "ticket-add", profile: "ticket-added", status: 200, ref: "42" });
+  assert.ok(!JSON.stringify(lines.at(-1)).includes("Fix the flaky test")); // title/body never logged
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-down", title: "x" }))).status, 503);
+});
+
+test("POST /api/ticket: validation → 400; unknown profile → 404; non-local tracker → 409; refusal → 502 with the local: prefix stripped", async () => {
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added", title: "  " }))).status, 400);
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added" }))).status, 400);
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added", title: "x", step: 7 }))).status, 400);
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added", title: "x", blockedBy: " " }))).status, 400);
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-added", title: "x", body: "x".repeat(50 * 1024) }))).status, 400);
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "nope", title: "x" }))).status, 404);
+  assert.equal((await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-notlocal", title: "x" }))).status, 409);
+  const refused = await request("POST", "/api/ticket", JSON.stringify({ profile: "ticket-fail", title: "x", step: "nope" }));
+  assert.equal(refused.status, 502);
+  assert.equal(JSON.parse(refused.body).error, `no step "nope" in the pipeline`);
 });

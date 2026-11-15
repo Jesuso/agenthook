@@ -40,7 +40,8 @@ export function readMarker(dir) {
 /**
  * Write (or refresh) `<stateDir>/profile.json`, 0600. An existing marker's `createdAt` is kept;
  * an unparsable one gets a fresh `createdAt`. `extra` merges in on top (e.g. `webhooks`); when it
- * doesn't set a field, a prior marker's value for that field carries over.
+ * doesn't set a field, a prior marker's value for that field carries over. `provider` is the
+ * tracker's (`cfg.provider`) or, when the caller has no config (a rename), the previous marker's.
  * @param {import('./types.js').Config} cfg
  * @param {Record<string, unknown>} [extra]
  */
@@ -49,10 +50,12 @@ export function writeProfileMarker(cfg, extra = {}) {
   const now = new Date().toISOString();
   const prev = readMarker(cfg.stateDir);
   const createdAt = typeof prev?.createdAt === "string" ? prev.createdAt : now;
+  const provider = typeof cfg.provider === "string" ? cfg.provider : typeof prev?.provider === "string" ? prev.provider : null;
   const marker = {
     configPath: cfg.configPath,
     stateKey: cfg.stateKey,
     name: cfg.name,
+    provider,
     createdAt,
     updatedAt: now,
     ...(prev?.webhooks !== undefined ? { webhooks: prev.webhooks } : {}),

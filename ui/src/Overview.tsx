@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import type { ProfileView, Snapshot, StatsGroup, StatsResult, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, ticketTitle } from "./format";
@@ -23,6 +24,9 @@ import { newEntries, speak, speechSupported, speechText } from "./speech";
 import { useReading } from "./useReading";
 import { useT } from "./i18n/react";
 import type { MessageKey, T } from "./i18n";
+import { Modal } from "./Modal";
+import { MarkdownEditor } from "./MarkdownEditor";
+import { ticketAddOutcome, ticketAddRequest } from "./ticketAdd";
 
 type Ref = { profile: string; ref: string };
 
@@ -41,6 +45,8 @@ export type OverviewProps = {
   setShowAll: (v: boolean) => void;
   open: Ref | null;
   onOpen: (t: Ref) => void;
+  /** A local-board ticket was just created through the receiver: open its drawer (it fills in when its row arrives). */
+  onCreated?: (t: Ref) => void;
   displayIdFor: (profile: string, ref: string) => string | null;
   menuItems: MenuItem[];
   note: string;
@@ -75,9 +81,11 @@ export function Overview(props: OverviewProps) {
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
+  const [newTicket, setNewTicket] = useState(false);
+  const newTicketBtn = useRef<HTMLButtonElement>(null);
   const filtered = props.statusFilter !== "" || props.epicFilter !== "";
   const ticketsShown = ticketsOpen || filtered;
-  useNeedsYouKeys(setHelp);
+  useNeedsYouKeys(setHelp, newTicketBtn);
   useAutoRead(profile.name, needs);
   // A background tab or a side screen still shows whether anything needs you.
   useEffect(() => {
@@ -106,6 +114,19 @@ export function Overview(props: OverviewProps) {
           </div>
           <div className="ml-auto flex items-center gap-2">
             {props.note && <span className="text-label text-status-held">{props.note}</span>}
+            {profile.tracker === "local" && (
+              <button
+                ref={newTicketBtn}
+                type="button"
+                data-new-ticket-open
+                disabled={!profile.up}
+                title={profile.up ? t("shortcuts.overview.new") : t("overview.newTicketDisabled")}
+                onClick={() => setNewTicket(true)}
+                className="rounded-md border border-border px-2 py-1 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("overview.newTicket")}
+              </button>
+            )}
             <ShortcutsButton onClick={() => setHelp(true)} />
             <Menu label={t("overview.profileActions")} items={props.menuItems} />
           </div>
@@ -183,8 +204,135 @@ export function Overview(props: OverviewProps) {
         <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
       </div>
 
+      {newTicket && profile.tracker === "local" && <NewTicketModal profile={profile} onCreated={(ref) => props.onCreated?.({ profile: profile.name, ref })} onClose={() => setNewTicket(false)} />}
       {help && <ShortcutSheet rows={OVERVIEW_SHORTCUTS.map((s) => ({ keys: s.keys, what: t(s.what) }))} onClose={() => setHelp(false)} />}
     </div>
+  );
+}
+
+/**
+ * The New-ticket dialog for local boards (POST /api/ticket → the receiver's ticket_add op): a title,
+ * an optional markdown body, the starting step (defaults to the pipeline's first), and optional
+ * comma-separated blockers. It can only be opened with the receiver up (the button is the only
+ * trigger), so every failure is the server's, shown inline.
+ */
+function NewTicketModal({ profile, onCreated, onClose }: { profile: ProfileView; onCreated: (ref: string) => void; onClose: () => void }) {
+  const { t, lang } = useT();
+  const steps = profile.ticketSteps ?? [];
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [step, setStep] = useState<string | null>(steps[0] ?? null);
+  const [blockedBy, setBlockedBy] = useState("");
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!title.trim()) {
+      setTitleError(t("ticket.titleRequired"));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const { url, init } = ticketAddRequest({ profile: profile.name, title: title.trim(), body: body || undefined, step: step ?? undefined, blockedBy: blockedBy.trim() || undefined });
+    let status = 0;
+    let parsed: unknown = null;
+    try {
+      const res = await fetch(url, init);
+      status = res.status;
+      parsed = await res.json().catch(() => null);
+    } catch {
+      status = 0;
+    }
+    const out = ticketAddOutcome(status, parsed, lang);
+    if (out.ok) {
+      onCreated(out.ticket.ref);
+      return onClose();
+    }
+    setBusy(false);
+    setError(out.error);
+  };
+  return (
+    <Modal title={t("overview.newTicket")} onClose={onClose}>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <label className="flex flex-col gap-1 text-label text-muted">
+          {t("ticket.title")}
+          <input
+            autoFocus
+            value={title}
+            disabled={busy}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (titleError) setTitleError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onClose();
+            }}
+            className="rounded border border-border bg-surface px-2 py-1 text-body text-fg focus-visible:outline-2 focus-visible:outline-accent"
+          />
+        </label>
+        {titleError && (
+          <p role="alert" className="text-label text-status-failed">
+            {titleError}
+          </p>
+        )}
+        <div className="flex flex-col gap-1 text-label text-muted">
+          {t("ticket.body")}
+          <div className="h-32">
+            <MarkdownEditor key="new-ticket-body" initial="" onChange={setBody} />
+          </div>
+        </div>
+        {steps.length > 0 && (
+          <label className="flex flex-col gap-1 text-label text-muted">
+            {t("ticket.startStep")}
+            <select
+              value={step ?? ""}
+              disabled={busy}
+              onChange={(e) => setStep(e.target.value)}
+              className="rounded border border-border bg-surface px-2 py-1 text-body text-fg focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              {steps.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="flex flex-col gap-1 text-label text-muted">
+          {t("ticket.blockedBy")}
+          <input
+            value={blockedBy}
+            disabled={busy}
+            placeholder={t("ticket.blockedByPlaceholder")}
+            onChange={(e) => setBlockedBy(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onClose();
+            }}
+            className="rounded border border-border bg-surface px-2 py-1 text-body text-fg focus-visible:outline-2 focus-visible:outline-accent"
+          />
+        </label>
+        {blockedBy.trim() && <p className="text-label text-status-held">{t("ticket.blockedNotice", { by: blockedBy.trim() })}</p>}
+        {error && (
+          <p role="alert" className="text-label text-status-failed">
+            {error}
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <button type="submit" disabled={busy} className="rounded-md bg-accent px-3 py-1 text-label font-medium text-accent-fg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent">
+            {busy ? t("ticket.creating") : t("ticket.create")}
+          </button>
+          <button type="button" disabled={busy} onClick={onClose} className="rounded-md px-2 py-1 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent">
+            {t("ticket.cancel")}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -291,10 +439,10 @@ const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-la
 /**
  * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
  * its live log), r opens the focused held row's answer box or re-runs the focused failed one, d
- * dismisses the focused failed row, ? shows the shortcut sheet. Acts through the
- * rows' own buttons, so a shortcut can never do what a click could not.
+ * dismisses the focused failed row, n opens the New-ticket dialog (local boards), ? shows the
+ * shortcut sheet. Acts through the rows' own buttons, so a shortcut can never do what a click could not.
  */
-function useNeedsYouKeys(setHelp: (open: boolean) => void) {
+function useNeedsYouKeys(setHelp: (open: boolean) => void, newTicketBtn?: RefObject<HTMLButtonElement | null>) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const action = shortcutsEnabled() ? overviewAction(e, !!document.querySelector('[role="dialog"]')) : null;
@@ -302,6 +450,13 @@ function useNeedsYouKeys(setHelp: (open: boolean) => void) {
       if (action === "help") {
         e.preventDefault();
         return setHelp(true);
+      }
+      if (action === "new") {
+        const btn = newTicketBtn?.current;
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        btn.click();
+        return;
       }
       const titles = [...document.querySelectorAll<HTMLElement>("[data-needs-open], [data-now-open]")];
       const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-needs-row], [data-now-row]");

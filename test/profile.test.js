@@ -110,7 +110,7 @@ test("writeProfileMarker writes the marker 0600 and keeps createdAt on rewrite",
   writeProfileMarker(cfg);
   const file = path.join(cfg.stateDir, "profile.json");
   const first = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.deepEqual(Object.keys(first).sort(), ["configPath", "createdAt", "name", "stateKey", "updatedAt"]);
+  assert.deepEqual(Object.keys(first).sort(), ["configPath", "createdAt", "name", "provider", "stateKey", "updatedAt"]);
   assert.equal(first.configPath, "/x/agenthook.config.json");
   assert.equal(first.stateKey, "A");
   if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);

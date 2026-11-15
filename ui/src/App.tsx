@@ -450,6 +450,7 @@ function Dashboard() {
           setShowAll={setShowAll}
           open={open}
           onOpen={setOpen}
+          onCreated={(t) => setOpen(t)}
           displayIdFor={displayIdFor}
           menuItems={menuItems(profile)}
           note={noteFor(profile)}
