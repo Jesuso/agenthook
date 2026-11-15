@@ -17,7 +17,7 @@ import { agentSpawnEnv } from "./spawn.js";
 import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 import { resolveHarness } from "./harness.js";
-import { resolveContextWindow } from "../models.js";
+import { resolveContextWindow, ctxOverflow } from "../models.js";
 import { needsReviewedHead, currentPrHead } from "../auto-merge.js";
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./spawn.js').Spawn & import('./usage.js').Usage & import('./verdict.js').VerdictOps & import('./finish.js').Finish} ctx */
@@ -339,7 +339,17 @@ export function createStep(ctx) {
     };
     // Live token tally onto the running record (throttled — per assistant/result event). Shared
     // with a verdict-repair turn below (#677) — same running record, same ref.
+    let ctxOverflowWarned = false;
     const onTally = (/** @type {{input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}} */ t) => {
+      const observed = typeof t.lastContext === "number" ? t.lastContext : null;
+      if (!ctxOverflowWarned && observed !== null && ctxMax !== null && ctxOverflow(observed, ctxMax)) {
+        ctxOverflowWarned = true;
+        const line = `[dispatch] context window for model "${model ?? "?"}" looks wrong: observed ${observed.toLocaleString("en-US")} > ctxMax ${ctxMax.toLocaleString("en-US")} — fix src/models.js or set contextTokens`;
+        try {
+          logLine(logPath, line);
+        } catch { /* best effort */ }
+        console.warn(line);
+      }
       try {
         store?.setRunning(job.ref, { ...baseRunning, pid, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheCreate: t.cacheCreate, ...(typeof t.lastContext === "number" ? { ctx: t.lastContext } : {}) });
       } catch (e) {

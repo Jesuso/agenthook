@@ -84,3 +84,15 @@ test("digest: RUN row appends · ctx used/max only when both are known (#658)", 
   assert.ok(lines.includes("  RUN  8 code 5m"), "ctx alone, no ctxMax → no gauge");
   assert.ok(lines.includes("  RUN  9 code 5m"), "ctxMax alone, no ctx → no gauge");
 });
+
+test("digest: an observed ctx above ctxMax prints the bare figure, never a false over-limit gauge (#700)", () => {
+  const out = digest({
+    profile: "p", up: true,
+    slots: { max: 1, active: 1, queued: 0, free: 0 },
+    running: [{ ref: "700", step: "code", ageS: 300, ctx: 212000, ctxMax: 200000 }],
+    queue: [], held: [], events: [], cursor: 1,
+  });
+  const lines = out.split("\n");
+  assert.ok(lines.includes("  RUN  700 code 5m · ctx 212K"), "bare figure, no /200K");
+  assert.ok(!lines.some((l) => l.includes("/200K")));
+});
