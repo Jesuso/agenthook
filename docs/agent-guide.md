@@ -132,6 +132,13 @@ unchanged check.
   `running.json` record's own `host`. The `tick` text digest then reads `· <harness>@<host>`
   instead of `· <harness>`; `status` prints a `remote  : <ref> <step> on "<harness>" @ <host>`
   line per such run. See [remote.md](remote.md).
+- `slots.unharnessed` (present only when the profile has `harnesses` and a run is active on a step
+  that names none) is `{"<agent>": n}` — running pipeline jobs on harness-less steps, counted by
+  the agent CLI they spawn (`claude`, `cursor`, `hermes`, `opencode`), never folded into
+  `slots.harnesses` (that stays "configured harnesses only" for the puller budget, the breaker,
+  `set_concurrency`/`harness_reset` and `doctor`). The `tick` text digest prints one
+  `no-harness: <agent> <n>` line per entry; `status` prints `harness : <agent> (no harness) <n>
+  running`.
 - `harnessUsage` (present only when the profile has `harnesses` and some run used one) is
   `{"<name>": {"runs": n, "input": n, "output": n, "cacheRead": n, "cacheCreate": n}}` — token
   totals per harness, summed from the usage records. `set_concurrency {max, harness}` changes one

@@ -454,6 +454,7 @@ export function profileView(p) {
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   // Per-harness slots, only for a live profile with harnesses (no key otherwise).
   const harnesses = p.up ? harnessSlots(hb?.queue?.harnesses) : null;
+  const unharnessed = p.up ? unharnessedSlots(hb?.queue?.unharnessed) : null;
   return {
     name: p.name,
     label: str(hb?.name) || p.label || p.name,
@@ -475,6 +476,7 @@ export function profileView(p) {
     quotaPaused: p.up ? normalizeTrip(hb?.quotaPaused) : null,
     quota: normalizeQuota(p.quota),
     ...(harnesses ? { harnesses } : {}),
+    ...(unharnessed ? { unharnessed } : {}),
     restartPending: p.up ? hb?.restartPending === true || hb?.decommissionPending === true || hb?.draining === true : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
@@ -516,6 +518,22 @@ export function harnessSlots(raw) {
       ...(down && typeof h.reason === "string" ? { reason: (h.reason.length > 200 ? h.reason.slice(0, 199) + "…" : h.reason) } : {}),
       ...(down && (h.cause === "quota" || h.cause === "health") ? { cause: h.cause } : {}),
     };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The heartbeat's implicit (harness-less) run counts as `{[agent]: count}`; a non-positive-integer
+ * entry is dropped; null when absent or empty.
+ * @param {unknown} raw @returns {Record<string, number>|null}
+ */
+export function unharnessedSlots(raw) {
+  if (!isObj(raw)) return null;
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const [agent, v] of Object.entries(/** @type {Record<string, unknown>} */ (raw))) {
+    const n = /** @type {number} */ (v);
+    if (Number.isInteger(n) && n > 0) out[agent] = n;
   }
   return Object.keys(out).length ? out : null;
 }

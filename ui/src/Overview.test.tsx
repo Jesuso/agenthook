@@ -209,6 +209,19 @@ describe("Overview", () => {
     expect(render(profile(), [])).not.toContain("data-harness");
   });
 
+  it("shows an implicit, uncapped chip per unharnessed agent next to the configured chips; none without any (#726)", () => {
+    const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 } }, unharnessed: { claude: 3 } }), []);
+    expect(html).toMatch(/data-harness-implicit="claude"[^>]*>claude <span[^>]*>3<\/span><\/span>/);
+    expect(html).not.toMatch(/data-harness-implicit="claude"[^>]*\/\d/); // no /max beside it
+    expect(html.indexOf('data-harness="qwen"')).toBeLessThan(html.indexOf('data-harness-implicit="claude"'));
+
+    const onlyUnharnessed = render(profile({ harnesses: undefined, unharnessed: { claude: 1 } }), []);
+    expect(onlyUnharnessed).toContain('data-harness-implicit="claude"');
+
+    expect(render(profile({ unharnessed: {} }), [])).not.toContain("data-harness-implicit");
+    expect(render(profile(), [])).not.toContain("data-harness-implicit");
+  });
+
   it("a quota-closed harness chip shows its reopen time with a warn tint, not a failure tint (#723)", () => {
     const harnesses = {
       spent: { active: 0, max: 1, state: "down" as const, until: "2026-10-08T13:00:00.000Z", reason: "quota: weekly 92% ≥ 90%", cause: "quota" as const },
