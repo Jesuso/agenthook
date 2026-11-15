@@ -41,6 +41,7 @@ import { start } from "../src/commands/start.js";
 import { stop } from "../src/commands/stop.js";
 import { rename } from "../src/commands/rename.js";
 import { restart } from "../src/commands/restart.js";
+import { pause, unpause, concurrency } from "../src/commands/pause.js";
 import { remove } from "../src/commands/remove.js";
 import { ls } from "../src/commands/ls.js";
 import { status } from "../src/commands/status.js";
@@ -104,7 +105,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -162,6 +163,9 @@ usage: agenthook <command> [args] [--config <path>]
   rename <newName> [--move] relabel this profile (state key kept; inserts stateId);
                             --move also moves ~/.agenthook/<key>/ to <newName> (at idle if running)
   restart                   restart the running receiver once idle
+  pause [--harness <name>]  pause the whole profile (persists across restarts); --harness drains one harness
+  unpause [--harness <name>]  clear the pause / a harness's drain (the MCP \`resume\` op)
+  concurrency <n|reset> [--harness <name>]  set (or reset) the global agent cap / a harness's slots
   remove <name|key> [--purge] [--yes] [--keep-hooks]  retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
   ls                        all profiles + status
   status [name]             one profile in detail

@@ -17,6 +17,7 @@ import { worktreeDir } from "../paths.js";
 import { reposOf, defaultRepo, primaryRepo } from "../repos.js";
 import { listWorktrees, DEFAULT_BRANCH_PREFIX } from "../worktree.js";
 import { readProfile, isAlive, instructionTargets } from "../heartbeat.js";
+import { createStore } from "../store.js";
 import { registeredProfiles } from "../profile.js";
 import { systemdScopeAvailable, classifyCgroup } from "../respawn.js";
 import { fileURLToPath } from "node:url";
@@ -357,23 +358,35 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
 /**
  * Per-harness slots (#632): an ℹ line per harness naming its `maxConcurrent` ("N slot(s)" or
  * "unbounded"), plus a ⚠ when every harness a step's `harness` list names has an explicit cap
- * and their caps sum to 0 — the step can never run. `[]` without `cfg.harnesses`. Pure.
- * @param {Pick<import('../types.js').Config, 'harnesses'|'pipeline'>} cfg
+ * and their caps sum to 0 — the step can never run. With `overrides` (overrides.json), an
+ * overridden harness shows "N slots (override; config M)" and a global pause/max override gets an
+ * ℹ line; a harness entry not in the config is flagged as dropped-on-boot. `[]` without
+ * `cfg.harnesses`. Pure.
+ * @param {Pick<import('../types.js').Config, 'harnesses'|'pipeline'|'maxConcurrent'>} cfg
+ * @param {import('../types.js').Overrides} [overrides]
  * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
-export function harnessSlotLints(cfg) {
+export function harnessSlotLints(cfg, overrides = {}) {
   if (!cfg.harnesses) return [];
   /** @type {{ level: 'info'|'warn', label: string, note: string }[]} */
   const out = [];
   for (const [name, h] of Object.entries(cfg.harnesses)) {
-    out.push({ level: "info", label: `harness "${name}"`, note: h.maxConcurrent == null ? "unbounded" : `${h.maxConcurrent} slot(s)` });
+    const config = h.maxConcurrent == null ? null : h.maxConcurrent;
+    const ov = overrides.harnesses?.[name];
+    const note = ov !== undefined ? `${ov} slots (override; config ${config == null ? "unbounded" : config})` : config == null ? "unbounded" : `${config} slot(s)`;
+    out.push({ level: "info", label: `harness "${name}"`, note });
   }
+  if (overrides.paused === true) out.push({ level: "info", label: "operator pause", note: "paused (override; unpause to clear)" });
+  if (overrides.maxConcurrent !== undefined) out.push({ level: "info", label: "global maxConcurrent", note: `${overrides.maxConcurrent} (override; config ${cfg.maxConcurrent})` });
   for (const s of cfg.pipeline ?? []) {
     const names = harnessesOf(s);
     if (!names.length) continue;
-    const caps = names.map((n) => cfg.harnesses?.[n]?.maxConcurrent);
+    const caps = names.map((n) => (overrides.harnesses?.[n] !== undefined ? overrides.harnesses[n] : cfg.harnesses?.[n]?.maxConcurrent));
     if (caps.every((c) => c != null) && caps.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) === 0) {
       out.push({ level: "warn", label: `step "${s.id}" harness slots`, note: `every harness it can use (${names.join(", ")}) is capped at 0 — this step can never run` });
     }
+  }
+  for (const name of Object.keys(overrides.harnesses ?? {})) {
+    if (!Object.hasOwn(cfg.harnesses, name)) out.push({ level: "info", label: `override for harness "${name}"`, note: "not in the config — will be dropped on boot" });
   }
   return out;
 }
@@ -1527,7 +1540,7 @@ export async function runChecks(cfg, io = {}) {
   for (const l of egressLints(cfg, { files, env, origins })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
   for (const l of harnessLanLints(cfg)) warn(l.label, l.note);
   for (const l of opencodeConfigLints(cfg)) warn(l.label, l.note);
-  for (const l of harnessSlotLints(cfg)) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
+  for (const l of harnessSlotLints(cfg, createStore(cfg.dataDir).getOverrides())) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);
   const pc = portCheck({ port: cfg.port, busy, profile: { up: profile.up, pid: profile.pid, heartbeatPort: profile.heartbeat?.port } });

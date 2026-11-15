@@ -64,6 +64,7 @@ import { createDecommissionRequester, createQuotaControl, createRestartRequester
 import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
+import { seedOverrides } from "../overrides.js";
 
 export { crashRecord, releaseOnSettle, createOverlapReleaser, recoverInterrupted } from "./recovery.js";
 export { intakeEvent, createPushSink } from "./intake.js";
@@ -231,6 +232,11 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     isLocked: () => state.draining || restarter.isPending() || decommissioner.isPending(),
   });
   heartbeat.update({ quota: readQuota(cfg.stateDir) });
+
+  // Operator runtime overrides (pause, maxConcurrent, per-harness slots) persisted in
+  // overrides.json. Seeded here — after `queue` and `quotaPacer` exist, before `serve()` runs
+  // `restoreQueued` — so a restored job never starts on a drained harness or while paused.
+  seedOverrides({ cfg, store, queue, quotaPacer, heartbeat });
 
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer,

@@ -199,6 +199,7 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     tracker: hb.tracker ?? null,
     slots: { max, active, queued, ...(capped ? { capped } : {}), free: max === null ? null : hb.paused || quotaPaused || hb.restartPending || hb.decommissionPending || hb.draining ? 0 : Math.max(0, max - active - (queued - capped)), ...(harnesses ? { harnesses } : {}) },
     ...(hb.paused ? { paused: true } : {}),
+    ...(hb.overrides && typeof hb.overrides === "object" ? { overrides: hb.overrides } : {}),
     ...(quotaPaused ? { quotaPaused } : {}),
     ...(quota ? { quota } : {}),
     ...(hb.restartPending ? { restartPending: true } : {}),

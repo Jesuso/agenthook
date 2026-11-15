@@ -16,7 +16,8 @@
 // client.js, src/control.js): no file write, just a request over the profile's control.sock,
 // mapped to 503/504/502 when the receiver is down, times out, or answers `ok:false`. `restart`
 // reuses the PUT guard chain and audits its outcome via save.js's `appendAudit`; so do `POST
-// /api/pause` and `POST /api/resume` (the dashboard row's operator pause — in-memory). `POST
+// /api/pause` and `POST /api/resume` (the dashboard row's operator pause — persisted in
+// overrides.json). `POST
 // /api/profile/remove` (same guards) retires a profile: a running receiver gets `decommission
 // {when:'idle'}` over its socket; a stopped one has its state dir archived via src/archive.js —
 // the one state-dir move the UI server makes. `GET /api/profile/remove-preview` is its cookie-only
