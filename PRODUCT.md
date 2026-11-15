@@ -18,20 +18,50 @@ pipeline or sandbox.
 
 ## Product Purpose
 
-agenthook turns a task board into a pipeline of coding agents. A ticket entering a stage fires a
-webhook; the receiver runs a headless agent in its own git worktree; the agent's verdict (advance,
-rework, hold, fail) moves the ticket on. Human attention is the bottleneck, so the product exists to
-boil agent activity down to what a human must act on.
+**The heart: reduce the cognitive load of a developer who now moves much faster.** Agents
+multiplied how much work one person can start; they did not multiply how much that person can read,
+track and decide. agenthook exists so the developer stays calm: they know things are fine and
+moving without reading to check, and they are asked for attention only when a decision is theirs.
+
+Unattended delivery is the means, not the goal. agenthook turns a task board into a pipeline of
+coding agents: a ticket entering a stage fires a webhook; the receiver runs a headless agent in its
+own git worktree; the agent's verdict (advance, rework, hold, fail) moves the ticket on.
+
+### Levels of depth
+
+Detail is never removed, it is placed. The developer chooses when to pay for it.
+
+1. **Glance** — Home card, Now row, Board card. Essentials only: what it is, where it is, whether
+   it needs you. No model, harness, context or cost. Colour, motion and sections that appear only
+   when needed carry the meaning, not text.
+2. **Drawer** — opened by a click on a ticket. The developer accepts the cost in exchange for
+   specifics: steps, reworks, which harness and model ran each one, cost, the reason it is held.
+3. **Run story** — the agent's own turns and raw log. For debugging one run.
+
+A fact that helps debugging belongs to level 2 or 3, even when the person building the product
+wants it at level 1 today. Debug-grade data may be opt-in per harness (useful for local models).
 
 Success: the operator learns in one glance whether anything **needs them**, acts on it in one step,
 and otherwise trusts the pipeline to keep moving without babysitting.
 
 ## Positioning
 
-Event-driven, not polled: the tracker pushes and the stage starts the instant a ticket lands; nothing
-spins while idle. A tool-blind engine with one small adapter per axis (tracker, ingress, agent,
-forge) means it works with the board, tunnel, forge and coding agent the user already has. The UI is
-a supervision surface that reduces information load, not a project-management tool.
+A supervision surface that lowers information load, not a project-management tool. Everything else
+is a pillar that holds that up:
+
+- **Event-driven engine.** The tracker pushes and the stage starts the instant a ticket lands;
+  nothing polls, nothing spins while idle. The developer does not push work forward.
+- **Works with what you have.** A tool-blind engine with one small adapter per axis (tracker,
+  ingress, agent, forge): the board, tunnel, forge and coding agent the user already uses. No new
+  place to keep in mind.
+- **Local and cloud models side by side.** Named harnesses with routing and a health breaker, a
+  per-run sandbox, and a remote (SSH) harness on another machine. Which model ran is the
+  pipeline's concern until the developer asks.
+- **Honest verdicts.** A run ends in a verdict the receiver can trust or else holds: written by the
+  agent, deduced from commits, or held for a human. A question is never mistaken for progress.
+- **Numbers on request.** Stats, cost, rework rate and per-harness outcomes exist to answer a
+  question the developer brings, not to be watched.
+- **One profile at a time.** Several areas of work, never merged into one feed.
 
 ## Operating Context
 
@@ -46,8 +76,10 @@ a supervision surface that reduces information load, not a project-management to
 ## Capabilities and Constraints
 
 - **Surfaces in scope for design work:** the local dashboard (`ui/`, React 19 + Vite + Tailwind 4,
-  CodeMirror editors) and a docs site rendered from `docs/*.md` (not yet built).
-- **Localhost only.** The UI binds 127.0.0.1, token-protected; no remote access layer.
+  CodeMirror editors). Documentation is Markdown in `docs/`, read on GitHub; there is no docs
+  site and none is planned for this product.
+- **Local by default.** The UI binds 127.0.0.1, token-protected. `ah ui --host` can bind a LAN
+  address over plain HTTP, where the token is the only credential; there is no remote access layer.
 - **No secrets.** `${ENV}` refs are shown as refs, never resolved; `.env` is never read or written.
 - **No polling.** Realtime comes from `fs.watch` → Server-Sent Events.
 - **Blind reader of runtime state.** The UI writes only user-owned files (config, instruction files)
@@ -76,13 +108,22 @@ a supervision surface that reduces information load, not a project-management to
 
 ## Product Principles
 
-1. **Attention is the scarce resource.** Every surface earns its place by reducing what the operator
-   must read; "Needs you" is the headline number.
-2. **One glance, one action.** A blocked ticket shows exactly the one thing to do about it.
-3. **One profile at a time.** Never merge profiles into a combined view.
-4. **Truthful state.** Show what the receiver actually knows (liveness, verdicts, cost); never imply
-   work shipped when it only finished.
-5. **Consequence is visible.** Actions that move real tickets or change what agents run look and feel
+1. **Lower the load.** The test for every surface, field and animation: does a calm developer need
+   this by default? If not, it moves down a level or appears only in an abnormal state. Anything
+   not strictly necessary adds stress — more to see, read and understand.
+2. **Less is more; detail is placed, not deleted.** Glance → drawer → run story. Never add to the
+   glance what belongs in the drawer.
+3. **Attention surfaces exist only when needed.** "Needs you" has its own clear place and is absent
+   when nothing needs the operator. Calm is the default state and it must look calm.
+4. **Colour and motion do the heavy lifting.** They say "fine, moving" or "look here" faster than
+   text. Use them for that and for nothing decorative.
+5. **One glance, one action.** A blocked ticket shows exactly the one thing to do about it.
+6. **Truthful state.** Show what the receiver actually knows (liveness, verdicts, cost); never imply
+   work shipped when it only finished. A misleading fact costs more than a missing one.
+7. **Use the space before covering content.** Do not overlay or mute one thing while empty screen
+   sits beside it.
+8. **One profile at a time.** Never merge profiles into a combined view.
+9. **Consequence is visible.** Actions that move real tickets or change what agents run look and feel
    weightier than reading.
 
 ## Accessibility & Inclusion
