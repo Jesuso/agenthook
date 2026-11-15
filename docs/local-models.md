@@ -329,17 +329,45 @@ The harness's `opencodeConfig` is a minimal OpenCode config with the one provide
       "npm": "@ai-sdk/openai-compatible",
       "options": { "baseURL": "http://192.168.1.20:11434/v1" },
       "models": {
-        "qwen3.8:27b-64k": { "limit": { "context": 65536 } }
+        "qwen3.8:27b-64k": {
+          "limit": { "context": 65536 },
+          "variants": {
+            "low": { "reasoningEffort": "low" },
+            "medium": { "reasoningEffort": "medium" },
+            "high": { "reasoningEffort": "high" }
+          }
+        }
       }
     }
   }
 }
 ```
 
+A step's `effort` becomes `opencode run --variant <effort>`, which OpenCode resolves against
+this `variants` map — with no matching entry it has nothing to resolve, and no reasoning effort
+is ever sent. The *names* here (`low`/`medium`/`high`) must equal the step's `effort` values
+exactly; the `reasoningEffort` *values* must be levels this model server actually accepts (check
+the server's docs — a value it rejects fails the request, it doesn't degrade gracefully). `ah
+doctor` flags a declared model that's missing the variant a step's `effort` needs.
+
 See [OpenCode in the sandbox](sandbox.md#opencode-in-the-sandbox) for why this file is copied —
 never mounted — into the run's per-run sandbox HOME, and why `localhost` in it reaches the
 container, not the host. The `!private` egress rule and the `docker0` firewall note above apply
 to this URL too.
+
+An unattended run can't act on tool output it didn't ask for (a permission prompt) or doesn't
+need (web search, task delegation) — turn those off in the same `opencodeConfig` with a
+`permission` block (OpenCode 1.19.5; `tools` is deprecated in its favor):
+
+```jsonc
+{
+  "permission": { "webfetch": "deny", "skill": "deny", "task": "deny", "todowrite": "deny" }
+}
+```
+
+agenthook copies `opencodeConfig` verbatim, so any key OpenCode's schema accepts works here with
+no agenthook change — verify key names against the installed CLI's own schema/docs before relying
+on one, since they can change between OpenCode versions.
 
 ### Small windows and compaction
 
@@ -356,13 +384,14 @@ message means here, and the verdict file/format — as exactly such a file, wire
 `opencode.json` `instructions` (see [OpenCode in the sandbox](sandbox.md#opencode-in-the-sandbox)).
 A sandboxed run also gets the step's standing instructions (repo + step `instructionsFile` text)
 as a second `instructions` file (`agenthook-standing.md`), so the gate commands, "read narrowly",
-"rework: read the latest review", and other step-specific guidance survive compaction too. The
-standing text is kept in the run prompt as well (so the model sees it twice — once in the system
-prompt via `instructions`, once in the one-shot prompt), incurring the token cost each time. The
-ticket text itself is not included in the standing file. When the standing text exceeds 16 KB it
-is not written to a file; a `console.warn` naming the step is emitted instead, and the standing
-text stays only in the run prompt. A **host or ssh** opencode run gets the contract only in the
-one-shot run prompt, same as before; it has no agenthook-owned config to add `instructions` to.
+"rework: read the latest review", and other step-specific guidance survive compaction too. When
+that file is written, the standing text is **dropped from the run prompt** — the model sees it
+once, in the system prompt via `instructions`, not twice — and the one-shot prompt keeps only the
+`=== TICKET ===` marker and the ticket text. When the standing text exceeds 16 KB it is not
+written to a file; a `console.warn` naming the step is emitted instead, and in that case the
+standing text stays in the run prompt (the only copy). The ticket text itself is never in the
+standing file. A **host or ssh** opencode run gets the contract only in the one-shot run prompt,
+same as before; it has no agenthook-owned config to add `instructions` to.
 
 ## Cost reporting
 

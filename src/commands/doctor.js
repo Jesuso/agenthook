@@ -34,7 +34,7 @@ import { serviceImages } from "../sandbox/container.js";
 import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
-import { harnessesOf } from "../dispatch/harness.js";
+import { harnessesOf, resolveHarness } from "../dispatch/harness.js";
 import { remoteProbeArgv, shQuote } from "../dispatch/executor-ssh.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
@@ -291,6 +291,25 @@ export function harnessLanLints(cfg) {
   return out;
 }
 
+/** Read + JSON-parse an opencodeConfig; `{error}` (never throws) on an unreadable or invalid
+ * file, else `{parsed}` (JSON.parse's own return type). Shared by opencodeConfigLints and
+ * opencodeEffortLints.
+ * @param {string} configPath @param {(path: string) => string} read */
+function readOpencodeJson(configPath, read) {
+  /** @type {string} */
+  let raw;
+  try {
+    raw = read(configPath);
+  } catch (e) {
+    return { parsed: undefined, error: `unreadable: ${e.message}` };
+  }
+  try {
+    return { parsed: JSON.parse(raw), error: undefined };
+  } catch (e) {
+    return { parsed: undefined, error: `invalid JSON: ${e.message}` };
+  }
+}
+
 /**
  * OpenCode provider baseURL lints (#647), parallel to harnessLanLints: for each sandboxed,
  * non-manual step and each harness it routes through, the effective `opencodeConfig` (the
@@ -317,20 +336,9 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
       if (seen.has(key)) continue;
       seen.add(key);
       const label = `opencodeConfig ${configPath}`;
-      /** @type {string} */
-      let raw;
-      try {
-        raw = read(configPath);
-      } catch (e) {
-        out.push({ level: "warn", label, note: `unreadable: ${e.message}` });
-        continue;
-      }
-      /** @type {any} */
-      let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        out.push({ level: "warn", label, note: `invalid JSON: ${e.message}` });
+      const { parsed, error } = readOpencodeJson(configPath, read);
+      if (error) {
+        out.push({ level: "warn", label, note: error });
         continue;
       }
       const providers = parsed && typeof parsed === "object" ? parsed.provider : undefined;
@@ -349,6 +357,63 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
           const host = hp.host.includes(":") ? `[${hp.host}]` : hp.host;
           out.push({ level: "warn", label: pLabel, note: `sandboxed runs need "${host}:${hp.port}!private" in sandbox.egress.allow` });
         }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * OpenCode effort lints (#731): a sandboxed, non-manual opencode step's `effort` only reaches
+ * the model when the step's effective `opencodeConfig` declares a matching `variants` entry on
+ * that model — OpenCode maps `--variant <effort>` through
+ * `provider.<id>.models.<model>.variants[effort]`, and with no entry it has nothing to resolve.
+ * For each (model, effort) pair the step's base/`lite`/each `escalate` tier could produce, when
+ * the model is declared in the config and lacks that variant (or it's `disabled: true`), emit
+ * one info line. Silently skipped: a model not declared in the config (built-in catalogs may
+ * define variants OpenCode already knows), a non-opencode step, a pair missing a model or
+ * effort, or a config that's unreadable/invalid (`opencodeConfigLints` already warns about
+ * that). `[]` without `cfg.sandbox`. Pure given `read`.
+ * @param {import('../types.js').Config} cfg
+ * @param {{read?: (path: string) => string}} [io]
+ * @returns {{ level: 'info', label: string, note: string }[]} */
+export function opencodeEffortLints(cfg, { read = (p) => fs.readFileSync(p, "utf8") } = {}) {
+  if (!cfg.sandbox) return [];
+  /** @type {{ level: 'info', label: string, note: string }[]} */
+  const out = [];
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual && isSandboxed(cfg, s));
+  /** @type {Set<string>} one line per distinct (step, harness, model, effort) */
+  const seen = new Set();
+  for (const s of steps) {
+    const names = harnessesOf(s).length ? harnessesOf(s) : [undefined];
+    for (const name of names) {
+      const { step: eff } = resolveHarness(cfg, s, name);
+      if ((eff.agent ?? cfg.agent) !== "opencode" || !eff.opencodeConfig) continue;
+      /** @type {{model?: string, effort?: string}[]} */
+      const pairs = [{ model: eff.model, effort: eff.effort }];
+      if (eff.lite) pairs.push({ model: eff.lite.model ?? eff.model, effort: eff.lite.effort ?? eff.effort });
+      for (const esc of Object.values(eff.escalate ?? {})) pairs.push({ model: esc.model ?? eff.model, effort: esc.effort ?? eff.effort });
+      if (!pairs.some((p) => p.model && p.effort)) continue;
+
+      const { parsed, error } = readOpencodeJson(eff.opencodeConfig, read);
+      if (error) continue;
+      const providers = parsed && typeof parsed === "object" ? parsed.provider : undefined;
+      if (!providers || typeof providers !== "object") continue;
+
+      for (const { model, effort } of pairs) {
+        if (!model || !effort || !model.includes("/")) continue;
+        const key = `${s.id}\0${name ?? ""}\0${model}\0${effort}`;
+        if (seen.has(key)) continue;
+        const idx = model.indexOf("/");
+        const providerId = model.slice(0, idx);
+        const modelId = model.slice(idx + 1);
+        const modelCfg = providers[providerId]?.models?.[modelId];
+        if (!modelCfg) continue;
+        const variant = modelCfg.variants?.[effort];
+        if (variant && !variant.disabled) continue;
+        seen.add(key);
+        const label = `step ${JSON.stringify(s.id)}${name ? ` on ${JSON.stringify(name)}` : ""}: effort ${JSON.stringify(effort)}`;
+        out.push({ level: "info", label, note: `opencodeConfig ${eff.opencodeConfig} declares no ${JSON.stringify(effort)} variant for ${model} — OpenCode will not send a reasoning effort` });
       }
     }
   }
@@ -1559,6 +1624,7 @@ export async function runChecks(cfg, io = {}) {
   for (const l of egressLints(cfg, { files, env, origins })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
   for (const l of harnessLanLints(cfg)) warn(l.label, l.note);
   for (const l of opencodeConfigLints(cfg)) warn(l.label, l.note);
+  for (const l of opencodeEffortLints(cfg)) info(l.label, l.note);
   for (const l of harnessSlotLints(cfg, createStore(cfg.dataDir).getOverrides())) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);

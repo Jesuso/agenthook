@@ -1,6 +1,6 @@
 {
   "src": {
-    "total": 636,
+    "total": 635,
     "files": {
       "src/actionable.js": 3,
       "src/agent-api.js": 21,
@@ -15,7 +15,7 @@
       "src/commands/catchup.js": 1,
       "src/commands/cleanup.js": 1,
       "src/commands/digest.js": 3,
-      "src/commands/doctor.js": 7,
+      "src/commands/doctor.js": 6,
       "src/commands/epics.js": 3,
       "src/commands/events.js": 5,
       "src/commands/follow.js": 2,

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { agentBinChecks, harnessBinChecks, remoteHarnessChecks, harnessLanLints, opencodeConfigLints, harnessSlotLints, runChecks } from "../src/commands/doctor.js";
+import { agentBinChecks, harnessBinChecks, remoteHarnessChecks, harnessLanLints, opencodeConfigLints, opencodeEffortLints, harnessSlotLints, runChecks } from "../src/commands/doctor.js";
 import { cleanProfile, io } from "./_doctor-helpers.js";
 
 // --- named harnesses (#632) ---
@@ -411,6 +411,51 @@ test("opencodeConfigLints: the harness's opencodeConfig applies where the step s
   const invalid = opencodeConfigLints(cfg, { read: () => "{not json" });
   assert.equal(invalid.length, 1);
   assert.match(invalid[0].note, /^invalid JSON:/);
+});
+
+test("opencodeEffortLints: [] without sandbox, a non-opencode agent, a step without effort, or no opencodeConfig", () => {
+  const content = JSON.stringify({ provider: { openrouter: { models: { "deepseek-v3": {} } } } });
+  const noSandbox = /** @type {any} */ ({ pipeline: [{ id: "code", effort: "high", model: "openrouter/deepseek-v3", opencodeConfig: "/x.json" }] });
+  assert.deepEqual(opencodeEffortLints(noSandbox, { read: () => content }), []);
+
+  const notOpencode = /** @type {any} */ ({ sandbox: { type: "docker" }, agent: "claude", pipeline: [{ id: "code", effort: "high", model: "openrouter/deepseek-v3", opencodeConfig: "/x.json" }] });
+  assert.deepEqual(opencodeEffortLints(notOpencode, { read: () => content }), []);
+
+  const noEffort = /** @type {any} */ ({ sandbox: { type: "docker" }, agent: "opencode", pipeline: [{ id: "code", model: "openrouter/deepseek-v3", opencodeConfig: "/x.json" }] });
+  assert.deepEqual(opencodeEffortLints(noEffort, { read: () => content }), []);
+
+  const noConfig = /** @type {any} */ ({ sandbox: { type: "docker" }, agent: "opencode", pipeline: [{ id: "code", effort: "high", model: "openrouter/deepseek-v3" }] });
+  assert.deepEqual(opencodeEffortLints(noConfig, { read: () => content }), []);
+});
+
+test("opencodeEffortLints: one info line when the declared model lacks the variant; none when it's declared", () => {
+  const cfg = /** @type {any} */ ({ sandbox: { type: "docker" }, agent: "opencode", pipeline: [{ id: "code", effort: "high", model: "openrouter/deepseek-v3", opencodeConfig: "/x.json" }] });
+  const noVariant = JSON.stringify({ provider: { openrouter: { models: { "deepseek-v3": {} } } } });
+  const missing = opencodeEffortLints(cfg, { read: () => noVariant });
+  assert.deepEqual(missing, [{ level: "info", label: `step "code": effort "high"`, note: `opencodeConfig /x.json declares no "high" variant for openrouter/deepseek-v3 — OpenCode will not send a reasoning effort` }]);
+
+  const withVariant = JSON.stringify({ provider: { openrouter: { models: { "deepseek-v3": { variants: { high: { reasoningEffort: "high" } } } } } } });
+  assert.deepEqual(opencodeEffortLints(cfg, { read: () => withVariant }), []);
+
+  const disabledVariant = JSON.stringify({ provider: { openrouter: { models: { "deepseek-v3": { variants: { high: { disabled: true } } } } } } });
+  assert.equal(opencodeEffortLints(cfg, { read: () => disabledVariant }).length, 1, "a disabled variant counts as not declared");
+});
+
+test("opencodeEffortLints: [] when the model is not declared in the config", () => {
+  const cfg = /** @type {any} */ ({ sandbox: { type: "docker" }, agent: "opencode", pipeline: [{ id: "code", effort: "high", model: "openrouter/deepseek-v3", opencodeConfig: "/x.json" }] });
+  const content = JSON.stringify({ provider: { openrouter: { models: {} } } });
+  assert.deepEqual(opencodeEffortLints(cfg, { read: () => content }), []);
+});
+
+test("opencodeEffortLints: a harness-supplied opencodeConfig/model is honored", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { "oc-local": { agent: "opencode", model: "openrouter/deepseek-v3", opencodeConfig: "/harness.json" } },
+    pipeline: [{ id: "code", harness: "oc-local", effort: "medium" }],
+  });
+  const content = JSON.stringify({ provider: { openrouter: { models: { "deepseek-v3": {} } } } });
+  const lints = opencodeEffortLints(cfg, { read: () => content });
+  assert.deepEqual(lints, [{ level: "info", label: `step "code" on "oc-local": effort "medium"`, note: `opencodeConfig /harness.json declares no "medium" variant for openrouter/deepseek-v3 — OpenCode will not send a reasoning effort` }]);
 });
 
 test("harnessSlotLints: [] without harnesses; one ℹ per harness (slot count or unbounded); ⚠ when a step's harnesses all cap to 0", () => {
