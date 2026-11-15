@@ -183,7 +183,8 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
           return (
             <li key={t.ref} data-needs-row={t.ref} data-kind={kind} className={board ? `${SUBGRID} ${TINT[kind]}` : undefined}>
               {/* Narrow (a half-width window, a phone) the row stacks: kind, id and age on one line with
-                  the title and its reason beside them, the action underneath, instead of squeezing to "…". */}
+                  the title and its reason beside them, then its step and the action on a second line,
+                  instead of squeezing to "…". */}
               <div className={board ? `group ${ROW} focus-within:bg-surface-raised` : "group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised max-sm:flex-wrap max-sm:gap-y-1"}>
                 <span className={board ? "" : "w-[4.5rem] shrink-0 max-sm:w-auto"}><Pill tone={KIND[kind].tone}>{kindText}</Pill></span>
                 <TicketId id={t.displayId} url={t.trackerUrl} />
@@ -192,7 +193,7 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
                   <span className="flex min-w-0 items-start gap-2 py-2">
                     <span className="min-w-0 flex-1">
                       {titleButton(`block w-full text-left font-medium focus-visible:outline-2 focus-visible:outline-accent`, "block text-label font-normal text-muted @4xl:line-clamp-2")}
-                      <StepName columns={board.columns} step={t.step} />
+                      <span className="@max-4xl:hidden"><StepName columns={board.columns} step={t.step} /></span>
                     </span>
                     {speak}
                   </span>
@@ -207,7 +208,9 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
                 {/* One primary action per row, always visible, in its own column so the rows line up; a
                     failed row adds the quieter Dismiss before it. A PR link on a held/failed row
                     lives in the drawer header; the title opens the drawer. */}
-                <span className={board ? "flex items-center justify-end gap-1 @max-4xl:col-start-3 @max-4xl:col-end-[-1] @max-4xl:justify-start @max-4xl:pb-2" : "flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto"}>
+                <span className={board ? "flex items-center justify-end gap-1 @max-4xl:col-start-3 @max-4xl:col-end-[-1] @max-4xl:pb-2" : "flex w-40 shrink-0 items-center justify-end gap-1 max-sm:w-auto"}>
+                  {/* Narrow, the step shares the action's line instead of taking one of its own. */}
+                  {board && t.step && <span data-row-step className="mr-auto @4xl:hidden"><Pill>{t.step}</Pill></span>}
                   {kind === "pr" && (
                     <span data-needs-pr-menu>
                       <Menu label={tr("overview.prMenu", { id: t.displayId })} items={prMenu(t)} />

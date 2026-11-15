@@ -56,9 +56,9 @@ describe("Overview", () => {
     expect(render(profile(), [])).toMatch(/data-needs-live[^>]*>All clear, nothing needs you</);
   });
 
-  it("narrow: a Needs-you row puts its action under the title", () => {
-    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("r", { status: "running" })]);
-    expect(html).toMatch(/class="[^"]*@max-4xl:col-start-3 @max-4xl:col-end-\[-1\][^"]*"><button type="button" data-needs-dismiss/);
+  it("narrow: a Needs-you row puts its step and its action on one line under the title", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x", step: "qa" }), ticket("r", { status: "running" })]);
+    expect(html).toMatch(/class="[^"]*@max-4xl:col-start-3 @max-4xl:col-end-\[-1\][^"]*"><span data-row-step="true" class="mr-auto @4xl:hidden">.*?qa.*?<\/span><button type="button" data-needs-dismiss/);
   });
 
   it("a Now row is one line of essentials: id, title, step, time — model, context, cost and the agent's sentence live in the drawer", () => {
