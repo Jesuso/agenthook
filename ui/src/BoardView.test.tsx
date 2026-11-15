@@ -206,12 +206,14 @@ describe("BoardView", () => {
         ],
       },
     };
-    const root = await render([], {}, config, profile({ harnesses: { "oc-local": { active: 1, max: 2, state: "up", reason: null }, cloud: { active: 0, max: 1, state: "up", reason: null } } }));
+    const running = ticket({ ref: "r1", status: "running", step: "code", startedAt: new Date().toISOString() });
+    const root = await render([running], {}, config, profile({ harnesses: { "oc-local": { active: 1, max: 2, state: "up" }, cloud: { active: 0, max: 1, state: "up" } } }));
     const section = root.querySelector('[data-board-section="code"]')!;
     expect(section.textContent).toContain("code");
     expect(section.textContent).not.toContain("oc-local");
     expect(section.textContent).not.toContain("cloud");
     expect(section.textContent).not.toContain("/∞");
+    expect(section.textContent).toContain("1 running");
   });
 
   it("a single string harness on a step config renders no harness chip", async () => {
