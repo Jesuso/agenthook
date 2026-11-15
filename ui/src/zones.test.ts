@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
+import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, nowItems, progress } from "./zones";
 import type { TicketRow } from "./contract";
 
 const t = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
@@ -104,5 +104,27 @@ describe("progress", () => {
     const runs = (n: number, rework: number) => Array.from({ length: n }, (_, i) => ({ at: local(9), outcome: i < rework ? "changes" : "advance" }));
     expect(progress(profile(runs(MIN_RUNS_FOR_RATES - 1, 3)), [], NOW)).toMatchObject({ runs: 9, rework: 3, reworkRate: null });
     expect(progress(profile(runs(MIN_RUNS_FOR_RATES, 3)), [], NOW)).toMatchObject({ runs: 10, rework: 3, reworkRate: 0.3 });
+  });
+});
+
+describe("harnessAttention", () => {
+  it("one item per down/probing harness, with its reason and until; up/full harnesses yield none (#688)", () => {
+    const items = harnessAttention({
+      harnesses: {
+        qwen: { active: 0, max: 1, state: "down", until: "2026-10-08T13:00:00.000Z", reason: "exited 1 with no output after 3s" },
+        local: { active: 0, max: 2, state: "probing" },
+        cloud: { active: 2, max: 2 }, // full but up: a routing spill, not an error
+        bare: { active: 0, max: 1, state: "up" },
+      },
+    });
+    expect(items).toEqual([
+      { harness: "qwen", state: "down", reason: "exited 1 with no output after 3s", until: "2026-10-08T13:00:00.000Z" },
+      { harness: "local", state: "probing", reason: null, until: null },
+    ]);
+  });
+
+  it("no harnesses, or none of them down/probing, yields []", () => {
+    expect(harnessAttention({})).toEqual([]);
+    expect(harnessAttention({ harnesses: { a: { active: 0, max: 1 } } })).toEqual([]);
   });
 });

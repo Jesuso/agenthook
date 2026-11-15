@@ -2,7 +2,7 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 // The agent spawn env allowlist (#470): pure, no process.env reads beyond the defaults.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BASE_AGENT_ENV, agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames, HOST_SESSION_ENV } from "../src/agent-env.js";
+import { BASE_AGENT_ENV, agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames, HOST_SESSION_ENV, redactSecrets } from "../src/agent-env.js";
 import { AGENTS } from "../src/agents/index.js";
 import { TRACKER_AGENT_ENV, TRACKERS } from "../src/trackers/index.js";
 import { FORGE_AGENT_ENV, FORGES } from "../src/forges/index.js";
@@ -89,4 +89,28 @@ test("buildAgentEnv: the parent Claude Code session's variables are stripped eve
 test("buildAgentEnv: AGENTHOOK_SERVICE never reaches an agent, even through a passthrough glob", () => {
   const out = buildAgentEnv({ source: { AGENTHOOK_SERVICE: "1", PATH: "/bin" }, allow: ["PATH", "AGENTHOOK_*"], platform: "linux" });
   assert.deepEqual(out, { PATH: "/bin" });
+});
+
+// --- redactSecrets (#688): masking a run's output before it ever reaches a reason/event ---
+
+test("redactSecrets: a secret-shaped env var's value is masked wherever it appears", () => {
+  const env = { ANTHROPIC_API_KEY: "sk-ant-xyz123456789", PATH: "/usr/bin", SHORT_TOKEN: "abc" };
+  assert.equal(redactSecrets("auth failed for ANTHROPIC_API_KEY=sk-ant-xyz123456789", env), "auth failed for ANTHROPIC_API_KEY=***");
+  assert.equal(redactSecrets("PATH is /usr/bin, fine", env), "PATH is /usr/bin, fine", "a non-secret-shaped name's value is untouched");
+  assert.equal(redactSecrets("SHORT_TOKEN=abc", env), "SHORT_TOKEN=abc", "a value under 8 chars is never masked");
+});
+
+test("redactSecrets: each documented token shape is masked even with no matching env var", () => {
+  const cases = ["sk-ant-" + "a".repeat(20), "sk-" + "b".repeat(20), "ghp_" + "c".repeat(20), "gho_" + "d".repeat(20), "ghs_" + "e".repeat(20), "github_pat_" + "f".repeat(20), "xoxb-" + "g".repeat(20), "xoxp-" + "h".repeat(20)];
+  for (const tok of cases) assert.equal(redactSecrets(`token=${tok} end`, {}), "token=*** end", tok);
+});
+
+test("redactSecrets: Bearer <token> masks the token, keeping the Bearer prefix", () => {
+  assert.equal(redactSecrets("Authorization: Bearer abcDEF012345", {}), "Authorization: Bearer ***");
+});
+
+test("redactSecrets: empty/undefined text passes through; the reason stays bounded", () => {
+  assert.equal(redactSecrets("", {}), "");
+  const long = "x".repeat(500) + " sk-" + "y".repeat(20);
+  assert.ok(redactSecrets(long, {}).length <= long.length);
 });

@@ -74,7 +74,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} updatedAt
  * @property {number|null} active         agents running (heartbeat.queue.active); null when down
  * @property {number|null} queued         jobs waiting behind maxConcurrent; null when down
- * @property {Record<string, {active: number, max: number|null}>} [harnesses]  per named harness slots (heartbeat.queue.harnesses; max null = only the global cap, 0 = drained via `set_concurrency`); absent when down or without harnesses
+ * @property {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>} [harnesses]  per named harness slots (heartbeat.queue.harnesses; max null = only the global cap, 0 = drained via `set_concurrency`); `state` is the health breaker's (src/queue.js), `until`/`reason` set only while down/probing (reason clipped to 200 chars) — absent when down or without harnesses
  * @property {boolean|null} paused       operator pause (heartbeat.paused; in-memory, a restart clears it); null when down
  * @property {QuotaTrip|null} quotaPaused  the quota pacer holds new runs (heartbeat.quotaPaused; src/quota.js) — distinct from the
  *                                        operator `paused`; null when not paused or down

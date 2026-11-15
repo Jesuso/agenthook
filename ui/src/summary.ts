@@ -52,6 +52,11 @@ export function summarize(snapshot: Snapshot, now: number): Summary {
   }
   const forges = new Set(snapshot.profiles.filter((p) => p.forge).map((p) => p.name));
   for (const t of snapshot.tickets) if (isNeedsYou(t, forges.has(t.profile))) s.needsYou++;
+  // A harness whose breaker is down/probing (#688) needs you too — a routing spill (full but `up`)
+  // doesn't.
+  for (const p of snapshot.profiles) {
+    for (const h of Object.values(p.harnesses ?? {})) if (h.state === "down" || h.state === "probing") s.needsYou++;
+  }
   return s;
 }
 

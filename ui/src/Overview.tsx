@@ -4,8 +4,8 @@ import type { FeedEntry } from "./feed";
 import { formatContext, formatCost, formatModel, formatSpend, formatTicketSpend, ticketTitle } from "./format";
 import { harnessStatsUrl } from "./stats";
 import { scopeToProfile } from "./summary";
-import { MIN_RUNS_FOR_RATES, needsYouItems, nowItems, progress } from "./zones";
-import type { NeedsItem, Progress } from "./zones";
+import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, nowItems, progress } from "./zones";
+import type { HarnessAttentionItem, NeedsItem, Progress } from "./zones";
 import { DigestPanel } from "./DigestPanel";
 import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
@@ -69,6 +69,8 @@ export function Overview(props: OverviewProps) {
   const scoped = scopeToProfile(snapshot, profile.name);
   const forge = !!profile.forge;
   const needs = needsYouItems(scoped.tickets, forge, lang).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
+  const attention = harnessAttention(profile);
+  const needsCount = attention.length + needs.length;
   const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);
@@ -79,11 +81,11 @@ export function Overview(props: OverviewProps) {
   useAutoRead(profile.name, needs);
   // A background tab or a side screen still shows whether anything needs you.
   useEffect(() => {
-    document.title = `${needs.length ? `(${needs.length}) ` : ""}${profile.label} · agenthook`;
+    document.title = `${needsCount ? `(${needsCount}) ` : ""}${profile.label} · agenthook`;
     return () => {
       document.title = "agenthook";
     };
-  }, [needs.length, profile.label]);
+  }, [needsCount, profile.label]);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -133,10 +135,10 @@ export function Overview(props: OverviewProps) {
 
       {/* Screen readers hear the headline change (a ticket arrives or is handled), not every re-render. */}
       <p className="sr-only" aria-live="polite" data-needs-live>
-        {needs.length === 0 ? t("overview.liveAllClear") : t("overview.liveNeeds", { count: needs.length })}
+        {needsCount === 0 ? t("overview.liveAllClear") : t("overview.liveNeeds", { count: needsCount })}
       </p>
 
-      <NeedsYouZone items={needs} profile={profile.name} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} onRecheck={props.onRecheck} onCloseOnBoard={props.onCloseOnBoard} />
+      <NeedsYouZone items={needs} attention={attention} profile={profile.name} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} onRecheck={props.onRecheck} onCloseOnBoard={props.onCloseOnBoard} />
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 
@@ -237,22 +239,28 @@ function SlotPips({ active, max, up }: { active: number; max: number; up: boolea
   );
 }
 
-/** One `active/max` chip per named harness (a profile with `harnesses` only); an uncapped one reads `∞`. */
+/** One `active/max` chip per named harness (a profile with `harnesses` only); an uncapped one reads
+ * `∞`. A down/probing one (#688) tints status-failed, its title naming the reason — the full
+ * diagnosis is the Needs-you row above; this is just a glance-level flag. */
 function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harnesses"]> }) {
   const { t } = useT();
   return (
     <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
-      {Object.entries(harnesses).map(([name, h]) => (
-        <span
-          key={name}
-          data-harness={name}
-          className="rounded border border-border px-1.5 font-mono"
-          title={h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max })}
-        >
-          {name} <span className="text-fg">{h.active}</span>
-          <span className="text-muted">/{h.max ?? "∞"}</span>
-        </span>
-      ))}
+      {Object.entries(harnesses).map(([name, h]) => {
+        const down = h.state === "down" || h.state === "probing";
+        return (
+          <span
+            key={name}
+            data-harness={name}
+            data-harness-state={h.state}
+            className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : "border-border"}`}
+            title={down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max })}
+          >
+            {name} <span className={down ? "" : "text-fg"}>{h.active}</span>
+            <span className={down ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -374,7 +382,7 @@ function useAutoRead(profile: string, needs: NeedsItem[]) {
   }, [profile, keys.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, onRetry, onRecheck, onCloseOnBoard }: { items: NeedsItem[]; profile: string; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"]; onRecheck?: OverviewProps["onRecheck"]; onCloseOnBoard?: OverviewProps["onCloseOnBoard"] }) {
+function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDismiss, onRelease, onRetry, onRecheck, onCloseOnBoard }: { items: NeedsItem[]; attention: HarnessAttentionItem[]; profile: string; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: OverviewProps["onRelease"]; onRetry: OverviewProps["onRetry"]; onRecheck?: OverviewProps["onRecheck"]; onCloseOnBoard?: OverviewProps["onCloseOnBoard"] }) {
   const { t: tr, lang } = useT();
   const [releasing, setReleasing] = useState<string | null>(null);
   // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
@@ -411,7 +419,8 @@ function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, o
     { label: tr("overview.openTicket"), disabled: !t.trackerUrl, onSelect: () => open(t.trackerUrl) },
   ];
   const anyPr = items.some((i) => i.kind === "pr");
-  if (items.length === 0) {
+  const count = attention.length + items.length;
+  if (count === 0) {
     return (
       // The calm verdict takes the same headline slot as "N need you": the second-screen glance has
       // to read "look away" as loudly as "look here". Down, it stays neutral: someone must restart it.
@@ -434,8 +443,8 @@ function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, o
     <section>
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="flex items-baseline gap-2">
-          <span className={`font-mono text-stat font-semibold ${headlineTone(items)}`}>{items.length}</span>{" "}
-          <span className="text-title font-semibold">{tr("overview.needYou", { count: items.length })}</span>
+          <span className={`font-mono text-stat font-semibold ${attention.length ? "text-status-failed" : headlineTone(items)}`}>{count}</span>{" "}
+          <span className="text-title font-semibold">{tr("overview.needYou", { count })}</span>
         </h2>
         <p className="ml-auto text-label text-muted max-sm:hidden" data-keys-hint>
           <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> {tr("overview.keysMove")} · <kbd className="font-mono">?</kbd> {tr("overview.keysShortcuts")}
@@ -452,6 +461,7 @@ function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, o
         </p>
       )}
       <ul data-needs-you-zone className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-surface">
+        {attention.map((a) => <HarnessAttentionRow key={a.harness} item={a} />)}
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
           // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
@@ -548,6 +558,39 @@ function NeedsYouZone({ items, profile, up, now, onOpen, onDismiss, onRelease, o
         })}
       </ul>
     </section>
+  );
+}
+
+/**
+ * A harness whose breaker is down/probing (#688): no verdict to release, no PR to open — the row
+ * is a diagnosis (name, pill, reason, until) plus the fix: run `harness_reset`. It disappears on
+ * its own once `harness_up` fires — there is nothing to dismiss or click.
+ */
+/** "14:32Z" from an ISO instant, for a down harness's "until" time — a clock time reads better
+ * than a relative one for something in the future. @param {string} iso */
+function clockTime(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? "—" : `${new Date(t).toISOString().slice(11, 16)}Z`;
+}
+
+function HarnessAttentionRow({ item }: { item: HarnessAttentionItem }) {
+  const { t: tr } = useT();
+  return (
+    <li data-needs-row={`harness:${item.harness}`} data-kind="harness" data-harness-state={item.state}>
+      <div className="flex items-center gap-3 px-3 py-2 max-sm:flex-wrap max-sm:gap-y-1">
+        <span className="w-[4.5rem] shrink-0 max-sm:w-auto">
+          <Pill tone="failed">{tr(item.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")}</Pill>
+        </span>
+        <span className="min-w-0 flex-1 font-mono">{item.harness}</span>
+        <div className="min-w-0 flex-1 max-sm:order-last max-sm:basis-full">
+          {item.reason && <span className="block truncate text-label text-muted">{item.reason}</span>}
+          <span className="block truncate text-label text-muted">{tr("overview.harnessResetHint", { name: item.harness })}</span>
+        </div>
+        <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
+          {item.state === "down" && item.until ? tr("overview.harnessDownUntil", { when: clockTime(item.until) }) : tr("overview.harnessProbing")}
+        </span>
+      </div>
+    </li>
   );
 }
 

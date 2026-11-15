@@ -281,3 +281,30 @@ describe("Overview", () => {
     expect(html).toContain("quota paused");
   });
 });
+
+describe("Overview: harness attention (#688)", () => {
+  it("shows a down and a probing harness in Needs you, above the ticket rows, with the harness_reset hint", () => {
+    const harnesses = {
+      qwen: { active: 0, max: 1, state: "down" as const, until: "2026-10-08T13:00:00.000Z", reason: "exited 1 with no output after 3s" },
+      local: { active: 0, max: 1, state: "probing" as const },
+    };
+    const html = render(profile({ harnesses }), [ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toContain("data-needs-you-zone");
+    expect(html).toMatch(/data-harness-state="down"[\s\S]*data-harness-state="probing"[\s\S]*data-needs-row="h"/);
+    expect(html).toContain("harness_reset qwen");
+    expect(html).toContain("harness_reset local");
+    expect(html).toContain("exited 1 with no output after 3s");
+  });
+
+  it("an all-up profile (even a full harness, a routing spill) shows none, and All clear still fires", () => {
+    const html = render(profile({ harnesses: { qwen: { active: 1, max: 1, state: "up" as const } } }), [ticket("1", { status: "running" })]);
+    expect(html).not.toContain('data-needs-row="harness:');
+    expect(html).toMatch(/data-all-clear/);
+  });
+
+  it("counts the down harness in the headline alongside tickets", () => {
+    const harnesses = { qwen: { active: 0, max: 1, state: "down" as const } };
+    const html = render(profile({ harnesses }), [ticket("f", { status: "failed", failReason: "x" })]);
+    expect(html).toMatch(/font-mono text-stat font-semibold[^>]*>2<\/span>/);
+  });
+});

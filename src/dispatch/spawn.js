@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { timeoutReason } from "./verdict.js";
 import { containerEnv, runtimeEnv } from "./sandbox.js";
-import { agentEnvAllow, buildAgentEnv } from "../agent-env.js";
+import { agentEnvAllow, buildAgentEnv, redactSecrets } from "../agent-env.js";
 import { modelApiFailure } from "./harness.js";
 
 /** How much of a run's rendered stdout + raw stderr the harness breaker's connection-failure scan
@@ -16,6 +16,18 @@ const API_SCAN_BUF_BYTES = 64 * 1024;
  * run that ended its turn on a question (the question-hold reason, verdict.js `endedWithQuestion`) —
  * the final line lives in the last few KB, so this is far smaller than the API-scan buffer. */
 const STDOUT_TAIL_BUF_BYTES = 4 * 1024;
+
+/** How much of a run's raw STDERR (stderr only) is kept to pull the breaker's `errorLine` (#688)
+ * from when the final result carries no text — same size as the stdout tail, for the same reason. */
+const STDERR_TAIL_BUF_BYTES = 4 * 1024;
+
+/** The last non-blank, trimmed line of `s`; undefined when `s` is empty/undefined or all blank.
+ * @param {string|undefined} s @returns {string|undefined} */
+function lastNonBlankLine(s) {
+  if (!s) return undefined;
+  const lines = s.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : undefined;
+}
 
 /** The defined subset of a parser's per-turn stats (#645), or undefined when the parser never
  * saw a turn (`tally.turns` unset) — so a result with no per-turn usage adds nothing to the
@@ -134,7 +146,10 @@ export function createSpawn(ctx) {
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
-   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string}>}
+   * `errorLine` (#688) is the breaker's agent-side detail for its fast-exit reason: the last
+   * non-blank line of the final result text when there is one, else of a small raw-stderr tail —
+   * redacted (src/agent-env.js redactSecrets) and clipped to 200 chars; absent when there is none.
+   * @returns {Promise<{code: number, result: any, quota: import('../quota.js').QuotaReading|null, turnStats?: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}, timedOut?: "max"|"idle", refused?: string, sandboxReport?: import('../types.js').SandboxReport, spawnError?: string, noOutput?: boolean, apiDown?: string, lastText?: string, errorLine?: string}>}
    */
   async function spawnAgent({ agent, prompt, cwd, logPath, model, effort, provider, toolsets, isolated, allow, deny, bin, agentEnv, creds, env, verdictFile, promptFile, maxMs, idleMs, onPid, onTally, sandboxed, executor, resumeSessionId }) {
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
@@ -260,6 +275,13 @@ export function createSpawn(ctx) {
         if (!s) return;
         stdoutTail = (stdoutTail + s).slice(-STDOUT_TAIL_BUF_BYTES);
       };
+      // Raw stderr, tail-bounded, for the breaker's errorLine (#688) when the result carries no text.
+      let stderrTail = "";
+      /** @param {string} s */
+      const bufferStderr = (s) => {
+        if (!s) return;
+        stderrTail = (stderrTail + s).slice(-STDERR_TAIL_BUF_BYTES);
+      };
 
       let lastOut = 0;
       child.stdout.setEncoding("utf8");
@@ -280,6 +302,7 @@ export function createSpawn(ctx) {
         parser.pushStderr?.(chunk);
         logStream.write(chunk);
         bufferApi(chunk);
+        bufferStderr(chunk);
       });
       child.on("close", async (c) => {
         clearTimeout(maxTimer);
@@ -297,6 +320,12 @@ export function createSpawn(ctx) {
         // when neither produced anything, so a run with no output can't trip the question-hold.
         const resultText = typeof parser.result?.result === "string" && parser.result.result ? parser.result.result : undefined;
         const lastText = resultText ?? (stdoutTail ? stdoutTail : undefined);
+        // The breaker's errorLine (#688): the agent's own last word, not just the receiver's "no
+        // output" observation — the final result text's last line when there is one, else the
+        // stderr tail's; redacted (the run's spawn env + ours, so a leaked token never reaches a
+        // harness_down reason) and clipped well short of the reason's own 300-char bound.
+        const rawErrorLine = lastNonBlankLine(resultText) ?? lastNonBlankLine(stderrTail);
+        const errorLine = rawErrorLine ? redactSecrets(rawErrorLine, { ...process.env, ...runEnv }).slice(0, 200) : undefined;
         children?.delete(child);
         /** @type {import('../types.js').SandboxReport|undefined} */
         let sandboxReport;
@@ -320,7 +349,7 @@ export function createSpawn(ctx) {
           }
         }
         const turnStats = pickTurnStats(parser.tally);
-        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}) });
+        resolve({ code: c ?? 1, result: parser.result, quota: parser.quota ?? null, ...(turnStats ? { turnStats } : {}), ...(timedOut ? { timedOut } : {}), ...(sandboxReport ? { sandboxReport } : {}), ...(spawnError ? { spawnError } : {}), noOutput: !(parser.tally.output > 0), ...(apiDown ? { apiDown } : {}), ...(lastText ? { lastText } : {}), ...(errorLine ? { errorLine } : {}) });
       });
     });
   }
