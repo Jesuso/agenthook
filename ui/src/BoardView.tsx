@@ -167,13 +167,13 @@ export function BoardView(props: BoardViewProps) {
 
       {wide ? (
         <div className="overflow-auto" data-board-wide>
-          <div className="relative" style={{ width: boardWidth, height: boardHeight, ...GRID_BG }}>
+          <div className="relative bg-bg" style={{ width: boardWidth, height: boardHeight, ...GRID_BG }}>
             <svg className="absolute left-0 top-0" width={boardWidth} height={boardHeight} aria-hidden="true">
               {layout.edges.map((e, i) => <BoardEdge key={i} edge={e} route={layout.routes[i]} />)}
             </svg>
             {layout.nodes.map((n) =>
               n.kind === "step" ? (
-                <StepBox key={n.id} id={n.id} x={n.x} y={n.y} w={BOARD_STEP_W} h={BOARD_STEP_H} section={sectionOf.get(n.id)} step={config.steps[stepIds.indexOf(n.id)]} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
+                <StepBox key={n.id} id={n.id} x={n.x} y={n.y} w={BOARD_STEP_W} h={BOARD_STEP_H} section={sectionOf.get(n.id)} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
               ) : (
                 <div key={`g:${n.id}`} data-board-stage={n.id} className="absolute flex items-center justify-center rounded-full border border-border bg-surface px-2 text-label text-muted" style={{ left: n.x, top: n.y, width: n.w, height: STAGE_H }} title={n.label}>
                   <span className="truncate">{n.label}</span>
@@ -182,7 +182,7 @@ export function BoardView(props: BoardViewProps) {
             )}
             {extras.map((s, i) => (
               <div key={s.id} className="absolute rounded-lg border border-border bg-surface" style={{ left: extraX, top: extraYAt(i), width: BOARD_STEP_W, height: BOARD_STEP_H }} data-board-section={s.id}>
-                <SectionHeader id={s.id} section={s} step={undefined} profile={profile} doneTotal={s.kind === "done" ? doneToday.total : undefined} />
+                <SectionHeader id={s.id} section={s} doneTotal={s.kind === "done" ? doneToday.total : undefined} />
                 <SectionEntries section={s} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
               </div>
             ))}
@@ -194,10 +194,10 @@ export function BoardView(props: BoardViewProps) {
           {ordered.map((s) => {
             if (s.kind === "step") {
               const idx = stepIds.indexOf(s.id);
-              return <SectionBox key={s.id} section={s} step={config.steps[idx]} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />;
+              return <SectionBox key={s.id} section={s} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />;
             }
-            if (s.kind === "other") return <SectionBox key={s.id} section={s} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />;
-            return <SectionBox key={s.id} section={s} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} doneTotal={doneToday.total} />;
+            if (s.kind === "other") return <SectionBox key={s.id} section={s} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />;
+            return <SectionBox key={s.id} section={s} now={now} onOpen={onOpen} onStepFilter={onStepFilter} doneTotal={doneToday.total} />;
           })}
         </div>
       )}
@@ -221,35 +221,27 @@ function BoardEdge({ edge, route }: { edge: GraphEdge; route: PipelineLayout["ro
   );
 }
 
-function harnessNames(step: Record<string, unknown> | undefined): string[] {
-  const h = step?.harness;
-  if (typeof h === "string") return [h];
-  if (Array.isArray(h)) return h.filter((x): x is string => typeof x === "string");
-  return [];
-}
-
-function StepBox({ id, x, y, w, h, section, step, profile, now, onOpen, onStepFilter }: { id: string; x: number; y: number; w: number; h: number; section: BoardSection | undefined; step: Record<string, unknown> | undefined; profile: ProfileView; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void }) {
+function StepBox({ id, x, y, w, h, section, now, onOpen, onStepFilter }: { id: string; x: number; y: number; w: number; h: number; section: BoardSection | undefined; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void }) {
   return (
     <div className="absolute rounded-lg border border-border bg-surface" style={{ left: x, top: y, width: w, height: h }} data-board-section={id}>
-      <SectionHeader id={id} section={section} step={step} profile={profile} />
+      <SectionHeader id={id} section={section} />
       <SectionEntries section={section} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
     </div>
   );
 }
 
 /** The narrow (below `lg`) stacked rendering: the same section anatomy, no absolute positioning. */
-function SectionBox({ section, profile, step, now, onOpen, onStepFilter, doneTotal }: { section: BoardSection; profile: ProfileView; step?: Record<string, unknown>; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void; doneTotal?: number }) {
+function SectionBox({ section, now, onOpen, onStepFilter, doneTotal }: { section: BoardSection; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void; doneTotal?: number }) {
   return (
     <div className="rounded-lg border border-border bg-surface" data-board-section={section.id}>
-      <SectionHeader id={section.id} section={section} step={step} profile={profile} doneTotal={doneTotal} />
+      <SectionHeader id={section.id} section={section} doneTotal={doneTotal} />
       <SectionEntries section={section} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
     </div>
   );
 }
 
-function SectionHeader({ id, section, step, profile, doneTotal }: { id: string; section: BoardSection | undefined; step: Record<string, unknown> | undefined; profile: ProfileView; doneTotal?: number }) {
+function SectionHeader({ id, section, doneTotal }: { id: string; section: BoardSection | undefined; doneTotal?: number }) {
   const { t } = useT();
-  const names = harnessNames(step);
   return (
     <div className="flex items-center gap-2 border-b border-border-subtle px-2 py-1.5">
       <span className="truncate font-mono text-label font-semibold" data-done-count={section?.kind === "done" ? (doneTotal ?? 0) : undefined}>
@@ -258,18 +250,6 @@ function SectionHeader({ id, section, step, profile, doneTotal }: { id: string; 
       {section && section.kind === "step" && (
         <span className="ml-auto shrink-0 text-meta text-muted">
           {section.runningCount} {t("status.running")} · {section.queuedCount} {t("status.queued")}
-        </span>
-      )}
-      {names.length > 0 && (
-        <span className="flex shrink-0 items-center gap-1 text-meta text-muted">
-          {names.map((name) => {
-            const hs = profile.harnesses?.[name];
-            return (
-              <span key={name} className="rounded border border-border px-1 font-mono">
-                {name} {hs?.active ?? 0}/{hs?.max ?? "∞"}
-              </span>
-            );
-          })}
         </span>
       )}
     </div>

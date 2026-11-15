@@ -196,7 +196,27 @@ describe("BoardView", () => {
     }
   });
 
-  it("string harness on a step config shows the harness label in the section header", async () => {
+  it("a step with harness configs renders no harness chips in the section header", async () => {
+    const config = {
+      agent: "claude",
+      tracker: {
+        type: "local",
+        pipeline: [
+          { id: "code", kind: "implement", sourceStatus: "Code", successStatus: "Done", harness: ["oc-local", "cloud"] },
+        ],
+      },
+    };
+    const running = ticket({ ref: "r1", status: "running", step: "code", startedAt: new Date().toISOString() });
+    const root = await render([running], {}, config, profile({ harnesses: { "oc-local": { active: 1, max: 2, state: "up" }, cloud: { active: 0, max: 1, state: "up" } } }));
+    const section = root.querySelector('[data-board-section="code"]')!;
+    expect(section.textContent).toContain("code");
+    expect(section.textContent).not.toContain("oc-local");
+    expect(section.textContent).not.toContain("cloud");
+    expect(section.textContent).not.toContain("/∞");
+    expect(section.textContent).toContain("1 running");
+  });
+
+  it("a single string harness on a step config renders no harness chip", async () => {
     const stringConfig = {
       agent: "claude",
       tracker: {
@@ -208,6 +228,18 @@ describe("BoardView", () => {
     };
     const root = await render([], {}, stringConfig);
     const section = root.querySelector('[data-board-section="code"]')!;
-    expect(section.textContent).toContain("main");
+    expect(section.textContent).not.toContain("main");
+  });
+
+  it("the board canvas carries bg-bg for box contrast", async () => {
+    const root = await render([]);
+    const canvas = root.querySelector("[data-board-wide] > div")!;
+    expect(canvas.className).toContain("bg-bg");
+    // Every step box carries the same border tokens as other cards
+    for (const section of root.querySelectorAll("[data-board-section]")) {
+      expect(section.className).toContain("border");
+      expect(section.className).toContain("border-border");
+      expect(section.className).toContain("bg-surface");
+    }
   });
 });
