@@ -13,6 +13,15 @@ import { createExecutors, executorFor } from "../src/dispatch/executor.js";
 import { createDispatcher } from "../src/dispatch.js";
 import { createStore } from "../src/store.js";
 import { createSandbox } from "../src/sandbox/index.js";
+import { mangle } from "../src/paths.js";
+
+/** Pre-#682 golden values (captured from master @8d6e6e4, before this axis existed), normalized
+ * the same way the fixtures below normalize their own actual values — `<ROOT>` for the fixture's
+ * tmpdir, `<MANGLEDROOT>` for its `mangle()`d form (the claude transcript mount), `<DOCKERROOT>`
+ * for the fake-docker HOME, and `REF` for the ref. Regenerate by running the equivalent fixture
+ * against a `git worktree add` checkout of the pre-#682 commit if `src/prompts.js`/the agent's
+ * argv/env building ever changes on purpose. */
+const GOLDEN = JSON.parse(fs.readFileSync(new URL("./fixtures/dispatch-executor-golden.json", import.meta.url), "utf8"));
 
 const spawnPaths = {
   verdictPathFor: (stepId, ref) => `/state/verdicts/${ref}-${stepId}.json`,
@@ -101,8 +110,9 @@ function gitRepo() {
   return { root, repo };
 }
 
-/** The "claude" bin for both fixtures: records its own argv + AGENTHOOK_VERDICT_FILE under
- * $CAPTURE_DIR, keyed by the ref (the worktree dirname), then writes the verdict. */
+/** The "claude" bin for both fixtures: records its own argv + AGENTHOOK_VERDICT_FILE + the step
+ * env's CLAUDE_CODE_OAUTH_TOKEN + its own cwd under $CAPTURE_DIR, keyed by the ref (the worktree
+ * dirname), then writes the verdict. */
 const CAPTURE_CLAUDE = `#!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
@@ -110,6 +120,8 @@ const ref = path.basename(process.cwd());
 const dir = process.env.CAPTURE_DIR;
 fs.writeFileSync(path.join(dir, ref + ".argv.json"), JSON.stringify(process.argv.slice(2)));
 fs.writeFileSync(path.join(dir, ref + ".verdictfile.txt"), process.env.AGENTHOOK_VERDICT_FILE ?? "");
+fs.writeFileSync(path.join(dir, ref + ".oauth.txt"), process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "");
+fs.writeFileSync(path.join(dir, ref + ".cwd.txt"), process.cwd());
 fs.writeFileSync(process.env.AGENTHOOK_VERDICT_FILE, JSON.stringify({ outcome: "advance", reason: "ok" }));
 `;
 
@@ -150,8 +162,12 @@ child.on("exit", (code) => process.exit(code ?? 1));
 
 /** Both fixtures below share this: a two-harness, routing:first-free "code" step, run twice
  * (once per harness, each on its own ref so the worktrees don't collide), capturing argv/env
- * for the host fixture and docker argv for the sandbox one. @param {{sandbox?: any}} [sandboxCfg] */
-function harnessFixture(sandboxCfg) {
+ * for the host fixture and docker argv for the sandbox one.
+ * @param {{sandbox?: any}} [sandboxCfg]
+ * @param {(sandbox: ReturnType<typeof createSandbox>) => any} [wrapSandbox]  wraps the real
+ *   sandbox so a test can intercept `wrap()`'s own input (AC2's golden) without changing what
+ *   it does. */
+function harnessFixture(sandboxCfg, wrapSandbox = (s) => s) {
   const { root, repo } = gitRepo();
   const state = path.join(root, "state");
   fs.mkdirSync(state);
@@ -179,7 +195,7 @@ function harnessFixture(sandboxCfg) {
     advance: async () => {},
   });
   const store = createStore(state);
-  const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 200, sandbox: sandboxCfg ? createSandbox(cfg) : null });
+  const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 200, sandbox: sandboxCfg ? wrapSandbox(createSandbox(cfg)) : null });
   /** @param {string} ref @param {string} harness */
   const go = async (ref, harness) => {
     process.env.CAPTURE_DIR = captureDir;
@@ -219,6 +235,20 @@ test("executor fixture (host, no sandbox configured): two harnesses on a routing
 
     assert.deepEqual(argvA, argvB, "the host argv (prompt, model/effort flags, permission tail) doesn't depend on which harness the queue picked");
     assert.equal(promptA, promptB, "the prompt sidecar text doesn't depend on which harness the queue picked");
+
+    // AC2: not just A vs. B — pin against the pre-#682 code's own output (test/fixtures/
+    // dispatch-executor-golden.json), so a refactor bug that affects both harnesses alike
+    // (dropped env, changed cwd, a different prompt) still fails.
+    const oauthA = fs.readFileSync(path.join(h.captureDir, "execa.oauth.txt"), "utf8");
+    const cwdA = fs.readFileSync(path.join(h.captureDir, "execa.cwd.txt"), "utf8").replaceAll("execa", "REF").replaceAll(h.root, "<ROOT>");
+    const vfNormA = vfA.replaceAll("execa", "REF").replaceAll(h.root, "<ROOT>");
+    const promptNormA = promptA.replaceAll(h.root, "<ROOT>");
+    const argvNormA = argvA.map((/** @type {string} */ s) => s.replaceAll(h.root, "<ROOT>"));
+    assert.deepEqual(argvNormA, GOLDEN.host.argv, "spawned argv must match the pre-#682 host launch byte-for-byte");
+    assert.equal(vfNormA, GOLDEN.host.vf, "the plain verdict path must match pre-#682");
+    assert.equal(oauthA, GOLDEN.host.oauth, "the step's own env (CLAUDE_CODE_OAUTH_TOKEN) must still reach the agent");
+    assert.equal(cwdA, GOLDEN.host.cwd, "the host run's cwd must match pre-#682 (the worktree)");
+    assert.equal(promptNormA, GOLDEN.host.prompt, "the prompt sidecar text must match pre-#682 byte-for-byte");
   } finally {
     unpin();
   }
@@ -236,7 +266,17 @@ test("executor fixture (sandboxed): two harnesses on a routing:first-free step w
   process.env.DOCKER = docker;
   process.env.DOCKER_FAKE_LOG = dockerLog;
   process.env.HOME = path.join(dockerRoot, "home");
-  const h = harnessFixture({ type: "docker", image: "img:1" });
+  // Captured per go() call: the exact object the executor hands to sandbox.wrap() — mounts,
+  // env (post-merge, post-containerEnv) and egress, before container.js turns them into argv.
+  /** @type {any[]} */
+  const wrapCalls = [];
+  const h = harnessFixture({ type: "docker", image: "img:1" }, (real) => ({
+    ...real,
+    wrap: async (/** @type {any} */ o) => {
+      wrapCalls.push(o);
+      return real.wrap(o);
+    },
+  }));
   const mountsOf = (/** @type {string} */ ref) => {
     const calls = fs.readFileSync(dockerLog, "utf8").trim().split("\n").map((l) => JSON.parse(l));
     const run = calls.find((/** @type {string[]} */ c) => c[0] === "run" && c[1] !== "-d" && c.some((/** @type {string} */ a) => a.includes(`agenthook.ref=${ref}`)));
@@ -258,6 +298,22 @@ test("executor fixture (sandboxed): two harnesses on a routing:first-free step w
     assert.deepEqual(mountsA, mountsB, "wrap()'s mounts (worktree, git common dir, verdict dir, transcript dir) don't depend on which harness the queue picked");
     assert.ok(mountsA.some((m) => m.endsWith(",dst=" + path.join(h.state, "verdicts", "run-REF-code"))), mountsA.join("\n"));
     assert.equal(promptA, promptB, "the prompt sidecar text doesn't depend on which harness the queue picked");
+
+    // AC2: pin wrap()'s own input — mounts, egress, cwd and the env sandboxedRun actually
+    // contributes — against the pre-#682 golden, not just A vs. B (same reasoning as the host
+    // fixture above). wrapCalls[0] is harness "a"'s run (go("execa", "a") ran first).
+    const call = wrapCalls[0];
+    const mangledRoot = mangle(h.root);
+    const norm = (/** @type {string} */ s) => s.replaceAll(mangledRoot, "<MANGLEDROOT>").replaceAll("execa", "REF").replaceAll(h.root, "<ROOT>").replaceAll(dockerRoot, "<DOCKERROOT>");
+    const mountsNorm = call.mounts.map((/** @type {any} */ m) => ({ path: norm(m.path), ...(m.dst ? { dst: norm(m.dst) } : {}), ...(m.ro ? { ro: true } : {}), ...(m.mask ? { mask: m.mask } : {}) }));
+    const cwdNorm = norm(call.cwd);
+    const envSubset = /** @type {Record<string, string>} */ ({});
+    for (const k of Object.keys(GOLDEN.sandbox.envSubset)) if (k in call.env) envSubset[k] = norm(String(call.env[k]));
+    assert.deepEqual(mountsNorm, GOLDEN.sandbox.mounts, "wrap()'s mounts must match the pre-#682 sandboxed launch byte-for-byte");
+    assert.equal(cwdNorm, GOLDEN.sandbox.cwd, "wrap()'s cwd must match pre-#682");
+    assert.deepEqual(call.egress, GOLDEN.sandbox.egress, "wrap()'s egress {mode, rules} must match pre-#682 — this is dropped by step.js if the policy build moves or breaks");
+    assert.deepEqual(envSubset, GOLDEN.sandbox.envSubset, "wrap()'s env must still carry AGENTHOOK_VERDICT_FILE, the step's own env and the git-config env sandboxedRun.env contributes");
+    assert.equal(promptA.replaceAll(h.root, "<ROOT>"), GOLDEN.sandbox.prompt, "the sandboxed prompt sidecar text must match pre-#682 byte-for-byte");
   } finally {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];
