@@ -148,6 +148,7 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string|null} heldReason
  * @property {string|null} heldAt          when the hold was recorded (held.json), while held
  * @property {string|null} failReason     the last `failed` event's reason, while the ticket rests failed/cancelled
+ * @property {string|null} [reasonHarness]  the harness named on held.json while held, else on the last `failed` event while failed/cancelled (src/dispatch/finish.js: only set for a step with 2+ harnesses); null otherwise, and reset with failReason on a re-run; absent is the same as null (optional so existing TicketRow literals don't all need it)
  * @property {'ready'|'merged'|'closed'|null} prState  a cached forge fact, whatever the status: refmeta.prState `merged`/`closed` (closed = unmerged; learned by the `prs` op / a merge job) when set, else `merged` after a forge's merged event since the last re-run, else `ready` (open / not known closed) while refmeta.pr is set; null with no PR
  * @property {PrNeeds|null} prNeeds       the PR's Needs-you reason, where code and board disagree (ADR 0008): only with a `prUrl`, on a `done` row (open PR → `openOnDone`) or an `idle` one whose board is known open (its last re-run is in the events tail): open → `awaitingMerge`, merged → `mergedOpen`, closed → `closedUnmerged`; null otherwise, and null after a `dismissed` since the last re-run. Counted only on forge profiles (isNeedsYou)
  * @property {string|null} finishedAt      ts of the first board-done signal since the last re-run, while status is `done` — what "finished today" counts
@@ -206,8 +207,8 @@ export const SENSITIVE_FIELDS = /** @type {const} */ ([
  * @property {string} startedAt           ISO, from the log's filename stamp
  * @property {string|null} endedAt        run_end.ts; null while it runs or once run_end left the tail
  * @property {string|null} outcome        run_end.outcome (advance/fail/hold/changes…)
- * @property {string} [model]             run_end.model; absent when the run_end has none
- * @property {string} [harness]           run_end.harness: the named harness that ran it; absent on a profile without harnesses
+ * @property {string} [model]             run_end.model, else run_start.model; absent when neither names one
+ * @property {string} [harness]           run_end.harness, else run_start.harness: the named harness that ran it; absent on a profile without harnesses
  * @property {'agent'|'repaired'|'deduced'} [verdictSource]  run_end.verdictSource (#680): where the outcome came from; absent for a receiver-forced verdict or the requireVerdict:false assumed-advance
  * @property {string} [plain]             run_end.plain: the agent's one-sentence summary.plain (agent-authored — untrusted); absent when none
  * @property {number|null} costUsd

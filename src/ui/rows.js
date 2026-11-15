@@ -335,6 +335,8 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
     let finishedAt = null;
     /** @type {string|null} */
     let failReason = null;
+    /** @type {string|null} */
+    let failReasonHarness = null;
     /** @type {Record<string, any>|null} */
     let lastEnd = null;
     for (const e of events) {
@@ -347,6 +349,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
         prDismissed = false;
         finishedAt = null;
         failReason = null;
+        failReasonHarness = null;
       } else if (isBoardDone(e)) {
         // Only the board's own done flag; `pipeline_done` (the terminal stage) is a handoff.
         boardDone = true;
@@ -355,6 +358,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       else if (e.event === "failed") {
         terminal = e.reason === CANCELLED_REASON ? "cancelled" : "failed";
         failReason = str(e.reason);
+        failReasonHarness = str(e.harness);
       } else if (e.event === "dismissed") {
         if (terminal === "failed" || terminal === "cancelled") terminal = null; // operator acknowledged
         prDismissed = true;
@@ -416,6 +420,7 @@ export function buildRows(profile, state, { repository = null, up = true, pricin
       heldReason: str(held?.reason),
       heldAt: str(held?.heldAt),
       failReason: status === "failed" || status === "cancelled" ? failReason : null,
+      reasonHarness: status === "held" ? str(held?.harness) : status === "failed" || status === "cancelled" ? failReasonHarness : null,
       prState,
       prNeeds,
       finishedAt: status === "done" ? finishedAt : null,

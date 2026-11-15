@@ -173,6 +173,7 @@
  * @property {string} stepId
  * @property {string} [reason]   the agent's hold reason (its question, in short)
  * @property {string} heldAt     ISO timestamp the hold verdict landed
+ * @property {string} [harness]  which harness produced the reason — only set when the step lists 2+ harnesses
  */
 
 /** Paths an in-flight ref holds under the file-overlap guard (store.locks). Only grows

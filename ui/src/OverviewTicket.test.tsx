@@ -158,6 +158,29 @@ describe("Overview New ticket (local boards)", () => {
     expect(document.querySelector("[data-blocked-notice]")?.textContent).toBe("#9 is blocked by #3, #7 — it runs when they reach done");
   });
 
+  it("clears the blocked notice on a profile switch — Overview isn't keyed by profile (#706)", async () => {
+    stubFetch(() => new Response(JSON.stringify({ ref: "9", step: "code", stage: "agent:code", blockedBy: ["3", "7"] }), { status: 200 }));
+    const created: { profile: string; ref: string }[] = [];
+    await render(local, (t) => created.push(t));
+    await open();
+    await setInput(dialog()!.querySelector<HTMLInputElement>("[role='dialog'] input")!, "Fix the flaky test");
+    await act(async () => {
+      dialog()!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    });
+    await until(() => created.length === 1);
+    expect(document.querySelector("[data-blocked-notice]")).not.toBeNull();
+    const other = { ...local, name: "other" };
+    await m!.rerender(
+      createElement(Overview, {
+        profile: other, snapshot: { profiles: [other], tickets: [t("1")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {},
+        stepFilter: "", setStepFilter: () => {},
+        showAll: false, setShowAll: () => {}, open: null, onOpen: () => {}, onCreated: () => {}, displayIdFor: () => null, menuItems: [], note: "",
+        onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
+      }),
+    );
+    expect(document.querySelector("[data-blocked-notice]")).toBeNull();
+  });
+
   it("shows a server error inline and stays open", async () => {
     stubFetch(() => new Response(JSON.stringify({ error: 'no step "nope" in the pipeline' }), { status: 502 }));
     await render(local);

@@ -10,41 +10,65 @@ export type StoryBlock = { kind: "beat"; text: string } | { kind: "prose"; text:
 
 const LIST = /^\s*([-*+]|\d+[.)])\s/;
 const NOTICE = "[agenthook]";
+// The agents' own event lines (src/agents/opencode.js tool/error, src/agents/claude.js /
+// opencode.js compaction): never part of the report's markdown, whatever precedes them.
+const EVENT_LINE = /^(?:🔧|🗜|⚠)/;
 
 export function storyBlocks(lines: string[]): StoryBlock[] {
   // The first line is the `# <id>  <title>` header the receiver writes; the drawer already shows it.
   const body = lines.length && lines[0].startsWith("# ") ? lines.slice(1) : lines;
-  // A notice line ends a paragraph like a blank line does: the receiver appends it after the agent exits.
-  const blank = (i: number) => i < 0 || i >= body.length || body[i].trim() === "" || body[i].startsWith(NOTICE);
+  // A notice or event line ends a paragraph like a blank line does: the receiver appends the
+  // former after the agent exits, and the latter is never report prose.
+  const blank = (i: number) => i < 0 || i >= body.length || body[i].trim() === "" || body[i].startsWith(NOTICE) || EVENT_LINE.test(body[i]);
   const nextText = (i: number) => {
     for (let j = i + 1; j < body.length; j++) if (body[j].trim() !== "") return body[j];
     return null;
   };
   const out: StoryBlock[] = [];
-  const pushProse = (line: string) => {
+  const pushProse = (line: string, fresh: boolean) => {
     const last = out[out.length - 1];
-    if (last?.kind === "prose") last.text += "\n" + line;
+    if (!fresh && last?.kind === "prose") last.text += "\n" + line;
     else out.push({ kind: "prose", text: line });
   };
+  // Whether the line just emitted was a list item, or an indented continuation directly under
+  // one, with nothing else in between — i.e. we're still "inside" that list item.
+  let inListItem = false;
   for (let i = 0; i < body.length; i++) {
     const line = body[i];
     if (line.trim() === "") {
-      if (out[out.length - 1]?.kind === "prose") pushProse("");
+      if (out[out.length - 1]?.kind === "prose") pushProse("", false);
+      inListItem = false;
       continue;
     }
     if (line.startsWith(NOTICE)) {
       out.push({ kind: "notice", text: line.slice(NOTICE.length).trim() });
+      inListItem = false;
+      continue;
+    }
+    if (EVENT_LINE.test(line)) {
+      out.push({ kind: "beat", text: line });
+      inListItem = false;
       continue;
     }
     const next = nextText(i);
-    const prose =
-      LIST.test(line) ||
-      line.startsWith("#") ||
-      (next !== null && LIST.test(next)) ||
-      (blank(i - 1) && blank(i + 1) && i > 0) ||
-      (out[out.length - 1]?.kind === "prose" && !blank(i - 1));
-    if (prose) pushProse(line);
+    const isListLine = LIST.test(line);
+    const indented = /^\s/.test(line);
+    // A line directly after a list item or its indented continuation (no blank line between)
+    // ends that list unless it's itself list syntax or an indented continuation of the item —
+    // a plain message line, or even a lead-in for a *new* list, must start a fresh block
+    // instead of getting absorbed into the last `<li>`.
+    const endsList = inListItem && !isListLine && !indented;
+    const leadsIntoList = next !== null && LIST.test(next);
+    const prose = endsList
+      ? line.startsWith("#") || leadsIntoList
+      : isListLine ||
+        line.startsWith("#") ||
+        leadsIntoList ||
+        (blank(i - 1) && blank(i + 1) && i > 0) ||
+        (out[out.length - 1]?.kind === "prose" && !blank(i - 1));
+    if (prose) pushProse(line, endsList);
     else out.push({ kind: "beat", text: line });
+    inListItem = isListLine || (inListItem && indented);
   }
   for (const b of out) if (b.kind === "prose") b.text = b.text.trim();
   return out.filter((b) => b.text !== "");

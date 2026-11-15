@@ -75,6 +75,46 @@ describe("storyBlocks", () => {
     expect(storyBlocks([])).toEqual([]);
     expect(storyBlocks(["# #1  title"])).toEqual([]);
   });
+
+  it("ends a list at a tool/compaction/error line, as its own beat, not absorbed into the last bullet (#706)", () => {
+    expect(
+      storyBlocks(["**Findings:**", "- one", "- two", "🗜 compaction (12000 -> 4000 tokens)", "🔧 Read(src/x.js)", "⚠ ECONNRESET", "Done reviewing.", "All set."]),
+    ).toEqual([
+      { kind: "prose", text: "**Findings:**\n- one\n- two" },
+      { kind: "beat", text: "🗜 compaction (12000 -> 4000 tokens)" },
+      { kind: "beat", text: "🔧 Read(src/x.js)" },
+      { kind: "beat", text: "⚠ ECONNRESET" },
+      { kind: "beat", text: "Done reviewing." },
+      { kind: "beat", text: "All set." },
+    ]);
+  });
+
+  it("a plain message line right after a list item is its own beat, not folded into the list", () => {
+    expect(storyBlocks(["My plan:", "- step one", "- step two", "Now let's check CI."])).toEqual([
+      { kind: "prose", text: "My plan:\n- step one\n- step two" },
+      { kind: "beat", text: "Now let's check CI." },
+    ]);
+  });
+
+  it("an indented continuation line under a bullet stays in the list, even with no list item after it", () => {
+    expect(storyBlocks(["Intro.", "- item one", "  wraps to a second physical line"])).toEqual([
+      { kind: "prose", text: "Intro.\n- item one\n  wraps to a second physical line" },
+    ]);
+  });
+
+  it("a lead-in for a new list right after a previous list starts a fresh block, not the old list's prose", () => {
+    expect(storyBlocks(["Intro:", "- one", "- two", "Next steps:", "- a", "- b"])).toEqual([
+      { kind: "prose", text: "Intro:\n- one\n- two" },
+      { kind: "prose", text: "Next steps:\n- a\n- b" },
+    ]);
+  });
+
+  it("a plain line after a bullet's indented continuation is its own beat, not folded back into the list", () => {
+    expect(storyBlocks(["Intro:", "- one", "  cont", "Plain message."])).toEqual([
+      { kind: "prose", text: "Intro:\n- one\n  cont" },
+      { kind: "beat", text: "Plain message." },
+    ]);
+  });
 });
 
 describe("stepOrder", () => {

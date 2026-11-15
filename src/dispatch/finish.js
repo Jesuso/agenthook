@@ -8,7 +8,7 @@ import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
 import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, ASSUMED_ADVANCE_SUFFIX, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
-import { healthTrip } from "./harness.js";
+import { harnessesOf, healthTrip } from "./harness.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
@@ -144,6 +144,9 @@ export function createFinish(ctx) {
     // back to the front of the queue instead — no verdict, no move; the worktree and any overlap
     // lock stay for the re-run, which the queue routes around the down harness.
     const harness = harnessField.harness;
+    // Only worth naming on a held/failed reason when the step actually routes through more than
+    // one harness — a single-harness step's reason already implies which one ran it.
+    const reasonHarness = harnessesOf(step).length >= 2 && harness ? harness : undefined;
     const tripped = harness
       ? healthTrip({
           preflight: preflightDown,
@@ -284,7 +287,7 @@ export function createFinish(ctx) {
       if (missingVerdict) emit?.("verdict_missing", job.ref, step.id, { reason: verdict.reason });
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the
       // adapters' comment trigger), with the reply appended to the prompt.
-      store?.setHeld(job.ref, { stepId: step.id, ...(verdict.reason ? { reason: verdict.reason } : {}), heldAt: new Date().toISOString() });
+      store?.setHeld(job.ref, { stepId: step.id, ...(verdict.reason ? { reason: verdict.reason } : {}), ...(reasonHarness ? { harness: reasonHarness } : {}), heldAt: new Date().toISOString() });
     }
 
     // Findings were delivered in this run's prompt — consume them whatever the outcome.
@@ -331,7 +334,7 @@ export function createFinish(ctx) {
         Object.assign(verdict, { outcome: "hold", reason: "could not turn off auto-merge on the PR before the rework (see auto_merge_failed); turn it off, then release" });
         delete verdict.target;
         store?.clearFindings(job.ref);
-        store?.setHeld(job.ref, { stepId: step.id, reason: verdict.reason, heldAt: new Date().toISOString() });
+        store?.setHeld(job.ref, { stepId: step.id, reason: verdict.reason, ...(reasonHarness ? { harness: reasonHarness } : {}), heldAt: new Date().toISOString() });
       }
     }
     if (ciBounce && verdict.outcome === "changes") emit?.("ci_red", job.ref, step.id, { action: "bounced", target: verdict.target });
@@ -342,7 +345,7 @@ export function createFinish(ctx) {
     const followUp = followUpDecision(cfg, step.id, verdict, store?.getSummaries(job.ref));
     if (followUp && "hold" in followUp) {
       Object.assign(verdict, { outcome: "hold", reason: followUp.hold });
-      store?.setHeld(job.ref, { stepId: step.id, reason: followUp.hold, heldAt: new Date().toISOString() });
+      store?.setHeld(job.ref, { stepId: step.id, reason: followUp.hold, ...(reasonHarness ? { harness: reasonHarness } : {}), heldAt: new Date().toISOString() });
     }
     const pendingChecks = store?.getRefMeta(job.ref)?.followUp;
     if (pendingChecks && !followUp && (verdict.outcome === "changes" || verdict.outcome === "fail" || (verdict.outcome === "advance" && pendingChecks.step === step.id))) {
@@ -374,6 +377,7 @@ export function createFinish(ctx) {
     if (verdict.outcome === "hold" || verdict.outcome === "fail") {
       emit?.(verdict.outcome === "hold" ? "blocked" : "failed", job.ref, step.id, {
         reason: verdict.reason ?? null,
+        ...(reasonHarness ? { harness: reasonHarness } : {}),
         name: task.name,
         url: task.url,
       });
