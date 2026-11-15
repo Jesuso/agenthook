@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `ah doctor` now flags a sandboxed opencode step whose effective model is missing the
+  `variants` entry its `effort` needs (#731) — without one, OpenCode's `--variant <effort>` has
+  nothing to resolve and sends no reasoning effort at all. [docs/local-models.md](docs/local-models.md)
+  documents the required `variants` shape and how to turn off tools an unattended opencode run
+  can't use via a `permission` block in `opencodeConfig`.
+
 - A profile with `harnesses`: a running pipeline job on a step that names no `harness` now shows
   up (#726). It's counted under an implicit entry named after the agent CLI it spawns (`claude`,
   `cursor`, `hermes`, `opencode`), separate from `harnesses` so the puller budget, breaker,
@@ -294,6 +300,12 @@ All notable changes to this project are documented here. The format is based on
   reap/shutdown. No behaviour change.
 
 ### Fixed
+
+- A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
+  in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.
+  When that file is written, the run prompt now carries only the `=== TICKET ===` marker and the
+  ticket text; the UI's "what the agent sees" sidecar still shows the full form. A run whose
+  standing text is over 16 KB (no file written) is unaffected.
 
 - Ticket drawer: with `routing: first-free` across several harnesses, the run caption named
   neither harness nor model, and the header's model/context always showed the *live* run's

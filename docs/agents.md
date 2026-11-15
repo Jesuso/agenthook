@@ -76,9 +76,11 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   names the provider too: `provider/model`, e.g. `ollama/qwen3.8:27b-64k`. Unset uses the CLI's
   default; Cursor's default is `auto`.
 - **`effort`**: claude (`--effort`), hermes (`--reasoning`) and opencode (`--variant`). OpenCode's
-  variants are provider-specific, so the value is passed through as-is. Cursor has no effort flag,
-  so dispatch drops it with a warning; an out-of-set value (claude, hermes) is dropped with a
-  warning too.
+  variants are provider-specific, so the value is passed through as-is — but it only reaches the
+  model when the step's `opencodeConfig` declares a `variants` entry of that name on the model
+  (see [local-models.md](local-models.md#variant-opencode-on-the-same-ollama)); `ah doctor` flags a
+  model missing the variant a step's `effort` needs. Cursor has no effort flag, so dispatch drops
+  it with a warning; an out-of-set value (claude, hermes) is dropped with a warning too.
 - **`provider`** (step) / **`agentProvider`** (profile default): the inference provider hermes
   should use (`--provider`, a name from `config.yaml`'s `providers:`, or a built-in). A step's
   `provider` overrides `agentProvider`. Claude, Cursor and OpenCode have no provider flag (OpenCode
