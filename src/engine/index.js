@@ -45,8 +45,6 @@ import { createQueue } from "../queue.js";
 import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
-import { harnessesOf, quotaGroupOf } from "../dispatch/harness.js";
-import { DEFAULT_AGENT } from "../agents/names.js";
 import { createExecutors } from "../dispatch/executor.js";
 import { verdictPathFor, sandboxVerdictPathFor } from "../dispatch/spawn.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
@@ -58,10 +56,14 @@ import { readQuota, writeQuota } from "../quota-file.js";
 import { createEmitter } from "../events.js";
 import { createSinks } from "../sinks.js";
 import { loadConfig } from "../config.js";
+import { harnessImages } from "../sandbox/container.js";
+import { needsEgressProxy } from "../sandbox/egress.js";
+import { DEFAULT_IMAGE } from "../sandbox/image.js";
 import { checkMove } from "../state-move.js";
 import { createOverlapReleaser, releaseOnSettle } from "./recovery.js";
 import { createPushSink, intakeEvent } from "./intake.js";
-import { createDecommissionRequester, createHarnessQuota, createQuotaControl, createRestartRequester } from "./controllers.js";
+import { buildHarnessing } from "./harnessing.js";
+import { createDecommissionRequester, createHarnessQuota, createQuotaControl, createReloadRequester, createRestartRequester } from "./controllers.js";
 import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
@@ -69,7 +71,7 @@ import { seedOverrides } from "../overrides.js";
 
 export { crashRecord, releaseOnSettle, createOverlapReleaser, recoverInterrupted } from "./recovery.js";
 export { intakeEvent, createPushSink } from "./intake.js";
-export { createRestartRequester, createDecommissionRequester, createQuotaControl, createHarnessQuota } from "./controllers.js";
+export { createRestartRequester, createDecommissionRequester, createQuotaControl, createHarnessQuota, createReloadRequester } from "./controllers.js";
 export { unregisterAll, runDecommission, waitForExit, finishTeardown } from "./teardown.js";
 
 /**
@@ -123,13 +125,13 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       }
     },
   });
-  // Per-step caps (`maxConcurrent` on a step), counted inside the global cap.
-  /** @type {Record<string, number>} */
-  const stepCaps = {};
-  for (const s of cfg.pipeline || []) if (!s.manual && s.maxConcurrent != null) stepCaps[s.id] = s.maxConcurrent;
-  // Named harnesses: each harnessed step's list + routing, and each harness's own slot cap.
-  // The health breaker is seeded from harness-health.json (a harness since removed from the
-  // config is dropped), persisted on every change, and its transitions are events.
+  // Per-step caps (`maxConcurrent` on a step), counted inside the global cap; the harnessed
+  // steps' lists + routing, and each harness's own slot cap — all built in one shared helper
+  // (src/engine/harnessing.js) so boot and `reload` cannot drift apart.
+  const shape = buildHarnessing(cfg);
+  const stepCaps = shape.stepCaps;
+  // Named harnesses: the health breaker is seeded from harness-health.json (a harness since
+  // removed from the config is dropped), persisted on every change, and its transitions are events.
   /** @type {Parameters<typeof createQueue>[5]} */
   let harnessing;
   if (cfg.harnesses) {
@@ -137,37 +139,19 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     const stored = store.getHarnessHealth();
     const seeded = Object.fromEntries(Object.entries(stored.down).filter(([name]) => Object.hasOwn(harnesses, name)));
     if (Object.keys(seeded).length !== Object.keys(stored.down).length) store.setHarnessHealth(seeded, stored.unharnessedUntil);
-    /** @type {Record<string, number|undefined>} */
-    const cooldowns = {};
-    /** @type {string[]} */
-    const unharnessedShared = [];
-    /** @type {Record<string, string>} */
-    const unharnessedAgents = {};
-    for (const s of cfg.pipeline || []) {
-      if (s.manual || harnessesOf(s).length) continue;
-      if (quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
-      unharnessedAgents[s.id] = s.agent ?? cfg.agent ?? DEFAULT_AGENT;
-    }
     harnessing = {
-      steps: {},
-      caps: {},
-      cooldowns,
+      steps: shape.steps,
+      caps: shape.caps,
+      cooldowns: shape.cooldowns,
       health: seeded,
-      unharnessedShared,
+      unharnessedShared: shape.unharnessedShared,
+      unharnessedAgents: shape.unharnessedAgents,
       unharnessedUntil: stored.unharnessedUntil,
-      unharnessedAgents,
       onHealth: (down, unharnessedUntil) => store.setHarnessHealth(down, unharnessedUntil),
       onHarnessDown: (harness, { reason, until, cause = "health", window, utilization, threshold }) =>
         emit("harness_down", "", "", { harness, reason, until, cause, ...(window ? { window, utilization, threshold } : {}) }),
       onHarnessUp: (harness, info) => emit("harness_up", "", "", { harness, cause: info?.cause ?? "health" }),
     };
-    for (const s of cfg.pipeline || []) {
-      if (!s.manual && harnessesOf(s).length) harnessing.steps[s.id] = { harnesses: harnessesOf(s), routing: s.routing ?? "first-free" };
-    }
-    for (const [name, h] of Object.entries(harnesses)) {
-      harnessing.caps[name] = h.maxConcurrent;
-      cooldowns[name] = h.cooldownMinutes;
-    }
   }
   const queue = createQueue(cfg.maxConcurrent, releaseOnSettle(runClaude, store), (state) =>
     heartbeat.update({ queue: state, seen: store.seenCount() }),
@@ -272,8 +256,45 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   // `restoreQueued` — so a restored job never starts on a drained harness or while paused.
   seedOverrides({ cfg, store, queue, quotaPacer, heartbeat });
 
+  // A restart/decommission/shutdown owns the queue pause — shared by ops (`resume` must not
+  // undo it) and `reload` (refused while one is pending). References `restarter`/`decommissioner`
+  // below, but is only ever called after boot, when they exist.
+  const isLocked = () => state.draining || restarter.isPending() || decommissioner.isPending();
+
+  // `agenthook reload` / control op `reload` (#725): re-read + validate the config, then apply
+  // only the reloadable keys to runs that start after. The logic lives in `createReloadRequester`
+  // (src/engine/controllers.js); here it is wired with the sandbox image check, which verifies a
+  // newly gained run image before anything applies. Running agents keep the config they started
+  // with — the shared `cfg` keys are replaced, never mutated in place.
+  const reload = createReloadRequester({
+    cfg,
+    loadConfig: () => loadConfig({ configPath: cfg.configPath }),
+    ...(sandbox
+      ? {
+          checkImages: async (next) => {
+            const before = new Set([...harnessImages(cfg), ...(needsEgressProxy(cfg) ? [DEFAULT_IMAGE] : [])]);
+            const after = new Set([...harnessImages(next), ...(needsEgressProxy(next) ? [DEFAULT_IMAGE] : [])]);
+            const gained = [...after].filter((img) => !before.has(img));
+            if (!gained.length) return { ok: true };
+            const nextSandbox = createSandbox(next);
+            if (!nextSandbox) return { ok: false, reason: "no sandbox config" };
+            const check = await nextSandbox.check();
+            if (check.ok) return { ok: true };
+            return { ok: false, reason: check.reason };
+          },
+        }
+      : {}),
+    isLocked,
+    store,
+    queue,
+    quotaPacer,
+    heartbeat,
+    emit,
+  });
+
   const ops = createOps({
     cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer, harnessQuota,
+    reload,
     onEpicChanged: (reset) => { resetEpics = reset; },
     digester: createDigester({
       cfg, emit, repository: repositoryOf(cfg),
@@ -294,7 +315,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       store.clearOverlap(ref);
       releaseOverlap?.(ref);
     },
-    isLocked: () => state.draining || restarter.isPending() || decommissioner.isPending(),
+    isLocked,
   });
 
   const restarter = createRestartRequester({

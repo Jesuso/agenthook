@@ -262,6 +262,13 @@ const TOOLS = {
       { profile: PROFILE },
     ),
   },
+  reload: {
+    write: true,
+    def: schema(
+      "Re-read and validate the config file, then apply its reloadable keys (harnesses, per-step spawn knobs like model/egress/maxConcurrent, sandbox.egress, quota, maxConcurrent) to runs that START AFTER this call — running agents keep the config they started with. Errors (and applies nothing) if the new config is invalid or any changed key needs a restart (reply names them); the reply lists the reloaded keys, or says no changes. .env values are NOT re-read (use `restart` for that).",
+      { profile: PROFILE },
+    ),
+  },
 };
 
 /**

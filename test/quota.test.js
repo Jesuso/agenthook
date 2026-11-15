@@ -267,6 +267,20 @@ test("interplay: while a restart/decommission lock holds the queue, the quota re
   assert.ok(!h.log.includes("resumeQueue"));
 });
 
+test("setThresholds: a reload's new thresholds re-check the last reading — lowered pauses, raised lifts, null fails open", () => {
+  const h = pacerHarness({ thresholds: { pauseAboveSevenDay: 0.95 } });
+  h.pacer.reading(READING); // 0.92 < 0.95 → open
+  assert.equal(h.paused(), false);
+  h.pacer.setThresholds({ pauseAboveSevenDay: 0.9 }); // now at/above → pause, no new reading needed
+  assert.equal(h.paused(), true);
+  assert.deepEqual(h.log, ["pauseQueue", ["quota_pause", { window: "sevenDay", utilization: 0.92, threshold: 0.9, resetsAt: RESET_7D }]]);
+  h.pacer.setThresholds({ pauseAboveSevenDay: 0.95 }); // raised above the reading → lift
+  assert.equal(h.paused(), false);
+  assert.deepEqual(h.log.at(-2), ["quota_resume", { window: "sevenDay", reason: "below" }]);
+  h.pacer.setThresholds(null); // no thresholds → never pauses
+  assert.equal(h.paused(), false);
+});
+
 test("pacer + real queue: a running agent is never cancelled; waiting jobs start at the reset", async () => {
   const c = clock();
   /** @type {string[]} */ const started = [];

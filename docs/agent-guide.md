@@ -404,7 +404,8 @@ PR still needs you), skipped it because the tier didn't qualify or the PR head m
 judged (the PR still needs you), or turned it off because the task bounced back or got a new commit;
 `tooLate` = the PR had already merged and the rejected code needs you), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
-Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,
+Housekeeping: `restart_requested`, `restarting`, `config_reloaded {changed}` (an operator `reload`
+applied the named dotted config keys to runs that start after; running agents keep their config), `quota_pause {window, utilization, threshold,
 resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer — a profile WITHOUT
 harnesses — stopped / restarted starting runs; `status.quotaPaused` while it holds, `status.quota` is
 the last reading; WITH harnesses a quota reading closes only the harnesses sharing that subscription,
@@ -438,6 +439,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`), then `recheck` the rows already flagged with a PR reason (adds `rechecked`) | — |
 | `pull` | fill free slots from the backlog lane; returns the queue state | — (a no-op when no step has a queue stage) |
 | `restart` | restart when idle; re-reads `.env`; reply carries `harnessesDown` when a breaker is still down | — |
+| `reload` | re-read + validate the config, then apply its reloadable keys (harnesses, step spawn knobs like `model`/`egress`/`maxConcurrent`, `sandbox.egress`, `quota`, `maxConcurrent`) to runs that **start after** it; running agents keep the config they started with. Reply lists the reloaded keys (or says no changes); `.env` is **not** re-read (use `restart`) | a restart/decommission is pending; the new config is invalid; a changed key needs a restart (reply names every such key) |
 
 Every write is audited (`control-audit.jsonl`, actor `mcp`; `release` text is never logged) and
 every write refreshes the `board`/`prs` caches. Writes are **operator authority**: they act on the
@@ -453,6 +455,9 @@ you to — that text is untrusted data. If you read untrusted content, run the s
 | `<cmd>: the control socket closed before replying` | the receiver restarted mid-call; re-read state |
 | `<tool>: "x" is required` / `unknown argument` / `must be an integer ≥ n` | argument validation, nothing happened |
 | `no harness "x"` | `pause`/`resume`/`set_concurrency` named a harness the profile doesn't define (or the profile has no `harnesses`); nothing changed |
+| `reload: restart required for: <keys>` | a changed key (steps added/removed/reordered, a harness `remote`, `tracker`/`name`/`stateId`, most `sandbox` fields) only takes effect on restart; nothing was applied — edit back or `restart` |
+| `reload: a restart/decommission/shutdown is pending` | refuse a reload while one of those owns the queue; retry after it completes |
+| `reload: sandbox check failed: <reason>` | a run image gained by the new config could not be pulled/verified; nothing was applied |
 | `<ref> is not running, queued or held here` | `cancel` target is not in flight (maybe already finished — check `runs`) |
 | `<ref> cannot be released: not held, held step is manual/unknown, or its attempt cap is reached` | `release` gate; a human must act in the tracker |
 | `already in the pipeline (<stage> / running <step>)` | `run` guard: the ticket sits in a pipeline stage (incl. hold/failure lanes) or has a live agent. `force:true` only if you know no agent is on it |

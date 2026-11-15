@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
+  then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
+  remove/rename/any field except `remote`), and per-step spawn knobs (`harness`, `routing`,
+  `model`, `effort`, `escalate`, `lite`, `instructionsFile`, `egress`, `maxConcurrent`) — to runs
+  that **start after** the reload, with no restart (#725). Running agents keep the config they
+  started with (the shared `cfg` keys are replaced, never mutated). The new config must be valid,
+  must not change a restart-required key (adding/removing/reordering steps, `name`/`stateId`/
+  `tracker`/`repos`, `remote`, adding or removing the `sandbox` or `harnesses` block — the error
+  names every such key), and any newly-gained run image is verified via a sandbox check before
+  anything is applied. Active operator overrides still win after a reload; a harness override for
+  a removed harness is dropped. Emits a `config_reloaded` event; `.env` is not re-read (use
+  `restart` for that).
+
 - `ah doctor` now flags a sandboxed opencode step whose effective model is missing the
   `variants` entry its `effort` needs (#731) — without one, OpenCode's `--variant <effort>` has
   nothing to resolve and sends no reasoning effort at all. [docs/local-models.md](docs/local-models.md)

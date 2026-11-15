@@ -25,6 +25,7 @@ export const VALID_EVENTS = new Set([
   "digest_start", "digest_end", "summary_end",
   "restart_requested", "restarting", "decommission_requested", "decommissioning", "sandbox_reaped",
   "harness_down", "harness_up",
+  "config_reloaded",
   "daemon_down",
 ]);
 
