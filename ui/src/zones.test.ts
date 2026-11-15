@@ -123,6 +123,17 @@ describe("harnessAttention", () => {
     ]);
   });
 
+  it("a quota-closed harness (cause:quota) is not attention — it reopens on its own (#723)", () => {
+    expect(
+      harnessAttention({
+        harnesses: {
+          spent: { active: 0, max: 1, state: "down", until: "2026-10-08T13:00:00.000Z", reason: "quota: weekly 92% ≥ 90%", cause: "quota" },
+          down: { active: 0, max: 1, state: "down", reason: "spawn failed" },
+        },
+      }),
+    ).toEqual([{ harness: "down", state: "down", reason: "spawn failed", until: null }]);
+  });
+
   it("no harnesses, or none of them down/probing, yields []", () => {
     expect(harnessAttention({})).toEqual([]);
     expect(harnessAttention({ harnesses: { a: { active: 0, max: 1 } } })).toEqual([]);

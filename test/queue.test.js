@@ -605,8 +605,8 @@ test("breaker: a health settle marks the harness down; first-free routes around 
   await b.done("A", b.trip("local"));
   const until = new Date(b.now() + 10 * MIN).toISOString();
   assert.deepEqual(b.log, [["down", "local", until, "spawn failed: ENOENT"]]);
-  assert.deepEqual(b.persisted(), { local: { until, strikes: 1, reason: "spawn failed: ENOENT" } });
-  assert.deepEqual(b.q.harnessState().local, { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT" });
+  assert.deepEqual(b.persisted(), { local: { until, strikes: 1, reason: "spawn failed: ENOENT", cause: "health" } });
+  assert.deepEqual(b.q.harnessState().local, { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT", cause: "health" });
   b.q.enqueue(job("B", "code"));
   assert.deepEqual(b.started, ["A:local", "B:cloud"], "the down harness is skipped though it has a free slot");
   await b.done("B");
@@ -700,7 +700,7 @@ test("breaker: a requeued job keeps its front spot while every harness is down",
   await b.done("A", b.trip("local", true));
   assert.deepEqual(b.q.state(), { active: 0, queued: 2, capped: 2, harnesses: b.q.harnessState() });
   b.advance(10 * MIN);
-  assert.equal(b.q.resetHarness("nope"), false);
+  assert.equal(b.q.resetHarness("nope").reset, false);
   b.q.resume(); // any pump after `until`
   assert.deepEqual(b.started, ["A:local", "A:local"]);
 });
@@ -710,8 +710,8 @@ test("breaker: health is seeded from the persisted record (unknown names dropped
   const past = new Date(Date.parse("2026-11-08T12:00:00Z") - MIN).toISOString();
   const b = breaker(4, { ...PAIR, health: { local: { until, strikes: 2, reason: "r" }, cloud: { until: past, strikes: 1, reason: "old" }, gone: { until, strikes: 1, reason: "x" } } });
   assert.deepEqual(b.q.harnessState(), {
-    local: { active: 0, max: 1, state: "down", until, reason: "r" },
-    cloud: { active: 0, max: 2, state: "probing", until: past, reason: "old" },
+    local: { active: 0, max: 1, state: "down", until, reason: "r", cause: "health" },
+    cloud: { active: 0, max: 2, state: "probing", until: past, reason: "old", cause: "health" },
   });
 });
 
@@ -721,9 +721,9 @@ test("breaker: resetHarness clears the entry, reports up, persists and starts wa
   await b.done("A", b.trip("local"));
   b.q.enqueue(job("B", "code"));
   assert.deepEqual(b.started, ["A:local"]);
-  assert.equal(b.q.resetHarness("local"), true);
+  assert.equal(b.q.resetHarness("local").reset, true);
   assert.deepEqual(b.log.at(-1), ["up", "local"]);
   assert.deepEqual(b.persisted(), {});
   assert.deepEqual(b.started, ["A:local", "B:local"]);
-  assert.equal(b.q.resetHarness("local"), false, "already up");
+  assert.equal(b.q.resetHarness("local").reset, false, "already up");
 });

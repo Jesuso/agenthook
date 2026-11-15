@@ -224,3 +224,36 @@ test("onQuota: a claude run's rate_limit_event reaches the hook stamped with asO
   assert.deepEqual(await runWith("cursor"), []);
 });
 
+test("onQuota: a harnessed run attributes the reading to its harness and step (#723)", async () => {
+  const fixture = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "claude-rate-limit-event.jsonl");
+  const dir = tmpDir();
+  const bin = path.join(dir, "fake-agent.sh");
+  fs.writeFileSync(bin, `#!/bin/sh\ncat "${fixture}"\nprintf '%s' '{"outcome":"advance"}' > "$AGENTHOOK_VERDICT_FILE"\n`, { mode: 0o755 });
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", agent: "claude", bin }, { id: "done", manual: true }],
+    claudeBin: bin,
+    harnesses: { local: { agent: "claude", maxConcurrent: 1 } },
+    repoPath: dir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const adapter = /** @type {any} */ ({
+    describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async () => {},
+  });
+  /** @type {[any, any][]} */ const seen = [];
+  const run = createDispatcher(cfg, adapter, undefined, createStore(dir), () => {}, null, undefined, { onQuota: (q, meta) => seen.push([q, meta]) });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "7", stepId: "code", dedupKey: "k", harness: "local" });
+  } finally {
+    console.log = log;
+  }
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0][1], { harness: "local", stepId: "code" });
+});
+

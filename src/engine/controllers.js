@@ -1,7 +1,9 @@
 // The engine's pause controllers: the control-socket `restart` / `decommission` requesters
 // (pause, wait for 0 active agents, fire) and the opt-in quota pacer wiring.
 import { appendControlAudit } from "../ops.js";
-import { createQuotaPacer } from "../quota.js";
+import { createQuotaPacer, evaluateQuota } from "../quota.js";
+import { writeQuota } from "../quota-file.js";
+import { quotaGroupOf } from "../dispatch/harness.js";
 
 /**
  * The control-socket `restart` request: validate, then pause the queue and fire once
@@ -154,4 +156,61 @@ export function createQuotaControl({ cfg, queue, heartbeat, emit, pull, isLocked
       audit("quota_resume", info);
     },
   });
+}
+
+/**
+ * The harnessed quota controller (profiles WITH `harnesses`; the receiver-wide `createQuotaControl`
+ * is not used in that mode). A reading at/above a `quota` threshold closes the run's subscription
+ * group — every harness that shares the run's subscription, plus the unharnessed claude steps for
+ * the shared group — until the trip's `resetsAt` (src/queue.js `closeForQuota` reopens on a
+ * one-shot timer). `quota.json` and `heartbeat.quota` keep only the shared-group reading; an
+ * own-credential harness's reading closes that harness alone and never overwrites the readout.
+ * `suppress` (from `harness_reset`) keeps a harness from re-closing by quota until its trip's
+ * `resetsAt`, mirroring `createQuotaPacer`'s operator resume override.
+ * @param {{
+ *   cfg: import('../types.js').Config,
+ *   queue: {closeForQuota(names: string[], opts: {until: number, reason: string, unharnessed?: boolean, window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}): void},
+ *   heartbeat: {update(p: object): void},
+ *   now?: () => number,
+ * }} deps
+ */
+export function createHarnessQuota({ cfg, queue, heartbeat, now }) {
+  const tnow = now ?? Date.now;
+  /** @type {Map<string, number>} harness name → quota override-until (resetsAt), in memory (harness_reset). */
+  const suppressed = new Map();
+  const stepById = (/** @type {string|undefined} */ stepId) => (cfg.pipeline ?? []).find((s) => s.id === stepId);
+  // The shared group, independent of any run: a claude, no-env step is the "default login".
+  const sharedGroup = () => quotaGroupOf(cfg, null, { agent: "claude" });
+
+  /** @param {import('../quota.js').QuotaReading|null} q @param {{harness: string|null, stepId: string}|undefined} [meta] */
+  function reading(q, meta) {
+    const group = meta === undefined ? sharedGroup() : quotaGroupOf(cfg, meta.harness ?? null, stepById(meta.stepId));
+    // The profile's readout follows the shared group only — an own-credential reading never overwrites it.
+    if (group.unharnessed && q) {
+      try {
+        writeQuota(cfg.stateDir, q);
+      } catch (e) {
+        console.error(`[quota] quota.json write failed (continuing): ${e.message}`);
+      }
+      heartbeat.update({ quota: q });
+    }
+    const ev = evaluateQuota(q, cfg.quota, tnow());
+    if (!ev.pause) return;
+    const { pause, ...trip } = ev;
+    const names = group.harnesses.filter((n) => (suppressed.get(n) ?? 0) <= tnow());
+    if (!names.length && !group.unharnessed) return;
+    const until = Date.parse(trip.resetsAt);
+    const label = trip.window === "sevenDay" ? "weekly" : "5h";
+    const reason = `quota: ${label} ${Math.round(trip.utilization * 100)}% ≥ ${Math.round(trip.threshold * 100)}%, back at ${trip.resetsAt}`;
+    queue.closeForQuota(names, { until, reason, unharnessed: group.unharnessed, window: trip.window, utilization: trip.utilization, threshold: trip.threshold });
+  }
+
+  return {
+    reading,
+    /** `harness_reset` on a quota-closed harness: don't re-close it until its trip's `resetsAt`. @param {string} name @param {number} until */
+    suppress(name, until) {
+      if (until > tnow()) suppressed.set(name, until);
+    },
+    stop() {},
+  };
 }

@@ -175,16 +175,16 @@ test("queue.json: addQueued {front} re-inserts at index 0 (a harness-breaker req
   assert.deepEqual(createStore(dir).listQueued().map((x) => x.ref), ["A", "B", "C"]);
 });
 
-test("harness-health.json: getHarnessHealth is {} until set, then round-trips the down map", () => {
+test("harness-health.json: getHarnessHealth is {down:{},unharnessedUntil:null} until set, then round-trips the down map", () => {
   const dir = tmpDir();
   const s = createStore(dir);
-  assert.deepEqual(s.getHarnessHealth(), {});
+  assert.deepEqual(s.getHarnessHealth(), { down: {}, unharnessedUntil: null });
   const down = { local: { until: "2026-11-08T12:10:00.000Z", strikes: 2, reason: "spawn failed: ENOENT" } };
   s.setHarnessHealth(down);
-  assert.deepEqual(createStore(dir).getHarnessHealth(), down);
+  assert.deepEqual(createStore(dir).getHarnessHealth(), { down, unharnessedUntil: null });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "harness-health.json"), "utf8")), { down });
   fs.writeFileSync(path.join(dir, "harness-health.json"), "[]");
-  assert.deepEqual(s.getHarnessHealth(), {}, "a malformed file reads as none");
+  assert.deepEqual(s.getHarnessHealth(), { down: {}, unharnessedUntil: null }, "a malformed file reads as none");
 });
 
 test("queue.json: addQueued stamps queuedAt on first add and keeps it on a dedup re-add", async () => {

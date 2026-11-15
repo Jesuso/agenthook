@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Quota pacing now closes only the harnesses that share an exhausted Claude subscription, instead
+  of the whole receiver (#723). On a profile with `harnesses`, a reading at/above a `quota`
+  threshold closes the run's subscription group (every `claude` harness with no own
+  `ANTHROPIC_BASE_URL`/credential env, plus the unharnessed `claude` steps) until the window's
+  `resetsAt`, reopening on its own via a one-shot timer; other harnesses keep starting runs.
+  Profiles without `harnesses` keep today's receiver-wide pause unchanged. A `cause:"quota"`
+  breaker entry persists across restarts, never adds strikes and never probes; `harness_down`/
+  `harness_up` carry `cause`, and `status`/`tick`/`doctor`/the web UI show the harness as closed
+  for quota with its reopen time (and stop counting it as Needs you). `harness_reset` on a
+  quota-closed harness suppresses re-closing until that window resets.
+
 - A step's optional `gate` (#710): a command the receiver runs, in the run's own executor, right
   after an `advance` (agent-written, repaired, or deduced) and before the move — it can only veto
   that advance, never grant one. A non-zero exit or timeout gets the agent one more turn carrying

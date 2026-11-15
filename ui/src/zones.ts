@@ -46,7 +46,7 @@ export type HarnessAttentionItem = {
 export function harnessAttention(profile: Pick<ProfileView, "harnesses">): HarnessAttentionItem[] {
   const items: HarnessAttentionItem[] = [];
   for (const [harness, h] of Object.entries(profile.harnesses ?? {})) {
-    if (h.state === "down" || h.state === "probing") items.push({ harness, state: h.state, reason: h.reason ?? null, until: h.until ?? null });
+    if ((h.state === "down" || h.state === "probing") && h.cause !== "quota") items.push({ harness, state: h.state, reason: h.reason ?? null, until: h.until ?? null });
   }
   return items;
 }

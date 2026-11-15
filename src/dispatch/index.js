@@ -30,8 +30,9 @@ export { descriptionHasHeadings, resolveModelEffort, promptPathFor } from "./pro
  * @param {(blocker: string) => void} [releaseOverlap]  overlapGuard: clear `blocker`'s lock and re-intake the refs waiting on it (engine-owned)
  * @param {import('./context.js').DispatchOpts} [opts]
  *   test hooks: SIGTERM→SIGKILL grace for a timed-out agent, the post-exit usage-export bound, the energy sampler;
- *   onQuota: the subscription-quota reading a run's agent reported (claude only), stamped with `asOf` — the engine
- *   persists it and feeds the pacer; sandbox: the profile's sandbox (src/sandbox/; unset = every run on the host)
+ *   onQuota: the subscription-quota reading a run's agent reported (claude only), stamped with `asOf`, plus the
+ *   run's `{harness, stepId}` for attribution — the engine persists it and feeds the pacer (or per-harness closure);
+ *   sandbox: the profile's sandbox (src/sandbox/; unset = every run on the host)
  */
 export function createDispatcher(cfg, adapter, children, store, emit, forge, releaseOverlap, opts = {}) {
   const killGraceMs = opts.killGraceMs ?? KILL_GRACE_MS;

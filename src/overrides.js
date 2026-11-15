@@ -119,7 +119,7 @@ export function fileOverrideEntries(o) {
  *   cfg: import('./types.js').Config,
  *   store: import('./types.js').Store,
  *   queue: { setMax(n: number): void, setHarnessMax(name: string, n: number|null): void, pause(): void },
- *   quotaPacer: { operatorPause(): void },
+ *   quotaPacer?: { operatorPause(): void },
  *   heartbeat: { update(p: Record<string, unknown>): void },
  * }} deps
  * @returns {import('./types.js').Overrides}
@@ -132,7 +132,7 @@ export function seedOverrides({ cfg, store, queue, quotaPacer, heartbeat }) {
   const applied = overrides.paused === true || overrides.maxConcurrent !== undefined || harnesses.length > 0;
   if (applied) {
     if (overrides.paused === true) {
-      quotaPacer.operatorPause();
+      quotaPacer?.operatorPause();
       queue.pause();
       heartbeat.update({ paused: true });
     }

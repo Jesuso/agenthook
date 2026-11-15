@@ -209,6 +209,17 @@ describe("Overview", () => {
     expect(render(profile(), [])).not.toContain("data-harness");
   });
 
+  it("a quota-closed harness chip shows its reopen time with a warn tint, not a failure tint (#723)", () => {
+    const harnesses = {
+      spent: { active: 0, max: 1, state: "down" as const, until: "2026-10-08T13:00:00.000Z", reason: "quota: weekly 92% ≥ 90%", cause: "quota" as const },
+    };
+    const html = render(profile({ harnesses }), []);
+    expect(html).toContain('data-harness="spent" data-harness-state="down" data-harness-cause="quota"');
+    expect(html).toContain("back at 13:00Z");
+    expect(html).toMatch(/data-harness="spent"[^>]*status-held/);
+    expect(html).not.toMatch(/data-harness="spent"[^>]*status-failed/);
+  });
+
   it("shows the Harnesses table when the profile configures named harnesses (#646)", () => {
     const html = render(profile({ harnesses: { qwen: { active: 1, max: 2 } } }), []);
     expect(html).toContain("data-harnesses-table");

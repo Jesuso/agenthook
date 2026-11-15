@@ -303,13 +303,15 @@ export function createStore(dataDir) {
     setMergeWatermark: (iso) => {
       fs.writeFileSync(mergeWatermarkFile, JSON.stringify({ mergedAt: iso }));
     },
-    // --- harness health breaker (harness-health.json): {down: {[name]: {until, strikes, reason}}} ---
+    // --- harness health breaker (harness-health.json): {down: {[name]: {until, strikes, reason, cause}}, unharnessedUntil?} ---
     getHarnessHealth: () => {
-      const d = readJson(harnessHealthFile, {})?.down;
-      return d && typeof d === "object" && !Array.isArray(d) ? d : {};
+      const r = readJson(harnessHealthFile, {});
+      const down = r?.down && typeof r.down === "object" && !Array.isArray(r.down) ? r.down : {};
+      const unharnessedUntil = typeof r?.unharnessedUntil === "string" && r.unharnessedUntil ? r.unharnessedUntil : null;
+      return { down, unharnessedUntil };
     },
-    setHarnessHealth: (down) => {
-      fs.writeFileSync(harnessHealthFile, JSON.stringify({ down }));
+    setHarnessHealth: (down, unharnessedUntil) => {
+      fs.writeFileSync(harnessHealthFile, JSON.stringify({ down, ...(unharnessedUntil ? { unharnessedUntil } : {}) }));
     },
     // --- operator runtime overrides (overrides.json): {paused?, maxConcurrent?, harnesses?} ---
     getOverrides: () => {

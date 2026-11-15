@@ -115,6 +115,7 @@ export const messages: Record<MessageKey, Message> = {
   "overview.harnessDownUntil": "caído hasta {when}",
   "overview.harnessProbing": "en prueba desde que terminó el enfriamiento",
   "overview.harnessProbingSince": "en prueba desde {when}",
+  "overview.harnessQuotaBack": "vuelve a las {when}",
   "overview.harnessResetHint": "Arregla la causa, luego ejecuta harness_reset {name}",
   "overview.allClear": "Todo en orden",
   "overview.nothingNeedsYou": "Nada te necesita",

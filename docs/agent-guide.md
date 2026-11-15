@@ -123,7 +123,10 @@ unchanged check.
   `down`/`probing` harness is a receiver-level error, not routing noise — the web UI's Needs-you zone
   lists it until `harness_up` fires (#688), and the `tick` text digest's harness line ends with
   `— fix the cause, then harness_reset <name>`; a routed-around spill (a step's other harness
-  picking up the work) produces nothing in either place.
+  picking up the work) produces nothing in either place. A harness can also read `cause: "quota"`:
+  a Claude subscription-quota reading at/above a `quota` threshold closed it (and every harness
+  sharing that subscription) until `until`; it reopens by itself (`harness_up` with `cause:"quota"`),
+  is never a Needs-you item, and `status`/`tick` print `closed for quota, back at HH:MMZ` instead.
 - A `running[]` row carries `host` (#691) only when the run is on a **remote** harness
   (`harnesses.<name>.remote`) — the worker machine it's actually running on, from the
   `running.json` record's own `host`. The `tick` text digest then reads `· <harness>@<host>`
@@ -395,8 +398,10 @@ judged (the PR still needs you), or turned it off because the task bounced back 
 `tooLate` = the PR had already merged and the rejected code needs you), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
 Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,
-resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer stopped / restarted
-starting runs; `status.quotaPaused` while it holds, `status.quota` is the last reading), `overlap_held`, `overlap_released`, `epic_skipped`
+resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer — a profile WITHOUT
+harnesses — stopped / restarted starting runs; `status.quotaPaused` while it holds, `status.quota` is
+the last reading; WITH harnesses a quota reading closes only the harnesses sharing that subscription,
+reported as `harness_down`/`harness_up {cause:"quota"}`), `overlap_held`, `overlap_released`, `epic_skipped`
 (an epic reached a step; no agent ran, nothing moved). There's also
 `coalesced` (a duplicate webhook dropped), hidden unless you pass `types:["coalesced"]`, and
 `epic_changed` (GitHub and Jira: an epic's children or type changed; `ref` = the epic — re-read
@@ -413,7 +418,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 |---|---|---|
 | `pause {harness?}` / `resume {harness?}` | stop / restart starting agents and pulling backlog; with `harness`, drain (0) / restore that harness only | — (`resume` is a no-op while restart/shutdown owns the queue; `pause`/`resume` with a `harness` the profile doesn't define) |
 | `set_concurrency {max?, harness?, reset?}` | cap 1–64 (0–64 with `harness`; `0` drains that harness — no new starts until re-enabled), persisted until reset; `reset: true` (instead of `max`) restores the config value — with `harness`, only that harness's | out of range; `max: 0` without a harness; both/neither of `max`/`reset`; `no harness "<name>"` |
-| `harness_reset {harness}` | clear a harness's health breaker (down/probing → up, `harness_up`) and start the work waiting on it; `reset:false` = it was already up | `this profile has no harnesses`; `no harness "<name>" (have: …)` |
+| `harness_reset {harness}` | clear a harness's health breaker (down/probing → up, `harness_up`) and start the work waiting on it; `reset:false` = it was already up. On a quota-closed harness it also suppresses re-closing by quota until that window resets | `this profile has no harnesses`; `no harness "<name>" (have: …)` |
 | `run {ref, step?, assign?, force?}` | assign + move into a step's source stage | ref not found; ticket already completed (override: `force`); already in the pipeline (override: `force`) |
 | `catchup {ref, force?}` | re-fire the step for the stage the ticket **currently rests in**; use instead of `run {force}` when `run`'s move produces no fresh transition | not assigned to us; rests in no pipeline source stage; no tracker support |
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
