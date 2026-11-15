@@ -76,7 +76,8 @@ is a pillar that holds that up:
 ## Capabilities and Constraints
 
 - **Surfaces in scope for design work:** the local dashboard (`ui/`, React 19 + Vite + Tailwind 4,
-  CodeMirror editors) and a docs site rendered from `docs/*.md` (not yet built).
+  CodeMirror editors). Documentation is Markdown in `docs/`, read on GitHub; there is no docs
+  site and none is planned for this product.
 - **Local by default.** The UI binds 127.0.0.1, token-protected. `ah ui --host` can bind a LAN
   address over plain HTTP, where the token is the only credential; there is no remote access layer.
 - **No secrets.** `${ENV}` refs are shown as refs, never resolved; `.env` is never read or written.
