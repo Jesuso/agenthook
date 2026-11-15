@@ -561,11 +561,6 @@ function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDismiss, o
   );
 }
 
-/**
- * A harness whose breaker is down/probing (#688): no verdict to release, no PR to open — the row
- * is a diagnosis (name, pill, reason, until) plus the fix: run `harness_reset`. It disappears on
- * its own once `harness_up` fires — there is nothing to dismiss or click.
- */
 /** "14:32Z" from an ISO instant, for a down harness's "until" time — a clock time reads better
  * than a relative one for something in the future. @param {string} iso */
 function clockTime(iso: string): string {
@@ -573,6 +568,11 @@ function clockTime(iso: string): string {
   return Number.isNaN(t) ? "—" : `${new Date(t).toISOString().slice(11, 16)}Z`;
 }
 
+/**
+ * A harness whose breaker is down/probing (#688): no verdict to release, no PR to open — the row
+ * is a diagnosis (name, pill, reason, until) plus the fix: run `harness_reset`. It disappears on
+ * its own once `harness_up` fires — there is nothing to dismiss or click.
+ */
 function HarnessAttentionRow({ item }: { item: HarnessAttentionItem }) {
   const { t: tr } = useT();
   return (
@@ -587,7 +587,9 @@ function HarnessAttentionRow({ item }: { item: HarnessAttentionItem }) {
           <span className="block truncate text-label text-muted">{tr("overview.harnessResetHint", { name: item.harness })}</span>
         </div>
         <span className="w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto">
-          {item.state === "down" && item.until ? tr("overview.harnessDownUntil", { when: clockTime(item.until) }) : tr("overview.harnessProbing")}
+          {item.until
+            ? tr(item.state === "down" ? "overview.harnessDownUntil" : "overview.harnessProbingSince", { when: clockTime(item.until) })
+            : tr(item.state === "down" ? "needs.harnessDown" : "overview.harnessProbing")}
         </span>
       </div>
     </li>

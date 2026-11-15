@@ -79,7 +79,7 @@ export function redactSecrets(text, env) {
     if (v && v.length >= 8 && looksSecret(k)) out = out.split(v).join("***");
   }
   for (const re of TOKEN_SHAPE_RES) out = out.replace(re, "***");
-  return out.replace(/Bearer\s+\S+/g, "Bearer ***");
+  return out.replace(/Bearer\s+\S+/gi, "Bearer ***");
 }
 
 /**

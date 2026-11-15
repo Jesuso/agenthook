@@ -325,7 +325,9 @@ export function createSpawn(ctx) {
         // stderr tail's; redacted (the run's spawn env + ours, so a leaked token never reaches a
         // harness_down reason) and clipped well short of the reason's own 300-char bound.
         const rawErrorLine = lastNonBlankLine(resultText) ?? lastNonBlankLine(stderrTail);
-        const errorLine = rawErrorLine ? redactSecrets(rawErrorLine, { ...process.env, ...runEnv }).slice(0, 200) : undefined;
+        // Redact against each env in turn (not a merged object) so a host value a run env
+        // overrides with a different value still gets masked.
+        const errorLine = rawErrorLine ? redactSecrets(redactSecrets(rawErrorLine, process.env), runEnv).slice(0, 200) : undefined;
         children?.delete(child);
         /** @type {import('../types.js').SandboxReport|undefined} */
         let sandboxReport;

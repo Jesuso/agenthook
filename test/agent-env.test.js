@@ -94,8 +94,9 @@ test("buildAgentEnv: AGENTHOOK_SERVICE never reaches an agent, even through a pa
 // --- redactSecrets (#688): masking a run's output before it ever reaches a reason/event ---
 
 test("redactSecrets: a secret-shaped env var's value is masked wherever it appears", () => {
-  const env = { ANTHROPIC_API_KEY: "sk-ant-xyz123456789", PATH: "/usr/bin", SHORT_TOKEN: "abc" };
-  assert.equal(redactSecrets("auth failed for ANTHROPIC_API_KEY=sk-ant-xyz123456789", env), "auth failed for ANTHROPIC_API_KEY=***");
+  // A value that matches none of TOKEN_SHAPE_RES, so this only passes via the env-value loop.
+  const env = { ANTHROPIC_API_KEY: "plainsecretvalue123", PATH: "/usr/bin", SHORT_TOKEN: "abc" };
+  assert.equal(redactSecrets("auth failed for ANTHROPIC_API_KEY=plainsecretvalue123", env), "auth failed for ANTHROPIC_API_KEY=***");
   assert.equal(redactSecrets("PATH is /usr/bin, fine", env), "PATH is /usr/bin, fine", "a non-secret-shaped name's value is untouched");
   assert.equal(redactSecrets("SHORT_TOKEN=abc", env), "SHORT_TOKEN=abc", "a value under 8 chars is never masked");
 });

@@ -406,16 +406,17 @@ test("breaker: a no-output exit past downGraceSeconds trips when its output name
 test("breaker: a stderr line carrying a secret env value never reaches harness_down.reason (#688)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-redact-"));
   const bad = path.join(dir, "bad.sh");
-  fs.writeFileSync(bad, "#!/bin/sh\necho 'Failed to authenticate: token ANTHROPIC_API_KEY=sk-ant-leaked0123456789' >&2\nexit 1\n", { mode: 0o755 });
-  const harnesses = { local: { bin: bad, env: { ANTHROPIC_API_KEY: "sk-ant-leaked0123456789" } } };
+  // A value shaped like none of TOKEN_SHAPE_RES, so this only passes via the env-value loop.
+  fs.writeFileSync(bad, "#!/bin/sh\necho 'Failed to authenticate: token ANTHROPIC_API_KEY=plainsecretvalue123' >&2\nexit 1\n", { mode: 0o755 });
+  const harnesses = { local: { bin: bad, env: { ANTHROPIC_API_KEY: "plainsecretvalue123" } } };
   const pipeline = [{ id: "code", harness: ["local"] }, { id: "done", manual: true }];
   const { info, events } = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "local" });
   assert.match(String(info.health?.reason), /^exited 1 with no output after \d+s: Failed to authenticate: token ANTHROPIC_API_KEY=\*\*\*$/);
-  assert.ok(!String(info.health?.reason).includes("sk-ant-leaked0123456789"), "the secret value never reaches the reason");
+  assert.ok(!String(info.health?.reason).includes("plainsecretvalue123"), "the secret value never reaches the reason");
   assert.ok(String(info.health?.reason).length <= 300);
   const end = events.find((e) => e.event === "run_end");
   assert.equal(end.outcome, "requeued", "the secret never leaked into run_end's reason either");
-  assert.ok(!String(end.reason).includes("sk-ant-leaked0123456789"));
+  assert.ok(!String(end.reason).includes("plainsecretvalue123"));
 });
 
 test("breaker: the same shape with a 4xx API Error line never trips — plain fail, no health", async () => {
