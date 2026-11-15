@@ -350,6 +350,7 @@ a duplicate webhook for the same ref+step coalesces away silently; carries `kind
 `"pipeline"`/`"merge"`/`"ci"` — so a CI/merge job's enqueue isn't mistaken for a pipeline re-run),
 `run_start`, `run_end
 {outcome, costUsd}` (`repaired: true|false` only when a verdict-repair turn ran — see `verdict_repair`;
+`gate: "pass"|"fail"` only when the step's `gate` ran at least once — see `gate_pass`/`gate_fail`;
 `verdictSource: "agent"|"repaired"|"deduced"` says where the outcome came from — a verdict file the
 agent wrote, the repair turn's, or deduced from the branch's commits; absent for a receiver-forced
 verdict or the `requireVerdict:false` assumed-advance),
@@ -358,7 +359,11 @@ turn — same session, fixed prompt — before a human is involved; `result` = `
 `"still_missing"`; fires right before `run_end`; skipped entirely when the run instead qualifies
 for a deduced verdict), `verdict_missing {reason}` (a clean exit with no
 usable verdict file, after any repair turns, right before the hold it forces; a `blocked` event
-follows; never fires for a deduced run), `blocked {reason}` (task now held),
+follows; never fires for a deduced run),
+`gate_pass` / `gate_fail {exitCode, durationMs, timedOut?}` (the step's `gate` ran, in the run's
+own executor, after an advance and before the move — it can only veto that advance; a `gate_fail`
+gets one more agent turn carrying the gate's output, then the gate runs again; exhausting
+`maxAttempts` with it still failing holds the task instead), `blocked {reason}` (task now held),
 `failed {reason}`, `merged` (`via:"recheck"` when a `recheck` learned it rather than the forge's webhook),
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),

@@ -849,6 +849,62 @@ test("ssh executor code transport (#690): a worktree step's agent commits on the
   }
 });
 
+test("ssh executor raw launch (#710's gate): runs the given argv verbatim on the worker, with an empty prompt, and done() never fetches edits back", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-raw-"));
+  const workerRoot = path.join(root, "worker");
+  const hubWorktree = path.join(root, "hub-worktree");
+  fs.mkdirSync(workerRoot, { recursive: true });
+  initGitRepo(hubWorktree);
+  const branch = "agent/raw";
+  execFileSync("git", ["-C", hubWorktree, "checkout", "-b", branch], { stdio: "ignore" });
+  try {
+    const remote = { host: "worker.test", workDir: workerRoot };
+    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") } });
+    const { cwd } = executor.paths({ stepId: "code", ref: "1", hasWorktree: true });
+    const hub = { repoId: "default", repoPath: hubWorktree, worktree: hubWorktree, branch };
+    const headBefore = headOf(hubWorktree);
+
+    const box = await executor.launch({
+      runId: "gate-1",
+      ref: "1",
+      stepId: "code",
+      bin: "sh",
+      args: ["-c", "git config user.email a@test.local && git config user.name a && git commit --allow-empty -q -m raw-run; echo did-not-pull-a-prompt"],
+      env: {},
+      cwd,
+      mounts: [],
+      step: {},
+      hub,
+      raw: true,
+    });
+    assert.equal(box.stdin, framePayload(remoteEnvAllowlist({}), ""), "raw carries an empty prompt on stdin, never a real one");
+    assert.ok(fs.existsSync(cwd), "a worktree-step raw launch still gets the worker worktree synced");
+
+    // Stdin must stay open until the remote process exits on its own (closing it is itself one of
+    // the launcher's kill signals, src/dispatch/spawn.js) — never execFileSync/spawnSync's
+    // write-then-close, which would race the kill watchdog.
+    const { spawn } = await import("node:child_process");
+    const out = await new Promise((resolve, reject) => {
+      const child = spawn(box.bin, box.args, { stdio: ["pipe", "pipe", "pipe"] });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", () => {});
+      child.stdin.write(box.stdin);
+      child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`exit ${code}: ${stdout}`))));
+      child.on("error", reject);
+    });
+    assert.match(out, /did-not-pull-a-prompt/, "the given argv ran verbatim on the worker");
+    const report = await box.done();
+    assert.deepEqual(report, {}, "raw done() never reports a sync-back failure (it never syncs back)");
+    assert.equal(headOf(hubWorktree), headBefore, "a raw run's edits on the worker are discarded — the hub worktree never advances");
+    assert.ok(!fs.existsSync(cwd), "the worker worktree is cleaned up after a raw run");
+  } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ssh executor code transport (#690): a dirty hub worktree refuses the run before spawn; the hub file is untouched", async () => {
   const ssh = withFakeSsh();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-sync-dirty-"));

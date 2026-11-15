@@ -35,6 +35,29 @@
   `(after N repair turn(s))` to the hold reason (`verdict_missing`/`blocked` keep firing off it, via
   `verdict.js`'s shared `guardSandboxVerdict`, the same sandboxed-verdict lstat/size guard a repair
   turn's own pre-check uses before trusting the file).
+  **Gate** (#710, `src/dispatch/gate.js`): after deduce/repair settle, while still inside the same
+  `try` block, a step's optional `gate` runs when the exit is clean (no timeout/spawnError/cancel/
+  sandbox sync-back failure) and the effective verdict peeks `"advance"` (agent-written, repaired,
+  deduced, or the `requireVerdict:false` assumed-advance — `readVerdict` already covers all four).
+  It never runs for a hold/fail/changes/missing-verdict. `runGate` always goes through this run's
+  own `Executor`: host spawns the argv directly in `cwd`; sandbox wraps it through
+  `executor.launch` with the run's own mounts/egress/image, then spawns the wrapped client
+  command; ssh runs it on the worker via a `raw: true` launch (`executor-ssh.js`: the given argv
+  runs verbatim, with an empty prompt on stdin, and `done()` never fetches edits back — only
+  cleans up the worktree/export dir). An executor with no way to run a gate vetoes with a reason
+  instead of ever falling back to the host. The env is the agent's `agentSpawnEnv` **without**
+  `creds` — the gate never sees tracker/forge tokens. A non-zero exit or timeout vetoes the
+  advance: `gate_fail` fires, then — while `maxAttempts` isn't spent and ≥60s of `maxMinutes`
+  remains — one more agent turn (a resume when possible, `prompts.js`'s `gateRepairPrompt` with the
+  gate's redacted 4 KiB output tail fenced `GATE_OUTPUT`, else a fresh spawn with the step's
+  original prompt prepended) gets a chance to fix it, then the gate runs again (`gate_pass` on a
+  clean exit). Exhausting `maxAttempts` with the gate still failing forces a `hold` in `finish.js`
+  (`gate.capExhausted`), with the reason `gate failed (exit N[, timed out]) after K attempt(s):
+  <tail>`; a crashed/timed-out repair turn, or one that wrote something other than `"advance"`,
+  instead resolves through the normal code/timedOut/verdict-file path, same as a verdict-repair
+  turn's crash. Every gate-repair turn's usage sums into the run record the same way a
+  verdict-repair turn's does; `run_end`/the step summary carry `gate: "pass"|"fail"` only when a
+  gate ran at least once.
   `changes` is capped per `(ref,step)` by `maxAttempts` (default 3) to bound the rework loop. A
   `merge` job spawns no agent; it is the **bridge** for boards that can't hear merges: fail-closed
   assignee check → `adapter.enterStage` into the `completeOnMerge` (manual) step (its own webhook

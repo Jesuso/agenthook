@@ -380,6 +380,19 @@ async function syncAfter(cfg, remote, stateKey, hub, cwd, beforeSha) {
   return result;
 }
 
+/** Cleanup-only counterpart to `syncAfter`, for a `raw` launch (#710's gate): remove the worker
+ * worktree (pruning the bare repo's admin) or export dir — never fetches anything back.
+ * @param {import('../types.js').RemoteHarness} remote @param {string|undefined} gitPath @param {string} cwd
+ * @param {{repoId: string, repoPath: string, worktree?: string, branch?: string}|undefined} hub
+ * @returns {Promise<void>} */
+async function cleanupWorker(remote, gitPath, cwd, hub) {
+  if (hub?.worktree && hub?.branch && gitPath) {
+    await runRemote(remote, `git -C ${shQuote(gitPath)} worktree remove --force ${shQuote(cwd)} 2>/dev/null; git -C ${shQuote(gitPath)} worktree prune`);
+  } else {
+    await runRemote(remote, `rm -rf ${shQuote(cwd)}`);
+  }
+}
+
 /** Non-secret run metadata + a couple of locale/CI knobs — everything else (tracker/forge
  * tokens, per-run App tokens, ANTHROPIC_ and CLAUDE_ vars, SSH_AUTH_SOCK, an arbitrary harness `env` key)
  * is dropped. `AGENTHOOK_VERDICT_FILE` rides the `AGENTHOOK_` prefix. TERM/LANG/CI come straight
@@ -469,9 +482,11 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
         hubVerdictFile: spawnPaths.sandboxVerdictPathFor(stepId, ref),
       };
     },
-    launch: async ({ runId, ref, stepId, args, env, cwd, hub }) => {
-      const prompt = args[1]; // buildClaudeArgs/resumeClaudeArgs always put the prompt at args[1]
-      const execArgv = [remote.bin || "claude", args[0], ...args.slice(2)]; // drop the prompt — it travels on stdin, never argv
+    launch: async ({ runId, ref, stepId, bin, args, env, cwd, hub, raw }) => {
+      // `raw` (#710, a step's gate): the given argv runs on the worker verbatim — never the
+      // agent-launch assumption that `args[1]` is a prompt to pull off argv onto stdin.
+      const prompt = raw ? "" : args[1]; // buildClaudeArgs/resumeClaudeArgs always put the prompt at args[1]
+      const execArgv = raw ? [bin, ...args] : [remote.bin || "claude", args[0], ...args.slice(2)]; // drop the prompt — it travels on stdin, never argv
       const runsDir = remoteRunsDir(remote, stateKey);
       const safeRunId = safePart(runId);
       const pgidFile = `${runsDir}/${safeRunId}.pgid`;
@@ -482,6 +497,7 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
       // dir) when a caller goes through step.js. A launch() with no `hub` (this module's own
       // low-level tests) skips the sync entirely and just cds into whatever `cwd` it was given.
       const workDir = cwd || remote.workDir;
+      const gitPath = hub ? remoteRepoGitPath(remote, stateKey, hub.repoId) : undefined;
       const beforeSha = hub ? await syncBefore(cfg, remote, stateKey, hub, workDir) : undefined;
       const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, execArgv });
       return {
@@ -507,6 +523,12 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
           // the run ended aren't stranded on the worker. A failure here never masks the verdict
           // copy-back above (already done) — it only ever adds `failed`, which step.js maps onto
           // `refused` so the run fails instead of advancing on code the hub never actually got.
+          // A `raw` run (a gate, #710) never fetches back — its edits, if any, are discarded —
+          // and only cleans up the worker worktree/export dir.
+          if (raw) {
+            await cleanupWorker(remote, gitPath, workDir, hub);
+            return {};
+          }
           if (!hub) return {};
           try {
             return await syncAfter(cfg, remote, stateKey, hub, workDir, beforeSha);

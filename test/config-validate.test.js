@@ -244,6 +244,26 @@ test("pipeline step deduceVerdict: a boolean passes; a non-boolean and a manual 
   assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" deduceVerdict has no effect on a manual step (no agent runs).`]);
 });
 
+test("pipeline step gate: a non-empty string or array passes; empty/wrong shapes and a manual step fail", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "triage", gate: "npm test" }, { id: "code", gate: ["sh", "-c", "npm test"] }])), { ok: true });
+  for (const v of ["", [], [""], [5], 5]) {
+    const r = validateRawConfig(raw({}, [{ id: "triage", gate: v }]));
+    assert.deepEqual(!r.ok && r.errors, [`config: pipeline step "triage" gate must be a non-empty string or a non-empty array of strings.`], `gate ${JSON.stringify(v)}`);
+  }
+  const m = validateRawConfig(raw({}, [{ id: "code" }, { id: "done", manual: true, gate: "npm test" }]));
+  assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" gate has no effect on a manual step (no agent runs).`]);
+});
+
+test("pipeline step gateTimeoutMinutes: a positive number passes; 0/-1/non-number fail, and it needs a \"gate\"", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "triage", gate: "npm test", gateTimeoutMinutes: 5 }])), { ok: true });
+  for (const v of [0, -1, "5"]) {
+    const r = validateRawConfig(raw({}, [{ id: "triage", gate: "npm test", gateTimeoutMinutes: v }]));
+    assert.deepEqual(!r.ok && r.errors, [`config: pipeline step "triage" gateTimeoutMinutes must be a number > 0.`], `gateTimeoutMinutes ${JSON.stringify(v)}`);
+  }
+  const m = validateRawConfig(raw({}, [{ id: "triage", gateTimeoutMinutes: 5 }]));
+  assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "triage" gateTimeoutMinutes has no effect without a "gate".`]);
+});
+
 test("pipeline step bin/env: a valid pair and ${VAR} values pass; bad shapes, names and the reserved key fail", () => {
   const ok = validateRawConfig(raw({}, [{ id: "code", bin: "claude-local", env: { CLAUDE_CONFIG_DIR: "/home/x/.claude-alt", API_KEY: "${ALT_KEY}", _x1: "" } }]));
   assert.deepEqual(ok, { ok: true });
