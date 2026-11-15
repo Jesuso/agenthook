@@ -23,6 +23,7 @@ import { buildRows, readProfileState } from "./ui/rows.js";
 import { readHistory } from "./ui/stats.js";
 import { canonicalLang } from "./digest-config.js";
 import { markFollowUpDone } from "./followup.js";
+import { heartbeatOverrides } from "./overrides.js";
 
 const BOARD_TTL_MS = 30 * 1000;
 const OWNERSHIP_TTL_MS = 5 * 60 * 1000;
@@ -161,6 +162,23 @@ export function createOps(deps) {
       audit(cmd, args, { ok: false, error: e.message });
       throw e;
     }
+  };
+
+  /** Persist + publish the current overrides into the heartbeat (null when none). */
+  const publishOverrides = () => heartbeat.update({ overrides: heartbeatOverrides(cfg, store.getOverrides()) });
+  /** @param {string} name @returns {string} a configured harness's name, or throws */
+  const needHarness = (name) => {
+    const n = needString(name, "harness");
+    if (!cfg.harnesses || !Object.hasOwn(cfg.harnesses, n)) throw new Error(cfg.harnesses ? `no harness "${n}" (have: ${Object.keys(cfg.harnesses).join(", ")})` : `no harness "${n}" — this profile has no harnesses`);
+    return n;
+  };
+  /** @param {import('./types.js').Overrides} o @param {string} harness  drop that harness's override (no-op if absent); persists only when it changed */
+  const clearHarnessOverride = (o, harness) => {
+    if (!o.harnesses || !Object.hasOwn(o.harnesses, harness)) return false;
+    delete o.harnesses[harness];
+    if (!Object.keys(o.harnesses).length) delete o.harnesses;
+    store.setOverrides(o);
+    return true;
   };
 
   /** @param {string} id */
@@ -363,40 +381,107 @@ export function createOps(deps) {
     },
 
     // ---- writes ----
-    pause: write("pause", async () => {
+    pause: write("pause", async (args) => {
+      const harness = args.harness !== undefined ? needHarness(args.harness) : undefined;
+      const o = store.getOverrides();
+      if (harness !== undefined) {
+        // Drain one harness: its slot override becomes 0 (no new starts; running agents finish).
+        queue.setHarnessMax(harness, 0);
+        o.harnesses = { ...(o.harnesses ?? {}), [harness]: 0 };
+        store.setOverrides(o);
+        publishOverrides();
+        return { harness, maxConcurrent: 0, note: `draining "${harness}": no new starts until it is unpaused; persists across restarts`, ...queue.state() };
+      }
       pacer?.operatorPause();
       queue.pause();
+      o.paused = true;
+      store.setOverrides(o);
       heartbeat.update({ paused: true });
-      return { paused: true, ...queue.state() };
+      publishOverrides();
+      return { paused: true, note: "persists across restarts; unpause to clear", ...queue.state() };
     }),
-    resume: write("resume", async () => {
+    resume: write("resume", async (args) => {
+      const harness = args.harness !== undefined ? needHarness(args.harness) : undefined;
+      if (harness !== undefined) {
+        const o = store.getOverrides();
+        const had = clearHarnessOverride(o, harness);
+        if (had) {
+          queue.setHarnessMax(harness, cfg.harnesses?.[harness]?.maxConcurrent ?? null);
+          publishOverrides();
+        }
+        return {
+          harness,
+          ...(had ? { maxConcurrent: cfg.harnesses?.[harness]?.maxConcurrent ?? null, note: `"${harness}" back to its config value` } : { note: `no override for harness "${harness}"` }),
+          ...queue.state(),
+        };
+      }
       if (isLocked()) return { paused: queue.isPaused(), note: "a restart/decommission/shutdown holds the queue; not resumed", ...queue.state() };
       const overrideUntil = pacer?.operatorResume() ?? null;
       queue.resume();
+      const o = store.getOverrides();
+      if (o.paused === true) {
+        delete o.paused;
+        store.setOverrides(o);
+      }
       heartbeat.update({ paused: false });
+      publishOverrides();
       await pull().catch((e) => console.warn(`[ops] pull after resume failed: ${e.message}`)); // pulls were skipped while paused
       return { paused: false, ...(overrideUntil ? { note: `quota pause overridden until ${overrideUntil}` } : {}), ...queue.state() };
     }),
     set_concurrency: write("set_concurrency", async (args) => {
+      const harness = args.harness !== undefined ? needHarness(args.harness) : undefined;
+      const reset = args.reset === true;
+      const hasMax = args.max !== undefined;
+      if (hasMax === reset) throw new Error("give exactly one of `max` or `reset: true`");
+      const o = store.getOverrides();
+      if (reset) {
+        if (harness !== undefined) {
+          const had = clearHarnessOverride(o, harness);
+          if (had) {
+            queue.setHarnessMax(harness, cfg.harnesses?.[harness]?.maxConcurrent ?? null);
+            publishOverrides();
+          }
+          return { harness, reset: true, ...(had ? { note: `"${harness}" back to its config value` } : { note: `no override for harness "${harness}"` }), ...queue.state() };
+        }
+        if (o.maxConcurrent !== undefined) {
+          delete o.maxConcurrent;
+          store.setOverrides(o);
+          queue.setMax(cfg.maxConcurrent);
+          heartbeat.update({ maxConcurrent: cfg.maxConcurrent });
+          publishOverrides();
+        }
+        return { maxConcurrent: cfg.maxConcurrent, reset: true, note: "global cap back to its config value", ...queue.state() };
+      }
       const n = args.max;
       // One named harness's cap: the global cap (and heartbeat.maxConcurrent) stay as they are.
-      if (args.harness !== undefined) {
-        const harness = needString(args.harness, "harness");
+      if (harness !== undefined) {
         // 0 is harness-only: it drains that harness at runtime (no new starts; running agents
         // finish) — the escape hatch while a backend is down and the breaker hasn't tripped.
         if (!Number.isInteger(n) || n < 0 || n > 64) throw new Error("max must be an integer 0..64");
         queue.setHarnessMax(harness, n);
-        return {
-          harness,
-          maxConcurrent: n,
-          note: n === 0 ? "draining: no new starts until re-enabled; runtime only, the config file is unchanged" : "runtime only; the config file is unchanged",
-          ...queue.state(),
-        };
+        const configVal = cfg.harnesses?.[harness]?.maxConcurrent ?? null;
+        if (n === configVal) clearHarnessOverride(o, harness);
+        else {
+          o.harnesses = { ...(o.harnesses ?? {}), [harness]: n };
+          store.setOverrides(o);
+        }
+        publishOverrides();
+        return { harness, maxConcurrent: n, note: n === 0 ? "draining: no new starts until re-enabled; persists until reset" : "persists until reset", ...queue.state() };
       }
       if (!Number.isInteger(n) || n < 1 || n > 64) throw new Error("max must be an integer 1..64");
       queue.setMax(n);
       heartbeat.update({ maxConcurrent: n });
-      return { maxConcurrent: n, note: "runtime only; the config file is unchanged", ...queue.state() };
+      if (n === cfg.maxConcurrent) {
+        if (o.maxConcurrent !== undefined) {
+          delete o.maxConcurrent;
+          store.setOverrides(o);
+        }
+      } else {
+        o.maxConcurrent = n;
+        store.setOverrides(o);
+      }
+      publishOverrides();
+      return { maxConcurrent: n, note: "persists until reset", ...queue.state() };
     }),
     harness_reset: write("harness_reset", async (args) => {
       if (!cfg.harnesses) throw new Error("this profile has no harnesses");

@@ -19,6 +19,24 @@ All notable changes to this project are documented here. The format is based on
   for quota with its reopen time (and stop counting it as Needs you). `harness_reset` on a
   quota-closed harness suppresses re-closing until that window resets.
 
+- A step's optional `gate` (#710): a command the receiver runs, in the run's own executor, right
+  after an `advance` (agent-written, repaired, or deduced) and before the move — it can only veto
+  that advance, never grant one. A non-zero exit or timeout gets the agent one more turn carrying
+  the gate's output (a resume when possible), up to the step's `maxAttempts`, then holds with the
+  output tail in the reason. Catches the case where an agent's "typecheck green" doesn't match
+  what the repo's own checks say, before a whole review run is spent on code that doesn't compile.
+  See `gate`/`gateTimeoutMinutes` in [getting-started.md](docs/getting-started.md) and the new
+  `gate_pass`/`gate_fail` events. The ssh executor gained an opt-in `raw` launch mode so a remote
+  step's gate runs on the worker, never the hub.
+- Operator runtime overrides — the global `pause`, global `set_concurrency {max}`, and per-harness
+  `set_concurrency {harness, max}` (and `pause {harness}` drain) — now persist in `overrides.json`
+  and are re-applied at boot, so a restart no longer silently drops a pause or a drained harness
+  (#724). Reset spelling is `set_concurrency {reset: true}` (with `harness` for one harness);
+  `pause`/`resume` take an optional `harness`, and a value equal to the config value clears the
+  entry. The heartbeat carries an `overrides` field (`{paused, maxConcurrent: {value, config},
+  harnesses: {…}}`) that `tick`/`status`/`doctor` render next to the configured value. New CLI
+  commands `agenthook pause` / `unpause` / `concurrency <n|reset> [--harness <name>]`.
+
 - A ratchet test (`test/any-ratchet.test.js`, baseline `test/any-baseline.json`) fails `npm test`
   if explicit `any` tokens (JSDoc in `src/`, TS in `ui/src/`) grow past the committed baseline;
   `test/**` now has its own `tsconfig.test.json` and `npm run typecheck:test`, run non-blocking in

@@ -457,7 +457,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
      * gets a `cause:"quota"` entry, and `unharnessed` also sets the queue-level gate that waits the
      * profile's unharnessed shared claude steps. A quota entry never adds strikes; it reads `down`
      * until `until`, then `up` (never `probing`). It never shortens a harness already health-down
-     * past `until`, and an identical closure is a no-op. Re-arms the one-shot reopen timer.
+     * past `until`, never shortens (or re-emits) a harness already quota-closed to a later `until`,
+     * and an identical closure is a no-op. Re-arms the one-shot reopen timer.
      * @param {string[]} names
      * @param {{until: number, reason: string, unharnessed?: boolean, window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}} opts
      */
@@ -466,7 +467,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       for (const name of names) {
         const cur = health.get(name);
         if (cur && cur.cause !== "quota" && cur.until > until) continue; // a longer health-down stands
-        if (cur?.cause === "quota" && cur.until === until && cur.reason === reason) continue; // idempotent
+        if (cur?.cause === "quota" && cur.until >= until) continue; // never shorten a quota closure, nor re-emit on a slightly different reading
         health.set(name, { until, strikes: cur?.strikes ?? 0, reason, cause: "quota" });
         console.log(`[harness] ${name} closed for quota until ${new Date(until).toISOString()}`);
         harnessing?.onHarnessDown?.(name, { reason, until: new Date(until).toISOString(), cause: "quota", ...(window ? { window, utilization, threshold } : {}) });
@@ -530,12 +531,13 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
      * Change one named harness's slot cap at runtime (not persisted to config). 0 drains the
      * harness: `hasRoom` is false until raised again, so no new starts while running agents
      * finish. Lowering it below its running count kills nothing — it only gates new starts; a
-     * raise starts waiting jobs now. Throws for a name that isn't a configured harness.
-     * @param {string} name @param {number} n
+     * raise starts waiting jobs now. `null` resets it to unbounded (only the global cap). Throws
+     * for a name that isn't a configured harness.
+     * @param {string} name @param {number | null} n
      */
     setHarnessMax(name, n) {
       if (!Object.hasOwn(harnessCaps, name)) throw new Error(`unknown harness "${name}"`);
-      harnessCaps[name] = n;
+      harnessCaps[name] = n ?? undefined;
       report();
       pump();
     },

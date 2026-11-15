@@ -78,6 +78,7 @@ export function createStore(dataDir) {
   const summariesFile = path.join(dataDir, "summaries.json");
   const mergeWatermarkFile = path.join(dataDir, "merge-watermark.json");
   const harnessHealthFile = path.join(dataDir, "harness-health.json");
+  const overridesFile = path.join(dataDir, "overrides.json");
 
   /** @param {string} f @param {any} fallback */
   const readJson = (f, fallback) => {
@@ -311,6 +312,18 @@ export function createStore(dataDir) {
     },
     setHarnessHealth: (down, unharnessedUntil) => {
       fs.writeFileSync(harnessHealthFile, JSON.stringify({ down, ...(unharnessedUntil ? { unharnessedUntil } : {}) }));
+    },
+    // --- operator runtime overrides (overrides.json): {paused?, maxConcurrent?, harnesses?} ---
+    getOverrides: () => {
+      const o = readJson(overridesFile, {});
+      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    },
+    setOverrides: (o) => {
+      if (!o || !Object.keys(o).length) {
+        fs.rmSync(overridesFile, { force: true });
+        return;
+      }
+      fs.writeFileSync(overridesFile, JSON.stringify(o));
     },
     // --- per-ref review findings (findings.json): set on a `changes` bounce, read by the target step ---
     getFindings: (ref) => readJson(findingsFile, {})[ref],

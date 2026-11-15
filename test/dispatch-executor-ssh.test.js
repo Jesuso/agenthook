@@ -849,6 +849,62 @@ test("ssh executor code transport (#690): a worktree step's agent commits on the
   }
 });
 
+test("ssh executor raw launch (#710's gate): runs the given argv verbatim on the worker, with an empty prompt, and done() never fetches edits back", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-raw-"));
+  const workerRoot = path.join(root, "worker");
+  const hubWorktree = path.join(root, "hub-worktree");
+  fs.mkdirSync(workerRoot, { recursive: true });
+  initGitRepo(hubWorktree);
+  const branch = "agent/raw";
+  execFileSync("git", ["-C", hubWorktree, "checkout", "-b", branch], { stdio: "ignore" });
+  try {
+    const remote = { host: "worker.test", workDir: workerRoot };
+    const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") } });
+    const { cwd } = executor.paths({ stepId: "code", ref: "1", hasWorktree: true });
+    const hub = { repoId: "default", repoPath: hubWorktree, worktree: hubWorktree, branch };
+    const headBefore = headOf(hubWorktree);
+
+    const box = await executor.launch({
+      runId: "gate-1",
+      ref: "1",
+      stepId: "code",
+      bin: "sh",
+      args: ["-c", "git config user.email a@test.local && git config user.name a && git commit --allow-empty -q -m raw-run; echo did-not-pull-a-prompt"],
+      env: {},
+      cwd,
+      mounts: [],
+      step: {},
+      hub,
+      raw: true,
+    });
+    assert.equal(box.stdin, framePayload(remoteEnvAllowlist({}), ""), "raw carries an empty prompt on stdin, never a real one");
+    assert.ok(fs.existsSync(cwd), "a worktree-step raw launch still gets the worker worktree synced");
+
+    // Stdin must stay open until the remote process exits on its own (closing it is itself one of
+    // the launcher's kill signals, src/dispatch/spawn.js) — never execFileSync/spawnSync's
+    // write-then-close, which would race the kill watchdog.
+    const { spawn } = await import("node:child_process");
+    const out = await new Promise((resolve, reject) => {
+      const child = spawn(box.bin, box.args, { stdio: ["pipe", "pipe", "pipe"] });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", () => {});
+      child.stdin.write(box.stdin);
+      child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`exit ${code}: ${stdout}`))));
+      child.on("error", reject);
+    });
+    assert.match(out, /did-not-pull-a-prompt/, "the given argv ran verbatim on the worker");
+    const report = await box.done();
+    assert.deepEqual(report, {}, "raw done() never reports a sync-back failure (it never syncs back)");
+    assert.equal(headOf(hubWorktree), headBefore, "a raw run's edits on the worker are discarded — the hub worktree never advances");
+    assert.ok(!fs.existsSync(cwd), "the worker worktree is cleaned up after a raw run");
+  } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ssh executor code transport (#690): a dirty hub worktree refuses the run before spawn; the hub file is untouched", async () => {
   const ssh = withFakeSsh();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-sync-dirty-"));
@@ -1146,6 +1202,8 @@ test("ssh executor code transport (#690): GIT_SSH_COMMAND carries BatchMode=yes 
  * double) against the worktree #690 synced there — not directly in the hub worktree.
  * @param {{pipeline: any[]}} o */
 function remoteWorktreeHarness({ pipeline }) {
+  /** @type {any[]} */
+  const events = [];
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-pipeline-"));
   const repoDir = path.join(dir, "repo");
   const workDir = path.join(dir, "work");
@@ -1180,7 +1238,7 @@ function remoteWorktreeHarness({ pipeline }) {
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push({ ref, stepId, ...verdict }),
   });
-  const run = createDispatcher(cfg, adapter, undefined, store, () => {});
+  const run = createDispatcher(cfg, adapter, undefined, store, (event, ref, step, extra) => events.push({ event, ref, step, ...extra }));
   /** @param {string} stepId @param {string} scriptBody the fixed `agentScript`'s new contents */
   const runStep = async (stepId, scriptBody) => {
     fs.writeFileSync(agentScript, scriptBody, { mode: 0o755 });
@@ -1192,7 +1250,7 @@ function remoteWorktreeHarness({ pipeline }) {
       console.log = log;
     }
   };
-  return { cfg, store, advanced, runStep, dir, repoDir, workDir, agentScript };
+  return { cfg, store, advanced, events, runStep, dir, repoDir, workDir, agentScript };
 }
 
 const WORKTREE_PIPELINE = [
@@ -1312,6 +1370,40 @@ test("dispatch: a remote run's verdict-REPAIR turn is the one that rewrites hist
     assert.match(h.advanced[0].reason, /rewritten|diverged/);
     const headAfter = execFileSync("git", ["-C", h.repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     assert.equal(headAfter, headBefore, "the hub worktree/branch must stay exactly where it was");
+  } finally {
+    ssh.restore();
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+// --- gate (#710) on the ssh executor ---
+
+const GATE_PIPELINE = [
+  { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0, gate: "true", gateTimeoutMinutes: 1 },
+  { id: "review", sourceLabel: "src:review" },
+];
+
+test("dispatch: an ssh step's gate runs via a raw launch, through the real sandboxVerdictPathFor wiring — a passing gate must not wipe the agent's own advance verdict", async () => {
+  const ssh = withFakeSsh();
+  const h = remoteWorktreeHarness({ pipeline: GATE_PIPELINE });
+  const scriptBody = [
+    "#!/bin/sh",
+    "cat > /dev/null",
+    'mkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"',
+    'echo \'{"outcome":"advance","reason":"the agent itself thinks it succeeded"}\' > "$AGENTHOOK_VERDICT_FILE"',
+    'printf \'{"type":"result","subtype":"success","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n\'',
+    "exit 0",
+    "",
+  ].join("\n");
+  try {
+    const result = await h.runStep("code", scriptBody);
+    assert.equal(result.code, 0, JSON.stringify(result));
+    assert.equal(h.advanced.length, 1, "exactly one advance — the gate must veto, not grant, and here it passes");
+    assert.equal(h.advanced[0].outcome, "advance", `a passing raw-launched gate must not cost the agent's own verdict (got ${JSON.stringify(h.advanced[0])})`);
+    assert.equal(h.advanced[0].reason, "the agent itself thinks it succeeded", "the agent's own verdict reason must survive the gate run untouched");
+    assert.ok(h.events.some((e) => e.event === "gate_pass"), "gate_pass must have fired");
+    assert.ok(!h.events.some((e) => e.event === "gate_fail"), "the gate must not be reported as failing");
+    assert.ok(h.events.some((e) => e.event === "run_end" && e.outcome === "advance" && e.gate === "pass"), `run_end must carry gate: "pass" (got ${JSON.stringify(h.events.filter((e) => e.event === "run_end"))})`);
   } finally {
     ssh.restore();
     fs.rmSync(h.dir, { recursive: true, force: true });

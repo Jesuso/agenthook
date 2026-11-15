@@ -12,6 +12,7 @@ import { costOf, formatSpend, pricingOf, sumCosts } from "../pricing.js";
 import { formatQuota, normalizeTrip } from "../quota.js";
 import { readQuota } from "../quota-file.js";
 import { harnessTotals } from "../harness-usage.js";
+import { fileOverrideEntries, overrideEntries } from "../overrides.js";
 
 /**
  * Format a token count as a human-readable string (e.g. "1.2M", "340K").
@@ -178,6 +179,14 @@ export async function status(args) {
         : ` · ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`
       : "";
     console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens${state}`);
+  }
+
+  // Operator runtime overrides: active ones from the heartbeat while up; the persisted file while
+  // down (the receiver re-applies it on start).
+  if (p.up) {
+    for (const entry of overrideEntries(hb.overrides)) console.log(`override : ${entry}`);
+  } else {
+    for (const entry of fileOverrideEntries(store.getOverrides())) console.log(`override : ${entry} (persisted — applies on start)`);
   }
 
   // Most recent run logs — with per-run token figures where available.

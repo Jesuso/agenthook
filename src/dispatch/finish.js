@@ -48,6 +48,7 @@ import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMer
  * @property {string} [lastText]  the run's last output (its final result text, else rendered-stdout tail) for the question-hold detector
  * @property {{turns: number, repaired: boolean, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [repair]  the receiver-driven verdict-repair turns (#677) this run took, when any did: `turns` = how many ran, `repaired` = the last one wrote a valid verdict, `results`/`turnStats` = each repair spawnAgent() result / its turnStats, oldest first — absent when no repair was attempted
  * @property {{commits: number}} [deduced]  a verdict deduced from commits (#680, src/dispatch/step.js `deduceVerdict`) instead of a repair turn — `commits` = how many the branch gained since the run started; absent when none was deduced
+ * @property {{result: "pass"|"fail", capExhausted?: boolean, reason?: string, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [gate]  the step's `gate` (#710), when it ran at least once: `result` = its last outcome; `capExhausted` = every attempt spent with it still failing — `reason` then forces a hold (gate failed (…): the output tail); any other `result: "fail"` already resolved through the normal spawned-fields path (a crashed/timed-out repair turn, or one that wrote something other than "advance"); `results`/`turnStats` = each gate-repair spawnAgent() turn, oldest first — absent when no gate ran
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -57,7 +58,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced, gate } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -118,6 +119,22 @@ export function createFinish(ctx) {
         if (typeof ru.sessionId === "string") usage.sessionId = ru.sessionId;
       }
       for (const ts of repair.turnStats) {
+        usage.turns = (usage.turns || 0) + (ts.turns || 0);
+        if (typeof ts.peakContext === "number") usage.peakContext = Math.max(usage.peakContext ?? 0, ts.peakContext);
+        if (typeof ts.lastContext === "number") usage.lastContext = ts.lastContext;
+        if (typeof ts.compactions === "number") usage.compactions = (usage.compactions || 0) + ts.compactions;
+      }
+    }
+    // Gate-repair turns (#710): summed the same way as verdict-repair's, above.
+    if (gate?.results?.length) {
+      for (const r of gate.results) {
+        const ru = agent.usageRecord(r.result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt });
+        for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) usage[k] = (usage[k] || 0) + (ru[k] || 0);
+        if (typeof ru.costUsd === "number") usage.costUsd = (usage.costUsd || 0) + ru.costUsd;
+        if (typeof ru.durationMs === "number") usage.durationMs = (usage.durationMs || 0) + ru.durationMs;
+        if (typeof ru.sessionId === "string") usage.sessionId = ru.sessionId;
+      }
+      for (const ts of gate.turnStats) {
         usage.turns = (usage.turns || 0) + (ts.turns || 0);
         if (typeof ts.peakContext === "number") usage.peakContext = Math.max(usage.peakContext ?? 0, ts.peakContext);
         if (typeof ts.lastContext === "number") usage.lastContext = ts.lastContext;
@@ -224,13 +241,25 @@ export function createFinish(ctx) {
     }
     // Deduced verdict (#680): step.js's `deduceVerdict` already gated this on a qualifying
     // implement/change step whose branch gained commits, skipping the repair turn above entirely —
-    // so it only ever competes with the still-missing case, never with a repair's outcome.
+    // so it only ever competes with the still-missing case, never with a repair's outcome. Never
+    // applies after a FAILED gate (#710): the run's effective advance was vetoed, so it must hold
+    // (step.js's gate loop returns capExhausted for the deduced + no-repair-verdict case; this is
+    // the second half of that guarantee for any other path where the gate ran and stayed fail).
     let deducedApplied = false;
-    if (deduced && missingVerdict) {
+    if (deduced && missingVerdict && gate?.result !== "fail") {
       verdict.outcome = "advance";
       verdict.reason = `no verdict written; advanced because the run added ${deduced.commits} commit${deduced.commits === 1 ? "" : "s"}`;
       missingVerdict = false;
       deducedApplied = true;
+    }
+    // The gate (#710): every attempt is spent and it is still failing — force a hold naming the
+    // output tail. Any other `gate.result === "fail"` already resolved through the normal
+    // code/timedOut/verdict-file path above (a crashed/timed-out repair turn, or one that wrote
+    // something other than "advance") — this is the only case the gate itself forces.
+    if (gate?.capExhausted) {
+      verdict.outcome = "hold";
+      verdict.reason = gate.reason;
+      missingVerdict = false;
     }
     // Absent for a hold with no verdict, every receiver-forced verdict (refused/spawn-failed/
     // cancelled/timeout/non-zero exit — none of those is anyone's verdict claim), and the
@@ -281,6 +310,7 @@ export function createFinish(ctx) {
       ...(energyRec ?? {}),
       ...tokens,
       ...(repair ? { repaired: !!repair.repaired } : {}),
+      ...(gate ? { gate: gate.result } : {}),
       ...(sandboxReport?.extra ?? {}),
     });
     if (verdict.outcome === "hold") {
@@ -356,7 +386,7 @@ export function createFinish(ctx) {
     // drops the step's earlier summary, so a stale one never outlives a re-run.
     if (store) {
       if (verdict.summary) {
-        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString(), ...(run.headSha ? { headSha: run.headSha } : {}), ...(verdictSource ? { verdictSource } : {}) });
+        store.setSummary(job.ref, step.id, { summary: verdict.summary, outcome: verdict.outcome, run: path.basename(logPath), at: new Date().toISOString(), ...(run.headSha ? { headSha: run.headSha } : {}), ...(verdictSource ? { verdictSource } : {}), ...(gate ? { gate: gate.result } : {}) });
       } else {
         store.clearSummary(job.ref, step.id);
       }

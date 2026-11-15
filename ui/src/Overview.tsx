@@ -462,19 +462,21 @@ function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harne
   return (
     <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
       {Object.entries(harnesses).map(([name, h]) => {
-        const down = h.state === "down" || h.state === "probing";
-        const quotaBack = h.cause === "quota" && h.until ? t("overview.harnessQuotaBack", { when: hhmm(h.until) }) : null;
+        const quota = h.cause === "quota";
+        const down = !quota && (h.state === "down" || h.state === "probing");
+        const quotaBack = quota && h.until ? t("overview.harnessQuotaBack", { when: hhmm(h.until) }) : null;
         return (
           <span
             key={name}
             data-harness={name}
             data-harness-state={h.state}
             data-harness-cause={h.cause}
-            className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : "border-border"}`}
+            className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : quota ? "border-status-held/40 bg-status-held-bg text-status-held" : "border-border"}`}
             title={quotaBack ?? (down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max }))}
           >
-            {name} <span className={down ? "" : "text-fg"}>{h.active}</span>
-            <span className={down ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
+            {name} <span className={down || quota ? "" : "text-fg"}>{h.active}</span>
+            <span className={down || quota ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
+            {quotaBack ? <span className="ml-1 text-muted">· {quotaBack}</span> : null}
           </span>
         );
       })}

@@ -12,6 +12,7 @@ import { quotaGroupOf } from "../src/dispatch/harness.js";
 import { createQueue } from "../src/queue.js";
 import { createHarnessQuota } from "../src/engine/controllers.js";
 import { createStore } from "../src/store.js";
+import { createOps } from "../src/ops.js";
 import { harnessQuotaLints } from "../src/commands/doctor.js";
 
 const T0 = Date.parse("2026-11-08T12:00:00Z");
@@ -220,6 +221,47 @@ test("harness controller: harness_reset suppresses re-closing the harness until 
   h.controller.reading(READING, { harness: "sharedA", stepId: "code" });
   assert.equal(h.closes.length, 2);
   assert.deepEqual(h.closes[1].names, ["sharedB"], "the suppressed harness is not re-closed, its sibling still is");
+});
+
+test("harness_reset (ops): reopens a quota-closed harness, starts its waiting job, and a further reading before resetsAt does not re-close it", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-hq-reset-"));
+  const c = clock();
+  const cfg = /** @type {any} */ ({
+    name: "t",
+    provider: "github",
+    stateDir: dir,
+    dataDir: dir,
+    agent: "claude",
+    pipeline: [{ id: "code", harness: ["A", "B"] }],
+    quota: { pauseAboveSevenDay: 0.9 },
+    harnesses: { A: { agent: "claude", maxConcurrent: 1 }, B: { agent: "claude", maxConcurrent: 1 } },
+  });
+  const store = createStore(dir);
+  /** @type {string[]} */ const started = [];
+  const queue = createQueue(2, (j) => new Promise(() => started.push(`${j.ref}:${j.harness ?? "-"}`)), undefined, undefined, {}, {
+    steps: { code: { harnesses: ["A", "B"], routing: "first-free" } },
+    caps: { A: 1, B: 1 },
+    now: c.now,
+    setTimer: c.setTimer,
+    clearTimer: c.clearTimer,
+  });
+  const hb = { quota: null };
+  const heartbeat = { update: (/** @type {any} */ p) => Object.assign(hb, p) };
+  const harnessQuota = createHarnessQuota({ cfg, queue, heartbeat, now: c.now });
+  const ops = createOps({ cfg, store, adapter: {}, forge: null, queue, cancelRun: () => false, intake: () => 0, emit: () => {}, heartbeat, pull: async () => {}, isLocked: () => false, harnessQuota });
+  // A reading on A trips the shared group: both A and B close.
+  harnessQuota.reading(READING, { harness: "A", stepId: "code" });
+  assert.equal(queue.harnessState().A.state, "down");
+  assert.equal(queue.harnessState().B.state, "down");
+  queue.enqueue(job("R", "code"));
+  assert.deepEqual(started, [], "both harnesses closed: R waits");
+  const r = await ops.harness_reset({ harness: "A" });
+  assert.equal(r.reset, true);
+  assert.deepEqual(started, ["R:A"], "A reopens and starts the waiting job");
+  // A further above-threshold reading before resetsAt re-closes nothing: A is suppressed.
+  harnessQuota.reading(READING, { harness: "A", stepId: "code" });
+  assert.equal(queue.harnessState().A.state, "up", "A stays up — the reset suppressed re-closing");
+  assert.equal(queue.harnessState().B.state, "down");
 });
 
 test("harness controller: a below-threshold reading closes nothing", () => {

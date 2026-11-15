@@ -6,6 +6,7 @@
 // a JSON object `{stateKey: offset}`.
 import { defaultProfileKey, pickProfile, pickProfiles, parseCursorMap, readTick } from "../agent-api.js";
 import { ctxOverflow } from "../models.js";
+import { overrideEntries } from "../overrides.js";
 
 /** "54K" / "200K" below 1M, "1M" / "1.2M" at or above. @param {number} n */
 export function formatTokens(n) {
@@ -28,6 +29,7 @@ export function digest(t) {
       else lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""} — fix the cause, then harness_reset ${name}`);
     }
   }
+  for (const entry of overrideEntries(t.overrides)) lines.push(`  override ${entry}`);
   const fmt = (/** @type {any} */ r) => `${r.id ?? r.ref}${r.title ? ` "${r.title}"` : ""}`;
   for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m${r.harness ? ` · ${r.harness}${r.host ? `@${r.host}` : ""}` : ""}${typeof r.ctx === "number" && typeof r.ctxMax === "number" ? (ctxOverflow(r.ctx, r.ctxMax) ? ` · ctx ${formatTokens(r.ctx)}` : ` · ctx ${formatTokens(r.ctx)}/${formatTokens(r.ctxMax)}`) : ""}`);
   for (const q of t.queue) lines.push(`  WAIT ${fmt(q)} ${q.step}`);

@@ -132,6 +132,26 @@ describe("summarize", () => {
     );
     expect(s.needsYou).toBe(2);
   });
+
+  it("a quota-closed harness (cause:quota) is not a Needs-you item — it reopens on its own (#723)", () => {
+    const s = summarize(
+      {
+        profiles: [
+          profile({
+            name: "a",
+            up: true,
+            harnesses: {
+              spent: { active: 0, max: 1, state: "down", until: "2026-10-08T13:00:00.000Z", reason: "quota: weekly 92% ≥ 90%", cause: "quota" },
+              down: { active: 0, max: 1, state: "down", reason: "spawn failed" },
+            },
+          }),
+        ],
+        tickets: [],
+      },
+      NOW,
+    );
+    expect(s.needsYou).toBe(1);
+  });
 });
 
 describe("scopeToProfile", () => {
