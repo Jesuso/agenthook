@@ -66,12 +66,15 @@ export function formatModel(id: string | null): { text: string; title?: string }
   return { text: m ? `${m[1]} ${m[2]}${m[3] ? `.${m[3]}` : ""}` : id, title: id };
 }
 
-/** "54K/64K" from a running row's live ctx vs its model's ctxMax (#658), or null when either is
- * unknown — no gauge rather than a half-shown one. The title spells out the exact token counts. */
+/** "54K/64K" from a running ticket's live ctx vs its model's ctxMax (#658), or null when ctx is
+ * unknown. A ctx above ctxMax proves the max is wrong (a model cannot accept more than its window),
+ * so the figure then stands alone, as it does when the max is unknown. The title has exact counts. */
 export function formatContext(t: Pick<TicketRow, "ctx" | "ctxMax">): { text: string; title: string } | null {
-  if (typeof t.ctx !== "number" || typeof t.ctxMax !== "number") return null;
+  if (typeof t.ctx !== "number") return null;
   const tok = (n: number) => (n >= 1e6 ? `${Number.isInteger(n / 1e6) ? n / 1e6 : Math.round((n / 1e6) * 10) / 10}M` : `${Math.round(n / 1000)}K`);
-  return { text: `${tok(t.ctx)}/${tok(t.ctxMax)}`, title: `${t.ctx.toLocaleString("en-US")} / ${t.ctxMax.toLocaleString("en-US")} tokens` };
+  const used = t.ctx.toLocaleString("en-US");
+  if (typeof t.ctxMax !== "number" || t.ctx > t.ctxMax) return { text: tok(t.ctx), title: `${used} tokens` };
+  return { text: `${tok(t.ctx)}/${tok(t.ctxMax)}`, title: `${used} / ${t.ctxMax.toLocaleString("en-US")} tokens` };
 }
 
 /** "active / maxConcurrent" — null on either side renders as "—". */

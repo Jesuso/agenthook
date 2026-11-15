@@ -56,24 +56,30 @@ describe("Overview", () => {
     expect(render(profile(), [])).toMatch(/data-needs-live[^>]*>All clear, nothing needs you</);
   });
 
-  it("narrow: Needs-you rows stack the title under the action line; Now rows drop model, cost and Follow log", () => {
+  it("narrow: Needs-you rows stack the title under the action line", () => {
     const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("r", { status: "running" })]);
     expect(html).toMatch(/data-needs-open="true" aria-label="[^"]*" class="[^"]*max-sm:order-last max-sm:basis-full/);
-    expect(html).toMatch(/max-sm:hidden" title="claude-opus-5-5"/);
-    expect(html).toMatch(/max-sm:hidden" title="cost so far/);
   });
 
-  it("a running row shows ctx used/max when both are known, red past 90%, and nothing when either is unknown (#658)", () => {
+  it("a Now row is one line of essentials: id, title, step, time — model, context, cost and the agent's sentence live in the drawer", () => {
     const row = (html: string, ref: string) => html.slice(html.indexOf(`data-now-row="${ref}"`), html.indexOf("</li>", html.indexOf(`data-now-row="${ref}"`)));
     const html = render(profile(), [
-      ticket("r", { status: "running", ctx: 54000, ctxMax: 200000 }),
-      ticket("h", { status: "running", ctx: 190000, ctxMax: 200000 }),
-      ticket("n", { status: "running" }),
+      ticket("r", { status: "running", step: "code", ctx: 190000, ctxMax: 200000, costUsd: 1.5, summary: "Cap triage runs.", plain: "Triage confirmed the bug." }),
+      ticket("q", { status: "queued", step: "code", queuePos: 1, summary: "Queued summary." }),
     ]);
-    expect(row(html, "r")).toMatch(/title="54,000 \/ 200,000 tokens"[^<]*>54K\/200K/);
-    expect(row(html, "r")).not.toContain("text-status-failed");
-    expect(row(html, "h")).toMatch(/text-status-failed[^"]*" title="190,000 \/ 200,000 tokens"[^<]*>190K\/200K/);
-    expect(row(html, "n")).not.toContain("tokens");
+    for (const ref of ["r", "q"]) {
+      const r = row(html, ref);
+      expect(r, ref).toContain(`Title ${ref}`);
+      expect(r, ref).toContain(">code<");
+      expect(r, ref).not.toContain("tokens");
+      expect(r, ref).not.toContain("claude-");
+      expect(r, ref).not.toContain("$");
+      expect(r, ref).not.toContain("text-status-failed");
+      expect(r, ref).not.toContain("data-now-sub");
+      expect(r, ref).not.toMatch(/>(Cap triage runs\.|Triage confirmed the bug\.|Queued summary\.)</);
+    }
+    expect(row(html, "r")).toContain("data-elapsed");
+    expect(row(html, "r").match(/<button/g)?.length).toBe(1); // one action: open the drawer
   });
 
   it("hides a dismissed-but-undoable ticket from Needs you", () => {
@@ -118,14 +124,14 @@ describe("Overview", () => {
     }
   });
 
-  it("says what a ticket is about: Now rows show the summary, Needs you shows the reason first and the summary when there is none", () => {
+  it("says what a ticket is about: a Now row carries it in the title tooltip, Needs you shows the reason first and the summary when there is none", () => {
     const html = render(profile({ forge: "github" }), [
       ticket("r", { status: "running", summary: "Cap triage runs so they cannot take every slot." }),
       ticket("h", { status: "held", heldReason: "which db?", heldAt: local(8), summary: "Held ticket summary." }),
       ticket("p", { status: "done", prState: "ready", prNeeds: "openOnDone", finishedAt: local(9), prUrl: "https://github.com/o/r/pull/8", summary: "PR-ready summary." }),
     ]);
     const row = (attr: string) => html.slice(html.indexOf(attr), html.indexOf("</li>", html.indexOf(attr)));
-    expect(row('data-now-row="r"')).toContain("Cap triage runs so they cannot take every slot.");
+    expect(row('data-now-row="r"')).toContain('title="Title r — Cap triage runs so they cannot take every slot. — open details"');
     expect(row('data-needs-row="h"')).toContain("which db?");
     expect(row('data-needs-row="h"')).toContain("Held ticket summary."); // tooltip only
     expect(row('data-needs-row="h"')).not.toMatch(/data-needs-sub[^>]*>Held ticket summary/);
@@ -145,9 +151,8 @@ describe("Overview", () => {
     expect(row('data-needs-row="f"')).toContain('aria-label="#f Title f, failed: The tests failed; decide whether to re-run."');
     expect(row('data-needs-row="h"')).toContain('data-needs-sub="true" title="which db?">It needs you to pick a database.</span>');
     expect(row('data-needs-row="p"')).toContain('data-needs-sub="true" title="Open PR on a done ticket — merge or close">The change is ready to merge.</span>');
-    expect(row('data-now-row="r"')).toMatch(/data-now-sub="true">Triage confirmed the bug\.</);
-    expect(row('data-now-row="r"')).toContain('title="Title r — Cap triage runs. — open details"');
-    for (const r of ['data-needs-row="f"', 'data-needs-row="h"', 'data-now-row="r"']) expect(row(r)).not.toMatch(/font-mono[^>]*data-(needs|now)-sub/);
+    expect(row('data-now-row="r"')).toContain('title="Title r — Triage confirmed the bug. — open details"'); // the agent's sentence leads the tooltip
+    for (const r of ['data-needs-row="f"', 'data-needs-row="h"']) expect(row(r)).not.toMatch(/font-mono[^>]*data-needs-sub/);
   });
 
   it("keeps each row's primary action visible in one fixed slot (PR link on a PR reason, Release on held, Re-run on failed)", () => {
@@ -164,11 +169,6 @@ describe("Overview", () => {
     expect(row("f")).toMatch(/data-needs-dismiss[^>]*>Dismiss</); // secondary, before the primary
     expect(html).not.toContain('data-needs-row="n"'); // no PR known: Done, not Needs you
     for (const r of ["p", "h", "f"]) expect(row(r), r).not.toContain("opacity-0"); // nothing hover-gated
-  });
-
-  it("shows no second line for a ticket without a summary", () => {
-    const html = render(profile(), [ticket("r", { status: "running", summary: null })]);
-    expect(html).not.toContain("data-now-sub");
   });
 
   it("shows a plain id when the ticket has no tracker URL", () => {
