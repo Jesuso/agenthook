@@ -67,14 +67,15 @@ run. It bounds what a bad worker can do **back to the hub**.
 
 - A **dedicated, unprivileged user** on the worker — not your own login, not root. `workDir`
   should be owned by it and nothing else should run as it.
-- Lock down `authorized_keys` for the key the hub uses, so a compromised hub key can only run
-  agenthook's own protocol, not an arbitrary shell:
+- Lock down `authorized_keys` for the key the hub uses:
   ```
-  restrict,command="exec /bin/sh" ssh-ed25519 AAAA... agenthook-hub
+  restrict ssh-ed25519 AAAA... agenthook-hub
   ```
-  (`restrict` disables port/agent/X11 forwarding and ttys; the executor always runs `sh -c
-  "<script>"` over a non-interactive, `BatchMode=yes` connection, so a bare `sh` is enough — it
-  never needs a pty, forwarding, or any other grant `restrict` turns off.)
+  (`restrict` disables port/agent/X11 forwarding and ttys — it does **not** limit which commands
+  can run. With this key the hub has a full shell as the dedicated user; that is the one-owner
+  trust model stated above, not a sandbox. The executor only ever runs `sh -c "<script>"` over a
+  non-interactive, `BatchMode=yes` connection, so it never needs a pty, forwarding, or any other
+  grant `restrict` turns off — `restrict` is defense in depth, not the boundary.)
 - Give that user an **API key with a spend cap**, not a subscription login — a worker that's ever
   reachable from a compromised or merely buggy hub should not be able to run up an unbounded bill.
   `agenthook doctor`'s credential check (below) tells you if it can find one.
