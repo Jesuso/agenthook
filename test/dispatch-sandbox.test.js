@@ -568,7 +568,7 @@ test("hostGitFacts: a FIFO at the common dir's HEAD fails the reads within the c
 test("worktree host git calls are time-capped (a FIFO HEAD can't wedge listWorktrees forever)", () => {
   assert.ok(HOST_GIT_TIMEOUT_MS > 0 && HOST_GIT_TIMEOUT_MS <= 120_000);
   const { repo } = fixture();
-  assert.ok(listWorktrees(repo).length >= 2, "sanity: the capped helper still works");
+  assert.ok(listWorktrees({}, repo).length >= 2, "sanity: the capped helper still works");
 });
 
 // --- egress (#473), through the real container sandbox and dispatcher ---

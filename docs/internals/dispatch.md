@@ -76,23 +76,60 @@ executor never blocking the rest); `killNow`/timeout-SIGKILL/cancel-during-launc
 picked run's `executor.launch()` result (`executorRuns`, a per-ref map of live boxed runs — host
 runs are never stored there).
 
-### The `ssh` executor (`src/dispatch/executor-ssh.js`, #689, experimental)
+### The `ssh` executor (`src/dispatch/executor-ssh.js`, #689 launch/kill/env, #690 code transport)
 
-A harness with `remote: {host, user?, port?, identityFile?, workDir, bin?}` runs its agent in an
-*existing* directory on that worker (`workDir`) — code transport/worktrees there are a later
-ticket; the hub's own worktree/branch bookkeeping is unchanged, and remote edits aren't brought
-back yet. Config validation refuses a step on a remote harness outright when: the step is
-sandboxed; per-run GitHub App credentials would be minted for it (scoped to the hub, not the
-worker); its effective agent isn't `claude`; or `tracker.type` isn't `local`.
+A harness with `remote: {host, user?, port?, identityFile?, workDir, bin?}` runs its agent under
+`<workDir>/.agenthook/<stateKey>/…` on that worker. Config validation refuses a step on a remote
+harness outright when: the step is sandboxed; per-run GitHub App credentials would be minted for
+it (scoped to the hub, not the worker); its effective agent isn't `claude`; or `tracker.type`
+isn't `local`.
 
-`paths()` returns the run's remote-side `cwd`/`verdictFile` (as the agent sees them) plus a
-hub-local `hubVerdictFile` (built with the same `sandboxVerdictPathFor` the sandbox executor
-uses) — `done()` copies the remote verdict back there once the run exits, capped at
-`MAX_SANDBOX_VERDICT_BYTES` (oversize = no verdict, same as a sandboxed run's own cap).
+**Code transport (#690).** The hub worktree stays the only real copy. `paths({stepId, ref,
+hasWorktree})` returns a *deterministic per-ref(+step)* worker path — `worktrees/<ref>` when
+`hasWorktree`, else `exports/<ref>-<stepId>` — never per-spawn, so a verdict-repair resume turn
+(`step.js`, #677) relaunches into the same cwd and finds its session. `launch()`'s `hub:
+{repoId, repoPath, worktree?, branch?}` (from `step.js`, absent only for this module's own
+low-level unit tests, which then just cd into whatever `cwd` they were given with no sync) drives
+a sync **before** every run:
+
+- A worktree step (`hub.worktree`/`branch` set): refuse if the hub worktree has uncommitted
+  changes to tracked files, or if its HEAD has a `.gitmodules` or a `.gitattributes` with
+  `filter=lfs` (submodules/LFS aren't supported on a remote harness yet) — a clear reason, nothing
+  spawns. Else `git push --force` the hub's branch to a bare repo on the worker
+  (`repos/<repo.id>.git`, created on first use), record the pushed sha, then `git worktree add`
+  it at the deterministic worktree path (pruning + removing any stale dir first). The hub is
+  authoritative: a worker branch left ahead by a crashed/refused prior run is overwritten.
+- A no-worktree step (e.g. triage): same submodule/LFS refusal against the repo's HEAD, then
+  `git archive --format=tar HEAD` streamed straight into a fresh dir on the worker — only tracked,
+  committed content ever travels; a gitignored/untracked file, `.env` or the profile config never
+  do.
+
+And **after** every run, always (including a timeout/cancel/crash — `done()` runs every time,
+never just on a clean exit): for a worktree step, fetch the worker's branch into the hub repo
+under a temp ref. Equal to the pushed sha → nothing to do. Not its descendant (rewritten/diverged
+history) → refuse, touching nothing. Otherwise `git merge --ff-only` it into the hub worktree; a
+failure there also refuses. Either way the temp ref is deleted and the worker worktree/export dir
+is removed (best-effort, never masking a refusal). A refusal sets `SandboxReport.failed`, which
+`step.js` maps onto `refused` — the run fails rather than advancing on code the hub never actually
+got. The worker's own *uncommitted* edits never come back, only commits. `reap()` additionally
+clears leftover `worktrees/*`/`exports/*` and prunes each bare repo's worktree admin.
+
+Every hub-side git call this sync makes is `HOST_GIT_SAFE`-hardened (`src/worktree.js`
+`hostGitSafe(cfg)`: true for a sandboxed profile OR one with any `harnesses[*].remote` — widening
+what `gitArgv`/`listWorktrees` already harden for a sandbox) and the push/fetch go over
+`GIT_SSH_COMMAND` (`ssh -o BatchMode=yes` + the harness's own `-p`/`-i`/`-l`, never `-A` — the same
+options `sshBaseArgs` builds for the launcher, so there is one source for host/port/identity/user)
+against an `ssh://<host><bare path>` URL.
+
+`paths()` also returns a hub-local `hubVerdictFile` (built with the same `sandboxVerdictPathFor`
+the sandbox executor uses) — `done()` copies the remote verdict back there once the run exits,
+capped at `MAX_SANDBOX_VERDICT_BYTES` (oversize = no verdict, same as a sandboxed run's own cap).
 `step.js`/`finish.js` read/guard/clear `hubVerdictFile ?? verdictFile` everywhere except the
 prompt and `AGENTHOOK_VERDICT_FILE`, which always get the agent-facing `verdictFile`; the
 `sandboxed` boolean they pass around now also covers `executor.name !== "host"`, so an ssh run's
 verdict gets the same untrusted-writer guard (`guardSandboxVerdict`) a sandboxed run's does.
+`step.js`'s `branchHead`/`commitsSince` (deduced-verdict, #680) read the HUB worktree, not
+`executor.paths().cwd` — by the time they run, `done()` has already fast-forwarded it.
 
 `launch()` never puts the prompt in argv, on either side of the connection: `claude`'s own
 `-p <prompt>` becomes `-p` with the prompt dropped, and the dropped text plus a strict env

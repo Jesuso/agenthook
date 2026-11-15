@@ -113,6 +113,17 @@ test("HOST_GIT_SAFE: with a sandbox, every host git argv starts with it; without
   assert.deepEqual(gitArgv({}, "/r", ["worktree", "add", "/w", "b"]), ["-C", "/r", "worktree", "add", "/w", "b"]);
 });
 
+test("hostGitSafe/gitArgv: a remote harness hardens exactly like a sandbox; a profile with neither is unchanged", async () => {
+  const { gitArgv, hostGitSafe, HOST_GIT_SAFE } = await import("../src/worktree.js");
+  assert.equal(hostGitSafe({}), false);
+  assert.equal(hostGitSafe({ harnesses: { worker: {} } }), false, "a harness with no remote block doesn't harden");
+  assert.equal(hostGitSafe({ harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } }), true);
+  assert.equal(hostGitSafe({ sandbox: { type: "docker" } }), true);
+  const remoteCfg = { harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } };
+  assert.deepEqual(gitArgv(remoteCfg, "/r", ["push"]), [...HOST_GIT_SAFE, "-C", "/r", "push"]);
+  assert.deepEqual(gitArgv({ harnesses: { worker: {} } }, "/r", ["push"]), ["-C", "/r", "push"]);
+});
+
 test("branchName: default prefix agent/, else the passed one", () => {
   assert.equal(branchName("7"), "agent/7");
   assert.equal(branchName("7", "local/"), "local/7");

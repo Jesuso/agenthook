@@ -157,20 +157,30 @@ A harness can run its agent on another machine instead of the host or the sandbo
 }
 ```
 
-`workDir` is an **existing** directory on the worker — this ticket doesn't bring code there; the
-hub's own worktree/branch bookkeeping, and anything the remote agent edits, stay where they are
-(a later ticket adds code transport). Only `claude` is supported there yet, and a step on a
-remote harness refuses to even start if: it's sandboxed (`sandbox: false` it, or drop the
-harness's own `sandbox`); per-run GitHub App credentials would be minted for it (set
-`"githubRunToken": false`, or stop using App auth); its effective agent isn't `claude`; or
-`tracker.type` isn't `local`. None of these can be lifted yet.
+`workDir` is a directory on the worker under which agenthook keeps its own state
+(`<workDir>/.agenthook/<name>/…`) — it doesn't need to exist in advance. Before every run, the
+hub pushes (a worktree step) or exports (a no-worktree one, e.g. triage) the ticket's code there
+over git+SSH — the **hub worktree stays the only real copy**. Only committed, tracked content
+ever travels: a gitignored file, an untracked one, `.env` and your profile config in the checkout
+never reach the worker. After every run (even a timeout, a cancel, or a crash) any commits the
+agent made are fetched back and fast-forwarded into the hub worktree; a worker whose history no
+longer descends from what was pushed (rewritten/diverged) fails the run instead of silently
+losing or overwriting anything. **Submodules and Git LFS are not supported yet** — a tree with a
+`.gitmodules` or a `filter=lfs` `.gitattributes` entry refuses the run with a clear reason.
+The worker's own *uncommitted* edits, if the agent leaves any, never come back — only commits do.
+
+Only `claude` is supported there yet, and a step on a remote harness refuses to even start if:
+it's sandboxed (`sandbox: false` it, or drop the harness's own `sandbox`); per-run GitHub App
+credentials would be minted for it (set `"githubRunToken": false`, or stop using App auth); its
+effective agent isn't `claude`; or `tracker.type` isn't `local`. None of these can be lifted yet.
 
 The agent's prompt and environment travel over the ssh connection's own stdin, never in argv on
 either side, through a strict allowlist — nothing from your tracker/forge tokens, `ANTHROPIC_*`/
 `CLAUDE_*`, or an ssh agent socket ever reaches the worker. A closed connection (the receiver
 restarting, a dropped link, an explicit cancel) kills the remote agent's whole process group; a
-boot or shutdown reap sweeps up anything a crashed receiver left running there. See
-[docs/internals/dispatch.md](internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-experimental)
+boot or shutdown reap sweeps up anything a crashed receiver left running there, plus any leftover
+synced worktree/export dir. See
+[docs/internals/dispatch.md](internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-launchkillenv-690-code-transport)
 for the protocol and its security posture.
 
 ### When a harness fails

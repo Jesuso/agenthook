@@ -198,8 +198,12 @@ export function createStep(ctx) {
       /* nothing to clear */
     }
     // The branch's HEAD right before the agent runs, so a deduced verdict (#680) can tell a run
-    // that added commits apart from one that only left the tree dirty.
-    const headBefore = hasWorktree ? branchHead(cfg, cwd) : null;
+    // that added commits apart from one that only left the tree dirty. Always the HUB worktree
+    // (`worktree`, not `cwd`): for a remote run `cwd` is the worker's own path (#690) — by the
+    // time this is read after the run, the ssh executor's `done()` has already fast-forwarded
+    // the hub worktree onto whatever the worker pushed back, so this sees the same thing host/
+    // sandbox always did.
+    const headBefore = hasWorktree ? branchHead(cfg, worktree) : null;
 
     // Repo context (if the routed repo has an instructionsFile) goes ahead of the step's.
     const standing = [repo.instructionsFile ? readInstructions(repo.instructionsFile) : "", readInstructions(step.instructionsFile || cfg.instructionsFile)]
@@ -317,10 +321,14 @@ export function createStep(ctx) {
         }
       }
     } else if (remote && !refused) {
-      // A remote harness's run (#689): no mounts/egress — the worker's `workDir` is an existing
-      // directory on another machine, not something the hub wraps. `ref`/`stepId`/`step` are what
-      // spawn.js's generic box-run plumbing (executorRuns, kill/done on exit) actually needs.
-      sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts: [] };
+      // A remote harness's run (#689): no mounts/egress — the worker's cwd is a path on another
+      // machine, not something the hub wraps. `ref`/`stepId`/`step` are what spawn.js's generic
+      // box-run plumbing (executorRuns, kill/done on exit) actually needs. `hub` (#690) is the
+      // HUB-side repo/worktree the ssh executor syncs code from/to around the run — `worktree`/
+      // `branch` only for a worktree step; a no-worktree step (e.g. triage) gets a tracked-only
+      // export instead.
+      const hub = { repoId: repo.id, repoPath: repo.path, ...(hasWorktree ? { worktree, branch } : {}) };
+      sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts: [], hub };
     }
     // Energy (#396): only an opted-in step that actually spawns is sampled; a remote run's power
     // draw is the worker's, not this host's.
@@ -371,7 +379,7 @@ export function createStep(ctx) {
       const first = readVerdict(firstSpawned.code, localVerdictFile, step, agent);
       if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
       if (endedWithQuestion(firstSpawned.lastText)) return undefined;
-      const commits = commitsSince(cfg, cwd, headBefore);
+      const commits = commitsSince(cfg, worktree, headBefore);
       if (commits < 1) return undefined;
       return { commits };
     }
@@ -516,6 +524,10 @@ export function createStep(ctx) {
     }
     const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, errorLine, lastText } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
+    // A remote run (#690) whose agent exited clean but whose sync-back was refused (non-ff, or a
+    // merge it would have overwritten): fail the run rather than advance on code the hub never
+    // actually received.
+    refused ??= sandboxReport?.failed;
     // Pacing (finish.js): a remote run's subscription-quota reading is the worker's, not paced
     // by this hub (#689). `sandboxed` here also covers a remote run — its verdict needs the same
     // untrusted-writer guard finish.js applies before trusting a container's.

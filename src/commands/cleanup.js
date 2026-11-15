@@ -80,7 +80,7 @@ export async function cleanup(args) {
     /** @type {{path:string, branch:string}[]} */
     let records;
     try {
-      records = listWorktrees(repo.path);
+      records = listWorktrees(cfg, repo.path);
     } catch (e) {
       throw new Error(`git worktree list failed${cfg.multiRepo ? ` (${repo.id})` : ""}: ${(e.stderr || e.message || "").toString().trim()}`);
     }

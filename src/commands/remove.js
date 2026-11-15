@@ -148,7 +148,7 @@ function noteWorktrees(repos, configPath, branchPrefix, log) {
   for (const r of repos) {
     try {
       if (typeof r?.path !== "string") continue;
-      const n = listWorktrees(r.path).filter((w) => w.branch.startsWith(branchPrefix)).length;
+      const n = listWorktrees({}, r.path).filter((w) => w.branch.startsWith(branchPrefix)).length;
       if (n > 0) log(`${n} ${branchPrefix}* worktree(s) in ${r.path} — prune done ones with \`agenthook cleanup --config ${configPath ?? "<path>"}\``);
     } catch {
       /* git/IO error: best-effort */

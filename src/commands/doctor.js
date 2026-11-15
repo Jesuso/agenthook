@@ -1036,7 +1036,7 @@ export function skillLints(
  * for already-deleted dirs — branches and commits stay). Repos without `.git` are skipped
  * (doctor already fails them).
  * @param {import('../types.js').Config} cfg
- * @param {{listWorktrees?: (repoPath: string) => { path: string, prunable?: boolean }[], spawn?: Spawner}} [io]
+ * @param {{listWorktrees?: (cfg: import("../types.js").Config, repoPath: string) => { path: string, prunable?: boolean }[], spawn?: Spawner}} [io]
  * @returns {Finding[]} */
 export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn = spawnSync } = {}) {
   /** @type {Finding[]} */
@@ -1053,7 +1053,7 @@ export function worktreeLints(cfg, { listWorktrees: list = listWorktrees, spawn 
     /** @type {string[]} */
     let prunable;
     try {
-      prunable = list(repo.path)
+      prunable = list(cfg, repo.path)
         .filter((w) => w.prunable && w.path.startsWith(base + path.sep))
         .map((w) => w.path);
     } catch {
@@ -1297,7 +1297,7 @@ export function tokenVar(configPath) {
  *   isAlive?: (pid: number) => boolean,
  *   probe?: (sock: string) => Promise<'open'|'dead'|'unknown'>,
  *   spawn?: Spawner,
- *   listWorktrees?: (repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
+ *   listWorktrees?: (cfg: import("../types.js").Config, repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
  *   uiBundle?: () => {state: 'no-src'|'missing'|'stale'|'fresh', newest?: string},
  *   platform?: string,
  *   fetch?: typeof fetch,
@@ -1392,7 +1392,7 @@ export async function runChecks(cfg, io = {}) {
       /** @type {string[]} */
       let paths;
       try {
-        paths = list(repo.path).map((w) => w.path);
+        paths = list(cfg, repo.path).map((w) => w.path);
       } catch {
         continue; // not a git repo — already flagged above
       }
