@@ -45,7 +45,7 @@ import { createQueue } from "../queue.js";
 import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
-import { harnessesOf } from "../dispatch/harness.js";
+import { harnessesOf, quotaGroupOf } from "../dispatch/harness.js";
 import { createExecutors } from "../dispatch/executor.js";
 import { verdictPathFor, sandboxVerdictPathFor } from "../dispatch/spawn.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
@@ -60,14 +60,14 @@ import { loadConfig } from "../config.js";
 import { checkMove } from "../state-move.js";
 import { createOverlapReleaser, releaseOnSettle } from "./recovery.js";
 import { createPushSink, intakeEvent } from "./intake.js";
-import { createDecommissionRequester, createQuotaControl, createRestartRequester } from "./controllers.js";
+import { createDecommissionRequester, createHarnessQuota, createQuotaControl, createRestartRequester } from "./controllers.js";
 import { createExits, runDecommission } from "./teardown.js";
 import { createRequestHandler } from "./http.js";
 import { createServe } from "./boot.js";
 
 export { crashRecord, releaseOnSettle, createOverlapReleaser, recoverInterrupted } from "./recovery.js";
 export { intakeEvent, createPushSink } from "./intake.js";
-export { createRestartRequester, createDecommissionRequester, createQuotaControl } from "./controllers.js";
+export { createRestartRequester, createDecommissionRequester, createQuotaControl, createHarnessQuota } from "./controllers.js";
 export { unregisterAll, runDecommission, waitForExit, finishTeardown } from "./teardown.js";
 
 /**
@@ -106,14 +106,19 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     sandbox,
     executors,
     // A Claude run's quota reading: persisted (readable with the receiver down), shown, paced.
-    onQuota: (q) => {
-      try {
-        writeQuota(cfg.stateDir, q);
-      } catch (e) {
-        console.error(`[quota] quota.json write failed (continuing): ${e.message}`);
+    // With harnesses, a reading closes its run's subscription group (src/engine/controllers.js
+    // `createHarnessQuota`); without, it drives the receiver-wide pacer (`createQuotaControl`).
+    onQuota: (q, meta) => {
+      if (harnessQuota) harnessQuota.reading(q, meta);
+      else {
+        try {
+          writeQuota(cfg.stateDir, q);
+        } catch (e) {
+          console.error(`[quota] quota.json write failed (continuing): ${e.message}`);
+        }
+        heartbeat.update({ quota: q });
+        quotaPacer?.reading(q);
       }
-      heartbeat.update({ quota: q });
-      quotaPacer.reading(q);
     },
   });
   // Per-step caps (`maxConcurrent` on a step), counted inside the global cap.
@@ -128,18 +133,26 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   if (cfg.harnesses) {
     const harnesses = cfg.harnesses;
     const stored = store.getHarnessHealth();
-    const seeded = Object.fromEntries(Object.entries(stored).filter(([name]) => Object.hasOwn(harnesses, name)));
-    if (Object.keys(seeded).length !== Object.keys(stored).length) store.setHarnessHealth(seeded);
+    const seeded = Object.fromEntries(Object.entries(stored.down).filter(([name]) => Object.hasOwn(harnesses, name)));
+    if (Object.keys(seeded).length !== Object.keys(stored.down).length) store.setHarnessHealth(seeded, stored.unharnessedUntil);
     /** @type {Record<string, number|undefined>} */
     const cooldowns = {};
+    /** @type {string[]} */
+    const unharnessedShared = [];
+    for (const s of cfg.pipeline || []) {
+      if (!s.manual && !harnessesOf(s).length && quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
+    }
     harnessing = {
       steps: {},
       caps: {},
       cooldowns,
       health: seeded,
-      onHealth: (down) => store.setHarnessHealth(down),
-      onHarnessDown: (harness, { reason, until }) => emit("harness_down", "", "", { harness, reason, until }),
-      onHarnessUp: (harness) => emit("harness_up", "", "", { harness }),
+      unharnessedShared,
+      unharnessedUntil: stored.unharnessedUntil,
+      onHealth: (down, unharnessedUntil) => store.setHarnessHealth(down, unharnessedUntil),
+      onHarnessDown: (harness, { reason, until, cause = "health", window, utilization, threshold }) =>
+        emit("harness_down", "", "", { harness, reason, until, cause, ...(window ? { window, utilization, threshold } : {}) }),
+      onHarnessUp: (harness, info) => emit("harness_up", "", "", { harness, cause: info?.cause ?? "health" }),
     };
     for (const s of cfg.pipeline || []) {
       if (!s.manual && harnessesOf(s).length) harnessing.steps[s.id] = { harnesses: harnessesOf(s), routing: s.routing ?? "first-free" };
@@ -224,16 +237,31 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     server: http.createServer(createRequestHandler({ adapter, forge, intake, ciGreen, epicChanged, boardDone, prPush })),
   };
 
-  // Opt-in quota pacer (src/quota.js; `quota` config, default off).
-  const quotaPacer = createQuotaControl({
-    cfg, queue, heartbeat, emit,
-    pull: () => puller.pull(),
-    isLocked: () => state.draining || restarter.isPending() || decommissioner.isPending(),
-  });
+  // Quota pacing: receiver-wide without harnesses (`createQuotaControl`, src/quota.js pacer), or
+  // per-harness with them (`createHarnessQuota`). `quota` config is opt-in in both modes.
+  const quotaPacer = cfg.harnesses
+    ? undefined
+    : createQuotaControl({
+        cfg, queue, heartbeat, emit,
+        pull: () => puller.pull(),
+        isLocked: () => state.draining || restarter.isPending() || decommissioner.isPending(),
+      });
+  const harnessQuota = cfg.harnesses ? createHarnessQuota({ cfg, queue, heartbeat }) : undefined;
+  // The active controller boot seeds and teardown stops (one of the two is always undefined).
+  const quotaController = {
+    /** @param {import('../quota.js').QuotaReading|null} q */
+    reading(q) {
+      if (harnessQuota) harnessQuota.reading(q);
+      else quotaPacer?.reading(q);
+    },
+    stop() {
+      (harnessQuota ?? quotaPacer)?.stop();
+    },
+  };
   heartbeat.update({ quota: readQuota(cfg.stateDir) });
 
   const ops = createOps({
-    cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer,
+    cfg, store, adapter, forge, queue, intake, emit, heartbeat, pacer: quotaPacer, harnessQuota,
     onEpicChanged: (reset) => { resetEpics = reset; },
     digester: createDigester({
       cfg, emit, repository: repositoryOf(cfg),
@@ -297,7 +325,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   });
 
   const { shutdown, onFatal } = createExits({
-    cfg, state, queue, ingress, heartbeat, children, store, quotaPacer, sandbox, executors,
+    cfg, state, queue, ingress, heartbeat, children, store, quotaPacer: quotaController, sandbox, executors,
     isRestartPending: () => restarter.isPending(),
     isDecommissionPending: () => decommissioner.isPending(),
   });
@@ -305,7 +333,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
   process.on("unhandledRejection", (err) => onFatal("unhandledRejection", err));
 
   const serve = createServe({
-    cfg, state, store, adapter, forge, ingress, sandbox, executors, heartbeat, queue, puller, quotaPacer, emit, intake, releaseOverlap, startedAt,
+    cfg, state, store, adapter, forge, ingress, sandbox, executors, heartbeat, queue, puller, quotaPacer: quotaController, emit, intake, releaseOverlap, startedAt,
     restart: restarter.request, decommission: decommissioner.request, ops, shutdown, reconcileOnBoot,
   });
 

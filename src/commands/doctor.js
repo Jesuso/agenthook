@@ -696,6 +696,23 @@ export function ingressLivenessLints(profile) {
   ];
 }
 
+/** A harness closed for quota (src/queue.js `cause:"quota"`) — expected, not a fault: an info line
+ * per one, so `doctor` shows its reopen time unprompted. Pure.
+ * @param {ReturnType<import('../heartbeat.js').readProfile>} profile
+ * @returns {Finding[]} */
+export function harnessQuotaLints(profile) {
+  const harnesses = profile.up ? profile.heartbeat?.queue?.harnesses : undefined;
+  if (!harnesses || typeof harnesses !== "object") return [];
+  /** @type {Finding[]} */
+  const out = [];
+  for (const [name, h] of Object.entries(harnesses)) {
+    if (!h || h.cause !== "quota") continue;
+    const when = typeof h.until === "string" ? `back at ${String(h.until).slice(11, 16)}Z` : "until the window resets";
+    out.push({ level: "info", label: `harness ${name} closed for quota`, note: `${when}${h.reason ? ` (${h.reason})` : ""}` });
+  }
+  return out;
+}
+
 /** The default image builder: `<bin> build -t <image> -` with the Dockerfile on stdin.
  * @param {string} bin @param {string[]} args @param {string} dockerfile */
 const buildImage = (bin, args, dockerfile) => spawnSync(bin, args, { input: dockerfile, stdio: ["pipe", "inherit", "inherit"] });
@@ -1514,6 +1531,7 @@ export async function runChecks(cfg, io = {}) {
 
   for (const c of ingressChecks(cfg.ingress, have)) add(c.ok, c.label, c.note, { manual: c.manual });
   ingressLivenessLints(profile).forEach(finding);
+  harnessQuotaLints(profile).forEach(finding);
   checks.push(...(await sandboxChecks(cfg, { run, has: have, build })));
   const rootFiles = (/** @type {string} */ dir) => {
     try {

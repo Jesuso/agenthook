@@ -868,8 +868,8 @@
  * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
  * @property {() => string|null} getMergeWatermark                  merge catch-up: ISO `mergedAt` of the newest merged agent PR listed (null = never ran)
  * @property {(iso: string) => void} setMergeWatermark               persist the merge catch-up watermark
- * @property {() => Record<string, {until: string, strikes: number, reason: string}>} getHarnessHealth  harness breaker entries (harness-health.json `down`); {} when none
- * @property {(down: Record<string, {until: string, strikes: number, reason: string}>) => void} setHarnessHealth  persist the harness breaker entries
+ * @property {() => {down: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, unharnessedUntil: string|null}} getHarnessHealth  harness breaker entries (harness-health.json `down`) and the unharnessed quota gate; `down` {} when none
+ * @property {(down: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, unharnessedUntil: string|null) => void} setHarnessHealth  persist the harness breaker entries (and gate)
  */
 
 export {};

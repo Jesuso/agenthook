@@ -455,20 +455,23 @@ function SlotPips({ active, max, up }: { active: number; max: number; up: boolea
 
 /** One `active/max` chip per named harness (a profile with `harnesses` only); an uncapped one reads
  * `∞`. A down/probing one (#688) tints status-failed, its title naming the reason — the full
- * diagnosis is the Needs-you row above; this is just a glance-level flag. */
+ * diagnosis is the Needs-you row above; this is just a glance-level flag. A `cause:"quota"` closure
+ * instead shows its reopen time. */
 function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harnesses"]> }) {
   const { t } = useT();
   return (
     <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
       {Object.entries(harnesses).map(([name, h]) => {
         const down = h.state === "down" || h.state === "probing";
+        const quotaBack = h.cause === "quota" && h.until ? t("overview.harnessQuotaBack", { when: hhmm(h.until) }) : null;
         return (
           <span
             key={name}
             data-harness={name}
             data-harness-state={h.state}
+            data-harness-cause={h.cause}
             className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : "border-border"}`}
-            title={down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max })}
+            title={quotaBack ?? (down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max }))}
           >
             {name} <span className={down ? "" : "text-fg"}>{h.active}</span>
             <span className={down ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
@@ -477,6 +480,12 @@ function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harne
       })}
     </span>
   );
+}
+
+/** "14:32Z" from an ISO instant, for a quota-closed harness's reopen time. */
+function hhmm(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? "—" : `${new Date(t).toISOString().slice(11, 16)}Z`;
 }
 
 function Zone({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {

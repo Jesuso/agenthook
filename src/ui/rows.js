@@ -494,15 +494,15 @@ export function profileView(p) {
 const HARNESS_STATES = /** @type {const} */ (["up", "down", "probing"]);
 
 /**
- * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
+ * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?, cause?}}` (max
  * null = uncapped, 0 = drained via `set_concurrency`; `state` is the health breaker's,
- * `until`/`reason` only while down or probing); null when absent or empty (a profile without
+ * `until`/`reason`/`cause` only while down or probing); null when absent or empty (a profile without
  * harnesses).
- * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>|null}
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}>|null}
  */
 export function harnessSlots(raw) {
   if (!isObj(raw)) return null;
-  /** @type {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>} */
+  /** @type {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}>} */
   const out = {};
   for (const [name, h] of Object.entries(raw)) {
     if (!isObj(h)) continue;
@@ -514,6 +514,7 @@ export function harnessSlots(raw) {
       ...(state ? { state } : {}),
       ...(down && typeof h.until === "string" ? { until: h.until } : {}),
       ...(down && typeof h.reason === "string" ? { reason: (h.reason.length > 200 ? h.reason.slice(0, 199) + "…" : h.reason) } : {}),
+      ...(down && (h.cause === "quota" || h.cause === "health") ? { cause: h.cause } : {}),
     };
   }
   return Object.keys(out).length ? out : null;

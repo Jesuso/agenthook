@@ -69,7 +69,7 @@ export function createFinish(ctx) {
     // The subscription-quota reading the agent reported (claude only), even from a failed run.
     if (quota) {
       try {
-        opts.onQuota?.({ ...quota, asOf: new Date().toISOString() });
+        opts.onQuota?.({ ...quota, asOf: new Date().toISOString() }, { harness: harnessField.harness ?? null, stepId: step.id });
       } catch (e) {
         console.error(`[dispatch] quota hook failed (continuing): ${e.message}`);
       }

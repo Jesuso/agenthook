@@ -53,9 +53,10 @@ export function summarize(snapshot: Snapshot, now: number): Summary {
   const forges = new Set(snapshot.profiles.filter((p) => p.forge).map((p) => p.name));
   for (const t of snapshot.tickets) if (isNeedsYou(t, forges.has(t.profile))) s.needsYou++;
   // A harness whose breaker is down/probing (#688) needs you too — a routing spill (full but `up`)
-  // doesn't.
+  // doesn't. A `cause:"quota"` closure (a spent subscription, reopening on its own at `until`) is not
+  // something a human can fix, so it is never counted here.
   for (const p of snapshot.profiles) {
-    for (const h of Object.values(p.harnesses ?? {})) if (h.state === "down" || h.state === "probing") s.needsYou++;
+    for (const h of Object.values(p.harnesses ?? {})) if ((h.state === "down" || h.state === "probing") && h.cause !== "quota") s.needsYou++;
   }
   return s;
 }

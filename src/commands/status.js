@@ -173,7 +173,9 @@ export async function status(args) {
     const t = totals[name] ?? { runs: 0, input: 0, output: 0 };
     const h = slots[name];
     const state = h && h.state && h.state !== "up"
-      ? ` · ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`
+      ? h.cause === "quota"
+        ? ` · closed for quota, back at ${String(h.until).slice(11, 16)}Z${h.reason ? ` (${h.reason})` : ""}`
+        : ` · ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`
       : "";
     console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens${state}`);
   }

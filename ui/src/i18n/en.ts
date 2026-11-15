@@ -113,6 +113,7 @@ export const messages = {
   "overview.harnessDownUntil": "down until {when}",
   "overview.harnessProbing": "probing since the cooldown ended",
   "overview.harnessProbingSince": "probing since {when}",
+  "overview.harnessQuotaBack": "back at {when}",
   "overview.harnessResetHint": "Fix the cause, then run harness_reset {name}",
   "overview.allClear": "All clear",
   "overview.nothingNeedsYou": "Nothing needs you",

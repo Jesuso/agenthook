@@ -182,6 +182,7 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
   /** Final teardown shared by graceful + forced exit. */
   function teardown() {
     quotaPacer.stop();
+    queue.stop();
     heartbeat.clear();
     // Pidfile before the control socket: a watcher reacting to the socket drop must never see
     // a still-present pidfile and read a clean stop as "died".
