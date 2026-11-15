@@ -1,28 +1,26 @@
-// `agenthook agents` — list running headless agent processes (`claude -p`, cursor, hermes, opencode) (human id,
-// step, PR, runtime, title). These are plain OS processes the receiver spawns; no claude
-// subcommand tracks them. Cross-platform via `ps` (-ww avoids arg truncation).
+// `agenthook agents` — list running agent runs (human id, step, harness, model, PR, runtime,
+// title). Rows come from each profile's running.json — the same state `tick` and the web UI
+// read — written for every run whatever the agent or executor. So a sandboxed or remote (ssh)
+// run, whose local process is a container runtime or `ssh` client rather than the agent binary,
+// still shows up. No `ps`, no process table, no per-agent argv matcher.
 // The id/title/PR come from the profile's refmeta.json (written by dispatch);
 // `--verbose` adds the raw pid + ref, `--json` prints machine-readable records.
-//
-// `ps` greps SYSTEM-WIDE, so co-running profiles' agents would otherwise show up
-// here too. We attribute each row to its owning profile by cross-referencing each
-// profile's running.json (ref -> {pid,…}, our crash-recovery state) — no /proc, so
-// it stays cross-platform. Default: only THIS profile's agents. `--all`: every
-// profile's, each row labelled with its owner.
 //
 // Scope resolution never touches secrets: `agents <name>` resolves a label or state key
 // to that profile's state dir directly; bare `agents` peeks the discovered config for its
 // state key only
 // (peekConfig, no `${VAR}` interpolation), so the listing works from any checkout —
 // a worktree without .env used to get "unset environment variable(s)" and no rows.
-import { spawnSync } from "node:child_process";
+// Default: only THIS profile's rows. `--all`: every profile's, each labelled with its owner.
 import fs from "node:fs";
 import path from "node:path";
 import { peekConfig, registryDir } from "../config.js";
 import { listProfiles, readProfile as readHeartbeat, resolveProfile } from "../heartbeat.js";
 
-/** `profile` is the owning profile's state key (the stable id), "?" when unattributed.
- * @typedef {{ pid: string, etime: string, step: string, ref: string, profile: string }} AgentRow */
+/** One running run, read from a profile's running.json. `profile` is the owning profile's state
+ * key (the stable id). `pid` is null before the agent spawns (worktree/fetch phase); `stale`
+ * marks a leftover whose pid no longer resolves (the receiver died; cleaned on next boot).
+ * @typedef {{ ref: string, step: string, harness: string|null, agent: string|null, host: string|null, model: string|null, pid: string|null, etime: string, profile: string, stale: boolean }} AgentRow */
 
 /** Read a profile's usage.jsonl; return last record per ref (keyed by ref string).
  * @param {string} dir @returns {Record<string, {input:number, output:number, cacheRead?:number, cacheCreate?:number, costUsd?:number}>} */
@@ -73,77 +71,64 @@ export function fmtCtx(input, cacheRead, cacheCreate, output, costUsd) {
   return `ctx=${fmt(total)} out=${fmt(output)}${cost}`;
 }
 
-// The agent bin must START the command (path-anchored), not appear mid-line: a
-// loose substring counts any process whose argv merely MENTIONS "claude -p" (a shell
-// grepping for it, an echo, …). `cfg.claudeBin` defaults to "claude", so the receiver's
-// spawn is `[node …/]claude -p <prompt>`; a step `bin` (e.g. `claude-local`) is matched by
-// its basename the same way. Each adapter's invocation shape counts: `<bin> -p` (claude,
-// cursor), `<bin> chat … --query-file` (hermes, whose prompt is in a file, not argv) or
-// `<bin> run --format json` (opencode).
-
-/** The path-anchored agent-invocation matcher for a set of agent binaries (matched by basename).
- * @param {string[]} bins @returns {RegExp} */
-export function agentMatcher(bins) {
-  const names = [...new Set(bins.map((b) => path.basename(b)).filter(Boolean))];
-  const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  return new RegExp(`(^|\\/)(${alt || "claude"})\\s+(-p\\b|chat\\s.*--query-file\\b|run\\s+--format\\s+json\\b)`);
+/** Elapsed time from `startedAt` to `now`, in `ps -o etime`'s `[[dd-]hh:]mm:ss` shape;
+ * `?` when `startedAt` is missing or unparseable.
+ * @param {string|undefined} startedAt @param {number} now ms since epoch
+ * @returns {string} */
+export function fmtEtime(startedAt, now = Date.now()) {
+  const t = Date.parse(startedAt ?? "");
+  if (Number.isNaN(t)) return "?";
+  let s = Math.max(0, Math.floor((now - t) / 1000));
+  const days = Math.floor(s / 86400);
+  s %= 86400;
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return days > 0 ? `${days}-${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
 }
 
-/** Parse `ps -eo pid=,etime=,args=` output into the agent rows (receiver-spawned only).
- * @param {string} stdout @param {string[]} [bins] the agent binaries to recognise (cfg.claudeBin + step bins)
- * @param {Map<string, { ref: string, stepId?: string }>} [runningByPid] pid → its running.json entry, for
- *   agents whose argv carries no prompt (hermes' --query-file)
+/** `process.kill(pid, 0)` liveness: alive when the pid resolves; EPERM still means "exists".
+ * @param {string|number} pid @returns {boolean} */
+function pidAlive(pid) {
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch (e) {
+    return e?.code === "EPERM";
+  }
+}
+
+/** One row per running.json entry across the given profiles. Pure for offline tests; `isAlive`
+ * is injected so tests don't depend on real pids. A row whose pid `isAlive` says is gone is
+ * marked `stale`; a row with no pid yet (worktree/fetch phase) counts as running.
+ * @param {{ stateKey: string, running: Record<string, any> }[]} profiles each profile's running.json
+ * @param {{ all?: boolean, active?: string|null, now?: number, isAlive?: (pid: string|number) => boolean }} [opts] active = the state key to scope to when !all
  * @returns {AgentRow[]} */
-export function parsePsAgents(stdout, bins = ["claude"], runningByPid = new Map()) {
-  const agentP = agentMatcher(bins);
+export function runningRows(profiles, opts = {}) {
+  const { all = false, active = null, now = Date.now(), isAlive } = opts;
   /** @type {AgentRow[]} */
   const rows = [];
-  for (const line of stdout.split("\n")) {
-    const m = line.match(/^\s*(\d+)\s+(\S+)\s+(.*)$/);
-    if (!m) continue;
-    const [, pid, etime, cmd] = m;
-    if (!agentP.test(cmd)) continue;
-    let step = cmd.match(/the "([^"]+)" stage/)?.[1] || "?";
-    let ref = cmd.match(/ Ref: (\S+)/)?.[1] || "?";
-    // The receiver's prompt always carries both a `the "<id>" stage` line and `Ref: <ref>`;
-    // a row resolving NEITHER matched the bin but isn't one of ours (e.g. a manual `claude -p`)
-    // — unless its pid is in a running.json (the prompt went via a file), which names both.
-    if (step === "?" && ref === "?") {
-      const run = runningByPid.get(pid);
-      if (!run) continue;
-      ref = run.ref;
-      step = run.stepId || "?";
-    }
-    rows.push({ pid, etime, step, ref, profile: "?" });
-  }
-  return rows;
-}
-
-/** Attribute each agent row to its owning profile (pid is the strong signal, ref the
- * fallback) and select which to show. Pure for offline testing.
- * @param {string} stdout raw `ps` output
- * @param {{ stateKey: string, running: Record<string, any> }[]} profiles each profile's running.json
- * @param {{ all?: boolean, active?: string|null, bins?: string[] }} [opts] active = the state key to scope to when !all; bins → parsePsAgents
- * @returns {AgentRow[]} */
-export function selectAgents(stdout, profiles, opts = {}) {
-  /** @type {Map<string, string>} */
-  const byPid = new Map();
-  /** @type {Map<string, string>} */
-  const byRef = new Map();
-  /** @type {Map<string, { ref: string, stepId?: string }>} */
-  const runningByPid = new Map();
   for (const p of profiles) {
     for (const [ref, info] of Object.entries(p.running || {})) {
-      if (info && info.pid != null) {
-        byPid.set(String(info.pid), p.stateKey);
-        runningByPid.set(String(info.pid), { ref: String(ref), stepId: info.stepId });
-      }
-      byRef.set(String(ref), p.stateKey);
+      const pid = info && info.pid != null ? String(info.pid) : null;
+      /** @type {AgentRow} */
+      const row = {
+        ref: String(ref),
+        step: info?.stepId ?? "?",
+        harness: info?.harness ?? null,
+        agent: info?.agent ?? null,
+        host: info?.host ?? null,
+        model: info?.model ?? null,
+        pid,
+        etime: fmtEtime(info?.startedAt, now),
+        profile: p.stateKey,
+        stale: false,
+      };
+      if (pid != null && isAlive && !isAlive(pid)) row.stale = true;
+      rows.push(row);
     }
   }
-  const rows = parsePsAgents(stdout, opts.bins, runningByPid);
-  for (const r of rows) r.profile = byPid.get(r.pid) ?? byRef.get(r.ref) ?? "?";
-  return opts.all ? rows : rows.filter((r) => r.profile === opts.active);
+  return all ? rows : rows.filter((r) => r.profile === active);
 }
 
 /** Read a JSON state file from a profile dir; {} if absent/garbage.
@@ -182,7 +167,7 @@ const TITLE_MAX = 50;
 const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** One human-readable `ah agents` line. Pure; exported for tests.
- *  default: `<displayId ?? ref>  <step>  <#pr | —>  <etime>  <title>  <ctx…>`
+ *  default: `<displayId ?? ref>  <step>  <#pr | —>  <etime>  <harness@host>  <model>  <title>  <ctx…>`
  * @param {AgentRow} row @param {import('../types.js').RefMeta|undefined} meta @param {string} tok  the fmtCtx column
  * @param {{ verbose?: boolean, all?: boolean, label?: string }} [opts] label = the owner's display name (default the state key)
  * @returns {string} */
@@ -190,9 +175,12 @@ export function formatAgentRow(row, meta, tok, opts = {}) {
   const owner = opts.all ? `profile=${(opts.label ?? row.profile).padEnd(18)} ` : "";
   const id = meta?.displayId ?? row.ref;
   const pr = meta?.pr ? `#${meta.pr}` : "—";
+  const harness = row.harness ? row.harness + (row.host ? `@${row.host}` : "") : "-";
+  const model = row.model ?? "-";
   const title = truncate(meta?.title ?? "", TITLE_MAX);
-  const extra = opts.verbose ? `  pid=${row.pid} ref=${row.ref}` : "";
-  return `${owner}${id.padEnd(12)} ${row.step.padEnd(10)} ${pr.padEnd(6)} ${row.etime.padEnd(11)} ${title.padEnd(TITLE_MAX)} ${tok}${extra}`;
+  const stale = row.stale ? " [stale]" : "";
+  const extra = opts.verbose ? `  pid=${row.pid ?? "-"} ref=${row.ref}` : "";
+  return `${owner}${id.padEnd(12)} ${row.step.padEnd(10)} ${pr.padEnd(6)} ${row.etime.padEnd(11)} ${harness.padEnd(18)} ${model.padEnd(18)} ${title.padEnd(TITLE_MAX)} ${tok}${stale}${extra}`;
 }
 
 /** One `ah agents --json` record. Pure; exported for tests.
@@ -205,25 +193,26 @@ export function agentRecord(row, meta, runInfo, last, label = row.profile) {
   return {
     profile: row.profile,
     label,
-    pid: Number(row.pid),
+    pid: row.pid != null ? Number(row.pid) : null,
     ref: row.ref,
     displayId: meta?.displayId ?? null,
     title: meta?.title ?? null,
     pr: meta?.pr ?? null,
     step: row.step,
-    model: runInfo?.model ?? null,
+    harness: row.harness,
+    agent: row.agent,
+    host: row.host,
+    model: row.model,
     startedAt: runInfo?.startedAt ?? null,
     ctx: known ? (u.input || 0) + (u.cacheRead || 0) + (u.cacheCreate || 0) : null,
     out: u.output ?? null,
     etime: row.etime,
+    stale: row.stale ?? false,
   };
 }
 
 /** @param {any} [args] */
 export async function agents(args = {}) {
-  const ps = spawnSync("ps", ["-eo", "pid=,etime=,args=", "-ww"], { encoding: "utf8" });
-  if (ps.status !== 0) throw new Error(`ps failed: ${ps.stderr || ps.error?.message || "unknown"}`);
-
   const all = !!args.all;
   /** @type {ProfileState[]} */
   let profiles;
@@ -256,22 +245,10 @@ export async function agents(args = {}) {
     scope = prof.label;
   }
 
-  // Which binaries count as agents: "claude" (the default every profile starts from) plus the
-  // discovered config's claudeBin + step bins + the default bins of the agents it names. Only
-  // that one config is read, so with --all (or `agents <name>`) another profile's custom bin
-  // is missed unless this config names it too.
-  /** @type {string[]} */
-  let bins = ["claude"];
-  try {
-    bins = [...bins, ...peekConfig({ configPath: args.config }).agentBins];
-  } catch {
-    // no discoverable config (e.g. `agents --all` from outside any checkout): the default only
-  }
-
   /** @type {Map<string, ProfileState>} */
   const profileMap = new Map(profiles.map((p) => [p.stateKey, p]));
 
-  const rows = selectAgents(ps.stdout, profiles, { all, active, bins });
+  const rows = runningRows(profiles, { all, active, now: Date.now(), isAlive: pidAlive });
   if (args.json) {
     const recs = rows.map((r) => {
       const prof = profileMap.get(r.profile);
@@ -286,5 +263,6 @@ export async function agents(args = {}) {
     const tok = fmtCtx(u.input, u.cacheRead, u.cacheCreate, u.output, u.costUsd);
     console.log(formatAgentRow(r, prof?.refmeta?.[r.ref], tok, { verbose: !!args.verbose, all, label: prof?.label }));
   }
-  console.log(`── ${rows.length} agent(s) running ── (${scope})`);
+  const running = rows.filter((r) => !r.stale).length;
+  console.log(`── ${running} agent(s) running ── (${scope})`);
 }

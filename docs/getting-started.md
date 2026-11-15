@@ -256,7 +256,7 @@ assigned to anyone else (see [assignee scoping](#assignee-scoping) below).
 Watch it happen:
 
 ```bash
-agenthook agents                 # the live claude -p process for that task
+agenthook agents                 # the live agent run for that task
 agenthook follow                 # tail the agent's transcript read-only
 agenthook status <profile>       # queue depth, recent runs, public URL
 ```
