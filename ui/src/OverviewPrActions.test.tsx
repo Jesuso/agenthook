@@ -14,7 +14,7 @@ import type { Mounted } from "./domHarness";
 const p = (up = true) =>
   ({ name: "dev", label: "dev", up, pid: up ? 1 : null, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: "github", maxConcurrent: 3,
     startedAt: null, updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-    lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null }) as ProfileView;
+    lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null }) as ProfileView;
 const pr = (ref: string, prNeeds: PrNeeds): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status: prNeeds === "openOnDone" ? "done" : "idle", model: null, startedAt: null, costUsd: 0, estUsd: 0,
   trackerUrl: `https://github.com/o/r/issues/${ref}`, prUrl: `https://github.com/o/r/pull/${ref}0`, summary: null, plain: null, options: null, heldReason: null, heldAt: null, failReason: null,

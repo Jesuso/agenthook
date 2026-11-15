@@ -274,7 +274,10 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
 
   /**
    * Last resort: an uncaught throw/rejection means engine state is unknown — log,
-   * best-effort record + kill children, then exit. Never swallow-and-continue.
+   * best-effort record + kill children, then exit. Never swallow-and-continue. Unlike a clean
+   * `teardown()`, the pidfile is left in place: a dead pid still named there is the "died" signal
+   * (`start`/`doctor`/`stop` already treat a dead pid in the pidfile as stale, and `ah ui` reads it
+   * as `ProfileView.died`) — removing it here would make a crash look exactly like a clean stop.
    * @param {string} kind
    * @param {unknown} err
    */
@@ -290,11 +293,6 @@ export function createExits({ cfg, state, queue, ingress, heartbeat, children, s
       console.error(`[fatal] crash.json write failed (continuing): ${/** @type {Error} */ (writeErr).message}`);
     }
     await killChildren();
-    try {
-      fs.rmSync(cfg.pidFile, { force: true });
-    } catch {
-      /* ignore */
-    }
     process.exit(1);
   }
 

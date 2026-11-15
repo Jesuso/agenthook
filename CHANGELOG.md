@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Home now ranks cards by what the operator can act on now (#694): died profiles (crashed or
+  killed rather than stopped) first, then up profiles, then stopped profiles with something still
+  pending — a stopped profile's stale Needs-you count no longer outranks a live one or renders as
+  a live red/amber alert; it shows muted with an "as of \<age\>" label instead. A fatal exit
+  (`onFatal`) now leaves its pidfile in place (it used to delete it alongside the clean-shutdown
+  path), so a crash is told apart from a deliberate `agenthook stop`: the new `ProfileView.died`
+  flag drives a "stopped unexpectedly" pill and a failed-tone card border.
 - A down/probing harness now surfaces as an error, not routing noise (#688). A health-breaker
   trip's fast-exit `harness_down.reason` can carry the agent's own last error line after the
   receiver's own "no output" observation (e.g. an auth failure, not just that nothing came out),

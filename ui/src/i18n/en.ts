@@ -87,6 +87,9 @@ export const messages = {
   "home.quotaPaused": "quota paused",
   "home.costToday": "cost today",
   "home.lastSeen": "last seen {when}",
+  "home.asOf": "as of {when}",
+  "home.died": "stopped unexpectedly",
+  "home.diedTitle": "The receiver crashed or was killed — it is not running. Restart it, or run `agenthook stop` to clear this.",
 
   // Overview
   "overview.profileActions": "profile actions",
