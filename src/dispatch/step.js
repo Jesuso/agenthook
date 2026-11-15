@@ -500,9 +500,9 @@ export function createStep(ctx) {
         console.error(`[run] run credentials dispose failed for ${job.ref}:`, e.message);
       }
     }
-    const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, lastText } = spawned;
+    const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, errorLine, lastText } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText, repair, deduced });
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText, repair, deduced });
   }
 
   return { runStep };

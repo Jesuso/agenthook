@@ -115,7 +115,11 @@ unchanged check.
   with the `reason`) or `probing` (cooldown over; one probe run at a time decides). A step whose
   harnesses are all down waits in `capped`; it never fails. `harness_down` / `harness_up` events mark
   the transitions, and a run that tripped it ends `run_end` with `outcome: "requeued"` (it re-runs
-  first, on another harness). `harness_reset {harness}` clears it once the backend is fixed.
+  first, on another harness). `harness_reset {harness}` clears it once the backend is fixed. A
+  `down`/`probing` harness is a receiver-level error, not routing noise — the web UI's Needs-you zone
+  lists it until `harness_up` fires (#688), and the `tick` text digest's harness line ends with
+  `— fix the cause, then harness_reset <name>`; a routed-around spill (a step's other harness
+  picking up the work) produces nothing in either place.
 - `harnessUsage` (present only when the profile has `harnesses` and some run used one) is
   `{"<name>": {"runs": n, "input": n, "output": n, "cacheRead": n, "cacheCreate": n}}` — token
   totals per harness, summed from the usage records. `set_concurrency {max, harness}` changes one

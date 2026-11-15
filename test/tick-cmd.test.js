@@ -55,8 +55,8 @@ test("digest: one line per down or probing harness (#621); an up harness adds no
     running: [], queue: [], held: [], events: [], cursor: 1,
   });
   const lines = out.split("\n");
-  assert.ok(lines.includes("  harness local-qwen: down until 14:32Z (spawn failed: ENOENT)"));
-  assert.ok(lines.includes("  harness deepseek: probing (exited 1 with no output after 2s)"));
+  assert.ok(lines.includes("  harness local-qwen: down until 14:32Z (spawn failed: ENOENT) — fix the cause, then harness_reset local-qwen"));
+  assert.ok(lines.includes("  harness deepseek: probing (exited 1 with no output after 2s) — fix the cause, then harness_reset deepseek"));
   assert.equal(lines.filter((l) => l.includes("harness")).length, 2);
 });
 

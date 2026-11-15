@@ -185,6 +185,22 @@ test("healthTrip: preflight and spawn errors trip; a fast no-output non-zero exi
   assert.equal(healthTrip({ ...base, wallMs: 30000, downGraceSeconds: 60 }), "exited 1 with no output after 30s");
 });
 
+test("healthTrip: a fast-exit errorLine (#688) rides along the reason; without one the reason is unchanged", () => {
+  const base = { code: 1, cancelled: false, noOutput: true, wallMs: 2000 };
+  assert.equal(
+    healthTrip({ ...base, errorLine: "Failed to authenticate: OAuth token revoked" }),
+    "exited 1 with no output after 2s: Failed to authenticate: OAuth token revoked",
+  );
+  assert.equal(healthTrip(base), "exited 1 with no output after 2s");
+  // the other branches (preflight/spawnError/apiDown) ignore errorLine — they already carry a specific reason
+  assert.equal(healthTrip({ ...base, code: 0, preflight: "hermes preflight failed: no home", errorLine: "ignored" }), "hermes preflight failed: no home");
+  assert.equal(healthTrip({ ...base, spawnError: "spawn qwen ENOENT", errorLine: "ignored" }), "spawn failed: spawn qwen ENOENT");
+  assert.equal(
+    healthTrip({ ...base, wallMs: 180000, apiDown: "ECONNREFUSED", errorLine: "ignored" }),
+    "model API unreachable: ECONNREFUSED",
+  );
+});
+
 test("modelApiFailure: ECONNREFUSED/ENOTFOUND/EHOSTUNREACH/ETIMEDOUT/ECONNRESET, both egress-proxy failure forms, cannot-resolve and 502/503/504 match; 4xx never does, even alongside a matching token", () => {
   for (const token of ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ETIMEDOUT", "ECONNRESET"]) {
     assert.equal(modelApiFailure(`connect ${token} 10.0.0.1:443`), `connect ${token} 10.0.0.1:443`);
@@ -359,7 +375,7 @@ test("breaker: a fast non-zero exit with no output trips its harness; a clean ru
   const harnesses = { local: { bin: bad }, cloud: { bin: good } };
   const pipeline = [{ id: "code", harness: ["local", "cloud"] }, { id: "done", manual: true }];
   const tripped = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "local" });
-  assert.match(String(tripped.info.health?.reason), /^exited 3 with no output after \d+s$/);
+  assert.match(String(tripped.info.health?.reason), /^exited 3 with no output after \d+s: connection refused$/, "the agent's own stderr line (#688) rides along");
   assert.equal(tripped.info.health?.requeue, true);
   const ok = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "cloud" });
   assert.equal(ok.info.health, undefined);
@@ -385,6 +401,22 @@ test("breaker: a no-output exit past downGraceSeconds trips when its output name
   const end = events.find((e) => e.event === "run_end");
   assert.equal(end.outcome, "requeued");
   assert.equal(events.some((e) => e.event === "failed"), false);
+});
+
+test("breaker: a stderr line carrying a secret env value never reaches harness_down.reason (#688)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-trip-redact-"));
+  const bad = path.join(dir, "bad.sh");
+  // A value shaped like none of TOKEN_SHAPE_RES, so this only passes via the env-value loop.
+  fs.writeFileSync(bad, "#!/bin/sh\necho 'Failed to authenticate: token ANTHROPIC_API_KEY=plainsecretvalue123' >&2\nexit 1\n", { mode: 0o755 });
+  const harnesses = { local: { bin: bad, env: { ANTHROPIC_API_KEY: "plainsecretvalue123" } } };
+  const pipeline = [{ id: "code", harness: ["local"] }, { id: "done", manual: true }];
+  const { info, events } = await dispatchOnce(dir, { harnesses, pipeline }, { harness: "local" });
+  assert.match(String(info.health?.reason), /^exited 1 with no output after \d+s: Failed to authenticate: token ANTHROPIC_API_KEY=\*\*\*$/);
+  assert.ok(!String(info.health?.reason).includes("plainsecretvalue123"), "the secret value never reaches the reason");
+  assert.ok(String(info.health?.reason).length <= 300);
+  const end = events.find((e) => e.event === "run_end");
+  assert.equal(end.outcome, "requeued", "the secret never leaked into run_end's reason either");
+  assert.ok(!String(end.reason).includes("plainsecretvalue123"));
 });
 
 test("breaker: the same shape with a 4xx API Error line never trips — plain fail, no health", async () => {

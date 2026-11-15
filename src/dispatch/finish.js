@@ -34,6 +34,7 @@ import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMer
  * @property {string} [spawnError]  the spawn itself errored (e.g. ENOENT: the bin is missing)
  * @property {boolean} [noOutput]  the parser counted no model output tokens
  * @property {string} [apiDown]  a connection-level model-API failure line found in the run's output (src/dispatch/harness.js modelApiFailure) — a harness health signal at any wall time
+ * @property {string} [errorLine]  the agent's own last error line (src/dispatch/spawn.js), redacted — the breaker's fast-exit reason detail (#688)
  * @property {Record<string, string>|undefined} agentEnv
  * @property {string|null} energyRun
  * @property {number} code
@@ -56,7 +57,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair, deduced } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -154,6 +155,7 @@ export function createFinish(ctx) {
           wallMs: Date.now() - Date.parse(startedAt),
           downGraceSeconds: cfg.harnesses?.[harness]?.downGraceSeconds,
           apiDown,
+          errorLine,
           upstreamFailures: sandboxReport?.upstreamFailures,
           baseUrl: spawnStep.env?.ANTHROPIC_BASE_URL,
         })

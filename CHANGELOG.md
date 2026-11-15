@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- A down/probing harness now surfaces as an error, not routing noise (#688). A health-breaker
+  trip's fast-exit `harness_down.reason` can carry the agent's own last error line after the
+  receiver's own "no output" observation (e.g. an auth failure, not just that nothing came out),
+  redacted (new `redactSecrets` in `src/agent-env.js`: secret-shaped env values and common token
+  shapes become `***`) and bounded to ~300 chars. The web UI's Needs-you zone now lists every
+  down/probing harness of an up profile above the ticket rows — name, state, reason, until, and the
+  hint "Fix the cause, then run `harness_reset <name>`" — counted in the headline, the all-clear
+  check, the page title and the Home card's needs-you figure; it disappears on its own once
+  `harness_up` fires. A routing spill (a full-but-`up` harness) produces nothing. The slot chips
+  tint the same way. `tick`'s text digest appends the `harness_reset` hint to its down/probing line.
 - Deduced verdict (#680): on an `implement`/`change` step, a clean exit with no valid verdict is
   often a plain fact — the run added commits to the ticket branch — rather than something only
   another model turn can answer. Before the #677 repair turn runs, the receiver now deduces

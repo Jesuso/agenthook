@@ -102,7 +102,10 @@ function matchingUpstreamFailure(upstreamFailures, baseUrl) {
  * model-API failure: a sandbox's `upstreamFailures` entry for the run's `baseUrl` host:port
  * (preferred), else a scanned `apiDown` line. Any other refusal (policy, sandbox, credentials)
  * and a run that produced output never trip.
- * @param {{preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number, apiDown?: string, upstreamFailures?: {host: string, port: number, error: string}[], baseUrl?: string}} r
+ * `errorLine` (#688), when present, is appended to the fast-exit reason — the agent's own last
+ * error line (e.g. an auth failure), not just the receiver's own "no output" observation; the
+ * other branches already carry a specific reason and ignore it.
+ * @param {{preflight?: string, spawnError?: string, code: number, timedOut?: string, cancelled: boolean, noOutput?: boolean, wallMs: number, downGraceSeconds?: number, apiDown?: string, upstreamFailures?: {host: string, port: number, error: string}[], baseUrl?: string, errorLine?: string}} r
  * @returns {string|undefined}
  */
 export function healthTrip(r) {
@@ -110,7 +113,10 @@ export function healthTrip(r) {
   if (r.spawnError) return `spawn failed: ${r.spawnError}`;
   const grace = (r.downGraceSeconds ?? DEFAULT_DOWN_GRACE_SECONDS) * 1000;
   if (r.code !== 0 && !r.timedOut && !r.cancelled && r.noOutput) {
-    if (r.wallMs < grace) return `exited ${r.code} with no output after ${Math.round(r.wallMs / 1000)}s`;
+    if (r.wallMs < grace) {
+      const base = `exited ${r.code} with no output after ${Math.round(r.wallMs / 1000)}s`;
+      return r.errorLine ? clip(`${base}: ${r.errorLine}`, 300) : base;
+    }
     const upstream = matchingUpstreamFailure(r.upstreamFailures, r.baseUrl);
     if (upstream) return `model API unreachable: ${clip(`${upstream.host}:${upstream.port} ${upstream.error}`)}`;
     if (r.apiDown) return `model API unreachable: ${clip(r.apiDown)}`;
