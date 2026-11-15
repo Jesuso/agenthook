@@ -163,7 +163,7 @@ const TOOLS = {
   harness_reset: {
     write: true,
     def: schema(
-      "Clear a harness's health breaker (down or probing → up, emits `harness_up`) and start the work waiting on it. `reset:false` = it was already up. Errors on an unknown harness or a profile without harnesses.",
+      "Clear a harness's health breaker (down or probing → up, emits `harness_up`) and start the work waiting on it. `reset:false` = it was already up. On a quota-closed harness it also suppresses re-closing by quota until that window resets. Errors on an unknown harness or a profile without harnesses.",
       { profile: PROFILE, harness: { type: "string", description: "harness name from the profile's `harnesses`" } },
       ["harness"],
     ),

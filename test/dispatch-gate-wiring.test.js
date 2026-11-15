@@ -134,17 +134,31 @@ test("dispatch gate: an advance that fails the gate once, then passes on repair 
 
 test("dispatch gate: a gate that never passes holds once maxAttempts is spent — gate repairs count toward it", async () => {
   const h = gateHarness();
-  await h.runStep("code", { verdict: { outcome: "advance" }, goodAtTurn: 1 }); // gateGoodAt unset: the gate never passes
+  await h.runStep("code", { verdict: { outcome: "advance", summary: { plain: "hi" } }, goodAtTurn: 1 }); // gateGoodAt unset: the gate never passes
   assert.deepEqual(h.advanced.map((a) => a.outcome), ["hold"]);
   // the reason carries the *last* gate attempt's output tail, not every attempt's
   assert.match(h.advanced[0].reason, /^gate failed \(exit 1\) after \d+ attempt\(s\): [\s\S]*gate-output-\d+/);
-  assert.equal(h.events.find((e) => e.event === "run_end")?.gate, "fail");
+  const end = h.events.find((e) => e.event === "run_end");
+  assert.equal(end?.gate, "fail");
+  assert.equal(end.verdictSource, undefined, "a gate-cap hold is receiver-forced: run_end has no verdictSource");
+  assert.equal(h.store.getSummaries("42")?.code?.verdictSource, undefined, "neither does the stored summary");
   assert.equal(h.events.filter((e) => e.event === "gate_fail").length, h.gateCalls());
   assert.equal(h.events.find((e) => e.event === "gate_pass"), undefined);
   // default maxAttempts (3): the initial run already counts as attempt 1, so only 2 more
   // gate-repair turns fit under the cap before it's exhausted — 3 calls total, no more
   assert.equal(h.calls(), 3);
   assert.equal(h.store.getAttempt("42", "code"), 3);
+});
+
+test("dispatch gate: a long gate output keeps the *last* 1000 chars in the hold reason", async () => {
+  const marker = "UNIQUE-END-MARKER-9f3a";
+  const gate = `printf 'x%.0s' $(seq 1 2000); echo "${marker}"; exit 1`;
+  const h = gateHarness({ steps: [{ id: "code", gate, gateTimeoutMinutes: 1 }, { id: "done", manual: true }] });
+  await h.runStep("code", { verdict: { outcome: "advance" }, goodAtTurn: 1 });
+  assert.deepEqual(h.advanced.map((a) => a.outcome), ["hold"]);
+  const reason = String(h.advanced[0].reason);
+  assert.match(reason, new RegExp(`${marker}\\s*$`), "the reason ends with the tail's end, not its head");
+  assert.equal(reason.startsWith("gate failed"), true);
 });
 
 test("dispatch gate: no resume path (no session id) falls back to a fresh spawn, not a resume", async () => {

@@ -528,7 +528,7 @@ export function createStep(ctx) {
       /** @param {{exitCode: number|null, timedOut: boolean, tail: string}} g */
       const detail = (g) => (g.timedOut ? `timed out after ${gateTimeoutMinutes} min` : `exit ${g.exitCode}`);
       /** @param {{exitCode: number|null, timedOut: boolean, tail: string}} g */
-      const blockedReason = (g) => `gate failed (${detail(g)}) after ${store?.getAttempt(job.ref, step.id) ?? 0} attempt(s): ${g.tail.slice(0, 1000)}`;
+      const blockedReason = (g) => `gate failed (${detail(g)}) after ${store?.getAttempt(job.ref, step.id) ?? 0} attempt(s): ${g.tail.slice(-1000)}`;
       /** @type {any[]} */
       const results = [];
       /** @type {any[]} */

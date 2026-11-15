@@ -372,7 +372,7 @@ a duplicate webhook for the same ref+step coalesces away silently; carries `kind
 `gate: "pass"|"fail"` only when the step's `gate` ran at least once — see `gate_pass`/`gate_fail`;
 `verdictSource: "agent"|"repaired"|"deduced"` says where the outcome came from — a verdict file the
 agent wrote, the repair turn's, or deduced from the branch's commits; absent for a receiver-forced
-verdict or the `requireVerdict:false` assumed-advance),
+verdict (e.g. a gate-cap hold) or the `requireVerdict:false` assumed-advance),
 `verdict_repair {result, turns}` (a clean exit with no valid verdict got one receiver-driven repair
 turn — same session, fixed prompt — before a human is involved; `result` = `"repaired"` or
 `"still_missing"`; fires right before `run_end`; skipped entirely when the run instead qualifies

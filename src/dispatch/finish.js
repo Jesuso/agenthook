@@ -262,12 +262,14 @@ export function createFinish(ctx) {
       missingVerdict = false;
     }
     // Absent for a hold with no verdict, every receiver-forced verdict (refused/spawn-failed/
-    // cancelled/timeout/non-zero exit — none of those is anyone's verdict claim), and the
-    // existing `requireVerdict:false` assumed-advance fallback (its reason carries the
+    // cancelled/timeout/non-zero exit/a gate-cap hold — none of those is anyone's verdict claim),
+    // and the existing `requireVerdict:false` assumed-advance fallback (its reason carries the
     // ASSUMED_ADVANCE_SUFFIX parseVerdict stamps on it, never a real verdict file).
     const assumedAdvance = typeof verdict.reason === "string" && verdict.reason.endsWith(ASSUMED_ADVANCE_SUFFIX);
     /** @type {'agent'|'repaired'|'deduced'|undefined} */
-    const verdictSource = deducedApplied
+    const verdictSource = gate?.capExhausted
+      ? undefined
+      : deducedApplied
       ? "deduced"
       : repair?.repaired
       ? "repaired"
