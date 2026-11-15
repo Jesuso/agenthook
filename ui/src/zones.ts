@@ -29,6 +29,28 @@ const time = (iso: string | null) => {
   return Number.isNaN(t) ? 0 : t;
 };
 
+/** One Needs-you row for a harness whose health breaker is down/probing (#688) — a harness that
+ * *stopped accepting work when it should*, not a routing spill (a full/uncapped harness at
+ * `active === max`, still `up`, produces nothing here). */
+export type HarnessAttentionItem = {
+  harness: string;
+  state: "down" | "probing";
+  reason: string | null;
+  until: string | null;
+};
+
+/**
+ * Every harness of `profile` whose breaker is down or probing (src/ui/rows.js harnessSlots already
+ * carries `state`/`until`/`reason`); [] for an all-`up` profile or one with no named harnesses.
+ */
+export function harnessAttention(profile: Pick<ProfileView, "harnesses">): HarnessAttentionItem[] {
+  const items: HarnessAttentionItem[] = [];
+  for (const [harness, h] of Object.entries(profile.harnesses ?? {})) {
+    if (h.state === "down" || h.state === "probing") items.push({ harness, state: h.state, reason: h.reason ?? null, until: h.until ?? null });
+  }
+  return items;
+}
+
 /** The profile's Needs-you tickets, worst first: failed → held → PR, newest first within a kind. */
 export function needsYouItems(tickets: TicketRow[], forge: boolean, lang = "en"): NeedsItem[] {
   const items: NeedsItem[] = [];

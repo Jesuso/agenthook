@@ -514,12 +514,12 @@ export function createStep(ctx) {
         console.error(`[run] run credentials dispose failed for ${job.ref}:`, e.message);
       }
     }
-    const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, lastText } = spawned;
+    const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, errorLine, lastText } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
     // Pacing (finish.js): a remote run's subscription-quota reading is the worker's, not paced
     // by this hub (#689). `sandboxed` here also covers a remote run — its verdict needs the same
     // untrusted-writer guard finish.js applies before trusting a container's.
-    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile: localVerdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota: remote ? null : quota, turnStats, timedOut, sandboxed: executor.name !== "host", sandboxReport, headSha, lastText, repair, deduced });
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile: localVerdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, errorLine, agentEnv, energyRun, code, result, quota: remote ? null : quota, turnStats, timedOut, sandboxed: executor.name !== "host", sandboxReport, headSha, lastText, repair, deduced });
   }
 
   return { runStep };

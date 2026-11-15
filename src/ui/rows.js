@@ -483,22 +483,22 @@ export function profileView(p) {
 }
 
 /** A harness's breaker states (src/queue.js). */
-const HARNESS_STATES = new Set(["up", "down", "probing"]);
+const HARNESS_STATES = /** @type {const} */ (["up", "down", "probing"]);
 
 /**
  * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
  * null = uncapped, 0 = drained via `set_concurrency`; `state` is the health breaker's,
  * `until`/`reason` only while down or probing); null when absent or empty (a profile without
  * harnesses).
- * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>|null}
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>|null}
  */
 export function harnessSlots(raw) {
   if (!isObj(raw)) return null;
-  /** @type {Record<string, {active: number, max: number|null, state?: string, until?: string, reason?: string}>} */
+  /** @type {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>} */
   const out = {};
   for (const [name, h] of Object.entries(raw)) {
     if (!isObj(h)) continue;
-    const state = HARNESS_STATES.has(h.state) ? h.state : undefined;
+    const state = /** @type {'up'|'down'|'probing'|undefined} */ (HARNESS_STATES.includes(h.state) ? h.state : undefined);
     const down = state === "down" || state === "probing";
     out[name] = {
       active: Math.max(0, Number(h.active) || 0),

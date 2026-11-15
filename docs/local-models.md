@@ -213,8 +213,24 @@ you restarted Ollama.
 The state survives a restart in `harness-health.json` in the state dir (a harness removed from
 the config is dropped; one whose cooldown passed while the receiver was down comes back probing).
 `tick` shows a line per down or probing harness (`harness local-qwen: down until 14:32Z (spawn
-failed: …)`), and `slots.harnesses[name]` carries `state`, plus `until` and `reason` when it isn't
-up.
+failed: …) — fix the cause, then harness_reset local-qwen`), and `slots.harnesses[name]` carries
+`state`, plus `until` and `reason` when it isn't up.
+
+A fast-exit trip's `reason` can carry the agent's own last error line after the receiver's own
+"no output" observation, e.g. `exited 1 with no output after 3s: Failed to authenticate: OAuth
+token revoked` — the agent's real complaint, not just the fact that it produced nothing (#688).
+The line is redacted (secret-shaped env values and common token shapes become `***`) and the whole
+reason stays bounded to ~300 chars; the other trip reasons already carry a specific cause and never
+append it.
+
+This is the one web-UI case that routing noise is not: a spill (a step's other harness picking up
+the work because one is full, `first-free`/`round-robin`) is normal and never shown, but a harness
+that **stops accepting work when it should** is surfaced. The web UI's Needs-you zone lists every
+down/probing harness above the ticket rows — its name, the `state` pill, the `reason` and (while
+down) `until`, plus the hint "Fix the cause, then run `harness_reset <name>`" — and counts it in the
+headline and the Home card's needs-you figure. There is nothing to dismiss or click: the row
+disappears on its own once `harness_up` fires. The slot chips next to the agent pips tint the same
+way, with the reason in their tooltip, as a glance-level flag.
 
 Without `harnesses` there is no breaker; a missing agent `bin` just fails the run (it no longer
 crashes the receiver).

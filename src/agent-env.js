@@ -61,6 +61,27 @@ export function looksSecret(name) {
   return /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIALS?)$/i.test(name) || /^AWS_(ACCESS|SECRET|SESSION)_/i.test(name);
 }
 
+/** Common bearer/API-key token shapes, masked by redactSecrets whatever env var (if any) they
+ * came from: Anthropic (`sk-ant-…`), OpenAI-style (`sk-…`), GitHub (`ghp_|gho_|ghs_|github_pat_…`),
+ * Slack (`xox[abp]-…`). */
+const TOKEN_SHAPE_RES = [/\bsk-ant-[A-Za-z0-9_-]{10,}\b/g, /\bsk-[A-Za-z0-9_-]{10,}\b/g, /\b(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{10,}\b/g, /\bxox[abp]-[A-Za-z0-9-]{10,}\b/g];
+
+/**
+ * Masks secrets out of a run's output `text` before it ever reaches a reason/event: every
+ * occurrence of a secret-shaped (`looksSecret`) env var's value (length >= 8) in `env` becomes
+ * `***`, then common token shapes (`TOKEN_SHAPE_RES`) and `Bearer <token>` are masked too, whether
+ * or not they came from a listed env var. Pure. @param {string} text @param {Record<string,string|undefined>} env @returns {string}
+ */
+export function redactSecrets(text, env) {
+  if (!text) return text;
+  let out = text;
+  for (const [k, v] of Object.entries(env)) {
+    if (v && v.length >= 8 && looksSecret(k)) out = out.split(v).join("***");
+  }
+  for (const re of TOKEN_SHAPE_RES) out = out.replace(re, "***");
+  return out.replace(/Bearer\s+\S+/gi, "Bearer ***");
+}
+
 /**
  * The agent env. `source` (process.env) is filtered to `allow`, minus HOST_SESSION_ENV and the
  * names in `strip` (a run's per-run credentials replace them, #474), then each of `layers` is spread on top, in

@@ -117,6 +117,19 @@ describe("summarize", () => {
   it("is all zeros for an empty snapshot", () => {
     expect(summarize({ profiles: [], tickets: [] }, NOW)).toEqual({ active: 0, capacity: 0, needsYou: 0, queued: 0, costToday: 0, estToday: 0, up: 0, down: 0 });
   });
+
+  it("counts a down/probing harness as needing you; a full-but-up harness (a routing spill) does not (#688)", () => {
+    const s = summarize(
+      {
+        profiles: [
+          profile({ name: "a", up: true, harnesses: { qwen: { active: 0, max: 1, state: "down" }, local: { active: 0, max: 1, state: "probing" }, full: { active: 2, max: 2 } } }),
+        ],
+        tickets: [],
+      },
+      NOW,
+    );
+    expect(s.needsYou).toBe(2);
+  });
 });
 
 describe("scopeToProfile", () => {
