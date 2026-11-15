@@ -136,6 +136,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "tracker.pipeline.*.idleMinutes": { label: "Tiempo de inactividad (min)", help: "Detiene una ejecución tras estos minutos sin salida del agente (debe ser > 0); desactivado si no se define." },
   "tracker.pipeline.*.requireVerdict": { label: "Exigir veredicto", help: "Una salida limpia sin archivo de veredicto válido retiene la tarea en lugar de avanzarla (predeterminado true)." },
   "tracker.pipeline.*.verdictRepairs": { label: "Turnos de reparación de veredicto", help: "Una salida limpia sin veredicto válido recibe este número de turnos de reanudación antes de retener la tarea para un humano; 0 lo desactiva." },
+  "tracker.pipeline.*.deduceVerdict": { label: "Deducir veredicto por commits", help: "Una salida limpia sin veredicto válido avanza cuando la rama ganó commits, sin pasar por el turno de reparación." },
   "tracker.pipeline.*.createsWorktree": { label: "Crea worktree", help: "Crea el worktree de git compartido de la tarea antes de que se ejecute el agente." },
   "tracker.pipeline.*.drainWorktree": { label: "Quita el worktree", help: "Quita el worktree de la tarea después de este paso." },
   "tracker.pipeline.*.sourceSectionGid": { label: "Sección de origen", help: "Sección de Asana cuyas tareas disparan este paso." },

@@ -4,10 +4,10 @@ import { summarizeDescription } from "../ticket-summary.js";
 import fs from "node:fs";
 import path from "node:path";
 import { stepPrompt, verdictRepairPrompt } from "../prompts.js";
-import { guardSandboxVerdict, NO_VALID_VERDICT } from "./verdict.js";
+import { guardSandboxVerdict, endedWithQuestion, NO_VALID_VERDICT } from "./verdict.js";
 import { newNonce } from "../untrusted.js";
-import { findStep, DEFAULT_MAX_MINUTES } from "../pipeline.js";
-import { ensureWorktree, drainWorktree, worktreePath, branchName } from "../worktree.js";
+import { findStep, stepForStage, DEFAULT_MAX_MINUTES } from "../pipeline.js";
+import { ensureWorktree, drainWorktree, worktreePath, branchName, branchHead, commitsSince } from "../worktree.js";
 import { reportMoveFailure } from "../events.js";
 import { findBlocker } from "../overlap.js";
 import { agentFor } from "../agents/index.js";
@@ -189,6 +189,9 @@ export function createStep(ctx) {
     } catch {
       /* nothing to clear */
     }
+    // The branch's HEAD right before the agent runs, so a deduced verdict (#680) can tell a run
+    // that added commits apart from one that only left the tree dirty.
+    const headBefore = hasWorktree ? branchHead(cfg, cwd) : null;
 
     // Repo context (if the routed repo has an instructionsFile) goes ahead of the step's.
     const standing = [repo.instructionsFile ? readInstructions(repo.instructionsFile) : "", readInstructions(step.instructionsFile || cfg.instructionsFile)]
@@ -331,6 +334,35 @@ export function createStep(ctx) {
     };
 
     /**
+     * Deduce a verdict from commits (#680): on an implementing step, a clean exit with no valid
+     * verdict is often just a plain fact — the run pushed commits to the ticket branch — rather
+     * than something only another model turn could answer. Every gate below must hold; missing
+     * any one means no deduction, so the run falls through to the repair turn (#677) and then the
+     * usual hold, exactly as before this feature existed.
+     * @param {Awaited<ReturnType<typeof spawnAgent>>} firstSpawned
+     * @returns {{commits: number}|undefined}
+     */
+    function deduceVerdict(firstSpawned) {
+      if (!step) return undefined; // narrowing from the outer scope doesn't cross this closure
+      if (step.deduceVerdict === false) return undefined;
+      if (firstSpawned.spawnError || firstSpawned.code !== 0 || firstSpawned.timedOut || cancelled.has(job.ref)) return undefined;
+      const kind = step.kind ?? "implement";
+      if (kind !== "implement" && kind !== "change") return undefined;
+      if (!hasWorktree || !headBefore) return undefined;
+      const key = meta?.stageKeys?.success;
+      const successStage = key ? /** @type {Record<string, unknown>} */ (step)[key] : undefined;
+      const target = typeof successStage === "string" ? stepForStage(cfg, successStage) : null;
+      if (!target || target.manual) return undefined;
+      if (sandboxed) guardSandboxVerdict(verdictFile);
+      const first = readVerdict(firstSpawned.code, verdictFile, step, agent);
+      if (!(first.outcome === "hold" && first.reason === NO_VALID_VERDICT)) return undefined;
+      if (endedWithQuestion(firstSpawned.lastText)) return undefined;
+      const commits = commitsSince(cfg, cwd, headBefore);
+      if (commits < 1) return undefined;
+      return { commits };
+    }
+
+    /**
      * One receiver-driven repair turn after a clean exit with no valid verdict (#677): resume the
      * same agent session with a fixed prompt, up to step.verdictRepairs times (default 1, 0
      * disables), before a human is involved. Every gate below must hold just to ATTEMPT the first
@@ -417,6 +449,8 @@ export function createStep(ctx) {
     let spawned;
     /** @type {{turns: number, repaired: boolean, results: any[], turnStats: any[]}|undefined} */
     let repair;
+    /** @type {{commits: number}|undefined} */
+    let deduced;
     try {
       spawned = refused ? { code: 1, result: null, quota: null, timedOut: undefined } : await spawnAgent({
         agent,
@@ -447,12 +481,15 @@ export function createStep(ctx) {
         throw e;
       });
       if (!refused) {
-        const r = await repairMissingVerdict(spawned);
-        if (r) {
-          repair = { turns: r.turns, repaired: r.repaired, results: r.results, turnStats: r.turnStats };
-          // The final repair turn's code/timedOut/lastText become the run's (finishStep resolves
-          // the verdict/health from these); the harness-health signals below stay the first run's.
-          spawned = { ...spawned, code: r.final.code, timedOut: r.final.timedOut, lastText: r.final.lastText ?? spawned.lastText, ...(r.final.spawnError ? { spawnError: r.final.spawnError } : {}) };
+        deduced = deduceVerdict(spawned);
+        if (!deduced) {
+          const r = await repairMissingVerdict(spawned);
+          if (r) {
+            repair = { turns: r.turns, repaired: r.repaired, results: r.results, turnStats: r.turnStats };
+            // The final repair turn's code/timedOut/lastText become the run's (finishStep resolves
+            // the verdict/health from these); the harness-health signals below stay the first run's.
+            spawned = { ...spawned, code: r.final.code, timedOut: r.final.timedOut, lastText: r.final.lastText ?? spawned.lastText, ...(r.final.spawnError ? { spawnError: r.final.spawnError } : {}) };
+          }
         }
       }
     } finally {
@@ -465,7 +502,7 @@ export function createStep(ctx) {
     }
     const { code, result, quota, turnStats, timedOut, sandboxReport, spawnError, noOutput, apiDown, lastText } = spawned;
     refused ??= /** @type {{refused?: string}} */ (spawned).refused;
-    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText, repair });
+    return finishStep(job, { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, headSha, lastText, repair, deduced });
   }
 
   return { runStep };

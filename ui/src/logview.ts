@@ -116,6 +116,15 @@ export function formatRunCost(r: Pick<RunView, "costUsd" | "unpriced"> & Partial
   return energy ? `${cost} · ${energy}` : cost;
 }
 
+/** The run caption's small marker for a verdict that isn't the agent's own claim (#680): "deduced"
+ * (the receiver inferred advance from commits) or "repaired" (a receiver-driven resume turn wrote
+ * it); null for "agent" (the normal case) and when the run has no verdictSource at all. */
+export function verdictSourceLabel(r: Pick<RunView, "verdictSource">, lang = "en"): string | null {
+  if (r.verdictSource === "deduced") return translate(lang, "drawer.verdictDeduced");
+  if (r.verdictSource === "repaired") return translate(lang, "drawer.verdictRepaired");
+  return null;
+}
+
 /** A run's outcome in the status colour language. */
 export function outcomeTone(r: Pick<RunView, "outcome" | "running">): TicketStatus {
   if (r.outcome === "advance") return "done";

@@ -324,18 +324,27 @@ it only gates new starts). `max: 0` is allowed with `harness` only — it drains
 starts, running agents finish), the way to keep runs off a dead backend before the health breaker
 trips; `set_concurrency {harness, max: n}` re-enables it.
 
+`restart` re-reads `.env` (an edited value takes effect without `stop` + `start`), but a harness
+breaker survives it — a restart is often for an unrelated reason, and `probing` already self-heals
+after its cooldown. The `restart` reply carries `harnessesDown: [{harness, until, reason}]` when
+any breaker is down; `harness_reset` clears one once its cause is fixed.
+
 ## events
 
 Names you will act on: `enqueued` (job accepted into the queue; fires once per accepted job —
 a duplicate webhook for the same ref+step coalesces away silently; carries `kind` —
 `"pipeline"`/`"merge"`/`"ci"` — so a CI/merge job's enqueue isn't mistaken for a pipeline re-run),
 `run_start`, `run_end
-{outcome, costUsd}` (`repaired: true|false` only when a verdict-repair turn ran — see `verdict_repair`),
+{outcome, costUsd}` (`repaired: true|false` only when a verdict-repair turn ran — see `verdict_repair`;
+`verdictSource: "agent"|"repaired"|"deduced"` says where the outcome came from — a verdict file the
+agent wrote, the repair turn's, or deduced from the branch's commits; absent for a receiver-forced
+verdict or the `requireVerdict:false` assumed-advance),
 `verdict_repair {result, turns}` (a clean exit with no valid verdict got one receiver-driven repair
 turn — same session, fixed prompt — before a human is involved; `result` = `"repaired"` or
-`"still_missing"`; fires right before `run_end`), `verdict_missing {reason}` (a clean exit with no
+`"still_missing"`; fires right before `run_end`; skipped entirely when the run instead qualifies
+for a deduced verdict), `verdict_missing {reason}` (a clean exit with no
 usable verdict file, after any repair turns, right before the hold it forces; a `blocked` event
-follows), `blocked {reason}` (task now held),
+follows; never fires for a deduced run), `blocked {reason}` (task now held),
 `failed {reason}`, `merged` (`via:"recheck"` when a `recheck` learned it rather than the forge's webhook),
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
@@ -388,7 +397,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |
 | `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`), then `recheck` the rows already flagged with a PR reason (adds `rechecked`) | — |
 | `pull` | fill free slots from the backlog lane; returns the queue state | — (a no-op when no step has a queue stage) |
-| `restart` | restart when idle | — |
+| `restart` | restart when idle; re-reads `.env`; reply carries `harnessesDown` when a breaker is still down | — |
 
 Every write is audited (`control-audit.jsonl`, actor `mcp`; `release` text is never logged) and
 every write refreshes the `board`/`prs` caches. Writes are **operator authority**: they act on the

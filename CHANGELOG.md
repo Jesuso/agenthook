@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Deduced verdict (#680): on an `implement`/`change` step, a clean exit with no valid verdict is
+  often a plain fact — the run added commits to the ticket branch — rather than something only
+  another model turn can answer. Before the #677 repair turn runs, the receiver now deduces
+  `advance` from the worktree branch's commit count when every gate holds (clean exit, no
+  question-hold, a non-manual success target, at least one commit since the run started — a dirty
+  tree with no commit doesn't count), skipping the repair spawn entirely. This is where repair
+  never helped anyway: hermes has no `resumeArgs`, and a sandboxed opencode run's session is
+  already gone by the time a repair would need it. Opt-out per step via the new `deduceVerdict`
+  config key (default `true`). `run_end` gains `verdictSource` (`"agent"`\|`"repaired"`\|
+  `"deduced"`), also stored on the per-step summary record, so the UI run caption can mark a
+  deduced/repaired outcome as the receiver's call rather than the agent's own claim.
 - Verdict repair (#677): a clean exit with no valid verdict ("decided, not delivered" — the agent
   said it finished but never wrote the file — or "stopped early") now gets one receiver-driven
   repair turn — the same agent session resumed with a fixed prompt — before holding for a human.
@@ -141,6 +152,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `restart` keeps stale `.env` values (#684): every detached respawn (`restart`, and the
+  `start --detach` hop it goes through) inherited the parent's whole environment, and `.env`
+  loading never overwrites an already-set var — so an edited `.env` value was never re-read
+  until a full `stop` + `start`. `loadEnv` now records which keys it actually set from a file,
+  and every detached child's env drops those (a shell-exported var is untouched), so the server
+  re-reads `.env` itself on every restart. A harness breaker still survives a restart on purpose
+  (it is often unrelated, and `probing` self-heals); instead, the `restart` reply (CLI/MCP/UI) now
+  lists any harness still down (`harnessesDown`) and points at `harness_reset`. The systemd unit
+  path already restarted into a fresh process and needed no change.
 - Sandboxed Claude Code runs now honour the operator's attribution preference (#675). A run in a
   per-run sandbox starts with an empty HOME, so `attribution` / `includeCoAuthoredBy` set off in
   `~/.claude/settings.json` were ignored and agent commits carried `Co-authored-by: Claude`. Those

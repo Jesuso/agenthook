@@ -8,7 +8,7 @@ const info = (j) => ({ kind: j.kind, ref: j.ref, name: j.ref, url: "", code: 0 }
 const job = (ref) => ({ kind: "pipeline", ref, stepId: "s", dedupKey: `${ref}:s` });
 
 /** Requester over a real queue; `release()` settles the one running job. */
-function harness({ draining = false, badConfig = false, badMove = false } = {}) {
+function harness({ draining = false, badConfig = false, badMove = false, harnessesDown } = {}) {
   /** @type {(() => void)[]} */
   const releases = [];
   const run = (j) => new Promise((resolve) => releases.push(() => resolve(info(j))));
@@ -32,6 +32,7 @@ function harness({ draining = false, badConfig = false, badMove = false } = {}) 
       h.validatedMoves.push(to);
       if (badMove) throw new Error(`bad move ${to}`);
     },
+    ...(harnessesDown && { harnessesDown }),
     onPending: (s) => h.pendingCalls.push(s),
     fire: (moveTo) => {
       h.fired++;
@@ -152,4 +153,27 @@ test("restart moveTo: a pending plain restart rejects a later move", async () =>
   await tick();
   await tick();
   assert.deepEqual(h.firedMove, [undefined]);
+});
+
+test("restart: a down harness adds harnessesDown to the reply, on both the fresh and the alreadyPending reply", async () => {
+  const down = [{ harness: "opus", until: "2026-01-01T00:00:00.000Z", reason: "3 timeouts" }];
+  const h = harness({ harnessesDown: () => down });
+  h.queue.enqueue(job("A"));
+  const res = await h.r.request({ when: "idle" });
+  assert.deepEqual(res, { accepted: true, active: 1, queued: 0, harnessesDown: down });
+  const again = await h.r.request({ when: "idle" });
+  assert.deepEqual(again, { accepted: true, alreadyPending: true, active: 1, queued: 0, harnessesDown: down });
+});
+
+test("restart: no down harness leaves the reply shape unchanged (no harnessesDown key)", async () => {
+  const h = harness({ harnessesDown: () => [] });
+  const res = await h.r.request({ when: "idle" });
+  assert.deepEqual(res, { accepted: true, active: 0, queued: 0 });
+  assert.equal("harnessesDown" in res, false);
+});
+
+test("restart: no harnessesDown dependency at all leaves the reply shape unchanged", async () => {
+  const h = harness();
+  const res = await h.r.request({ when: "idle" });
+  assert.deepEqual(res, { accepted: true, active: 0, queued: 0 });
 });

@@ -263,6 +263,14 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     validateConfig: () => void loadConfig({ configPath: cfg.configPath }),
     validateMove: (moveTo) => checkMove({ configPath: cfg.configPath, from: cfg.stateKey, to: moveTo }),
     isDecommissionPending: () => decommissioner.isPending(),
+    harnessesDown: () => {
+      /** @type {{harness: string, until: string, reason?: string}[]} */
+      const down = [];
+      for (const [harness, h] of Object.entries(queue.harnessState())) {
+        if (h.state === "down" && h.until) down.push({ harness, until: h.until, reason: h.reason });
+      }
+      return down;
+    },
     onPending: ({ active, queued, moveTo }) => {
       const move = moveTo ? ` and moving the state dir to "${moveTo}"` : "";
       console.log(`[restart] requested — pausing new runs; restarting${move} once ${active} running agent(s) finish (${queued} queued)`);

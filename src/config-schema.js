@@ -185,6 +185,7 @@ export const CONFIG_SCHEMA = [
   step("idleMinutes", "number", "Idle timeout (min)", "Kill a run after this many minutes with no agent output (must be > 0); off when unset.", { placeholder: "off", advanced: true }),
   step("requireVerdict", "boolean", "Require verdict", "A clean exit without a valid verdict file holds the task instead of advancing it (default true).", { advanced: true }),
   step("verdictRepairs", "number", "Verdict repair turns", "A clean exit with no valid verdict gets this many resume turns before holding for a human; 0 disables.", { default: 1, min: 0, advanced: true }),
+  step("deduceVerdict", "boolean", "Deduce verdict from commits", "A clean exit with no valid verdict advances when the branch gained commits, skipping the repair turn.", { default: true, advanced: true }),
   step("createsWorktree", "boolean", "Creates worktree", "Create the task's shared git worktree before the agent runs."),
   step("drainWorktree", "boolean", "Removes worktree", "Remove the task's worktree after this step."),
   step("sourceSectionGid", "string", "Source section", "Asana section whose tasks fire this step.", { scope: ["asana"] }),
