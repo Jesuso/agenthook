@@ -58,20 +58,69 @@
   (`hermes-home.js`: own `HERMES_HOME` at `<stateDir>/hermes-home`, only `config.yaml` copied, local providers only). `index.js` = `AGENTS` + `getAgent`/`agentFor` (step `agent` →
   `cfg.agent` → `claude`); `names.js` = the import-free `AGENT_NAMES` the config schema + validation use.
 
-## The executor axis (`src/dispatch/executor.js`, #682)
+## The executor axis (`src/dispatch/executor.js`, #682, #689)
 
-Which launcher runs a job — the host (a plain spawn) or the profile's sandbox (a per-run
-container) — is an **executor**, picked per run by `executorFor(cfg, step, harnessName,
-executors)` right after `resolveHarness` (before the prompt is built, so the prompt's
-`verdictFile` already comes from the chosen executor's `paths()`). `createExecutors({cfg,
-sandbox, spawnPaths})` builds the `host` executor (always) and, when the profile configures one,
-the `sandbox` executor — its `launch`/`reap` wrap `sandbox.wrap()`/`sandbox.reap()` verbatim.
-`executorFor` answers exactly what `isSandboxed(cfg, step)` (`src/sandbox/names.js`) answered
-before this axis existed; `harnessName` rides along for a future executor that varies by harness
-(e.g. a remote host, epic #681 phase 2) but never changes today's answer. The engine builds one
-executor set (`createEngine`) shared by dispatch (which run picks) and boot/teardown (which reap
-it); `killNow`/timeout-SIGKILL/cancel-during-launch go through the picked run's `executor.launch()`
-result (`executorRuns`, a per-ref map of live sandboxed runs — host runs are never stored there).
+Which launcher runs a job — the host (a plain spawn), the profile's sandbox (a per-run
+container), or (experimental, #689) a harness's remote worker over ssh — is an **executor**,
+picked per run by `executorFor(cfg, step, harnessName, executors)` right after `resolveHarness`
+(before the prompt is built, so the prompt's `verdictFile` already comes from the chosen
+executor's `paths()`). `createExecutors({cfg, sandbox, spawnPaths})` builds the `host` executor
+(always), the `sandbox` executor when the profile configures one — its `launch`/`reap` wrap
+`sandbox.wrap()`/`sandbox.reap()` verbatim — and one `ssh` executor per harness that declares a
+`remote` block (`executors.ssh`, keyed by harness name). `executorFor` picks the harness's `ssh`
+executor first; otherwise it answers exactly what `isSandboxed(cfg, step)`
+(`src/sandbox/names.js`) answered before this axis existed. The engine builds one executor set
+(`createEngine`) shared by dispatch (which run picks) and boot/teardown (which reap it, via
+`reapAll` — sandbox containers/networks plus every remote harness's leftover pgids, one failing
+executor never blocking the rest); `killNow`/timeout-SIGKILL/cancel-during-launch go through the
+picked run's `executor.launch()` result (`executorRuns`, a per-ref map of live boxed runs — host
+runs are never stored there).
+
+### The `ssh` executor (`src/dispatch/executor-ssh.js`, #689, experimental)
+
+A harness with `remote: {host, user?, port?, identityFile?, workDir, bin?}` runs its agent in an
+*existing* directory on that worker (`workDir`) — code transport/worktrees there are a later
+ticket; the hub's own worktree/branch bookkeeping is unchanged, and remote edits aren't brought
+back yet. Config validation refuses a step on a remote harness outright when: the step is
+sandboxed; per-run GitHub App credentials would be minted for it (scoped to the hub, not the
+worker); its effective agent isn't `claude`; or `tracker.type` isn't `local`.
+
+`paths()` returns the run's remote-side `cwd`/`verdictFile` (as the agent sees them) plus a
+hub-local `hubVerdictFile` (built with the same `sandboxVerdictPathFor` the sandbox executor
+uses) — `done()` copies the remote verdict back there once the run exits, capped at
+`MAX_SANDBOX_VERDICT_BYTES` (oversize = no verdict, same as a sandboxed run's own cap).
+`step.js`/`finish.js` read/guard/clear `hubVerdictFile ?? verdictFile` everywhere except the
+prompt and `AGENTHOOK_VERDICT_FILE`, which always get the agent-facing `verdictFile`; the
+`sandboxed` boolean they pass around now also covers `executor.name !== "host"`, so an ssh run's
+verdict gets the same untrusted-writer guard (`guardSandboxVerdict`) a sandboxed run's does.
+
+`launch()` never puts the prompt in argv, on either side of the connection: `claude`'s own
+`-p <prompt>` becomes `-p` with the prompt dropped, and the dropped text plus a strict env
+allowlist (`AGENTHOOK_*` run metadata, `TERM`/`LANG`/`CI` from the receiver's own env — nothing
+else, never a tracker/forge token, a per-run App token, `ANTHROPIC_*`/`CLAUDE_*`, or
+`SSH_AUTH_SOCK`) travel framed over the ssh client's own stdin instead (`framePayload`: an env
+header then a byte-length-prefixed prompt, so any prompt content is safe). `shQuote` (POSIX
+single-quote) quotes every element of the trailing ssh argv — ssh joins them with spaces before
+the remote shell parses the line, so each one must already be a shell token on its own. The ssh
+argv itself is always `-T -o BatchMode=yes` (+ `-p`/`-i`/`-l` as configured) — never `-A`.
+
+A small inline POSIX-sh script on the worker reads that framed stdin, `export`s the env, puts the
+agent in its own process group (`setsid`; the group's pgid is written to
+`<workDir>/.agenthook/<stateKey>/runs/<runId>.pgid`), runs the agent with the prompt on *its*
+stdin (a fifo, never argv), and backgrounds a watchdog that `kill -TERM` then `-KILL`s the group
+once the hub's stdin closes — a dead client, a dropped link, or an explicit kill all look the
+same from the worker's side. `spawn.js` keeps that stdin pipe open for the run's lifetime
+(`ExecutorRun.stdin`, host/sandbox leave it unset and close stdin at once, same as before);
+`kill()` ends it, then opens a second, independent ssh connection to send the same TERM-then-KILL
+directly, in case the first connection is wedged. An ssh exit of 255 with no model output is
+reported as a `spawnError` (`"ssh failed (exit <code>)"`), tripping the harness breaker
+(`healthTrip`) at any wall time, like any other spawn failure. `reap()` lists, kills and removes
+every `*.pgid` under the harness's `runs/` dir — boot recovery and shutdown call it for every
+remote harness, independently of the profile's own sandbox reap.
+
+A remote run's subscription-quota reading is the worker's, not paced by this hub (skipped before
+`opts.onQuota`), and its power draw is the worker's, not this host's (the energy sampler is never
+started for it) — both decided in `step.js` off `executor.name === "ssh"`.
 
 ## CI and merge jobs (forge-driven, `src/dispatch/ci.js` + `merge.js`)
 

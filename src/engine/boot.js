@@ -16,7 +16,7 @@ import { runMergeCatchup, runReconcile } from "../commands/reconcile.js";
 import { recoverInterrupted } from "./recovery.js";
 import { fullAutoBanner } from "./banner.js";
 import { retryTrackerCall } from "./boot-retry.js";
-import { createExecutors } from "../dispatch/executor.js";
+import { createExecutors, reapAll } from "../dispatch/executor.js";
 
 /**
  * Re-enqueue jobs that were waiting (queue.json) when the receiver died. Bypasses
@@ -46,7 +46,7 @@ function restoreQueued({ cfg, store, queue, emit }, runningRefs) {
  *   forge: import('../types.js').Forge | null,
  *   ingress: import('../types.js').Ingress,
  *   sandbox: import('../types.js').Sandbox | null,
- *   executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor},
+ *   executors?: {host: import('../types.js').Executor, sandbox?: import('../types.js').Executor, ssh?: Record<string, import('../types.js').Executor>},
  *   heartbeat: ReturnType<typeof import('../heartbeat.js').createHeartbeat>,
  *   queue: ReturnType<typeof import('../queue.js').createQueue>,
  *   puller: ReturnType<typeof import('../pull.js').createPuller>,
@@ -68,7 +68,7 @@ export function createServe(deps) {
   const { cfg, state, store, adapter, forge, ingress, sandbox, heartbeat, puller, quotaPacer, emit, intake, releaseOverlap, startedAt, restart, decommission, ops, shutdown, reconcileOnBoot, retry = {} } = deps;
   // Engine passes its own (shared with dispatch); a caller that only sets `sandbox` (tests) gets
   // an equivalent one built on the fly — same reap() either way.
-  const executors = deps.executors ?? createExecutors({ sandbox, spawnPaths: undefined });
+  const executors = deps.executors ?? createExecutors({ cfg, sandbox, spawnPaths: undefined });
   return async function serve() {
     const meta = ingress.describe();
     console.log(`[boot] profile "${cfg.name}" — tracker ${cfg.provider}, ingress ${meta.name}${forge ? `, forge ${forge.describe().name}` : ""}${sandbox ? `, sandbox ${sandbox.describe().name}` : ""}`);
@@ -191,6 +191,19 @@ export function createServe(deps) {
           }
         } catch (e) {
           console.error("[recover] sandbox reap failed (continuing):", e.message);
+        }
+      }
+      // Likewise for every remote harness (#689): a run that outlived a killed receiver keeps
+      // its remote agent process running on the worker.
+      if (executors.ssh) {
+        try {
+          const reaped = await reapAll({ ssh: executors.ssh });
+          if (reaped.runs.length) {
+            console.log(`[recover] reaped run(s) ${reaped.runs.join(", ")} left on a remote worker`);
+            emit("sandbox_reaped", "", "", { containers: 0, networks: 0, runs: reaped.runs });
+          }
+        } catch (e) {
+          console.error("[recover] remote reap failed (continuing):", e.message);
         }
       }
       // Self-heal from LOCAL state only (no board poll — see recoverInterrupted).

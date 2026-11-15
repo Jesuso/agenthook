@@ -42,7 +42,7 @@ import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMer
  * @property {{turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}} [turnStats]  the parser's per-turn stats (#645), when it saw at least one turn; compactions (#657) rides along the same guard
  * @property {import('../quota.js').QuotaReading|null} quota
  * @property {"max"|"idle"|undefined} timedOut
- * @property {boolean} [sandboxed]  ran in the profile's sandbox (its verdict sits in its own per-run dir)
+ * @property {boolean} [sandboxed]  ran in the profile's sandbox, or over ssh on a remote harness (#689) — either way its verdict sits in its own per-run dir and needs the untrusted-writer guard (guardSandboxVerdict)
  * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
  * @property {string|null} [headSha]  forge.autoMerge tier step: the PR head when the run started
  * @property {string} [lastText]  the run's last output (its final result text, else rendered-stdout tail) for the question-hold detector

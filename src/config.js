@@ -24,11 +24,13 @@ import { quotaErrors } from "./quota.js";
 import { sinkErrors } from "./sinks-config.js";
 import { reposErrors } from "./repos-config.js";
 import { autoMergeErrors } from "./auto-merge.js";
-import { AGENT_NAMES, AGENT_DEFAULT_BINS } from "./agents/names.js";
-import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS } from "./sandbox/names.js";
+import { AGENT_NAMES, AGENT_DEFAULT_BINS, DEFAULT_AGENT } from "./agents/names.js";
+import { SANDBOX_NAMES, EGRESS_MODES, EGRESS_PROXY_ENV_KEYS, isSandboxed } from "./sandbox/names.js";
 import { HARNESS_ROUTINGS } from "./config-schema.js";
 import { egressEntryProblem } from "./sandbox/egress.js";
 import { SECRET_FIELDS, isEnvRef } from "./ui/sensitive.js";
+import { isAppAuth } from "./github-auth.js";
+import { harnessesOf } from "./dispatch/harness.js";
 
 // The installed package root (this file is src/config.js). Used only to read
 // bundled templates — never for runtime state.
@@ -477,6 +479,55 @@ function harnessesErrors(hs) {
       if (typeof h.sandbox !== "object" || Array.isArray(h.sandbox)) errors.push(`config: ${where} sandbox must be an object ({ "image": "…" }).`);
       else if (h.sandbox.image != null && (typeof h.sandbox.image !== "string" || !h.sandbox.image.trim())) errors.push(`config: ${where} sandbox.image must be a non-empty string.`);
     }
+    // Remote harness (#689, experimental): this harness's runs go over ssh to a worker instead
+    // of the host/sandbox. Code transport is a later ticket — workDir is an existing dir on the
+    // worker, not something agenthook creates.
+    if (h.remote != null) {
+      if (typeof h.remote !== "object" || Array.isArray(h.remote)) {
+        errors.push(`config: ${where} remote must be an object ({ host, workDir, … }).`);
+      } else {
+        const r = h.remote;
+        if (typeof r.host !== "string" || !r.host.trim()) errors.push(`config: ${where} remote.host is required and must be a non-empty string.`);
+        if (typeof r.workDir !== "string" || !r.workDir.trim() || !r.workDir.startsWith("/")) errors.push(`config: ${where} remote.workDir is required and must be an absolute path on the worker.`);
+        if (r.user != null && (typeof r.user !== "string" || !r.user.trim())) errors.push(`config: ${where} remote.user must be a non-empty string.`);
+        if (r.port != null && (!Number.isInteger(r.port) || r.port < 1 || r.port > 65535)) errors.push(`config: ${where} remote.port must be an integer 1-65535.`);
+        if (r.identityFile != null && (typeof r.identityFile !== "string" || !r.identityFile.trim())) errors.push(`config: ${where} remote.identityFile must be a non-empty string.`);
+        if (r.bin != null && (typeof r.bin !== "string" || !r.bin.trim())) errors.push(`config: ${where} remote.bin must be a non-empty string.`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * Refusals for a step whose harness (named directly, or in a routing list) has a `remote` block
+ * (#689, experimental): a remote worker can't run the profile's sandbox, mint per-run GitHub App
+ * credentials, run a non-claude agent, or work from a non-local tracker (every one of those
+ * assumes the hub's own host/sandbox or tracker semantics). Pure.
+ * @param {any} cfg  the raw (uninterpolated) config
+ * @param {any} step
+ * @param {Record<string, any>} harnesses
+ * @param {string} where
+ * @returns {string[]}
+ */
+function remoteHarnessErrors(cfg, step, harnesses, where) {
+  const names = harnessesOf(step).filter((n) => harnesses?.[n]?.remote);
+  if (!names.length) return [];
+  /** @type {string[]} */
+  const errors = [];
+  if (isSandboxed(cfg, step)) {
+    errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but the step is sandboxed — a remote worker can't run the profile's sandbox (set "sandbox": false on the step).`);
+  }
+  const appAuth = cfg.githubRunToken !== false && (isAppAuth(cfg.tracker) || isAppAuth(cfg.forge));
+  if (appAuth) {
+    errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but per-run GitHub App credentials would be minted for it — they are scoped to the hub, not the worker (set "githubRunToken": false, or stop using GitHub App auth).`);
+  }
+  for (const n of names) {
+    const agent = step.agent ?? harnesses[n]?.agent ?? cfg.agent ?? DEFAULT_AGENT;
+    if (agent !== "claude") errors.push(`config: ${where} remote harness ${JSON.stringify(n)} resolves to agent ${JSON.stringify(agent)} — only claude is supported on a remote worker yet.`);
+  }
+  if (cfg.tracker?.type !== "local") {
+    errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but "tracker.type" is ${JSON.stringify(cfg.tracker?.type)} — only the local tracker is supported with a remote worker yet.`);
   }
   return errors;
 }
@@ -618,6 +669,7 @@ export function validateRawConfig(raw) {
           if (list.indexOf(n) !== i) errors.push(`config: ${where} harness lists ${JSON.stringify(n)} twice.`);
           else if (!Object.hasOwn(known, n)) errors.push(`config: ${where} harness ${JSON.stringify(n)} is not in "harnesses".`);
         }
+        errors.push(...remoteHarnessErrors(cfg, step, known, where));
       }
     }
     if (step.routing != null) {

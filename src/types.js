@@ -532,24 +532,26 @@
  * @typedef {(cfg: Config, opts?: { run?: IngressRun }) => Sandbox} SandboxFactory */
 
 /** A run launched by an Executor (#682): identical to SandboxRun — `id` is empty and `done()`
- * yields no report for the host executor's trivial launch.
- * @typedef {SandboxRun} ExecutorRun */
+ * yields no report for the host executor's trivial launch. `stdin` (#689, ssh): the framed
+ * env+prompt payload spawn.js writes to the launched process's stdin, keeping it open until
+ * exit or kill, instead of closing it at once (host/sandbox leave it unset).
+ * @typedef {SandboxRun & {stdin?: string}} ExecutorRun */
 
 /**
- * Which launcher runs a job (#682 phase 1 — the remote-harness epic #681): `'host'` (a plain
- * spawn) or `'sandbox'` (the profile's per-run container) today; a later `'ssh'` (phase 2, a
- * remote host) joins the union. Chosen per run, after the harness resolves, by `executorFor`
- * (src/dispatch/executor.js) — today it answers exactly what `isSandboxed` answered before this
- * axis existed.
+ * Which launcher runs a job (#682 phase 1, #689 phase 2 — the remote-harness epic #681): `'host'`
+ * (a plain spawn), `'sandbox'` (the profile's per-run container), or `'ssh'` (a remote worker,
+ * src/dispatch/executor-ssh.js). Chosen per run, after the harness resolves, by `executorFor`
+ * (src/dispatch/executor.js).
  * @typedef {object} Executor
- * @property {'host'|'sandbox'|string} name
- * @property {(o: {stepId: string, ref: string, worktree: string, hasWorktree: boolean, repoPath: string}) => {cwd: string, worktree: string|undefined, verdictFile: string}} paths
+ * @property {'host'|'sandbox'|'ssh'|string} name
+ * @property {(o: {stepId: string, ref: string, worktree: string, hasWorktree: boolean, repoPath: string}) => {cwd: string, worktree: string|undefined, verdictFile: string, hubVerdictFile?: string}} paths
  *   the run's paths AS THE AGENT SEES THEM. For host and sandbox these equal the hub's own
- *   `worktree`/`repoPath` (host: `verdictPathFor`; sandbox: `sandboxVerdictPathFor`) — the seam
- *   exists for a future executor (e.g. a remote host) whose worktree/cwd/verdict paths differ
- *   from the hub's own.
+ *   `worktree`/`repoPath` (host: `verdictPathFor`; sandbox: `sandboxVerdictPathFor`), and
+ *   `hubVerdictFile` is unset — the agent-facing and hub-facing verdict path are the same file.
+ * `ssh`'s `cwd`/`verdictFile` are paths on the remote worker; `hubVerdictFile` is the local copy
+ *   target `done()` writes the remote verdict back to, which the hub actually reads.
  * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}) => Promise<ExecutorRun>} launch
- * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox only today)
+ * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox: containers/networks; ssh: remote pgids under every run's harness `workDir`)
  */
 
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
@@ -715,6 +717,20 @@
  * @property {number} [downGraceSeconds]       health breaker: a non-zero exit with no model output inside this many seconds trips it (default 30)
  * @property {string} [opencodeConfig]         opencode only, sandbox only: host path to an OpenCode JSON config; a step's own `opencodeConfig` wins
  * @property {number} [contextTokens]          the model's context window (tokens) on this harness, for the running record's `ctxMax` (#658); a step's own wins
+ * @property {RemoteHarness} [remote]          when set, runs on this harness use the `ssh` executor (src/dispatch/executor-ssh.js) instead of host/sandbox (#689, experimental)
+ */
+
+/**
+ * A remote worker a harness's runs execute on, over ssh (#689, experimental). The agent runs in
+ * an existing directory on the worker (`workDir`) — code transport/worktrees there are a later
+ * ticket; the hub's own worktree/branch bookkeeping is unchanged.
+ * @typedef {object} RemoteHarness
+ * @property {string} host            ssh host (DNS name or IP)
+ * @property {string} [user]          ssh user; default the local ssh client's own
+ * @property {number} [port]          ssh port; default 22
+ * @property {string} [identityFile]  path to a private key, passed as ssh `-i`
+ * @property {string} workDir         absolute path on the worker the agent runs in
+ * @property {string} [bin]           the agent CLI on the worker; default "claude"
  */
 
 /** A factory `(cfg, store) => Forge`.

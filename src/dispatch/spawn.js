@@ -94,6 +94,12 @@ export function createSpawn(ctx) {
    * running: an operator stop force-stops the container too, right away.
    * @param {string} ref @param {number} pid */
   function killNow(ref, pid) {
+    // A live stdin pipe (an ssh run, #689): end it first — some ssh clients forward a closed
+    // local stdin as an immediate half-close, which is often faster than waiting on the SIGTERM
+    // below to tear the connection down.
+    for (const child of children ?? []) {
+      if (child.pid === pid) child.stdin?.end();
+    }
     try {
       process.kill(pid, "SIGTERM");
     } catch {
@@ -181,7 +187,7 @@ export function createSpawn(ctx) {
       try {
         box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}) });
       } catch (e) {
-        const reason = `sandbox (${sandbox?.describe().name}) could not start the run: ${e.message}`;
+        const reason = executor.name === "sandbox" ? `sandbox (${sandbox?.describe().name}) could not start the run: ${e.message}` : `${executor.name} executor could not start the run: ${e.message}`;
         unspawned(reason);
         return { code: 1, result: null, quota: null, refused: reason };
       }
@@ -198,12 +204,28 @@ export function createSpawn(ctx) {
     }
     const run = box;
     const parser = agent.createParser();
+    // An ssh run (#689): its env+prompt travel over the LOCAL ssh client's own stdin (never
+    // argv), kept open until exit or kill — closing it is itself one of the remote launcher's
+    // kill signals. Every other run closes stdin at once (no "no stdin data" stall).
+    const stdinPayload = box?.stdin;
     return new Promise((resolve) => {
+      // Always piped (never "ignore"): a conditional stdio kind would lose spawn()'s literal-tuple
+      // typing (every stream would type as possibly-null). A run with no payload ends its stdin
+      // at once below — the same "no stdin data" outcome "ignore" gave host/sandbox runs.
       const child = spawn(launch.bin, launch.args, {
-        cwd,
-        stdio: ["ignore", "pipe", "pipe"], // close stdin -> no "no stdin data" stall
+        cwd: executor?.name === "ssh" ? undefined : cwd, // cwd is the AGENT's path (the worker's), meaningless for the local ssh client's own cwd
+        stdio: ["pipe", "pipe", "pipe"],
         env: launch.env,
       });
+      // `child.stdin`'s own `error` event is distinct from the child's: ssh exiting before it
+      // reads stdin (e.g. an unreachable host, 255) makes the write below fail EPIPE on its own
+      // stream, which with no listener is an uncaught exception that kills the receiver — the
+      // exact run the 255/spawnError path below exists to report, so this must never throw.
+      child.stdin.on("error", (e) => {
+        logStream.write(`[agenthook] stdin write failed: ${e.message}\n`);
+      });
+      if (stdinPayload !== undefined) child.stdin.write(stdinPayload);
+      else child.stdin.end();
       children?.add(child);
       /** @type {string|undefined} */
       let spawnError;
@@ -228,6 +250,7 @@ export function createSpawn(ctx) {
         clearTimeout(idleTimer);
         const minutes = ((kind === "max" ? maxMs : idleMs) ?? 0) / 60000;
         logStream.write(`\n[agenthook] killed: ${timeoutReason(kind, minutes)}\n`);
+        child.stdin?.end(); // an ssh run (#689): a closed local stdin can tear the connection down faster than SIGTERM alone
         child.kill("SIGTERM");
         killTimer = setTimeout(() => {
           child.kill("SIGKILL");
@@ -314,6 +337,12 @@ export function createSpawn(ctx) {
         bufferApi(tail);
         bufferStdout(tail);
         if (typeof parser.result?.result === "string") bufferApi(parser.result.result);
+        // ssh's own exit 255 with no model output (#689) means the connection/launcher itself
+        // failed (auth, host unreachable, the remote script erroring before the agent ran) — a
+        // harness-health signal at any wall time, not a 0-attempt non-zero exit from the agent.
+        if (!spawnError && executor?.name === "ssh" && c === 255 && !(parser.tally.output > 0)) {
+          spawnError = `ssh failed (exit ${c})`;
+        }
         const apiDown = modelApiFailure(apiBuf);
         // The run's last output the question-hold detector inspects: the final result text when the
         // parser captured one (a non-empty string), else the tail of its rendered stdout. Omitted
