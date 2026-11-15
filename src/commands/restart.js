@@ -40,13 +40,16 @@ export async function sendRestart(sockPath, req) {
     return false;
   }
 
-  const { alreadyPending, active, queued } = reply.result;
+  const { alreadyPending, active, queued, harnessesDown } = reply.result;
   if (alreadyPending) {
     console.log(`restart already pending (${active} running agent(s), ${queued} queued)`);
   } else if (active === 0) {
     console.log("restarting now (no agents running)");
   } else {
     console.log(`restart requested — restarting once ${active} running agent(s) finish (${queued} queued)`);
+  }
+  for (const h of harnessesDown ?? []) {
+    console.log(`harness "${h.harness}" is down until ${h.until} (${h.reason}) — the breaker survives the restart; run harness_reset once the cause is fixed`);
   }
   console.log("watch with `agenthook status` or `agenthook events --follow`");
   return true;

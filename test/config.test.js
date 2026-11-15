@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, peekConfig, rawAgentBins, registryDir } from "../src/config.js";
+import { fileEnvKeys, loadConfig, loadEnv, peekConfig, rawAgentBins, registryDir, withoutFileEnv } from "../src/config.js";
 
 /** Write a config and load it. @param {any} over @param {any[]} pipeline */
 function load(pipeline, over = {}) {
@@ -231,6 +231,52 @@ test("loadConfig resolves a ${VAR} that only the .env beside the config provides
   fs.writeFileSync(file, JSON.stringify({ name: "ah-dotenv-test", repoPath: dir, tracker: { type: "asana", token: "${AH_TEST_DOTENV_TOKEN}", pipeline: [{ id: "code" }] } }));
   const cfg = loadConfig({ configPath: file });
   assert.equal(cfg.tracker.token, "from-dotenv");
+});
+
+test("loadEnv: records keys it actually sets into fileEnvKeys, not ones already present (simulated shell export)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-loadenv-"));
+  const file = path.join(dir, ".env");
+  process.env.AH_TEST_LOADENV_SHELL = "from-shell";
+  delete process.env.AH_TEST_LOADENV_FILE;
+  fs.writeFileSync(file, "AH_TEST_LOADENV_SHELL=from-dotenv\nAH_TEST_LOADENV_FILE=from-dotenv\n");
+  loadEnv(file);
+  assert.equal(process.env.AH_TEST_LOADENV_SHELL, "from-shell", "already-set var is left alone");
+  assert.equal(process.env.AH_TEST_LOADENV_FILE, "from-dotenv");
+  assert.equal(fileEnvKeys.has("AH_TEST_LOADENV_SHELL"), false, "shell-exported var is never recorded");
+  assert.equal(fileEnvKeys.get("AH_TEST_LOADENV_FILE"), "from-dotenv");
+});
+
+test("withoutFileEnv: drops a recorded key whose value is unchanged; leaves a changed or never-recorded key", () => {
+  const keys = new Map([["A", "1"], ["B", "2"]]);
+  const env = { A: "1", B: "changed-since", C: "3" };
+  assert.deepEqual(withoutFileEnv(env, keys), { B: "changed-since", C: "3" });
+  assert.deepEqual(env, { A: "1", B: "changed-since", C: "3" }, "the input is untouched");
+});
+
+test("loadEnv + withoutFileEnv round trip: a shell-exported var survives, an edited file value is picked up fresh, a removed key stays absent", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-loadenv2-"));
+  const file = path.join(dir, ".env");
+  process.env.AH_TEST_RT_SHELL = "shell-value";
+  delete process.env.AH_TEST_RT_KEEP;
+  delete process.env.AH_TEST_RT_REMOVE;
+  fs.writeFileSync(file, "AH_TEST_RT_KEEP=v1\nAH_TEST_RT_REMOVE=v1\n");
+  loadEnv(file); // first boot: records AH_TEST_RT_KEEP and AH_TEST_RT_REMOVE as file-sourced
+
+  // A detached respawn's child env: the parent's env, stripped of file-sourced keys.
+  const childEnv = withoutFileEnv(process.env);
+  assert.equal(childEnv.AH_TEST_RT_SHELL, "shell-value", "shell-exported var is never stripped");
+  assert.equal(childEnv.AH_TEST_RT_KEEP, undefined, "stripped so the child re-reads it");
+  assert.equal(childEnv.AH_TEST_RT_REMOVE, undefined, "stripped so the child re-reads it");
+
+  // The file is edited before the next loadEnv (the detached child's own boot): one value
+  // changes, one key is removed. The child starts from a stripped env (childEnv had neither
+  // key), simulated here by deleting them from process.env, matching what the real child sees.
+  fs.writeFileSync(file, "AH_TEST_RT_KEEP=v2\n");
+  delete process.env.AH_TEST_RT_KEEP;
+  delete process.env.AH_TEST_RT_REMOVE;
+  loadEnv(file);
+  assert.equal(process.env.AH_TEST_RT_KEEP, "v2", "the child's own loadEnv sees the new value");
+  assert.equal(process.env.AH_TEST_RT_REMOVE, undefined, "removed from the file, so never set again");
 });
 
 test("rawAgentBins: claudeBin + literal step bins + the default bin of every named agent", () => {

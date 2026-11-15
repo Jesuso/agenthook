@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { startArgv, restartSpawnArgs, systemdScopeAvailable, detachedSpawnSpec, classifyCgroup, spawnDetached, detachedEnv, RESTART_EXIT_CODE, REFUSED_EXIT_CODE } from "../src/respawn.js";
 import { parse } from "../bin/agenthook.js";
+import { loadEnv, withoutFileEnv } from "../src/config.js";
 
 const cfg = { installDir: "/opt/agenthook", configPath: "/p/agenthook.config.json" };
 const bin = path.join("/opt/agenthook", "bin", "agenthook.js");
@@ -128,6 +129,31 @@ test("detachedEnv: a copy without AGENTHOOK_SERVICE; the input is untouched", ()
   assert.deepEqual(detachedEnv(env), { PATH: "/bin" });
   assert.equal(env.AGENTHOOK_SERVICE, "1");
   assert.deepEqual(detachedEnv({ PATH: "/bin" }), { PATH: "/bin" });
+});
+
+test("detachedEnv: strips file-sourced keys via the injected strip fn, then drops AGENTHOOK_SERVICE", () => {
+  const env = { AGENTHOOK_SERVICE: "1", PATH: "/bin", FROM_FILE: "stale" };
+  const strip = (e) => {
+    const out = { ...e };
+    delete out.FROM_FILE;
+    return out;
+  };
+  assert.deepEqual(detachedEnv(env, strip), { PATH: "/bin" });
+  assert.equal(env.FROM_FILE, "stale", "the input is untouched");
+});
+
+test("detachedEnv: the two-hop case — a stale key the server's own loadEnv recorded is stripped from the next detached child's env", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-respawn-twohop-"));
+  const file = path.join(dir, ".env");
+  delete process.env.AH_TEST_TWOHOP;
+  fs.writeFileSync(file, "AH_TEST_TWOHOP=v1\n");
+  // The server's own boot: it inherited AH_TEST_TWOHOP from a `start --detach` parent that never
+  // loaded .env itself (the bug) — here it does, because this *is* the server process, and that
+  // is what records it as file-sourced for the *next* respawn.
+  loadEnv(file);
+  assert.equal(process.env.AH_TEST_TWOHOP, "v1");
+  const childEnv = detachedEnv(process.env, withoutFileEnv);
+  assert.equal(childEnv.AH_TEST_TWOHOP, undefined, "a second detached hop strips it so the real child re-reads .env");
 });
 
 test("exit codes: restart 75 and refused 78 are distinct and neither is 1", () => {

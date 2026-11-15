@@ -100,6 +100,20 @@ test("accepted, nothing running: prints 'restarting now'", async () => {
   }
 });
 
+test("harnessesDown in the reply: prints one line per entry naming harness_reset", async () => {
+  const p = await profile("down-harness-profile", (req) => ({
+    id: req.id,
+    ok: true,
+    result: { accepted: true, active: 0, queued: 0, harnessesDown: [{ harness: "opus", until: "2026-01-01T00:00:00.000Z", reason: "3 timeouts" }] },
+  }));
+  try {
+    const res = await run(p.configPath);
+    assert.match(res.logs.join("\n"), /harness "opus" is down until 2026-01-01T00:00:00\.000Z \(3 timeouts\) — the breaker survives the restart; run harness_reset once the cause is fixed/);
+  } finally {
+    await new Promise((r) => p.server.close(r));
+  }
+});
+
 test("already pending: prints the already-pending message", async () => {
   const p = await profile("pending-profile", (req) => ({ id: req.id, ok: true, result: { accepted: true, alreadyPending: true, active: 1, queued: 0 } }));
   try {

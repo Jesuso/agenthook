@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { ensurePrivateDir } from "./config.js";
+import { ensurePrivateDir, withoutFileEnv } from "./config.js";
 
 /**
  * Exit code a control-socket `restart` uses when the receiver runs as a systemd --user service
@@ -144,13 +144,18 @@ export function restartSpawnArgs(cfg, { execPath = process.execPath, installDir 
 }
 
 /**
- * The env a detached child gets: the caller's, minus `AGENTHOOK_SERVICE`. A receiver spawned
- * this way is not the unit's process, so a `restart` of it must respawn, not exit 75. Pure.
+ * The env a detached child gets: the caller's, minus every key `loadEnv` (src/config.js)
+ * recorded as file-sourced — so the child re-reads `.env` itself instead of inheriting a value
+ * that looks shell-exported but is really stale — and minus `AGENTHOOK_SERVICE` (a receiver
+ * spawned this way is not the unit's process, so a `restart` of it must respawn, not exit 75).
+ * `strip` is injectable so the pure logic (`withoutFileEnv`) can be unit-tested without the
+ * real module-level key map. Pure given `strip`.
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {(env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv} [strip]
  * @returns {NodeJS.ProcessEnv}
  */
-export function detachedEnv(env = process.env) {
-  const copy = { ...env };
+export function detachedEnv(env = process.env, strip = withoutFileEnv) {
+  const copy = strip(env);
   delete copy.AGENTHOOK_SERVICE;
   return copy;
 }

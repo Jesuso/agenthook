@@ -252,7 +252,10 @@ const TOOLS = {
   restart: {
     write: true,
     destructive: true,
-    def: schema("Restart the receiver once idle: pauses new runs, restarts when active agents reach 0, queue preserved. Use after pulling new agenthook code.", { profile: PROFILE }),
+    def: schema(
+      "Restart the receiver once idle: pauses new runs, restarts when active agents reach 0, queue preserved. Re-reads .env, so an edited value takes effect. Use after pulling new agenthook code or editing .env. Harness breakers survive the restart; the reply's harnessesDown lists any that are still down (harness_reset clears one once its cause is fixed).",
+      { profile: PROFILE },
+    ),
   },
 };
 
