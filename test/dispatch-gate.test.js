@@ -103,6 +103,33 @@ test("runGate: redacts a secret-looking env value found in the gate's output", a
   });
   assert.equal(r.exitCode, 0);
   assert.ok(!r.tail.includes("sk-abcdefghijklmnopqrstuvwxyz0123456789"), `tail should not leak the secret: ${r.tail}`);
+  const logged = fs.readFileSync(logPath, "utf8");
+  assert.ok(!logged.includes("sk-abcdefghijklmnopqrstuvwxyz0123456789"), `run log should not leak the secret: ${logged}`);
+});
+
+test("runGate on host: a timeout kills the whole process group, not just the direct child", async () => {
+  const { logPath, logLine } = fakeLog();
+  const started = Date.now();
+  const r = await runGate({
+    executor: hostExecutor,
+    // the direct child is `sh -c`; `sleep 6` is its grandchild and would otherwise hold
+    // stdout/stderr (and keep running) past the timeout if only the child were killed
+    argv: ["sh", "-c", "sleep 6; echo done"],
+    cwd: os.tmpdir(),
+    env: { PATH: process.env.PATH },
+    timeoutMs: 300,
+    ref: "ref-5",
+    stepId: "code",
+    runId: "run-5",
+    logPath,
+    pids: new Map(),
+    executorRuns: new Map(),
+    cancelled: new Set(),
+    logLine,
+  });
+  assert.equal(r.timedOut, true);
+  assert.equal(r.exitCode, null);
+  assert.ok(Date.now() - started < 3000, "the grandchild sleep must not be awaited out");
 });
 
 test("runGate: an executor it cannot run on vetoes with a reason, never a host fallback", async () => {

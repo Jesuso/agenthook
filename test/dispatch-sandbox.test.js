@@ -450,6 +450,43 @@ test("sandbox e2e: a harness with agent: opencode routes a sandboxed run through
   }
 });
 
+// --- a step's gate (#710), sandboxed: the gate's argv reaches sandbox.wrap (another docker
+// `run`), with the run's own mounts — never a direct host spawn of it ---
+
+test("sandbox e2e: a step's gate runs through sandbox.wrap, with the same mounts as the agent's run", async () => {
+  const h = sandboxHarness([{ id: "code", createsWorktree: true, gate: "echo sandboxed-gate-ran", gateTimeoutMinutes: 1, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }]);
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance", JSON.stringify(h.advanced));
+    const runs = h.calls().filter(isAgentRun);
+    assert.equal(runs.length, 2, "the agent's run, then the gate's own run");
+    const [agentRun, gateRun] = runs;
+    // Same flag-skip the FAKE_DOCKER client itself uses to find `<bin> <args...>` after `run`.
+    const valued = new Set(["--pull", "--name", "--label", "--cap-drop", "--security-opt", "--pids-limit", "--memory", "--cpus", "--user", "--mount", "--network"]);
+    /** @param {string[]} run */
+    const clientArgv = (run) => {
+      let i = 1;
+      for (; i < run.length; i++) {
+        const a = run[i];
+        if (a === "-e" || a === "--workdir") { i++; continue; }
+        if (valued.has(a)) { i++; continue; }
+        if (!a.startsWith("-")) break;
+      }
+      return run.slice(i + 1); // drop the image name, keep <bin> <args...>
+    };
+    assert.deepEqual(clientArgv(gateRun), ["sh", "-c", "echo sandboxed-gate-ran"]);
+    // Each wrap() call gets its own container and its own per-container sandbox-home mount
+    // (a random id baked into the path, src/sandbox/container.js containerName) — that part
+    // legitimately differs between the agent's and the gate's own containers; everything else
+    // (the run's own mounts: worktree, verdict dir, git dirs, …) must be identical.
+    /** @param {string[]} run */
+    const mountsOf = (run) => run.flatMap((/** @type {string} */ x, /** @type {number} */ i) => (x === "--mount" ? [run[i + 1]] : [])).filter((m) => !m.includes("/sandbox-home/")).sort();
+    assert.deepEqual(mountsOf(gateRun), mountsOf(agentRun), "the gate gets the run's own mounts, unchanged");
+  } finally {
+    h.restore();
+  }
+});
+
 test("sandbox e2e: sandbox:false spawns the agent directly on the host (shared verdict path)", async () => {
   const h = sandboxHarness([{ id: "code", sandbox: false }, { id: "done", manual: true }]);
   try {

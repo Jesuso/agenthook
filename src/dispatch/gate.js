@@ -48,10 +48,16 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
   }
 
   return new Promise((resolve) => {
+    // Own process group (like src/energy-sampler.js): a gate that is a test runner or build tool
+    // commonly forks grandchildren, which can hold stdout/stderr open (or keep running) past the
+    // direct child's own exit. Killing -pid (the whole group) on timeout, not just the child, is
+    // what actually stops it; killing only the child left a `sleep` grandchild alive for its full
+    // duration in testing.
     const child = spawn(launch.bin, launch.args, {
       cwd: executor.name === "host" ? cwd : undefined,
       stdio: ["pipe", "pipe", "pipe"],
       env: launch.env,
+      detached: true,
     });
     child.stdin.on("error", () => {});
     if (box?.stdin !== undefined) child.stdin.write(box.stdin);
@@ -62,9 +68,10 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
     /** @param {string} s */
     const append = (s) => {
       if (!s) return;
-      tail = (tail + s).slice(-GATE_TAIL_BUF_BYTES);
+      const redacted = redactSecrets(redactSecrets(s, process.env), env);
+      tail = (tail + redacted).slice(-GATE_TAIL_BUF_BYTES);
       try {
-        logLine(logPath, s.trimEnd());
+        logLine(logPath, redacted.trimEnd());
       } catch {
         /* best effort */
       }
@@ -74,19 +81,44 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (d) => append(d));
 
+    /** @param {NodeJS.Signals} sig */
+    const killGroup = (sig) => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+      } catch {
+        try {
+          child.kill(sig);
+        } catch {
+          /* already gone */
+        }
+      }
+    };
+
     let timedOut = false;
     /** @type {NodeJS.Timeout|undefined} */
     let killTimer;
+    /** @type {NodeJS.Timeout|undefined} */
+    let dropTimer;
+    const dropPipes = () => {
+      child.stdout.destroy();
+      child.stderr.destroy();
+    };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
+      killGroup("SIGTERM");
+      killTimer = setTimeout(() => {
+        killGroup("SIGKILL");
+        // A grandchild holding our end of stdout/stderr could otherwise delay `close`
+        // indefinitely even after the whole group is dead.
+        dropTimer = setTimeout(dropPipes, KILL_GRACE_MS);
+      }, KILL_GRACE_MS);
     }, timeoutMs);
 
     child.on("error", (e) => append(`[agenthook] gate spawn failed: ${e.message}\n`));
     child.on("close", async (code) => {
       clearTimeout(timer);
       clearTimeout(killTimer);
+      clearTimeout(dropTimer);
       if (box) {
         try {
           if (timedOut || cancelled.has(ref)) await box.kill();
@@ -97,8 +129,7 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
         executorRuns.delete(ref);
       }
       pids.delete(ref);
-      const redacted = redactSecrets(redactSecrets(tail, process.env), env);
-      resolve({ exitCode: timedOut ? null : code, timedOut, durationMs: Date.now() - started, tail: redacted });
+      resolve({ exitCode: timedOut ? null : code, timedOut, durationMs: Date.now() - started, tail });
     });
   });
 }

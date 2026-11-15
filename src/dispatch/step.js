@@ -15,6 +15,7 @@ import { agentFor } from "../agents/index.js";
 import { executorFor } from "./executor.js";
 import { egressPolicy, egressRules } from "../sandbox/egress.js";
 import { agentSpawnEnv } from "./spawn.js";
+import { envNameMatches } from "../agent-env.js";
 import { trustedGitDirs, gitSandboxEnv, mergeGitConfigEnv, hostGitFacts, inferredForgeEgressHosts, sandboxMounts, checkoutMasks } from "./sandbox.js";
 import { descriptionHasHeadings, resolveModelEffort, promptPathFor, readInstructions } from "./prompt.js";
 import { resolveHarness } from "./harness.js";
@@ -500,7 +501,12 @@ export function createStep(ctx) {
       if (!step) throw new Error("unreachable"); // narrowing from the outer scope doesn't cross this closure
       const gateArgv = Array.isArray(step.gate) ? step.gate : ["sh", "-c", /** @type {string} */ (step.gate)];
       const gateTimeoutMinutes = step.gateTimeoutMinutes ?? 10;
-      const gateEnv = agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: spawnStep.env });
+      // The gate never gets run credentials or the tracker's/forge's own token names (#710 review):
+      // agentSpawnEnv's allowlist still admits them from process.env even with no `creds` passed in,
+      // since it's built from meta.agentEnv/forge.agentEnv regardless — so strip those names (and
+      // creds.strip, in case a minted credential env var shares a name with one) after building it.
+      const credNames = [...(meta?.agentEnv ?? []), ...(forge?.describe?.().agentEnv ?? []), ...(creds?.strip ?? [])];
+      const gateEnv = Object.fromEntries(Object.entries(agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: spawnStep.env })).filter(([k]) => !envNameMatches(k, credNames)));
       const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
       /** @type {any[]} */
       const results = [];
@@ -512,6 +518,9 @@ export function createStep(ctx) {
       for (;;) {
         const runId = `gate-${path.basename(logPath, ".log")}-${n++}`;
         const g = await runGate({ executor, sandboxedRun, argv: gateArgv, cwd, env: gateEnv, timeoutMs: gateTimeoutMinutes * 60000, ref: job.ref, stepId: step.id, runId, logPath, pids, executorRuns, cancelled, logLine });
+        // A cancel can kill the gate mid-run (its pid is in `pids`); don't treat that as a failed
+        // gate worth a repair turn — just stop, the same as the verdict-repair loop does.
+        if (cancelled.has(job.ref)) return { gate: { result: "fail" }, final, results, turnStats };
         if (g.refused) return { gate: { result: "fail", capExhausted: true, reason: g.refused }, final, results, turnStats };
         const pass = g.exitCode === 0 && !g.timedOut;
         emit?.(pass ? "gate_pass" : "gate_fail", job.ref, step.id, { exitCode: g.exitCode, durationMs: g.durationMs, ...(g.timedOut ? { timedOut: true } : {}) });
@@ -524,6 +533,7 @@ export function createStep(ctx) {
         if (ran >= cap) return { gate: { result: "fail", capExhausted: true, reason }, final, results, turnStats };
         const remainingMs = totalMaxMs ? Math.max(0, totalMaxMs - (Date.now() - Date.parse(startedAt))) : 0;
         if (totalMaxMs && remainingMs < 60000) return { gate: { result: "fail", capExhausted: true, reason }, final, results, turnStats };
+        if (cancelled.has(job.ref)) return { gate: { result: "fail" }, final, results, turnStats };
 
         store?.bumpAttempt(job.ref, step.id);
         const canResume = !!agent.resumeArgs && !!curSessionId && !(sandboxed && agent.describe().sandboxResume === false);
