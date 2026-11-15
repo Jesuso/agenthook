@@ -505,6 +505,7 @@
  * @property {string[]} [notes]             lines dispatch appends to the run log as `[agenthook] <note>`
  * @property {Record<string, any>} [extra]  fields dispatch merges into the run's `run_end` event
  * @property {{host: string, port: number, error: string}[]} [upstreamFailures]  distinct host:port the egress proxy couldn't reach for an allowed request (src/sandbox/container.js upstreamReport) — fed to the harness breaker (healthTrip)
+ * @property {string} [failed]  the run otherwise exited clean, but `done()` could not be trusted (#690: an ssh run's sync-back refused — non-ff, or a merge it would overwrite) — step.js maps this onto `refused`, so the run fails instead of advancing on an un-synced verdict
  */
 
 /** What `wrap()` returns for one run: dispatch spawns `bin args` (the runtime client) instead
@@ -548,10 +549,15 @@
  *   the run's paths AS THE AGENT SEES THEM. For host and sandbox these equal the hub's own
  *   `worktree`/`repoPath` (host: `verdictPathFor`; sandbox: `sandboxVerdictPathFor`), and
  *   `hubVerdictFile` is unset — the agent-facing and hub-facing verdict path are the same file.
- * `ssh`'s `cwd`/`verdictFile` are paths on the remote worker; `hubVerdictFile` is the local copy
- *   target `done()` writes the remote verdict back to, which the hub actually reads.
- * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[]}) => Promise<ExecutorRun>} launch
- * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox: containers/networks; ssh: remote pgids under every run's harness `workDir`)
+ * `ssh`'s `cwd`/`verdictFile` are paths on the remote worker (a deterministic per-ref(+step)
+ *   worktree or export dir under the harness's `remote.workDir`, #690 — not `remote.workDir`
+ *   itself, so a verdict-repair resume turn relaunches into the same cwd); `hubVerdictFile` is
+ *   the local copy target `done()` writes the remote verdict back to, which the hub actually reads.
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}) => Promise<ExecutorRun>} launch
+ *   `hub` (ssh only, #690): the HUB-side repo/worktree this run's code should be synced from/to
+ *   before/after the run — `worktree`+`branch` set only for a worktree step; absent entirely for
+ *   a launch with no code to sync (e.g. the low-level unit tests of this module)
+ * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox: containers/networks; ssh: remote pgids, worktrees and exports under every run's harness `workDir`, #690)
  */
 
 /** A live stdout parser an agent adapter hands dispatch for one run. Pure, stateful:
@@ -721,9 +727,12 @@
  */
 
 /**
- * A remote worker a harness's runs execute on, over ssh (#689, experimental). The agent runs in
- * an existing directory on the worker (`workDir`) — code transport/worktrees there are a later
- * ticket; the hub's own worktree/branch bookkeeping is unchanged.
+ * A remote worker a harness's runs execute on, over ssh (#689, experimental). The agent runs
+ * under `workDir` (`<workDir>/.agenthook/<stateKey>/…`, #690): before every run its ticket's
+ * code is synced there over git+SSH (a force-push + `worktree add` for a worktree step, a
+ * tracked-only `git archive` for a no-worktree step); after every run (always, incl. timeout/
+ * cancel) any commits are fetched back and fast-forwarded into the hub worktree, never the
+ * worker's uncommitted edits. Submodules and LFS are not supported yet.
  * @typedef {object} RemoteHarness
  * @property {string} host            ssh host (DNS name or IP)
  * @property {string} [user]          ssh user; default the local ssh client's own

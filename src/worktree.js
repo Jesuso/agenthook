@@ -29,9 +29,18 @@ import { primaryRepo } from "./repos.js";
  * would run agent-written hooks on the host at the next `git worktree add` (post-checkout). */
 export const HOST_GIT_SAFE = /** @type {const} */ (["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"]);
 
-/** The host git argv for `args` in `repo`: HOST_GIT_SAFE first when the profile has a sandbox. Pure.
- * @param {{sandbox?: unknown}} cfg @param {string} repo @param {string[]} args */
-export const gitArgv = (cfg, repo, args) => [...(cfg.sandbox ? HOST_GIT_SAFE : []), "-C", repo, ...args];
+/** Whether hub-side git calls against this profile must be HOST_GIT_SAFE-hardened: a sandboxed
+ * step can write the common git dir (husky's `.husky/_`), and a remote harness's worker is an
+ * untrusted git peer (#690) — either way a hub `git worktree add`/push/fetch must never run a
+ * hook or an fsmonitor hook the other side planted. Pure.
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg */
+export function hostGitSafe(cfg) {
+  return !!cfg.sandbox || Object.values(cfg.harnesses ?? {}).some((h) => h?.remote);
+}
+
+/** The host git argv for `args` in `repo`: HOST_GIT_SAFE first when `hostGitSafe(cfg)`. Pure.
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {string} repo @param {string[]} args */
+export const gitArgv = (cfg, repo, args) => [...(hostGitSafe(cfg) ? HOST_GIT_SAFE : []), "-C", repo, ...args];
 
 /** Cap on one synchronous host git call. A sandboxed agent can write the common git dir, and a
  * FIFO at `.git/HEAD` or `.git/packed-refs` makes git block on open forever; under execFileSync
@@ -40,7 +49,7 @@ export const HOST_GIT_TIMEOUT_MS = 60_000;
 
 // stderr piped (not inherited) so a probe that throws (e.g. no origin/HEAD) doesn't
 // spam the receiver log — the message is still on the thrown error if a caller cares.
-/** @param {{sandbox?: unknown}} cfg @param {string} repo @param {string[]} args */
+/** @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {string} repo @param {string[]} args */
 const git = (cfg, repo, args) =>
   execFileSync("git", gitArgv(cfg, repo, args), { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HOST_GIT_TIMEOUT_MS, killSignal: "SIGKILL" }).trim();
 
@@ -68,13 +77,13 @@ export function worktreePath(cfg, ref, repo = primaryRepo(cfg)) {
 /** Every worktree git knows for a repo (`git worktree list --porcelain`), main checkout
  * included. Callers filter to agent worktrees by path prefix. Throws if git fails.
  * `prunable` is set (true) only on a record git reports as prunable (its dir is gone).
- * @param {string} repoPath @returns {{ path: string, branch: string, prunable?: boolean }[]} */
-export function listWorktrees(repoPath) {
+ * @param {{sandbox?: unknown, harnesses?: Record<string, {remote?: unknown}|undefined>}} cfg @param {string} repoPath @returns {{ path: string, branch: string, prunable?: boolean }[]} */
+export function listWorktrees(cfg, repoPath) {
   /** @type {{ path: string, branch: string, prunable?: boolean }[]} */
   const records = [];
   /** @type {{ path: string, branch: string, prunable?: boolean }} */
   let cur = { path: "", branch: "" };
-  for (const line of git({}, repoPath, ["worktree", "list", "--porcelain"]).split("\n")) {
+  for (const line of git(cfg, repoPath, ["worktree", "list", "--porcelain"]).split("\n")) {
     if (line.startsWith("worktree ")) cur = { path: line.slice(9), branch: "" };
     else if (line.startsWith("branch ")) cur.branch = line.slice(7).replace("refs/heads/", "");
     else if (line === "prunable" || line.startsWith("prunable ")) cur.prunable = true;

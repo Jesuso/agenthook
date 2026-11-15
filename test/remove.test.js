@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { archiveRoot, archiveStamp } from "../src/archive.js";
 import { removeProfile } from "../src/commands/remove.js";
 
@@ -258,4 +259,81 @@ test("running: receiver exits without archiving → failed, with the logged arch
   const text = h.out.join("\n");
   assert.match(text, /archive failed: EXDEV/);
   assert.doesNotMatch(text, /archive failed: old/);
+});
+
+/** A fake `git` on PATH that records its full argv (one JSON line per call) then execs the real
+ * one — for #690's hardening check on the `noteWorktrees`/`listWorktrees` call this file makes. */
+function withArgvRecordingGit() {
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-remove-git-bin-"));
+  const bin = path.join(dir, "git");
+  const record = path.join(dir, "record.jsonl");
+  fs.writeFileSync(
+    bin,
+    `#!/usr/bin/env node\nimport fs from "node:fs";\nimport { spawnSync } from "node:child_process";\nconst args = process.argv.slice(2);\nfs.appendFileSync(${JSON.stringify(record)}, JSON.stringify(args) + "\\n");\nconst r = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });\nprocess.exit(r.status ?? 1);\n`,
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    calls: () => (fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []),
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+test("stopped, profile with a remote harness (#690): listWorktrees' git call is HOST_GIT_SAFE-hardened", async () => {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "ah-remove-repo-"));
+  execFileSync("git", ["init", "--quiet", "-b", "main", repoPath]);
+  execFileSync("git", ["-C", repoPath, "config", "user.email", "a@test.local"]);
+  execFileSync("git", ["-C", repoPath, "config", "user.name", "a"]);
+  fs.writeFileSync(path.join(repoPath, "f.txt"), "hi\n");
+  execFileSync("git", ["-C", repoPath, "add", "f.txt"]);
+  execFileSync("git", ["-C", repoPath, "commit", "--quiet", "-m", "init"]);
+
+  const configPath = path.join(repoPath, "agenthook.config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ repoPath, harnesses: { worker: { remote: { host: "worker.test", workDir: "/tmp/w" } } } }));
+  const registry = registryWith({ prof: { configPath } });
+  const rec = withArgvRecordingGit();
+  try {
+    const { opts } = harness();
+    await removeProfile({ nameOrKey: "prof", yes: true, registry, ...opts });
+    const worktreeCalls = rec.calls().filter((a) => a.includes("worktree") && a.includes("list"));
+    assert.ok(worktreeCalls.length >= 1, `expected a "git worktree list" call, saw ${JSON.stringify(rec.calls())}`);
+    for (const call of worktreeCalls) {
+      assert.deepEqual(call.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"], `listWorktrees must be HOST_GIT_SAFE-hardened for a remote-harness profile, got ${JSON.stringify(call)}`);
+    }
+  } finally {
+    rec.restore();
+    fs.rmSync(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("stopped, profile without sandbox/harnesses (#690): listWorktrees' git call stays unhardened", async () => {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "ah-remove-repo-"));
+  execFileSync("git", ["init", "--quiet", "-b", "main", repoPath]);
+  execFileSync("git", ["-C", repoPath, "config", "user.email", "a@test.local"]);
+  execFileSync("git", ["-C", repoPath, "config", "user.name", "a"]);
+  fs.writeFileSync(path.join(repoPath, "f.txt"), "hi\n");
+  execFileSync("git", ["-C", repoPath, "add", "f.txt"]);
+  execFileSync("git", ["-C", repoPath, "commit", "--quiet", "-m", "init"]);
+
+  const configPath = path.join(repoPath, "agenthook.config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ repoPath }));
+  const registry = registryWith({ prof: { configPath } });
+  const rec = withArgvRecordingGit();
+  try {
+    const { opts } = harness();
+    await removeProfile({ nameOrKey: "prof", yes: true, registry, ...opts });
+    const worktreeCalls = rec.calls().filter((a) => a.includes("worktree") && a.includes("list"));
+    assert.ok(worktreeCalls.length >= 1, `expected a "git worktree list" call, saw ${JSON.stringify(rec.calls())}`);
+    for (const call of worktreeCalls) {
+      assert.notDeepEqual(call.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"]);
+    }
+  } finally {
+    rec.restore();
+    fs.rmSync(repoPath, { recursive: true, force: true });
+  }
 });

@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Experimental** remote harness, code transport (#690): before every ssh-executor run, the
+  hub now syncs the ticket's code to the worker over git+SSH (no forge) instead of running in a
+  fixed `remote.workDir` — the hub worktree stays the only real copy. A worktree step force-pushes
+  the hub's branch to a per-repo bare repo on the worker (`<workDir>/.agenthook/<name>/repos/
+  <repo>.git`) and adds a deterministic per-ref worktree there; a no-worktree step (e.g. triage)
+  streams a tracked-only `git archive HEAD` into a per-ref export dir instead, so a gitignored/
+  untracked file, `.env` or the profile config never travel. After every run — even a timeout,
+  cancel, or crash — any worker commits are fetched back and fast-forwarded (`--ff-only`) into the
+  hub worktree; a worker branch whose history no longer descends from what was pushed fails the
+  run rather than overwriting anything (`SandboxReport.failed`, mapped onto the run's `refused`).
+  A dirty hub worktree, or one with a `.gitmodules`/`filter=lfs` tree (submodules/LFS aren't
+  supported on a remote harness yet), refuses the run before anything spawns. Every hub-side git
+  call this adds is `HOST_GIT_SAFE`-hardened (`src/worktree.js` `hostGitSafe`, now also true for
+  any profile with a remote harness, not just a sandboxed one) and the push/fetch travel over a
+  `GIT_SSH_COMMAND` built from the harness's own host/port/identity/user, never `-A`. `reap()`
+  additionally clears leftover synced worktrees/exports and prunes the bare repos. See
+  [docs/local-models.md](docs/local-models.md#remote-worker-experimental-689) and
+  [docs/internals/dispatch.md](docs/internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-launchkillenv-690-code-transport).
 - Web UI: a **Board** tab on the profile page's ticket section (#697, ticket 1 of 3 of #696),
   beside the existing table (now **Table**, still the default): one box per pipeline step holding
   its running/queued tickets, joined by the Config graph's own connectors, plus a **Done today**
@@ -43,7 +61,7 @@ All notable changes to this project are documented here. The format is based on
   sandboxed, would get per-run GitHub App credentials, resolves to a non-`claude` agent, or runs
   on a non-`local` tracker — none of these can be lifted yet. See
   [docs/local-models.md](docs/local-models.md#remote-worker-experimental-689) and
-  [docs/internals/dispatch.md](docs/internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-experimental).
+  [docs/internals/dispatch.md](docs/internals/dispatch.md#the-ssh-executor-srcdispatchexecutor-sshjs-689-launchkillenv-690-code-transport).
 - A down/probing harness now surfaces as an error, not routing noise (#688). A health-breaker
   trip's fast-exit `harness_down.reason` can carry the agent's own last error line after the
   receiver's own "no output" observation (e.g. an auth failure, not just that nothing came out),

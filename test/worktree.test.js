@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince } from "../src/worktree.js";
+import { ensureWorktree, worktreePath, branchName, branchHead, commitsSince, listWorktrees } from "../src/worktree.js";
 
 const ENV = {
   ...process.env,
@@ -113,6 +113,17 @@ test("HOST_GIT_SAFE: with a sandbox, every host git argv starts with it; without
   assert.deepEqual(gitArgv({}, "/r", ["worktree", "add", "/w", "b"]), ["-C", "/r", "worktree", "add", "/w", "b"]);
 });
 
+test("hostGitSafe/gitArgv: a remote harness hardens exactly like a sandbox; a profile with neither is unchanged", async () => {
+  const { gitArgv, hostGitSafe, HOST_GIT_SAFE } = await import("../src/worktree.js");
+  assert.equal(hostGitSafe({}), false);
+  assert.equal(hostGitSafe({ harnesses: { worker: {} } }), false, "a harness with no remote block doesn't harden");
+  assert.equal(hostGitSafe({ harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } }), true);
+  assert.equal(hostGitSafe({ sandbox: { type: "docker" } }), true);
+  const remoteCfg = { harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } };
+  assert.deepEqual(gitArgv(remoteCfg, "/r", ["push"]), [...HOST_GIT_SAFE, "-C", "/r", "push"]);
+  assert.deepEqual(gitArgv({ harnesses: { worker: {} } }, "/r", ["push"]), ["-C", "/r", "push"]);
+});
+
 test("branchName: default prefix agent/, else the passed one", () => {
   assert.equal(branchName("7"), "agent/7");
   assert.equal(branchName("7", "local/"), "local/7");
@@ -151,6 +162,50 @@ test("HOST_GIT_SAFE: an agent-written hooksPath never runs on the host when a sa
     await ensureWorktree(wtCfg(s.cfg), "9");
     assert.equal(fs.existsSync(marker), true);
   } finally {
+    fs.rmSync(s.root, { recursive: true, force: true });
+  }
+});
+
+/** A fake `git` on PATH that records its full argv (one JSON line per call) then execs the
+ * real one — for asserting the exact argv a caller built, not just its observable effect.
+ * @param {string} realGit */
+function withArgvRecordingGit(realGit) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-git-bin-"));
+  const bin = path.join(dir, "git");
+  const record = path.join(dir, "record.jsonl");
+  fs.writeFileSync(
+    bin,
+    `#!/usr/bin/env node\nimport fs from "node:fs";\nimport { spawnSync } from "node:child_process";\nconst args = process.argv.slice(2);\nfs.appendFileSync(${JSON.stringify(record)}, JSON.stringify(args) + "\\n");\nconst r = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });\nprocess.exit(r.status ?? 1);\n`,
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  return {
+    calls: () => (fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []),
+    restore: () => {
+      process.env.PATH = savedPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+test("listWorktrees: a remote-harness cfg is HOST_GIT_SAFE-hardened on the actual argv; a profile with neither sandbox nor remote harness is unchanged", async () => {
+  const s = setup();
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const rec = withArgvRecordingGit(realGit);
+  try {
+    const remoteCfg = { ...s.cfg, harnesses: { worker: { remote: { host: "h", workDir: "/w" } } } };
+    const records = listWorktrees(remoteCfg, s.repoPath);
+    assert.ok(records.length > 0);
+    const listCall = rec.calls().find((a) => a.includes("worktree") && a.includes("list"));
+    assert.ok(listCall, JSON.stringify(rec.calls()));
+    assert.deepEqual(listCall.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"], `expected HOST_GIT_SAFE first, got ${JSON.stringify(listCall)}`);
+
+    listWorktrees(s.cfg, s.repoPath); // unhardened: neither sandbox nor remote harness
+    const plainCall = rec.calls().filter((a) => a.includes("worktree") && a.includes("list")).at(-1);
+    assert.deepEqual(plainCall.slice(0, 2), ["-C", s.repoPath], "no -c flags when the profile needs no hardening");
+  } finally {
+    rec.restore();
     fs.rmSync(s.root, { recursive: true, force: true });
   }
 });
