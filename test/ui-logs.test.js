@@ -362,6 +362,21 @@ test("listRuns: model + harness come from the matched run_end, only when it name
   assert.equal("harness" in newest, false, "a null harness adds no key");
 });
 
+test("listRuns: verdictSource comes from the matched run_end, only when it's a known value (#680)", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
+  const dir = path.join(reg, "q", "logs");
+  fs.mkdirSync(dir, { recursive: true });
+  const names = ["2026-10-08T10-00-00-000Z-step-code-7.log", "2026-10-08T10-10-00-000Z-step-code-7.log"];
+  for (const n of names) fs.writeFileSync(path.join(dir, n), "x");
+  const events = [
+    { ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance", verdictSource: "deduced" },
+    { ts: "2026-10-08T10:15:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "hold", verdictSource: "bogus" },
+  ];
+  const [newest, oldest] = listRuns(reg, "q", "7", events);
+  assert.equal(oldest.verdictSource, "deduced");
+  assert.equal("verdictSource" in newest, false, "an unrecognized value is dropped, not passed through");
+});
+
 test("listRuns: turns/firstContext/peakContext/lastContext ride along only when the run_end has them (#645)", () => {
   const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
   const dir = path.join(reg, "q", "logs");

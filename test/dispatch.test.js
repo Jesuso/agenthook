@@ -971,10 +971,14 @@ function deduceHarness({ steps, cfg: cfgOver } = {}) {
 }
 
 test("dispatch: a clean exit with no verdict and new commits deduces advance — no repair spawn", async () => {
-  const h = deduceHarness({ steps: [{ id: "code", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0 }, { id: "review", sourceLabel: "src:review" }] });
+  // No verdictRepairs: 0 here on purpose: the default (1 repair turn) applies, and the fake
+  // would really spawn again on a repair turn (it returns a session_id) — so calls() === 1
+  // actually proves deduction pre-empted the repair, not just that repairs were disabled.
+  const h = deduceHarness({ steps: [{ id: "code", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review" }, { id: "review", sourceLabel: "src:review" }] });
   await h.runStep("code", { commits: 2 });
   assert.deepEqual(h.advanced, [{ ref: "42", stepId: "code", outcome: "advance", reason: "no verdict written; advanced because the run added 2 commits" }]);
   assert.equal(h.store.getHeld("42"), undefined);
+  assert.equal(h.calls(), 1, "the agent was spawned exactly once — deduction pre-empted the repair spawn");
   assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined, "the repair spawn never ran — deduction pre-empted it");
   const end = h.events.find((e) => e.event === "run_end");
   assert.equal(end?.verdictSource, "deduced");
@@ -1074,6 +1078,163 @@ test("dispatch: an unrepaired hold (no deduction, no repair) carries no verdictS
   assert.equal(h.advanced[0]?.outcome, "hold");
   assert.equal(end?.verdictSource, undefined);
   assert.equal(end?.repaired, undefined);
+});
+
+test("dispatch: deduceVerdict gate — an idle-timed-out run is never deduced, even with commits", async () => {
+  // Commits first (so commitsSince alone would allow deduction), then goes idle until
+  // idleMinutes kills it; `trap` makes the kill resolve as a clean exit(0), so only the
+  // `timedOut` gate (step.js) stands between this and a spurious deduced advance.
+  const dir = tmpDir();
+  const repoDir = path.join(dir, "repo");
+  fs.mkdirSync(repoDir, { recursive: true });
+  execFileSync("git", ["init", "-q", repoDir]);
+  execFileSync("git", ["-C", repoDir, "config", "user.email", "a@a.com"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.name", "a"]);
+  fs.writeFileSync(path.join(repoDir, "f"), "x\n");
+  execFileSync("git", ["-C", repoDir, "add", "f"]);
+  execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "init"]);
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(
+    bin,
+    [
+      `#!/bin/sh`,
+      `n=0`,
+      `[ -f "$FAKE_COUNTER" ] && n=$(cat "$FAKE_COUNTER")`,
+      `n=$((n + 1))`,
+      `echo "$n" > "$FAKE_COUNTER"`,
+      `git commit -q --allow-empty -m c0`,
+      `trap 'exit 0' TERM`,
+      `printf '{"type":"result","subtype":"success","session_id":"ses_123","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n'`,
+      // dash only checks for a pending trap between commands, not while blocked inside one — a
+      // single long `sleep` would eat the SIGTERM and get SIGKILLed instead of hitting `exit 0`.
+      `i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done`,
+      ``,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", createsWorktree: true, idleMinutes: 0.001, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0 }, { id: "review", sourceLabel: "src:review" }],
+    agentEnvPassthrough: ["FAKE_*"],
+    claudeBin: bin,
+    repoPath: repoDir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({
+      platform: "GitHub",
+      taskNoun: "issue",
+      trigger: "@agent",
+      commentHowTo: "comment",
+      stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failLabel", hold: "holdLabel", queue: "queueLabel" },
+    }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ v) => advanced.push({ ref, stepId, ...v }),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit);
+  process.env.FAKE_COUNTER = path.join(dir, "counter");
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  } finally {
+    console.log = log;
+    delete process.env.FAKE_COUNTER;
+  }
+  assert.equal(advanced[0]?.outcome, "fail");
+  assert.match(advanced[0]?.reason, /^timeout/);
+  assert.equal(events.find((e) => e.event === "run_end")?.verdictSource, undefined, "a timed-out run is never deduced, even though it committed");
+});
+
+test("dispatch: deduceVerdict gate — a cancelled run is never deduced, even with commits", async () => {
+  // Commits first (so commitsSince alone would allow deduction), then goes idle until the
+  // operator cancels it; `trap` makes the kill resolve as a clean exit(0), so only the
+  // `cancelled.has(job.ref)` gate (step.js) stands between this and a spurious deduced advance.
+  const dir = tmpDir();
+  const repoDir = path.join(dir, "repo");
+  fs.mkdirSync(repoDir, { recursive: true });
+  execFileSync("git", ["init", "-q", repoDir]);
+  execFileSync("git", ["-C", repoDir, "config", "user.email", "a@a.com"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.name", "a"]);
+  fs.writeFileSync(path.join(repoDir, "f"), "x\n");
+  execFileSync("git", ["-C", repoDir, "add", "f"]);
+  execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "init"]);
+  const bin = path.join(dir, "fake-claude.sh");
+  fs.writeFileSync(
+    bin,
+    [
+      `#!/bin/sh`,
+      `n=0`,
+      `[ -f "$FAKE_COUNTER" ] && n=$(cat "$FAKE_COUNTER")`,
+      `n=$((n + 1))`,
+      `echo "$n" > "$FAKE_COUNTER"`,
+      `git commit -q --allow-empty -m c0`,
+      `trap 'exit 0' TERM`,
+      `printf '{"type":"result","subtype":"success","session_id":"ses_123","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n'`,
+      `touch "$FAKE_READY"`,
+      // dash only checks for a pending trap between commands, not while blocked inside one — a
+      // single long `sleep` would eat the SIGTERM and get SIGKILLed instead of hitting `exit 0`.
+      `i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i + 1)); done`,
+      ``,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const cfg = /** @type {any} */ ({
+    pipeline: [{ id: "code", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0 }, { id: "review", sourceLabel: "src:review" }],
+    agentEnvPassthrough: ["FAKE_*"],
+    claudeBin: bin,
+    repoPath: repoDir,
+    worktreePrefix: path.join(dir, "wt"),
+    dataDir: dir,
+    logDir: dir,
+    instructionsFile: path.join(dir, "none.md"),
+  });
+  const store = createStore(dir);
+  /** @type {any[]} */
+  const advanced = [];
+  /** @type {any[]} */
+  const events = [];
+  const adapter = /** @type {any} */ ({
+    describe: () => ({
+      platform: "GitHub",
+      taskNoun: "issue",
+      trigger: "@agent",
+      commentHowTo: "comment",
+      stageKeys: { source: "sourceLabel", success: "successLabel", failure: "failLabel", hold: "holdLabel", queue: "queueLabel" },
+    }),
+    fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
+    advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ v) => advanced.push({ ref, stepId, ...v }),
+  });
+  const emit = (/** @type {string} */ event, /** @type {string} */ _ref, /** @type {string} */ _step, /** @type {any} */ extra) => events.push({ event, ...extra });
+  const run = createDispatcher(cfg, adapter, undefined, store, emit, undefined, undefined, { killGraceMs: 200 });
+  const readyFile = path.join(dir, "ready");
+  process.env.FAKE_COUNTER = path.join(dir, "counter");
+  process.env.FAKE_READY = readyFile;
+  const log = console.log;
+  console.log = () => {};
+  const done = run({ kind: "pipeline", ref: "42", stepId: "code", dedupKey: "k" });
+  try {
+    for (let i = 0; i < 200 && !fs.existsSync(readyFile); i++) await new Promise((r) => setTimeout(r, 25));
+    assert.ok(fs.existsSync(readyFile), "fake agent reached the ready marker");
+    assert.ok(store.listRunning()["42"]?.pid, "agent is running");
+    assert.equal(run.cancel("42"), true);
+    await done;
+  } finally {
+    console.log = log;
+    delete process.env.FAKE_COUNTER;
+    delete process.env.FAKE_READY;
+  }
+  assert.equal(advanced[0]?.outcome, "fail");
+  assert.equal(advanced[0]?.reason, "cancelled by operator");
+  assert.equal(events.find((e) => e.event === "run_end")?.verdictSource, undefined, "a cancelled run is never deduced, even though it committed");
 });
 
 // --- question-hold (#655): clean exit, no verdict, last output line is a question ---

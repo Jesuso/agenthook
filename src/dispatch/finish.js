@@ -220,10 +220,12 @@ export function createFinish(ctx) {
     // Deduced verdict (#680): step.js's `deduceVerdict` already gated this on a qualifying
     // implement/change step whose branch gained commits, skipping the repair turn above entirely —
     // so it only ever competes with the still-missing case, never with a repair's outcome.
+    let deducedApplied = false;
     if (deduced && missingVerdict) {
       verdict.outcome = "advance";
       verdict.reason = `no verdict written; advanced because the run added ${deduced.commits} commit${deduced.commits === 1 ? "" : "s"}`;
       missingVerdict = false;
+      deducedApplied = true;
     }
     // Absent for a hold with no verdict, every receiver-forced verdict (refused/spawn-failed/
     // cancelled/timeout/non-zero exit — none of those is anyone's verdict claim), and the
@@ -231,7 +233,7 @@ export function createFinish(ctx) {
     // ASSUMED_ADVANCE_SUFFIX parseVerdict stamps on it, never a real verdict file).
     const assumedAdvance = typeof verdict.reason === "string" && verdict.reason.endsWith(ASSUMED_ADVANCE_SUFFIX);
     /** @type {'agent'|'repaired'|'deduced'|undefined} */
-    const verdictSource = deduced
+    const verdictSource = deducedApplied
       ? "deduced"
       : repair?.repaired
       ? "repaired"
