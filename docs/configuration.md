@@ -84,6 +84,13 @@ handshake secrets, pid, logs, heartbeat) lives centrally in `~/.agenthook/<state
 See [`agenthook.config.example.json`](../agenthook.config.example.json) for a fully-commented
 template and [`.env.example`](../.env.example) for the env vars each tracker/ingress needs.
 
+**Environment precedence.** A `${VAR}` in the config resolves shell-exported first, then
+`<configDir>/.env`, then `<cwd>/.env`. `restart` re-reads `.env`: an edited value takes effect on
+the next restart, no `stop` + `start` needed (the receiver tracks which vars came from a `.env`
+file and strips only those from a restart's env, so a genuinely shell-exported var is never
+touched). A receiver installed as a systemd unit (`agenthook service install`) already restarts
+into a fresh process on every `restart`, so this needs no extra step there.
+
 The `ah ui` config editor (below) has a form for every key above, including `repos`. Edit Raw
 when you want to share a whole block, keep a `//` comment key, set a key the forms don't know
 about yet, or fix invalid JSON — the forms refuse to touch anything they can't parse.

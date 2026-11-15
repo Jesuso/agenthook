@@ -134,6 +134,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `restart` keeps stale `.env` values (#684): every detached respawn (`restart`, and the
+  `start --detach` hop it goes through) inherited the parent's whole environment, and `.env`
+  loading never overwrites an already-set var — so an edited `.env` value was never re-read
+  until a full `stop` + `start`. `loadEnv` now records which keys it actually set from a file,
+  and every detached child's env drops those (a shell-exported var is untouched), so the server
+  re-reads `.env` itself on every restart. A harness breaker still survives a restart on purpose
+  (it is often unrelated, and `probing` self-heals); instead, the `restart` reply (CLI/MCP/UI) now
+  lists any harness still down (`harnessesDown`) and points at `harness_reset`. The systemd unit
+  path already restarted into a fresh process and needed no change.
 - Sandboxed Claude Code runs now honour the operator's attribution preference (#675). A run in a
   per-run sandbox starts with an empty HOME, so `attribution` / `includeCoAuthoredBy` set off in
   `~/.claude/settings.json` were ignored and agent commits carried `Co-authored-by: Claude`. Those

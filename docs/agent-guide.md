@@ -324,6 +324,11 @@ it only gates new starts). `max: 0` is allowed with `harness` only — it drains
 starts, running agents finish), the way to keep runs off a dead backend before the health breaker
 trips; `set_concurrency {harness, max: n}` re-enables it.
 
+`restart` re-reads `.env` (an edited value takes effect without `stop` + `start`), but a harness
+breaker survives it — a restart is often for an unrelated reason, and `probing` already self-heals
+after its cooldown. The `restart` reply carries `harnessesDown: [{harness, until, reason}]` when
+any breaker is down; `harness_reset` clears one once its cause is fixed.
+
 ## events
 
 Names you will act on: `enqueued` (job accepted into the queue; fires once per accepted job —
@@ -388,7 +393,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `release {ref, comment}` | resume a held task with your answer | not held; step is `manual`; step hit `maxAttempts` |
 | `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`), then `recheck` the rows already flagged with a PR reason (adds `rechecked`) | — |
 | `pull` | fill free slots from the backlog lane; returns the queue state | — (a no-op when no step has a queue stage) |
-| `restart` | restart when idle | — |
+| `restart` | restart when idle; re-reads `.env`; reply carries `harnessesDown` when a breaker is still down | — |
 
 Every write is audited (`control-audit.jsonl`, actor `mcp`; `release` text is never logged) and
 every write refreshes the `board`/`prs` caches. Writes are **operator authority**: they act on the

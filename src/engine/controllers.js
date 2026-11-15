@@ -14,17 +14,24 @@ import { createQuotaPacer } from "../quota.js";
  *   validateConfig: () => void,
  *   validateMove?: (moveTo: string) => void,
  *   isDecommissionPending?: () => boolean,
+ *   harnessesDown?: () => {harness: string, until: string, reason?: string}[],
  *   onPending: (state: {active:number, queued:number, moveTo?: string}) => void,
  *   fire: (moveTo?: string) => void | Promise<void>,
  * }} deps  validateConfig throws on a config that would brick the respawn; validateMove throws
  *   on a move that can't happen; isDecommissionPending rejects a restart while a decommission
- *   waits; onPending does the heartbeat + event; fire runs the graceful shutdown-with-respawn
- * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number}>, isPending(): boolean}}
+ *   waits; harnessesDown reports breakers that are down (they survive the restart; this is
+ *   informational, surfaced to the operator so they know to `harness_reset`); onPending does
+ *   the heartbeat + event; fire runs the graceful shutdown-with-respawn
+ * @returns {{request(args: any): Promise<{accepted: true, alreadyPending?: true, active: number, queued: number, harnessesDown?: {harness: string, until: string, reason?: string}[]}>, isPending(): boolean}}
  */
-export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, isDecommissionPending, onPending, fire }) {
+export function createRestartRequester({ queue, isDraining, validateConfig, validateMove, isDecommissionPending, harnessesDown, onPending, fire }) {
   let pending = false;
   /** @type {string|undefined} */
   let pendingMove;
+  const down = () => {
+    const list = harnessesDown?.() ?? [];
+    return list.length ? { harnessesDown: list } : {};
+  };
   return {
     isPending: () => pending,
     async request(args) {
@@ -38,7 +45,7 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
         if (moveTo !== undefined && moveTo !== pendingMove) {
           throw new Error(`restart: a restart ${pendingMove ? `moving to "${pendingMove}"` : "without a move"} is already pending`);
         }
-        return { accepted: true, alreadyPending: true, active, queued };
+        return { accepted: true, alreadyPending: true, active, queued, ...down() };
       }
       validateConfig(); // a bad config on disk rejects the restart — nothing changes
       if (moveTo !== undefined) {
@@ -55,7 +62,7 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
         .then(() => new Promise((resolve) => setImmediate(resolve)))
         .then(() => (isDraining() ? undefined : fire(moveTo))) // a signal took over: no respawn
         .catch((e) => console.error(`[restart] failed: ${e.message}`));
-      return { accepted: true, active, queued };
+      return { accepted: true, active, queued, ...down() };
     },
   };
 }
