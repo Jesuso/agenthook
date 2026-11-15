@@ -128,10 +128,15 @@ unchanged check.
   prompt size (input + cache read + cache write — claude/opencode/cursor only, absent on hermes),
   `ctxMax` the model's context window (an explicit step/harness `contextTokens`, else an opencode
   step's `opencodeConfig` `limit.context`, else a built-in table for the Claude family — null when
-  none of those resolve). `ctxMax` rides `run_start` too, when known; `ctx` only reaches
-  `running.json` after the first turn. The `tick` text digest appends `· ctx 54K/64K` once both
-  are known — a context window close to full is the signal an imminent compaction/stall, or a
-  mis-sized model/harness for the step, is visible while it happens.
+  none of those resolve). The built-in table holds Anthropic's published default windows (no beta
+  header): 1,000,000 for every current model except Claude Haiku 4.5 at 200,000. `ctxMax` rides
+  `run_start` too, when known; `ctx` only reaches `running.json` after the first turn. The `tick`
+  text digest appends `· ctx 54K/64K` once both are known — a context window close to full is the
+  signal an imminent compaction/stall, or a mis-sized model/harness for the step, is visible while
+  it happens. When the observed `ctx` exceeds `ctxMax`, the window table (or override) is proven
+  wrong for that model, so `ctxMax` is omitted from `status`/`tick` rows and the digest prints
+  the bare `· ctx 212K` instead of a false over-limit `212K/200K`, and dispatch logs one warning
+  per run naming the model and both figures.
 - `up:false` → the receiver is down; `running`/`queue` are the last state on disk, not live.
 
 `tick` adds `board` (`[{step, resting:[{ref,id,title}]}]` — tickets sitting in each step's source

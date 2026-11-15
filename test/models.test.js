@@ -5,18 +5,39 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { contextWindowOf, resolveContextWindow, CONTEXT_WINDOWS } from "../src/models.js";
+import { contextWindowOf, resolveContextWindow, ctxOverflow, CONTEXT_WINDOWS } from "../src/models.js";
 
 test("contextWindowOf: Claude family, aliases, [1m] suffix, unknown → null", () => {
-  assert.equal(contextWindowOf("claude-opus-5-5"), 200000);
-  assert.equal(contextWindowOf("sonnet"), 200000);
-  assert.equal(contextWindowOf("SONNET"), 200000, "case-insensitive");
+  // Published default windows (no beta header), 1M for every current model except Haiku 4.5:
+  // https://platform.claude.com/docs/en/about-claude/models/overview
+  const million = [
+    "claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5", "claude-mythos-5",
+    "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6",
+    "claude-haiku-5-5",
+    "opus", "sonnet", "haiku", "fable",
+  ];
+  for (const m of million) assert.equal(contextWindowOf(m), 1000000, m);
+  assert.equal(contextWindowOf("SONNET"), 1000000, "case-insensitive");
+  assert.equal(contextWindowOf("claude-haiku-4-5"), 200000);
+  assert.equal(contextWindowOf("claude-haiku-4-5-20251001"), 200000, "dated Haiku 4.5");
   assert.equal(contextWindowOf("claude-sonnet-5-5[1m]"), 1000000);
   assert.equal(contextWindowOf("claude-sonnet-5-5[1M]"), 1000000, "case-insensitive suffix");
   assert.equal(contextWindowOf("qwen3-coder"), null);
-  assert.equal(contextWindowOf("auto/claude-opus-5-5"), 200000, "provider/model tail fallback");
+  assert.equal(contextWindowOf("auto/claude-opus-5-5"), 1000000, "provider/model tail fallback");
   assert.equal(contextWindowOf(undefined), null);
   assert.equal(contextWindowOf(""), null);
+});
+
+test("ctxOverflow: only a finite ctx strictly above a finite ctxMax", () => {
+  assert.equal(ctxOverflow(212000, 200000), true);
+  assert.equal(ctxOverflow(200000, 200000), false, "equal is not over");
+  assert.equal(ctxOverflow(54000, 200000), false, "under");
+  assert.equal(ctxOverflow(undefined, 200000), false, "missing ctx");
+  assert.equal(ctxOverflow(212000, undefined), false, "missing ctxMax");
+  assert.equal(ctxOverflow(NaN, 200000), false, "non-finite ctx");
+  assert.equal(ctxOverflow(212000, Infinity), false, "non-finite ctxMax");
+  assert.equal(ctxOverflow("212000", 200000), false, "non-number ctx");
 });
 
 test("CONTEXT_WINDOWS: every key resolves through contextWindowOf", () => {
@@ -40,22 +61,22 @@ test("resolveContextWindow: explicit step.contextTokens wins over everything, in
 test("resolveContextWindow: opencodeConfig's limit.context wins over the built-in table", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-models-"));
   const cfgPath = path.join(dir, "opencode.json");
-  // anthropic/claude-opus-5-5 is in the built-in table at 200000 — opencodeConfig must still override it.
+  // anthropic/claude-opus-5-5 is in the built-in table at 1000000 — opencodeConfig must still override it.
   fs.writeFileSync(cfgPath, JSON.stringify({ provider: { anthropic: { models: { "claude-opus-5-5": { limit: { context: 64000 } } } } } }));
   const step = { opencodeConfig: cfgPath };
   assert.equal(resolveContextWindow({ step, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 64000);
   // Not opencode: the opencodeConfig is never consulted, even though it's set — falls through to the table.
-  assert.equal(resolveContextWindow({ step, model: "anthropic/claude-opus-5-5", agentName: "claude" }), 200000);
+  assert.equal(resolveContextWindow({ step, model: "anthropic/claude-opus-5-5", agentName: "claude" }), 1000000);
 });
 
 test("resolveContextWindow: an unreadable or invalid opencodeConfig falls through to the table, never throws", () => {
   const stepMissing = { opencodeConfig: "/no/such/file.json" };
-  assert.equal(resolveContextWindow({ step: stepMissing, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 200000);
+  assert.equal(resolveContextWindow({ step: stepMissing, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 1000000);
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-models-bad-"));
   const badJson = path.join(dir, "bad.json");
   fs.writeFileSync(badJson, "{not json");
-  assert.equal(resolveContextWindow({ step: { opencodeConfig: badJson }, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 200000);
+  assert.equal(resolveContextWindow({ step: { opencodeConfig: badJson }, model: "anthropic/claude-opus-5-5", agentName: "opencode" }), 1000000);
 
   const noLimit = path.join(dir, "no-limit.json");
   fs.writeFileSync(noLimit, JSON.stringify({ provider: { ollama: { models: { "qwen3-coder": {} } } } }));
@@ -63,8 +84,8 @@ test("resolveContextWindow: an unreadable or invalid opencodeConfig falls throug
 });
 
 test("resolveContextWindow: falls back to the built-in table, then to null for an unknown/local model", () => {
-  assert.equal(resolveContextWindow({ step: {}, model: "claude-opus-5-5" }), 200000);
-  assert.equal(resolveContextWindow({ step: {}, model: "sonnet" }), 200000);
+  assert.equal(resolveContextWindow({ step: {}, model: "claude-opus-5-5" }), 1000000);
+  assert.equal(resolveContextWindow({ step: {}, model: "sonnet" }), 1000000);
   assert.equal(resolveContextWindow({ step: {}, model: "claude-sonnet-5-5[1m]" }), 1000000);
   assert.equal(resolveContextWindow({ step: {}, model: "qwen3-coder" }), null);
   assert.equal(resolveContextWindow({ step: {} }), null);

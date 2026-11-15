@@ -9,7 +9,7 @@ import type { Mounted } from "./domHarness";
 
 const p = { name: "dev", label: "dev", up: true, pid: 1, port: null, tracker: "github", ingress: null, fullAuto: null, color: "teal", emoji: "🚀", forge: null, maxConcurrent: 3,
   startedAt: null, updatedAt: null, active: 0, queued: 0, paused: false, restartPending: false, lastEvent: null, configPath: null, createdAt: null,
-  lastSeenAt: null, ghost: false, configMissing: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null } as ProfileView;
+  lastSeenAt: null, ghost: false, configMissing: false, died: false, recentCosts: [], recentRuns: [], quotaPaused: null, quota: null } as ProfileView;
 const t = (ref: string, status: TicketRow["status"]): TicketRow => ({
   profile: "dev", ref, displayId: `#${ref}`, title: `Title ${ref}`, step: "code", status, model: null, startedAt: null, costUsd: 0, estUsd: 0, trackerUrl: null,
   prUrl: null, summary: null, plain: null, options: null, heldReason: status === "held" ? "?" : null, heldAt: null, failReason: status === "failed" ? "x" : null, prState: null, prNeeds: null, finishedAt: null, queuePos: null, queuedAt: null, epic: null,

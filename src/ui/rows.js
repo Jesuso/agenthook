@@ -477,6 +477,7 @@ export function profileView(p) {
     lastSeenAt: str(p.lastSeenAt),
     ghost: p.ghost === true,
     configMissing: p.configMissing === true,
+    died: !p.up && (p.pid ?? 0) > 0 && p.configMissing !== true && p.ghost !== true,
     recentCosts: recentCosts(p.events ?? [], p.now ?? Date.now(), pricingOf(hb)),
     recentRuns: recentRuns(p.events ?? [], p.now ?? Date.now()),
   };

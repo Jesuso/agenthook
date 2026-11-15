@@ -269,6 +269,10 @@ export function createWatcher(registry, onEvent) {
         p.deadPid = p.hello.pid || p.pid;
         p.hello = null;
       }
+      // Re-read server.pid synchronously first: a clean stop/restart removes the pidfile right
+      // around when the socket drops, and recompute()ing on the stale in-memory pid would flash
+      // "died" (dead pid still on file) until the debounced dir-watch event caught up.
+      readFiles(p, new Set(["server.pid"]));
       recompute(p); // immediate: the receiver is gone, no debounce
       if (p.retry) connect(p);
     });

@@ -282,6 +282,7 @@ test("buildSnapshot: profiles expose only ProfileView fields; tickets carry PR l
     lastSeenAt: null, // heartbeat.updatedAt "u" isn't a timestamp
     ghost: false,
     configMissing: false,
+    died: false,
     forge: null,
     recentRuns: [],
     recentCosts: [],
@@ -363,6 +364,14 @@ test("profileView: paused/restartPending are booleans when up (restartPending = 
   for (const flag of ["restartPending", "decommissionPending", "draining"]) assert.deepEqual(view(true, { [flag]: true }), [false, true], flag);
   // A dead heartbeat keeps its last flags: never read as live state.
   assert.deepEqual(view(false, { paused: true, restartPending: true, draining: true }), [null, null]);
+});
+
+test("profileView: died — down with a dead pid in the pidfile, unless config-missing or a ghost", () => {
+  assert.equal(profileView({ name: "p", pid: 1234, up: false, heartbeat: null }).died, true);
+  assert.equal(profileView({ name: "p", pid: 1, up: true, heartbeat: null }).died, false); // up
+  assert.equal(profileView({ name: "p", pid: 0, up: false, heartbeat: null }).died, false); // no pidfile pid
+  assert.equal(profileView({ name: "p", pid: 1234, up: false, heartbeat: null, configMissing: true }).died, false);
+  assert.equal(profileView({ name: "p", pid: 1234, up: false, heartbeat: null, ghost: true }).died, false);
 });
 
 test("buildSnapshot: name = state key, label = heartbeat name, else profile.json name; API resolves by key only", () => {
