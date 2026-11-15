@@ -18,7 +18,7 @@ pipeline or sandbox.
 
 ## Product Purpose
 
-**The heart: reduce the cognitive load of a developer who now moves twenty times faster.** Agents
+**The heart: reduce the cognitive load of a developer who now moves much faster.** Agents
 multiplied how much work one person can start; they did not multiply how much that person can read,
 track and decide. agenthook exists so the developer stays calm: they know things are fine and
 moving without reading to check, and they are asked for attention only when a decision is theirs.
