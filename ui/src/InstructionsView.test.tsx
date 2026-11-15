@@ -60,24 +60,6 @@ async function dirtyView() {
 }
 
 describe("InstructionsView in-app confirms", () => {
-  it("a profile switch on a dirty buffer asks; cancel stays, Discard loads the other profile", async () => {
-    const root = await dirtyView();
-    const select = root.querySelector<HTMLSelectElement>("select")!;
-    const pick = (v: string) =>
-      act(async () => {
-        select.value = v;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-    await pick("other");
-    expect(confirmDialog()?.textContent).toContain("Discard unsaved changes to the open instructions file?");
-    await answerConfirm(false);
-    expect(root.querySelector<HTMLSelectElement>("select")!.value).toBe("demo");
-    expect(fetched("/api/instructions?profile=other")).toBe(false);
-    await pick("other");
-    await answerConfirm(true);
-    await until(() => fetched("/api/instructions?profile=other"));
-  });
-
   it("opening another file on a dirty buffer asks first", async () => {
     const root = await dirtyView();
     const other = [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("review.md"))!;

@@ -10,7 +10,7 @@ import { DiffLegend, Modal, useConfirm } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
-import { EmptyState, Pill, Segmented } from "./components";
+import { EmptyState, Pill, ProfileMark, Segmented } from "./components";
 import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
@@ -35,14 +35,16 @@ export default function InstructionsView(props: {
   initialProfile?: string;
 }) {
   const { t, lang } = useT();
-  const [picked, setPicked] = useState(props.initialProfile ?? props.profiles[0]?.name ?? "");
-  const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
+  // The app bar picks the profile; this page edits the one it was given.
+  const shown = props.profiles.find((p) => p.name === props.initialProfile) ?? props.profiles[0];
+  const profile = shown?.name ?? "";
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);
   const [file, setFileState] = useState<FileState>({ kind: "none" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
-  const [side, setSide] = useState<Side>("none");
+  // A wide window opens the rendered preview beside the editor; the choice after that is the human's.
+  const [side, setSide] = useState<Side>(() => (typeof window !== "undefined" && window.matchMedia?.("(min-width: 1536px)").matches ? "preview" : "none"));
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [ask, confirmModal] = useConfirm();
@@ -236,16 +238,6 @@ export default function InstructionsView(props: {
     ask({ title: t("instructions.unsavedTitle"), body: discardPrompt(lang), confirmLabel: t("instructions.discard"), cancelLabel: t("instructions.keepEditing"), destructive: true }).then((ok) => ok && go());
   };
 
-  const pickProfile = (name: string) => {
-    if (name === profile) return;
-    unlessDirty(() => {
-      loadSeq.current++;
-      setPicked(name);
-      setList({ kind: "loading" });
-      setFile({ kind: "none" });
-    });
-  };
-
   const pickFile = (path: string) => {
     if (open?.path === path) return;
     unlessDirty(() => load(profile, path));
@@ -255,20 +247,13 @@ export default function InstructionsView(props: {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col max-md:h-auto sm:px-2 2xl:px-4">
-      <div className="mb-3 flex min-w-0 items-center gap-3 text-sm">
-        <select
-          className="shrink-0 border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
-          value={profile}
-          onChange={(e) => pickProfile(e.target.value)}
-        >
-          {props.profiles.map((p) => (
-            <option key={p.name} value={p.name}>
-              {profileLabel(p)}
-            </option>
-          ))}
-        </select>
+      <div className="mb-3 flex min-w-0 items-center gap-3 text-sm" data-instructions-head>
+        <ProfileMark p={shown} />
+        <h1 className="shrink-0 text-title font-semibold">
+          {t("instructions.title")} <span className="font-normal text-muted">· {profileLabel(shown)}</span>
+        </h1>
         {list.kind === "ok" && list.body.configPath && (
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]" title={list.body.configPath}>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)] max-sm:hidden" title={list.body.configPath}>
             {list.body.configPath}
           </span>
         )}
@@ -350,7 +335,7 @@ export default function InstructionsView(props: {
                   <InlineLiveEffect agentsRunning={agentsRunning} />
                   {!dirty && phase === "editing" && <span className="text-label text-muted">{t("instructions.noChanges")}</span>}
                   <button
-                    className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded border border-accent bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:border-border disabled:bg-transparent disabled:text-muted"
                     disabled={!dirty || phase !== "editing"}
                     title={t("instructions.saveTitle")}
                     onClick={requestSave}

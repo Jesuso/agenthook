@@ -892,6 +892,7 @@ export const messages = {
   "instructions.unsavedTitle": "Unsaved changes",
   "instructions.discard": "Discard",
   "instructions.keepEditing": "Keep editing",
+  "instructions.title": "Instructions",
   "instructions.noProfiles": "No profiles.",
   "instructions.loadingFiles": "Loading files…",
   "instructions.missing": "missing",

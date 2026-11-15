@@ -895,6 +895,7 @@ export const messages: Record<MessageKey, Message> = {
   "instructions.unsavedTitle": "Cambios sin guardar",
   "instructions.discard": "Descartar",
   "instructions.keepEditing": "Seguir editando",
+  "instructions.title": "Instrucciones",
   "instructions.noProfiles": "No hay perfiles.",
   "instructions.loadingFiles": "Cargando archivos…",
   "instructions.missing": "no existe",
