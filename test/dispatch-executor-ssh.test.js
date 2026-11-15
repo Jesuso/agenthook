@@ -247,6 +247,51 @@ test("ssh executor: exit 255 with no output becomes a spawnError that trips heal
   }
 });
 
+test("ssh executor: ssh exiting 255 WITHOUT reading stdin never crashes the process (no uncaught EPIPE)", async () => {
+  // Real ssh refusing/dropping a connection exits 255 immediately, without ever reading stdin —
+  // unlike FAKE_SSH above (a node wrapper whose own stdin fd stays open, shared with the shell it
+  // execs via spawnSync({stdio: "inherit"}), which masks an EPIPE: the pipe's read side isn't
+  // fully closed until the wrapper process itself exits). A plain shell script as `ssh` matches
+  // real ssh's failure mode directly: one process, one fd, closed the moment it exits.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-bin-"));
+  const bin = path.join(dir, "ssh");
+  fs.writeFileSync(bin, `#!/bin/sh\nexit 255\n`, { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-work-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-hub-"));
+  const remote = { host: "worker.test", workDir, bin: "irrelevant-agent-bin" };
+  const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(root, "hub-verdict.json") } });
+  const { spawnAgent } = spawnCtx();
+  const uncaught = [];
+  const onUncaught = (e) => uncaught.push(e);
+  process.on("uncaughtException", onUncaught);
+  try {
+    const result = await spawnAgent({
+      agent: fakeAgent(),
+      prompt: "x".repeat(5 * 1024 * 1024), // past the pipe buffer, so the write can't complete before ssh exits
+      cwd: workDir,
+      logPath: path.join(root, "run.log"),
+      verdictFile: executor.paths({ stepId: "code", ref: "8" }).verdictFile,
+      sandboxed: { ref: "8", stepId: "code", step: {}, mounts: [] },
+      executor,
+    });
+    // A write() failure on child.stdin can surface asynchronously, after the child process's own
+    // 'close' (and so after spawnAgent's promise resolves) — give any pending EPIPE a tick to land
+    // before asserting none did.
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(uncaught, [], "an EPIPE on child.stdin must never surface as an uncaught exception");
+    assert.equal(result.spawnError, "ssh failed (exit 255)");
+    assert.ok(result.noOutput);
+  } finally {
+    process.off("uncaughtException", onUncaught);
+    process.env.PATH = savedPath;
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ssh executor: closing stdin alone kills the remote process group (the agent process is gone afterward)", async () => {
   const ssh = withFakeSsh();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-work-"));

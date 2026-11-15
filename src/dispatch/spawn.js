@@ -217,6 +217,13 @@ export function createSpawn(ctx) {
         stdio: ["pipe", "pipe", "pipe"],
         env: launch.env,
       });
+      // `child.stdin`'s own `error` event is distinct from the child's: ssh exiting before it
+      // reads stdin (e.g. an unreachable host, 255) makes the write below fail EPIPE on its own
+      // stream, which with no listener is an uncaught exception that kills the receiver — the
+      // exact run the 255/spawnError path below exists to report, so this must never throw.
+      child.stdin.on("error", (e) => {
+        logStream.write(`[agenthook] stdin write failed: ${e.message}\n`);
+      });
       if (stdinPayload !== undefined) child.stdin.write(stdinPayload);
       else child.stdin.end();
       children?.add(child);
