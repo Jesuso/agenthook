@@ -923,6 +923,17 @@ export const messages = {
   "graph.empty": "no pipeline steps yet",
   "graph.unknownStages": "stage bindings unknown for this tracker — showing steps and `changes` edges only",
   "graph.aria": "pipeline graph",
+  // board.ts / BoardView.tsx
+  "board.tabBoard": "Board",
+  "board.tabTable": "Table",
+  "board.other": "Other",
+  "board.doneToday": "Done today {count}",
+  "board.more": "+{count} more",
+  "board.moreTitle": "{count} more in {step} — show in the Table tab",
+  "board.unavailable": "Pipeline configuration isn't available — see the Table tab.",
+  // tickets.ts / TicketsTable.tsx
+  "tickets.stepFilter": "step: {step}",
+  "tickets.clearStepFilter": "clear the step filter",
 } satisfies Messages;
 
 /** Every key a dictionary must carry. */

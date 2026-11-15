@@ -966,3 +966,37 @@ compact density; muted secondary text; 6-8px radii (we keep `--radius-lg` 8px fo
   `control-audit.jsonl` omits it too).
 - Progress is today vs yesterday (browser-local days) over the tail, plus the rework rate
   (`changes` / runs), hidden under 10 runs. Longer ranges: see "Daily stats".
+
+### Board (built, #697 — ticket 1 of 3 of #696)
+
+The *All tickets* section (above) grew a second tab, **Board**, beside the renamed **Table**
+(the old view, unchanged). Table stays the default and the choice persists per browser
+(`ui/src/board.ts` `readBoardTab`/`writeBoardTab`, `localStorage` — same pattern as the log
+viewer's `logview.ts`); any active status/epic/step filter forces Table, the same way a filter
+already auto-opened the section. Selecting a tab opens the section.
+
+The Board draws the pipeline exactly as the Config graph lays it out
+(`ui/src/pipelineGraph.ts` `layoutPipeline`, now taking an optional trailing `{stepW, stepH}` so
+the Board can ask for one uniform, fixed-size box per step regardless of ticket count — callers
+that omit it, including every existing Config-graph test, get today's layout unchanged) — one
+fixed-size box per step, joined by the same `advance`/`fail`/`hold`/`changes`/`queue` connectors
+and colours (`EDGE_STYLE`/`EDGE_LABEL`, exported from `PipelineGraph.tsx` so the Board doesn't
+duplicate the palette; its connector paths are drawn as simple polylines, not the Config graph's
+rounded-bend routing — motion and nicer bends are #696's later tickets). A box's entries come from
+`ui/src/board.ts`'s pure `boardSections` (Vitest-covered): running (longest first) then queued
+(queue order) — the same order `zones.ts`'s `nowItems` uses — with `interrupted`/`stalled`
+joining their respective group when the profile is down; capped at 6 with a "+N more" that
+switches the Table tab to a new **step filter** (`TicketFilter.step`, `tickets.ts`). A **Done
+today** box sits at the pipeline's end (newest-first, capped, with the full count in the header);
+an **Other** box appears only when a running/queued ticket's `step` matches no pipeline step.
+Held/failed tickets and a flagged PR never appear in a step box — they're the same **Needs you**
+zone as the profile page (`NeedsYouZone.tsx`, factored out of `Overview.tsx` so both share it),
+fixed full-width above the diagram, present only when non-empty.
+
+No new endpoint: the Board fetches `GET /api/config?profile=` (parsed with `readSteps`/
+`stageKeysFor`, exactly ConfigView's own calls) for the steps/stage-binding keys, and
+`GET /api/discover` for stage labels only while the profile is up (down, labels fall back to step
+ids — `layoutPipeline`'s own rule). Below `lg` (1024px) the sections stack vertically in pipeline
+order (Needs you first) and the SVG connectors + legend are dropped, via a `matchMedia`
+`(min-width: 1024px)` check (`useWide`, mirroring `LiveTime.tsx`'s `useReducedMotion`) rather than
+a CSS-only toggle, so the connector `<svg>` is never in the DOM on a narrow page.

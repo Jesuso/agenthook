@@ -64,6 +64,7 @@ function Dashboard() {
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [epicFilter, setEpicFilter] = useState<string>("");
+  const [stepFilter, setStepFilter] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
   // The ticket whose runs/log panel is open. The stream callback reads it via a ref.
   const [open, setOpen] = useState<{ profile: string; ref: string } | null>(null);
@@ -132,6 +133,7 @@ function Dashboard() {
     go: (next) => {
       setStatusFilter("");
       setEpicFilter("");
+      setStepFilter("");
       setRoute(next);
     },
   });
@@ -446,6 +448,8 @@ function Dashboard() {
           setStatusFilter={setStatusFilter}
           epicFilter={epicFilter}
           setEpicFilter={setEpicFilter}
+          stepFilter={stepFilter}
+          setStepFilter={setStepFilter}
           showAll={showAll}
           setShowAll={setShowAll}
           open={open}

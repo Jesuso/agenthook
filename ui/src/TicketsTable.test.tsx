@@ -45,6 +45,8 @@ const render = (tickets: TicketRow[], over: Partial<TicketsTableProps> = {}) =>
       statusFilter: "",
       epicFilter: "",
       onEpicFilter: () => {},
+      stepFilter: "",
+      onStepFilter: () => {},
       onStatusFilter: () => {},
       showAll: false,
       onShowAll: () => {},
@@ -161,7 +163,7 @@ describe("TicketsTable in Spanish", () => {
 
   it("headers, chips, toolbar and row actions follow the language", async () => {
     setLangSetting("es", []);
-    const props = { tickets: [ticket({ ref: "7", status: "failed" }), ...many(55)], profiles: [], now: NOW, profileFilter: "", onProfileFilter: () => {}, statusFilter: "", epicFilter: "", onEpicFilter: () => {}, onStatusFilter: () => {}, showAll: true, onShowAll: () => {}, open: null, onOpen: () => {}, onDismiss: () => {} };
+    const props = { tickets: [ticket({ ref: "7", status: "failed" }), ...many(55)], profiles: [], now: NOW, profileFilter: "", onProfileFilter: () => {}, statusFilter: "", epicFilter: "", onEpicFilter: () => {}, stepFilter: "", onStepFilter: () => {}, onStatusFilter: () => {}, showAll: true, onShowAll: () => {}, open: null, onOpen: () => {}, onDismiss: () => {} };
     m = await mount(createElement(I18nProvider, null, createElement(TicketsTable, props)));
     const heads = [...m.root.querySelectorAll("th")].map((th) => th.textContent);
     expect(heads.slice(0, 4)).toEqual(["id", "título", "perfil", "paso"]);

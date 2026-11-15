@@ -926,4 +926,15 @@ export const messages: Record<MessageKey, Message> = {
   "graph.empty": "aún no hay pasos en el pipeline",
   "graph.unknownStages": "vínculos de etapa desconocidos para este tracker — solo se muestran los pasos y las aristas `changes`",
   "graph.aria": "grafo del pipeline",
+  // board.ts / BoardView.tsx
+  "board.tabBoard": "Tablero",
+  "board.tabTable": "Tabla",
+  "board.other": "Otros",
+  "board.doneToday": "Terminados hoy {count}",
+  "board.more": "+{count} más",
+  "board.moreTitle": "{count} más en {step} — mostrar en la pestaña Tabla",
+  "board.unavailable": "La configuración del pipeline no está disponible — ve a la pestaña Tabla.",
+  // tickets.ts / TicketsTable.tsx
+  "tickets.stepFilter": "paso: {step}",
+  "tickets.clearStepFilter": "quitar el filtro de paso",
 };

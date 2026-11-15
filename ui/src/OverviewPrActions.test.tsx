@@ -33,7 +33,7 @@ async function render(tickets: TicketRow[], over: Partial<OverviewProps> = {}, u
   const profile = p(up);
   m = await mount(
     createElement(Overview, {
-      profile, snapshot: { profiles: [profile], tickets }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
+      profile, snapshot: { profiles: [profile], tickets }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, stepFilter: "", setStepFilter: () => {}, showAll: false, setShowAll: () => {},
       open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: ok, onRetry: ok, ...over,
     }),
   );
