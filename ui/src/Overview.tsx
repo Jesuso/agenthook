@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProfileView, Snapshot, StatsGroup, StatsResult, TicketRow } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatContext, formatCost, formatModel, formatSpend, formatTicketSpend, ticketTitle } from "./format";
+import { formatCost, formatSpend, ticketTitle } from "./format";
 import { harnessStatsUrl } from "./stats";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, nowItems, progress } from "./zones";
@@ -283,13 +283,10 @@ const KIND: Record<NeedsItem["kind"], { text: MessageKey; tone: "failed" | "held
   pr: { text: "needs.pr", tone: "done" },
 };
 
-/** Hover (or keyboard focus) reveals a row's actions; touch screens always show them. */
-const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
 /** A primary, always-visible row action (Release…, PR ↗). */
 /** A row's secondary action: no border, muted until hovered, so the primary one reads first. */
 const QUIET = "inline-block rounded-md px-2 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
 const ACTION = "inline-block rounded-md border border-border px-2 py-0.5 text-label font-medium hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent pointer-coarse:px-3 pointer-coarse:py-2";
-const LINK = "rounded px-1.5 py-0.5 text-label text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
 
 /**
  * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
@@ -596,35 +593,27 @@ function HarnessAttentionRow({ item }: { item: HarnessAttentionItem }) {
   );
 }
 
+/**
+ * One line per ticket, only what a glance needs: is it moving (dot / queue position), which one
+ * (id, title), where (step) and for how long. Model, context, cost and the agent's sentence are
+ * a click away in the drawer — a figure that changes nothing the operator does next is not here.
+ */
 function NowRow({ t, now, onOpen, position }: { t: TicketRow; now: number; onOpen: (r: Ref) => void; position?: number }) {
   const { t: tr, lang } = useT();
   const title = ticketTitle(t, lang);
-  const model = formatModel(t.model);
-  const ctx = formatContext(t);
-  const ctxHot = typeof t.ctx === "number" && typeof t.ctxMax === "number" && t.ctx / t.ctxMax > 0.9;
+  const about = t.plain ?? t.summary;
   return (
-    <li data-now-row={t.ref} className="group flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised">
-      {position !== undefined ? <span className="w-5 font-mono text-label text-muted">{position}</span> : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
+    <li data-now-row={t.ref} className="flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised hover:bg-surface-raised">
+      {/* One leading column for both lists, so ids, steps and clocks line up down the whole card. */}
+      <span className="flex w-5 shrink-0 items-center font-mono text-label text-muted">
+        {position !== undefined ? position : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
+      </span>
       <TicketId id={t.displayId} url={t.trackerUrl} />
-      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? tr("overview.openDetails") : tr("overview.titleOpenDetails", { title: `${title.text}${t.summary ? ` — ${t.summary}` : ""}` })} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
+      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? tr("overview.openDetails") : tr("overview.titleOpenDetails", { title: `${title.text}${about ? ` — ${about}` : ""}` })} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
         <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? tr("ticket.untitled") : title.text}</span>
-        {(t.plain ?? t.summary) && <span className="block truncate text-label text-muted" data-now-sub>{t.plain ?? t.summary}</span>}
       </button>
       {t.step && <Pill>{t.step}</Pill>}
-      {position === undefined ? (
-        <>
-          {/* Narrow: model, ctx and cost go (the drawer has them); elapsed stays, it is the progress signal. */}
-          <span className="font-mono text-label text-muted max-sm:hidden" title={model.title}>{model.text}</span>
-          {ctx && <span className={`font-mono text-label max-sm:hidden ${ctxHot ? "text-status-failed" : "text-muted"}`} title={ctx.title}>{ctx.text}</span>}
-          <Elapsed iso={t.startedAt} seed={now} className="text-label" />
-          <span className="font-mono text-label text-muted max-sm:hidden" title={tr("overview.costSoFar")}>{formatTicketSpend(t)}</span>
-          <button type="button" className={`${LINK} ${REVEAL} max-sm:hidden`} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-            {tr("overview.followLog")}
-          </button>
-        </>
-      ) : (
-        <Waiting iso={t.queuedAt} seed={now} className="text-label" />
-      )}
+      {position === undefined ? <Elapsed iso={t.startedAt} seed={now} className="w-24 shrink-0 text-right text-label" /> : <Waiting iso={t.queuedAt} seed={now} className="w-24 shrink-0 text-right text-label" />}
     </li>
   );
 }
@@ -640,7 +629,9 @@ function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileVi
         {/* Idle capacity is one quiet line, not a row per slot: rows are for work. */}
         {free > 0 && (
           <p data-free-slots={free} className={`flex items-center gap-3 px-3 py-2 text-label text-muted ${running.length ? "border-t border-border-subtle" : ""}`}>
-            <span aria-hidden="true" className="size-2 rounded-full border border-dashed border-border-strong" />
+            <span aria-hidden="true" className="flex w-5 shrink-0 items-center">
+              <span className="size-2 rounded-full border border-dashed border-border-strong" />
+            </span>
             {running.length === 0 ? t("overview.nothingRunning") : ""}
             {t("overview.freeSlots", { count: free })}
           </p>

@@ -29,6 +29,17 @@ const render = (ticket: TicketRow | undefined) =>
   renderToStaticMarkup(createElement(TicketDrawer, { profile: "agenthook", ticketRef: "221", ticket, runsNonce: 0, onClose: () => {} }));
 
 describe("TicketDrawer", () => {
+  it("carries a running ticket's model and context (they are not on the Overview row), neutral, never as an alarm", () => {
+    const html = render({ ...row, model: "claude-sonnet-5", ctx: 212000, ctxMax: 200000 });
+    expect(html).toMatch(/data-drawer-model="true"[^>]*title="claude-sonnet-5">sonnet 5</);
+    expect(html).toMatch(/data-drawer-ctx="true" class="[^"]*text-muted[^"]*" title="context in use on the last turn: 212,000 tokens">212K</);
+    expect(render({ ...row, ctx: 54000, ctxMax: 200000 })).toMatch(/data-drawer-ctx="true"[^>]*>54K\/200K</);
+    expect(render(row)).not.toContain("data-drawer-ctx"); // no context reading: nothing shown
+    const done = render({ ...row, status: "done", ctx: 54000, ctxMax: 200000 });
+    expect(done).not.toContain("data-drawer-ctx");
+    expect(done).not.toContain("data-drawer-model");
+  });
+
   it("shows the full failure reason (or the held question) under the header", () => {
     expect(render({ ...row, status: "failed", failReason: 'service "bad" not ready within 5s' })).toMatch(/data-drawer-reason[\s\S]*Why it failed[\s\S]*service &quot;bad&quot; not ready within 5s/);
     expect(render({ ...row, status: "held", heldReason: "Which DB?" })).toMatch(/data-drawer-reason[\s\S]*What the agent is asking[\s\S]*Which DB\?/);
