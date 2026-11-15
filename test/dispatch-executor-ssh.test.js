@@ -1202,6 +1202,8 @@ test("ssh executor code transport (#690): GIT_SSH_COMMAND carries BatchMode=yes 
  * double) against the worktree #690 synced there — not directly in the hub worktree.
  * @param {{pipeline: any[]}} o */
 function remoteWorktreeHarness({ pipeline }) {
+  /** @type {any[]} */
+  const events = [];
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-pipeline-"));
   const repoDir = path.join(dir, "repo");
   const workDir = path.join(dir, "work");
@@ -1236,7 +1238,7 @@ function remoteWorktreeHarness({ pipeline }) {
     fetchTask: async (/** @type {string} */ ref) => ({ ref, name: "t", description: "d", url: "u", completed: false, assignedToUs: true }),
     advance: async (/** @type {string} */ ref, /** @type {string} */ stepId, /** @type {any} */ verdict) => advanced.push({ ref, stepId, ...verdict }),
   });
-  const run = createDispatcher(cfg, adapter, undefined, store, () => {});
+  const run = createDispatcher(cfg, adapter, undefined, store, (event, ref, step, extra) => events.push({ event, ref, step, ...extra }));
   /** @param {string} stepId @param {string} scriptBody the fixed `agentScript`'s new contents */
   const runStep = async (stepId, scriptBody) => {
     fs.writeFileSync(agentScript, scriptBody, { mode: 0o755 });
@@ -1248,7 +1250,7 @@ function remoteWorktreeHarness({ pipeline }) {
       console.log = log;
     }
   };
-  return { cfg, store, advanced, runStep, dir, repoDir, workDir, agentScript };
+  return { cfg, store, advanced, events, runStep, dir, repoDir, workDir, agentScript };
 }
 
 const WORKTREE_PIPELINE = [
@@ -1368,6 +1370,40 @@ test("dispatch: a remote run's verdict-REPAIR turn is the one that rewrites hist
     assert.match(h.advanced[0].reason, /rewritten|diverged/);
     const headAfter = execFileSync("git", ["-C", h.repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     assert.equal(headAfter, headBefore, "the hub worktree/branch must stay exactly where it was");
+  } finally {
+    ssh.restore();
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+// --- gate (#710) on the ssh executor ---
+
+const GATE_PIPELINE = [
+  { id: "code", harness: "worker", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", verdictRepairs: 0, gate: "true", gateTimeoutMinutes: 1 },
+  { id: "review", sourceLabel: "src:review" },
+];
+
+test("dispatch: an ssh step's gate runs via a raw launch, through the real sandboxVerdictPathFor wiring — a passing gate must not wipe the agent's own advance verdict", async () => {
+  const ssh = withFakeSsh();
+  const h = remoteWorktreeHarness({ pipeline: GATE_PIPELINE });
+  const scriptBody = [
+    "#!/bin/sh",
+    "cat > /dev/null",
+    'mkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"',
+    'echo \'{"outcome":"advance","reason":"the agent itself thinks it succeeded"}\' > "$AGENTHOOK_VERDICT_FILE"',
+    'printf \'{"type":"result","subtype":"success","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01}\\n\'',
+    "exit 0",
+    "",
+  ].join("\n");
+  try {
+    const result = await h.runStep("code", scriptBody);
+    assert.equal(result.code, 0, JSON.stringify(result));
+    assert.equal(h.advanced.length, 1, "exactly one advance — the gate must veto, not grant, and here it passes");
+    assert.equal(h.advanced[0].outcome, "advance", `a passing raw-launched gate must not cost the agent's own verdict (got ${JSON.stringify(h.advanced[0])})`);
+    assert.equal(h.advanced[0].reason, "the agent itself thinks it succeeded", "the agent's own verdict reason must survive the gate run untouched");
+    assert.ok(h.events.some((e) => e.event === "gate_pass"), "gate_pass must have fired");
+    assert.ok(!h.events.some((e) => e.event === "gate_fail"), "the gate must not be reported as failing");
+    assert.ok(h.events.some((e) => e.event === "run_end" && e.outcome === "advance" && e.gate === "pass"), `run_end must carry gate: "pass" (got ${JSON.stringify(h.events.filter((e) => e.event === "run_end"))})`);
   } finally {
     ssh.restore();
     fs.rmSync(h.dir, { recursive: true, force: true });

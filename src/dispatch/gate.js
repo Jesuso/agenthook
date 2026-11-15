@@ -46,7 +46,7 @@ export async function runGate({ executor, sandboxedRun, argv, cwd, env, timeoutM
       return { exitCode: null, timedOut: false, durationMs: Date.now() - started, tail: "", refused: `gate could not start on the ssh executor: ${e.message}` };
     }
     executorRuns.set(ref, box);
-    launch = { bin: box.bin, args: box.args, env: box.env };
+    launch = { bin: box.bin, args: box.args, env: { ...runtimeEnv(process.env), ...box.env } };
   } else if (executor.name !== "host") {
     return { exitCode: null, timedOut: false, durationMs: Date.now() - started, tail: "", refused: `gate cannot run on the ${executor.name} executor` };
   }
