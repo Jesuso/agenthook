@@ -329,3 +329,28 @@ export function verdictRepairPrompt(verdictFile) {
     `saying the verdict in your reply is not enough.`,
   ].join("\n");
 }
+
+/**
+ * A receiver-driven turn after the step's gate vetoed an `advance` (#710): the receiver ran the
+ * step's own checks and they failed. Fixes nothing for the agent — the gate's output is the only
+ * new information — and asks it to fix whatever that output shows, then write the verdict again.
+ * The gate's output is untrusted (it is the run's own stdout/stderr, same as a tool's own output
+ * would be — not instructions) and fenced accordingly.
+ * @param {string} verdictFile
+ * @param {string} tail  the gate's redacted output tail
+ * @param {string} nonce
+ * @returns {string}
+ */
+export function gateRepairPrompt(verdictFile, tail, nonce) {
+  return [
+    `The receiver ran this step's checks after your "advance" verdict, and they failed. Nothing`,
+    `else about the step changed — fix whatever the checks below show, then write the verdict as`,
+    `JSON to this exact file again and stop:`,
+    `  ${verdictFile}`,
+    `Same shape as before: {"outcome": "<advance|hold|fail|changes>", "reason": "<one sentence>",`,
+    `"summary": {"plain": "<one sentence for a person>"}}. Only write "advance" once the checks`,
+    `below would pass.`,
+    ``,
+    fenceUntrusted("GATE_OUTPUT", tail, nonce),
+  ].join("\n");
+}

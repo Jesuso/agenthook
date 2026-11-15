@@ -765,6 +765,22 @@ export function validateRawConfig(raw) {
         errors.push(`config: pipeline step "${sid}" deduceVerdict has no effect on a manual step (no agent runs).`);
       }
     }
+    if (step.gate != null) {
+      const g = step.gate;
+      const validShape = (typeof g === "string" && g.trim() !== "") || (Array.isArray(g) && g.length > 0 && g.every((x) => typeof x === "string" && x.trim() !== ""));
+      if (!validShape) {
+        errors.push(`config: pipeline step "${sid}" gate must be a non-empty string or a non-empty array of strings.`);
+      } else if (step.manual) {
+        errors.push(`config: pipeline step "${sid}" gate has no effect on a manual step (no agent runs).`);
+      }
+    }
+    if (step.gateTimeoutMinutes != null) {
+      if (typeof step.gateTimeoutMinutes !== "number" || !Number.isFinite(step.gateTimeoutMinutes) || step.gateTimeoutMinutes <= 0) {
+        errors.push(`config: pipeline step "${sid}" gateTimeoutMinutes must be a number > 0.`);
+      } else if (step.gate == null) {
+        errors.push(`config: pipeline step "${sid}" gateTimeoutMinutes has no effect without a "gate".`);
+      }
+    }
     // Queue stage (opt-in backlog lane the engine pulls from when a slot frees). A manual
     // step runs no agent, so it has nothing to pull into; a queue equal to the step's own
     // source would pull an item into the stage it already rests in (a self-loop).

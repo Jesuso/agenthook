@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- A step's optional `gate` (#710): a command the receiver runs, in the run's own executor, right
+  after an `advance` (agent-written, repaired, or deduced) and before the move — it can only veto
+  that advance, never grant one. A non-zero exit or timeout gets the agent one more turn carrying
+  the gate's output (a resume when possible), up to the step's `maxAttempts`, then holds with the
+  output tail in the reason. Catches the case where an agent's "typecheck green" doesn't match
+  what the repo's own checks say, before a whole review run is spent on code that doesn't compile.
+  See `gate`/`gateTimeoutMinutes` in [getting-started.md](docs/getting-started.md) and the new
+  `gate_pass`/`gate_fail` events. The ssh executor gained an opt-in `raw` launch mode so a remote
+  step's gate runs on the worker, never the hub.
 - Operator runtime overrides — the global `pause`, global `set_concurrency {max}`, and per-harness
   `set_concurrency {harness, max}` (and `pause {harness}` drain) — now persist in `overrides.json`
   and are re-applied at boot, so a restart no longer silently drops a pause or a drained harness

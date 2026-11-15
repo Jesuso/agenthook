@@ -1,6 +1,6 @@
 {
   "src": {
-    "total": 629,
+    "total": 636,
     "files": {
       "src/actionable.js": 3,
       "src/agent-api.js": 21,
@@ -49,10 +49,10 @@
       "src/digest.js": 8,
       "src/dispatch/ci.js": 1,
       "src/dispatch/context.js": 1,
-      "src/dispatch/finish.js": 2,
+      "src/dispatch/finish.js": 3,
       "src/dispatch/index.js": 1,
       "src/dispatch/spawn.js": 1,
-      "src/dispatch/step.js": 6,
+      "src/dispatch/step.js": 12,
       "src/energy-sampler.js": 4,
       "src/energy.js": 1,
       "src/engine/boot-retry.js": 1,
