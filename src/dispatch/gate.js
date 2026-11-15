@@ -10,6 +10,10 @@ import { KILL_GRACE_MS } from "./spawn.js";
  * question-hold stdout tail (src/dispatch/spawn.js STDOUT_TAIL_BUF_BYTES). */
 const GATE_TAIL_BUF_BYTES = 4 * 1024;
 
+/** One gate run's result (#710). `exitCode` null + `timedOut` = the timeout kill; `refused` = the
+ * executor had no way to run the gate at all (not a gate failure — a hold reason in its own right). */
+/** @typedef {{exitCode: number|null, timedOut: boolean, durationMs: number, tail: string, refused?: string}} GateResult */
+
 /**
  * Run a step's `gate` to veto (never grant) an `advance`. Always goes through `executor`: host
  * spawns the argv directly in `cwd`; sandbox wraps it through `executor.launch` with the run's

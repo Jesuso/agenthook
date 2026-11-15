@@ -185,9 +185,10 @@ test("dispatch gate: a repaired advance (#677) also runs the gate", async () => 
 
 // --- a deduced advance (#680) also runs the gate ---
 
-/** A fake `claude` that writes no verdict but commits `$FAKE_COMMITS` times, same shape as
- * dispatch.test.js's deduceHarness, with a `gate` added to the pipeline step. */
-function gateDeduceHarness() {
+/** A fake `claude` that writes no verdict but commits once (so the run is a DEDUCED advance, #680),
+ * same shape as dispatch.test.js's deduceHarness, with a `gate` added to the pipeline step.
+ * `gateGoodAt` sets when the gate starts passing (default: it passes on the first run). */
+function gateDeduceHarness({ gateGoodAt = "1" } = {}) {
   const dir = tmpDir();
   const repoDir = path.join(dir, "repo");
   fs.mkdirSync(repoDir, { recursive: true });
@@ -212,7 +213,7 @@ function gateDeduceHarness() {
   const gateCounterFile = path.join(dir, "gate-counter");
   const cfg = /** @type {any} */ ({
     pipeline: [
-      { id: "code", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", gate: GATE_SCRIPT, gateTimeoutMinutes: 1, env: { GATE_COUNTER_FILE: gateCounterFile, GATE_GOOD_AT: "1" } },
+      { id: "code", createsWorktree: true, sourceLabel: "src:code", successLabel: "src:review", gate: GATE_SCRIPT, gateTimeoutMinutes: 1, env: { GATE_COUNTER_FILE: gateCounterFile, GATE_GOOD_AT: gateGoodAt } },
       { id: "review", sourceLabel: "src:review" },
     ],
     claudeBin: bin,
@@ -254,6 +255,19 @@ test("dispatch gate: a deduced advance (#680) also runs the gate", async () => {
   assert.equal(h.events.find((e) => e.event === "run_end")?.verdictSource, "deduced");
   assert.equal(h.gateCalls(), 1, "the gate ran once, after deduction");
   assert.ok(h.events.find((e) => e.event === "gate_pass"));
+});
+
+test("dispatch gate: a deduced advance whose gate never passes must never advance (#710 review)", async () => {
+  const h = gateDeduceHarness({ gateGoodAt: "999" });
+  await h.runStep();
+  // the move (adapter.advance) is reached, but only as a hold — never an advance — and the
+  // held reason carries the gate's output tail
+  assert.deepEqual(h.advanced.map((a) => a.outcome), ["hold"], "the gate vetoed the deduced advance");
+  assert.match(String(h.advanced[0].reason), /^gate failed \(exit 1\)/);
+  const end = h.events.find((e) => e.event === "run_end");
+  assert.equal(end.outcome, "hold", JSON.stringify(h.events));
+  assert.equal(end.gate, "fail");
+  assert.ok(h.events.find((e) => e.event === "gate_fail"), "the gate_fail event fired");
 });
 
 test("dispatch gate: the gate env carries no tracker or forge token, even though the agent's own env does", async () => {

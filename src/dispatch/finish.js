@@ -241,9 +241,12 @@ export function createFinish(ctx) {
     }
     // Deduced verdict (#680): step.js's `deduceVerdict` already gated this on a qualifying
     // implement/change step whose branch gained commits, skipping the repair turn above entirely —
-    // so it only ever competes with the still-missing case, never with a repair's outcome.
+    // so it only ever competes with the still-missing case, never with a repair's outcome. Never
+    // applies after a FAILED gate (#710): the run's effective advance was vetoed, so it must hold
+    // (step.js's gate loop returns capExhausted for the deduced + no-repair-verdict case; this is
+    // the second half of that guarantee for any other path where the gate ran and stayed fail).
     let deducedApplied = false;
-    if (deduced && missingVerdict) {
+    if (deduced && missingVerdict && gate?.result !== "fail") {
       verdict.outcome = "advance";
       verdict.reason = `no verdict written; advanced because the run added ${deduced.commits} commit${deduced.commits === 1 ? "" : "s"}`;
       missingVerdict = false;

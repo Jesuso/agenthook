@@ -487,6 +487,51 @@ test("sandbox e2e: a step's gate runs through sandbox.wrap, with the same mounts
   }
 });
 
+test("sandbox e2e: the gate's container gets the run's sandbox env (GIT_CONFIG_*) but no run-credential env (#710 review)", async () => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-run-creds-"));
+  fs.mkdirSync(path.join(credsDir, "gh"));
+  fs.writeFileSync(path.join(credsDir, "gh", "hosts.yml"), "github.com:\n  oauth_token: ghs_x\n");
+  const runCredentials = async () => ({
+    env: { GH_CONFIG_DIR: path.join(credsDir, "gh"), GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.https://github.com.helper", GIT_CONFIG_VALUE_0: "!gh auth git-credential" },
+    strip: ["GH_TOKEN", "GITHUB_TOKEN"],
+    label: "GitHub App token: o/r, expires soon",
+    dispose: async () => {},
+  });
+  const h = sandboxHarness([{ id: "code", createsWorktree: true, gate: "echo sandboxed-gate-ran", gateTimeoutMinutes: 1, env: { CLAUDE_CODE_OAUTH_TOKEN: "tok" } }, { id: "done", manual: true }], { runCredentials, agentEnvPassthrough: ["GITHUB_TOKEN"] });
+  const savedToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = "ghp_operator_secret";
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "advance", JSON.stringify(h.advanced));
+    const runs = h.calls().filter(isAgentRun);
+    assert.equal(runs.length, 2, "the agent's run, then the gate's own run");
+    const [agentRun, gateRun] = runs;
+    // Env reaches the container by NAME (`-e NAME`, src/sandbox/container.js); the gate's must carry
+    // the run's git config pairs (safe.directory/identity — a gate that runs git in the container
+    // needs them) while never carrying the per-run credential env (GH_CONFIG_DIR is creds' own,
+    // merged into sandboxedRun.env by mergeGitConfigEnv) or the operator's GITHUB_TOKEN.
+    const envNames = (/** @type {string[]} */ run) => {
+      /** @type {string[]} */ const out = [];
+      for (let i = 1; i < run.length - 1; i++) if (run[i] === "-e") out.push(run[i + 1].split("=")[0]);
+      return out;
+    };
+    const gateEnv = envNames(gateRun);
+    const agentEnv = envNames(agentRun);
+    assert.ok(agentEnv.includes("GH_CONFIG_DIR"), "the agent's run carries the per-run credential dir");
+    assert.ok(agentEnv.includes("GIT_CONFIG_COUNT"), "the agent's run carries the git config");
+    assert.ok(!agentEnv.includes("GITHUB_TOKEN"), "the agent's run has the stripped token");
+    assert.ok(gateEnv.includes("GIT_CONFIG_COUNT"), "the gate gets the run's git config pairs");
+    assert.ok(gateEnv.some((n) => n.startsWith("GIT_CONFIG_KEY_")), "the git config KEY_n pairs are named");
+    assert.ok(!gateEnv.includes("GH_CONFIG_DIR"), "the gate never sees the per-run credential dir");
+    assert.ok(!gateEnv.includes("GITHUB_TOKEN"), "the gate never sees the operator's token");
+  } finally {
+    if (savedToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedToken;
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    h.restore();
+  }
+});
+
 test("sandbox e2e: sandbox:false spawns the agent directly on the host (shared verdict path)", async () => {
   const h = sandboxHarness([{ id: "code", sandbox: false }, { id: "done", manual: true }]);
   try {

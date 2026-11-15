@@ -489,15 +489,19 @@ export function createStep(ctx) {
      * resume when possible, else a fresh one with the step's original prompt) gets the gate's
      * output and a chance to fix it, then the gate runs again. Every gate run goes through this
      * run's own executor (src/dispatch/gate.js) — never a host fallback for a sandboxed/ssh run.
-     * `capExhausted` on the returned gate means every attempt is spent with the gate still
-     * failing — finishStep forces a hold with `reason` then; any other `result: "fail"` (a
-     * crashed/timed-out repair turn, or one that wrote something other than "advance") already
-     * resolved through the normal spawned-fields path below, same as a verdict-repair turn.
-     * @param {Awaited<ReturnType<typeof spawnAgent>>} lastSpawned
-     * @param {string|undefined} sessionId
-     * @returns {Promise<{gate: {result: "pass"|"fail", capExhausted?: boolean, reason?: string}, final: Awaited<ReturnType<typeof spawnAgent>>, results: any[], turnStats: any[]}>}
-     */
-    async function runGateLoop(lastSpawned, sessionId) {
+      * `capExhausted` on the returned gate means every attempt is spent with the gate still
+      * failing — finishStep forces a hold with `reason` then; any other `result: "fail"` (a
+      * crashed/timed-out repair turn, or one that wrote something other than "advance") already
+      * resolved through the normal spawned-fields path below, same as a verdict-repair turn —
+      * EXCEPT a deduced run (#680), whose clean repair turn writes no verdict file: finish.js
+      * would deduce the advance from `deduced` + missing-verdict and pass the failing gate, so
+      * that path returns `capExhausted` with a reason of its own.
+      * @param {Awaited<ReturnType<typeof spawnAgent>>} lastSpawned
+      * @param {string|undefined} sessionId
+      * @param {{commits: number}|undefined} deduced
+      * @returns {Promise<{gate: {result: "pass"|"fail", capExhausted?: boolean, reason?: string}, final: Awaited<ReturnType<typeof spawnAgent>>, results: any[], turnStats: any[]}>}
+      */
+     async function runGateLoop(lastSpawned, sessionId, deduced) {
       if (!step) throw new Error("unreachable"); // narrowing from the outer scope doesn't cross this closure
       const gateArgv = Array.isArray(step.gate) ? step.gate : ["sh", "-c", /** @type {string} */ (step.gate)];
       const gateTimeoutMinutes = step.gateTimeoutMinutes ?? 10;
@@ -507,7 +511,24 @@ export function createStep(ctx) {
       // creds.strip, in case a minted credential env var shares a name with one) after building it.
       const credNames = [...(meta?.agentEnv ?? []), ...(forge?.describe?.().agentEnv ?? []), ...(creds?.strip ?? [])];
       const gateEnv = Object.fromEntries(Object.entries(agentSpawnEnv({ cfg, agent, meta, forge, agentEnv, env: spawnStep.env })).filter(([k]) => !envNameMatches(k, credNames)));
+      // A sandboxed gate gets the run's own sandbox env (#710 review): the git config pairs
+      // (safe.directory, commit identity) and the agent's own sandbox env — without them a gate
+      // that runs git in the container (npm test, git push) hits "dubious ownership". Filtered the
+      // same way the base env was: no credential names, and no GH_CONFIG_DIR, because
+      // mergeGitConfigEnv(creds?.env, …) folds creds' non-git keys (runGitEnv: the per-run token's
+      // credential helper) into sandboxedRun.env and the gate must not see them.
+      if (sandboxedRun?.env) {
+        for (const [k, v] of Object.entries(sandboxedRun.env)) {
+          if (v === undefined || k === "GH_CONFIG_DIR" || envNameMatches(k, credNames)) continue;
+          gateEnv[k] = v;
+        }
+      }
       const totalMaxMs = maxMinutes ? maxMinutes * 60000 : 0;
+      const cap = step.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+      /** @param {{exitCode: number|null, timedOut: boolean, tail: string}} g */
+      const detail = (g) => (g.timedOut ? `timed out after ${gateTimeoutMinutes} min` : `exit ${g.exitCode}`);
+      /** @param {{exitCode: number|null, timedOut: boolean, tail: string}} g */
+      const blockedReason = (g) => `gate failed (${detail(g)}) after ${store?.getAttempt(job.ref, step.id) ?? 0} attempt(s): ${g.tail.slice(0, 1000)}`;
       /** @type {any[]} */
       const results = [];
       /** @type {any[]} */
@@ -526,13 +547,10 @@ export function createStep(ctx) {
         emit?.(pass ? "gate_pass" : "gate_fail", job.ref, step.id, { exitCode: g.exitCode, durationMs: g.durationMs, ...(g.timedOut ? { timedOut: true } : {}) });
         if (pass) return { gate: { result: "pass" }, final, results, turnStats };
 
-        const cap = step.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
         const ran = store?.getAttempt(job.ref, step.id) ?? 0;
-        const detail = g.timedOut ? `timed out after ${gateTimeoutMinutes} min` : `exit ${g.exitCode}`;
-        const reason = `gate failed (${detail}) after ${ran} attempt(s): ${g.tail.slice(0, 1000)}`;
-        if (ran >= cap) return { gate: { result: "fail", capExhausted: true, reason }, final, results, turnStats };
+        if (ran >= cap) return { gate: { result: "fail", capExhausted: true, reason: blockedReason(g) }, final, results, turnStats };
         const remainingMs = totalMaxMs ? Math.max(0, totalMaxMs - (Date.now() - Date.parse(startedAt))) : 0;
-        if (totalMaxMs && remainingMs < 60000) return { gate: { result: "fail", capExhausted: true, reason }, final, results, turnStats };
+        if (totalMaxMs && remainingMs < 60000) return { gate: { result: "fail", capExhausted: true, reason: blockedReason(g) }, final, results, turnStats };
         if (cancelled.has(job.ref)) return { gate: { result: "fail" }, final, results, turnStats };
 
         store?.bumpAttempt(job.ref, step.id);
@@ -571,7 +589,13 @@ export function createStep(ctx) {
         if (typeof turn.result?.session_id === "string") curSessionId = turn.result.session_id;
         if (executor.name !== "host") guardSandboxVerdict(localVerdictFile);
         const after = readVerdict(turn.code, localVerdictFile, step, agent);
-        if (after.outcome !== "advance") return { gate: { result: "fail" }, final, results, turnStats };
+        if (after.outcome !== "advance") {
+          // A DEDUCED run (#680) whose repair turn, like the first, wrote no verdict file: finish.js
+          // would deduce the advance from `deduced` + missing-verdict and pass the failing gate —
+          // so this must hold here, carrying the gate's reason, instead.
+          if (deduced && after.reason === NO_VALID_VERDICT) return { gate: { result: "fail", capExhausted: true, reason: blockedReason(g) }, final, results, turnStats };
+          return { gate: { result: "fail" }, final, results, turnStats };
+        }
         // advance again: loop back around to re-run the gate
       }
     }
@@ -640,7 +664,7 @@ export function createStep(ctx) {
                 const lastR = repair.results[repair.results.length - 1];
                 if (typeof lastR.result?.session_id === "string") sessionId = lastR.result.session_id;
               }
-              const g = await runGateLoop(spawned, sessionId);
+              const g = await runGateLoop(spawned, sessionId, deduced);
               gate = { ...g.gate, results: g.results, turnStats: g.turnStats };
               spawned = { ...spawned, code: g.final.code, timedOut: g.final.timedOut, lastText: g.final.lastText ?? spawned.lastText, sandboxReport: g.final.sandboxReport ?? spawned.sandboxReport, ...(g.final.spawnError ? { spawnError: g.final.spawnError } : {}) };
             }
