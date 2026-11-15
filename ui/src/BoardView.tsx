@@ -4,9 +4,9 @@ import type { Discover, StageKeys, StageOption } from "./configEdit";
 import { discoverUrl, readSteps, stageKeysFor } from "./configEdit";
 import { configUrl, parseCheck } from "./config";
 import type { ReleaseOutcome } from "./config";
-import { MARGIN, STEP_GAP, layoutPipeline } from "./pipelineGraph";
+import { MARGIN, STEP_GAP, layoutPipeline, STAGE_H } from "./pipelineGraph";
 import type { GraphEdge, PipelineLayout } from "./pipelineGraph";
-import { EDGE_STYLE, Legend } from "./PipelineGraph";
+import { EDGE_LABEL, EDGE_STYLE, Legend } from "./PipelineGraph";
 import { boardSections } from "./board";
 import type { BoardEntry, BoardSection } from "./board";
 import { harnessAttention, needsYouItems } from "./zones";
@@ -132,7 +132,7 @@ export function BoardView(props: BoardViewProps) {
 
   const layout = layoutPipeline(config.steps, config.keys, config.stages, config.defaultAgent, lang, { stepW: BOARD_STEP_W, stepH: BOARD_STEP_H });
   const stepIds = layout.nodes.filter((n) => n.kind === "step").map((n) => n.id);
-  const { steps, other, doneToday } = boardSections(tickets, stepIds, now);
+  const { steps, other, doneToday } = boardSections(tickets, stepIds, now, forge);
   const sectionOf = new Map<string, BoardSection>(steps.map((s) => [s.id, s]));
 
   const ordered = [...steps, ...(other ? [other] : []), doneToday.section];
@@ -175,7 +175,7 @@ export function BoardView(props: BoardViewProps) {
               n.kind === "step" ? (
                 <StepBox key={n.id} id={n.id} x={n.x} y={n.y} w={BOARD_STEP_W} h={BOARD_STEP_H} section={sectionOf.get(n.id)} step={config.steps[stepIds.indexOf(n.id)]} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
               ) : (
-                <div key={`g:${n.id}`} className="absolute flex items-center justify-center rounded-full border border-border bg-surface px-2 text-label text-muted" style={{ left: n.x, top: n.y, width: n.w, height: 40 }} title={n.label}>
+                <div key={`g:${n.id}`} className="absolute flex items-center justify-center rounded-full border border-border bg-surface px-2 text-label text-muted" style={{ left: n.x, top: n.y, width: n.w, height: STAGE_H }} title={n.label}>
                   <span className="truncate">{n.label}</span>
                 </div>
               ),
@@ -191,9 +191,14 @@ export function BoardView(props: BoardViewProps) {
         </div>
       ) : (
         <div className="flex flex-col gap-3" data-board-narrow>
-          {ordered.map((s) => (
-            <SectionBox key={s.id} section={s} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} doneTotal={s.kind === "done" ? doneToday.total : undefined} />
-          ))}
+          {ordered.map((s) => {
+            if (s.kind === "step") {
+              const idx = stepIds.indexOf(s.id);
+              return <SectionBox key={s.id} section={s} step={config.steps[idx]} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />;
+            }
+            if (s.kind === "other") return <SectionBox key={s.id} section={s} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />;
+            return <SectionBox key={s.id} section={s} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} doneTotal={doneToday.total} />;
+          })}
         </div>
       )}
     </div>
@@ -211,14 +216,16 @@ function BoardEdge({ edge, route }: { edge: GraphEdge; route: PipelineLayout["ro
     : route.points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
   return (
     <path d={d} fill="none" stroke={style.stroke} strokeWidth={1.5} strokeDasharray={style.dash}>
-      <title>{edge.label ?? t(edge.type === "advance" ? "graph.edge.advance" : edge.type === "fail" ? "graph.edge.fail" : edge.type === "hold" ? "graph.edge.hold" : edge.type === "changes" ? "graph.edge.changes" : "graph.edge.queue")}</title>
+      <title>{edge.label ?? t(EDGE_LABEL[edge.type])}</title>
     </path>
   );
 }
 
 function harnessNames(step: Record<string, unknown> | undefined): string[] {
   const h = step?.harness;
-  return Array.isArray(h) ? h.filter((x): x is string => typeof x === "string") : [];
+  if (typeof h === "string") return [h];
+  if (Array.isArray(h)) return h.filter((x): x is string => typeof x === "string");
+  return [];
 }
 
 function StepBox({ id, x, y, w, h, section, step, profile, now, onOpen, onStepFilter }: { id: string; x: number; y: number; w: number; h: number; section: BoardSection | undefined; step: Record<string, unknown> | undefined; profile: ProfileView; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void }) {
@@ -231,10 +238,10 @@ function StepBox({ id, x, y, w, h, section, step, profile, now, onOpen, onStepFi
 }
 
 /** The narrow (below `lg`) stacked rendering: the same section anatomy, no absolute positioning. */
-function SectionBox({ section, profile, now, onOpen, onStepFilter, doneTotal }: { section: BoardSection; profile: ProfileView; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void; doneTotal?: number }) {
+function SectionBox({ section, profile, step, now, onOpen, onStepFilter, doneTotal }: { section: BoardSection; profile: ProfileView; step?: Record<string, unknown>; now: number; onOpen: (t: Ref) => void; onStepFilter: (step: string) => void; doneTotal?: number }) {
   return (
     <div className="rounded-lg border border-border bg-surface" data-board-section={section.id}>
-      <SectionHeader id={section.id} section={section} step={undefined} profile={profile} doneTotal={doneTotal} />
+      <SectionHeader id={section.id} section={section} step={step} profile={profile} doneTotal={doneTotal} />
       <SectionEntries section={section} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
     </div>
   );
@@ -304,6 +311,7 @@ function BoardRow({ entry, now, onOpen }: { entry: BoardEntry; now: number; onOp
       onClick={open}
       onKeyDown={(e) => {
         if (e.key !== "Enter") return;
+        if (e.target !== e.currentTarget) return;
         e.preventDefault();
         open();
       }}

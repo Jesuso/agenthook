@@ -90,6 +90,18 @@ describe("boardSections", () => {
     expect(doneToday.total).toBe(2);
     expect(doneToday.section.entries.every((e) => e.clock === "done")).toBe(true);
   });
+
+  it("excludes isNeedsYou rows from Done today when forge is true", () => {
+    const now = Date.now();
+    const midnight = localMidnight(now);
+    const today = row({ ref: "today", status: "done", finishedAt: new Date(midnight + 1000).toISOString() });
+    const needsYou = row({ ref: "ny", status: "done", finishedAt: new Date(midnight + 2000).toISOString(), prNeeds: "awaitingMerge" });
+    const { doneToday: included } = boardSections([today], ["code"], now, true);
+    const { doneToday: excluded } = boardSections([today, needsYou], ["code"], now, true);
+    expect(included.total).toBe(1);
+    expect(excluded.total).toBe(1);
+    expect(excluded.section.entries.map((e) => e.ticket.ref)).toEqual(["today"]);
+  });
 });
 
 describe("board tab preference", () => {

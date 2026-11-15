@@ -170,4 +170,19 @@ describe("BoardView", () => {
     expect(root.querySelector("[data-board-narrow]")).not.toBeNull();
     expect(root.querySelector("[data-board-wide]")).toBeNull();
   });
+
+  it("string harness on a step config shows the harness label in the section header", async () => {
+    const stringConfig = {
+      agent: "claude",
+      tracker: {
+        type: "local",
+        pipeline: [
+          { id: "code", kind: "implement", sourceStatus: "Code", successStatus: "Done", harness: "main" },
+        ],
+      },
+    };
+    const root = await render([], {}, stringConfig);
+    const section = root.querySelector('[data-board-section="code"]')!;
+    expect(section.textContent).toContain("main");
+  });
 });

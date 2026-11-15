@@ -153,7 +153,7 @@ export function Overview(props: OverviewProps) {
         {needsCount === 0 ? t("overview.liveAllClear") : t("overview.liveNeeds", { count: needsCount })}
       </p>
 
-      <NeedsYouZone items={needs} attention={attention} profile={profile.name} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} onRecheck={props.onRecheck} onCloseOnBoard={props.onCloseOnBoard} />
+      {effectiveTab !== "board" && <NeedsYouZone items={needs} attention={attention} profile={profile.name} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} onRecheck={props.onRecheck} onCloseOnBoard={props.onCloseOnBoard} />}
 
       <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
 

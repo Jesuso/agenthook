@@ -1,4 +1,5 @@
 import type { TicketRow, TicketStatus } from "./contract";
+import { isNeedsYou } from "./summary";
 
 /**
  * Pure bucketing for the profile Board (#697): every pipeline step is a box holding its
@@ -70,8 +71,9 @@ function section(id: string, kind: "step" | "other", rows: TicketRow[]): BoardSe
  * One box per pipeline step (`stepIds`, in order) holding its running/queued tickets; an "Other"
  * box (only when non-empty) for rows whose `step` matches none of them; one "Done today" box
  * (newest first, capped, with the full count) for `done` rows finished since local midnight.
+ * Needs-you rows (`isNeedsYou`) are excluded from Done today — they belong to the NeedsYouZone.
  */
-export function boardSections(tickets: TicketRow[], stepIds: string[], now: number): { steps: BoardSection[]; other: BoardSection | null; doneToday: { section: BoardSection; total: number } } {
+export function boardSections(tickets: TicketRow[], stepIds: string[], now: number, forge?: boolean): { steps: BoardSection[]; other: BoardSection | null; doneToday: { section: BoardSection; total: number } } {
   const live = tickets.filter((t) => RUNNING_LIKE.includes(t.status) || QUEUED_LIKE.includes(t.status));
   const stepSet = new Set(stepIds);
   const steps = stepIds.map((id) => section(id, "step", live.filter((t) => t.step === id)));
@@ -80,7 +82,7 @@ export function boardSections(tickets: TicketRow[], stepIds: string[], now: numb
 
   const midnight = localMidnight(now);
   const doneRows = tickets
-    .filter((t) => t.status === "done" && t.finishedAt && time(t.finishedAt) >= midnight)
+    .filter((t) => t.status === "done" && t.finishedAt && time(t.finishedAt) >= midnight && !(forge && isNeedsYou(t, forge)))
     .sort((a, b) => time(b.finishedAt) - time(a.finishedAt) || a.ref.localeCompare(b.ref));
   const { entries, moreCount } = cap(doneRows, "running");
   for (const e of entries) e.clock = "done";
