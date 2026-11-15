@@ -14,14 +14,6 @@ All notable changes to this project are documented here. The format is based on
   documents the required `variants` shape and how to turn off tools an unattended opencode run
   can't use via a `permission` block in `opencodeConfig`.
 
-### Fixed
-
-- A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
-  in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.
-  When that file is written, the run prompt now carries only the `=== TICKET ===` marker and the
-  ticket text; the UI's "what the agent sees" sidecar still shows the full form. A run whose
-  standing text is over 16 KB (no file written) is unaffected.
-
 - Quota pacing now closes only the harnesses that share an exhausted Claude subscription, instead
   of the whole receiver (#723). On a profile with `harnesses`, a reading at/above a `quota`
   threshold closes the run's subscription group (every `claude` harness with no own
@@ -300,6 +292,12 @@ All notable changes to this project are documented here. The format is based on
   reap/shutdown. No behaviour change.
 
 ### Fixed
+
+- A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
+  in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.
+  When that file is written, the run prompt now carries only the `=== TICKET ===` marker and the
+  ticket text; the UI's "what the agent sees" sidecar still shows the full form. A run whose
+  standing text is over 16 KB (no file written) is unaffected.
 
 - Ticket drawer: with `routing: first-free` across several harnesses, the run caption named
   neither harness nor model, and the header's model/context always showed the *live* run's

@@ -34,8 +34,8 @@ fs.writeFileSync(process.env.CAPTURE_ARGS, JSON.stringify(args));
 fs.writeFileSync(process.env.AGENTHOOK_VERDICT_FILE, JSON.stringify({ outcome: "advance" }));
 `;
 
-/** @param {{instructionsText?: string}} [o] */
-function fixture({ instructionsText } = {}) {
+/** @param {{instructionsText?: string, sandboxed?: boolean}} [o] */
+function fixture({ instructionsText, sandboxed = true } = {}) {
   const { root, repo } = gitRepo();
   const state = path.join(root, "state");
   fs.mkdirSync(state);
@@ -46,7 +46,7 @@ function fixture({ instructionsText } = {}) {
   const cfg = /** @type {any} */ ({
     pipeline: [{ id: "code", bin: opencodeBin }, { id: "done", manual: true }],
     agent: "opencode",
-    sandbox: { type: "docker" },
+    ...(sandboxed ? { sandbox: { type: "docker" } } : {}),
     repoPath: repo,
     worktreePrefix: path.join(root, "wts"),
     stateKey: "p",
@@ -72,7 +72,7 @@ function fixture({ instructionsText } = {}) {
     advance: async () => {},
   });
   const store = createStore(state);
-  const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { sandbox: fakeSandbox });
+  const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, sandboxed ? { sandbox: fakeSandbox } : {});
   const captureFile = path.join(root, "args.json");
   /** @param {string} ref */
   const go = async (ref) => {
@@ -111,11 +111,13 @@ test("sandboxed opencode run: standing goes to the instructions file, not the ru
   assert.match(sidecar, /=== TICKET ===/);
 
   // Acceptance: a sandboxed run's total bytes (prompt + instruction files) drop by the standing
-  // length compared with sending it in both places.
-  const standingBytes = Buffer.byteLength(fs.readFileSync(h.instructionsFile, "utf8").trim(), "utf8");
-  const sentBytes = Buffer.byteLength(prompt, "utf8") + call.files.reduce((/** @type {number} */ n, /** @type {any} */ f) => n + Buffer.byteLength(f.content, "utf8"), 0);
-  const doubledBytes = sentBytes + standingBytes;
-  assert.equal(doubledBytes - sentBytes, standingBytes, "deduped run sends exactly one standing-length fewer bytes than the doubled form");
+  // length compared with sending it in both places. Measured against the UI sidecar, which still
+  // holds the full `standing + "\n\n" + marker + ticket` form — not the already-deduped prompt,
+  // which would make this an identity. Reverting the dedupe in step.js makes this fail.
+  const standing = fs.readFileSync(h.instructionsFile, "utf8").trim();
+  const filesBytes = call.files.reduce((/** @type {number} */ n, /** @type {any} */ f) => n + Buffer.byteLength(f.content, "utf8"), 0);
+  const sentBytes = Buffer.byteLength(prompt, "utf8") + filesBytes;
+  assert.equal(Buffer.byteLength(sidecar, "utf8") + filesBytes - sentBytes, Buffer.byteLength(standing + "\n\n", "utf8"), "deduped run sends exactly one standing-length fewer bytes than the doubled form");
 });
 
 test("sandboxed opencode run: standing over 16 KB stays only in the run prompt (no file, no dedupe)", async () => {
@@ -126,5 +128,15 @@ test("sandboxed opencode run: standing over 16 KB stays only in the run prompt (
   const args = h.readArgs();
   const prompt = args.at(-1);
   assert.match(prompt, /STANDING-TEXT-MARKER/, "standing text stays in the run prompt when it's over the cap");
+  assert.match(prompt, /=== TICKET ===/);
+});
+
+test("host (unsandboxed) opencode run: standing stays in the run prompt, no instructions file", async () => {
+  const h = fixture({ sandboxed: false });
+  await h.go("three");
+  assert.equal(h.wrapCalls.length, 0, "a host run never goes through the sandbox wrap");
+  const args = h.readArgs();
+  const prompt = args.at(-1);
+  assert.match(prompt, /STANDING-TEXT-MARKER/, "standing text stays in the host run prompt");
   assert.match(prompt, /=== TICKET ===/);
 });
