@@ -113,6 +113,9 @@ describe("the board", () => {
     const root = await render([ticket({ ref: "d1", status: "done", finishedAt: new Date(NOW - 60_000).toISOString() }), ticket({ ref: "r", status: "running", step: "code" })]);
     const finished = root.querySelector("[data-finished-today]")!;
     expect(finished.querySelector("h3")!.textContent).toBe("Finished today 1");
+    // Closed by default: the count is enough until the human asks.
+    expect(finished.querySelector("[data-finished-row]")).toBeNull();
+    await click(finished.querySelector("[data-finished-toggle]")!);
     expect([...finished.querySelectorAll("[data-finished-row]")].map((e) => e.getAttribute("data-finished-row"))).toEqual(["d1"]);
     expect(root.querySelector('[data-now-row="d1"]')).toBeNull();
   });

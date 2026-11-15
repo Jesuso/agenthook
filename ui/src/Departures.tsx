@@ -5,13 +5,14 @@ import { readSteps } from "./configEdit";
 import { configUrl, parseCheck } from "./config";
 import type { Board } from "./board";
 import { ticketTitle } from "./format";
-import { Ago, Elapsed, Pill, TicketId, Waiting } from "./components";
+import { Ago, Elapsed, Pill, ShowHide, TicketId, Waiting } from "./components";
 import { useT } from "./i18n/react";
 
 /**
  * The Overview's board (#696): one row per ticket, the pipeline's steps as columns, and in each
  * row a line drawn up to the step the ticket is in. The rows that need you come first (they are
- * `NeedsYouZone`'s, drawn on this same grid), then what runs, what waits, and what finished today.
+ * `NeedsYouZone`'s, drawn on this same grid), then what runs, what waits, and what finished today
+ * (closed until asked for).
  * Nothing else of the pipeline's shape (edges, exit stages) is drawn here — that is Config's graph.
  *
  * One CSS grid holds every row (`subgrid`), so ids, titles, steps and clocks line up down the
@@ -147,6 +148,7 @@ const MORE = "col-span-full border-t border-border-subtle px-3 py-1.5 text-left 
  */
 export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: number; onOpen: (t: Ref) => void; onMore: (status: "queued" | "done") => void }) {
   const { t, lang } = useT();
+  const [finishedOpen, setFinishedOpen] = useState(false);
   return (
     <>
       {board.rows.length > 0 && (
@@ -186,17 +188,23 @@ export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: n
         </button>
       )}
       {board.finished.total > 0 && (
-        <section data-finished-today className="col-span-full border-t border-border-subtle pb-1.5">
-          <h3 className="px-3 pt-3 pb-1 text-label font-semibold uppercase tracking-wide text-muted">
-            {t("board.finishedToday")} <span className="ml-1 font-mono normal-case">{board.finished.total}</span>
-          </h3>
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))]">
-            {board.finished.tickets.map((tk) => (
-              <FinishedRow key={tk.ref} ticket={tk} now={now} onOpen={onOpen} />
-            ))}
-          </ul>
-          {board.finished.total > board.finished.tickets.length && (
-            <button type="button" data-board-more="done" className="px-3 py-1 text-label text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onMore("done")}>
+        <section data-finished-today className={`${SUBGRID} border-t border-border-subtle pb-1.5`}>
+          {/* Closed until asked for: what finished no longer needs you, the count says enough. */}
+          <div className="col-span-full flex items-center justify-between gap-2 px-3 pt-1.5">
+            <h3 className="text-label font-semibold uppercase tracking-wide text-muted">
+              {t("board.finishedToday")} <span className="ml-1 font-mono normal-case">{board.finished.total}</span>
+            </h3>
+            <ShowHide open={finishedOpen} onToggle={() => setFinishedOpen(!finishedOpen)} controls="finished-today" label={t("board.finishedToday")} data-finished-toggle />
+          </div>
+          {finishedOpen && (
+            <ul id="finished-today" className={SUBGRID}>
+              {board.finished.tickets.map((tk) => (
+                <FinishedRow key={tk.ref} ticket={tk} now={now} onOpen={onOpen} />
+              ))}
+            </ul>
+          )}
+          {finishedOpen && board.finished.total > board.finished.tickets.length && (
+            <button type="button" data-board-more="done" className="col-span-full px-3 py-1 text-left text-label text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onMore("done")}>
               {t("board.more", { count: board.finished.total - board.finished.tickets.length })}
             </button>
           )}
@@ -206,22 +214,23 @@ export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: n
   );
 }
 
-/** A ticket that finished today: quiet, one line — it no longer moves. */
+/** A ticket that finished today: quiet, one line on the board's own columns — it no longer moves. */
 function FinishedRow({ ticket: tk, now, onOpen }: { ticket: TicketRow; now: number; onOpen: (t: Ref) => void }) {
   const { t, lang } = useT();
   const title = ticketTitle(tk, lang);
   return (
-    <li data-finished-row={tk.ref} className="flex min-w-0 items-center gap-2 px-3 py-1 focus-within:bg-surface-raised hover:bg-surface-raised">
+    <li data-finished-row={tk.ref} className={`${SUBGRID} min-h-8 items-center gap-x-3 px-3 focus-within:bg-surface-raised hover:bg-surface-raised`}>
+      <span aria-hidden="true" />
       <TicketId id={tk.displayId} url={tk.trackerUrl} />
       <button
         type="button"
-        className="min-w-0 flex-1 truncate text-left text-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+        className="min-w-0 truncate py-1 text-left text-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-accent @4xl:col-start-3 @4xl:col-end-[-3]"
         title={title.unknown ? t("overview.openDetails") : t("overview.titleOpenDetails", { title: title.text })}
         onClick={() => onOpen({ profile: tk.profile, ref: tk.ref })}
       >
         {title.unknown ? t("ticket.untitled") : title.text}
       </button>
-      <span className="shrink-0 whitespace-nowrap text-label text-muted">
+      <span className="whitespace-nowrap text-label text-muted">
         <Ago iso={tk.finishedAt} seed={now} />
       </span>
     </li>

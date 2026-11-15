@@ -273,6 +273,8 @@ describe("Overview", () => {
     expect(render(profile(), [], { epicFilter: "E1" })).toContain('data-open="true"');
     expect(render(profile(), [], { stepFilter: "code" })).toContain('data-open="true"');
     expect(render(profile(), [])).toMatch(/data-tickets-toggle[^>]*aria-expanded="false"/);
+    // A filter holds it open, and the way back (Hide) stays on screen.
+    expect(render(profile(), [], { statusFilter: "done" })).toMatch(/data-tickets-toggle[^>]*aria-expanded="true"/);
   });
 
   it("a filter opens All tickets on the table (#697)", () => {

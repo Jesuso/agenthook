@@ -93,6 +93,15 @@ export function Overview(props: OverviewProps) {
   const newTicketBtn = useRef<HTMLButtonElement>(null);
   const filtered = props.statusFilter !== "" || props.epicFilter !== "" || props.stepFilter !== "";
   const ticketsShown = ticketsOpen || filtered;
+  // Hiding a filtered table drops the filter too: a filter is what holds it open.
+  const hideOrShowTickets = () => {
+    if (filtered) {
+      props.setStatusFilter("");
+      props.setEpicFilter("");
+      props.setStepFilter("");
+    }
+    setTicketsOpen(!ticketsShown);
+  };
   const openStatusInTable = (status: string) => {
     props.setStatusFilter(status);
     setTicketsOpen(true);
@@ -226,7 +235,7 @@ export function Overview(props: OverviewProps) {
               <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
                 {t("overview.allTickets")} <span className="font-mono normal-case">{scoped.tickets.length}</span>
               </h2>
-              {!filtered && <ShowHide open={ticketsOpen} onToggle={() => setTicketsOpen(!ticketsOpen)} controls="all-tickets" label={t("overview.allTicketsLabel")} data-tickets-toggle />}
+              <ShowHide open={ticketsShown} onToggle={hideOrShowTickets} controls="all-tickets" label={t("overview.allTicketsLabel")} data-tickets-toggle />
             </div>
             {ticketsShown && (
             <div id="all-tickets" className="px-3 pb-3">
