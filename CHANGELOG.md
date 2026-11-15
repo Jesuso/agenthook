@@ -301,6 +301,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `ah agents` now lists every running run, not only `claude -p` processes (#735). It read `ps`
+  and kept only lines whose command started with a known agent binary, so a sandboxed or remote
+  (ssh) run — whose local process is a container runtime or `ssh` client — never matched, and
+  `--all` only knew the binaries the discovered config named. Rows now come from each profile's
+  `running.json` (the state `tick` and the web UI read, written for every run whatever the agent
+  or executor), with `harness`/`model` columns, a `stale` marker for a leftover whose pid is
+  dead (excluded from the running count, `stale: true` in `--json`), and elapsed time derived
+  from `startedAt`.
+
 - A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
   in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.
   When that file is written, the run prompt now carries only the `=== TICKET ===` marker and the
