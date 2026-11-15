@@ -314,6 +314,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `ah ui --host <addr>` now prints and opens the bound address, not a dead `127.0.0.1` link (#737).
+  A wildcard bind (`0.0.0.0`/`::`) prints the loopback link plus one "reachable on every interface"
+  line (listing the non-internal addresses) instead of one URL per interface.
+
 - A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
   in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.
   When that file is written, the run prompt now carries only the `=== TICKET ===` marker and the
