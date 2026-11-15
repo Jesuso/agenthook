@@ -94,6 +94,11 @@ describe("BoardView", () => {
     const section = root.querySelector('[data-board-section="code"]')!;
     const entries = [...section.querySelectorAll("[data-board-entry]")].map((e) => e.getAttribute("data-board-entry"));
     expect(entries).toEqual(["r1", "q1"]);
+    const runningEntry = section.querySelector('[data-board-entry="r1"]')!;
+    const queuedEntry = section.querySelector('[data-board-entry="q1"]')!;
+    expect(runningEntry.querySelector("[data-elapsed]")).not.toBeNull();
+    expect(queuedEntry.querySelector("[data-waiting]")).not.toBeNull();
+    expect(queuedEntry.querySelector("[data-waiting]")!.className).toContain("text-muted");
   });
 
   it("held and failed tickets never appear in a step section", async () => {
@@ -144,6 +149,11 @@ describe("BoardView", () => {
     (entry as HTMLElement).focus();
     await pressEnter(entry);
     expect(onOpen).toHaveBeenCalledWith({ profile: "dev", ref: "r1" });
+    onOpen.mockClear();
+    const link = entry.querySelector("a")! as HTMLElement;
+    link.focus();
+    await pressEnter(link);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("Done today lists only rows finished since local midnight, with the count", async () => {
@@ -154,7 +164,7 @@ describe("BoardView", () => {
     const root = await render([today, yesterday]);
     const done = root.querySelector('[data-board-section="done"]')!;
     expect([...done.querySelectorAll("[data-board-entry]")].map((e) => e.getAttribute("data-board-entry"))).toEqual(["t1"]);
-    expect(done.textContent).toContain("1");
+    expect(done.querySelector("[data-done-count]")!.getAttribute("data-done-count")).toBe("1");
   });
 
   it("a forge profile's flagged PR row lands in Needs you", async () => {

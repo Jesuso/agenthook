@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Overview, harnessesVisible } from "./Overview";
@@ -282,6 +282,14 @@ describe("Overview", () => {
     expect(withFilter).toContain("data-tickets-toolbar");
     expect(withFilter).not.toContain("data-board");
     expect(render(profile(), [], { stepFilter: "code" })).toContain("step: code");
+  });
+
+  it("keeps the page-level Needs you zone when the Board tab is saved but the section is collapsed (#703 regression)", () => {
+    vi.stubGlobal("localStorage", { getItem: (k: string) => (k === "ah.board.tab" ? "board" : null), setItem: () => {}, removeItem: () => {} } as unknown as Storage);
+    const html = render(profile(), [ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toContain('data-all-tickets="true" data-open="false"'); // board tab saved, but section collapsed
+    expect(html.match(/data-needs-row=/g)).toHaveLength(1);
+    vi.unstubAllGlobals();
   });
 
   it("leaves the quota readout to the app bar but keeps the quota-paused badge", () => {

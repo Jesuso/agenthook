@@ -252,7 +252,7 @@ function SectionHeader({ id, section, step, profile, doneTotal }: { id: string; 
   const names = harnessNames(step);
   return (
     <div className="flex items-center gap-2 border-b border-border-subtle px-2 py-1.5">
-      <span className="truncate font-mono text-label font-semibold">
+      <span className="truncate font-mono text-label font-semibold" data-done-count={section?.kind === "done" ? (doneTotal ?? 0) : undefined}>
         {section?.kind === "other" ? t("board.other") : section?.kind === "done" ? t("board.doneToday", { count: doneTotal ?? 0 }) : id}
       </span>
       {section && section.kind === "step" && (
