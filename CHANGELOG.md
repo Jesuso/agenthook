@@ -15,6 +15,14 @@ All notable changes to this project are documented here. The format is based on
   unattended run on a question. Host and ssh opencode runs, and the claude adapter, are
   unchanged.
 
+- Sandboxed opencode runs also receive the step's standing instructions (repo `instructionsFile`
+  + step `instructionsFile` text) as a second `instructions` file
+  (`agenthook-standing.md`), so they survive a context compaction alongside the unattended
+  contract (#716). The standing text is kept in the run prompt too (so it is sent twice: once
+  as part of the system prompt via `instructions`, once as part of the one-shot run prompt). A
+  `console.warn` is emitted (run log) when the standing text exceeds 16 KB and is not written
+  to a file. The ticket text is not included in the standing file.
+
 - **Experimental** remote harness, code transport (#690): before every ssh-executor run, the
   hub now syncs the ticket's code to the worker over git+SSH (no forge) instead of running in a
   fixed `remote.workDir` — the hub worktree stays the only real copy. A worktree step force-pushes

@@ -13,6 +13,10 @@ import path from "node:path";
  * (a repo, a log) fails fast instead of reading gigabytes into memory. */
 const MAX_OPENCODE_CONFIG_BYTES = 256 * 1024;
 
+/** Max bytes for standing instructions written as a second `instructions` file in a sandboxed
+ * opencode run. Beyond that, they stay only in the run prompt (no file, no instructions entry). */
+export const STANDING_MAX_BYTES = 16 * 1024;
+
 /**
  * Build the `opencode run` argv (pure; exported for tests). The prompt is positional, so it
  * goes last, behind `--`: yargs would otherwise read a prompt starting with `-` (a `- ` bullet,
@@ -274,7 +278,7 @@ export const opencode = {
   // OPENCODE_DISABLE_AUTOUPDATE / OPENCODE_DISABLE_MODELS_FETCH skip OpenCode's own non-essential
   // network calls (the update check and the models.dev catalog fetch) — verified against the
   // installed CLI's env var names, not guessed.
-  sandbox({ step, home, verdictFile }) {
+  sandbox({ step, home, verdictFile, standing }) {
     /** @type {{dst: string, content: string, mode?: number}[]} */
     const files = [];
     const configDst = path.posix.join(home, ".config", "opencode", "opencode.json");
@@ -294,6 +298,21 @@ export const opencode = {
     const config = rawConfig ? JSON.parse(rawConfig) : {};
     const existing = Array.isArray(config.instructions) ? config.instructions : [];
     config.instructions = Array.from(new Set([...existing, contractDst]));
+
+    // Standing instructions (#716): a second `instructions` file so the step's standing
+    // text survives compaction in a sandboxed run. The ticket text is already in the
+    // one-shot prompt; only repo + step instructions go here.
+    if (typeof standing === "string" && standing) {
+      const standingBytes = Buffer.byteLength(standing, "utf8");
+      if (standingBytes <= STANDING_MAX_BYTES) {
+        const standingDst = path.posix.join(home, ".config", "opencode", "agenthook-standing.md");
+        files.push({ dst: standingDst, content: standing, mode: 0o600 });
+        config.instructions = Array.from(new Set([...config.instructions, standingDst]));
+      } else {
+        console.warn(`[dispatch] step ${step.id}: standing instructions are ${standingBytes} bytes (> ${STANDING_MAX_BYTES}) — not written to opencode instructions; they stay in the run prompt only`);
+      }
+    }
+
     files.push({ dst: configDst, content: JSON.stringify(config, null, 2), mode: 0o600 });
     return {
       mounts: [],
