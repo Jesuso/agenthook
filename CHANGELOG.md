@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Web UI: a **Board** tab on the profile page's ticket section (#697, ticket 1 of 3 of #696),
+  beside the existing table (now **Table**, still the default): one box per pipeline step holding
+  its running/queued tickets, joined by the Config graph's own connectors, plus a **Done today**
+  box and an **Other** box for stray tickets. Needs you sits fixed above it. A step's "+N more"
+  switches to Table with a new ticket step filter. No new server endpoint — reuses `GET
+  /api/config` and `GET /api/discover`. Stacks (no connectors) below 1024px.
 - A "New ticket" action on the web UI's profile overview for local-board profiles (#698): a button
   (and the `n` key) opens a dialog with a title, an optional markdown body, the starting step
   (defaulting to the pipeline's first non-manual step), and optional comma-separated blockers. It

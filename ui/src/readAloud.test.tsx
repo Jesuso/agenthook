@@ -48,7 +48,7 @@ afterEach(async () => {
 function overview(profile: string, tickets: TicketRow[], extra: Partial<OverviewProps> = {}) {
   const p = prof(profile);
   return createElement(Overview, {
-    profile: p, snapshot: { profiles: [p], tickets }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
+    profile: p, snapshot: { profiles: [p], tickets }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, stepFilter: "", setStepFilter: () => {}, showAll: false, setShowAll: () => {},
     open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
     ...extra,
   });

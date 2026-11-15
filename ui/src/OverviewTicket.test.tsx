@@ -43,6 +43,7 @@ async function render(profile: ProfileView, onCreated: (t: { profile: string; re
   m = await mount(
     createElement(Overview, {
       profile, snapshot: { profiles: [profile], tickets: [t("1")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {},
+      stepFilter: "", setStepFilter: () => {},
       showAll: false, setShowAll: () => {}, open: null, onOpen: () => {}, onCreated, displayIdFor: () => null, menuItems: [], note: "",
       onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }),
     }),

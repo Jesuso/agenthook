@@ -174,7 +174,13 @@ export function quadAt(a: Point, c: Point, b: Point, t: number): Point {
 /** Where an edge's endpoints are: a step index, or a stage node. */
 type End = { step: number } | { stage: StageNode };
 
-export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys | null, stages?: StageOption[] | null, defaultAgent?: unknown, lang = "en"): PipelineLayout {
+export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys | null, stages?: StageOption[] | null, defaultAgent?: unknown, lang = "en", opts?: { stepW?: number; stepH?: number }): PipelineLayout {
+  // The Board (#697) draws every section at one uniform size, regardless of ticket count — it
+  // passes a fixed stepW/stepH here so the geometry below sizes itself around that instead of
+  // STEP_W/STEP_H. Callers that omit `opts` (the Config graph, every existing test) get exactly
+  // today's layout.
+  const SW = opts?.stepW ?? STEP_W;
+  const SH = opts?.stepH ?? STEP_H;
   const ids = steps.map((s, i) => str(s.id) ?? `step-${i}`);
   const manual = steps.map((s) => s.manual === true);
   const success = keys ? steps.map((s) => str(s[keys.success])) : steps.map(() => undefined);
@@ -243,8 +249,8 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
   const hasSkip = edges.some((_e, k) => isSkip(k));
   const above = Math.max(queueStages.size ? QUEUE_GAP : 0, hasArc ? ARC_CLEAR : 0, hasSkip ? SKIP_CLEAR : 0);
   const stepY = MARGIN + (queueStages.size ? STAGE_H : 0) + above;
-  const stepBottom = stepY + STEP_H;
-  const midY = stepY + STEP_H / 2;
+  const stepBottom = stepY + SH;
+  const midY = stepY + SH / 2;
 
   const stepNodes: StepNode[] = steps.map((s, i) => ({
     kind: "step",
@@ -257,10 +263,10 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
     createsWorktree: s.createsWorktree === true,
     drainWorktree: s.drainWorktree === true,
     terminal: terminal[i],
-    x: MARGIN + i * (STEP_W + STEP_GAP),
+    x: MARGIN + i * (SW + STEP_GAP),
     y: stepY,
   }));
-  const cx = (i: number) => stepNodes[i].x + STEP_W / 2;
+  const cx = (i: number) => stepNodes[i].x + SW / 2;
 
   // Sink edges: step → (non-queue) stage. Each such stage is a sink, keyed by the steps reaching it.
   const sinkEdges = edges.flatMap((_e, k) => (stepOf(ends[k].from) >= 0 && stageAt(ends[k].to) && !queueStages.has(stageAt(ends[k].to)!) ? [k] : []));
@@ -279,8 +285,8 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
     }),
   );
   for (const st of inline) {
-    st.x = stepNodes[last].x + STEP_W + STEP_GAP;
-    st.y = stepY + (STEP_H - STAGE_H) / 2;
+    st.x = stepNodes[last].x + SW + STEP_GAP;
+    st.y = stepY + (SH - STAGE_H) / 2;
   }
   const isPrivate = (st: StageNode) => !inline.has(st) && sinkSources.get(st)!.size === 1;
   const shared = [...sinkSources.keys()].filter((st) => !inline.has(st) && !isPrivate(st));
@@ -305,18 +311,18 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
     const out = sinkEdges.filter((k) => stepOf(ends[k].from) === i && shared.includes(stageAt(ends[k].to)!));
     const priv = privates[i];
     let lo = x - COL_PAD;
-    let hi = x + STEP_W + COL_PAD;
+    let hi = x + SW + COL_PAD;
     if (!priv.length) {
       // No pills under this step: spread the ports across its width, leftmost target leftmost.
-      out.sort((a, b) => scx(stageAt(ends[a].to)!) - scx(stageAt(ends[b].to)!)).forEach((k, j) => port.set(k, x + (STEP_W * (j + 1)) / (out.length + 1)));
+      out.sort((a, b) => scx(stageAt(ends[a].to)!) - scx(stageAt(ends[b].to)!)).forEach((k, j) => port.set(k, x + (SW * (j + 1)) / (out.length + 1)));
     } else {
       // Pills take the middle; shared edges drop down side lanes, toward their target's side.
       const left = out.filter((k) => scx(stageAt(ends[k].to)!) < cx(i)).sort((a, b) => scx(stageAt(ends[a].to)!) - scx(stageAt(ends[b].to)!));
       const right = out.filter((k) => !left.includes(k)).sort((a, b) => scx(stageAt(ends[b].to)!) - scx(stageAt(ends[a].to)!));
       left.forEach((k, j) => port.set(k, x + LANE_INSET + j * LANE));
-      right.forEach((k, j) => port.set(k, x + STEP_W - LANE_INSET - j * LANE));
+      right.forEach((k, j) => port.set(k, x + SW - LANE_INSET - j * LANE));
       if (left.length) lo = x + LANE_INSET + left.length * LANE;
-      if (right.length) hi = x + STEP_W - LANE_INSET - right.length * LANE;
+      if (right.length) hi = x + SW - LANE_INSET - right.length * LANE;
       const w = Math.min(STAGE_W, (hi - lo - (priv.length - 1) * PILL_GAP) / priv.length);
       const start = (lo + hi) / 2 - (priv.length * w + (priv.length - 1) * PILL_GAP) / 2;
       priv.forEach((st, j) => Object.assign(st, { x: start + j * (w + PILL_GAP), y: privY, w }));
@@ -340,8 +346,8 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
     const toStep = stepOf(ends[k].to);
     const toStage = stageAt(ends[k].to);
     if (e.type === "changes") {
-      const a = { x: stepNodes[fromStep].x + STEP_W * 0.25, y: stepY };
-      const b = { x: stepNodes[toStep].x + STEP_W * 0.75, y: stepY - END_GAP };
+      const a = { x: stepNodes[fromStep].x + SW * 0.25, y: stepY };
+      const b = { x: stepNodes[toStep].x + SW * 0.75, y: stepY - END_GAP };
       const control = { x: (a.x + b.x) / 2, y: stepY - 2 * ARC_RISE };
       return { points: [a, b], control, labelAt: quadAt(a, control, b, 0.5) };
     }
@@ -358,14 +364,14 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
     if (toStep >= 0) {
       const from = stepNodes[fromStep];
       const to = stepNodes[toStep];
-      if (!isSkip(k)) return polyline([{ x: from.x + STEP_W, y: midY }, { x: to.x - END_GAP, y: midY }]);
+      if (!isSkip(k)) return polyline([{ x: from.x + SW, y: midY }, { x: to.x - END_GAP, y: midY }]);
       // Skipping (or going back over) a step: up and over the row.
       const y = stepY - SKIP_RISE;
-      return polyline([{ x: from.x + STEP_W - 20, y: stepY }, { x: from.x + STEP_W - 20, y }, { x: to.x + 20, y }, { x: to.x + 20, y: stepY - END_GAP }]);
+      return polyline([{ x: from.x + SW - 20, y: stepY }, { x: from.x + SW - 20, y }, { x: to.x + 20, y }, { x: to.x + 20, y: stepY - END_GAP }]);
     }
     const st = toStage!;
     const from = stepNodes[fromStep];
-    if (inline.has(st)) return polyline([{ x: from.x + STEP_W, y: midY }, { x: st.x - END_GAP, y: midY }]);
+    if (inline.has(st)) return polyline([{ x: from.x + SW, y: midY }, { x: st.x - END_GAP, y: midY }]);
     if (queueStages.has(st)) {
       // A queue stage that's also a step's sink — an odd config; route it generically.
       const a = { x: cx(fromStep), y: stepY };
@@ -387,8 +393,10 @@ export function layoutPipeline(steps: Record<string, unknown>[], keys: StageKeys
       for (const p of [...r.points, r.labelAt, ...(r.control ? [r.control] : [])]) p.x += shift;
     }
   }
-  const width = nodes.reduce((m, n) => Math.max(m, n.x + nodeRect(n).w), 0) + MARGIN;
-  const height = nodes.reduce((m, n) => Math.max(m, n.y + nodeRect(n).h), 0) + MARGIN;
+  // nodeRect assumes the default STEP_W/STEP_H; with a custom size (opts) a step node's own box
+  // is SW×SH instead.
+  const width = nodes.reduce((m, n) => Math.max(m, n.x + (n.kind === "step" ? SW : n.w)), 0) + MARGIN;
+  const height = nodes.reduce((m, n) => Math.max(m, n.y + (n.kind === "step" ? SH : STAGE_H)), 0) + MARGIN;
 
   return { nodes, edges, routes, width, height, unknownStageKeys: keys === null };
 }
