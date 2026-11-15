@@ -101,6 +101,20 @@ describe("storyBlocks", () => {
       { kind: "prose", text: "Intro.\n- item one\n  wraps to a second physical line" },
     ]);
   });
+
+  it("a lead-in for a new list right after a previous list starts a fresh block, not the old list's prose", () => {
+    expect(storyBlocks(["Intro:", "- one", "- two", "Next steps:", "- a", "- b"])).toEqual([
+      { kind: "prose", text: "Intro:\n- one\n- two" },
+      { kind: "prose", text: "Next steps:\n- a\n- b" },
+    ]);
+  });
+
+  it("a plain line after a bullet's indented continuation is its own beat, not folded back into the list", () => {
+    expect(storyBlocks(["Intro:", "- one", "  cont", "Plain message."])).toEqual([
+      { kind: "prose", text: "Intro:\n- one\n  cont" },
+      { kind: "beat", text: "Plain message." },
+    ]);
+  });
 });
 
 describe("stepOrder", () => {

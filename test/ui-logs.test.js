@@ -413,6 +413,25 @@ test("listRuns: model/harness fall back to the matching run_start when the run_e
   assert.equal(oldest.harness, "qwen");
 });
 
+test("listRuns: each run keeps its own harness/model when a ticket's steps run on different harnesses (#706)", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
+  const dir = path.join(reg, "q", "logs");
+  fs.mkdirSync(dir, { recursive: true });
+  const names = ["2026-10-08T10-00-00-000Z-step-code-7.log", "2026-10-08T11-00-00-000Z-step-code-7.log"];
+  for (const n of names) fs.writeFileSync(path.join(dir, n), "x");
+  const events = [
+    { ts: "2026-10-08T10:00:00.010Z", event: "run_start", ref: "7", step: "code", model: "claude-sonnet-5", harness: "claude" },
+    { ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "changes" },
+    { ts: "2026-10-08T11:00:00.010Z", event: "run_start", ref: "7", step: "code", model: "qwen3-coder", harness: "qwen" },
+    { ts: "2026-10-08T11:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance" },
+  ];
+  const [newest, oldest] = listRuns(reg, "q", "7", events);
+  assert.equal(oldest.harness, "claude");
+  assert.equal(oldest.model, "claude-sonnet-5");
+  assert.equal(newest.harness, "qwen");
+  assert.equal(newest.model, "qwen3-coder");
+});
+
 test("listRuns: compactions is omitted when turns is set but compactions isn't (#657)", () => {
   const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
   const dir = path.join(reg, "q", "logs");

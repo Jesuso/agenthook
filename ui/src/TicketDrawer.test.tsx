@@ -102,22 +102,29 @@ describe("TicketDrawer", () => {
 
   it("selecting a past run shows its own model/harness on the caption and the header, never the live run's (#706)", async () => {
     runs = [
-      runView({ run: "b.log", startedAt: "2026-01-01T01:00:00.000Z", running: true }),
+      runView({ run: "b.log", startedAt: "2026-01-01T01:00:00.000Z", running: true, model: "claude-sonnet-5", harness: "claude" }),
       runView({ run: "a.log", startedAt: "2026-01-01T00:00:00.000Z", running: false, outcome: "changes", model: "qwen3-coder", harness: "qwen" }),
     ];
     const { root, unmount } = await openDrawer({ ...row, model: "claude-sonnet-5", ctx: 212000, ctxMax: 200000, status: "running" });
-    // The newest (live) run is selected by default: live model/context, as today.
+    // The newest (live) run is selected by default: live model/context, as today, and its own
+    // caption names its own harness/model.
     expect(root.innerHTML).toContain("sonnet 5");
     expect(root.innerHTML).toContain("212K");
+    let caption = root.querySelector("[data-run-caption]")!;
+    expect(caption.querySelector("[data-run-harness]")!.textContent).toBe("claude");
+    expect(caption.querySelector("[data-run-model]")!.textContent).toBe("sonnet 5");
 
+    // Selecting the past run (a different harness and model) swaps the caption and the header
+    // to that run's own figures, never the live run's.
     await click(root.querySelector('button[aria-label^="code changes"]')!);
-    const caption = root.querySelector("[data-run-caption]")!;
+    caption = root.querySelector("[data-run-caption]")!;
     expect(caption.querySelector("[data-run-harness]")!.textContent).toBe("qwen");
     expect(caption.querySelector("[data-run-model]")!.textContent).toBe("qwen3-coder");
     // The header now shows the selected (past) run's own model, hides context, never the live run's.
-    expect(root.innerHTML).toMatch(/data-drawer-model="true"[^>]*>qwen3-coder</);
-    expect(root.innerHTML).not.toContain("sonnet 5");
-    expect(root.innerHTML).not.toContain("data-drawer-ctx");
+    const header = root.querySelector("header")!;
+    expect(header.innerHTML).toMatch(/data-drawer-model="true"[^>]*>qwen3-coder</);
+    expect(header.innerHTML).not.toContain("sonnet 5");
+    expect(header.innerHTML).not.toContain("data-drawer-ctx");
     await unmount();
   });
 
