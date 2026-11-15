@@ -96,6 +96,7 @@ export const CONFIG_SCHEMA = [
   entry("harnesses.*", "object", "Harness", "basics", "One backend: the agent knobs a step gets where it sets none of its own, plus its slot cap.", { advanced: true }),
   entry("harnesses.*.agent", "enum", "Agent", "basics", "This harness's coding-agent CLI; unset uses the profile's agent.", { advanced: true, options: AGENT_NAMES }),
   entry("harnesses.*.model", "string", "Model", "basics", "The agent's --model on this harness; a step's own model wins.", { advanced: true }),
+  entry("harnesses.*.effort", "enum", "Reasoning effort", "basics", "This harness's default effort; a step's own effort wins.", { advanced: true, options: STEP_EFFORTS }),
   entry("harnesses.*.bin", "string", "Agent binary", "basics", "The agent CLI on this harness (a name on PATH or an absolute path); a step's own bin wins.", { advanced: true, sensitive: true }),
   entry("harnesses.*.env", "record", "Agent env", "basics", "Extra environment for runs on this harness (e.g. ANTHROPIC_BASE_URL); a step's env keys win.", { advanced: true, sensitive: true }),
   entry("harnesses.*.provider", "string", "Provider", "basics", "Inference provider on this harness (hermes --provider); other agents ignore it.", { advanced: true }),
@@ -218,7 +219,7 @@ export const CONFIG_SCHEMA = [
 
   // Pipeline steps — common + advanced
   step("maxConcurrent", "number", "Max concurrent runs", "Runs of this step at once, counted inside the global limit; unset = only that limit.", { min: 1, advanced: true }),
-  step("harness", "string-list", "Harness", "Harness name(s) from harnesses this step runs on; the queue picks one with a free slot at start.", { advanced: true }),
+  step("harness", "string-list", "Harness", "Harness name(s), or {name, model?, effort?} entries, this step runs on; the queue picks one with a free slot at start.", { advanced: true }),
   step("routing", "enum", "Harness routing", "How a harness list is picked: first-free = first with room; round-robin = rotate, skipping full ones.", { advanced: true, options: HARNESS_ROUTINGS, default: "first-free" }),
   step("completeOnMerge", "boolean", "Complete on merge", "Manual steps only, at most one: the bridge for boards that can't hear merges; a merged agent PR moves the task here.", { advanced: true }),
   step("closeIssue", "boolean", "Close issue", "Entering this (terminal) step closes the issue, releasing the issues it blocked.", { scope: ["github"], advanced: true }),

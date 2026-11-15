@@ -458,6 +458,17 @@ test("opencodeEffortLints: a harness-supplied opencodeConfig/model is honored", 
   assert.deepEqual(lints, [{ level: "info", label: `step "code" on "oc-local": effort "medium"`, note: `opencodeConfig /harness.json declares no "medium" variant for openrouter/deepseek-v3 — OpenCode will not send a reasoning effort` }]);
 });
 
+test("opencodeEffortLints: an entry-pinned effort is seen (the lint picks up the entry override)", () => {
+  const cfg = /** @type {any} */ ({
+    sandbox: { type: "docker" },
+    harnesses: { "oc-local": { agent: "opencode", model: "openrouter/deepseek-v3", opencodeConfig: "/harness.json" } },
+    pipeline: [{ id: "code", harness: [{ name: "oc-local", effort: "high" }] }],
+  });
+  const content = JSON.stringify({ provider: { openrouter: { models: { "deepseek-v3": {} } } } });
+  const lints = opencodeEffortLints(cfg, { read: () => content });
+  assert.deepEqual(lints, [{ level: "info", label: `step "code" on "oc-local": effort "high"`, note: `opencodeConfig /harness.json declares no "high" variant for openrouter/deepseek-v3 — OpenCode will not send a reasoning effort` }]);
+});
+
 test("harnessSlotLints: [] without harnesses; one ℹ per harness (slot count or unbounded); ⚠ when a step's harnesses all cap to 0", () => {
   assert.deepEqual(harnessSlotLints(/** @type {any} */ ({})), []);
   const cfg = /** @type {any} */ ({

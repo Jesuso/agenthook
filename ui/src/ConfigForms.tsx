@@ -23,6 +23,8 @@ import {
   removeHarness,
   renameHarness,
   stepHarnessEdit,
+  stepHarnessEntries,
+  stepHarnessEntry,
   stepHarnessList,
   pricingEdit,
   pricingErrors,
@@ -489,12 +491,14 @@ function PricingField(props: EditProps & { pricing: unknown }) {
 function StepHarnessField(props: EditProps & { i: number; step: Record<string, unknown>; names: string[] }) {
   const { lang } = useT();
   const helpId = useId();
+  const entries = stepHarnessEntries(props.step.harness);
   const picked = stepHarnessList(props.step.harness);
   if (props.names.length === 0 && picked.length === 0) return null;
   const options = [...props.names, ...picked.filter((n) => !props.names.includes(n))];
   const path = stepPath(props.i, "harness");
   const m = fieldMeta(path, lang);
-  const toggle = (n: string, on: boolean) => props.onEdit(stepHarnessEdit(props.text, props.i, on ? [...picked, n] : picked.filter((x) => x !== n)));
+  const toggle = (n: string, on: boolean) =>
+    props.onEdit(stepHarnessEdit(props.text, props.i, on ? [...entries, n] : entries.filter((e) => (typeof e === "string" ? e !== n : (e as Record<string, unknown>).name !== n))));
   return (
     <div className="col-span-full flex flex-col gap-1" data-step-harness>
       <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
@@ -503,12 +507,23 @@ function StepHarnessField(props: EditProps & { i: number; step: Record<string, u
         {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
       </span>
       <div role="group" aria-label={m.label} aria-describedby={m.help ? helpId : undefined} className="flex flex-wrap gap-3">
-        {options.map((n) => (
-          <label key={n} className="flex items-center gap-1 text-xs">
-            <input type="checkbox" name={path.join(".")} value={n} data-harness-option={n} checked={picked.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
-            <span className="font-mono">{n}</span>
-          </label>
-        ))}
+        {options.map((n) => {
+          const entry = stepHarnessEntry(props.step.harness, n);
+          const pin = entry
+            ? [entry.model ? `model: ${entry.model}` : "", entry.effort ? `effort: ${entry.effort}` : ""].filter(Boolean).join(", ")
+            : "";
+          return (
+            <label key={n} className="flex items-center gap-1 text-xs">
+              <input type="checkbox" name={path.join(".")} value={n} data-harness-option={n} checked={picked.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
+              <span className="font-mono">{n}</span>
+              {pin && (
+                <span data-harness-pin={n} className="text-[var(--color-muted)]">
+                  {pin}
+                </span>
+              )}
+            </label>
+          );
+        })}
       </div>
       {Array.isArray(props.step.harness) && (
         <div className="max-w-xs">

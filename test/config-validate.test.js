@@ -629,7 +629,7 @@ test("harnesses: the breaker keys — cooldownMinutes is an integer 1-60, downGr
 });
 
 test("step harness: not a string or list, an empty list, or a duplicate name fails", () => {
-  const msg = `config: pipeline step "code" harness must be a harness name or a non-empty list of names.`;
+  const msg = `config: pipeline step "code" harness must be a harness name or a non-empty list of names or {name, model?, effort?} entries.`;
   for (const v of [5, {}, "", [], [""], ["opus", 3]]) assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: v }]), [msg], `harness ${JSON.stringify(v)}`);
   assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", "opus"] }]), [`config: pipeline step "code" harness lists "opus" twice.`]);
 });
@@ -638,6 +638,28 @@ test("step harness: an unknown name fails (also with no harnesses block)", () =>
   assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", "gone"] }]), [`config: pipeline step "code" harness "gone" is not in "harnesses".`]);
   assert.deepEqual(hErrs(undefined, [{ id: "code", harness: "opus" }]), [`config: pipeline step "code" harness "opus" is not in "harnesses".`]);
   assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: "toString" }]), [`config: pipeline step "code" harness "toString" is not in "harnesses".`], "own keys only");
+});
+
+test("step harness: an object entry passes and pins model/effort per name", () => {
+  assert.deepEqual(validateRawConfig(raw({ harnesses: HARNESSES }, [{ id: "code", harness: [{ name: "opus", model: "claude-sonnet-5", effort: "high" }, "deepseek"] }])), { ok: true });
+  assert.deepEqual(validateRawConfig(raw({ harnesses: HARNESSES }, [{ id: "code", harness: [{ name: "opus" }] }])), { ok: true }, "a one-element object list is valid");
+});
+
+test("step harness: an unknown harness name inside an entry, or an unknown key, fails naming the key", () => {
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: [{ name: "gone" }] }]), [`config: pipeline step "code" harness "gone" is not in "harnesses".`]);
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "review", harness: [{ name: "opus", bin: "claude-local" }] }]), [`config: pipeline step "review" harness entry "opus" has unknown key "bin" (allowed: name, model, effort).`]);
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "review", harness: [{ name: "opus", model: "", effort: 3 }] }]), [`config: pipeline step "review" harness entry "opus" model must be a non-empty string.`, `config: pipeline step "review" harness entry "opus" effort must be a non-empty string.`]);
+});
+
+test("step harness: a duplicate name across string and object forms fails", () => {
+  assert.deepEqual(hErrs(HARNESSES, [{ id: "code", harness: ["opus", { name: "opus", model: "m" }] }]), [`config: pipeline step "code" harness lists "opus" twice.`]);
+});
+
+test("harnesses: effort must be a non-empty string", () => {
+  const one = (/** @type {any} */ h) => hErrs({ x: h });
+  assert.equal(one({ effort: "high" }), undefined, "valid → no errors");
+  assert.deepEqual(one({ effort: "" }), [`config: harness "x" effort must be a non-empty string.`]);
+  assert.deepEqual(one({ effort: 3 }), [`config: harness "x" effort must be a non-empty string.`]);
 });
 
 test("step routing: without a list, or an unknown value, fails", () => {
