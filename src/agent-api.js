@@ -16,6 +16,7 @@ import { listRuns, resolveRunLog } from "./ui/logs.js";
 import { readProfileState, buildRows, readJson, isObj, harnessSlots, readEventsTail } from "./ui/rows.js";
 import { readHistory, READ_CAP_BYTES } from "./ui/stats.js";
 import { pricingOf } from "./pricing.js";
+import { ctxOverflow } from "./models.js";
 import { normalizeQuota, normalizeTrip } from "./quota.js";
 import { pendingFollowUp } from "./followup.js";
 import { createStore } from "./store.js";
@@ -155,7 +156,9 @@ export function readStatus(entry, { now = Date.now() } = {}) {
         ...(r?.harness ? { harness: r.harness } : {}),
         ...(typeof r?.output === "number" ? { outTok: r.output } : {}),
         ...(typeof r?.ctx === "number" ? { ctx: r.ctx } : {}),
-        ...(typeof r?.ctxMax === "number" ? { ctxMax: r.ctxMax } : {}),
+        // An observed ctx above the listed window proves the window (or override) is wrong —
+        // omit ctxMax rather than present a false over-limit reading (#700).
+        ...(!ctxOverflow(r?.ctx, r?.ctxMax) && typeof r?.ctxMax === "number" ? { ctxMax: r.ctxMax } : {}),
       },
       state.refmeta[ref],
     );

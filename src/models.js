@@ -6,30 +6,44 @@ import { readOpencodeConfig } from "./agents/opencode.js";
 
 /**
  * Context windows (tokens) for every Claude family in src/pricing.js's DEFAULT_RATES, plus the
- * CLI aliases the `claude` adapter accepts. A model string ending in `[1m]` (the 1M-context beta
- * header suffix) is handled separately in contextWindowOf, not here.
+ * CLI aliases the `claude` adapter accepts. Anthropic's published default windows (no beta header),
+ * as of 2026-11 (https://platform.claude.com/docs/en/about-claude/models/overview): 1,000,000 for
+ * every current model except Claude Haiku 4.5 at 200,000. The aliases track the current generation,
+ * so they are 1M too. A model string ending in `[1m]` (the 1M-context beta header suffix) is
+ * handled separately in contextWindowOf, not here.
  * @type {Readonly<Record<string, number>>}
  */
 export const CONTEXT_WINDOWS = Object.freeze({
-  "claude-fable-5-1*": 200000,
-  "claude-mythos-5-1*": 200000,
-  "claude-fable-5*": 200000,
-  "claude-mythos-5*": 200000,
-  "claude-opus-5-5*": 200000,
-  "claude-opus-5*": 200000,
-  "claude-opus-4-8*": 200000,
-  "claude-opus-4-7*": 200000,
-  "claude-opus-4-6*": 200000,
-  "claude-sonnet-5-5*": 200000,
-  "claude-sonnet-5*": 200000,
-  "claude-sonnet-4-6*": 200000,
-  "claude-haiku-5-5*": 200000,
+  "claude-fable-5-1*": 1000000,
+  "claude-mythos-5-1*": 1000000,
+  "claude-fable-5*": 1000000,
+  "claude-mythos-5*": 1000000,
+  "claude-opus-5-5*": 1000000,
+  "claude-opus-5*": 1000000,
+  "claude-opus-4-8*": 1000000,
+  "claude-opus-4-7*": 1000000,
+  "claude-opus-4-6*": 1000000,
+  "claude-sonnet-5-5*": 1000000,
+  "claude-sonnet-5*": 1000000,
+  "claude-sonnet-4-6*": 1000000,
+  "claude-haiku-5-5*": 1000000,
   "claude-haiku-4-5*": 200000,
-  opus: 200000,
-  sonnet: 200000,
-  haiku: 200000,
-  fable: 200000,
+  opus: 1000000,
+  sonnet: 1000000,
+  haiku: 1000000,
+  fable: 1000000,
 });
+
+/**
+ * True only when a live context reading `ctx` exceeds the window `ctxMax` it was measured
+ * against, proving the table (or an explicit override) is wrong for that model — a model cannot
+ * accept a prompt larger than its window. False when either side is missing or not a finite
+ * number, so a bare `ctx` with unknown max never reads as over-limit.
+ * @param {unknown} ctx @param {unknown} ctxMax
+ */
+export function ctxOverflow(ctx, ctxMax) {
+  return typeof ctx === "number" && typeof ctxMax === "number" && Number.isFinite(ctx) && Number.isFinite(ctxMax) && ctx > ctxMax;
+}
 
 /** @param {string} pattern @param {string} s — case-insensitive; `*` is the only wildcard */
 function globMatch(pattern, s) {
