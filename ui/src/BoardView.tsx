@@ -140,7 +140,7 @@ export function BoardView(props: BoardViewProps) {
   // Other/Done today aren't pipeline nodes — they sit in their own column to the right of the
   // last step, stacked top to bottom, not part of layoutPipeline's own geometry.
   const lastStep = [...layout.nodes].reverse().find((n) => n.kind === "step");
-  const extraX = (lastStep?.x ?? MARGIN) + BOARD_STEP_W + STEP_GAP;
+  const extraX = layout.width - MARGIN + STEP_GAP;
   const extraTop = lastStep?.y ?? MARGIN;
   const extras = [...(other ? [other] : []), doneToday.section];
   const extraYAt = (i: number) => extraTop + i * (BOARD_STEP_H + STEP_GAP);
@@ -175,7 +175,7 @@ export function BoardView(props: BoardViewProps) {
               n.kind === "step" ? (
                 <StepBox key={n.id} id={n.id} x={n.x} y={n.y} w={BOARD_STEP_W} h={BOARD_STEP_H} section={sectionOf.get(n.id)} step={config.steps[stepIds.indexOf(n.id)]} profile={profile} now={now} onOpen={onOpen} onStepFilter={onStepFilter} />
               ) : (
-                <div key={`g:${n.id}`} className="absolute flex items-center justify-center rounded-full border border-border bg-surface px-2 text-label text-muted" style={{ left: n.x, top: n.y, width: n.w, height: STAGE_H }} title={n.label}>
+                <div key={`g:${n.id}`} data-board-stage={n.id} className="absolute flex items-center justify-center rounded-full border border-border bg-surface px-2 text-label text-muted" style={{ left: n.x, top: n.y, width: n.w, height: STAGE_H }} title={n.label}>
                   <span className="truncate">{n.label}</span>
                 </div>
               ),

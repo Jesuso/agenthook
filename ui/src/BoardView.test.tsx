@@ -181,6 +181,21 @@ describe("BoardView", () => {
     expect(root.querySelector("[data-board-wide]")).toBeNull();
   });
 
+  it("the pipeline's end-stage pill doesn't sit under the Done today/Other column", async () => {
+    const done = ticket({ ref: "t1", status: "done", step: "review", finishedAt: new Date().toISOString() });
+    const other = ticket({ ref: "o1", status: "running", step: "unknown-step" });
+    const root = await render([done, other]);
+    const pill = root.querySelector('[data-board-stage="Done"]') as HTMLElement;
+    expect(pill).not.toBeNull();
+    const pillLeft = parseFloat(pill.style.left);
+    const pillRight = pillLeft + parseFloat(pill.style.width);
+    for (const sectionId of ["other", "done"]) {
+      const section = root.querySelector(`[data-board-section="${sectionId}"]`) as HTMLElement;
+      const sectionLeft = parseFloat(section.style.left);
+      expect(sectionLeft).toBeGreaterThanOrEqual(pillRight);
+    }
+  });
+
   it("string harness on a step config shows the harness label in the section header", async () => {
     const stringConfig = {
       agent: "claude",
