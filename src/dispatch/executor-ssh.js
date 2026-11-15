@@ -119,13 +119,11 @@ function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, ex
     `read -r plen`,
     `setsid ${exec} < ${shQuote(promptPipe)} &`,
     `agentpid=$!`,
-    // head -c unblocks the fifo's open-for-read (and so setsid()'s own effect) in the backgrounded
-    // job above; querying /proc before this line can still catch it mid-open, inheriting this
-    // script's own pgrp instead of its new one.
     `head -c "$plen" > ${shQuote(promptPipe)}`,
-    `pgid=$(sed 's/^[0-9]* (.*) //' "/proc/$agentpid/stat" 2>/dev/null | awk '{print $3}')`,
-    `[ -n "$pgid" ] || pgid=$agentpid`,
-    `echo "$pgid" > ${shQuote(pgidFile)}`,
+    // A backgrounded job of a non-job-control sh is never its own process group leader, so the
+    // `setsid` command never forks (man setsid(1)): it calls setsid() on itself and execs in
+    // place. Its pid is therefore always its own new pgid — no /proc read, no race.
+    `echo "$agentpid" > ${shQuote(pgidFile)}`,
     `exec 3<&0`,
     `( cat <&3 >/dev/null; p=$(cat ${shQuote(pgidFile)} 2>/dev/null); if [ -n "$p" ]; then kill -TERM "-$p" 2>/dev/null; sleep ${SSH_KILL_GRACE_S}; kill -KILL "-$p" 2>/dev/null; fi ) &`,
     `wait "$agentpid" 2>/dev/null`,
