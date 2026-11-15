@@ -46,6 +46,7 @@ import { createPuller } from "../pull.js";
 import { queueStageOf } from "../pipeline.js";
 import { createDispatcher } from "../dispatch.js";
 import { harnessesOf, quotaGroupOf } from "../dispatch/harness.js";
+import { DEFAULT_AGENT } from "../agents/names.js";
 import { createExecutors } from "../dispatch/executor.js";
 import { verdictPathFor, sandboxVerdictPathFor } from "../dispatch/spawn.js";
 import { createHeartbeat, repositoryOf } from "../heartbeat.js";
@@ -140,8 +141,12 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
     const cooldowns = {};
     /** @type {string[]} */
     const unharnessedShared = [];
+    /** @type {Record<string, string>} */
+    const unharnessedAgents = {};
     for (const s of cfg.pipeline || []) {
-      if (!s.manual && !harnessesOf(s).length && quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
+      if (s.manual || harnessesOf(s).length) continue;
+      if (quotaGroupOf(cfg, null, s).unharnessed) unharnessedShared.push(s.id);
+      unharnessedAgents[s.id] = s.agent ?? cfg.agent ?? DEFAULT_AGENT;
     }
     harnessing = {
       steps: {},
@@ -150,6 +155,7 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       health: seeded,
       unharnessedShared,
       unharnessedUntil: stored.unharnessedUntil,
+      unharnessedAgents,
       onHealth: (down, unharnessedUntil) => store.setHarnessHealth(down, unharnessedUntil),
       onHarnessDown: (harness, { reason, until, cause = "health", window, utilization, threshold }) =>
         emit("harness_down", "", "", { harness, reason, until, cause, ...(window ? { window, utilization, threshold } : {}) }),

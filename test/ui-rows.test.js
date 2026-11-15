@@ -972,6 +972,19 @@ test("profileView: harnesses keeps max: 0 (drained via set_concurrency, #640) in
   assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).harnesses, { local: { active: 1, max: 0 } });
 });
 
+test("profileView: unharnessed = heartbeat.queue.unharnessed when up; no key when down, empty, or absent (#726)", () => {
+  const heartbeat = { maxConcurrent: 4, queue: { active: 1, queued: 0, unharnessed: { claude: 1 } } };
+  assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).unharnessed, { claude: 1 });
+  assert.equal("unharnessed" in profileView({ name: "p", pid: 1, up: false, heartbeat }), false);
+  assert.equal("unharnessed" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0 } } }), false);
+  assert.equal("unharnessed" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0, unharnessed: {} } } }), false);
+});
+
+test("profileView: unharnessed drops a non-positive-integer entry", () => {
+  const heartbeat = { queue: { active: 1, queued: 0, unharnessed: { claude: 1, cursor: 0, opencode: -1, hermes: 1.5 } } };
+  assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).unharnessed, { claude: 1 });
+});
+
 test("uiHost: default loopback; localhost → 127.0.0.1; ip literals pass; a DNS name or junk throws", () => {
   assert.equal(uiHost({}), "127.0.0.1");
   assert.equal(uiHost({ host: "localhost" }), "127.0.0.1");

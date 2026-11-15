@@ -180,6 +180,11 @@ export async function status(args) {
       : "";
     console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens${state}`);
   }
+  // Implicit (harness-less) runs: a step naming no harness, counted by the agent CLI it spawns.
+  const unharnessed = hb.queue?.unharnessed && typeof hb.queue.unharnessed === "object" ? hb.queue.unharnessed : {};
+  for (const [agent, n] of Object.entries(unharnessed)) {
+    console.log(`harness : ${agent} (no harness) ${n} running`);
+  }
 
   // Operator runtime overrides: active ones from the heartbeat while up; the persisted file while
   // down (the receiver re-applies it on start).

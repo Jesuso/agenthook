@@ -64,6 +64,22 @@ test("readStatus: slots.harnesses (heartbeat) shows per-harness active/max, only
   assert.equal(Object.hasOwn(readStatus(readProfile("q", plain)).slots, "harnesses"), false);
 });
 
+test("readStatus: slots.unharnessed (heartbeat) shows implicit run counts by agent, only when present (#726)", () => {
+  const reg = registry();
+  profile(reg, "p", {
+    running: { 7: { stepId: "triage", startedAt: "2026-01-01T00:50:00Z" } },
+    hb: { queue: { active: 1, queued: 0, harnesses: { qwen: { active: 0, max: 1 } }, unharnessed: { claude: 1 } } },
+  });
+  assert.deepEqual(readStatus(readProfile("p", reg)).slots, {
+    max: 3, active: 1, queued: 0, free: 2,
+    harnesses: { qwen: { active: 0, max: 1 } },
+    unharnessed: { claude: 1 },
+  });
+  const plain = registry();
+  profile(plain, "q", { hb: { queue: { active: 0, queued: 0 } } });
+  assert.equal(Object.hasOwn(readStatus(readProfile("q", plain)).slots, "unharnessed"), false);
+});
+
 test("readStatus: harnessUsage sums usage.jsonl per harness, only when the heartbeat lists harnesses and a run used one (#620)", () => {
   const usage = [
     { ref: "1", stepId: "code", harness: "qwen", input: 10, output: 5, cacheRead: 1, cacheCreate: 2 },
