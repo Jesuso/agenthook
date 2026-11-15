@@ -661,7 +661,18 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
   dashed when a `changes` verdict sent the ticket back. Idle gaps longer than 12% of the run time
   (a hold left overnight) are squeezed on the axis and labelled with their real length (`timeScale`).
 - Clicking a bar picks that run; the newest is picked until you do. A caption under the lanes
-  carries what the table showed: step, outcome, duration, cost, start.
+  carries what the table showed: step, outcome, harness/model (when the run names them — `listRuns`
+  falls back from `run_end` to the matching `run_start`, so a still-running run or one whose
+  `run_end` carries no model still shows what it started with), duration, cost, start.
+- The **header's model/context follow the selected run**, not the ticket's live figures: a past
+  run shows its own model (hidden when unknown), with context shown only while the *selected* run
+  is the live one. The header's cost stays the ticket total (it's the sum of `run_end` costs, not
+  the selected run's own — that figure is already on the caption below), now labelled "total" so
+  it never reads as the selected run's.
+- Held/failed reasons are prefixed with the harness that produced them (`on <harness>: `), only
+  when the step that produced it routes through 2+ named harnesses — `held.json` and the
+  `blocked`/`failed` events carry an optional `harness` (src/dispatch/finish.js); a single-harness
+  step's reason is unprefixed, as before.
 - **Story / Raw** tabs on the log (the choice is remembered). Story reads the log the way the agent
   wrote it (`storyBlocks`): each one-line message between tool calls is a beat on a rail, the
   report renders as markdown (react-markdown, no raw HTML), `[agenthook]` notices stand out, and

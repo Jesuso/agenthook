@@ -102,6 +102,9 @@ export function Overview(props: OverviewProps) {
     props.setStepFilter(step);
     setTicketsOpen(true);
   };
+  // A notice from a prior profile's New-ticket flow must not survive a profile switch
+  // (<Overview> isn't keyed by profile — see App.tsx — so its own state otherwise would).
+  useEffect(() => setBlockedNotice(null), [profile.name]);
   useNeedsYouKeys(setHelp, newTicketBtn);
   useAutoRead(profile.name, needs);
   // A background tab or a side screen still shows whether anything needs you.

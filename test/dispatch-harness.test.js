@@ -430,3 +430,53 @@ test("breaker: the same shape with a 4xx API Error line never trips — plain fa
   assert.equal(events.find((e) => e.event === "run_end")?.outcome, "fail");
   assert.equal(events.some((e) => e.event === "harness_down"), false);
 });
+
+// --- reasonHarness (#706): held.json / blocked / failed name the harness, only for a 2+ harness step ---
+
+/** @param {string} v @returns {string} */
+const holdBin = (v) => `#!/bin/sh\nprintf '%s' '{"outcome":"hold","reason":"${v}"}' > "$AGENTHOOK_VERDICT_FILE"\n`;
+/** @param {string} v @returns {string} */
+const failBin = (v) => `#!/bin/sh\nprintf '%s' '{"outcome":"fail","reason":"${v}"}' > "$AGENTHOOK_VERDICT_FILE"\n`;
+
+test("held.json/blocked name the harness only when the step routes through 2+ harnesses", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-reasonharness-hold-"));
+  const bin = path.join(dir, "hold.sh");
+  fs.writeFileSync(bin, holdBin("which DB?"), { mode: 0o755 });
+  const harnesses = { local: { bin }, cloud: { bin } };
+  const multi = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: ["local", "cloud"] }] }, { harness: "local" });
+  assert.equal(multi.advanced[0][2], "hold");
+  assert.equal(multi.store.getHeld("42")?.harness, "local");
+  assert.equal(multi.events.find((e) => e.event === "blocked")?.harness, "local");
+
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-reasonharness-hold2-"));
+  const bin2 = path.join(dir2, "hold.sh");
+  fs.writeFileSync(bin2, holdBin("which DB?"), { mode: 0o755 });
+  const single = await dispatchOnce(dir2, { harnesses: { local: { bin: bin2 } }, pipeline: [{ id: "code", harness: ["local"] }] }, { harness: "local" });
+  assert.equal(single.advanced[0][2], "hold");
+  assert.equal(single.store.getHeld("42")?.harness, undefined, "a single-harness step names no harness");
+  assert.equal(Object.hasOwn(single.events.find((e) => e.event === "blocked") ?? {}, "harness"), false);
+
+  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-reasonharness-hold3-"));
+  const bin3 = path.join(dir3, "hold.sh");
+  fs.writeFileSync(bin3, holdBin("which DB?"), { mode: 0o755 });
+  const noHarness = await dispatchOnce(dir3, { pipeline: [{ id: "code" }], claudeBin: bin3 });
+  assert.equal(noHarness.advanced[0][2], "hold");
+  assert.equal(noHarness.store.getHeld("42")?.harness, undefined, "a profile without harnesses names none");
+});
+
+test("the failed event names the harness only when the step routes through 2+ harnesses", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-reasonharness-fail-"));
+  const bin = path.join(dir, "fail.sh");
+  fs.writeFileSync(bin, failBin("broken build"), { mode: 0o755 });
+  const harnesses = { local: { bin }, cloud: { bin } };
+  const multi = await dispatchOnce(dir, { harnesses, pipeline: [{ id: "code", harness: ["local", "cloud"] }] }, { harness: "local" });
+  assert.equal(multi.advanced[0][2], "fail");
+  assert.equal(multi.events.find((e) => e.event === "failed")?.harness, "local");
+
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-reasonharness-fail2-"));
+  const bin2 = path.join(dir2, "fail.sh");
+  fs.writeFileSync(bin2, failBin("broken build"), { mode: 0o755 });
+  const single = await dispatchOnce(dir2, { harnesses: { local: { bin: bin2 } }, pipeline: [{ id: "code", harness: ["local"] }] }, { harness: "local" });
+  assert.equal(single.advanced[0][2], "fail");
+  assert.equal(Object.hasOwn(single.events.find((e) => e.event === "failed") ?? {}, "harness"), false);
+});

@@ -216,6 +216,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Ticket drawer: with `routing: first-free` across several harnesses, the run caption named
+  neither harness nor model, and the header's model/context always showed the *live* run's
+  figures whatever run was selected below — so a past held local-model run could read as
+  "sonnet 5 · 105K/1M". `listRuns` now falls back from `run_end` to the matching `run_start` for a
+  run's model/harness (a running run, or one whose `run_end` carries no model, still shows what it
+  started with); the run caption shows them; the header follows the *selected* run (model hidden
+  when unknown, context only while the selected run is the live one) and its cost is now labelled
+  "total" since it's the ticket's summed cost, not the selected run's own. A held/failed reason is
+  now prefixed with the harness that produced it (`on <harness>: `), only for a step with 2+ named
+  harnesses (`held.json`, `blocked`, `failed` gain an optional `harness`). Also: in the drawer's
+  Story view, a tool/compaction/error line right after a markdown list no longer gets absorbed into
+  the list's last bullet, and the Overview's "created but blocked" notice no longer survives a
+  profile switch.
 - The live context gauge's window table was stale: every Claude model was listed at 200,000
   tokens, so a run past 200K (current models run in a 1M window) read as a false over-limit. The
   table now holds Anthropic's published default windows (no beta header,

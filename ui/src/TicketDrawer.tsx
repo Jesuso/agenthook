@@ -158,7 +158,10 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   const startedAgo = useAgo(selected?.startedAt ?? null, now);
   const label = ticket?.displayId ?? ticketRef;
   const pr = prNumber(ticket?.prUrl ?? null);
-  const ctx = ticket ? formatContext(ticket) : null;
+  // The header follows the selected run, not the ticket's live figures: a past run's model is
+  // shown as its own, live model/context only while the *selected* run is the live one.
+  const headerModel = selected ? (selected.running ? ticket?.model ?? null : selected.model ?? null) : null;
+  const ctx = ticket && selected?.running ? formatContext(ticket) : null;
   const seq = chronological(list);
   const order = stepOrder(list);
   const span = timeScale(seq.map((r) => ({ start: Date.parse(r.startedAt), end: Math.max(runEndMs(r, now), Date.parse(r.startedAt) + 1000) })));
@@ -202,20 +205,21 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               PR #{pr}
             </a>
           )}
-          {/* The run's figures live here, not on the Overview row: model and context only while it runs. */}
-          {ticket?.status === "running" && ticket.model && (
-            <span data-drawer-model className="font-mono text-label text-muted" title={formatModel(ticket.model).title}>
-              {formatModel(ticket.model).text}
+          {/* The run's figures live here, not on the Overview row: model and context follow the
+              selected run below, never another run's. */}
+          {headerModel && (
+            <span data-drawer-model className="font-mono text-label text-muted" title={formatModel(headerModel).title}>
+              {formatModel(headerModel).text}
             </span>
           )}
-          {ticket?.status === "running" && ctx && (
+          {ctx && (
             <span data-drawer-ctx className="font-mono text-label text-muted" title={`${t("drawer.contextTitle")}: ${ctx.title}`}>
               {ctx.text}
             </span>
           )}
           {ticket && (
             <span className="text-label text-muted" title={t("drawer.costTitle")}>
-              {formatTicketSpend(ticket)}
+              {t("drawer.totalCost", { cost: formatTicketSpend(ticket) })}
             </span>
           )}
           <IconButton label={t("drawer.close")} onClick={props.onClose}>
@@ -231,7 +235,10 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
                 {ticket.plain}<SpeakButton text={ticket.plain} label={t("drawer.readReason")} className="ml-1 align-middle" />
               </p>
             )}
-            <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">{ticket.status === "failed" ? ticket.failReason : ticket.heldReason}</p>
+            <p className="max-h-40 overflow-y-auto font-mono text-label break-words whitespace-pre-wrap text-fg">
+              {ticket.reasonHarness && <span data-reason-harness>{t("drawer.onHarness", { harness: ticket.reasonHarness })}</span>}
+              {ticket.status === "failed" ? ticket.failReason : ticket.heldReason}
+            </p>
             {ticket.status === "held" && ticket.options && ticket.options.length > 0 && onRelease && (
               <div data-drawer-answer className="mt-2">
                 <AnswerOptions options={ticket.options} busy={answerBusy} onSend={sendAnswer} />
@@ -271,7 +278,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
                               type="button"
                               aria-pressed={on}
                               aria-label={`${r.step} ${formatOutcome(r, lang)}, ${formatRelative(r.startedAt, now, lang)}, ${formatDuration(runDurationMs(r, now))}`}
-                              title={`${r.step} · ${formatOutcome(r, lang)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r, lang)}`}
+                              title={`${r.step}${r.harness ? ` · ${r.harness}` : ""}${r.model ? ` · ${formatModel(r.model).text}` : ""} · ${formatOutcome(r, lang)} · ${formatDuration(runDurationMs(r, now))} · ${formatRunCost(r, lang)}`}
                               onClick={() => setPicked(r.run)}
                               className={`absolute top-1/2 h-3.5 min-w-2 -translate-y-1/2 rounded-sm ${RUN_BG[outcomeTone(r)]} ${r.running ? "animate-status-pulse" : ""} ${on ? "z-10 ring-2 ring-fg ring-offset-2 ring-offset-bg" : "opacity-60 hover:opacity-100"}`}
                               style={{ left: `${span.x(a)}%`, width: `${span.x(runEndMs(r, now)) - span.x(a)}%` }}
@@ -323,6 +330,12 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
             <div data-run-caption className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
               <span className="font-medium text-fg">{selected.step}</span>
               <Pill tone={outcomeTone(selected)}>{formatOutcome(selected, lang)}</Pill>
+              {selected.harness && <span data-run-harness className="text-muted">{selected.harness}</span>}
+              {selected.model && (
+                <span data-run-model className="font-mono text-muted" title={formatModel(selected.model).title}>
+                  {formatModel(selected.model).text}
+                </span>
+              )}
               {verdictSourceLabel(selected, lang) && (
                 <span className="text-muted" title={t("drawer.verdictSourceTitle")}>
                   {verdictSourceLabel(selected, lang)}

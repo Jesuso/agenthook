@@ -393,6 +393,26 @@ test("listRuns: turns/firstContext/peakContext/lastContext ride along only when 
   assert.equal("compactions" in newest, false, "a run_end with no turns adds no compactions key either");
 });
 
+test("listRuns: model/harness fall back to the matching run_start when the run_end has none (#706)", () => {
+  const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
+  const dir = path.join(reg, "q", "logs");
+  fs.mkdirSync(dir, { recursive: true });
+  const names = ["2026-10-08T10-00-00-000Z-step-code-7.log", "2026-10-08T10-10-00-000Z-step-code-7.log"];
+  for (const n of names) fs.writeFileSync(path.join(dir, n), "x");
+  fs.writeFileSync(path.join(reg, "q", "running.json"), JSON.stringify({ "7": { stepId: "code" } }));
+  const events = [
+    { ts: "2026-10-08T10:00:00.010Z", event: "run_start", ref: "7", step: "code", model: "qwen3-coder", harness: "qwen" },
+    { ts: "2026-10-08T10:04:00.000Z", event: "run_end", ref: "7", step: "code", outcome: "advance" }, // no model/harness of its own
+    { ts: "2026-10-08T10:10:00.010Z", event: "run_start", ref: "7", step: "code", model: null, harness: "qwen" }, // still running: no run_end yet
+  ];
+  const [running, oldest] = listRuns(reg, "q", "7", events);
+  assert.equal(running.running, true);
+  assert.equal(running.harness, "qwen");
+  assert.equal("model" in running, false, "run_start.model may be null — adds no key");
+  assert.equal(oldest.model, "qwen3-coder", "the run_end has no model of its own; falls back to run_start's");
+  assert.equal(oldest.harness, "qwen");
+});
+
 test("listRuns: compactions is omitted when turns is set but compactions isn't (#657)", () => {
   const reg = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ui-runs-"));
   const dir = path.join(reg, "q", "logs");

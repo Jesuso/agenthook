@@ -10,12 +10,16 @@ export type StoryBlock = { kind: "beat"; text: string } | { kind: "prose"; text:
 
 const LIST = /^\s*([-*+]|\d+[.)])\s/;
 const NOTICE = "[agenthook]";
+// The agents' own event lines (src/agents/opencode.js tool/error, src/agents/claude.js /
+// opencode.js compaction): never part of the report's markdown, whatever precedes them.
+const EVENT_LINE = /^(?:🔧|🗜|⚠)/;
 
 export function storyBlocks(lines: string[]): StoryBlock[] {
   // The first line is the `# <id>  <title>` header the receiver writes; the drawer already shows it.
   const body = lines.length && lines[0].startsWith("# ") ? lines.slice(1) : lines;
-  // A notice line ends a paragraph like a blank line does: the receiver appends it after the agent exits.
-  const blank = (i: number) => i < 0 || i >= body.length || body[i].trim() === "" || body[i].startsWith(NOTICE);
+  // A notice or event line ends a paragraph like a blank line does: the receiver appends the
+  // former after the agent exits, and the latter is never report prose.
+  const blank = (i: number) => i < 0 || i >= body.length || body[i].trim() === "" || body[i].startsWith(NOTICE) || EVENT_LINE.test(body[i]);
   const nextText = (i: number) => {
     for (let j = i + 1; j < body.length; j++) if (body[j].trim() !== "") return body[j];
     return null;
@@ -36,13 +40,24 @@ export function storyBlocks(lines: string[]): StoryBlock[] {
       out.push({ kind: "notice", text: line.slice(NOTICE.length).trim() });
       continue;
     }
+    if (EVENT_LINE.test(line)) {
+      out.push({ kind: "beat", text: line });
+      continue;
+    }
     const next = nextText(i);
+    // A line directly after a list item (no blank line between) only stays in the list's prose
+    // when it's itself list syntax (the clauses below already cover that) or an indented
+    // continuation of the item; anything else — a plain message line the agent wrote next —
+    // starts a fresh block instead of getting absorbed into the last `<li>`.
+    const prevLine = i > 0 ? body[i - 1] : null;
+    const prevIsListItem = prevLine !== null && LIST.test(prevLine);
+    const indented = /^\s/.test(line);
     const prose =
       LIST.test(line) ||
       line.startsWith("#") ||
       (next !== null && LIST.test(next)) ||
       (blank(i - 1) && blank(i + 1) && i > 0) ||
-      (out[out.length - 1]?.kind === "prose" && !blank(i - 1));
+      (out[out.length - 1]?.kind === "prose" && !blank(i - 1) && (!prevIsListItem || indented));
     if (prose) pushProse(line);
     else out.push({ kind: "beat", text: line });
   }

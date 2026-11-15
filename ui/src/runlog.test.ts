@@ -75,6 +75,32 @@ describe("storyBlocks", () => {
     expect(storyBlocks([])).toEqual([]);
     expect(storyBlocks(["# #1  title"])).toEqual([]);
   });
+
+  it("ends a list at a tool/compaction/error line, as its own beat, not absorbed into the last bullet (#706)", () => {
+    expect(
+      storyBlocks(["**Findings:**", "- one", "- two", "🗜 compaction (12000 -> 4000 tokens)", "🔧 Read(src/x.js)", "⚠ ECONNRESET", "Done reviewing.", "All set."]),
+    ).toEqual([
+      { kind: "prose", text: "**Findings:**\n- one\n- two" },
+      { kind: "beat", text: "🗜 compaction (12000 -> 4000 tokens)" },
+      { kind: "beat", text: "🔧 Read(src/x.js)" },
+      { kind: "beat", text: "⚠ ECONNRESET" },
+      { kind: "beat", text: "Done reviewing." },
+      { kind: "beat", text: "All set." },
+    ]);
+  });
+
+  it("a plain message line right after a list item is its own beat, not folded into the list", () => {
+    expect(storyBlocks(["My plan:", "- step one", "- step two", "Now let's check CI."])).toEqual([
+      { kind: "prose", text: "My plan:\n- step one\n- step two" },
+      { kind: "beat", text: "Now let's check CI." },
+    ]);
+  });
+
+  it("an indented continuation line under a bullet stays in the list, even with no list item after it", () => {
+    expect(storyBlocks(["Intro.", "- item one", "  wraps to a second physical line"])).toEqual([
+      { kind: "prose", text: "Intro.\n- item one\n  wraps to a second physical line" },
+    ]);
+  });
 });
 
 describe("stepOrder", () => {

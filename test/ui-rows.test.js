@@ -798,6 +798,28 @@ test("buildRows: failReason only while failed/cancelled; queuePos is the place i
   assert.deepEqual([row(rows, "q0").queuePos, row(rows, "q1").queuePos, row(rows, "f").queuePos], [0, 1, null]);
 });
 
+test("buildRows: reasonHarness from held.json while held, from the last failed event while failed/cancelled, reset on a re-run (#706)", () => {
+  const held = state({ held: { h: { stepId: "code", reason: "which db?", harness: "local", heldAt: "t" }, h2: { stepId: "code", reason: "no harness here", heldAt: "t" } } });
+  const rows = buildRows("p", held);
+  assert.equal(row(rows, "h").reasonHarness, "local");
+  assert.equal(row(rows, "h2").reasonHarness, null);
+
+  const failed = state({
+    events: [
+      { ts: "1", event: "failed", ref: "f", step: "code", reason: "tests red", harness: "cloud" },
+      { ts: "2", event: "run_start", ref: "f", step: "code" },
+      { ts: "3", event: "failed", ref: "f", step: "code", reason: "red again" },
+    ],
+  });
+  const fRows = buildRows("p", failed);
+  assert.equal(row(fRows, "f").reasonHarness, null, "the re-run's failure named no harness, dropping the earlier one");
+
+  const stillFailing = state({
+    events: [{ ts: "1", event: "failed", ref: "g", step: "code", reason: "tests red", harness: "cloud" }],
+  });
+  assert.equal(row(buildRows("p", stillFailing), "g").reasonHarness, "cloud");
+});
+
 test("buildRows: queuedAt comes from the queue entry while queued; null otherwise and for a legacy entry with no stamp", () => {
   const rows = buildRows(
     "p",

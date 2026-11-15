@@ -86,7 +86,10 @@ function turnStatsOf(end) {
  * in `events` (still running, or older than the events tail). `running` = no outcome yet, it's
  * the ref's newest run, and running.json has the ref on that step. `estUsd`/`costBasis` follow
  * src/pricing.js `costOf` (the run_end's stamp, else the profile's rates); `energyKwh`/`energyUsd`
- * ride along when the run was measured (src/energy.js), `model`/`harness` when the run_end names them.
+ * ride along when the run was measured (src/energy.js). `model`/`harness` come from the matching
+ * `run_end` when it names them, else the matching `run_start` (found the same way as the end: same
+ * step, at/after this run's stamp, before the step's next run) — so a running run, or one whose
+ * run_end carries no model, still shows what it started with.
  * @param {string} registry @param {string} profile @param {string} ref
  * @param {Record<string, any>[]} events  the profile's events tail, oldest first
  * @param {Record<string, import('../pricing.js').Rate>|null} [pricing]  the heartbeat's `pricing` overrides
@@ -132,12 +135,16 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
   found.sort((a, b) => (a.run < b.run ? -1 : a.run > b.run ? 1 : 0));
 
   const ends = events.filter((e) => e.event === "run_end" && e.ref === ref && typeof e.ts === "string");
+  const starts = events.filter((e) => e.event === "run_start" && e.ref === ref && typeof e.ts === "string");
   const cur = Object.hasOwn(running, ref) && isObj(running[ref]) ? running[ref] : null;
   /** @type {import('./contract.js').RunView[]} */
   const out = [];
   found.forEach((r, i) => {
     const next = found.slice(i + 1).find((n) => n.step === r.step)?.startedAt ?? null;
     const end = ends.find((e) => e.step === r.step && e.ts >= r.startedAt && (next === null || e.ts < next)) || null;
+    const start = starts.find((e) => e.step === r.step && e.ts >= r.startedAt && (next === null || e.ts < next)) || null;
+    const model = (end && typeof end.model === "string" && end.model ? end.model : null) ?? (start && typeof start.model === "string" && start.model ? start.model : null);
+    const harness = (end && typeof end.harness === "string" && end.harness ? end.harness : null) ?? (start && typeof start.harness === "string" && start.harness ? start.harness : null);
     const outcome = end && typeof end.outcome === "string" ? end.outcome : null;
     const c = end ? costOf(end, pricing) : {};
     out.push({
@@ -145,8 +152,8 @@ export function listRuns(registry, profile, ref, events, pricing = null) {
       step: r.step,
       startedAt: r.startedAt,
       outcome,
-      ...(end && typeof end.model === "string" && end.model ? { model: end.model } : {}),
-      ...(end && typeof end.harness === "string" && end.harness ? { harness: end.harness } : {}),
+      ...(model ? { model } : {}),
+      ...(harness ? { harness } : {}),
       ...(end && ["agent", "repaired", "deduced"].includes(end.verdictSource) ? { verdictSource: end.verdictSource } : {}),
       ...(end && typeof end.plain === "string" && end.plain ? { plain: end.plain.slice(0, 300) } : {}),
       costUsd: end && typeof end.costUsd === "number" && Number.isFinite(end.costUsd) ? end.costUsd : null,
