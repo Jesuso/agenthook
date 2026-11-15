@@ -354,10 +354,15 @@ the one-shot run prompt, an `instructions` file survives compaction. A **sandbox
 (`oc-local` above) carries the unattended contract — never ask, what the compaction-continue
 message means here, and the verdict file/format — as exactly such a file, wired into that run's
 `opencode.json` `instructions` (see [OpenCode in the sandbox](sandbox.md#opencode-in-the-sandbox)).
-The hardcoded continuation text itself can't be changed from config — only a plugin (JS code,
-out of scope here) could rewrite or suppress it. A **host or ssh** opencode run gets the contract
-only in the one-shot run prompt, same as before; it has no agenthook-owned config to add
-`instructions` to.
+A sandboxed run also gets the step's standing instructions (repo + step `instructionsFile` text)
+as a second `instructions` file (`agenthook-standing.md`), so the gate commands, "read narrowly",
+"rework: read the latest review", and other step-specific guidance survive compaction too. The
+standing text is kept in the run prompt as well (so the model sees it twice — once in the system
+prompt via `instructions`, once in the one-shot prompt), incurring the token cost each time. The
+ticket text itself is not included in the standing file. When the standing text exceeds 16 KB it
+is not written to a file; a `console.warn` naming the step is emitted instead, and the standing
+text stays only in the run prompt. A **host or ssh** opencode run gets the contract only in the
+one-shot run prompt, same as before; it has no agenthook-owned config to add `instructions` to.
 
 ## Cost reporting
 

@@ -330,6 +330,80 @@ test("sandbox: verdictFile with an opencodeConfig → provider block kept, contr
   }
 });
 
+test("sandbox: standing instructions (non-empty string, ≤ 16 KB) → standing file + standing in instructions", () => {
+  const verdictFile = "/verdict/run-716/verdict.json";
+  const standing = "# Code step standing instructions\nDo the minimal change.";
+  const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile, standing });
+  const standingDst = "/home/agent/.config/opencode/agenthook-standing.md";
+  const standingFile = own.files.find((f) => f.dst === standingDst);
+  assert.ok(standingFile, "standing file present");
+  assert.equal(standingFile.content, standing);
+  assert.equal(standingFile.mode, 0o600);
+  const contractDst = "/home/agent/.config/opencode/agenthook-unattended.md";
+  const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
+  const parsed = JSON.parse(configFile.content);
+  assert.deepEqual(parsed.instructions, [contractDst, standingDst]);
+});
+
+test("sandbox: standing with opencodeConfig → existing instructions kept, contract + standing appended", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-cfg-standing-"));
+  const cfgPath = path.join(dir, "opencode.json");
+  fs.writeFileSync(cfgPath, JSON.stringify({ instructions: ["x.md"], provider: { ollama: {} } }));
+  try {
+    const verdictFile = "/verdict/run-716/verdict.json";
+    const standing = "# Standing instructions\nDo the minimal change.";
+    const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code", opencodeConfig: cfgPath }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile, standing });
+    const standingDst = "/home/agent/.config/opencode/agenthook-standing.md";
+    const contractDst = "/home/agent/.config/opencode/agenthook-unattended.md";
+    const standingFile = own.files.find((f) => f.dst === standingDst);
+    assert.ok(standingFile);
+    assert.equal(standingFile.content, standing);
+    const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
+    const parsed = JSON.parse(configFile.content);
+    assert.deepEqual(parsed.instructions, ["x.md", contractDst, standingDst]);
+    assert.deepEqual(parsed.provider, { ollama: {} });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sandbox: standing over 16 KB → no standing file, no standing in instructions, one warn", () => {
+  const verdictFile = "/verdict/run-716/verdict.json";
+  const standing = "x".repeat(16 * 1024 + 1);
+  const w = warns(() => {
+    const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile, standing });
+    const standingDst = "/home/agent/.config/opencode/agenthook-standing.md";
+    assert.ok(!own.files.find((f) => f.dst === standingDst), "no standing file");
+    const contractDst = "/home/agent/.config/opencode/agenthook-unattended.md";
+    const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
+    const parsed = JSON.parse(configFile.content);
+    assert.deepEqual(parsed.instructions, [contractDst]);
+  });
+  assert.equal(w.length, 1);
+  assert.match(w[0], /\[dispatch\] step code.*standing instructions are/);
+  assert.match(w[0], /16385/);
+});
+
+test("sandbox: empty standing → output identical to no standing", () => {
+  const verdictFile = "/verdict/run-716/verdict.json";
+  const withEmpty = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile, standing: "" });
+  const without = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile });
+  assert.deepEqual(withEmpty, without);
+});
+
+test("sandbox: absent standing (undefined) → output identical to no standing", () => {
+  const verdictFile = "/verdict/run-716/verdict.json";
+  const withUndefined = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile });
+  const without = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", verdictFile });
+  assert.deepEqual(withUndefined, without);
+});
+
+test("sandbox: no verdictFile → unchanged output even when standing is passed", () => {
+  const standing = "# Standing instructions\nDo the minimal change.";
+  const own = opencode.sandbox({ cfg: /** @type {any} */ ({}), step: /** @type {any} */ ({ id: "code" }), cwd: "/wt", ownsCwd: true, home: "/home/agent", standing });
+  assert.deepEqual(own.files, []);
+});
+
 test("opencodeContract: mentions the verdict path, never-ask, and the compaction-continue rule", () => {
   const text = opencodeContract("/verdict/run-1/verdict.json");
   assert.match(text, /\/verdict\/run-1\/verdict\.json/);

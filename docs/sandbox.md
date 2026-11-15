@@ -540,6 +540,12 @@ A sandboxed run also gets an extra `.config/opencode/agenthook-unattended.md` fi
 hardcoded post-compaction "stop and ask" message means here; the verdict file/format) — see
 [Small windows and compaction](local-models.md#small-windows-and-compaction).
 
+A sandboxed opencode run also gets the step's standing instructions as a second
+`.config/opencode/agenthook-standing.md` file with an `instructions` entry, so repo and step
+guidance survive a context compaction. The standing text is kept in the run prompt too
+(duplicating the token cost), and when it exceeds 16 KB the file is not written (a `console.warn`
+is emitted instead). The ticket text itself is not included in the standing file.
+
 A `provider.*.options.baseURL` pointing at a LAN model server needs the same care as a harness's
 `ANTHROPIC_BASE_URL` (see [Network](#network) above): `localhost`/`127.0.0.1` never reaches your
 host from inside the container, so use the host's LAN IP, and allowlist mode needs a

@@ -299,7 +299,7 @@ export function createStep(ctx) {
     let sandboxedRun;
     if (sandboxed && sandbox && agent.sandbox && !refused) {
       try {
-        const own = agent.sandbox({ cfg, step: spawnStep, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home, verdictFile });
+        const own = agent.sandbox({ cfg, step: spawnStep, cwd, ownsCwd: hasWorktree, home: sandbox.describe().home, verdictFile, standing });
         // The per-run GH_CONFIG_DIR (#474) is mounted read-only next to the agent's own mounts:
         // a refresh rewrites hosts.yml with an atomic rename, which the container sees because
         // the mount is the directory, not the file.
