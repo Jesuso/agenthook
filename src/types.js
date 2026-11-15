@@ -75,6 +75,7 @@
  * @property {number} [contextTokens]          the model's context window (tokens), for the running record's `ctxMax` (#658); wins over the harness's; unset falls back to src/models.js's built-in table (and, for opencode, its opencodeConfig's `limit.context`)
  * @property {number} [idleMinutes]            opt-in: kill the agent (fail with `timeout`) after this many minutes with no stream-json output (default off)
  * @property {boolean} [requireVerdict]        a clean exit with a missing/unparseable/unrecognized verdict holds (reason "no valid verdict") instead of advancing (default true); set false to opt out and advance on a clean exit as before
+ * @property {number} [verdictRepairs]         how many receiver-driven repair turns (#677) a clean exit with no valid verdict gets — each resumes the same agent session with a fixed prompt — before the hold above fires (default 1, 0 disables); needs the agent's `resumeArgs` and a captured session id
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
  * @property {{descriptionHeadings: string[], model?: string, effort?: 'low'|'medium'|'high'|'xhigh'|'max'}} [lite]  description-gated override (intended for triage): when every heading starts a line of the task description, use this model/effort as the base; `escalate` still wins on top
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
@@ -563,8 +564,9 @@
 /** An agent adapter: the coding-agent CLI a step spawns (src/agents/). dispatch, follow and
  * resume reach the CLI only through it.
  * @typedef {object} AgentAdapter
- * @property {() => {name: string, stdout: string, promptFile?: boolean, policy?: {allow: boolean, deny: boolean}}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv; `policy` = which step policies (`allow`/`deny`) the CLI can enforce — a step setting one it can't is refused
+ * @property {() => {name: string, stdout: string, promptFile?: boolean, policy?: {allow: boolean, deny: boolean}, sandboxResume?: boolean}} describe  `promptFile: true` = dispatch passes the prompt via a file, not argv; `policy` = which step policies (`allow`/`deny`) the CLI can enforce — a step setting one it can't is refused; `sandboxResume: false` = a sandboxed run of this agent can never resume a session (opencode: its session db lives in the per-run sandbox HOME, deleted at teardown) — absent/true = it can
  * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, attribution?: boolean, promptFile?: string, maxMs?: number, toolsets?: string[], isolated?: boolean, allow?: StepPolicy, deny?: StepPolicy, cwd?: string, verdictFile?: string}) => string[]} buildArgs  argv after the executable
+ * @property {(o: {prompt: string, model?: string, effort?: string, provider?: string, fullAuto?: boolean, attribution?: boolean, promptFile?: string, maxMs?: number, toolsets?: string[], isolated?: boolean, allow?: StepPolicy, deny?: StepPolicy, cwd?: string, verdictFile?: string, sessionId: string}) => string[]} [resumeArgs]  one verdict-repair turn (#677): same options as buildArgs plus the session to resume headlessly; unset = this agent can't resume headlessly (hermes)
  * @property {() => AgentParser} createParser
  * @property {(result: any, ctx: AgentUsageCtx) => UsageRecord} usageRecord  `result` may be null (no result seen): zero tokens, `unpriced` still resolved
  * @property {AgentSessions|null} sessions  null = no transcripts to follow/resume

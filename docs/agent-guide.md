@@ -330,8 +330,12 @@ Names you will act on: `enqueued` (job accepted into the queue; fires once per a
 a duplicate webhook for the same ref+step coalesces away silently; carries `kind` —
 `"pipeline"`/`"merge"`/`"ci"` — so a CI/merge job's enqueue isn't mistaken for a pipeline re-run),
 `run_start`, `run_end
-{outcome, costUsd}`, `verdict_missing {reason}` (a clean exit with no usable verdict file, right
-before the hold it forces; a `blocked` event follows), `blocked {reason}` (task now held),
+{outcome, costUsd}` (`repaired: true|false` only when a verdict-repair turn ran — see `verdict_repair`),
+`verdict_repair {result, turns}` (a clean exit with no valid verdict got one receiver-driven repair
+turn — same session, fixed prompt — before a human is involved; `result` = `"repaired"` or
+`"still_missing"`; fires right before `run_end`), `verdict_missing {reason}` (a clean exit with no
+usable verdict file, after any repair turns, right before the hold it forces; a `blocked` event
+follows), `blocked {reason}` (task now held),
 `failed {reason}`, `merged` (`via:"recheck"` when a `recheck` learned it rather than the forge's webhook),
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),

@@ -14,7 +14,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-opencode-"));
 process.env.HOME = HOME;
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 
-const { buildOpencodeArgs, createOpencodeParser, buildOpencodeUsageRecord, opencode } = await import("../src/agents/opencode.js");
+const { buildOpencodeArgs, resumeOpencodeArgs, createOpencodeParser, buildOpencodeUsageRecord, opencode } = await import("../src/agents/opencode.js");
 const { AGENTS } = await import("../src/agents/index.js");
 const { listSessions, agentSessions } = await import("../src/sessions.js");
 const { resumeCommand, resumeArgs, lookedIn } = await import("../src/commands/resume.js");
@@ -77,6 +77,18 @@ test("buildOpencodeArgs: provider never reaches argv and is warned about", () =>
   assert.equal(w.length, 1);
   assert.match(w[0], /provider "ollama-launch"/);
   assert.deepEqual(warns(() => buildOpencodeArgs({ prompt: "hi", effort: "high" })), []);
+});
+
+// --- resumeOpencodeArgs (#677): a verdict-repair turn resumes the same session headlessly ---
+
+test("resumeOpencodeArgs: -s <id> inserted right before the -- separator", () => {
+  const args = resumeOpencodeArgs({ prompt: "hi", model: "m", effort: "max", fullAuto: true, sessionId: "ses_1" });
+  assert.deepEqual(args, ["run", "--format", "json", "--auto", "-m", "m", "--variant", "max", "-s", "ses_1", "--", "hi"]);
+  assert.equal(opencode.resumeArgs, resumeOpencodeArgs);
+});
+
+test("resumeOpencodeArgs: no model/effort — -s still lands right before --", () => {
+  assert.deepEqual(resumeOpencodeArgs({ prompt: "hi", sessionId: "ses_2" }), ["run", "--format", "json", "-s", "ses_2", "--", "hi"]);
 });
 
 test("parser: recorded run → tool + text in the log, tally summed over steps, session id", () => {
@@ -225,7 +237,7 @@ test("usage record: a non-zero summed cost → priced costUsd", () => {
 });
 
 test("adapter: describe, defaults, no transcripts but a top-level resume argv", () => {
-  assert.deepEqual(opencode.describe(), { name: "opencode", stdout: "stream-json" });
+  assert.deepEqual(opencode.describe(), { name: "opencode", stdout: "stream-json", sandboxResume: false });
   assert.deepEqual(opencode.defaults, { bin: "opencode" });
   assert.equal(opencode.sessions, null);
   assert.deepEqual(opencode.resumeCommand?.("ses_1"), ["-s", "ses_1"]);

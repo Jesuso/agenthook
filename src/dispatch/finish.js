@@ -7,14 +7,11 @@ import { CANCELLED_REASON, reportMoveFailure } from "../events.js";
 import { unionPaths } from "../overlap.js";
 import { costOf } from "../pricing.js";
 import { energyFields } from "../energy.js";
-import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion } from "./verdict.js";
+import { timeoutReason, NO_VALID_VERDICT, QUESTION_HOLD, endedWithQuestion, guardSandboxVerdict } from "./verdict.js";
 import { healthTrip } from "./harness.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../pipeline.js";
 import { followUpDecision } from "../followup.js";
 import { autoMergeDecision, runAutoMerge, reportAutoMergeSkipped, disableAutoMergeOnBounce, holdAutoMergeSlot } from "../auto-merge.js";
-
-/** A sandboxed run's verdict file larger than this is not read (a verdict is a few hundred bytes). */
-export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
 
 /**
  * runStep's locals the post-exit phase reads, handed over as one object.
@@ -48,6 +45,7 @@ export const MAX_SANDBOX_VERDICT_BYTES = 1024 * 1024;
  * @property {import('../types.js').SandboxReport} [sandboxReport]  what the sandbox reported once the run exited
  * @property {string|null} [headSha]  forge.autoMerge tier step: the PR head when the run started
  * @property {string} [lastText]  the run's last output (its final result text, else rendered-stdout tail) for the question-hold detector
+ * @property {{turns: number, repaired: boolean, results: any[], turnStats: {turns: number, firstContext?: number, peakContext?: number, lastContext?: number, compactions?: number}[]}} [repair]  the receiver-driven verdict-repair turns (#677) this run took, when any did: `turns` = how many ran, `repaired` = the last one wrote a valid verdict, `results`/`turnStats` = each repair spawnAgent() result / its turnStats, oldest first — absent when no repair was attempted
  */
 
 /** @param {import('./context.js').DispatchState & import('./routing.js').Routing & import('./usage.js').Usage & import('./verdict.js').VerdictOps} ctx */
@@ -57,7 +55,7 @@ export function createFinish(ctx) {
 
   /** @param {import('../types.js').Job} job @param {StepRun} run */
   async function finishStep(job, run) {
-    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText } = run;
+    const { step, spawnStep, harnessField, task, repo, hasWorktree, verdictFile, findings, logPath, model, startedAt, maxMinutes, agent, refused, preflightDown, spawnError, noOutput, apiDown, agentEnv, energyRun, code, result, quota, turnStats, timedOut, sandboxed, sandboxReport, lastText, repair } = run;
     store?.clearRunning(job.ref);
     pids.delete(job.ref);
     clearTimeout(killTimers.get(job.ref)); // the child is gone: its pid may be recycled
@@ -106,6 +104,24 @@ export function createFinish(ctx) {
     // Per-turn stats the parser saw (#645): turns/firstContext/peakContext/lastContext, only
     // when the parser counted at least one turn — hermes' `finalize` never sets these.
     if (turnStats) Object.assign(usage, turnStats);
+    // Verdict-repair (#677): sum each repair turn's usage into this single record — tokens,
+    // cost and duration add; peakContext is the max across every turn; lastContext and
+    // sessionId come from the final turn, so `ah resume` picks up the latest session.
+    if (repair?.results?.length) {
+      for (const r of repair.results) {
+        const ru = agent.usageRecord(r.result, { ref: job.ref, stepId: step.id, model, bin: spawnStep.bin, claudeBin: cfg.claudeBin, startedAt, endedAt });
+        for (const k of /** @type {const} */ (["input", "output", "cacheRead", "cacheCreate"])) usage[k] = (usage[k] || 0) + (ru[k] || 0);
+        if (typeof ru.costUsd === "number") usage.costUsd = (usage.costUsd || 0) + ru.costUsd;
+        if (typeof ru.durationMs === "number") usage.durationMs = (usage.durationMs || 0) + ru.durationMs;
+        if (typeof ru.sessionId === "string") usage.sessionId = ru.sessionId;
+      }
+      for (const ts of repair.turnStats) {
+        usage.turns = (usage.turns || 0) + (ts.turns || 0);
+        if (typeof ts.peakContext === "number") usage.peakContext = Math.max(usage.peakContext ?? 0, ts.peakContext);
+        if (typeof ts.lastContext === "number") usage.lastContext = ts.lastContext;
+        if (typeof ts.compactions === "number") usage.compactions = (usage.compactions || 0) + ts.compactions;
+      }
+    }
     // A harness may have switched the agent: name it, so follow/resume find the run's transcript.
     if (harnessField.harness) usage.agent = agent.describe().name;
     // ...and the harness itself, so status can sum usage per harness (`harnessUsage`).
@@ -158,18 +174,9 @@ export function createFinish(ctx) {
       }
     }
 
-    // A sandboxed agent owns its verdict dir, and the host reads the file synchronously: only a
-    // small regular file is read. A symlink would route on a file outside the dir, a FIFO would
-    // block the event loop on open (the whole receiver), a huge file would be slurped — each is
-    // removed and treated as no verdict.
-    if (sandboxed) {
-      try {
-        const st = fs.lstatSync(verdictFile);
-        if (!st.isFile() || st.size > MAX_SANDBOX_VERDICT_BYTES) fs.rmSync(verdictFile, { force: true });
-      } catch {
-        /* no verdict written */
-      }
-    }
+    // A sandboxed agent owns its verdict dir: guard it the same way a repair turn's pre-check does
+    // (src/dispatch/verdict.js guardSandboxVerdict) before trusting anything in it.
+    if (sandboxed) guardSandboxVerdict(verdictFile);
     // Resolve the verdict from the exit code + the file the agent wrote. A killed run
     // always fails — a verdict file it half-wrote before the kill is not trusted.
     /** @type {import('../types.js').Verdict} */
@@ -186,6 +193,28 @@ export function createFinish(ctx) {
       fs.rmSync(sandboxed ? path.dirname(verdictFile) : verdictFile, { recursive: true, force: true });
     } catch {
       /* best effort */
+    }
+
+    // computed before run_end below: missingVerdict must still name the base case even after the
+    // question-hold and repair-suffix rewrites below touch verdict.reason (#655, #677).
+    const missingVerdict = verdict.outcome === "hold" && verdict.reason === NO_VALID_VERDICT;
+    // A clean exit (no kill, no timeout, no refusal) with no valid verdict whose last line is a
+    // question: name it specifically so the held reason and the blocked/verdict_missing events say
+    // the agent ended by asking a question instead of acting, quoting the line.
+    if (missingVerdict && code === 0 && !timedOut && !refused) {
+      const q = endedWithQuestion(lastText);
+      if (q) verdict.reason = `${QUESTION_HOLD}: "${q}"`;
+    }
+    // Verdict-repair (#677): one receiver-driven resume turn (up to step.verdictRepairs) already
+    // ran in step.js, right after the first spawn, before this run's verdict was read above — so
+    // `verdict` here already reflects the LAST turn's file. Report what happened and, if the
+    // verdict is still missing after every repair turn, say so in the reason (keeping the
+    // question form above, when it applied) so a human sees it tried before giving up.
+    if (repair) {
+      emit?.("verdict_repair", job.ref, step.id, { result: repair.repaired ? "repaired" : "still_missing", turns: repair.turns });
+      if (!repair.repaired && missingVerdict) {
+        verdict.reason = `${verdict.reason} (after ${repair.turns} repair turn${repair.turns === 1 ? "" : "s"})`;
+      }
     }
 
     const costUsd = unpriced ? undefined : usage.costUsd;
@@ -221,16 +250,9 @@ export function createFinish(ctx) {
       ...(usage.estUsd !== undefined ? { estUsd: usage.estUsd } : {}),
       ...(energyRec ?? {}),
       ...tokens,
+      ...(repair ? { repaired: !!repair.repaired } : {}),
       ...(sandboxReport?.extra ?? {}),
     });
-    const missingVerdict = verdict.outcome === "hold" && verdict.reason === NO_VALID_VERDICT;
-    // A clean exit (no kill, no timeout, no refusal) with no valid verdict whose last line is a
-    // question: name it specifically so the held reason and the blocked/verdict_missing events say
-    // the agent ended by asking a question instead of acting, quoting the line.
-    if (missingVerdict && code === 0 && !timedOut && !refused) {
-      const q = endedWithQuestion(lastText);
-      if (q) verdict.reason = `${QUESTION_HOLD}: "${q}"`;
-    }
     if (verdict.outcome === "hold") {
       if (missingVerdict) emit?.("verdict_missing", job.ref, step.id, { reason: verdict.reason });
       // Park it: an owner's `@agent` reply on the item resumes THIS step (see the

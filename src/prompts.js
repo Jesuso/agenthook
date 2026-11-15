@@ -307,3 +307,25 @@ export function stepPrompt(task, meta, step, ctx) {
     ], paths),
   ].join("\n");
 }
+
+/**
+ * The one receiver-driven repair turn (#677) for a clean exit that ended with no valid
+ * verdict: resumes the same agent session and asks it to finish the step (if it hasn't)
+ * and then write the verdict it was already asked for. Self-contained on purpose: it repeats
+ * the path, the shape and what each outcome means, because a small-context model may have
+ * compacted the original footer away by the time it is resumed.
+ * @param {string} verdictFile
+ * @returns {string}
+ */
+export function verdictRepairPrompt(verdictFile) {
+  return [
+    `Your run ended without a verdict. If the work this step asked for is not finished, finish it now.`,
+    `Then write the verdict as JSON to this exact file and stop:`,
+    `  ${verdictFile}`,
+    `Shape: {"outcome": "<one of the outcomes your original instructions list>", "reason": "<one sentence>",`,
+    `"summary": {"plain": "<one sentence for a person>"}}. "advance" = the step's work is done and correct;`,
+    `"hold" = you need a person (put the question in "reason"); "fail" = it cannot be done. A review step`,
+    `also has "changes" (put the findings in "findings"). Writing the file is the only thing that counts:`,
+    `saying the verdict in your reply is not enough.`,
+  ].join("\n");
+}

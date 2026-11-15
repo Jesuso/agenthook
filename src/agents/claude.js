@@ -146,6 +146,19 @@ export function buildClaudeArgs({ prompt, model, effort, provider, fullAuto, att
 }
 
 /**
+ * Build the `claude -p -r <id>` argv for a verdict-repair turn (#677): identical to
+ * buildClaudeArgs, with `-r <sessionId>` spliced in right after the prompt so the run
+ * resumes the same session headlessly (`claude --help`: `-r, --resume [value]` works with `-p`).
+ * @param {Parameters<typeof buildClaudeArgs>[0] & {sessionId: string}} o
+ * @returns {string[]}
+ */
+export function resumeClaudeArgs(o) {
+  const args = buildClaudeArgs(o);
+  // args[0..1] = "-p", <prompt>
+  return [args[0], args[1], "-r", o.sessionId, ...args.slice(2)];
+}
+
+/**
  * Render a `compact_boundary` system event as a one-line `🗜 compaction (…)` log entry (pure).
  * `trigger` and the token clause are each dropped when their field is missing or not a finite
  * number — a malformed `compact_metadata` still renders, just as the bare `🗜 compaction`.
@@ -422,6 +435,7 @@ export const claude = {
   // own `env` still wins (buildAgentEnv layers it last).
   env: () => ({ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" }),
   buildArgs: buildClaudeArgs,
+  resumeArgs: resumeClaudeArgs,
   createParser() {
     const p = createStreamParser();
     return {

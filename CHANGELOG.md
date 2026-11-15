@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Verdict repair (#677): a clean exit with no valid verdict ("decided, not delivered" — the agent
+  said it finished but never wrote the file — or "stopped early") now gets one receiver-driven
+  repair turn — the same agent session resumed with a fixed prompt — before holding for a human.
+  Opt-in-by-default per step via the new `verdictRepairs` config key (default 1, 0 disables); needs
+  the step's agent to support headless resume (claude, cursor, opencode — new `resumeArgs` on each;
+  hermes is unchanged) and a captured session id, and is skipped for a sandboxed opencode run (its
+  session lives in a per-run sandbox HOME, gone at teardown). Emits `verdict_repair {result, turns}`
+  before `run_end`, which then carries `repaired: true|false`; a still-missing verdict's hold reason
+  names the attempt (`no valid verdict (after N repair turn(s))`).
 - A `branchPrefix` config key (#674), default `agent/`: two profiles pointed at the same repo
   (e.g. a GitHub-tracker profile and a local-board profile) can now give their receiver-made
   branches distinct prefixes instead of colliding on `agent/<ref>`. `agenthook doctor` gains a

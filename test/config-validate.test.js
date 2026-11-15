@@ -224,6 +224,16 @@ test("pipeline step maxConcurrent: a positive integer passes; 0, -1, 1.5, \"2\" 
   assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" maxConcurrent has no effect on a manual step (no agent runs).`]);
 });
 
+test("pipeline step verdictRepairs: a non-negative integer passes; -1, 1.5, \"2\" and a manual step fail", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "triage", verdictRepairs: 0 }, { id: "code", verdictRepairs: 3 }])), { ok: true });
+  for (const v of [-1, 1.5, "2"]) {
+    const r = validateRawConfig(raw({}, [{ id: "triage", verdictRepairs: v }]));
+    assert.deepEqual(!r.ok && r.errors, [`config: pipeline step "triage" verdictRepairs must be an integer >= 0.`], `verdictRepairs ${JSON.stringify(v)}`);
+  }
+  const m = validateRawConfig(raw({}, [{ id: "code" }, { id: "done", manual: true, verdictRepairs: 1 }]));
+  assert.deepEqual(!m.ok && m.errors, [`config: pipeline step "done" verdictRepairs has no effect on a manual step (no agent runs).`]);
+});
+
 test("pipeline step bin/env: a valid pair and ${VAR} values pass; bad shapes, names and the reserved key fail", () => {
   const ok = validateRawConfig(raw({}, [{ id: "code", bin: "claude-local", env: { CLAUDE_CONFIG_DIR: "/home/x/.claude-alt", API_KEY: "${ALT_KEY}", _x1: "" } }]));
   assert.deepEqual(ok, { ok: true });

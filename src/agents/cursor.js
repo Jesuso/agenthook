@@ -22,6 +22,19 @@ export function buildCursorArgs({ prompt, model, effort, provider, fullAuto }) {
   return ["-p", "--output-format", "stream-json", "--trust", "--model", model || "auto", ...(fullAuto ? ["--force"] : []), prompt];
 }
 
+/**
+ * Build the `agent -p --resume <id>` argv for a verdict-repair turn (#677): identical to
+ * buildCursorArgs, with `--resume <sessionId>` inserted right before the positional prompt
+ * (the adapter already resumes a session this way for `ah resume`, see `sessions.resumeCommand`).
+ * @param {Parameters<typeof buildCursorArgs>[0] & {sessionId: string}} o
+ * @returns {string[]}
+ */
+export function resumeCursorArgs(o) {
+  const args = buildCursorArgs(o);
+  const prompt = args[args.length - 1];
+  return [...args.slice(0, -1), "--resume", o.sessionId, prompt];
+}
+
 /** Copy Cursor's camelCase `usage` onto a tally (absent keys left as they are). @param {any} u @param {any} tally */
 function readUsage(u, tally) {
   if (!u || typeof u !== "object") return;
@@ -193,6 +206,7 @@ export const cursor = {
   describe: () => ({ name: "cursor", stdout: "stream-json" }),
   envPassthrough: ["CURSOR_API_KEY"],
   buildArgs: buildCursorArgs,
+  resumeArgs: resumeCursorArgs,
   createParser: createCursorStreamParser,
   usageRecord: (result, ctx) => buildCursorUsageRecord({ ...ctx, result }),
   sessions: {

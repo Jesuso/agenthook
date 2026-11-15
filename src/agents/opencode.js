@@ -29,6 +29,19 @@ export function buildOpencodeArgs({ prompt, model, effort, provider, fullAuto })
   return ["run", "--format", "json", ...(fullAuto ? ["--auto"] : []), ...(model ? ["-m", model] : []), ...(effort ? ["--variant", effort] : []), "--", prompt];
 }
 
+/**
+ * Build the `opencode run -s <id> -- <prompt>` argv for a verdict-repair turn (#677):
+ * identical to buildOpencodeArgs, with `-s <sessionId>` (`opencode run --help`: `-s, --session
+ * session id to continue`) inserted right before the `--` separator.
+ * @param {Parameters<typeof buildOpencodeArgs>[0] & {sessionId: string}} o
+ * @returns {string[]}
+ */
+export function resumeOpencodeArgs(o) {
+  const args = buildOpencodeArgs(o);
+  const idx = args.indexOf("--");
+  return [...args.slice(0, idx), "-s", o.sessionId, ...args.slice(idx)];
+}
+
 /** A non-negative number, else 0. @param {any} n */
 const num = (n) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
 
@@ -204,9 +217,13 @@ export function readOpencodeConfig(configPath) {
 
 /** @type {import('../types.js').AgentAdapter} */
 export const opencode = {
-  describe: () => ({ name: "opencode", stdout: "stream-json" }),
+  // sandboxResume: false — a sandboxed run's session database lives in the per-run sandbox
+  // HOME (sandbox() below writes no transcripts, has no mounts), which is deleted at teardown,
+  // so a repair turn (#677) can never resume a sandboxed run's session. Unsandboxed, it can.
+  describe: () => ({ name: "opencode", stdout: "stream-json", sandboxResume: false }),
   envPassthrough: ["OPENCODE_*"],
   buildArgs: buildOpencodeArgs,
+  resumeArgs: resumeOpencodeArgs,
   createParser: createOpencodeParser,
   usageRecord: (result, ctx) => buildOpencodeUsageRecord({ ...ctx, result }),
   sessions: null,

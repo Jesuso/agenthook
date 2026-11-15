@@ -421,6 +421,22 @@ test("sandbox e2e: a sandboxed opencode step (agent: opencode) is not refused an
   }
 });
 
+test("sandbox e2e: a sandboxed opencode run with no verdict gets no repair spawn (#677 — sandboxResume:false)", async () => {
+  const h = sandboxHarness([{ id: "code", agent: "opencode", createsWorktree: true }, { id: "done", manual: true }], {
+    inner: `#!/bin/sh\nprintf '{"type":"step_start","sessionID":"ses_oc"}\\n'\nexit 0\n`,
+  });
+  h.cfg.pipeline[0].bin = h.cfg.claudeBin;
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "hold", JSON.stringify(h.advanced));
+    assert.equal(h.calls().filter(isAgentRun).length, 1, "no resume spawn — opencode's sandboxed session db is gone at teardown");
+    assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined);
+    assert.equal(h.events.find((e) => e.event === "run_end")?.data.repaired, undefined);
+  } finally {
+    h.restore();
+  }
+});
+
 test("sandbox e2e: a harness with agent: opencode routes a sandboxed run through it unrefused", async () => {
   const h = sandboxHarness([{ id: "code", harness: "oc-local", createsWorktree: true }, { id: "done", manual: true }]);
   h.cfg.harnesses = { "oc-local": { agent: "opencode", bin: h.cfg.claudeBin } };
