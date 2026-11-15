@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Overview, harnessesVisible } from "./Overview";
@@ -28,7 +28,7 @@ const ticket = (ref: string, over: Partial<TicketRow> = {}): TicketRow => ({
 const render = (p: ProfileView, tickets: TicketRow[], over: Partial<OverviewProps> = {}) =>
   renderToStaticMarkup(
     createElement(Overview, {
-      profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
+      profile: p, snapshot: { profiles: [p], tickets }, now: NOW, feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, stepFilter: "", setStepFilter: () => {}, showAll: false, setShowAll: () => {},
       open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss: () => {}, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), ...over,
     }),
   );
@@ -271,7 +271,25 @@ describe("Overview", () => {
     expect(render(profile(), [])).toContain('data-all-tickets="true" data-open="false"');
     expect(render(profile(), [], { statusFilter: "failed" })).toContain('data-open="true"');
     expect(render(profile(), [], { epicFilter: "E1" })).toContain('data-open="true"');
+    expect(render(profile(), [], { stepFilter: "code" })).toContain('data-open="true"');
     expect(render(profile(), [])).toMatch(/data-tickets-toggle[^>]*aria-expanded="false"/);
+  });
+
+  it("Board|Table tabs: a filter forces Table, even while open (#697)", () => {
+    const withFilter = render(profile(), [], { statusFilter: "failed" });
+    expect(withFilter).toMatch(/<button[^>]*aria-checked="true"[^>]*>Table</);
+    // A status filter forces Table: the TicketsTable's own toolbar renders, not the Board's diagram.
+    expect(withFilter).toContain("data-tickets-toolbar");
+    expect(withFilter).not.toContain("data-board");
+    expect(render(profile(), [], { stepFilter: "code" })).toContain("step: code");
+  });
+
+  it("keeps the page-level Needs you zone when the Board tab is saved but the section is collapsed (#703 regression)", () => {
+    vi.stubGlobal("localStorage", { getItem: (k: string) => (k === "ah.board.tab" ? "board" : null), setItem: () => {}, removeItem: () => {} } as unknown as Storage);
+    const html = render(profile(), [ticket("h", { status: "held", heldReason: "?" })]);
+    expect(html).toContain('data-all-tickets="true" data-open="false"'); // board tab saved, but section collapsed
+    expect(html.match(/data-needs-row=/g)).toHaveLength(1);
+    vi.unstubAllGlobals();
   });
 
   it("leaves the quota readout to the app bar but keeps the quota-paused badge", () => {

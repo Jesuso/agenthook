@@ -147,6 +147,16 @@ describe("filterTickets", () => {
     expect(filterTickets(tagged, { profile: null, status: null, epic: null, showAll: true, now: NOW })).toHaveLength(4);
     expect(filterTickets(tagged, { profile: null, status: null, epic: "nope", showAll: true, now: NOW })).toEqual([]);
   });
+
+  it("filters by step id (#697 Board's \"+N more\"); null/absent keeps every row", () => {
+    const rows = [
+      ticket({ profile: "a", ref: "1", status: "running", step: "code" }),
+      ticket({ profile: "a", ref: "2", status: "running", step: "review" }),
+      ticket({ profile: "a", ref: "3", status: "done", step: "code" }),
+    ];
+    expect(filterTickets(rows, { profile: null, status: null, step: "code", showAll: true, now: NOW }).map((r) => r.ref)).toEqual(["1", "3"]);
+    expect(filterTickets(rows, { profile: null, status: null, step: null, showAll: true, now: NOW })).toHaveLength(3);
+  });
 });
 
 describe("ticketEpics", () => {

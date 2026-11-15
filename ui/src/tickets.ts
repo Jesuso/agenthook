@@ -50,6 +50,8 @@ export type TicketFilter = {
   status: StatusFilter | null;
   /** An epic ref (`TicketRow.epic.ref`), or null for every ticket. */
   epic?: string | null;
+  /** A pipeline step id (`TicketRow.step`), or null/"" for every step — set from the Board's "+N more" (#697). */
+  step?: string | null;
   showAll: boolean;
   now: number;
   /** Names of profiles with a forge: only there does a ready PR count as Needs you. */
@@ -62,6 +64,7 @@ export function filterTickets(rows: TicketRow[], filter: TicketFilter): TicketRo
   return rows.filter((r) => {
     if (filter.profile && r.profile !== filter.profile) return false;
     if (filter.epic && r.epic?.ref !== filter.epic) return false;
+    if (filter.step && r.step !== filter.step) return false;
     if (filter.status === "needs-you" ? !needsYou(r, filter.forges) : filter.status && r.status !== filter.status) return false;
     // A row that needs a human is never hidden as stale (a PR can wait for days).
     if (!filter.showAll && isStale(r, filter.now) && !needsYou(r, filter.forges)) return false;

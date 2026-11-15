@@ -33,7 +33,7 @@ const focusedRow = () => {
 async function render(onDismiss: (r: { ref: string }) => void = () => {}, onRetry: (r: { ref: string }) => Promise<ReleaseOutcome> = async () => ({ ok: true, text: "" })) {
   m = await mount(
     createElement(Overview, {
-      profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed"), t("2", "failed"), t("3", "held"), t("4", "running")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, showAll: false, setShowAll: () => {},
+      profile: p, snapshot: { profiles: [p], tickets: [t("1", "failed"), t("2", "failed"), t("3", "held"), t("4", "running")] }, now: Date.now(), feed: [], statusFilter: "", setStatusFilter: () => {}, epicFilter: "", setEpicFilter: () => {}, stepFilter: "", setStepFilter: () => {}, showAll: false, setShowAll: () => {},
       open: null, onOpen: () => {}, displayIdFor: () => null, menuItems: [], note: "", onDismiss, onRelease: async (): Promise<ReleaseOutcome> => ({ ok: true, text: "" }), onRetry,
     }),
   );

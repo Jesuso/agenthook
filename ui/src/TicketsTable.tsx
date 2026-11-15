@@ -36,6 +36,9 @@ export type TicketsTableProps = {
   /** An epic ref, `""` = every epic. */
   epicFilter: string;
   onEpicFilter: (v: string) => void;
+  /** A pipeline step id, `""` = every step (set from the Board's "+N more", #697). */
+  stepFilter: string;
+  onStepFilter: (v: string) => void;
   showAll: boolean;
   onShowAll: (v: boolean) => void;
   /** The ticket whose drawer is open (highlighted), if any. */
@@ -48,14 +51,14 @@ export type TicketsTableProps = {
 /** The dashboard's tickets section: a one-row filter toolbar over a paged table in its own scroll region. */
 export function TicketsTable(props: TicketsTableProps) {
   const { t: tr } = useT();
-  const { tickets, profiles, now, profileFilter, statusFilter, epicFilter, showAll, open } = props;
+  const { tickets, profiles, now, profileFilter, statusFilter, epicFilter, stepFilter, showAll, open } = props;
   const forges = new Set(profiles.filter((p) => p.forge).map((p) => p.name));
-  const base = { profile: profileFilter || null, epic: epicFilter || null, showAll, now, forges };
+  const base = { profile: profileFilter || null, epic: epicFilter || null, step: stepFilter || null, showAll, now, forges };
   const epics = ticketEpics(profileFilter ? tickets.filter((t) => t.profile === profileFilter) : tickets);
   const counts = statusCounts(tickets, base);
   const rows = sortTickets(filterTickets(tickets, { ...base, status: (statusFilter || null) as StatusFilter | null }));
   // Grown pages reset to one whenever a filter changes (the key no longer matches).
-  const key = `${profileFilter}\u0000${statusFilter}\u0000${epicFilter}\u0000${showAll}`;
+  const key = `${profileFilter}\u0000${statusFilter}\u0000${epicFilter}\u0000${stepFilter}\u0000${showAll}`;
   const [page, setPage] = useState<Page>({ key, limit: PAGE_SIZE });
   const limit = pageLimit(page, key);
   const shown = rows.slice(0, limit);
@@ -103,6 +106,17 @@ export function TicketsTable(props: TicketsTableProps) {
               </option>
             ))}
           </select>
+        )}
+        {stepFilter && (
+          <button
+            type="button"
+            data-step-filter
+            className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 font-mono"
+            title={tr("tickets.clearStepFilter")}
+            onClick={() => props.onStepFilter("")}
+          >
+            {tr("tickets.stepFilter", { step: stepFilter })} <span aria-hidden="true">×</span>
+          </button>
         )}
         <Segmented value={statusFilter} options={chips} onChange={props.onStatusFilter} />
         <label className="flex items-center gap-1">
