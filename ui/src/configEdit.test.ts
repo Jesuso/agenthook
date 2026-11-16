@@ -973,6 +973,10 @@ describe("harnesses: add / rename / remove keep the steps' references valid (#62
     const removed = JSON.parse(removeHarness(text, "qwen")).tracker.pipeline[0];
     expect(removed.harness).toEqual(["opus"]);
     expect(removed.routing).toBe("round-robin");
+    // removing a *different* harness keeps the object entry byte-for-byte, still a list
+    const removedOther = JSON.parse(removeHarness(text, "opus")).tracker.pipeline[0];
+    expect(removedOther.harness).toEqual([{ name: "qwen", model: "qwen3-coder", effort: "high" }]);
+    expect(removedOther.routing).toBe("round-robin");
   });
 
   it("envPathEdit / dropEmptyHarnessSandbox edit a harness's env and sandbox", () => {
