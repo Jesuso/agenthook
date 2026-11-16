@@ -7,6 +7,7 @@ import type { Board } from "./board";
 import { ticketTitle } from "./format";
 import { Ago, Elapsed, Pill, ShowHide, TicketId, Waiting } from "./components";
 import { useT } from "./i18n/react";
+import { useArrivals, useSlide } from "./motion";
 
 /**
  * The Overview's board (#696): one row per ticket, the pipeline's steps as columns, and in each
@@ -89,14 +90,16 @@ const MARK: Partial<Record<Mark, string>> = {
 };
 
 /** A row's step cells: a line through the steps behind the ticket, a mark on the one it is in. */
-export function Track({ columns, step, mark }: { columns: string[]; step: string | null; mark: Mark }) {
+export function Track({ columns, step, mark, id }: { columns: string[]; step: string | null; mark: Mark; id?: string }) {
   const at = step ? columns.indexOf(step) : -1;
+  // A ticket that changed step: its mark slides in from the column it left (#699).
+  const dot = useSlide(id, at);
   return (
     <>
       {columns.map((id, i) => (
         <span key={id} aria-hidden="true" data-track={i === at ? "at" : i < at ? "past" : "ahead"} className={`${STEP_CELL} grid place-items-center`}>
           {i <= at && <span className={`absolute left-0 top-1/2 h-px bg-border-strong ${i < at ? "w-full" : "w-1/2"}`} />}
-          {i === at && <span className={`relative size-2.5 rounded-full ${MARK[mark] ?? "bg-border-strong"}`} />}
+          {i === at && <span ref={dot} data-track-mark className={`relative size-2.5 rounded-full ${MARK[mark] ?? "bg-border-strong"}`} />}
         </span>
       ))}
     </>
@@ -149,6 +152,8 @@ const MORE = "col-span-full border-t border-border-subtle px-3 py-1.5 text-left 
 export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: number; onOpen: (t: Ref) => void; onMore: (status: "queued" | "done") => void }) {
   const { t, lang } = useT();
   const [finishedOpen, setFinishedOpen] = useState(false);
+  // Rows that turn up while the board is on screen fade in once; the first paint is still.
+  const arrived = useArrivals(board.rows.map((r) => r.ticket.ref), 400, "skip");
   return (
     <>
       {board.rows.length > 0 && (
@@ -157,7 +162,7 @@ export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: n
             const title = ticketTitle(tk, lang);
             const about = tk.plain ?? tk.summary;
             return (
-              <li key={tk.ref} data-now-row={tk.ref} className={`${ROW} focus-within:bg-surface-raised hover:bg-surface-raised`}>
+              <li key={tk.ref} data-now-row={tk.ref} data-arrived={arrived.has(tk.ref) || undefined} className={`${ROW} focus-within:bg-surface-raised hover:bg-surface-raised ${arrived.has(tk.ref) ? "row-arrive" : ""}`}>
                 <span className="flex items-center gap-1.5 text-label text-muted">
                   <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${MARK[tk.status] ?? "border border-border-strong"}`} />
                   <span className="@max-4xl:sr-only">{t(`status.${tk.status}`)}</span>
@@ -175,7 +180,7 @@ export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: n
                   </button>
                   <StepName columns={board.columns} step={tk.step} />
                 </span>
-                <Track columns={board.columns} step={tk.step} mark={tk.status} />
+                <Track columns={board.columns} step={tk.step} mark={tk.status} id={`${tk.profile}:${tk.ref}`} />
                 {clock === "running" ? <Elapsed iso={tk.startedAt} seed={now} className="whitespace-nowrap text-label" /> : <Waiting iso={tk.queuedAt} seed={now} className="whitespace-nowrap text-label text-muted" />}
               </li>
             );
@@ -197,7 +202,7 @@ export function BoardRows({ board, now, onOpen, onMore }: { board: Board; now: n
             <ShowHide open={finishedOpen} onToggle={() => setFinishedOpen(!finishedOpen)} controls="finished-today" label={t("board.finishedToday")} data-finished-toggle />
           </div>
           {finishedOpen && (
-            <ul id="finished-today" className={SUBGRID}>
+            <ul id="finished-today" className={`${SUBGRID} enter-fade`}>
               {board.finished.tickets.map((tk) => (
                 <FinishedRow key={tk.ref} ticket={tk} now={now} onOpen={onOpen} />
               ))}

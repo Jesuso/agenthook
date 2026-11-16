@@ -240,7 +240,7 @@ export function Overview(props: OverviewProps) {
               <ShowHide open={ticketsShown} onToggle={hideOrShowTickets} controls="all-tickets" label={t("overview.allTicketsLabel")} data-tickets-toggle />
             </div>
             {ticketsShown && (
-            <div id="all-tickets" className="px-3 pb-3">
+            <div id="all-tickets" className="enter-fade px-3 pb-3">
               <TicketsTable
                 tickets={scoped.tickets}
                 profiles={scoped.profiles}

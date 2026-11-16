@@ -167,7 +167,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
   const span = timeScale(seq.map((r) => ({ start: Date.parse(r.startedAt), end: Math.max(runEndMs(r, now), Date.parse(r.startedAt) + 1000) })));
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/40" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+    <div className="drawer-scrim fixed inset-0 z-40 bg-black/40" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
       <aside
         ref={dialog}
         tabIndex={-1}
@@ -175,7 +175,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         role="dialog"
         aria-modal="true"
         aria-label={t("drawer.aria", { id: label })}
-        className="fixed inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-xl outline-none md:w-[720px]"
+        className="drawer-in fixed inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-xl outline-none md:w-[720px]"
       >
         <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-3">
           {ticket?.trackerUrl ? (

@@ -1309,7 +1309,7 @@ export function PipelineForm(
               </ul>
             )}
             {isOpen && (
-              <div className="flex flex-col gap-3">
+              <div className="enter-fade flex flex-col gap-3">
                 <div className={FIELD_GRID_3}>
                   <TextField {...edit} path={at("id")} value={s.id} />
                   <SelectField {...edit} path={at("kind")} value={s.kind} />

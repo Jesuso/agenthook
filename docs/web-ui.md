@@ -1017,6 +1017,12 @@ free slots) and heads each step column with its name and how many tickets sit in
 name opens *All tickets* on a **step filter** (`TicketFilter.step`, `tickets.ts`), the "+N more"
 rows open it on a status. Rows carry `data-now-row`/`data-now-open`, so `j`/`k` walk them.
 
+- **Motion** (#699, `ui/src/motion.ts` + the keyframes in `index.css`): a ticket whose step changes
+  slides its mark from the column it left (`useSlide`, a transform via the Web Animations API,
+  keyed by ticket so it survives the row moving between lists); a row that turns up fades in, and a
+  row that starts needing the operator is washed once (`useArrivals`). No animation on the first
+  paint or in a hidden tab — except the Needs-you wash, which waits for the tab to be looked at.
+  `prefers-reduced-motion` removes all travel.
 - The data is `board.ts`'s pure `board()` (Vitest-covered): `interrupted` reads as running and
   `stalled` as queued when the profile is down; held and failed tickets are not its rows but count
   toward the step they stopped in.
