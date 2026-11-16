@@ -98,9 +98,12 @@ named by any number of steps.
 }
 ```
 
-A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConcurrent`,
+A harness takes `agent`, `model`, `effort`, `bin`, `env`, `provider`, `toolsets`, `maxConcurrent`,
 `sandbox: { image }`, `cooldownMinutes` and `downGraceSeconds`, all optional. Unset
-`maxConcurrent` = bounded only by the global cap.
+`maxConcurrent` = bounded only by the global cap. A step's `harness` list element may also be an
+object instead of a name: `{ "name": "local-qwen", "model": "qwen3-coder", "effort": "high" }`
+pins that harness's `model`/`effort` for runs routed to it alone — the strongest lever, meant for
+a step that lists several backends and wants a different model/effort on each.
 
 - **When it's picked.** The queue picks the harness when the job *starts*, never earlier: a
   waiting job has none yet. `first-free` (the default) takes the first listed harness with a free
@@ -119,10 +122,13 @@ A harness takes `agent`, `model`, `bin`, `env`, `provider`, `toolsets`, `maxConc
   open alternative over one that has — so a spilling job never jumps ahead of a job that can only
   use that one harness. `ah tick`/`agenthook status` show a waiting job's `why` and count; `ah doctor`
   prints each exclusive harness's effective reserve.
-- **Precedence.** A knob the step sets itself wins over the harness's; a knob neither sets falls
-  back to the profile (`agent`, `agentProvider`, `claudeBin`) and the agent's default, as before.
-  `env` merges: the harness's, with the step's keys on top. `effort`, `escalate` and `lite` stay
-  on the step, so `escalate`/`lite` still override a harness's `model`.
+- **Precedence.** Per `model` and `effort`, independently: an object entry's pin in the step's
+  `harness` list wins over everything else for that harness alone, then `escalate` (the stored
+  difficulty's tier), then `lite` (when the description carries its headings), then the step's own
+  `model`/`effort`, then the harness's. Any other knob a step sets wins over the harness's; a knob
+  neither sets falls back to the profile (`agent`, `agentProvider`, `claudeBin`) and the agent's
+  default. `env` merges: the harness's, with the step's keys on top. So `escalate`/`lite` still
+  override a harness's `model`/`effort`, but an entry pin overrides them too.
 - **Sandbox.** A sandboxed run on a harness with `sandbox.image` uses that image instead of
   `sandbox.image`; the boot check inspects every configured image.
 - **Behind the sandbox.** Inside a sandboxed run, `localhost` is the agent's container, not the

@@ -10,7 +10,7 @@ import { DiffLegend, Modal, useConfirm } from "./Modal";
 import { PromptPreview } from "./PromptPreview";
 import { classifySaveResponse, freshSave, liveEffectNote, saveErrorText, saveReducer, saveRequest } from "./save";
 import type { SaveAction, SaveState } from "./save";
-import { EmptyState, Pill, Segmented } from "./components";
+import { EmptyState, Pill, ProfileMark, Segmented } from "./components";
 import { useT } from "./i18n/react";
 
 type ListState = { kind: "loading" } | { kind: "error"; status: number } | { kind: "ok"; body: InstructionsBody };
@@ -35,14 +35,19 @@ export default function InstructionsView(props: {
   initialProfile?: string;
 }) {
   const { t, lang } = useT();
-  const [picked, setPicked] = useState(props.initialProfile ?? props.profiles[0]?.name ?? "");
-  const profile = props.profiles.some((p) => p.name === picked) ? picked : (props.profiles[0]?.name ?? "");
+  // The app bar picks the profile; this page edits the one it was given.
+  const shown = props.profiles.find((p) => p.name === props.initialProfile) ?? props.profiles[0];
+  const profile = shown?.name ?? "";
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);
   const [file, setFileState] = useState<FileState>({ kind: "none" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
-  const [side, setSide] = useState<Side>("none");
+  // One view at a time: the editor to write, the rendered file or the agent's prompt to read. A wide
+  // window opens on what the agent receives; the choice after that is the human's.
+  const [side, setSide] = useState<Side>(() => (typeof window !== "undefined" && window.matchMedia?.("(min-width: 1536px)").matches ? "agent" : "none"));
+  // When the open file was last saved from here (cleared by the next edit or another file).
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [ask, confirmModal] = useConfirm();
@@ -88,6 +93,8 @@ export default function InstructionsView(props: {
    *  phase) keeps the current view while fetching, and lands only if still stale: typing
    *  meanwhile has already turned it into the conflict banner. */
   const load = (prof: string, path: string, silent = false) => {
+    setSavedAt(null);
+    setCopied(false);
     const seq = ++loadSeq.current;
     if (!silent) setFile({ kind: "loading", path });
     const landable = () => {
@@ -167,7 +174,7 @@ export default function InstructionsView(props: {
         const kind = classifySaveResponse(res.status);
         if (kind === "error" || kind === "invalid") return fail(res.status);
         return res.json().then((b: { hash: string; content?: string }) =>
-          settle(kind === "ok" ? { type: "saved", hash: b.hash } : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
+          settle(kind === "ok" ? (setSavedAt(Date.now()), { type: "saved", hash: b.hash }) : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
         );
       })
       .catch(() => fail(0));
@@ -236,14 +243,10 @@ export default function InstructionsView(props: {
     ask({ title: t("instructions.unsavedTitle"), body: discardPrompt(lang), confirmLabel: t("instructions.discard"), cancelLabel: t("instructions.keepEditing"), destructive: true }).then((ok) => ok && go());
   };
 
-  const pickProfile = (name: string) => {
-    if (name === profile) return;
-    unlessDirty(() => {
-      loadSeq.current++;
-      setPicked(name);
-      setList({ kind: "loading" });
-      setFile({ kind: "none" });
-    });
+  const [copied, setCopied] = useState(false);
+  const copyBuffer = () => {
+    if (!doc) return;
+    navigator.clipboard?.writeText(doc.buffer).then(() => setCopied(true), () => setToast(t("instructions.copyFailed")));
   };
 
   const pickFile = (path: string) => {
@@ -254,27 +257,21 @@ export default function InstructionsView(props: {
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("instructions.noProfiles")}</p>;
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col">
-      <div className="mb-3 flex min-w-0 items-center gap-3 text-sm">
-        <select
-          className="shrink-0 border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
-          value={profile}
-          onChange={(e) => pickProfile(e.target.value)}
-        >
-          {props.profiles.map((p) => (
-            <option key={p.name} value={p.name}>
-              {profileLabel(p)}
-            </option>
-          ))}
-        </select>
+    <div className="flex h-[calc(100vh-8rem)] min-h-[24rem] flex-col max-md:h-auto sm:px-2 2xl:px-4">
+      <div className="mb-3 flex min-w-0 items-center gap-3 text-sm" data-instructions-head>
+        <ProfileMark p={shown} />
+        <h1 className="shrink-0 text-title font-semibold">
+          {t("instructions.title")} <span className="font-normal text-muted">· {profileLabel(shown)}</span>
+        </h1>
         {list.kind === "ok" && list.body.configPath && (
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]" title={list.body.configPath}>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)] max-sm:hidden" title={list.body.configPath}>
             {list.body.configPath}
           </span>
         )}
       </div>
-      <div className="flex min-h-0 flex-1 gap-4">
-        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48">
+      {/* Narrow, the file list sits above the editor instead of squeezing it. */}
+      <div className="flex min-h-0 flex-1 gap-4 max-md:flex-col">
+        <nav className="w-72 shrink-0 overflow-auto text-sm max-lg:w-48 max-md:max-h-40 max-md:w-full">
           {list.kind === "loading" && <p className="text-muted">{t("instructions.loadingFiles")}</p>}
           {list.kind === "ok" &&
             groupFiles(list.body.files, lang).map((g) => (
@@ -326,8 +323,10 @@ export default function InstructionsView(props: {
           {open && (
             <>
               <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
-                <span className="min-w-0 flex-1 basis-32 truncate font-mono" title={open.path}>
-                  {open.path}
+                {/* The name first: a long folder is what gets cut, not the file. */}
+                <span className="flex min-w-0 flex-1 basis-32 items-baseline gap-2 font-mono" title={open.path} data-open-path>
+                  <span className="shrink-0">{baseName(open.path)}</span>
+                  <span className="min-w-0 truncate text-xs text-muted max-sm:hidden">{open.path.slice(0, open.path.length - baseName(open.path).length)}</span>
                 </span>
                 {phase === "saving" ? (
                   <span className="shrink-0 text-muted">{t("instructions.saving")}</span>
@@ -335,6 +334,8 @@ export default function InstructionsView(props: {
                   dirty && <span className="shrink-0 text-status-held">{t("instructions.modified")}</span>
                 )}
                 <Segmented
+                  label={t("instructions.viewLabel")}
+                  tone="neutral"
                   value={side}
                   options={[
                     { value: "none", label: t("instructions.tab.editor") },
@@ -343,11 +344,15 @@ export default function InstructionsView(props: {
                   ]}
                   onChange={setSide}
                 />
-                <span className="ml-auto flex shrink-0 items-center gap-2">
+                <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
-                  {!dirty && phase === "editing" && <span className="text-label text-muted">{t("instructions.noChanges")}</span>}
+                  {!dirty && phase === "editing" && (
+                    <span role="status" data-save-status className={`text-label ${savedAt ? "text-success" : "text-muted"}`}>
+                      {savedAt ? t("instructions.savedAt", { time: new Date(savedAt).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) }) : t("instructions.noChanges")}
+                    </span>
+                  )}
                   <button
-                    className="rounded bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded border border-accent bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:border-border disabled:bg-transparent disabled:text-muted"
                     disabled={!dirty || phase !== "editing"}
                     title={t("instructions.saveTitle")}
                     onClick={requestSave}
@@ -360,7 +365,13 @@ export default function InstructionsView(props: {
                 <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
                   {phase === "deleted" ? t("instructions.deletedBanner") : t("instructions.changedBanner")}
                   <span className="ml-auto flex gap-2">
-                    <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
+                    {phase === "deleted" && (
+                      <button className="rounded border border-status-held px-2 py-0.5" data-copy-buffer onClick={copyBuffer}>
+                        {copied ? t("instructions.copied") : t("instructions.copyText")}
+                      </button>
+                    )}
+                    {/* Reload drops what was typed here, so it asks first like any other way out. */}
+                    <button className="rounded border border-status-held px-2 py-0.5" data-reload onClick={() => unlessDirty(() => load(open.profile, open.path))}>
                       {t("instructions.reload")}
                     </button>
                     {phase === "conflict" && (
@@ -376,9 +387,10 @@ export default function InstructionsView(props: {
                   </span>
                 </div>
               )}
-              <div className="flex min-h-0 flex-1 gap-3">
-                <div className="min-w-0 flex-1">
-                  <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
+              <div className="flex min-h-0 flex-1 gap-3 max-md:h-[70vh] max-md:flex-none">
+                {/* The editor stays mounted (its undo history lives there); the reading views replace it on screen. */}
+                <div className={`min-w-0 flex-1 ${side === "none" ? "" : "hidden"}`} data-editor-pane>
+                  <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => (setSavedAt(null), act({ type: "edit", buffer }))} onSave={requestSave} />
                 </div>
                 {side === "preview" && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.

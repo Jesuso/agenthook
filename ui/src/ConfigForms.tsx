@@ -23,6 +23,8 @@ import {
   removeHarness,
   renameHarness,
   stepHarnessEdit,
+  stepHarnessEntries,
+  stepHarnessEntry,
   stepHarnessList,
   pricingEdit,
   pricingErrors,
@@ -489,12 +491,14 @@ function PricingField(props: EditProps & { pricing: unknown }) {
 function StepHarnessField(props: EditProps & { i: number; step: Record<string, unknown>; names: string[] }) {
   const { lang } = useT();
   const helpId = useId();
+  const entries = stepHarnessEntries(props.step.harness);
   const picked = stepHarnessList(props.step.harness);
   if (props.names.length === 0 && picked.length === 0) return null;
   const options = [...props.names, ...picked.filter((n) => !props.names.includes(n))];
   const path = stepPath(props.i, "harness");
   const m = fieldMeta(path, lang);
-  const toggle = (n: string, on: boolean) => props.onEdit(stepHarnessEdit(props.text, props.i, on ? [...picked, n] : picked.filter((x) => x !== n)));
+  const toggle = (n: string, on: boolean) =>
+    props.onEdit(stepHarnessEdit(props.text, props.i, on ? [...entries, n] : entries.filter((e) => (typeof e === "string" ? e !== n : (e as Record<string, unknown>).name !== n))));
   return (
     <div className="col-span-full flex flex-col gap-1" data-step-harness>
       <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
@@ -503,12 +507,23 @@ function StepHarnessField(props: EditProps & { i: number; step: Record<string, u
         {m.help && <HelpTip id={helpId} label={m.label} help={m.help} />}
       </span>
       <div role="group" aria-label={m.label} aria-describedby={m.help ? helpId : undefined} className="flex flex-wrap gap-3">
-        {options.map((n) => (
-          <label key={n} className="flex items-center gap-1 text-xs">
-            <input type="checkbox" name={path.join(".")} value={n} data-harness-option={n} checked={picked.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
-            <span className="font-mono">{n}</span>
-          </label>
-        ))}
+        {options.map((n) => {
+          const entry = stepHarnessEntry(props.step.harness, n);
+          const pin = entry
+            ? [entry.model ? `model: ${entry.model}` : "", entry.effort ? `effort: ${entry.effort}` : ""].filter(Boolean).join(", ")
+            : "";
+          return (
+            <label key={n} className="flex items-center gap-1 text-xs">
+              <input type="checkbox" name={path.join(".")} value={n} data-harness-option={n} checked={picked.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
+              <span className="font-mono">{n}</span>
+              {pin && (
+                <span data-harness-pin={n} className="text-[var(--color-muted)]">
+                  {pin}
+                </span>
+              )}
+            </label>
+          );
+        })}
       </div>
       {Array.isArray(props.step.harness) && (
         <div className="max-w-xs">
@@ -907,13 +922,53 @@ function MetaField(props: { path: JSONPath; children: React.ReactNode }) {
 }
 
 /** Hook-free (its tests call it as a plain function): the translated parts are `Msg` / `MetaField`. */
-export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }) {
+/** Tone of a containment note: held while this edit loosens it, plain text while it stands loose, muted when safe. */
+const caution = (loosened: boolean, loose: boolean) => (loosened ? "text-status-held" : loose ? "text-fg" : "text-muted");
+
+export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string; baseline?: unknown }) {
   const b = readBasics(props.raw);
   const edit = { text: props.text, onEdit: props.onEdit };
   const harnessCount = readHarnesses(props.raw).length;
+  const tracker = readBlock(props.raw, "tracker");
+  // "Loosened" = this edit makes the profile less contained than the saved file. Only that earns the
+  // held hue; a standing risky setting reads in full-strength neutral, a safe one in muted.
+  const was = props.baseline === undefined ? null : { b: readBasics(props.baseline), t: readBlock(props.baseline, "tracker") };
+  const loosened = {
+    fullAuto: was !== null && b.fullAuto === true && was.b.fullAuto !== true,
+    sandbox: was !== null && b.sandbox === undefined && was.b.sandbox !== undefined,
+    assignee: was !== null && tracker?.assigneeFilter === false && was.t?.assigneeFilter !== false,
+  };
   const advancedCount = (["agent", "agentProvider", "claudeBin"] as const).filter((k) => b[k] !== undefined && b[k] !== "" && b[k] !== fieldMeta([k]).entry?.default).length + (harnessCount ? 1 : 0);
   return (
     <div className="@container max-w-5xl rounded border border-[var(--color-border)] p-3">
+      {/* What contains the agents, in one place and first: these four decide what a verified webhook can do. */}
+      <section data-security-block className="mb-3 flex flex-col gap-3 border-b border-[var(--color-border)] pb-3">
+        <h3 className="text-sm font-semibold">
+          <Msg k="forms.security.title" />
+        </h3>
+        <div className={FIELD_GRID}>
+          <div className="flex flex-col gap-1">
+            <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
+            <p data-loosened={loosened.fullAuto || undefined} className={`text-xs ${caution(loosened.fullAuto, b.fullAuto === true)}`}>
+              <Msg k="forms.basics.fullAutoWarn" />
+            </p>
+            {b.fullAuto === true && b.sandbox === undefined && (
+              <p className={`text-xs ${caution(loosened.fullAuto || loosened.sandbox, true)}`}>
+                <Msg k="forms.basics.noSandboxWarn" />
+              </p>
+            )}
+          </div>
+          {tracker?.type !== undefined && (
+            <div className="flex flex-col gap-1">
+              <CheckField {...edit} path={["tracker", "assigneeFilter"]} value={tracker.assigneeFilter} defaultValue />
+              <p data-loosened={loosened.assignee || undefined} className={`text-xs ${caution(loosened.assignee, tracker.assigneeFilter === false)}`}>
+                <Msg k="forms.tracker.assigneeWarn" />
+              </p>
+            </div>
+          )}
+        </div>
+        <SandboxGroup {...edit} sandbox={b.sandbox} profile={props.stateKey} />
+      </section>
       <div className={FIELD_GRID}>
         <div className="col-span-full flex flex-col gap-1">
           <MetaField path={["name"]}>
@@ -937,18 +992,6 @@ export function BasicsForm(props: EditProps & { raw: unknown; stateKey: string }
         <TextField {...edit} path={["instructionsFile"]} value={b.instructionsFile} />
         <TextField {...edit} path={["language"]} value={b.language} />
         <AppearanceFields text={props.text} onEdit={props.onEdit} ui={b.ui} stateKey={props.stateKey} />
-        <div className="col-span-full flex flex-col gap-1">
-          <CheckField {...edit} path={["fullAuto"]} value={b.fullAuto} explicitFalse />
-          <p className="text-xs text-status-held">
-            <Msg k="forms.basics.fullAutoWarn" />
-          </p>
-          {b.fullAuto === true && b.sandbox === undefined && (
-            <p className="text-xs text-status-held">
-              <Msg k="forms.basics.noSandboxWarn" />
-            </p>
-          )}
-        </div>
-        <SandboxGroup {...edit} sandbox={b.sandbox} profile={props.stateKey} />
         <details className="col-span-full" data-advanced>
           <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-muted)]">
             <Msg k="forms.advancedSet" vars={{ count: advancedCount }} />
@@ -1136,7 +1179,8 @@ export function PipelineForm(
     if (!props.focus) return;
     const i = steps.findIndex((s) => fieldText(s.id) === props.focus!.id);
     if (i < 0) return;
-    setOpen((prev) => (prev.has(i) ? prev : new Set([...prev, i])));
+    // The graph picks one step: that card opens and the others close, so a few clicks don't leave them all open.
+    setOpen((prev) => (prev.size === 1 && prev.has(i) ? prev : new Set([i])));
     cards.current[i]?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [props.focus?.nonce]);
   return (
@@ -1162,6 +1206,8 @@ export function PipelineForm(
         const incomplete = errs.length > 0 && pristine.has(i);
         const advancedCount = advancedSet(s, tracker, keys).length;
         const summary = summarizeStep(s, keys, stageList, advancedCount, lang);
+        // Names the row's buttons for a screen reader: four "remove" in a row say nothing.
+        const stepName = fieldText(s.id) || `#${i + 1}`;
         return (
           <section
             key={i}
@@ -1174,7 +1220,7 @@ export function PipelineForm(
             onBlur={touchOnBlur(props.cards, "steps", i)}
             className={`rounded border p-3 ${incomplete ? "border-status-held" : errs.length ? "border-status-failed" : "border-[var(--color-border)]"}`}
           >
-            {/* Wraps below `sm`: the summary may take its own line; ↑/↓/remove stay together. */}
+            {/* Below `sm` the summary takes the second line, so ↑/↓/remove stay beside the step's name. */}
             <div data-step-header className={`flex flex-wrap items-center gap-2 sm:flex-nowrap ${isOpen ? "mb-2" : ""}`}>
               <button className={ICON_BUTTON} aria-label={isOpen ? t("forms.step.collapse") : t("forms.step.expand")} aria-expanded={isOpen} onClick={() => toggle(i)}>
                 {isOpen ? "▾" : "▸"}
@@ -1183,7 +1229,7 @@ export function PipelineForm(
               <span className="font-mono text-sm">{fieldText(s.id) || t("forms.step.noId")}</span>
               <span
                 data-step-summary
-                className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)]"
+                className="min-w-0 truncate font-mono text-xs text-[var(--color-muted)] max-sm:order-last max-sm:basis-full"
                 title={summary}
               >
                 {summary || "—"}
@@ -1210,7 +1256,7 @@ export function PipelineForm(
               <span className="ml-auto flex shrink-0 gap-1">
                 <button
                   className={ICON_BUTTON}
-                  aria-label={t("forms.moveUp")}
+                  aria-label={`${t("forms.moveUp")}: ${stepName}`}
                   disabled={i === 0}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, -1));
@@ -1222,7 +1268,7 @@ export function PipelineForm(
                 </button>
                 <button
                   className={ICON_BUTTON}
-                  aria-label={t("forms.moveDown")}
+                  aria-label={`${t("forms.moveDown")}: ${stepName}`}
                   disabled={i === steps.length - 1}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, 1));
@@ -1234,6 +1280,7 @@ export function PipelineForm(
                 </button>
                 <button
                   className={ICON_BUTTON}
+                  aria-label={`${t("forms.remove")}: ${stepName}`}
                   onClick={() =>
                     ask({
                       title: t("forms.step.removeTitle", { id: fieldText(s.id) || i + 1 }),
@@ -1507,14 +1554,7 @@ export function TrackerForm(props: EditProps & { raw: unknown }) {
         {...edit}
         fields={sectionFields("tracker", type)}
         block={block}
-        render={(e, value) =>
-          e.path[1] === "assigneeFilter" ? (
-            <div className="flex flex-col gap-1">
-              <CheckField {...edit} path={e.path} value={value} defaultValue />
-              <p className="text-xs text-status-held">{t("forms.tracker.assigneeWarn")}</p>
-            </div>
-          ) : undefined
-        }
+        render={(e) => (e.path[1] === "assigneeFilter" ? <p className={NOTE}>{t("forms.tracker.assigneeMoved")}</p> : undefined)}
       />
     </div>
   );

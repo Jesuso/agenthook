@@ -60,24 +60,6 @@ async function dirtyView() {
 }
 
 describe("InstructionsView in-app confirms", () => {
-  it("a profile switch on a dirty buffer asks; cancel stays, Discard loads the other profile", async () => {
-    const root = await dirtyView();
-    const select = root.querySelector<HTMLSelectElement>("select")!;
-    const pick = (v: string) =>
-      act(async () => {
-        select.value = v;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-    await pick("other");
-    expect(confirmDialog()?.textContent).toContain("Discard unsaved changes to the open instructions file?");
-    await answerConfirm(false);
-    expect(root.querySelector<HTMLSelectElement>("select")!.value).toBe("demo");
-    expect(fetched("/api/instructions?profile=other")).toBe(false);
-    await pick("other");
-    await answerConfirm(true);
-    await until(() => fetched("/api/instructions?profile=other"));
-  });
-
   it("opening another file on a dirty buffer asks first", async () => {
     const root = await dirtyView();
     const other = [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("review.md"))!;
@@ -102,6 +84,31 @@ describe("InstructionsView in-app confirms", () => {
     await click(overwrite());
     await answerConfirm(true);
     await until(() => puts.length === 1);
+  });
+
+  it("Reload on a conflict asks before dropping the edits", async () => {
+    const root = await dirtyView();
+    await act(async () => sink.current!({ type: "instructions", profile: "demo", path: "/a/code.md", hash: "h2", source: "disk" }));
+    await until(() => root.textContent!.includes("changed on disk"));
+    const loads = () => (fetch as any).mock.calls.filter(([u]: [string]) => u.startsWith("/api/instructions/file?profile=demo&path=%2Fa%2Fcode.md")).length;
+    const before = loads();
+    await click(root.querySelector<HTMLButtonElement>("[data-reload]")!);
+    expect(confirmDialog()).not.toBeNull();
+    await answerConfirm(false);
+    expect(loads()).toBe(before);
+    expect(root.textContent).toContain("changed on disk");
+  });
+
+  it("the editor is on screen only in its own view; a reading view replaces it", async () => {
+    m = await mount(view());
+    await until(() => m!.root.querySelector(".cm-editor"));
+    const pane = m.root.querySelector<HTMLElement>("[data-editor-pane]")!;
+    expect(pane.className).not.toContain("hidden");
+    await click([...m.root.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent === "Preview")!);
+    expect(pane.className).toContain("hidden");
+    expect(m.root.querySelector(".md-preview")).not.toBeNull();
+    // Still mounted: the buffer and its undo history survive the switch.
+    expect(m.root.querySelector(".cm-editor")).not.toBeNull();
   });
 });
 

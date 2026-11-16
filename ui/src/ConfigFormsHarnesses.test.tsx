@@ -168,4 +168,28 @@ describe("step harness pick (PipelineForm)", () => {
     expect(last().tracker.pipeline[0].harness).toBe("opus");
     expect(last().tracker.pipeline[0]).not.toHaveProperty("routing");
   });
+
+  it("an object entry keeps its model/effort pin through toggles and shows it read-only", async () => {
+    const withEntry = {
+      name: "p",
+      tracker: {
+        type: "github",
+        pipeline: [
+          { id: "review", sourceLabel: "agent:review", harness: [{ name: "qwen", model: "qwen3-coder", effort: "high" }, "opus"], routing: "round-robin" },
+        ],
+      },
+      harnesses: { qwen: { model: "qwen3-coder" }, opus: { model: "claude-opus-5-5" } },
+    };
+    const { root, last } = await live(withEntry, "pipeline");
+    const c = await openCard(root, "review");
+    // the pin shows read-only beside its checkbox
+    expect(c.querySelector('[data-harness-pin="qwen"]')!.textContent).toContain("qwen3-coder");
+    expect(c.querySelector('[data-harness-pin="qwen"]')!.textContent).toContain("high");
+    // untick the string entry: the object entry survives as a single-element list
+    await click(option(c, "opus"));
+    expect(last().tracker.pipeline[0].harness).toEqual([{ name: "qwen", model: "qwen3-coder", effort: "high" }]);
+    // re-tick it: the object entry stays verbatim
+    await click(option(c, "opus"));
+    expect(last().tracker.pipeline[0].harness).toEqual([{ name: "qwen", model: "qwen3-coder", effort: "high" }, "opus"]);
+  });
 });

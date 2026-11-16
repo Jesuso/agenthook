@@ -5,12 +5,15 @@ export function Segmented<T extends string>({
   onChange,
   label,
   disabled,
+  tone = "accent",
 }: {
   value: T;
   options: { value: T; label: React.ReactNode }[];
   onChange: (v: T) => void;
   /** The group's accessible name, where no surrounding text already names it. */
   label?: string;
+  /** `neutral`: the selection is a raised surface, for a group that sits beside a filled primary button. */
+  tone?: "accent" | "neutral";
   /** Disables every option. */
   disabled?: boolean;
 }) {
@@ -24,7 +27,7 @@ export function Segmented<T extends string>({
           aria-checked={o.value === value}
           disabled={disabled}
           className={`rounded-[calc(var(--radius-md)-2px)] px-2 py-0.5 text-label font-medium ${
-            o.value === value ? "bg-accent text-accent-fg" : `text-muted ${disabled ? "" : "hover:text-fg"}`
+            o.value === value ? (tone === "neutral" ? "bg-surface-raised text-fg" : "bg-accent text-accent-fg") : `text-muted ${disabled ? "" : "hover:text-fg"}`
           }`}
           onClick={() => onChange(o.value)}
         >

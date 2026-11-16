@@ -455,7 +455,7 @@ function envErrors(env, where) {
  */
 function harnessesErrors(hs) {
   if (hs == null) return [];
-  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig?, contextTokens?, reserve? }.`];
+  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, effort?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig?, contextTokens?, reserve? }.`];
   /** @type {string[]} */
   const errors = [];
   for (const [name, h] of Object.entries(hs)) {
@@ -469,6 +469,7 @@ function harnessesErrors(hs) {
       if (e) errors.push(e);
     }
     if (h.model != null && (typeof h.model !== "string" || !h.model.trim())) errors.push(`config: ${where} model must be a non-empty string.`);
+    if (h.effort != null && (typeof h.effort !== "string" || !h.effort.trim())) errors.push(`config: ${where} effort must be a non-empty string.`);
     if (h.opencodeConfig != null && (typeof h.opencodeConfig !== "string" || !h.opencodeConfig.trim())) errors.push(`config: ${where} opencodeConfig must be a non-empty string.`);
     if (h.env != null) errors.push(...envErrors(h.env, where));
     if (h.maxConcurrent != null && (!Number.isInteger(h.maxConcurrent) || h.maxConcurrent < 1)) errors.push(`config: ${where} maxConcurrent must be a positive integer.`);
@@ -659,16 +660,35 @@ export function validateRawConfig(raw) {
     if (step.harness != null) {
       const h = step.harness;
       const named = (/** @type {unknown} */ n) => typeof n === "string" && n.trim() !== "";
-      if (!named(h) && !(Array.isArray(h) && h.length && h.every(named))) {
-        errors.push(`config: ${where} harness must be a harness name or a non-empty list of names.`);
+      const isEntry = (/** @type {unknown} */ n) => typeof n === "object" && n !== null && !Array.isArray(n);
+      const ref = (/** @type {unknown} */ n) => named(n) || isEntry(n);
+      if (!named(h) && !(Array.isArray(h) && h.length && h.every(ref))) {
+        errors.push(`config: ${where} harness must be a harness name or a non-empty list of names or {name, model?, effort?} entries.`);
       } else if (step.manual) {
         errors.push(`config: ${where} harness has no effect on a manual step (no agent runs).`);
       } else {
         const list = typeof h === "string" ? [h] : h;
         const known = harnesses && typeof harnesses === "object" && !Array.isArray(harnesses) ? harnesses : {};
-        for (const [i, n] of list.entries()) {
-          if (list.indexOf(n) !== i) errors.push(`config: ${where} harness lists ${JSON.stringify(n)} twice.`);
-          else if (!Object.hasOwn(known, n)) errors.push(`config: ${where} harness ${JSON.stringify(n)} is not in "harnesses".`);
+        /** @type {string[]} */
+        const seen = [];
+        for (const [i, e] of list.entries()) {
+          if (typeof e === "string") {
+            if (seen.includes(e)) errors.push(`config: ${where} harness lists ${JSON.stringify(e)} twice.`);
+            else if (!Object.hasOwn(known, e)) errors.push(`config: ${where} harness ${JSON.stringify(e)} is not in "harnesses".`);
+            else seen.push(e);
+            continue;
+          }
+          const name = named(e.name) ? e.name : undefined;
+          if (name === undefined) errors.push(`config: ${where} harness entry at index ${i} must have a non-empty string "name".`);
+          for (const k of Object.keys(e)) {
+            if (k !== "name" && k !== "model" && k !== "effort") errors.push(`config: ${where} harness entry ${JSON.stringify(name)} has unknown key ${JSON.stringify(k)} (allowed: name, model, effort).`);
+          }
+          if (e.model != null && (typeof e.model !== "string" || !e.model.trim())) errors.push(`config: ${where} harness entry ${JSON.stringify(name)} model must be a non-empty string.`);
+          if (e.effort != null && (typeof e.effort !== "string" || !e.effort.trim())) errors.push(`config: ${where} harness entry ${JSON.stringify(name)} effort must be a non-empty string.`);
+          if (name === undefined) continue;
+          if (seen.includes(name)) errors.push(`config: ${where} harness lists ${JSON.stringify(name)} twice.`);
+          else if (!Object.hasOwn(known, name)) errors.push(`config: ${where} harness ${JSON.stringify(name)} is not in "harnesses".`);
+          else seen.push(name);
         }
         errors.push(...remoteHarnessErrors(cfg, step, known, where));
       }

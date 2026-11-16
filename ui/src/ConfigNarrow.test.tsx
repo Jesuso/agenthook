@@ -158,7 +158,8 @@ describe("Config page width (#372)", () => {
     const root = await mountView();
     const graph = root.querySelector<HTMLElement>("[data-config-graph]")!;
     expect(graph.querySelector('svg[aria-label="pipeline graph"]')).not.toBeNull();
-    expect(classes(graph)).toEqual(expect.arrayContaining(["max-h-64", "overflow-auto", "sm:max-h-none"]));
+    // The cap is on the drawing's own scroller, so the legend under it is never scrolled away.
+    expect(classes(graph.querySelector<HTMLElement>("[data-graph-scroll]")!)).toEqual(expect.arrayContaining(["max-h-64", "overflow-auto", "sm:max-h-none"]));
     const toggle = [...root.querySelectorAll("button")].find((b) => b.textContent?.includes("Pipeline graph"))!;
     expect(classes(toggle)).toEqual(expect.arrayContaining(["min-h-10", "sm:min-h-0"]));
   });
@@ -198,8 +199,8 @@ describe("PipelineForm at phone width (#372)", () => {
     await click(card.querySelector('[aria-label="expand step"]')!);
     const buttons = [
       card.querySelector('[aria-label="collapse step"]')!,
-      card.querySelector('[aria-label="move up"]')!,
-      card.querySelector('[aria-label="move down"]')!,
+      card.querySelector('[aria-label^="move up"]')!,
+      card.querySelector('[aria-label^="move down"]')!,
       [...card.querySelectorAll("button")].find((b) => b.textContent === "remove")!,
       card.querySelector('[aria-label="remove variable"]')!,
     ];

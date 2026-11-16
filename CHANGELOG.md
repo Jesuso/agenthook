@@ -19,6 +19,15 @@ All notable changes to this project are documented here. The format is based on
   tick`/`agenthook status` (`why`/"waiting on a reserve") and `ah doctor` (the effective reserve
   per exclusive harness). `src/pull.js`'s queue-stage puller budget subtracts the reserve too.
 
+- A step that lists several `harness`es can now set `model` and `effort` per entry, not just once
+  for the whole list (#736): a `harness` list element may be `{ "name": …, "model": …, "effort": … }`
+  instead of a bare name, and its `model`/`effort` pin runs routed to that harness alone — they win
+  over the step's own `model`/`effort`, the harness's, `escalate` and `lite`. `harnesses.<name>` also
+  gains an `effort` default (a step's own effort beats it). Resolution order, per `model` and
+  `effort` independently, is now entry > escalate > lite > step > harness. The web UI keeps an
+  object entry intact (showing its pin read-only), and `ah doctor` warns when a step-level `model`
+  is broadcast to two or more list entries that lack their own entry `model`.
+
 - `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
   then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
   remove/rename/any field except `remote`), and per-step spawn knobs (`harness`, `routing`,
