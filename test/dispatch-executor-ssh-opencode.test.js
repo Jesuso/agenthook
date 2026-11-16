@@ -179,7 +179,12 @@ test("ssh executor + opencode.remote: worker argv carries no prompt, the prompt 
     fs.writeFileSync(goFile, "");
     const result = await launchPromise;
     assert.equal(result.code, 0, JSON.stringify(result));
-    assert.ok(result.turnStats, "the fake agent's step_finish must have reached the real opencode-shaped parser/tally path");
+    assert.equal(result.turnStats?.turns, 1, JSON.stringify(result.turnStats));
+    assert.deepEqual(
+      result.result?.tokens && { input: result.result.tokens.input, output: result.result.tokens.output },
+      { input: 120, output: 40 },
+      "the usage tally must carry the fake agent's real step_finish numbers, same as a local OpenCode run",
+    );
 
     const argv = fs.readFileSync(path.join(workDir, "argv.txt"), "utf8");
     assert.ok(!argv.includes(prompt), "the prompt must never reach the worker's own argv");
@@ -353,10 +358,11 @@ test("dispatch: a worktree step on an opencode remote harness runs through step.
       instructionsFile: path.join(root, "none.md"),
     });
     const store = createStore(root);
+    const advanceCalls = [];
     const adapter = /** @type {any} */ ({
       describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
       fetchTask: async (ref) => ({ ref, name: "t", description: "d", url: "https://example.test/1", completed: false, assignedToUs: true }),
-      advance: async () => {},
+      advance: async (...a) => advanceCalls.push(a),
     });
     const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 300 });
     const l = console.log;
@@ -367,8 +373,18 @@ test("dispatch: a worktree step on an opencode remote harness runs through step.
     } finally {
       console.log = l;
     }
+    assert.equal(advanceCalls.length, 1, "the worker's verdict must actually route the run, not just exit 0");
+    assert.equal(advanceCalls[0][0], "77");
+    assert.equal(advanceCalls[0][1], "code");
+    assert.equal(advanceCalls[0][2].outcome, "advance");
+    assert.equal(advanceCalls[0][2].reason, "ok");
+    const usage = store.readUsage();
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].input, 10);
+    assert.equal(usage[0].output, 5);
   } finally {
     ssh.restore();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
