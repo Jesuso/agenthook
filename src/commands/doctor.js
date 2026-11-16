@@ -1519,6 +1519,7 @@ export function tokenVar(configPath) {
  *   spawn?: Spawner,
  *   listWorktrees?: (cfg: import("../types.js").Config, repoPath: string) => { path: string, branch: string, prunable?: boolean }[],
  *   uiBundle?: () => {state: 'no-src'|'missing'|'stale'|'fresh', newest?: string},
+ *   skills?: (repoPath: string) => ReturnType<typeof installedSkills>,
  *   platform?: string,
  *   fetch?: typeof fetch,
  *   run?: import('../types.js').IngressRun,
@@ -1559,6 +1560,7 @@ export async function runChecks(cfg, io = {}) {
     spawn = spawnSync,
     listWorktrees: list = listWorktrees,
     uiBundle = () => uiBundleState({ srcDir: UI_SRC_DIR, distDir: UI_DIST_DIR }),
+    skills = (repoPath) => installedSkills({ repoPath }),
     platform = process.platform,
     fetch: f,
     run = execRun,
@@ -1682,7 +1684,7 @@ export async function runChecks(cfg, io = {}) {
   isolationReport(cfg, { userClaudeSettings, gitInsteadOf }).forEach(finding);
 
   uiBundleLints(uiBundle(), { installDir: cfg.installDir, spawn }).forEach(finding);
-  skillLints(installedSkills({ repoPath: cfg.repoPath }), packageVersion()).forEach(finding);
+  skillLints(skills(cfg.repoPath), packageVersion()).forEach(finding);
   worktreeLints(cfg, { listWorktrees: list, spawn }).forEach(finding);
 
   if (platform === "linux") {
