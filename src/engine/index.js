@@ -143,6 +143,8 @@ export function createEngine(cfg, { reconcileOnBoot = false } = {}) {
       steps: shape.steps,
       caps: shape.caps,
       cooldowns: shape.cooldowns,
+      reserves: shape.reserves,
+      exclusive: shape.exclusive,
       health: seeded,
       unharnessedShared: shape.unharnessedShared,
       unharnessedAgents: shape.unharnessedAgents,

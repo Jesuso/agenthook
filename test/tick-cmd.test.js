@@ -128,3 +128,18 @@ test("digest: an observed ctx above ctxMax prints the bare figure, never a false
   assert.ok(lines.includes("  RUN  700 code 5m · ctx 212K"), "bare figure, no /200K");
   assert.ok(!lines.some((l) => l.includes("/200K")));
 });
+
+test("digest: WAIT row appends — why only when the queue entry carries one (#745)", () => {
+  const out = digest({
+    profile: "p", up: true,
+    slots: { max: 2, active: 2, queued: 2, free: 0 },
+    running: [], held: [], events: [], cursor: 1,
+    queue: [
+      { ref: "8", step: "triage" },
+      { ref: "9", step: "code", why: "reserve: claude keeps 1 slot(s) for review" },
+    ],
+  });
+  const lines = out.split("\n");
+  assert.ok(lines.includes("  WAIT 8 triage"), "no why → text unchanged");
+  assert.ok(lines.includes("  WAIT 9 code — reserve: claude keeps 1 slot(s) for review"));
+});

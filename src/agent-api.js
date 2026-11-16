@@ -21,6 +21,7 @@ import { normalizeQuota, normalizeTrip } from "./quota.js";
 import { pendingFollowUp } from "./followup.js";
 import { createStore } from "./store.js";
 import { harnessTotals } from "./harness-usage.js";
+import { harnessesOf } from "./dispatch/harness.js";
 import { runStats, sinceMsOf, STATS_BY, STATS_SINCE } from "./stats.js";
 
 const REASON_MAX = 200;
@@ -165,7 +166,36 @@ export function readStatus(entry, { now = Date.now() } = {}) {
       state.refmeta[ref],
     );
   });
-  const queue = state.queue.map((j) => label({ ref: String(j.ref), step: j.stepId, ...(j.kind && j.kind !== "pipeline" ? { kind: j.kind } : {}) }, state.refmeta[j.ref]));
+  // Per-harness slots (heartbeat; only set when the profile has harnesses) — read early so a
+  // reserve-waiting queue entry below can name the harness's reserve count.
+  const harnesses = entry.up ? harnessSlots(hb.queue?.harnesses) : null;
+  // Which step(s) list a harness as their ONLY one — for the reserve-wait `why` below. Best
+  // effort: the config may be gone or invalid; the queue entry then just carries no `why`.
+  /** @type {Record<string, string[]>} */
+  const reserveOwners = {};
+  if (entry.configPath) {
+    try {
+      const cfg = loadConfig({ configPath: entry.configPath });
+      for (const s of cfg.pipeline ?? []) {
+        if (s.manual) continue;
+        const names = harnessesOf(s);
+        if (names.length === 1) (reserveOwners[names[0]] ??= []).push(s.id);
+      }
+    } catch {
+      /* best effort */
+    }
+  }
+  /** @type {Array<{ref: string, stepId: string, harnesses: string[]}>} */
+  const reservedRaw = Array.isArray(hb.queue?.reserved) ? hb.queue.reserved : [];
+  const reservedByKey = new Map(reservedRaw.map((r) => [`${r.ref}\u0000${r.stepId}`, r]));
+  const queue = state.queue.map((j) => {
+    const r = reservedByKey.get(`${j.ref}\u0000${j.stepId}`);
+    const names = r ? r.harnesses.filter((/** @type {string} */ n) => harnesses?.[n]?.reserve) : [];
+    const why = names.length
+      ? names.map((/** @type {string} */ n) => `reserve: ${n} keeps ${harnesses?.[n]?.reserve} slot(s) for ${(reserveOwners[n] ?? []).join(", ") || "another step"}`).join("; ")
+      : undefined;
+    return label({ ref: String(j.ref), step: j.stepId, ...(j.kind && j.kind !== "pipeline" ? { kind: j.kind } : {}), ...(why ? { why: clip(why, REASON_MAX) } : {}) }, state.refmeta[j.ref]);
+  });
   const held = Object.entries(state.held).map(([ref, h]) =>
     label({ ref, step: h?.stepId, ...(h?.reason ? { why: clip(h.reason, REASON_MAX) } : {}), since: h?.heldAt }, state.refmeta[ref]),
   );
@@ -189,8 +219,6 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   const queued = entry.up ? queue.length : 0;
   // Queued jobs waiting on their step's own maxConcurrent, not on a slot (heartbeat; only set with step caps).
   const capped = Math.min(queued, Math.max(0, Number(hb.queue?.capped) || 0));
-  // Per-harness slots (heartbeat; only set when the profile has harnesses).
-  const harnesses = entry.up ? harnessSlots(hb.queue?.harnesses) : null;
   // Implicit (harness-less) run counts by agent CLI (heartbeat; only set when some such run is active).
   const unharnessed = entry.up ? unharnessedSlots(hb.queue?.unharnessed) : null;
   const harnessUsage = isObj(hb.queue?.harnesses) && Object.keys(hb.queue.harnesses).length ? harnessTotals(createStore(entry.dir).readUsage()) : null;

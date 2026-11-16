@@ -455,7 +455,7 @@ function envErrors(env, where) {
  */
 function harnessesErrors(hs) {
   if (hs == null) return [];
-  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, effort?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig?, contextTokens? }.`];
+  if (typeof hs !== "object" || Array.isArray(hs)) return [`config: "harnesses" must be an object of name: { agent?, model?, effort?, bin?, env?, provider?, toolsets?, maxConcurrent?, sandbox?, cooldownMinutes?, downGraceSeconds?, opencodeConfig?, contextTokens?, reserve? }.`];
   /** @type {string[]} */
   const errors = [];
   for (const [name, h] of Object.entries(hs)) {
@@ -476,6 +476,7 @@ function harnessesErrors(hs) {
     if (h.cooldownMinutes != null && (!Number.isInteger(h.cooldownMinutes) || h.cooldownMinutes < 1 || h.cooldownMinutes > 60)) errors.push(`config: ${where} cooldownMinutes must be an integer 1-60.`);
     if (h.downGraceSeconds != null && (!Number.isInteger(h.downGraceSeconds) || h.downGraceSeconds < 1)) errors.push(`config: ${where} downGraceSeconds must be a positive integer.`);
     if (h.contextTokens != null && (!Number.isInteger(h.contextTokens) || h.contextTokens < 1)) errors.push(`config: ${where} contextTokens must be a positive integer.`);
+    if (h.reserve != null && (!Number.isInteger(h.reserve) || h.reserve < 0)) errors.push(`config: ${where} reserve must be an integer >= 0.`);
     if (h.sandbox != null) {
       if (typeof h.sandbox !== "object" || Array.isArray(h.sandbox)) errors.push(`config: ${where} sandbox must be an object ({ "image": "…" }).`);
       else if (h.sandbox.image != null && (typeof h.sandbox.image !== "string" || !h.sandbox.image.trim())) errors.push(`config: ${where} sandbox.image must be a non-empty string.`);

@@ -111,6 +111,17 @@ a step that lists several backends and wants a different model/effort on each.
 - **All full.** The job waits (it counts in `slots.capped`, not as holding a global slot), and an
   unrelated job behind it still starts. A job starts only when the global cap, the step's own
   `maxConcurrent` and one of its harnesses all have room.
+- **Reserve (#745).** A harness some step lists as its *only* harness ("exclusive") gets an
+  automatic reserve of 1 slot whenever another step lists it as one option among several — so a
+  spill from that other step can never take the exclusive step's last slot. `harnesses.<name>.reserve`
+  overrides the automatic value (an integer ≥ 0; `0` turns the reserve off); it's ignored, with a
+  doctor note, on a non-exclusive or uncapped harness. The rule only counts an *open* alternative:
+  a harness that's down (health or quota) or drained to `maxConcurrent: 0` doesn't count, so a job
+  whose other harnesses are all down/drained may use every slot on the exclusive one, first come
+  first served. Separately, whatever the reserve, the queue always prefers a startable job with no
+  open alternative over one that has — so a spilling job never jumps ahead of a job that can only
+  use that one harness. `ah tick`/`agenthook status` show a waiting job's `why` and count; `ah doctor`
+  prints each exclusive harness's effective reserve.
 - **Precedence.** Per `model` and `effort`, independently: an object entry's pin in the step's
   `harness` list wins over everything else for that harness alone, then `escalate` (the stored
   difficulty's tier), then `lite` (when the description carries its headings), then the step's own
