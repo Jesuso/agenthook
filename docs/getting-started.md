@@ -140,7 +140,9 @@ Extra step fields you'll want to know:
   `manual` step.
 - `idleMinutes` (default off) — also kill the agent after this many minutes with no output. Opt-in:
   a long single tool call can legitimately be silent.
-- `model` — pin a step to a specific Claude model (e.g. `"claude-opus-4-8"` for review).
+- `model` — pin a step to a specific Claude model (e.g. `"claude-opus-4-8"` for review). With
+  [harnesses](local-models.md#several-backends-harnesses), a step can instead name several backends
+  and pin a different `model`/`effort` per one via an object entry: `"harness": [{ "name": "local-qwen", "model": "qwen3-coder" }, "opus"]`.
 - `effort` — per-step reasoning effort, passed to `claude -p --effort` (`low` | `medium` | `high`
   | `xhigh` | `max`). Front-load tokens where errors compound most: `"high"` for `triage` (a bad
   spec no downstream stage can recover), `"low"` for `code` (a precise spec makes implementation

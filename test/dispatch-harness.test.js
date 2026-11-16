@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveHarness, harnessesOf, healthTrip, cooldownFor, modelApiFailure } from "../src/dispatch/harness.js";
+import { resolveHarness, harnessesOf, harnessEntryOf, healthTrip, cooldownFor, modelApiFailure } from "../src/dispatch/harness.js";
 import { createSpawn } from "../src/dispatch/spawn.js";
 import { resolveModelEffort, createDispatcher } from "../src/dispatch.js";
 import { agentFor } from "../src/agents/index.js";
@@ -25,6 +25,18 @@ test("harnessesOf: a string is a one-element list, a list is copied, none is []"
   assert.deepEqual(harnessesOf({ harness: "qwen" }), ["qwen"]);
   assert.deepEqual(harnessesOf({ harness: ["qwen", "deepseek"] }), ["qwen", "deepseek"]);
   assert.deepEqual(harnessesOf({}), []);
+});
+
+test("harnessesOf: a mixed list returns names for both string and object entries", () => {
+  assert.deepEqual(harnessesOf({ harness: ["a", { name: "b", model: "m" }] }), ["a", "b"]);
+});
+
+test("harnessEntryOf: returns the object entry for a name, undefined for a string or a miss", () => {
+  const step = { harness: ["a", { name: "b", model: "m", effort: "high" }] };
+  assert.deepEqual(harnessEntryOf(step, "b"), { name: "b", model: "m", effort: "high" });
+  assert.equal(harnessEntryOf(step, "a"), undefined);
+  assert.equal(harnessEntryOf({ harness: "b" }, "b"), undefined);
+  assert.equal(harnessEntryOf({}, "b"), undefined);
 });
 
 test("resolveHarness: the harness fills knobs the step leaves unset", () => {
@@ -80,6 +92,50 @@ test("resolveHarness: escalate/lite still override a harness model", () => {
   assert.deepEqual(resolveModelEffort(eff, undefined, "x"), { model: "qwen3-coder", effort: undefined });
   assert.deepEqual(resolveModelEffort(eff, "hard", "x"), { model: "claude-opus-5-5", effort: undefined });
   assert.deepEqual(resolveModelEffort(eff, undefined, "## Spec\nbody"), { model: "lite-model", effort: undefined });
+});
+
+test("resolveHarness: an object entry's model beats the step's, the harness's, escalate and lite", () => {
+  const step = /** @type {any} */ ({ id: "review", model: "step-model", harness: ["qwen", { name: "deepseek", model: "entry-model" }], escalate: { hard: { model: "esc-model" } }, lite: { descriptionHeadings: ["Spec"], model: "lite-model" } });
+  const eff = resolveHarness({ harnesses: HARNESSES }, step, "deepseek").step;
+  assert.deepEqual(resolveModelEffort(eff, undefined, "x"), { model: "entry-model", effort: undefined });
+  assert.deepEqual(resolveModelEffort(eff, "hard", "x"), { model: "entry-model", effort: undefined });
+  assert.deepEqual(resolveModelEffort(eff, undefined, "## Spec\nbody"), { model: "entry-model", effort: undefined });
+});
+
+test("resolveHarness: an object entry's effort beats the step's, the harness's, escalate and lite", () => {
+  const step = /** @type {any} */ ({ id: "review", effort: "low", harness: ["qwen", { name: "deepseek", effort: "entry-effort" }], escalate: { hard: { effort: "max" } }, lite: { descriptionHeadings: ["Spec"], effort: "medium" } });
+  const eff = resolveHarness({ harnesses: HARNESSES }, step, "deepseek").step;
+  assert.deepEqual(resolveModelEffort(eff, undefined, "x"), { model: "deepseek/deepseek-v3", effort: "entry-effort" });
+  assert.deepEqual(resolveModelEffort(eff, "hard", "x"), { model: "deepseek/deepseek-v3", effort: "entry-effort" });
+  assert.deepEqual(resolveModelEffort(eff, undefined, "## Spec\nbody"), { model: "deepseek/deepseek-v3", effort: "entry-effort" });
+});
+
+test("resolveHarness: a harness-level effort is used when the step and entry set none", () => {
+  const harnesses = { ...HARNESSES, efforty: { model: "m", effort: "high" } };
+  const eff = resolveHarness({ harnesses }, { id: "code" }, "efforty").step;
+  assert.deepEqual(resolveModelEffort(eff, undefined, "x"), { model: "m", effort: "high" });
+});
+
+test("resolveHarness: step effort beats harness effort; escalate effort still beats the step's with no entry pin", () => {
+  const harnesses = { ...HARNESSES, efforty: { effort: "high" } };
+  const step = /** @type {any} */ ({ id: "code", effort: "medium", escalate: { hard: { effort: "max" } } });
+  const eff = resolveHarness({ harnesses }, step, "efforty").step;
+  assert.deepEqual(resolveModelEffort(eff, undefined, "x"), { model: undefined, effort: "medium" });
+  assert.deepEqual(resolveModelEffort(eff, "hard", "x"), { model: undefined, effort: "max" });
+});
+
+test("resolveHarness: an entry pin never mutates the input step and applies only to runs routed to that entry's name", () => {
+  const step = /** @type {any} */ ({ id: "review", model: "step-model", effort: "low", harness: ["qwen", { name: "deepseek", model: "entry-model", effort: "entry-effort" }], escalate: { hard: { model: "esc-model", effort: "max" } }, lite: { descriptionHeadings: ["Spec"], model: "lite-model", effort: "medium" } });
+  const deepseek = resolveHarness({ harnesses: HARNESSES }, step, "deepseek").step;
+  assert.deepEqual(resolveModelEffort(deepseek, "hard", "## Spec\nbody"), { model: "entry-model", effort: "entry-effort" });
+  assert.equal(step.model, "step-model");
+  assert.equal(step.effort, "low");
+  assert.deepEqual(step.lite, { descriptionHeadings: ["Spec"], model: "lite-model", effort: "medium" });
+  assert.deepEqual(step.escalate.hard, { model: "esc-model", effort: "max" });
+  // another harness in the same list keeps the step's own model/effort
+  const qwen = resolveHarness({ harnesses: HARNESSES }, step, "qwen").step;
+  assert.deepEqual(resolveModelEffort(qwen, "hard", "## Spec\nbody"), { model: "esc-model", effort: "max" });
+  assert.deepEqual(resolveModelEffort(qwen, undefined, "nothing"), { model: "step-model", effort: "low" });
 });
 
 test("resolveHarness: a null or unknown harness returns the step unchanged", () => {

@@ -804,10 +804,20 @@ export function readHarnesses(raw: unknown): [string, Record<string, unknown>][]
 
 export const harnessPath = (name: string, ...rest: string[]): JSONPath => ["harnesses", name, ...rest];
 
-/** A step's `harness` as a list: a name is a one-element list, a list of names is kept, anything else is []. */
-export function stepHarnessList(v: unknown): string[] {
+/** A step's `harness` as its raw elements: a name is a one-element list; strings and `{name, model?, effort?}` objects are kept verbatim, anything else is []. */
+export function stepHarnessEntries(v: unknown): unknown[] {
   if (typeof v === "string") return v ? [v] : [];
-  return Array.isArray(v) ? v.filter((n): n is string => typeof n === "string") : [];
+  return Array.isArray(v) ? v : [];
+}
+
+/** A step's `harness` as a list of names: a string element is its own name, an object element its `name`. */
+export function stepHarnessList(v: unknown): string[] {
+  return stepHarnessEntries(v).map((e) => (typeof e === "string" ? e : isObj(e) && typeof e.name === "string" ? e.name : ""));
+}
+
+/** The `{name, model?, effort?}` entry a step's harness list carries for `name`, or undefined. */
+export function stepHarnessEntry(v: unknown, name: string): Record<string, unknown> | undefined {
+  return Array.isArray(v) ? v.find((e): e is Record<string, unknown> => isObj(e) && e.name === name) : undefined;
 }
 
 /** Append `harnesses["harness-N"]: {}` with a name no harness uses; returns the new text and the name. */
@@ -828,8 +838,9 @@ export function harnessRenameError(raw: unknown, from: string, to: string): "bla
 
 /**
  * Rename harness `from` to `to`: only the key's text changes (the block, its comments and the
- * record's order stay put), then every step's `harness` reference follows — a name or a list
- * element, each a one-value edit. A blank or taken name (`harnessRenameError`) is no edit.
+ * record's order stay put), then every step's `harness` reference follows — a name, a list
+ * element, or an object entry's `name`, each a one-value edit. A blank or taken name
+ * (`harnessRenameError`) is no edit.
  */
 export function renameHarness(text: string, from: string, to: string): string {
   const name = to.trim();
@@ -842,14 +853,20 @@ export function renameHarness(text: string, from: string, to: string): string {
   readSteps(JSON.parse(next)).forEach((step, i) => {
     const h = step.harness;
     if (h === from) next = setPath(next, stepPath(i, "harness"), name);
-    else if (Array.isArray(h)) h.forEach((n, j) => n === from && (next = setPath(next, [...stepPath(i, "harness"), j], name)));
+    else if (Array.isArray(h)) {
+      h.forEach((n, j) => {
+        if (n === from) next = setPath(next, [...stepPath(i, "harness"), j], name);
+        else if (isObj(n) && n.name === from) next = setPath(next, [...stepPath(i, "harness"), j, "name"], name);
+      });
+    }
   });
   return next;
 }
 
 /**
  * Remove harness `name` (and `harnesses` with it once empty), then drop the name from every step's
- * `harness`: a list loses that element; a step left naming none loses `harness` and `routing`.
+ * `harness`: a list loses that element — a string or an object entry — and a step left naming none
+ * loses `harness` and `routing`.
  */
 export function removeHarness(text: string, name: string): string {
   let next = setPath(text, harnessPath(name), undefined);
@@ -863,19 +880,23 @@ export function removeHarness(text: string, name: string): string {
     }
     // Last index first, so the earlier indices still point at their elements.
     const h = step.harness as unknown[];
-    for (let j = h.length - 1; j >= 0; j--) if (h[j] === name) next = setPath(next, [...stepPath(i, "harness"), j], undefined);
+    for (let j = h.length - 1; j >= 0; j--) {
+      const e = h[j];
+      if (e === name || (isObj(e) && e.name === name)) next = setPath(next, [...stepPath(i, "harness"), j], undefined);
+    }
   });
   return next;
 }
 
 /**
- * A step's harness pick: none removes `harness` and `routing`; one writes the name (and drops
- * `routing`, which needs a list); two or more write the list (routing kept).
+ * A step's harness pick: none removes `harness` and `routing`; one string writes the name (and
+ * drops `routing`, which needs a list); anything else writes the elements verbatim — an object
+ * entry stays `[entry]`.
  */
-export function stepHarnessEdit(text: string, i: number, names: string[]): string {
-  if (names.length === 0) return setPath(setPath(text, stepPath(i, "harness"), undefined), stepPath(i, "routing"), undefined);
-  if (names.length === 1) return setPath(setPath(text, stepPath(i, "harness"), names[0]), stepPath(i, "routing"), undefined);
-  return setPath(text, stepPath(i, "harness"), names);
+export function stepHarnessEdit(text: string, i: number, elements: unknown[]): string {
+  if (elements.length === 0) return setPath(setPath(text, stepPath(i, "harness"), undefined), stepPath(i, "routing"), undefined);
+  if (elements.length === 1 && typeof elements[0] === "string") return setPath(setPath(text, stepPath(i, "harness"), elements[0]), stepPath(i, "routing"), undefined);
+  return setPath(text, stepPath(i, "harness"), elements);
 }
 
 /** Remove harness `name`'s `sandbox` once an edit left it {} (its one key, `image`, cleared). */
