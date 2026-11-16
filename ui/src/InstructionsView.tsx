@@ -43,8 +43,11 @@ export default function InstructionsView(props: {
   const [file, setFileState] = useState<FileState>({ kind: "none" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
-  // A wide window opens the rendered preview beside the editor; the choice after that is the human's.
-  const [side, setSide] = useState<Side>(() => (typeof window !== "undefined" && window.matchMedia?.("(min-width: 1536px)").matches ? "preview" : "none"));
+  // One view at a time: the editor to write, the rendered file or the agent's prompt to read. A wide
+  // window opens on what the agent receives; the choice after that is the human's.
+  const [side, setSide] = useState<Side>(() => (typeof window !== "undefined" && window.matchMedia?.("(min-width: 1536px)").matches ? "agent" : "none"));
+  // When the open file was last saved from here (cleared by the next edit or another file).
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [diff, setDiff] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [ask, confirmModal] = useConfirm();
@@ -90,6 +93,8 @@ export default function InstructionsView(props: {
    *  phase) keeps the current view while fetching, and lands only if still stale: typing
    *  meanwhile has already turned it into the conflict banner. */
   const load = (prof: string, path: string, silent = false) => {
+    setSavedAt(null);
+    setCopied(false);
     const seq = ++loadSeq.current;
     if (!silent) setFile({ kind: "loading", path });
     const landable = () => {
@@ -169,7 +174,7 @@ export default function InstructionsView(props: {
         const kind = classifySaveResponse(res.status);
         if (kind === "error" || kind === "invalid") return fail(res.status);
         return res.json().then((b: { hash: string; content?: string }) =>
-          settle(kind === "ok" ? { type: "saved", hash: b.hash } : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
+          settle(kind === "ok" ? (setSavedAt(Date.now()), { type: "saved", hash: b.hash }) : { type: "conflict", hash: b.hash, content: b.content ?? "" }),
         );
       })
       .catch(() => fail(0));
@@ -236,6 +241,12 @@ export default function InstructionsView(props: {
   const unlessDirty = (go: () => void) => {
     if (!dirty) return go();
     ask({ title: t("instructions.unsavedTitle"), body: discardPrompt(lang), confirmLabel: t("instructions.discard"), cancelLabel: t("instructions.keepEditing"), destructive: true }).then((ok) => ok && go());
+  };
+
+  const [copied, setCopied] = useState(false);
+  const copyBuffer = () => {
+    if (!doc) return;
+    navigator.clipboard?.writeText(doc.buffer).then(() => setCopied(true), () => setToast(t("instructions.copyFailed")));
   };
 
   const pickFile = (path: string) => {
@@ -323,6 +334,8 @@ export default function InstructionsView(props: {
                   dirty && <span className="shrink-0 text-status-held">{t("instructions.modified")}</span>
                 )}
                 <Segmented
+                  label={t("instructions.viewLabel")}
+                  tone="neutral"
                   value={side}
                   options={[
                     { value: "none", label: t("instructions.tab.editor") },
@@ -333,7 +346,11 @@ export default function InstructionsView(props: {
                 />
                 <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
                   <InlineLiveEffect agentsRunning={agentsRunning} />
-                  {!dirty && phase === "editing" && <span className="text-label text-muted">{t("instructions.noChanges")}</span>}
+                  {!dirty && phase === "editing" && (
+                    <span role="status" data-save-status className={`text-label ${savedAt ? "text-success" : "text-muted"}`}>
+                      {savedAt ? t("instructions.savedAt", { time: new Date(savedAt).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) }) : t("instructions.noChanges")}
+                    </span>
+                  )}
                   <button
                     className="rounded border border-accent bg-accent px-2 py-0.5 text-accent-fg disabled:cursor-not-allowed disabled:border-border disabled:bg-transparent disabled:text-muted"
                     disabled={!dirty || phase !== "editing"}
@@ -348,7 +365,13 @@ export default function InstructionsView(props: {
                 <div className="mb-2 flex items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held">
                   {phase === "deleted" ? t("instructions.deletedBanner") : t("instructions.changedBanner")}
                   <span className="ml-auto flex gap-2">
-                    <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile, open.path)}>
+                    {phase === "deleted" && (
+                      <button className="rounded border border-status-held px-2 py-0.5" data-copy-buffer onClick={copyBuffer}>
+                        {copied ? t("instructions.copied") : t("instructions.copyText")}
+                      </button>
+                    )}
+                    {/* Reload drops what was typed here, so it asks first like any other way out. */}
+                    <button className="rounded border border-status-held px-2 py-0.5" data-reload onClick={() => unlessDirty(() => load(open.profile, open.path))}>
                       {t("instructions.reload")}
                     </button>
                     {phase === "conflict" && (
@@ -364,9 +387,10 @@ export default function InstructionsView(props: {
                   </span>
                 </div>
               )}
-              <div className="flex min-h-0 flex-1 gap-3 max-md:flex-col">
-                <div className="min-w-0 flex-1 max-md:h-[70vh] max-md:flex-none">
-                  <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => act({ type: "edit", buffer })} onSave={requestSave} />
+              <div className="flex min-h-0 flex-1 gap-3 max-md:h-[70vh] max-md:flex-none">
+                {/* The editor stays mounted (its undo history lives there); the reading views replace it on screen. */}
+                <div className={`min-w-0 flex-1 ${side === "none" ? "" : "hidden"}`} data-editor-pane>
+                  <MarkdownEditor key={editorKey} initial={open.content} onChange={(buffer) => (setSavedAt(null), act({ type: "edit", buffer }))} onSave={requestSave} />
                 </div>
                 {side === "preview" && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.

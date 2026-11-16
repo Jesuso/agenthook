@@ -85,6 +85,31 @@ describe("InstructionsView in-app confirms", () => {
     await answerConfirm(true);
     await until(() => puts.length === 1);
   });
+
+  it("Reload on a conflict asks before dropping the edits", async () => {
+    const root = await dirtyView();
+    await act(async () => sink.current!({ type: "instructions", profile: "demo", path: "/a/code.md", hash: "h2", source: "disk" }));
+    await until(() => root.textContent!.includes("changed on disk"));
+    const loads = () => (fetch as any).mock.calls.filter(([u]: [string]) => u.startsWith("/api/instructions/file?profile=demo&path=%2Fa%2Fcode.md")).length;
+    const before = loads();
+    await click(root.querySelector<HTMLButtonElement>("[data-reload]")!);
+    expect(confirmDialog()).not.toBeNull();
+    await answerConfirm(false);
+    expect(loads()).toBe(before);
+    expect(root.textContent).toContain("changed on disk");
+  });
+
+  it("the editor is on screen only in its own view; a reading view replaces it", async () => {
+    m = await mount(view());
+    await until(() => m!.root.querySelector(".cm-editor"));
+    const pane = m.root.querySelector<HTMLElement>("[data-editor-pane]")!;
+    expect(pane.className).not.toContain("hidden");
+    await click([...m.root.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent === "Preview")!);
+    expect(pane.className).toContain("hidden");
+    expect(m.root.querySelector(".md-preview")).not.toBeNull();
+    // Still mounted: the buffer and its undo history survive the switch.
+    expect(m.root.querySelector(".cm-editor")).not.toBeNull();
+  });
 });
 
 describe("InstructionsView in Spanish", () => {
