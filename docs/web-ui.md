@@ -247,8 +247,13 @@ after a save, its banner driven by SSE (`restart_requested` → `restarting` →
 form tabs beside Raw (one shared
 buffer; every change a `jsonc-parser` edit, reorder swaps the steps' exact text) with **stage
 pickers** fed by `GET /api/discover` on first form-tab open and on Refresh, and a collapsible
-**pipeline graph** panel above every pane, re-deriving from the live buffer on every edit — form or raw text — without
+**pipeline graph** panel on the Pipeline tab, re-deriving from the live buffer on every edit — without
 a save; an unparseable buffer shows "fix the JSON to see the graph" instead.
+**Save** is the one filled button while there is something to save; blocked by a client check, a
+click goes to the first problem's tab and opens the problem list. On a conflict, **Reload** asks
+before dropping edits. After a save, a quiet line says the receiver still runs the previous config
+(with Restart when idle) until a receiver started after that save is up — the save time is kept in
+the browser (`localStorage`), so the line outlives the saved band and a page reload.
 **Revert** beside Save throws a dirty buffer back to the loaded/saved text (works on broken JSON; on
 a conflict the buffer goes clean and the newer disk version reloads).
 
@@ -286,7 +291,10 @@ step that already sets them — they act when a task enters that step.
 tab lists its section's entries whose `scope` includes the active `tracker.type` (or has none) —
 a new scoped schema entry adds a field — with the `advanced` ones in a collapsed "Advanced · N set".
 `tracker.type` is read-only once set (every step's stage keys depend on it; change it in Raw) and a
-picker only while absent; unchecking `assigneeFilter` carries an inline warning. The default-`true`
+picker only while absent. `assigneeFilter` ("Only my tickets") is edited in **Basics → Containment**,
+the block that opens Basics with `fullAuto` and the sandbox; each of its notes is muted when the
+setting is safe, plain while a loose setting stands, and takes the held hue only while the edit makes
+the profile less contained than the saved file. The default-`true`
 booleans (`tracker.assigneeFilter`, `forge.redCi`, `forge.greenCi`) show their effective value —
 absent reads checked; unchecking writes an explicit `false`, checking again removes the key. The
 **Forge** tab offers "Add GitHub forge" (`{"type":"github"}`) when there is no block and "Remove
@@ -473,8 +481,8 @@ Protocol: NDJSON `{id, cmd, args}` → `{id, ok, result|error}`, allowlisted com
 **Pipeline graph.** Pure `ui/src/pipelineGraph.ts` (`layoutPipeline`, Vitest-covered) derives SVG
 step cards with advance / fail / hold / changes / queue edges from the buffer's stage bindings, and
 owns all the geometry: node positions plus one route per edge (`routes`, parallel to `edges`).
-`ui/src/PipelineGraph.tsx` only draws it, centered, in a panel above the pane (not a fourth tab, so
-it stays visible while editing). The layout is layered:
+`ui/src/PipelineGraph.tsx` only draws it, centered, in a panel on the Pipeline tab: above the steps,
+or beside them and sticky from 1800px. Picking a node opens that step's card and closes the others. The layout is layered:
 
 - a queue-stage row on top, only when a step has a queue stage;
 - the step row — at the top margin when there are no queue stages and no `changes` arc (no empty

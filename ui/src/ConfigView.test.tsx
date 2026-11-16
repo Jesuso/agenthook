@@ -145,6 +145,16 @@ describe("ConfigView panes", () => {
 });
 
 describe("ConfigView graph → card", () => {
+  it("picking another node closes the step that was open", async () => {
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-graph-step]"));
+    const open = (id: string) => m!.root.querySelector<HTMLElement>(`[data-step-card="${id}"]`)!.dataset.open;
+    await click(m.root.querySelector('[data-graph-step="code"]')!);
+    await click(m.root.querySelector('[data-graph-step="review"]')!);
+    expect(open("review")).toBe("true");
+    expect(open("code")).toBe("false");
+  });
+
   it("clicking a step node opens and scrolls to that card", async () => {
     m = await mount(view());
     await until(() => m!.root.querySelector("[data-graph-step]"));
@@ -248,6 +258,37 @@ describe("ConfigView revert + in-app confirms", () => {
     await answerConfirm(true);
     await until(() => !m!.root.textContent!.includes("changed on disk") && m!.root.querySelector<HTMLInputElement>('[name="name"]')?.value === "from-disk");
     expect(m.root.textContent).not.toContain("● modified");
+  });
+
+  it("Reload on a conflict asks before dropping the edits", async () => {
+    m = await mount(viewWith());
+    await until(() => m!.root.querySelector("[data-step-card]"));
+    await makeDirty(m.root);
+    await act(async () => sink.current!({ type: "config", profile: "demo", hash: "h2", source: "disk" }));
+    const loads = () => (fetch as any).mock.calls.filter(([u, init]: [string, RequestInit?]) => u.startsWith("/api/config") && !init?.method).length;
+    const before = loads();
+    await click(m.root.querySelector<HTMLButtonElement>("[data-conflict-reload]")!);
+    expect(confirmDialog()).not.toBeNull();
+    await answerConfirm(false);
+    expect(loads()).toBe(before);
+    expect(m.root.textContent).toContain("● modified");
+  });
+
+  it("saved after the receiver started: a line says it still runs the previous config, until a later start", async () => {
+    const saved = Date.now();
+    const up = (startedAt: number) => [{ name: "demo", label: "demo", up: true, pid: 1, startedAt: new Date(startedAt).toISOString() }] as unknown as ProfileView[];
+    try {
+      localStorage.setItem("ah.configSavedAt.demo", String(saved));
+      m = await mount(viewWith(up(saved - 60_000)));
+      await until(() => m!.root.querySelector("[data-step-card]"));
+      expect(m.root.querySelector("[data-config-not-live]")?.textContent).toContain("still runs the previous config");
+      await m.unmount();
+      m = await mount(viewWith(up(saved + 60_000)));
+      await until(() => m!.root.querySelector("[data-step-card]"));
+      expect(m.root.querySelector("[data-config-not-live]")).toBeNull();
+    } finally {
+      localStorage.removeItem("ah.configSavedAt.demo");
+    }
   });
 
   it("Overwrite on a conflict PUTs only after the confirm", async () => {

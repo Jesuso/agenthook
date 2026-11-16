@@ -1191,6 +1191,8 @@ export function PipelineForm(
         const incomplete = errs.length > 0 && pristine.has(i);
         const advancedCount = advancedSet(s, tracker, keys).length;
         const summary = summarizeStep(s, keys, stageList, advancedCount, lang);
+        // Names the row's buttons for a screen reader: four "remove" in a row say nothing.
+        const stepName = fieldText(s.id) || `#${i + 1}`;
         return (
           <section
             key={i}
@@ -1239,7 +1241,7 @@ export function PipelineForm(
               <span className="ml-auto flex shrink-0 gap-1">
                 <button
                   className={ICON_BUTTON}
-                  aria-label={t("forms.moveUp")}
+                  aria-label={`${t("forms.moveUp")}: ${stepName}`}
                   disabled={i === 0}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, -1));
@@ -1251,7 +1253,7 @@ export function PipelineForm(
                 </button>
                 <button
                   className={ICON_BUTTON}
-                  aria-label={t("forms.moveDown")}
+                  aria-label={`${t("forms.moveDown")}: ${stepName}`}
                   disabled={i === steps.length - 1}
                   onClick={() => {
                     setOpen((prev) => openAfterMove(prev, i, 1));
@@ -1263,6 +1265,7 @@ export function PipelineForm(
                 </button>
                 <button
                   className={ICON_BUTTON}
+                  aria-label={`${t("forms.remove")}: ${stepName}`}
                   onClick={() =>
                     ask({
                       title: t("forms.step.removeTitle", { id: fieldText(s.id) || i + 1 }),

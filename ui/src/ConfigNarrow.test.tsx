@@ -199,8 +199,8 @@ describe("PipelineForm at phone width (#372)", () => {
     await click(card.querySelector('[aria-label="expand step"]')!);
     const buttons = [
       card.querySelector('[aria-label="collapse step"]')!,
-      card.querySelector('[aria-label="move up"]')!,
-      card.querySelector('[aria-label="move down"]')!,
+      card.querySelector('[aria-label^="move up"]')!,
+      card.querySelector('[aria-label^="move down"]')!,
       [...card.querySelectorAll("button")].find((b) => b.textContent === "remove")!,
       card.querySelector('[aria-label="remove variable"]')!,
     ];

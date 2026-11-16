@@ -717,6 +717,7 @@ export default function ConfigView(props: {
               <div className="relative mb-2">
                 <div
                   data-config-banner
+                  role="status"
                   data-tone={tone}
                   className={`flex h-8 items-center gap-2 rounded border text-sm ${
                     tone === "ok"
@@ -789,6 +790,8 @@ export default function ConfigView(props: {
             <div
               ref={tabRow}
               data-config-tabs
+              role="tablist"
+              aria-label={t("configView.title")}
               onScroll={measureTabs}
               className="flex flex-nowrap gap-1 overflow-x-auto text-sm shadow-[inset_0_-1px_0_var(--color-border)] [scrollbar-width:thin]"
             >
@@ -796,6 +799,9 @@ export default function ConfigView(props: {
                 <button
                   key={p}
                   data-config-pane={p}
+                  type="button"
+                  role="tab"
+                  aria-selected={p === pane}
                   className={`${TOUCH} shrink-0 border-b-2 px-3 py-0.5 capitalize disabled:cursor-not-allowed disabled:opacity-50 ${p === pane ? "border-[var(--color-accent)]" : "border-transparent text-[var(--color-muted)]"}`}
                   disabled={p !== "raw" && !parsed?.ok}
                   title={p !== "raw" && !parsed?.ok ? t("configView.fixInRaw") : undefined}
