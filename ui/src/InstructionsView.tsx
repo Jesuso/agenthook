@@ -394,7 +394,7 @@ export default function InstructionsView(props: {
                 </div>
                 {side === "preview" && doc && (
                   // react-markdown escapes raw HTML by default; never add rehype-raw here.
-                  <div className="md-preview min-w-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm">
+                  <div className="md-preview enter-fade min-w-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm">
                     <Markdown>{doc.buffer}</Markdown>
                   </div>
                 )}

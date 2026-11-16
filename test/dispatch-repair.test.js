@@ -307,8 +307,9 @@ test("dispatch: an agent with no resumeArgs (hermes) gets no repair spawn — sa
 });
 
 // A sandboxed opencode run (sandboxResume:false) is covered end to end in
-// test/dispatch-sandbox.test.js, which already has the real-worktree + fake-docker harness
-// this needs (agent.sandbox(), sandbox.describe().home, trustedGitDirs on a real checkout).
+// test/dispatch-sandbox-runtime.test.js, which already has the real-worktree + fake-docker
+// harness this needs (agent.sandbox(), sandbox.describe().home, trustedGitDirs on a real
+// checkout).
 
 test("dispatch: a repair turn that crashes on its second call (not the first) resolves fail with the usual reason", async () => {
   const dir = tmpDir();

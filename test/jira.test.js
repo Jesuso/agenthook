@@ -1,7 +1,8 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // Jira adapter — pure-unit coverage (no network): the adapter contract (x-hub-signature
 // verify, issue_created + issue_updated status-change routing, advance → transition lookup —
-// mirrors test/github.test.js) plus the `agenthook init` discovery. Note for the init test:
+// mirrors test/github-webhook.test.js and test/github-stage.test.js) plus the `agenthook init`
+// discovery. Note for the init test:
 // site/email are collected BY the wizard, so the status discovery rebuilds base+auth from the
 // answers (not the factory's cached pair) — the test asserts it hits the answered site/project,
 // and dedups statuses across issue types.
@@ -38,8 +39,9 @@ function adapter() {
   return createJiraAdapter(/** @type {any} */ ({ trigger: "@agent", providerConfig }), /** @type {any} */ (makeStore()));
 }
 
-// --- adapter contract (mirrors test/github.test.js): signature verify, the issue_created +
-// issue_updated(status change) routing, and the advance → transition lookup. The default
+// --- adapter contract (mirrors test/github-webhook.test.js and test/github-stage.test.js):
+// signature verify, the issue_created + issue_updated(status change) routing, and the
+// advance → transition lookup. The default
 // pipeline binds one `code` step; assigneeFilter:false keeps routing offline (no /myself gate)
 // and an explicit string webhookSecret keeps verification deterministic (no random/store).
 const pipeline = [{ id: "code", sourceStatus: "To Do", successStatus: "In Review", failureStatus: "Blocked" }];

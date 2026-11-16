@@ -164,7 +164,7 @@ describe("TicketDrawer", () => {
 
   it("is a labelled modal dialog over a backdrop", () => {
     const html = render(row);
-    expect(html).toMatch(/^<div class="fixed inset-0 z-40 bg-black\/40">/);
+    expect(html).toMatch(/^<div class="drawer-scrim fixed inset-0 z-40 bg-black\/40">/);
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('aria-label="Ticket #221"');

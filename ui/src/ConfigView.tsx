@@ -852,7 +852,7 @@ export default function ConfigView(props: {
           </div>
           )}
           <div className={showRaw ? "flex min-h-0 min-w-0 flex-1" : "flex min-w-0 flex-col"}>
-            <div data-config-pane-host className={showRaw ? "min-w-0 flex-1 overflow-auto" : "min-w-0"}>
+            <div data-config-pane-host key={showRaw ? "raw" : pane} className={`enter-fade ${showRaw ? "min-w-0 flex-1 overflow-auto" : "min-w-0"}`}>
               <ConfirmContext.Provider value={ask}>
                 {pane === "raw" || !parsed?.ok ? (
                   <MarkdownEditor
