@@ -72,10 +72,12 @@ export function stepBudget(caps, stepState, pendingSteps) {
  * Remaining pull budget per queue step that routes through harnesses: the room left across its
  * harnesses (Σ max − active) less the step's own queued + pending jobs, never negative. A down
  * harness adds no room and a probing one at most 1 (its one probe run). A step with an uncapped
- * up harness (or one the queue doesn't report) is absent — unbounded by harnesses.
+ * up harness (or one the queue doesn't report) is absent — unbounded by harnesses. For a step
+ * with more than one harness, an up harness's own reserved slot(s) (#745) are subtracted too, so
+ * the puller never pulls work that could only wait on the reserve.
  * Pure. Combine with stepBudget via `mergeBudgets` (the tighter bound wins).
  * @param {Record<string, string[]>} stepHarnesses  stepId → its harness list
- * @param {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing'}>} harnessState  the queue's per-harness slots
+ * @param {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', reserve?: number}>} harnessState  the queue's per-harness slots
  * @param {Record<string, {active: number, queued: number}>} stepState  the queue's per-step counts
  * @param {Iterable<string>} pendingSteps  the stepId of every pending pull
  * @returns {Record<string, number>}
@@ -100,7 +102,10 @@ export function harnessBudget(stepHarnesses, harnessState, stepState, pendingSte
         room = Infinity;
         break;
       }
-      room += Math.max(0, h.max - h.active);
+      // A step with more than one harness never pulls into the slot(s) an exclusive harness
+      // reserves against a spill (#745) — subtract the reserve too, for just that case.
+      const reserve = names.length > 1 && h.reserve ? h.reserve : 0;
+      room += Math.max(0, h.max - reserve - h.active);
     }
     if (room === Infinity) continue;
     const s = Object.hasOwn(stepState, id) ? stepState[id] : { active: 0, queued: 0 };

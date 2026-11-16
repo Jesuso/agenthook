@@ -757,6 +757,7 @@
  * @property {string} [opencodeConfig]         opencode only, sandbox only: host path to an OpenCode JSON config; a step's own `opencodeConfig` wins
  * @property {number} [contextTokens]          the model's context window (tokens) on this harness, for the running record's `ctxMax` (#658); a step's own wins
  * @property {RemoteHarness} [remote]          when set, runs on this harness use the `ssh` executor (src/dispatch/executor-ssh.js) instead of host/sandbox (#689, experimental)
+ * @property {number} [reserve]                 slots kept back from a spilling job with an open alternative elsewhere (#745); only on a harness some step lists as its only harness (effective default there: 1 if some other step lists it as one option among several, else 0); ignored otherwise
  */
 
 /**

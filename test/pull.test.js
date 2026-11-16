@@ -231,6 +231,12 @@ test("harnessBudget: a down harness adds no room, a probing one at most its sing
   assert.deepEqual(harnessBudget({ code: ["busy"] }, hs, {}, []), { code: 0 }, "its probe is already running");
 });
 
+test("harnessBudget: a step with more than one harness never pulls into an up harness's reserve (#745); a step naming it alone is unaffected", () => {
+  const hs = { qwen: { active: 0, max: 2, reserve: 1 }, deepseek: { active: 0, max: 3 } };
+  assert.deepEqual(harnessBudget({ code: ["qwen", "deepseek"] }, hs, {}, []), { code: 4 }, "qwen's reserved slot is subtracted, deepseek's isn't");
+  assert.deepEqual(harnessBudget({ review: ["qwen"] }, hs, {}, []), { review: 2 }, "a step with no alternative ignores the reserve");
+});
+
 test("mergeBudgets: the tighter bound wins; a step bounded by one side keeps it", () => {
   assert.deepEqual(mergeBudgets({ triage: 2, code: 3 }, { code: 1, review: 0 }), { triage: 2, code: 1, review: 0 });
 });

@@ -102,6 +102,12 @@ standing/config files the hook built) reach the worker — never:
   one);
 - the worker's own uncommitted edits, on the way back — only commits return, fast-forwarded.
 
+**One exception you opt into:** an `opencodeConfig` set on a remote opencode harness (or its
+step) is copied to the worker in full, for the length of the run. A literal API key written in
+that file therefore reaches the worker. Write `"apiKey": "{env:NAME}"` instead — it resolves from
+the worker's own environment, which the hub never fills — or leave provider setup to the worker's
+own OpenCode config and set no `opencodeConfig` at all.
+
 ## Checking it: `agenthook doctor`
 
 For every `harnesses.<name>.remote`, `doctor` probes the worker over ssh (using the exact same

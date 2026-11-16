@@ -231,3 +231,19 @@ test("status: one `harness :` line per harness under usage, and `· <harness>` o
   assert.match(out.find((l) => l.includes("step-code-7")) ?? "", / · qwen$/);
   assert.doesNotMatch(out.find((l) => l.includes("step-triage-9")) ?? "", /·/);
 });
+
+test("status: `queue` line appends `, k waiting on a reserve` only when the heartbeat carries reserved jobs (#745)", async () => {
+  /** @param {string} key @param {any} hb */
+  const seed = (key, hb) => {
+    const dir = path.join(registryDir, key);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: key, stateKey: key, configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+    fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+    fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: key, stateKey: key, tracker: "local", updatedAt: new Date().toISOString(), starting: null, ...hb }));
+  };
+  seed("status-reserve", { queue: { active: 2, queued: 3, reserved: [{ ref: "A3", stepId: "code", harnesses: ["deepseek", "claude"] }] } });
+  seed("status-no-reserve", { queue: { active: 2, queued: 1 } });
+
+  assert.equal((await runStatus("status-reserve")).find((l) => l.startsWith("queue")), "queue   : 2 running, 3 queued, 1 waiting on a reserve");
+  assert.equal((await runStatus("status-no-reserve")).find((l) => l.startsWith("queue")), "queue   : 2 running, 1 queued");
+});
