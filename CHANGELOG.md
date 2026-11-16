@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Harness routing now reserves a slot on an exclusive harness — one a step lists as its *only*
+  harness — against a spill from another step that lists it as one option among several (#745).
+  A harness some other step names as an alternative gets an automatic reserve of 1 (override with
+  `harnesses.<name>.reserve`, an integer ≥ 0; `0` keeps the order rule but turns the slot-count
+  reserve off). A down/quota-closed or 0-capped alternative never counts, so a step whose other
+  harnesses are all unusable may still fill every slot on the exclusive one, first come first
+  served. Whatever the reserve, a startable job with no open alternative is always preferred over
+  one that has, so a spiller never jumps a job that can only use that harness. Surfaced in `ah
+  tick`/`agenthook status` (`why`/"waiting on a reserve") and `ah doctor` (the effective reserve
+  per exclusive harness). `src/pull.js`'s queue-stage puller budget subtracts the reserve too.
+
 - `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
   then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
   remove/rename/any field except `remote`), and per-step spawn knobs (`harness`, `routing`,

@@ -10,6 +10,8 @@ import { DEFAULT_AGENT } from "../agents/names.js";
  * construction (and that `queue.reconfigure` re-applies on a reload). `unharnessedShared` lists
  * the step ids whose unharnessed claude runs share the profile's quota group; `unharnessedAgents`
  * maps every unharnessed step to the agent CLI its runs spawn under (for `state().unharnessed`).
+ * `reserves` is the effective reserve (#745) per EXCLUSIVE harness that keeps one; `exclusive`
+ * lists every harness some non-manual step lists as its only harness (whatever its reserve).
  * @typedef {object} HarnessingShape
  * @property {Record<string, number>} stepCaps
  * @property {Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>} steps
@@ -17,7 +19,38 @@ import { DEFAULT_AGENT } from "../agents/names.js";
  * @property {Record<string, number|undefined>} cooldowns
  * @property {string[]} unharnessedShared
  * @property {Record<string, string>} unharnessedAgents
+ * @property {Record<string, number>} reserves
+ * @property {string[]} exclusive
  */
+
+/**
+ * Harnesses used by some non-manual step as its ONLY harness (#745), with the reserve that
+ * protects them from a spill. `automatic` is false when `harnesses.<name>.reserve` overrides the
+ * default (1 when some OTHER step lists `name` as one option among several, else 0). Pure.
+ * @param {Pick<import('../types.js').Config, 'pipeline'|'harnesses'>} cfg
+ * @returns {Record<string, {reserve: number, automatic: boolean, usedAsAlt: boolean}>}
+ */
+export function exclusiveHarnesses(cfg) {
+  /** @type {string[][]} */
+  const lists = [];
+  for (const s of cfg.pipeline || []) {
+    if (s.manual) continue;
+    const names = harnessesOf(s);
+    if (names.length) lists.push(names);
+  }
+  /** @type {Record<string, {reserve: number, automatic: boolean, usedAsAlt: boolean}>} */
+  const out = {};
+  for (const names of lists) {
+    if (names.length !== 1) continue;
+    const name = names[0];
+    if (Object.hasOwn(out, name)) continue;
+    const usedAsAlt = lists.some((l) => l.length > 1 && l.includes(name));
+    const override = cfg.harnesses?.[name]?.reserve;
+    const automatic = !(typeof override === "number" && Number.isInteger(override) && override >= 0);
+    out[name] = { reserve: automatic ? (usedAsAlt ? 1 : 0) : override, automatic, usedAsAlt };
+  }
+  return out;
+}
 
 /**
  * @param {import('../types.js').Config} cfg
@@ -52,5 +85,10 @@ export function buildHarnessing(cfg) {
       cooldowns[name] = h.cooldownMinutes;
     }
   }
-  return { stepCaps, steps, caps, cooldowns, unharnessedShared, unharnessedAgents };
+  const ex = exclusiveHarnesses(cfg);
+  const exclusive = Object.keys(ex);
+  /** @type {Record<string, number>} */
+  const reserves = {};
+  for (const [name, info] of Object.entries(ex)) if (info.reserve > 0) reserves[name] = info.reserve;
+  return { stepCaps, steps, caps, cooldowns, unharnessedShared, unharnessedAgents, reserves, exclusive };
 }

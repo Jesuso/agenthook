@@ -109,10 +109,18 @@ unchanged check.
 - `slots.capped` (present only when > 0) counts queued jobs waiting on their step's own
   `maxConcurrent` cap, or on its harnesses all being full, not on a slot — so `free` can be > 0
   while `queued` is non-zero.
+- `queue[].why` (present only on a job waiting SOLELY on a harness's reserve, #745) reads
+  `"reserve: <harness> keeps <n> slot(s) for <step(s)>"` — the job has an open alternative, but the
+  exclusive harness it would spill into is withholding its reserve for the step(s) that list it
+  alone. `agenthook status`'s `queue` line adds `, <k> waiting on a reserve`; the `tick` text digest
+  appends `— <why>` to the `WAIT` row.
 - `slots.harnesses` (present only when the profile has `harnesses`) is
-  `{"<name>": {"active": n, "max": n|null, "state": "up"|"down"|"probing"}}` per harness — `max: null`
-  means only the global cap bounds it, and `max: 0` means it is being drained at runtime
-  (`set_concurrency {harness, max: 0}` — no new starts until re-enabled). `run_start`/`run_end` then carry `harness` (the name the run
+  `{"<name>": {"active": n, "max": n|null, "state": "up"|"down"|"probing", "reserve"?: n}}` per
+  harness — `max: null` means only the global cap bounds it, `max: 0` means it is being drained at
+  runtime (`set_concurrency {harness, max: 0}` — no new starts until re-enabled), and `reserve`
+  (present only when > 0, #745) is the slot count this exclusive harness keeps from a job that has
+  an open alternative elsewhere (see `queue[].why` above and [local-models.md](local-models.md)).
+  `run_start`/`run_end` then carry `harness` (the name the run
   was routed to, or `null`), and a `running[]` row carries `harness` (the name from `running.json`)
   only when the run is on one — the `tick` text digest appends `· <harness>` to the RUN line.
   `state` is the health breaker's: `down` (routed around until `until`,

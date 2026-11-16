@@ -128,7 +128,10 @@ export async function status(args) {
   console.log(`auto    : ${hb.fullAuto ? "fullAuto (skip-permissions)" : "headless (privileged tools denied unless allowed)"}`);
   console.log(`sandbox : ${hb.sandbox ?? "none (runs on this host)"}`);
   // Down: heartbeat may be stale (kill -9), so trust queue.json instead.
-  if (p.up && hb.queue) console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued`);
+  if (p.up && hb.queue) {
+    const reserved = Array.isArray(hb.queue.reserved) ? hb.queue.reserved.length : 0;
+    console.log(`queue   : ${hb.queue.active} running, ${hb.queue.queued} queued${reserved ? `, ${reserved} waiting on a reserve` : ""}`);
+  }
   else if (!p.up && persisted) console.log(`queue   : ${persisted} queued (persisted — resumes on start)`);
   // Opt-in queue stages (backlog lanes): depth as of the last pull pass.
   if (p.up && hb.queueStage) {

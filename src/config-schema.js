@@ -107,6 +107,7 @@ export const CONFIG_SCHEMA = [
   entry("harnesses.*.sandbox.image", "string", "Sandbox image", "basics", "Agent image for sandboxed runs on this harness, instead of sandbox.image.", { advanced: true, sensitive: true }),
   entry("harnesses.*.opencodeConfig", "string", "OpenCode config path", "basics", "opencode, sandbox only: host path to an OpenCode JSON config, copied into the run's sandbox HOME; a step's own wins.", { advanced: true, sensitive: true }),
   entry("harnesses.*.contextTokens", "number", "Context window (tokens)", "basics", "The model's context window on this harness, so a running row can show ctx used/max; a step's own wins.", { min: 1, advanced: true }),
+  entry("harnesses.*.reserve", "number", "Reserve slots", "basics", "Slots an exclusive harness keeps from a step spilling into it; overrides the automatic default of 1.", { min: 0, advanced: true }),
   // Remote harness (#689, experimental): runs on this harness go over ssh to a worker instead
   // of the host/sandbox. Code transport is a later ticket — the agent runs in an existing
   // directory on the worker (remote.workDir).

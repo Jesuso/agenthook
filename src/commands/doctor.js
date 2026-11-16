@@ -35,6 +35,7 @@ import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
 import { harnessesOf, resolveHarness } from "../dispatch/harness.js";
+import { exclusiveHarnesses } from "../engine/harnessing.js";
 import { remoteProbeArgv, shQuote } from "../dispatch/executor-ssh.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
@@ -453,6 +454,26 @@ export function harnessSlotLints(cfg, overrides = {}) {
   }
   for (const name of Object.keys(overrides.harnesses ?? {})) {
     if (!Object.hasOwn(cfg.harnesses ?? {}, name)) out.push({ level: "info", label: `override for harness "${name}"`, note: "not in the config — will be dropped on boot" });
+  }
+  // Reserve (#745): one ℹ line per exclusive harness naming its effective reserve, who it's kept
+  // for, and the room a spilling step is left with; plus a no-effect note for a `reserve` set on
+  // a non-exclusive or uncapped harness.
+  const exclusive = exclusiveHarnesses(cfg);
+  for (const [name, info] of Object.entries(exclusive)) {
+    const owners = (cfg.pipeline ?? []).filter((s) => !s.manual && harnessesOf(s).length === 1 && harnessesOf(s)[0] === name).map((s) => s.id);
+    const spillers = (cfg.pipeline ?? []).filter((s) => !s.manual && harnessesOf(s).length > 1 && harnessesOf(s).includes(name)).map((s) => s.id);
+    const cap = overrides.harnesses?.[name] !== undefined ? overrides.harnesses[name] : cfg.harnesses?.[name]?.maxConcurrent;
+    const room = cap == null ? "unbounded (no reserve effect)" : `at most ${Math.max(0, cap - info.reserve)}`;
+    out.push({
+      level: "info",
+      label: `harness "${name}" reserve`,
+      note: `${info.reserve} (${info.automatic ? "automatic" : "config"}), kept for ${owners.join(", ") || "its step"}${spillers.length ? `; ${spillers.join(", ")} may spill into ${room}` : ""}`,
+    });
+  }
+  for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
+    if (h.reserve == null) continue;
+    if (!Object.hasOwn(exclusive, name)) out.push({ level: "info", label: `harness "${name}" reserve`, note: `reserve ${h.reserve} set but no step lists "${name}" as its only harness — no effect` });
+    else if (h.maxConcurrent == null) out.push({ level: "info", label: `harness "${name}" reserve`, note: `reserve ${h.reserve} set but the harness is uncapped — no effect` });
   }
   return out;
 }

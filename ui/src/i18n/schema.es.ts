@@ -58,6 +58,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "harnesses.*.sandbox.image": { label: "Imagen del sandbox", help: "Imagen del agente para las ejecuciones en sandbox en este harness, en lugar de sandbox.image." },
   "harnesses.*.opencodeConfig": { label: "Ruta de config de OpenCode", help: "opencode, solo sandbox: ruta de un config JSON de OpenCode, copiado al sandbox HOME de la ejecución; gana la del paso." },
   "harnesses.*.contextTokens": { label: "Ventana de contexto (tokens)", help: "La ventana de contexto del modelo en este harness, para mostrar ctx usado/máximo en una fila en ejecución; gana la del paso." },
+  "harnesses.*.reserve": { label: "Espacios reservados", help: "Espacios que un harness exclusivo reserva frente a un paso que se desborda hacia él; sobreescribe el valor automático de 1." },
   "harnesses.*.remote": { label: "Worker remoto (experimental)", help: "Ejecuta los agentes de este harness por ssh en un worker en vez del host/sandbox." },
   "harnesses.*.remote.host": { label: "Host", help: "Host ssh (nombre DNS o IP) del worker." },
   "harnesses.*.remote.user": { label: "Usuario", help: "Usuario ssh; sin definir usa el propio del cliente ssh local." },

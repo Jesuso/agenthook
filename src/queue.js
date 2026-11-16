@@ -5,8 +5,8 @@ import { DEFAULT_COOLDOWN_MINUTES, cooldownFor } from "./dispatch/harness.js";
 /** One harness's breaker entry: down until `until` (ms epoch), then probing; `strikes` doubles the next cooldown.
  * `cause` is `health` (a failing backend) or `quota` (a closed subscription, reopening to `up` at `until`).
  * @typedef {{until: number, strikes: number, reason: string, cause?: 'health'|'quota'}} HarnessHealth */
-/** A harness's slots as `state()` / `harnessState()` report them (`until` as ISO; `until`/`reason`/`cause` only when not up).
- * @typedef {{active: number, max: number|null, state: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}} HarnessSlots */
+/** A harness's slots as `state()` / `harnessState()` report them (`until` as ISO; `until`/`reason`/`cause` only when not up; `reserve` only when > 0, #745).
+ * @typedef {{active: number, max: number|null, state: 'up'|'down'|'probing', reserve?: number, until?: string, reason?: string, cause?: 'health'|'quota'}} HarnessSlots */
 /**
  * Boot-restore plan for persisted queue entries: which to re-enqueue (in order) and
  * which to drop (ref was mid-run at boot — recovery failed it — or step is gone). A
@@ -43,6 +43,7 @@ export function planRestore(queued, runningRefs, stepIds) {
  *   strict FIFO as before, and `state()` carries no `capped`.
  * @param {{steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps: Record<string, number|undefined>,
  *   cooldowns?: Record<string, number|undefined>, health?: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, now?: () => number,
+ *   reserves?: Record<string, number>, exclusive?: string[],
  *   unharnessedShared?: string[], unharnessedUntil?: string|null, unharnessedAgents?: Record<string, string>,
  *   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (t: NodeJS.Timeout) => void,
  *   onHealth?: (down: Record<string, {until: string, strikes: number, reason: string, cause: 'health'|'quota'}>, unharnessedUntil: string|null) => void,
@@ -76,6 +77,12 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const harnessCaps = { ...(harnessing?.caps ?? {}) };
   // Queue-owned copy of the cooldowns (a reload replaces them; the engine's stays intact).
   const cooldowns = { ...(harnessing?.cooldowns ?? {}) };
+  // Queue-owned copy of the reserve (#745): the slot count an exclusive harness keeps back from
+  // a spilling job with an open alternative elsewhere. A harness not in this map has none.
+  const reserves = { ...(harnessing?.reserves ?? {}) };
+  // Harnesses some non-manual step lists as its only harness — the order rule (Rule 2) applies to
+  // these whatever their reserve, including a reserve of 0.
+  const exclusiveHarnesses = new Set(harnessing?.exclusive ?? []);
   const now = harnessing?.now ?? Date.now;
   const setTimer = harnessing?.setTimer ?? setTimeout;
   const clearTimer = harnessing?.clearTimer ?? clearTimeout;
@@ -212,24 +219,64 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   };
   /** @param {import('./types.js').Job} job  its step's harness routing, when it has one */
   const routingOf = (job) => (isPipeline(job) ? harnessSteps.get(job.stepId) : undefined);
-  /** @param {import('./types.js').Job} job  true while `job` must wait: its step's cap, every one of its harnesses full, or the unharnessed quota gate holds its shared step */
-  const blocked = (job) => atCap(job) || !!routingOf(job)?.harnesses.every((n) => !hasRoom(n)) || (isPipeline(job) && unharnessedUntil !== null && now() < unharnessedUntil && unharnessedShared.has(job.stepId));
+  /** @param {string} name  true while `name` is not down (probing counts as open) and not drained to 0 — an alternative a job may still spill into, even while full */
+  const harnessOpen = (name) => {
+    if (healthOf(name) === "down") return false;
+    const cap = Object.hasOwn(harnessCaps, name) ? harnessCaps[name] : undefined;
+    return cap !== 0;
+  };
+  /** @param {import('./types.js').Job} job @param {string} name  true while `job`'s step lists another harness besides `name` that is open right now (#745) */
+  const openAlt = (job, name) => {
+    const r = routingOf(job);
+    return !!r?.harnesses.some((n) => n !== name && harnessOpen(n));
+  };
   /**
-   * The harness `job` starts on (undefined when its step has none, or all are full): first-free
-   * takes the first listed one with room; round-robin starts at the step's cursor and skips full
-   * ones, then moves the cursor past its pick.
+   * `hasRoom(name)` plus the reserve rule (#745): a job with an open alternative to an exclusive
+   * harness `name` may take a slot there only while `active+1` still fits under its live cap
+   * minus its reserve. A job with no open alternative, or a non-exclusive/uncapped harness, is
+   * unaffected — same as plain `hasRoom`.
+   * @param {import('./types.js').Job} job @param {string} name
+   */
+  const roomFor = (job, name) => {
+    if (!hasRoom(name)) return false;
+    if (!exclusiveHarnesses.has(name) || !openAlt(job, name)) return true;
+    const cap = Object.hasOwn(harnessCaps, name) ? harnessCaps[name] : undefined;
+    if (cap == null) return true; // a reserve is meaningless on an uncapped harness
+    const reserve = reserves[name] ?? 0;
+    return (activeByHarness.get(name) ?? 0) + 1 <= cap - reserve;
+  };
+  /** @param {import('./types.js').Job} job  true while `job` must wait: its step's cap, every one of its harnesses full or reserved against it, or the unharnessed quota gate holds its shared step */
+  const blocked = (job) => atCap(job) || !!routingOf(job)?.harnesses.every((n) => !roomFor(job, n)) || (isPipeline(job) && unharnessedUntil !== null && now() < unharnessedUntil && unharnessedShared.has(job.stepId));
+  /**
+   * True while `job` is blocked ONLY by a reserve (#745): some harness in its list has a free
+   * slot, but none of them clears `roomFor` for this job, and no step cap or quota gate applies.
    * @param {import('./types.js').Job} job
    */
-  const pickHarness = (job) => {
+  const reserveWait = (job) => {
+    if (atCap(job)) return false;
+    if (isPipeline(job) && unharnessedUntil !== null && now() < unharnessedUntil && unharnessedShared.has(job.stepId)) return false;
+    const r = routingOf(job);
+    if (!r?.harnesses.length) return false;
+    return r.harnesses.some((n) => hasRoom(n)) && !r.harnesses.some((n) => roomFor(job, n));
+  };
+  /**
+   * The harness `job` starts on (undefined when its step has none, or all are full/reserved):
+   * first-free takes the first listed one with room; round-robin starts at the step's cursor and
+   * skips full ones, then moves the cursor past its pick. `commit` false peeks the pick without
+   * advancing the round-robin cursor (#745's Rule 2 checks where a job WOULD land before
+   * deciding whether to start it this pass).
+   * @param {import('./types.js').Job} job @param {{commit?: boolean}} [opts]
+   */
+  const pickHarness = (job, { commit = true } = {}) => {
     const r = routingOf(job);
     if (!r?.harnesses.length) return undefined;
     const list = r.harnesses;
-    if (r.routing !== "round-robin") return list.find(hasRoom);
+    if (r.routing !== "round-robin") return list.find((n) => roomFor(job, n));
     const start = (rrNext.get(job.stepId) ?? 0) % list.length;
     for (let k = 0; k < list.length; k++) {
       const i = (start + k) % list.length;
-      if (!hasRoom(list[i])) continue;
-      rrNext.set(job.stepId, i + 1);
+      if (!roomFor(job, list[i])) continue;
+      if (commit) rrNext.set(job.stepId, i + 1);
       return list[i];
     }
     return undefined;
@@ -241,9 +288,16 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     for (const [name, cap] of Object.entries(harnessCaps)) {
       const state = healthOf(name);
       const h = health.get(name);
+      const reserve = reserves[name] ?? 0;
       // A lazily-expired quota entry reads "up" (never "probing") — report it plain until the
       // reopen timer drops it, so no `until`/`reason`/`cause` leak onto an up harness.
-      out[name] = { active: activeByHarness.get(name) ?? 0, max: cap ?? null, state, ...(h && state !== "up" ? { until: new Date(h.until).toISOString(), reason: h.reason, cause: h.cause ?? "health" } : {}) };
+      out[name] = {
+        active: activeByHarness.get(name) ?? 0,
+        max: cap ?? null,
+        state,
+        ...(reserve > 0 ? { reserve } : {}),
+        ...(h && state !== "up" ? { until: new Date(h.until).toISOString(), reason: h.reason, cause: h.cause ?? "health" } : {}),
+      };
     }
     return out;
   };
@@ -286,13 +340,22 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   let idleWaiters = [];
   /** @type {(() => void)[]} */
   let activeIdleWaiters = [];
-  const snapshot = () => ({
-    active,
-    queued: queue.length,
-    ...(capping() ? { capped: cappedCount() } : {}),
-    ...(harnessing ? { harnesses: harnessState() } : {}),
-    ...(harnessing && activeByAgent.size ? { unharnessed: Object.fromEntries(activeByAgent) } : {}),
-  });
+  /** Pipeline jobs waiting only on a reserve (#745) — {ref, stepId, harnesses} per job, [] when none. */
+  const reservedJobs = () =>
+    harnessing
+      ? queue.filter((j) => isPipeline(j) && reserveWait(j)).map((j) => ({ ref: j.ref, stepId: j.stepId, harnesses: routingOf(j)?.harnesses ?? [] }))
+      : [];
+  const snapshot = () => {
+    const reserved = reservedJobs();
+    return {
+      active,
+      queued: queue.length,
+      ...(capping() ? { capped: cappedCount() } : {}),
+      ...(harnessing ? { harnesses: harnessState() } : {}),
+      ...(harnessing && activeByAgent.size ? { unharnessed: Object.fromEntries(activeByAgent) } : {}),
+      ...(reserved.length ? { reserved } : {}),
+    };
+  };
   const report = () => onChange?.(snapshot());
   const resolveIdle = () => {
     if (active === 0 && queue.length === 0 && idleWaiters.length) {
@@ -314,8 +377,27 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       // First waiting job whose step is under its cap and has a harness with room: a capped
       // job never blocks the startable ones behind it, and the jobs left behind keep their
       // relative order.
-      const i = capping() ? queue.findIndex((j) => !blocked(j)) : 0;
+      let i = capping() ? queue.findIndex((j) => !blocked(j)) : 0;
       if (i < 0) break;
+      // Rule 2 (#745): if that job would spill onto an exclusive harness it has an open
+      // alternative to, prefer instead the first startable job that has NO open alternative and
+      // can use that same harness — the spiller keeps its place and is reconsidered next pass.
+      if (capping()) {
+        const spiller = queue[i];
+        const spillHarness = isPipeline(spiller) ? pickHarness(spiller, { commit: false }) : undefined;
+        if (spillHarness && exclusiveHarnesses.has(spillHarness) && openAlt(spiller, spillHarness)) {
+          const preferred = queue.findIndex(
+            (j, idx) =>
+              idx !== i &&
+              isPipeline(j) &&
+              !blocked(j) &&
+              !openAlt(j, spillHarness) &&
+              routingOf(j)?.harnesses.includes(spillHarness) &&
+              roomFor(j, spillHarness),
+          );
+          if (preferred >= 0) i = preferred;
+        }
+      }
       const [job] = queue.splice(i, 1);
       if (!job) break;
       persist?.onRemove?.(job);
@@ -570,10 +652,13 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
      * per-harness slot override still wins over the new cap and a `maxConcurrent` override over
      * the new global max — a drained harness stays drained through the reload. Breaker `health`
      * entries for harnesses removed from the config are dropped and persisted (`onHealth`).
-     * @param {{max?: number, stepCaps?: Record<string, number>, steps?: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps?: Record<string, number|undefined>, cooldowns?: Record<string, number|undefined>, unharnessedShared?: string[], unharnessedAgents?: Record<string, string>}} next
+     * @param {{max?: number, stepCaps?: Record<string, number>, steps?: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps?: Record<string, number|undefined>, cooldowns?: Record<string, number|undefined>, reserves?: Record<string, number>, exclusive?: string[], unharnessedShared?: string[], unharnessedAgents?: Record<string, string>}} next
      * @param {{maxConcurrent?: number, harnesses?: Record<string, number>}} [overrides]
      */
-    reconfigure({ max: nextMax, stepCaps: nextStepCaps, steps: nextSteps, caps: nextHarnessCaps, cooldowns: nextCooldowns, unharnessedShared: nextShared, unharnessedAgents: nextAgents }, overrides = {}) {
+    reconfigure(
+      { max: nextMax, stepCaps: nextStepCaps, steps: nextSteps, caps: nextHarnessCaps, cooldowns: nextCooldowns, reserves: nextReserves, exclusive: nextExclusive, unharnessedShared: nextShared, unharnessedAgents: nextAgents },
+      overrides = {},
+    ) {
       if (nextMax !== undefined) max = nextMax;
       caps.clear();
       for (const [id, n] of Object.entries(nextStepCaps ?? {})) caps.set(id, n);
@@ -583,6 +668,10 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       Object.assign(harnessCaps, nextHarnessCaps ?? {});
       for (const name of Object.keys(cooldowns)) delete cooldowns[name];
       Object.assign(cooldowns, nextCooldowns ?? {});
+      for (const name of Object.keys(reserves)) delete reserves[name];
+      Object.assign(reserves, nextReserves ?? {});
+      exclusiveHarnesses.clear();
+      for (const name of nextExclusive ?? []) exclusiveHarnesses.add(name);
       unharnessedShared.clear();
       for (const id of nextShared ?? []) unharnessedShared.add(id);
       unharnessedAgents.clear();
