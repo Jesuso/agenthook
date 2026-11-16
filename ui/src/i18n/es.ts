@@ -652,6 +652,7 @@ export const messages: Record<MessageKey, Message> = {
   "configView.keepEditing": "Seguir editando",
   "configView.diskLoadFailed": "No se pudo cargar la configuración en disco (estado {status})",
   "configView.diskLoadNetwork": "No se pudo cargar la configuración en disco (error de red)",
+  "configView.title": "Configuración",
   "configView.noProfiles": "No hay perfiles.",
   "configView.saving": "guardando…",
   "configView.modified": "● modificado",

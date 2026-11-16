@@ -268,28 +268,6 @@ describe("ConfigView revert + in-app confirms", () => {
     expect(puts[0]).toBe("/api/config");
   });
 
-  it("a profile switch on a dirty buffer asks; cancel stays, Discard loads the other profile", async () => {
-    const two = [...profiles, { name: "other", label: "other", up: false }] as unknown as ProfileView[];
-    m = await mount(viewWith(two));
-    await until(() => m!.root.querySelector("[data-step-card]"));
-    await makeDirty(m.root);
-    const select = m.root.querySelector<HTMLSelectElement>("select")!;
-    const pick = (v: string) =>
-      act(async () => {
-        select.value = v;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-    await pick("other");
-    expect(confirmDialog()?.textContent).toContain("Discard unsaved changes to the open config?");
-    await answerConfirm(false);
-    expect(m.root.querySelector<HTMLSelectElement>("select")!.value).toBe("demo");
-    expect(m.root.textContent).toContain("● modified");
-    await pick("other");
-    await answerConfirm(true);
-    await until(() => (fetch as any).mock.calls.some(([u]: [string]) => u === "/api/config?profile=other"));
-    expect(m.root.querySelector<HTMLSelectElement>("select")!.value).toBe("other");
-  });
-
   it("removing a step asks; cancel keeps it, confirm removes it", async () => {
     m = await mount(viewWith());
     await until(() => m!.root.querySelector("[data-step-card]"));

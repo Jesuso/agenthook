@@ -650,6 +650,7 @@ export const messages = {
   "configView.keepEditing": "Keep editing",
   "configView.diskLoadFailed": "Couldn't load the on-disk config (status {status})",
   "configView.diskLoadNetwork": "Couldn't load the on-disk config (network error)",
+  "configView.title": "Config",
   "configView.noProfiles": "No profiles.",
   "configView.saving": "saving…",
   "configView.modified": "● modified",

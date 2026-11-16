@@ -4,6 +4,7 @@ import { rich, useT } from "./i18n/react";
 import { json } from "@codemirror/lang-json";
 import type { ConfigView as ConfigBody, ProfileView } from "./contract";
 import { profileLabel } from "./format";
+import { ProfileMark } from "./components";
 import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
@@ -463,20 +464,6 @@ export default function ConfigView(props: {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  const pickProfile = (name: string) => {
-    if (name === profile) return;
-    const go = () => {
-      loadSeq.current++;
-      setPicked(name);
-      setSavedNote(false);
-      setMoving(null);
-      setBannerOpen(false);
-      dispatchRestart({ type: "reset" });
-    };
-    if (!dirty) return go();
-    ask({ title: t("leave.title"), body: configDiscardPrompt(lang), confirmLabel: t("leave.discard"), cancelLabel: t("configView.keepEditing"), destructive: true }).then((ok) => ok && go());
-  };
-
   if (!props.profiles.length) return <p className="text-sm text-[var(--color-muted)]">{t("configView.noProfiles")}</p>;
 
   const sensitive: SensitiveChange[] = doc?.phase.kind === "confirming" ? sensitiveDiff(doc.open.content, doc.buffer, lang) : [];
@@ -495,20 +482,14 @@ export default function ConfigView(props: {
   };
 
   return (
-    <div className={showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] min-w-0 flex-col" : "flex min-w-0 flex-col"}>
-      {/* Below `sm` the path drops to its own row under the select + actions; desktop is one row. */}
+    <div className={`sm:px-2 2xl:px-4 ${showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] min-w-0 flex-col" : "flex min-w-0 flex-col"}`}>
+      {/* Below `sm` the path drops to its own row under the title + actions; desktop is one row. */}
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm sm:flex-nowrap">
-        <select
-          className="border border-[var(--color-border)] rounded px-1.5 py-0.5 bg-transparent"
-          value={profile}
-          onChange={(e) => pickProfile(e.target.value)}
-        >
-          {props.profiles.map((p) => (
-            <option key={p.name} value={p.name}>
-              {profileLabel(p)}
-            </option>
-          ))}
-        </select>
+        {/* The app bar picks the profile; this page edits the one it was given. */}
+        {profileView && <ProfileMark p={profileView} />}
+        <h1 className="shrink-0 text-title font-semibold">
+          {t("configView.title")} {profileView && <span className="font-normal text-muted">· {profileLabel(profileView)}</span>}
+        </h1>
         {open && (
           <span data-config-path className="order-last w-full min-w-0 truncate font-mono text-xs text-[var(--color-muted)] sm:order-none sm:w-auto" title={open.path}>
             {open.path}
