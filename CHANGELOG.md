@@ -8,6 +8,53 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
+  then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
+  remove/rename/any field except `remote`), and per-step spawn knobs (`harness`, `routing`,
+  `model`, `effort`, `escalate`, `lite`, `instructionsFile`, `egress`, `maxConcurrent`) — to runs
+  that **start after** the reload, with no restart (#725). Running agents keep the config they
+  started with (the shared `cfg` keys are replaced, never mutated). The new config must be valid,
+  must not change a restart-required key (adding/removing/reordering steps, `name`/`stateId`/
+  `tracker`/`repos`, `remote`, adding or removing the `sandbox` or `harnesses` block — the error
+  names every such key), and any newly-gained run image is verified via a sandbox check before
+  anything is applied. Active operator overrides still win after a reload; a harness override for
+  a removed harness is dropped. Emits a `config_reloaded` event; `.env` is not re-read (use
+  `restart` for that).
+
+- `ah doctor` now flags a sandboxed opencode step whose effective model is missing the
+  `variants` entry its `effort` needs (#731) — without one, OpenCode's `--variant <effort>` has
+  nothing to resolve and sends no reasoning effort at all. [docs/local-models.md](docs/local-models.md)
+  documents the required `variants` shape and how to turn off tools an unattended opencode run
+  can't use via a `permission` block in `opencodeConfig`.
+
+- A profile with `harnesses`: a running pipeline job on a step that names no `harness` now shows
+  up (#726). It's counted under an implicit entry named after the agent CLI it spawns (`claude`,
+  `cursor`, `hermes`, `opencode`), separate from `harnesses` so the puller budget, breaker,
+  `set_concurrency`/`harness_reset` and `doctor` never see a fake harness. `tick`'s JSON carries
+  `slots.unharnessed` ({[agent]: count}) and its digest/`status` print a line for it; the web UI's
+  harness chip row shows a dashed, uncapped chip per implicit entry alongside the configured ones.
+  A profile without harnesses, or whose runs are all harnessed, is unchanged.
+
+- Quota pacing now closes only the harnesses that share an exhausted Claude subscription, instead
+  of the whole receiver (#723). On a profile with `harnesses`, a reading at/above a `quota`
+  threshold closes the run's subscription group (every `claude` harness with no own
+  `ANTHROPIC_BASE_URL`/credential env, plus the unharnessed `claude` steps) until the window's
+  `resetsAt`, reopening on its own via a one-shot timer; other harnesses keep starting runs.
+  Profiles without `harnesses` keep today's receiver-wide pause unchanged. A `cause:"quota"`
+  breaker entry persists across restarts, never adds strikes and never probes; `harness_down`/
+  `harness_up` carry `cause`, and `status`/`tick`/`doctor`/the web UI show the harness as closed
+  for quota with its reopen time (and stop counting it as Needs you). `harness_reset` on a
+  quota-closed harness suppresses re-closing until that window resets.
+
+- A step's optional `gate` (#710): a command the receiver runs, in the run's own executor, right
+  after an `advance` (agent-written, repaired, or deduced) and before the move — it can only veto
+  that advance, never grant one. A non-zero exit or timeout gets the agent one more turn carrying
+  the gate's output (a resume when possible), up to the step's `maxAttempts`, then holds with the
+  output tail in the reason. Catches the case where an agent's "typecheck green" doesn't match
+  what the repo's own checks say, before a whole review run is spent on code that doesn't compile.
+  See `gate`/`gateTimeoutMinutes` in [getting-started.md](docs/getting-started.md) and the new
+  `gate_pass`/`gate_fail` events. The ssh executor gained an opt-in `raw` launch mode so a remote
+  step's gate runs on the worker, never the hub.
 - Operator runtime overrides — the global `pause`, global `set_concurrency {max}`, and per-harness
   `set_concurrency {harness, max}` (and `pause {harness}` drain) — now persist in `overrides.json`
   and are re-applied at boot, so a restart no longer silently drops a pause or a drained harness
@@ -267,6 +314,24 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `ah ui --host <addr>` now prints and opens the bound address, not a dead `127.0.0.1` link (#737).
+  A wildcard bind (`0.0.0.0`/`::`) prints the loopback link plus one "reachable on every interface"
+  line (listing the non-internal addresses) instead of one URL per interface.
+- `ah agents` now lists every running run, not only `claude -p` processes (#735). It read `ps`
+  and kept only lines whose command started with a known agent binary, so a sandboxed or remote
+  (ssh) run — whose local process is a container runtime or `ssh` client — never matched, and
+  `--all` only knew the binaries the discovered config named. Rows now come from each profile's
+  `running.json` (the state `tick` and the web UI read, written for every run whatever the agent
+  or executor), with `harness`/`model` columns, a `stale` marker for a leftover whose pid is
+  dead (excluded from the running count, `stale: true` in `--json`), and elapsed time derived
+  from `startedAt`.
+
+- A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
+  in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.
+  When that file is written, the run prompt now carries only the `=== TICKET ===` marker and the
+  ticket text; the UI's "what the agent sees" sidecar still shows the full form. A run whose
+  standing text is over 16 KB (no file written) is unaffected.
+
 - Ticket drawer: with `routing: first-free` across several harnesses, the run caption named
   neither harness nor model, and the header's model/context always showed the *live* run's
   figures whatever run was selected below — so a past held local-model run could read as
@@ -370,6 +435,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `doctor` no longer hides a persisted global pause or `maxConcurrent` override on a profile
+  without `harnesses`: the harness slot lints returned early before checking the global overrides,
+  so `status`/`tick` showed the override but `doctor` printed nothing.
+- A gate-cap hold's reason now keeps the *last* 1000 characters of the gate output tail (test
+  totals and tsc errors are usually at the end), not the first.
 - `agenthook skill install`'s OpenCode dirs were `.opencode/skill` / `.config/opencode/skill`
   (singular); OpenCode actually reads `skills` (plural). The old singular dirs are now only
   scanned for cleanup of a previously-installed stamped copy (#667).

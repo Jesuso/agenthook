@@ -39,6 +39,44 @@ export function resolveHarness(cfg, step, harnessName) {
   return { step: eff, harness: harnessName, sandboxImage: h.sandbox?.image };
 }
 
+/** The env vars that give a claude run its own subscription — a base URL, or a credential of its
+ * own — so its quota reading belongs to a group of one instead of the profile's shared login. */
+export const QUOTA_CREDENTIAL_VARS = /** @type {const} */ (["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
+
+/** @param {Record<string, string|undefined>|undefined} env  true when the env sets any own-subscription var. */
+const ownSubscription = (env) => QUOTA_CREDENTIAL_VARS.some((k) => env?.[k]);
+
+/** The named harnesses in the profile's shared (default-login) claude group: effective agent
+ * claude and no own-subscription env. @param {Pick<import('../types.js').Config, 'agent'|'harnesses'>} cfg */
+const sharedQuotaHarnesses = (cfg) =>
+  Object.entries(cfg.harnesses ?? {})
+    .filter(([, h]) => (h.agent ?? cfg.agent ?? "claude") === "claude" && !ownSubscription(h.env))
+    .map(([name]) => name);
+
+/**
+ * The subscription group a claude run shares its quota with (src/engine `createHarnessQuota`):
+ * a run on `harnessName`, or an unharnessed run (`harnessName` null/undefined) of `step`. `harnesses`
+ * lists the named harnesses to close when the run reports an above-threshold reading; `unharnessed`
+ * says whether unharnessed claude steps (no `harness`, effective agent claude, no own-subscription
+ * env) are in the group too, so their waiting jobs must also be gated. A non-claude run, or one on
+ * its own credentials/base-URL, closes at most itself (a named harness's group of one), or nothing
+ * (an unharnessed non-shared step). Pure.
+ * @param {Pick<import('../types.js').Config, 'agent'|'harnesses'>} cfg
+ * @param {string|null|undefined} harnessName
+ * @param {Pick<import('../types.js').Step, 'agent'|'env'>|null|undefined} step
+ * @returns {{harnesses: string[], unharnessed: boolean}}
+ */
+export function quotaGroupOf(cfg, harnessName, step) {
+  if (harnessName) {
+    const h = cfg.harnesses?.[harnessName];
+    if ((h?.agent ?? cfg.agent ?? "claude") !== "claude") return { harnesses: [], unharnessed: false };
+    if (ownSubscription(h?.env)) return { harnesses: [harnessName], unharnessed: false };
+    return { harnesses: sharedQuotaHarnesses(cfg), unharnessed: true };
+  }
+  if ((step?.agent ?? cfg.agent ?? "claude") !== "claude" || ownSubscription(step?.env)) return { harnesses: [], unharnessed: false };
+  return { harnesses: sharedQuotaHarnesses(cfg), unharnessed: true };
+}
+
 /** Breaker defaults (`harnesses.<name>.cooldownMinutes` / `.downGraceSeconds`) and the backoff ceiling. */
 export const DEFAULT_COOLDOWN_MINUTES = 10;
 export const DEFAULT_DOWN_GRACE_SECONDS = 30;

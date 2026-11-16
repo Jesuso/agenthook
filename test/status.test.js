@@ -195,6 +195,27 @@ test("status: harness lines show the breaker state (down/probing) and include 0-
   assert.deepEqual((await runStatus("status-hb-none")).filter((l) => l.startsWith("harness")), []);
 });
 
+test("status: one `harness : <agent> (no harness) <n> running` line per implicit agent entry (#726); none without it", async () => {
+  const dir = path.join(registryDir, "status-unharnessed");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ name: "status-unharnessed", stateKey: "status-unharnessed", configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+  fs.writeFileSync(
+    path.join(dir, "heartbeat.json"),
+    JSON.stringify({ name: "status-unharnessed", stateKey: "status-unharnessed", tracker: "local", updatedAt: new Date().toISOString(), queue: { active: 1, queued: 0, harnesses: { qwen: { active: 0, max: 1, state: "up" } }, unharnessed: { claude: 2 } } }),
+  );
+  const lines = (await runStatus("status-unharnessed")).filter((l) => l.startsWith("harness"));
+  assert.ok(lines.includes("harness : claude (no harness) 2 running"));
+
+  const plain = path.join(registryDir, "status-no-unharnessed");
+  fs.mkdirSync(plain, { recursive: true });
+  fs.writeFileSync(path.join(plain, "profile.json"), JSON.stringify({ name: "status-no-unharnessed", stateKey: "status-no-unharnessed", configPath: null, createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z" }));
+  fs.writeFileSync(
+    path.join(plain, "heartbeat.json"),
+    JSON.stringify({ name: "status-no-unharnessed", stateKey: "status-no-unharnessed", tracker: "local", updatedAt: new Date().toISOString(), queue: { active: 0, queued: 0 } }),
+  );
+  assert.deepEqual((await runStatus("status-no-unharnessed")).filter((l) => l.includes("no harness")), []);
+});
+
 test("status: one `harness :` line per harness under usage, and `· <harness>` on a recent run that had one (#620)", async () => {
   const dir = path.join(registryDir, "status-harness");
   fs.mkdirSync(path.join(dir, "logs"), { recursive: true });

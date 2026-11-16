@@ -184,7 +184,8 @@ export function formatQuota(q, now) {
  * }} deps
  */
 export function createQuotaPacer(deps) {
-  const { thresholds, pauseQueue, resumeQueue, onPause, onResume } = deps;
+  const { pauseQueue, resumeQueue, onPause, onResume } = deps;
+  let thresholds = deps.thresholds;
   const isLocked = deps.isLocked ?? (() => false);
   const now = deps.now ?? Date.now;
   const setTimer = deps.setTimer ?? setTimeout;
@@ -283,6 +284,15 @@ export function createQuotaPacer(deps) {
     },
     /** The current trip, or null. */
     state: () => tripped,
+    /**
+     * Replace the pause thresholds (a reload, #725) and re-check the last reading, so a raised
+     * threshold lifts a pause and a lowered one pauses without waiting for a new reading.
+     * @param {QuotaConfig|null|undefined} next
+     */
+    setThresholds(next) {
+      thresholds = next ?? null;
+      evaluate("below");
+    },
     /** Drop the reset timer (shutdown). */
     stop: disarm,
   };

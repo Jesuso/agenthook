@@ -972,6 +972,19 @@ test("profileView: harnesses keeps max: 0 (drained via set_concurrency, #640) in
   assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).harnesses, { local: { active: 1, max: 0 } });
 });
 
+test("profileView: unharnessed = heartbeat.queue.unharnessed when up; no key when down, empty, or absent (#726)", () => {
+  const heartbeat = { maxConcurrent: 4, queue: { active: 1, queued: 0, unharnessed: { claude: 1 } } };
+  assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).unharnessed, { claude: 1 });
+  assert.equal("unharnessed" in profileView({ name: "p", pid: 1, up: false, heartbeat }), false);
+  assert.equal("unharnessed" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0 } } }), false);
+  assert.equal("unharnessed" in profileView({ name: "p", pid: 1, up: true, heartbeat: { queue: { active: 0, queued: 0, unharnessed: {} } } }), false);
+});
+
+test("profileView: unharnessed drops a non-positive-integer entry", () => {
+  const heartbeat = { queue: { active: 1, queued: 0, unharnessed: { claude: 1, cursor: 0, opencode: -1, hermes: 1.5 } } };
+  assert.deepEqual(profileView({ name: "p", pid: 1, up: true, heartbeat }).unharnessed, { claude: 1 });
+});
+
 test("uiHost: default loopback; localhost → 127.0.0.1; ip literals pass; a DNS name or junk throws", () => {
   assert.equal(uiHost({}), "127.0.0.1");
   assert.equal(uiHost({ host: "localhost" }), "127.0.0.1");
@@ -981,10 +994,10 @@ test("uiHost: default loopback; localhost → 127.0.0.1; ip literals pass; a DNS
   for (const bad of ["sarah.lan", "", true, "300.1.1.1"]) assert.throws(() => uiHost({ host: bad }), /invalid --host/, String(bad));
 });
 
-test("uiUrls: loopback first; a single address adds itself; 0.0.0.0 adds every non-internal v4 interface", () => {
+test("uiUrls: the bound address, or loopback for a wildcard bind (#737)", () => {
   assert.deepEqual(uiUrls("127.0.0.1", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
-  assert.deepEqual(uiUrls("192.168.68.2", 4180, "t"), ["http://127.0.0.1:4180/?token=t", "http://192.168.68.2:4180/?token=t"]);
-  const all = uiUrls("0.0.0.0", 4180, "t");
-  assert.equal(all[0], "http://127.0.0.1:4180/?token=t");
-  for (const u of all.slice(1)) assert.match(u, /^http:\/\/\d+\.\d+\.\d+\.\d+:4180\/\?token=t$/);
+  assert.deepEqual(uiUrls("192.168.68.2", 4180, "t"), ["http://192.168.68.2:4180/?token=t"]);
+  assert.deepEqual(uiUrls("::1", 4180, "t"), ["http://[::1]:4180/?token=t"]);
+  assert.deepEqual(uiUrls("0.0.0.0", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
+  assert.deepEqual(uiUrls("::", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
 });

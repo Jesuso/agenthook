@@ -36,11 +36,12 @@ ah ui [--port 4180] [--host 127.0.0.1] [--no-open]
 
 - Binds **127.0.0.1** by default. `--host <ip>` binds another address, `--host 0.0.0.0` (or `::`)
   every interface, for a browser on another machine of a trusted LAN (e.g. to keep the GPU box
-  headless). The printed URLs include each reachable address. Plain HTTP: the token travels in
+  headless). The printed and opened link is the bound address; a wildcard bind prints the loopback
+  link plus one "reachable on every interface" line. Plain HTTP: the token travels in
   the clear on that network, and whoever has it can edit configs and drive agents — treat it like
   a password, and open the port only to that LAN (ufw: `sudo ufw allow from 192.168.1.0/24 to any
   port 4180 proto tcp`). A DNS name is not accepted: the Host guard matches addresses.
-- Generates a random token per launch and opens `http://127.0.0.1:4180/?token=…` (Jupyter-style);
+- Generates a random token per launch and opens the bound-address `?token=` URL (Jupyter-style);
   the token is exchanged for an `HttpOnly; SameSite=Strict` cookie. Every API call requires it.
 - Rejects requests whose `Host` isn't `127.0.0.1:<port>`/`localhost:<port>` — or, with `--host`, the
   bound address (`0.0.0.0`: any of this machine's own interface addresses) — (DNS-rebinding) and,

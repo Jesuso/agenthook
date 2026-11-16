@@ -173,7 +173,9 @@ export function Overview(props: OverviewProps) {
                 <SlotPips active={profile.active ?? 0} max={profile.maxConcurrent ?? 0} up />
                 {t("common.agents")}
               </span>
-              {profile.harnesses && <HarnessChips harnesses={profile.harnesses} />}
+              {(profile.harnesses || profile.unharnessed) && (
+                <HarnessChips harnesses={profile.harnesses ?? {}} unharnessed={profile.unharnessed ?? {}} />
+              )}
               <span>
                 <span className="font-mono text-fg">{profile.queued ?? 0}</span> {t("common.queued")}
               </span>
@@ -458,28 +460,55 @@ function SlotPips({ active, max, up }: { active: number; max: number; up: boolea
 
 /** One `active/max` chip per named harness (a profile with `harnesses` only); an uncapped one reads
  * `∞`. A down/probing one (#688) tints status-failed, its title naming the reason — the full
- * diagnosis is the Needs-you row above; this is just a glance-level flag. */
-function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harnesses"]> }) {
+ * diagnosis is the Needs-you row above; this is just a glance-level flag. A `cause:"quota"` closure
+ * instead shows its reopen time. */
+function HarnessChips({
+  harnesses,
+  unharnessed,
+}: {
+  harnesses: NonNullable<ProfileView["harnesses"]>;
+  unharnessed?: NonNullable<ProfileView["unharnessed"]>;
+}) {
   const { t } = useT();
   return (
     <span className="inline-flex flex-wrap items-center gap-1" data-harness-slots role="group" aria-label={t("overview.harnessSlots")}>
       {Object.entries(harnesses).map(([name, h]) => {
-        const down = h.state === "down" || h.state === "probing";
+        const quota = h.cause === "quota";
+        const down = !quota && (h.state === "down" || h.state === "probing");
+        const quotaBack = quota && h.until ? t("overview.harnessQuotaBack", { when: hhmm(h.until) }) : null;
         return (
           <span
             key={name}
             data-harness={name}
             data-harness-state={h.state}
-            className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : "border-border"}`}
-            title={down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max })}
+            data-harness-cause={h.cause}
+            className={`rounded border px-1.5 font-mono ${down ? "border-status-failed/40 bg-status-failed-bg text-status-failed" : quota ? "border-status-held/40 bg-status-held-bg text-status-held" : "border-border"}`}
+            title={quotaBack ?? (down ? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")) : h.max === null ? t("overview.harnessUncapped", { name, active: h.active }) : t("overview.harnessTitle", { name, active: h.active, max: h.max }))}
           >
-            {name} <span className={down ? "" : "text-fg"}>{h.active}</span>
-            <span className={down ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
+            {name} <span className={down || quota ? "" : "text-fg"}>{h.active}</span>
+            <span className={down || quota ? "" : "text-muted"}>/{h.max ?? "∞"}</span>
+            {quotaBack ? <span className="ml-1 text-muted">· {quotaBack}</span> : null}
           </span>
         );
       })}
+      {Object.entries(unharnessed ?? {}).map(([agent, n]) => (
+        <span
+          key={agent}
+          data-harness-implicit={agent}
+          className="rounded border border-dashed border-border-strong px-1.5 font-mono text-muted"
+          title={t("overview.harnessImplicit", { agent, n })}
+        >
+          {agent} <span className="text-fg">{n}</span>
+        </span>
+      ))}
     </span>
   );
+}
+
+/** "14:32Z" from an ISO instant, for a quota-closed harness's reopen time. */
+function hhmm(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? "—" : `${new Date(t).toISOString().slice(11, 16)}Z`;
 }
 
 function Zone({ title, count, action, children }: { title: string; count?: number; action?: React.ReactNode; children: React.ReactNode }) {

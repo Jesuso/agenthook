@@ -50,7 +50,9 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             the same guard — context compactions the parser saw; a step with `energy: true` adds
  *             `energyKwh?`, `energyUsd?`, `energySource?` — measured electricity (src/energy.js), never
  *             summed into `costUsd`/`estUsd`; `repaired?: true|false` only when a verdict-repair turn ran
- *             (#677, see `verdict_repair` below) — the sums above already include every repair turn's usage)
+ *             (#677, see `verdict_repair` below) — the sums above already include every repair turn's usage;
+ *             `gate?: "pass"|"fail"` only when the step's `gate` ran at least once (#710, see `gate_pass`/
+ *             `gate_fail` below) — its repair turns' usage is summed in too)
  *           | coalesced (a duplicate webhook for a ref+step already queued/running was dropped; not in
  *             the sinks' default set, and hidden by default in `ah events`/`ah watch`/the MCP `events`
  *             tool/the UI feed — see HIDDEN_BY_DEFAULT)
@@ -64,6 +66,11 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             question form `no verdict: the agent ended by asking a question instead of acting: "<line>"`
  *             when the run's last line is a question, each with an optional ` (after N repair turn(s))` suffix
  *             when a repair ran and still found nothing; a `blocked` event follows)
+ *           | gate_pass | gate_fail (a step's `gate` (#710) ran after an advance — agent-written, repaired, or
+ *             deduced — and before the move; `exitCode`, `durationMs`; `gate_fail` also has `timedOut: true` when
+ *             the gate was killed past `gateTimeoutMinutes`. A `gate_fail` can be followed by one more agent turn
+ *             (a repair, the same session when possible) and another `gate_pass`/`gate_fail`; exhausting the
+ *             step's `maxAttempts` with the gate still failing holds the task instead — see `run_end.gate` below)
  *           | move_refused (a verdict's move did not happen — the adapter refused it or threw; `outcome` = the
  *             refused verdict, `reason` = not_ours | owner_check_failed | move_error, `detail` = the error message)
  *           | dismissed (operator `dismiss`: a failed/cancelled ticket, or a PR row's `prNeeds`, was acknowledged until the
@@ -79,6 +86,8 @@ export const HIDDEN_BY_DEFAULT = new Set(["coalesced", "digest_start", "digest_e
  *             not in the sinks' default set)
  *           | restart_requested | restarting (control-socket restart; ref/step ""; not in the sinks' default set)
  *           | decommission_requested | decommissioning (control-socket decommission; ref/step ""; not in the sinks' default set)
+ *           | config_reloaded (control-socket/CLI `reload`, #725: the config was re-read, validated and its reloadable
+ *             keys applied to runs that start after; ref/step ""; `changed` = the reloaded dotted key paths; not in the sinks' default set)
  *           | sandbox_reaped (boot reaped a dead receiver's leftover sandbox containers/networks; ref/step ""; `containers`,
  *             `networks` (counts), `runs` (the distinct "<ref>/<step>" values the removed containers' labels named, best-effort,
  *             may be empty); not in the sinks' default set)

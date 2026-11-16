@@ -454,6 +454,7 @@ export function profileView(p) {
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   // Per-harness slots, only for a live profile with harnesses (no key otherwise).
   const harnesses = p.up ? harnessSlots(hb?.queue?.harnesses) : null;
+  const unharnessed = p.up ? unharnessedSlots(hb?.queue?.unharnessed) : null;
   return {
     name: p.name,
     label: str(hb?.name) || p.label || p.name,
@@ -475,6 +476,7 @@ export function profileView(p) {
     quotaPaused: p.up ? normalizeTrip(hb?.quotaPaused) : null,
     quota: normalizeQuota(p.quota),
     ...(harnesses ? { harnesses } : {}),
+    ...(unharnessed ? { unharnessed } : {}),
     restartPending: p.up ? hb?.restartPending === true || hb?.decommissionPending === true || hb?.draining === true : null,
     lastEvent: isObj(hb?.lastEvent)
       ? { at: str(hb.lastEvent.at), kind: str(hb.lastEvent.kind), ref: str(hb.lastEvent.ref), step: str(hb.lastEvent.step) }
@@ -494,15 +496,15 @@ export function profileView(p) {
 const HARNESS_STATES = /** @type {const} */ (["up", "down", "probing"]);
 
 /**
- * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?}}` (max
+ * The heartbeat's per-harness slots as `{[name]: {active, max, state?, until?, reason?, cause?}}` (max
  * null = uncapped, 0 = drained via `set_concurrency`; `state` is the health breaker's,
- * `until`/`reason` only while down or probing); null when absent or empty (a profile without
+ * `until`/`reason`/`cause` only while down or probing); null when absent or empty (a profile without
  * harnesses).
- * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>|null}
+ * @param {any} raw @returns {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}>|null}
  */
 export function harnessSlots(raw) {
   if (!isObj(raw)) return null;
-  /** @type {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string}>} */
+  /** @type {Record<string, {active: number, max: number|null, state?: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}>} */
   const out = {};
   for (const [name, h] of Object.entries(raw)) {
     if (!isObj(h)) continue;
@@ -514,7 +516,24 @@ export function harnessSlots(raw) {
       ...(state ? { state } : {}),
       ...(down && typeof h.until === "string" ? { until: h.until } : {}),
       ...(down && typeof h.reason === "string" ? { reason: (h.reason.length > 200 ? h.reason.slice(0, 199) + "…" : h.reason) } : {}),
+      ...(down && (h.cause === "quota" || h.cause === "health") ? { cause: h.cause } : {}),
     };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The heartbeat's implicit (harness-less) run counts as `{[agent]: count}`; a non-positive-integer
+ * entry is dropped; null when absent or empty.
+ * @param {unknown} raw @returns {Record<string, number>|null}
+ */
+export function unharnessedSlots(raw) {
+  if (!isObj(raw)) return null;
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const [agent, v] of Object.entries(/** @type {Record<string, unknown>} */ (raw))) {
+    const n = /** @type {number} */ (v);
+    if (Number.isInteger(n) && n > 0) out[agent] = n;
   }
   return Object.keys(out).length ? out : null;
 }

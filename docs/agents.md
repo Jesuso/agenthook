@@ -76,9 +76,11 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   names the provider too: `provider/model`, e.g. `ollama/qwen3.8:27b-64k`. Unset uses the CLI's
   default; Cursor's default is `auto`.
 - **`effort`**: claude (`--effort`), hermes (`--reasoning`) and opencode (`--variant`). OpenCode's
-  variants are provider-specific, so the value is passed through as-is. Cursor has no effort flag,
-  so dispatch drops it with a warning; an out-of-set value (claude, hermes) is dropped with a
-  warning too.
+  variants are provider-specific, so the value is passed through as-is — but it only reaches the
+  model when the step's `opencodeConfig` declares a `variants` entry of that name on the model
+  (see [local-models.md](local-models.md#variant-opencode-on-the-same-ollama)); `ah doctor` flags a
+  model missing the variant a step's `effort` needs. Cursor has no effort flag, so dispatch drops
+  it with a warning; an out-of-set value (claude, hermes) is dropped with a warning too.
 - **`provider`** (step) / **`agentProvider`** (profile default): the inference provider hermes
   should use (`--provider`, a name from `config.yaml`'s `providers:`, or a built-in). A step's
   `provider` overrides `agentProvider`. Claude, Cursor and OpenCode have no provider flag (OpenCode
@@ -104,8 +106,8 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
   own `env` can still override it.
 - **Prompt**: Hermes has no inline-prompt flag. Dispatch writes the prompt to
   `~/.agenthook/<stateKey>/prompts/<ref>-<step>.md` (mode 0600), passes it via `--query-file`, and
-  removes it after the run. So the prompt is not visible in `ps`. `ah agents` finds a Hermes run
-  by its pid in the profile's `running.json` instead.
+  removes it after the run. So the prompt is not visible in `ps`. `ah agents` lists a Hermes run
+  from the profile's `running.json`, like every other run.
 - **Verdict**: every agent gets `AGENTHOOK_VERDICT_FILE` and should write its verdict there. Every
   agent defaults to `requireVerdict: true`; Hermes keeps that default explicitly since its
   plain-text output gives no other signal. `ah doctor` warns when a Hermes step sets
@@ -331,9 +333,7 @@ An agent adapter is one module in `src/agents/` implementing `AgentAdapter` (`sr
 
 1. Register it in `AGENTS` (`src/agents/index.js`), and add its name to `AGENT_NAMES` and its
    default binary to `AGENT_DEFAULT_BINS` (`src/agents/names.js`). Those two are import-free,
-   so config validation, the config schema and `ah agents` can use them without the registry.
+   so config validation and the config schema can use them without the registry.
    `test/agent-adapters.test.js` checks that both match the registry.
-2. If its argv is not `<bin> -p …`, `<bin> chat … --query-file …` or `<bin> run --format json …`, extend `agentMatcher` in
-   `src/commands/agents.js` so `ah agents` can see it.
-3. Add offline tests in the style of `test/agent-adapters.test.js`: argv, parser (split chunks,
+2. Add offline tests in the style of `test/agent-adapters.test.js`: argv, parser (split chunks,
    garbage lines), usage record. Then run `npm run typecheck` and `npm test`.

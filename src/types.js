@@ -77,6 +77,8 @@
  * @property {boolean} [requireVerdict]        a clean exit with a missing/unparseable/unrecognized verdict holds (reason "no valid verdict") instead of advancing (default true); set false to opt out and advance on a clean exit as before
  * @property {number} [verdictRepairs]         how many receiver-driven repair turns (#677) a clean exit with no valid verdict gets — each resumes the same agent session with a fixed prompt — before the hold above fires (default 1, 0 disables); needs the agent's `resumeArgs` and a captured session id
  * @property {boolean} [deduceVerdict]         (#680) a clean exit with no valid verdict, on an `implement`/`change` step whose worktree branch gained commits, advances with a deduced verdict instead of running a repair turn (default true); false opts out, falling through to `verdictRepairs` then the hold
+ * @property {string|string[]} [gate]          (#710) a command the receiver runs, in the run's own executor, after an `advance` (agent-written, repaired or deduced) and before the move: a non-empty string runs as `["sh", "-c", gate]`, an array runs verbatim as argv. A non-zero exit or timeout vetoes the advance — one more agent turn gets the gate's output and a chance to fix it (up to the step's `maxAttempts`), then a hold. Never runs on `hold`/`fail`/`changes`/missing-verdict. Not allowed on a manual step
+ * @property {number} [gateTimeoutMinutes]     wall-clock cap on one `gate` run; past it the gate is killed and counted as a veto (default 10)
  * @property {Record<string, {model?: string, effort?: string}>} [escalate]  difficulty-gated overrides: key = 'easy'|'medium'|'hard', value = {model?,effort?} to substitute when the stored difficulty matches
  * @property {{descriptionHeadings: string[], model?: string, effort?: 'low'|'medium'|'high'|'xhigh'|'max'}} [lite]  description-gated override (intended for triage): when every heading starts a line of the task description, use this model/effort as the base; `escalate` still wins on top
  * @property {string} [sourceSectionGid]       Asana: entering this section fires the step
@@ -130,6 +132,7 @@
  * @property {string} at            ISO time the run finished
  * @property {string} [headSha]     forge.autoMerge tier step only: the PR head when the run started (what it judged)
  * @property {'agent'|'repaired'|'deduced'} [verdictSource]  where the outcome came from (#680): a verdict file the agent wrote, the #677 repair turn's, or deduced from commits; absent for a receiver-forced verdict or the `requireVerdict:false` assumed-advance
+ * @property {'pass'|'fail'} [gate]  the step's `gate` (#710) result, when one ran; absent when the step has no gate or it never ran (no advance to veto)
  */
 
 /** In-flight pipeline job recorded locally for crash recovery (store.running).
@@ -555,10 +558,13 @@
  *   worktree or export dir under the harness's `remote.workDir`, #690 — not `remote.workDir`
  *   itself, so a verdict-repair resume turn relaunches into the same cwd); `hubVerdictFile` is
  *   the local copy target `done()` writes the remote verdict back to, which the hub actually reads.
- * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}) => Promise<ExecutorRun>} launch
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}, raw?: boolean}) => Promise<ExecutorRun>} launch
  *   `hub` (ssh only, #690): the HUB-side repo/worktree this run's code should be synced from/to
  *   before/after the run — `worktree`+`branch` set only for a worktree step; absent entirely for
  *   a launch with no code to sync (e.g. the low-level unit tests of this module)
+ *   `raw` (ssh only, #710's gate): run the given `bin`/`args` on the worker verbatim (no prompt
+ *   pulled off argv onto stdin) and never fetch the worker's edits back in `done()` — only host/
+ *   sandbox/ssh-with-`raw` may run a gate; any other executor name refuses one
  * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox: containers/networks; ssh: remote pgids, worktrees and exports under every run's harness `workDir`, #690)
  */
 
@@ -607,7 +613,7 @@
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step|undefined}) => Record<string, string>|undefined} [env]  extra environment for the agent (at spawn and `resume`), under the step's `env` (hermes: an isolated step's HERMES_HOME)
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string, sandboxed?: boolean, env?: Record<string, string>}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for; claude: refuse a sandboxed run with no credential var in `env`, the spawn env)
  * @property {(env: Record<string, string>) => string[]} [egressHosts]  egress rules for the model API a run with this spawn env talks to (claude: api.anthropic.com, ANTHROPIC_BASE_URL's host, Bedrock/Vertex); a sandboxed run's allowlist includes them
- * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string, verdictFile?: string, standing?: string}) => {mounts: SandboxMount[], env?: Record<string, string>, files?: {dst: string, content: string, mode?: number}[]}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`; opencode: its `opencodeConfig` plus, when `verdictFile` is given, an unattended-contract file wired into `instructions`, and optionally a second standing-instructions file `agenthook-standing.md` if `standing` is provided and ≤ 16 KB, both written via `files`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. `files[].dst` is an absolute container path under `home`, written into the per-run sandbox HOME (never mounted — it's gone at teardown). `verdictFile` is the agent-visible path the run must write its verdict JSON to. An agent without a `sandbox` hook is refused when sandboxed
+ * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string, verdictFile?: string, standing?: string}) => {mounts: SandboxMount[], env?: Record<string, string>, files?: {dst: string, content: string, mode?: number}[], standingInInstructions?: boolean}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`; opencode: its `opencodeConfig` plus, when `verdictFile` is given, an unattended-contract file wired into `instructions`, and optionally a second standing-instructions file `agenthook-standing.md` if `standing` is provided and ≤ 16 KB, both written via `files`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. `files[].dst` is an absolute container path under `home`, written into the per-run sandbox HOME (never mounted — it's gone at teardown). `verdictFile` is the agent-visible path the run must write its verdict JSON to. `standingInInstructions: true` = the standing text was written to a `files` entry wired into `instructions`, so dispatch drops it from the run prompt (deduped, not doubled). An agent without a `sandbox` hook is refused when sandboxed
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  * @property {string[]} [envPassthrough]  receiver env vars (NAME or PREFIX*) this CLI needs, added to the agent env allowlist (src/agent-env.js): auth keys, config vars
@@ -878,8 +884,8 @@
  * @property {() => Record<string, RefMeta>} listRefMeta            every ref's display metadata
  * @property {() => string|null} getMergeWatermark                  merge catch-up: ISO `mergedAt` of the newest merged agent PR listed (null = never ran)
  * @property {(iso: string) => void} setMergeWatermark               persist the merge catch-up watermark
- * @property {() => Record<string, {until: string, strikes: number, reason: string}>} getHarnessHealth  harness breaker entries (harness-health.json `down`); {} when none
- * @property {(down: Record<string, {until: string, strikes: number, reason: string}>) => void} setHarnessHealth  persist the harness breaker entries
+ * @property {() => {down: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, unharnessedUntil: string|null}} getHarnessHealth  harness breaker entries (harness-health.json `down`) and the unharnessed quota gate; `down` {} when none
+ * @property {(down: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, unharnessedUntil: string|null) => void} setHarnessHealth  persist the harness breaker entries (and gate)
  * @property {() => Overrides} getOverrides  operator runtime overrides (overrides.json); {} when missing/corrupt
  * @property {(o: Overrides) => void} setOverrides  persist the overrides; deletes the file when `o` has no entries
  */

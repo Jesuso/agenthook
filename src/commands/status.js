@@ -174,9 +174,16 @@ export async function status(args) {
     const t = totals[name] ?? { runs: 0, input: 0, output: 0 };
     const h = slots[name];
     const state = h && h.state && h.state !== "up"
-      ? ` · ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`
+      ? h.cause === "quota"
+        ? ` · closed for quota, back at ${String(h.until).slice(11, 16)}Z${h.reason ? ` (${h.reason})` : ""}`
+        : ` · ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""}`
       : "";
     console.log(`harness : ${name} ${t.runs} run(s), ${fmtTokens(t.input + t.output)} tokens${state}`);
+  }
+  // Implicit (harness-less) runs: a step naming no harness, counted by the agent CLI it spawns.
+  const unharnessed = hb.queue?.unharnessed && typeof hb.queue.unharnessed === "object" ? hb.queue.unharnessed : {};
+  for (const [agent, n] of Object.entries(unharnessed)) {
+    console.log(`harness : ${agent} (no harness) ${n} running`);
   }
 
   // Operator runtime overrides: active ones from the heartbeat while up; the persisted file while

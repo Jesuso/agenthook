@@ -24,8 +24,12 @@ export function digest(t) {
     `${t.profile} ${t.up ? "up" : "DOWN"}${t.paused ? " PAUSED" : ""}${t.restartPending ? " restart-pending" : ""} slots ${s.active}/${s.max ?? "?"} run, ${s.queued} queued, ${s.free ?? "?"} free`,
   ];
   for (const [name, h] of Object.entries(s.harnesses ?? {})) {
-    if (h.state === "down" || h.state === "probing") lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""} — fix the cause, then harness_reset ${name}`);
+    if (h.state === "down" || h.state === "probing") {
+      if (h.cause === "quota") lines.push(`  harness ${name}: closed for quota, back at ${String(h.until).slice(11, 16)}Z${h.reason ? ` (${h.reason})` : ""}`);
+      else lines.push(`  harness ${name}: ${h.state}${h.state === "down" && h.until ? ` until ${String(h.until).slice(11, 16)}Z` : ""}${h.reason ? ` (${h.reason})` : ""} — fix the cause, then harness_reset ${name}`);
+    }
   }
+  for (const [agent, n] of Object.entries(s.unharnessed ?? {})) lines.push(`  no-harness: ${agent} ${n}`);
   for (const entry of overrideEntries(t.overrides)) lines.push(`  override ${entry}`);
   const fmt = (/** @type {any} */ r) => `${r.id ?? r.ref}${r.title ? ` "${r.title}"` : ""}`;
   for (const r of t.running) lines.push(`  RUN  ${fmt(r)} ${r.step} ${Math.round((r.ageS ?? 0) / 60)}m${r.harness ? ` · ${r.harness}${r.host ? `@${r.host}` : ""}` : ""}${typeof r.ctx === "number" && typeof r.ctxMax === "number" ? (ctxOverflow(r.ctx, r.ctxMax) ? ` · ctx ${formatTokens(r.ctx)}` : ` · ctx ${formatTokens(r.ctx)}/${formatTokens(r.ctxMax)}`) : ""}`);

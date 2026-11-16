@@ -163,7 +163,7 @@ const TOOLS = {
   harness_reset: {
     write: true,
     def: schema(
-      "Clear a harness's health breaker (down or probing → up, emits `harness_up`) and start the work waiting on it. `reset:false` = it was already up. Errors on an unknown harness or a profile without harnesses.",
+      "Clear a harness's health breaker (down or probing → up, emits `harness_up`) and start the work waiting on it. `reset:false` = it was already up. On a quota-closed harness it also suppresses re-closing by quota until that window resets. Errors on an unknown harness or a profile without harnesses.",
       { profile: PROFILE, harness: { type: "string", description: "harness name from the profile's `harnesses`" } },
       ["harness"],
     ),
@@ -259,6 +259,13 @@ const TOOLS = {
     destructive: true,
     def: schema(
       "Restart the receiver once idle: pauses new runs, restarts when active agents reach 0, queue preserved. Re-reads .env, so an edited value takes effect. Use after pulling new agenthook code or editing .env. Harness breakers survive the restart; the reply's harnessesDown lists any that are still down (harness_reset clears one once its cause is fixed).",
+      { profile: PROFILE },
+    ),
+  },
+  reload: {
+    write: true,
+    def: schema(
+      "Re-read and validate the config file, then apply its reloadable keys (harnesses, per-step spawn knobs like model/egress/maxConcurrent, sandbox.egress, quota, maxConcurrent) to runs that START AFTER this call — running agents keep the config they started with. Errors (and applies nothing) if the new config is invalid or any changed key needs a restart (reply names them); the reply lists the reloaded keys, or says no changes. .env values are NOT re-read (use `restart` for that).",
       { profile: PROFILE },
     ),
   },

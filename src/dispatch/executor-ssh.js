@@ -380,6 +380,19 @@ async function syncAfter(cfg, remote, stateKey, hub, cwd, beforeSha) {
   return result;
 }
 
+/** Cleanup-only counterpart to `syncAfter`, for a `raw` launch (#710's gate): remove the worker
+ * worktree (pruning the bare repo's admin) or export dir — never fetches anything back.
+ * @param {import('../types.js').RemoteHarness} remote @param {string|undefined} gitPath @param {string} cwd
+ * @param {{repoId: string, repoPath: string, worktree?: string, branch?: string}|undefined} hub
+ * @returns {Promise<void>} */
+async function cleanupWorker(remote, gitPath, cwd, hub) {
+  if (hub?.worktree && hub?.branch && gitPath) {
+    await runRemote(remote, `git -C ${shQuote(gitPath)} worktree remove --force ${shQuote(cwd)} 2>/dev/null; git -C ${shQuote(gitPath)} worktree prune`);
+  } else {
+    await runRemote(remote, `rm -rf ${shQuote(cwd)}`);
+  }
+}
+
 /** Non-secret run metadata + a couple of locale/CI knobs — everything else (tracker/forge
  * tokens, per-run App tokens, ANTHROPIC_ and CLAUDE_ vars, SSH_AUTH_SOCK, an arbitrary harness `env` key)
  * is dropped. `AGENTHOOK_VERDICT_FILE` rides the `AGENTHOOK_` prefix. TERM/LANG/CI come straight
@@ -418,15 +431,16 @@ export function framePayload(env, prompt) {
  * group once stdin closes (client died, link dropped, or the hub ended it on a kill). Removes its
  * pgid file on exit and exits with the agent's own code. `head -c`/`setsid`/`/proc` are assumed
  * (Linux workers; a missing /proc falls back to the launcher's own pid as the pgid).
- * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string, execArgv: string[]}} o
+ * A `raw` launch (a gate, #710) never touches `verdictDir` — it has no verdict to write and must
+ * not disturb whatever the agent's own launch already left there.
+ * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string|undefined, execArgv: string[]}} o
  * @returns {string} */
 function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, execArgv }) {
   const exec = execArgv.map(shQuote).join(" ");
   return [
     `cd ${shQuote(workDir)} || exit 1`,
     `mkdir -p ${shQuote(runsDir)}`,
-    `rm -rf ${shQuote(verdictDir)}`,
-    `mkdir -p -m 700 ${shQuote(verdictDir)}`,
+    ...(verdictDir ? [`rm -rf ${shQuote(verdictDir)}`, `mkdir -p -m 700 ${shQuote(verdictDir)}`] : []),
     `rm -f ${shQuote(promptPipe)}`,
     `mkfifo ${shQuote(promptPipe)}`,
     `read -r n`,
@@ -469,19 +483,26 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
         hubVerdictFile: spawnPaths.sandboxVerdictPathFor(stepId, ref),
       };
     },
-    launch: async ({ runId, ref, stepId, args, env, cwd, hub }) => {
-      const prompt = args[1]; // buildClaudeArgs/resumeClaudeArgs always put the prompt at args[1]
-      const execArgv = [remote.bin || "claude", args[0], ...args.slice(2)]; // drop the prompt — it travels on stdin, never argv
+    launch: async ({ runId, ref, stepId, bin, args, env, cwd, hub, raw }) => {
+      // `raw` (#710, a step's gate): the given argv runs on the worker verbatim — never the
+      // agent-launch assumption that `args[1]` is a prompt to pull off argv onto stdin.
+      const prompt = raw ? "" : args[1]; // buildClaudeArgs/resumeClaudeArgs always put the prompt at args[1]
+      const execArgv = raw ? [bin, ...args] : [remote.bin || "claude", args[0], ...args.slice(2)]; // drop the prompt — it travels on stdin, never argv
       const runsDir = remoteRunsDir(remote, stateKey);
       const safeRunId = safePart(runId);
       const pgidFile = `${runsDir}/${safeRunId}.pgid`;
       const promptPipe = `${runsDir}/${safeRunId}.pipe`;
-      const verdictDir = remoteVerdictDir(remote, stateKey, ref, stepId);
-      const hubVerdictFile = spawnPaths.sandboxVerdictPathFor(stepId, ref);
+      // `raw` (a gate, #710) skips both verdict paths: `verdictDir` on the worker is left
+      // untouched by the launcher, and `sandboxVerdictPathFor` is never called on the hub side —
+      // calling it again would `rmSync` the dir that already holds the agent's copied-back
+      // verdict out from under it.
+      const verdictDir = raw ? undefined : remoteVerdictDir(remote, stateKey, ref, stepId);
+      const hubVerdictFile = raw ? undefined : spawnPaths.sandboxVerdictPathFor(stepId, ref);
       // The agent's own cwd: the worker path `paths()` already computed (worktree or export
       // dir) when a caller goes through step.js. A launch() with no `hub` (this module's own
       // low-level tests) skips the sync entirely and just cds into whatever `cwd` it was given.
       const workDir = cwd || remote.workDir;
+      const gitPath = hub ? remoteRepoGitPath(remote, stateKey, hub.repoId) : undefined;
       const beforeSha = hub ? await syncBefore(cfg, remote, stateKey, hub, workDir) : undefined;
       const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, execArgv });
       return {
@@ -494,13 +515,21 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
           await runRemote(remote, killScript(pgidFile));
         },
         done: async () => {
+          // A `raw` run (a gate, #710) never reads or writes a verdict — `verdictDir`/
+          // `hubVerdictFile` are undefined for it — and never fetches code back; its edits, if
+          // any, are discarded. It only cleans up the worker worktree/export dir.
+          if (raw) {
+            await cleanupWorker(remote, gitPath, workDir, hub);
+            return {};
+          }
+          const resolvedHubVerdictFile = /** @type {string} */ (hubVerdictFile);
           const buf = await runRemote(remote, `head -c ${MAX_SANDBOX_VERDICT_BYTES + 1} ${shQuote(`${verdictDir}/verdict.json`)} 2>/dev/null`, { maxBuffer: MAX_SANDBOX_VERDICT_BYTES + 2 });
           if (buf && buf.length > 0 && buf.length <= MAX_SANDBOX_VERDICT_BYTES) {
             try {
-              fs.mkdirSync(path.dirname(hubVerdictFile), { recursive: true });
-              fs.writeFileSync(hubVerdictFile, buf);
+              fs.mkdirSync(path.dirname(resolvedHubVerdictFile), { recursive: true });
+              fs.writeFileSync(resolvedHubVerdictFile, buf);
             } catch (e) {
-              console.error(`[ssh] verdict copy-back write failed for ${hubVerdictFile}: ${e.message}`);
+              console.error(`[ssh] verdict copy-back write failed for ${resolvedHubVerdictFile}: ${e.message}`);
             }
           }
           // Sync-back always runs (incl. after a timeout/cancel/crash), so commits made before

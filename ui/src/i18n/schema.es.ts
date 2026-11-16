@@ -144,6 +144,8 @@ export const SCHEMA_ES: SchemaOverlay = {
   "tracker.pipeline.*.requireVerdict": { label: "Exigir veredicto", help: "Una salida limpia sin archivo de veredicto válido retiene la tarea en lugar de avanzarla (predeterminado true)." },
   "tracker.pipeline.*.verdictRepairs": { label: "Turnos de reparación de veredicto", help: "Una salida limpia sin veredicto válido recibe este número de turnos de reanudación antes de retener la tarea para un humano; 0 lo desactiva." },
   "tracker.pipeline.*.deduceVerdict": { label: "Deducir veredicto por commits", help: "Una salida limpia sin veredicto válido avanza cuando la rama ganó commits, sin pasar por el turno de reparación." },
+  "tracker.pipeline.*.gate": { label: "Comando de verificación", help: "Un comando que se ejecuta en el entorno de este paso tras un avance; una salida distinta de cero o un tiempo agotado lo veta, luego retiene." },
+  "tracker.pipeline.*.gateTimeoutMinutes": { label: "Tiempo límite de verificación (min)", help: "Mata la verificación y la cuenta como veto tras estos minutos." },
   "tracker.pipeline.*.createsWorktree": { label: "Crea worktree", help: "Crea el worktree de git compartido de la tarea antes de que se ejecute el agente." },
   "tracker.pipeline.*.drainWorktree": { label: "Quita el worktree", help: "Quita el worktree de la tarea después de este paso." },
   "tracker.pipeline.*.sourceSectionGid": { label: "Sección de origen", help: "Sección de Asana cuyas tareas disparan este paso." },

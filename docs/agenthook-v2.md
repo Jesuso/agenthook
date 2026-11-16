@@ -32,7 +32,7 @@ agenthook stop
 agenthook ls          table of ALL profiles + status
 agenthook status <name>   one profile in detail
 agenthook follow [id] tail a live agent transcript
-agenthook agents      running claude -p processes
+agenthook agents      running agent runs
 agenthook cleanup     prune done worktrees
 agenthook register / unregister    manual webhook escape hatch
 agenthook catchup <ref>   replay a missed item

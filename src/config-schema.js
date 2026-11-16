@@ -196,6 +196,8 @@ export const CONFIG_SCHEMA = [
   step("requireVerdict", "boolean", "Require verdict", "A clean exit without a valid verdict file holds the task instead of advancing it (default true).", { advanced: true }),
   step("verdictRepairs", "number", "Verdict repair turns", "A clean exit with no valid verdict gets this many resume turns before holding for a human; 0 disables.", { default: 1, min: 0, advanced: true }),
   step("deduceVerdict", "boolean", "Deduce verdict from commits", "A clean exit with no valid verdict advances when the branch gained commits, skipping the repair turn.", { default: true, advanced: true }),
+  step("gate", "string-list", "Gate command", "A command run in this run's executor after an advance; a non-zero exit or timeout vetoes it, then holds.", { advanced: true }),
+  step("gateTimeoutMinutes", "number", "Gate timeout (min)", "Kill the gate and count it as a veto after this many minutes.", { default: 10, min: 1, advanced: true }),
   step("createsWorktree", "boolean", "Creates worktree", "Create the task's shared git worktree before the agent runs."),
   step("drainWorktree", "boolean", "Removes worktree", "Remove the task's worktree after this step."),
   step("sourceSectionGid", "string", "Source section", "Asana section whose tasks fire this step.", { scope: ["asana"] }),

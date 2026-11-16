@@ -343,6 +343,7 @@ test("sandbox: standing instructions (non-empty string, ≤ 16 KB) → standing 
   const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
   const parsed = JSON.parse(configFile.content);
   assert.deepEqual(parsed.instructions, [contractDst, standingDst]);
+  assert.equal(own.standingInInstructions, true);
 });
 
 test("sandbox: standing with opencodeConfig → existing instructions kept, contract + standing appended", () => {
@@ -362,6 +363,7 @@ test("sandbox: standing with opencodeConfig → existing instructions kept, cont
     const parsed = JSON.parse(configFile.content);
     assert.deepEqual(parsed.instructions, ["x.md", contractDst, standingDst]);
     assert.deepEqual(parsed.provider, { ollama: {} });
+    assert.equal(own.standingInInstructions, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -378,6 +380,7 @@ test("sandbox: standing over 16 KB → no standing file, no standing in instruct
     const configFile = own.files.find((f) => f.dst === "/home/agent/.config/opencode/opencode.json");
     const parsed = JSON.parse(configFile.content);
     assert.deepEqual(parsed.instructions, [contractDst]);
+    assert.equal(own.standingInInstructions, undefined);
   });
   assert.equal(w.length, 1);
   assert.match(w[0], /\[dispatch\] step code.*standing instructions are/);
@@ -401,6 +404,7 @@ test("sandbox: absent standing (undefined) → no standing file, instructions ho
   const parsed = JSON.parse(configFile.content);
   assert.deepEqual(parsed.instructions, [contractDst]);
   assert.equal(own.files.length, 2);
+  assert.equal(own.standingInInstructions, undefined);
 });
 
 test("sandbox: no verdictFile → unchanged output even when standing is passed", () => {

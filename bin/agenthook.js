@@ -13,7 +13,7 @@
 //   agenthook status [name]        one profile in detail
 //   agenthook follow [session-id] [--repo <id>]  tail a live agent transcript (read-only)
 //   agenthook resume [ref]         print/run the claude --resume for a ref's agent
-//   agenthook agents [name] [--all] [--verbose] [--json]  list running `claude -p` processes (this profile, or <name>; --all = every profile)
+//   agenthook agents [name] [--all] [--verbose] [--json]  list running agent runs (this profile, or <name>; --all = every profile)
 //   agenthook cleanup [--apply [--force]]   prune done agent worktrees
 //   agenthook register <url>       manual webhook create (hosted/static URL)
 //   agenthook unregister           delete this profile's webhooks
@@ -42,6 +42,7 @@ import { stop } from "../src/commands/stop.js";
 import { rename } from "../src/commands/rename.js";
 import { restart } from "../src/commands/restart.js";
 import { pause, unpause, concurrency } from "../src/commands/pause.js";
+import { reload } from "../src/commands/reload.js";
 import { remove } from "../src/commands/remove.js";
 import { ls } from "../src/commands/ls.js";
 import { status } from "../src/commands/status.js";
@@ -105,7 +106,7 @@ export function wantsHelp(rest) {
 }
 
 /** @type {Record<string, (args: any) => Promise<void>>} */
-const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency };
+const COMMANDS = { init, start, serve: start, stop, ls, status, follow, resume, agents, cleanup, register, unregister, catchup, run, kick: run, "start-step": run, reconcile, recheck, ticket, doctor, alias, usage, stats, events, ui, rename, restart, remove, mcp, tick, epics, digest, watch, guide, skill, service, followup, pause, unpause, concurrency, reload };
 
 /**
  * Levenshtein edit distance between two strings.
@@ -166,12 +167,14 @@ usage: agenthook <command> [args] [--config <path>]
   pause [--harness <name>]  pause the whole profile (persists across restarts); --harness drains one harness
   unpause [--harness <name>]  clear the pause / a harness's drain (the MCP \`resume\` op)
   concurrency <n|reset> [--harness <name>]  set (or reset) the global agent cap / a harness's slots
+  reload                   re-read + validate the config and apply its reloadable keys (harnesses,
+                            step spawn knobs, egress, caps, quota) to runs that start after — no restart
   remove <name|key> [--purge] [--yes] [--keep-hooks]  retire a profile: archive ~/.agenthook/<key>/ to ~/.agenthook-archive/ (running: decommission at idle; --purge = delete permanently, stopped only)
   ls                        all profiles + status
   status [name]             one profile in detail
   follow [session-id] [--repo <id>]  tail a live agent (read-only; --repo = one repo only)
   resume [ref [session]]    list a ref's sessions / print|--exec claude --resume for one
-  agents [name] [--all] [--verbose] [--json]  running claude -p processes (--all = every profile; --verbose = +pid/ref)
+  agents [name] [--all] [--verbose] [--json]  running agent runs (--all = every profile; --verbose = +pid/ref)
   cleanup [--apply [--force]]   prune done worktrees
   register <url>            manual webhook create
   unregister                delete this profile's webhooks

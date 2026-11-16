@@ -3,9 +3,10 @@
 import { DEFAULT_COOLDOWN_MINUTES, cooldownFor } from "./dispatch/harness.js";
 
 /** One harness's breaker entry: down until `until` (ms epoch), then probing; `strikes` doubles the next cooldown.
- * @typedef {{until: number, strikes: number, reason: string}} HarnessHealth */
-/** A harness's slots as `state()` / `harnessState()` report them (`until` as ISO; `until`/`reason` only when not up).
- * @typedef {{active: number, max: number|null, state: 'up'|'down'|'probing', until?: string, reason?: string}} HarnessSlots */
+ * `cause` is `health` (a failing backend) or `quota` (a closed subscription, reopening to `up` at `until`).
+ * @typedef {{until: number, strikes: number, reason: string, cause?: 'health'|'quota'}} HarnessHealth */
+/** A harness's slots as `state()` / `harnessState()` report them (`until` as ISO; `until`/`reason`/`cause` only when not up).
+ * @typedef {{active: number, max: number|null, state: 'up'|'down'|'probing', until?: string, reason?: string, cause?: 'health'|'quota'}} HarnessSlots */
 /**
  * Boot-restore plan for persisted queue entries: which to re-enqueue (in order) and
  * which to drop (ref was mid-run at boot — recovery failed it — or step is gone). A
@@ -41,9 +42,12 @@ export function planRestore(queued, runningRefs, stepIds) {
  *   counted INSIDE the global max. Only `pipeline` jobs count; `merge`/`ci` spawn no agent. Empty →
  *   strict FIFO as before, and `state()` carries no `capped`.
  * @param {{steps: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps: Record<string, number|undefined>,
- *   cooldowns?: Record<string, number|undefined>, health?: Record<string, {until: string, strikes: number, reason: string}>, now?: () => number,
- *   onHealth?: (down: Record<string, {until: string, strikes: number, reason: string}>) => void,
- *   onHarnessDown?: (name: string, info: {reason: string, until: string}) => void, onHarnessUp?: (name: string) => void}} [harnessing]
+ *   cooldowns?: Record<string, number|undefined>, health?: Record<string, {until: string, strikes: number, reason: string, cause?: 'health'|'quota'}>, now?: () => number,
+ *   unharnessedShared?: string[], unharnessedUntil?: string|null, unharnessedAgents?: Record<string, string>,
+ *   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (t: NodeJS.Timeout) => void,
+ *   onHealth?: (down: Record<string, {until: string, strikes: number, reason: string, cause: 'health'|'quota'}>, unharnessedUntil: string|null) => void,
+ *   onHarnessDown?: (name: string, info: {reason: string, until: string, cause: 'health'|'quota', window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}) => void,
+ *   onHarnessUp?: (name: string, info: {cause: 'health'|'quota'}) => void}} [harnessing]
  *   named harnesses (set only when the profile has `harnesses`): each harnessed step's list and
  *   routing, and each harness's slot cap (undefined = only the global cap). A pipeline job of a
  *   harnessed step starts only when one of its harnesses has room; the pick lands on `job.harness`.
@@ -55,7 +59,14 @@ export function planRestore(queued, runningRefs, stepIds) {
  *   idle receiver whose step has every harness down starts the waiting job on the first pump
  *   after `until` (an enqueue, a settle, `setMax`, `resume`, `resetHarness`). `health` seeds the
  *   breaker (harness-health.json), `onHealth` persists every change, `onHarnessDown`/`onHarnessUp`
- *   report the transitions.
+ *   report the transitions. A `cause:'quota'` entry (see `closeForQuota`) never adds strikes,
+ *   reads `down` until `until` then `up` (never `probing`), and reopens on a one-shot timer
+ *   (`setTimer`/`clearTimer`; `stop()` disarms it). `unharnessedShared` lists the step ids whose
+ *   unharnessed claude runs share the quota group; `unharnessedUntil` seeds the queue-level gate
+ *   that waits those steps while the shared group is closed. `unharnessedAgents` maps a
+ *   harness-less step id to the agent CLI it spawns; a pipeline job on such a step is counted in
+ *   `state().unharnessed` by that agent name, never in `harnesses` (a chip a reader could mistake
+ *   for a configured harness, and which the puller/breaker/doctor would then treat as one).
  */
 export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, harnessing) {
   let max = initialMax;
@@ -63,33 +74,101 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const harnessSteps = new Map(Object.entries(harnessing?.steps ?? {}));
   // Queue-owned copy: setHarnessMax changes a cap at runtime without touching the engine's.
   const harnessCaps = { ...(harnessing?.caps ?? {}) };
+  // Queue-owned copy of the cooldowns (a reload replaces them; the engine's stays intact).
+  const cooldowns = { ...(harnessing?.cooldowns ?? {}) };
   const now = harnessing?.now ?? Date.now;
+  const setTimer = harnessing?.setTimer ?? setTimeout;
+  const clearTimer = harnessing?.clearTimer ?? clearTimeout;
   /** @type {Map<string, HarnessHealth>} harness name → its breaker entry (absent = up) */
   const health = new Map();
   for (const [name, h] of Object.entries(harnessing?.health ?? {})) {
     const until = Date.parse(h?.until);
-    if (Object.hasOwn(harnessCaps, name) && Number.isFinite(until)) health.set(name, { until, strikes: Number.isInteger(h.strikes) && h.strikes > 0 ? h.strikes : 1, reason: String(h.reason ?? "") });
+    if (Object.hasOwn(harnessCaps, name) && Number.isFinite(until)) health.set(name, { until, strikes: Number.isInteger(h.strikes) && h.strikes > 0 ? h.strikes : 1, reason: String(h.reason ?? ""), ...(h?.cause ? { cause: h.cause } : { cause: "health" }) });
   }
+  /** Step ids whose unharnessed claude runs share the quota group (a pipeline job waits while the gate holds). */
+  const unharnessedShared = new Set(harnessing?.unharnessedShared ?? []);
+  /** The unharnessed gate's deadline (ms epoch) while the shared group is quota-closed; null = open. */
+  /** @type {number|null} */
+  let unharnessedUntil = null;
+  const seededGate = harnessing?.unharnessedUntil;
+  if (typeof seededGate === "string" && Number.isFinite(Date.parse(seededGate))) unharnessedUntil = Date.parse(seededGate);
+  const unharnessedAgents = new Map(Object.entries(harnessing?.unharnessedAgents ?? {}));
   /** @param {string} name @returns {'up'|'down'|'probing'} */
   const healthOf = (name) => {
     const h = health.get(name);
-    return !h ? "up" : now() < h.until ? "down" : "probing";
+    if (!h) return "up";
+    if (now() < h.until) return "down";
+    return h.cause === "quota" ? "up" : "probing";
+  };
+  /** The earliest quota deadline (entry or unharnessed gate), or null when none is set. */
+  const quotaDeadline = () => {
+    let d = Infinity;
+    for (const [, h] of health) if (h.cause === "quota" && h.until < d) d = h.until;
+    if (unharnessedUntil !== null && unharnessedUntil < d) d = unharnessedUntil;
+    return d === Infinity ? null : d;
   };
   const persistHealth = () => {
-    /** @type {Record<string, {until: string, strikes: number, reason: string}>} */
+    /** @type {Record<string, {until: string, strikes: number, reason: string, cause: 'health'|'quota'}>} */
     const down = {};
-    for (const [name, h] of health) down[name] = { until: new Date(h.until).toISOString(), strikes: h.strikes, reason: h.reason };
+    for (const [name, h] of health) down[name] = { until: new Date(h.until).toISOString(), strikes: h.strikes, reason: h.reason, cause: h.cause ?? "health" };
     try {
-      harnessing?.onHealth?.(down);
+      harnessing?.onHealth?.(down, unharnessedUntil === null ? null : new Date(unharnessedUntil).toISOString());
     } catch (e) {
       console.error(`[harness] health write failed (continuing): ${e.message}`);
     }
   };
-  const capping = caps.size > 0 || harnessSteps.size > 0;
+  // The quota reopen timer: one unref'd one-shot at the earliest quota `until` (a deadline, never a
+  // poll), clamped like src/quota.js MAX_TIMER_MS and re-armed when it fires before the deadline.
+  const MAX_TIMER_MS = 2 ** 31 - 1;
+  /** @type {NodeJS.Timeout|undefined} */
+  let quotaTimer;
+  const armQuotaTimer = () => {
+    if (quotaTimer !== undefined) clearTimer(quotaTimer);
+    quotaTimer = undefined;
+    const d = quotaDeadline();
+    if (d === null) return;
+    quotaTimer = setTimer(onQuotaTimer, Math.min(Math.max(0, d - now()), MAX_TIMER_MS));
+    quotaTimer?.unref?.();
+  };
+  function onQuotaTimer() {
+    quotaTimer = undefined;
+    const d = quotaDeadline();
+    if (d === null) return;
+    if (d > now()) return armQuotaTimer(); // a clamped long wait fired early: re-arm for the remainder
+    /** @type {string[]} */
+    const opened = [];
+    for (const [name, h] of [...health]) {
+      if (h.cause === "quota" && h.until <= now()) {
+        health.delete(name);
+        opened.push(name);
+      }
+    }
+    let gateOpened = false;
+    if (unharnessedUntil !== null && unharnessedUntil <= now()) {
+      unharnessedUntil = null;
+      gateOpened = true;
+    }
+    if (opened.length || gateOpened) {
+      persistHealth();
+      for (const name of opened) {
+        console.log(`[harness] ${name} quota window reset — back up`);
+        harnessing?.onHarnessUp?.(name, { cause: "quota" });
+      }
+      report();
+      pump();
+    }
+    armQuotaTimer(); // any later deadline still ahead
+  }
+  // Live, not a const: a reload can add the first step cap (turning capping on) or remove the last.
+  const capping = () => caps.size > 0 || harnessSteps.size > 0 || !!harnessing;
+  // Re-arm on boot: a persisted quota closure must reopen (and emit harness_up) without a new reading.
+  armQuotaTimer();
   /** @type {Map<string, number>} stepId → running pipeline jobs of that step */
   const activeByStep = new Map();
   /** @type {Map<string, number>} harness name → running jobs on it */
   const activeByHarness = new Map();
+  /** @type {Map<string, number>} agent CLI name → running pipeline jobs on a harness-less step that spawns it */
+  const activeByAgent = new Map();
   /** @type {Map<string, number>} stepId → its round-robin cursor (the next list index to try) */
   const rrNext = new Map();
   /** @param {import('./types.js').Job} job */
@@ -113,27 +192,28 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
    * @param {string} name @param {{reason: string}|undefined} signal
    */
   const settleHealth = (name, signal) => {
+    if (!Object.hasOwn(harnessCaps, name)) return; // a harness removed by a reload never re-trips
     const h = healthOf(name);
     const cur = health.get(name);
     if (signal && h !== "down") {
       const strikes = cur ? cur.strikes + 1 : 1;
-      const cd = harnessing?.cooldowns?.[name] ?? DEFAULT_COOLDOWN_MINUTES;
+      const cd = cooldowns[name] ?? DEFAULT_COOLDOWN_MINUTES;
       const until = now() + cooldownFor(cd, strikes) * 60000;
-      health.set(name, { until, strikes, reason: signal.reason });
+      health.set(name, { until, strikes, reason: signal.reason, cause: "health" });
       persistHealth();
       console.warn(`[harness] ${name} down until ${new Date(until).toISOString()} (${signal.reason})`);
-      harnessing?.onHarnessDown?.(name, { reason: signal.reason, until: new Date(until).toISOString() });
+      harnessing?.onHarnessDown?.(name, { reason: signal.reason, until: new Date(until).toISOString(), cause: "health" });
     } else if (!signal && h === "probing") {
       health.delete(name);
       persistHealth();
       console.log(`[harness] ${name} up again`);
-      harnessing?.onHarnessUp?.(name);
+      harnessing?.onHarnessUp?.(name, { cause: "health" });
     }
   };
   /** @param {import('./types.js').Job} job  its step's harness routing, when it has one */
   const routingOf = (job) => (isPipeline(job) ? harnessSteps.get(job.stepId) : undefined);
-  /** @param {import('./types.js').Job} job  true while `job` must wait: its step's cap, or every one of its harnesses, is full */
-  const blocked = (job) => atCap(job) || !!routingOf(job)?.harnesses.every((n) => !hasRoom(n));
+  /** @param {import('./types.js').Job} job  true while `job` must wait: its step's cap, every one of its harnesses full, or the unharnessed quota gate holds its shared step */
+  const blocked = (job) => atCap(job) || !!routingOf(job)?.harnesses.every((n) => !hasRoom(n)) || (isPipeline(job) && unharnessedUntil !== null && now() < unharnessedUntil && unharnessedShared.has(job.stepId));
   /**
    * The harness `job` starts on (undefined when its step has none, or all are full): first-free
    * takes the first listed one with room; round-robin starts at the step's cursor and skips full
@@ -161,11 +241,13 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     for (const [name, cap] of Object.entries(harnessCaps)) {
       const state = healthOf(name);
       const h = health.get(name);
-      out[name] = { active: activeByHarness.get(name) ?? 0, max: cap ?? null, state, ...(h ? { until: new Date(h.until).toISOString(), reason: h.reason } : {}) };
+      // A lazily-expired quota entry reads "up" (never "probing") — report it plain until the
+      // reopen timer drops it, so no `until`/`reason`/`cause` leak onto an up harness.
+      out[name] = { active: activeByHarness.get(name) ?? 0, max: cap ?? null, state, ...(h && state !== "up" ? { until: new Date(h.until).toISOString(), reason: h.reason, cause: h.cause ?? "health" } : {}) };
     }
     return out;
   };
-  const cappedCount = () => (capping ? queue.filter(blocked).length : 0);
+  const cappedCount = () => (capping() ? queue.filter(blocked).length : 0);
   /** @type {import('./types.js').Job[]} */
   const queue = [];
   // Work-level coalescing: one (ref,stepId) may be queued-or-active at most once.
@@ -207,8 +289,9 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
   const snapshot = () => ({
     active,
     queued: queue.length,
-    ...(capping ? { capped: cappedCount() } : {}),
+    ...(capping() ? { capped: cappedCount() } : {}),
     ...(harnessing ? { harnesses: harnessState() } : {}),
+    ...(harnessing && activeByAgent.size ? { unharnessed: Object.fromEntries(activeByAgent) } : {}),
   });
   const report = () => onChange?.(snapshot());
   const resolveIdle = () => {
@@ -231,7 +314,7 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
       // First waiting job whose step is under its cap and has a harness with room: a capped
       // job never blocks the startable ones behind it, and the jobs left behind keep their
       // relative order.
-      const i = capping ? queue.findIndex((j) => !blocked(j)) : 0;
+      const i = capping() ? queue.findIndex((j) => !blocked(j)) : 0;
       if (i < 0) break;
       const [job] = queue.splice(i, 1);
       if (!job) break;
@@ -245,6 +328,8 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
         job.harness = harness;
         activeByHarness.set(harness, (activeByHarness.get(harness) ?? 0) + 1);
       }
+      const agent = !harness && isPipeline(job) ? unharnessedAgents.get(job.stepId) : undefined;
+      if (agent) activeByAgent.set(agent, (activeByAgent.get(agent) ?? 0) + 1);
       active++;
       if (isPipeline(job)) activeByStep.set(job.stepId, (activeByStep.get(job.stepId) ?? 0) + 1);
       report();
@@ -277,6 +362,11 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
             if (n > 0) activeByHarness.set(harness, n);
             else activeByHarness.delete(harness);
             settleHealth(harness, signal);
+          }
+          if (agent) {
+            const n = (activeByAgent.get(agent) ?? 1) - 1;
+            if (n > 0) activeByAgent.set(agent, n);
+            else activeByAgent.delete(agent);
           }
           if (harness && signal?.requeue) {
             // Back to the front, still in flight: its work key and ref count stay, so no duplicate
@@ -375,23 +465,65 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     /**
      * {active, queued} snapshot; `capped` (waiting jobs whose step is at its cap, or whose harnesses
      * are all full or down) only when step caps or harnesses are set; `harnesses` ({[name]: {active,
-     * max, state, until?, reason?}}) only when the profile has harnesses.
+     * max, state, until?, reason?}}) only when the profile has harnesses; `unharnessed` ({[agent]:
+     * count}) only when harnesses are set and at least one pipeline job is running on a
+     * harness-less step.
      */
     state: snapshot,
-    /** Every configured harness's {active, max, state, until?, reason?} (max null = uncapped) — the puller's harness budget; {} without harnesses. */
+    /** Every configured harness's {active, max, state, until?, reason?, cause?} (max null = uncapped) — the puller's harness budget; {} without harnesses. */
     harnessState,
     /**
+     * Close a subscription group for quota (src/engine `createHarnessQuota`): every named harness
+     * gets a `cause:"quota"` entry, and `unharnessed` also sets the queue-level gate that waits the
+     * profile's unharnessed shared claude steps. A quota entry never adds strikes; it reads `down`
+     * until `until`, then `up` (never `probing`). It never shortens a harness already health-down
+     * past `until`, never shortens (or re-emits) a harness already quota-closed to a later `until`,
+     * and an identical closure is a no-op. Re-arms the one-shot reopen timer.
+     * @param {string[]} names
+     * @param {{until: number, reason: string, unharnessed?: boolean, window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}} opts
+     */
+    closeForQuota(names, { until, reason, unharnessed = false, window, utilization, threshold }) {
+      let changed = false;
+      for (const name of names) {
+        const cur = health.get(name);
+        if (cur && cur.cause !== "quota" && cur.until > until) continue; // a longer health-down stands
+        if (cur?.cause === "quota" && cur.until >= until) continue; // never shorten a quota closure, nor re-emit on a slightly different reading
+        health.set(name, { until, strikes: cur?.strikes ?? 0, reason, cause: "quota" });
+        console.log(`[harness] ${name} closed for quota until ${new Date(until).toISOString()}`);
+        harnessing?.onHarnessDown?.(name, { reason, until: new Date(until).toISOString(), cause: "quota", ...(window ? { window, utilization, threshold } : {}) });
+        changed = true;
+      }
+      if (unharnessed && (unharnessedUntil === null || until > unharnessedUntil)) {
+        unharnessedUntil = until;
+        changed = true;
+      }
+      if (changed) {
+        persistHealth();
+        armQuotaTimer();
+        report();
+        pump();
+      }
+    },
+    /**
      * Close `name`'s breaker now (the `harness_reset` op): drop its entry, persist, report
-     * `onHarnessUp` when it was down or probing, then start waiting work. False when it was up.
-     * @param {string} name @returns {boolean}
+     * `onHarnessUp` (with the entry's `cause`) when it was down or probing, then start waiting
+     * work. `reset:false` (and null cause/until) when it was up.
+     * @param {string} name @returns {{reset: boolean, cause: 'health'|'quota'|null, until: number|null}}
      */
     resetHarness(name) {
-      if (!health.delete(name)) return false;
+      const entry = health.get(name);
+      if (!entry) return { reset: false, cause: null, until: null };
+      health.delete(name);
       persistHealth();
-      harnessing?.onHarnessUp?.(name);
+      harnessing?.onHarnessUp?.(name, { cause: entry.cause ?? "health" });
       report();
       pump();
-      return true;
+      return { reset: true, cause: entry.cause ?? "health", until: entry.until };
+    },
+    /** Disarm the quota reopen timer (shutdown). */
+    stop() {
+      if (quotaTimer !== undefined) clearTimer(quotaTimer);
+      quotaTimer = undefined;
     },
     /**
      * Per-step counts of PIPELINE jobs: {[stepId]: {active, queued}} — the puller's per-step budget.
@@ -426,6 +558,44 @@ export function createQueue(initialMax, run, onChange, persist, stepCaps = {}, h
     setHarnessMax(name, n) {
       if (!Object.hasOwn(harnessCaps, name)) throw new Error(`unknown harness "${name}"`);
       harnessCaps[name] = n ?? undefined;
+      report();
+      pump();
+    },
+    /**
+     * Apply a reloaded config (#725): replace the copied maps with the freshly built shapes so
+     * runs that start after this pick up the new values, then pump so waiting jobs re-route.
+     * Active runs keep the harness they resolved at start (a removed harness's runs still count
+     * until they settle — nothing here crashes on them). `overrides` (the surviving operator
+     * overrides, pruned to the new config by the caller) are applied *before* the pump, so a
+     * per-harness slot override still wins over the new cap and a `maxConcurrent` override over
+     * the new global max — a drained harness stays drained through the reload. Breaker `health`
+     * entries for harnesses removed from the config are dropped and persisted (`onHealth`).
+     * @param {{max?: number, stepCaps?: Record<string, number>, steps?: Record<string, {harnesses: string[], routing?: 'first-free'|'round-robin'}>, caps?: Record<string, number|undefined>, cooldowns?: Record<string, number|undefined>, unharnessedShared?: string[], unharnessedAgents?: Record<string, string>}} next
+     * @param {{maxConcurrent?: number, harnesses?: Record<string, number>}} [overrides]
+     */
+    reconfigure({ max: nextMax, stepCaps: nextStepCaps, steps: nextSteps, caps: nextHarnessCaps, cooldowns: nextCooldowns, unharnessedShared: nextShared, unharnessedAgents: nextAgents }, overrides = {}) {
+      if (nextMax !== undefined) max = nextMax;
+      caps.clear();
+      for (const [id, n] of Object.entries(nextStepCaps ?? {})) caps.set(id, n);
+      harnessSteps.clear();
+      for (const [id, r] of Object.entries(nextSteps ?? {})) harnessSteps.set(id, r);
+      for (const name of Object.keys(harnessCaps)) delete harnessCaps[name];
+      Object.assign(harnessCaps, nextHarnessCaps ?? {});
+      for (const name of Object.keys(cooldowns)) delete cooldowns[name];
+      Object.assign(cooldowns, nextCooldowns ?? {});
+      unharnessedShared.clear();
+      for (const id of nextShared ?? []) unharnessedShared.add(id);
+      unharnessedAgents.clear();
+      for (const [id, agent] of Object.entries(nextAgents ?? {})) unharnessedAgents.set(id, agent);
+      // Drop breaker entries for harnesses no longer in the config, then persist what remains.
+      for (const name of [...health.keys()]) if (!Object.hasOwn(harnessCaps, name)) health.delete(name);
+      persistHealth();
+      // Operator overrides win over the new config values — applied before the pump so the queue
+      // re-routes waiting jobs under the override caps, not the freshly loaded ones.
+      if (overrides.maxConcurrent !== undefined) max = overrides.maxConcurrent;
+      for (const [name, n] of Object.entries(overrides.harnesses ?? {})) {
+        if (Object.hasOwn(harnessCaps, name)) harnessCaps[name] = n;
+      }
       report();
       pump();
     },

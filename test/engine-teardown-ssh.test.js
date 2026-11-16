@@ -24,7 +24,7 @@ test("shutdown: forceExit reaps every remote (ssh) harness's leftover runs, not 
     const exits = createExits(/** @type {any} */ ({
       cfg: { pidFile: path.join(dir, "server.pid"), stateDir: dir, stateKey: "p", name: "p", configPath: path.join(dir, "agenthook.config.json"), installDir: dir },
       state: { server: { close: (cb) => cb && cb() }, control: null, finished: false, respawnOnExit: false, archiveOnExit: false },
-      queue: { close: () => {}, state: () => ({ active: 0, queued: 0 }), onIdle: async () => {}, onActiveIdle: async () => {} },
+      queue: { close: () => {}, stop: () => {}, state: () => ({ active: 0, queued: 0 }), onIdle: async () => {}, onActiveIdle: async () => {} },
       ingress: { down: async () => {} },
       heartbeat: { update: () => {}, clear: () => {} },
       children: new Set(),

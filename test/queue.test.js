@@ -555,6 +555,52 @@ test("no harnesses: state() has no `harnesses` and harnessState() is empty", () 
   assert.deepEqual(q.harnessState(), {});
 });
 
+// --- implicit (harness-less) runs counted by agent (#726) ---
+
+test("unharnessed: a job on a step with no harness counts under its agent, not in `harnesses`; absent once it settles", async () => {
+  const { q, started, done } = harnessed(4, { ...CODE_QR, unharnessedAgents: { triage: "claude" } });
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  q.enqueue(job("C", "triage"));
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "C:-"]);
+  const s = q.state();
+  assert.equal(s.active, 3);
+  assert.deepEqual(s.unharnessed, { claude: 1 });
+  const harnessActive = Object.values(s.harnesses).reduce((n, h) => n + h.active, 0);
+  assert.equal(harnessActive + Object.values(s.unharnessed).reduce((n, v) => n + v, 0), s.active);
+  await done("C");
+  assert.equal(q.state().unharnessed, undefined);
+  await done("A");
+  await done("B");
+  await q.onIdle();
+});
+
+test("unharnessed: a harness-less step naming agent opencode counts under opencode, not claude", async () => {
+  const { q, started, done } = harnessed(2, { ...CODE_QR, unharnessedAgents: { triage: "opencode" } });
+  q.enqueue(job("A", "triage"));
+  assert.deepEqual(started, ["A:-"]);
+  assert.deepEqual(q.state().unharnessed, { opencode: 1 });
+  await done("A");
+  await q.onIdle();
+});
+
+test("unharnessed: merge/ci jobs are never counted under an implicit agent entry", async () => {
+  const { q, started, done } = harnessed(3, { ...CODE_QR, unharnessedAgents: { triage: "claude" } });
+  q.enqueue({ kind: "merge", ref: "M", stepId: "triage", dedupKey: "merged:1" });
+  q.enqueue({ kind: "ci", ref: "X", stepId: "triage", dedupKey: "ci:1:1" });
+  assert.deepEqual(started, ["M:-", "X:-"]);
+  assert.equal(q.state().unharnessed, undefined);
+  await done("M");
+  await done("X");
+  await q.onIdle();
+});
+
+test("unharnessed: without harnesses configured, state() carries no `unharnessed` key", () => {
+  const q = createQueue(1, () => new Promise(() => {}));
+  q.enqueue(job("T1", "triage"));
+  assert.deepEqual(q.state(), { active: 1, queued: 0 });
+});
+
 // --- harness health breaker (#621): a failing harness goes down, is routed around, then probed ---
 
 /**
@@ -605,8 +651,8 @@ test("breaker: a health settle marks the harness down; first-free routes around 
   await b.done("A", b.trip("local"));
   const until = new Date(b.now() + 10 * MIN).toISOString();
   assert.deepEqual(b.log, [["down", "local", until, "spawn failed: ENOENT"]]);
-  assert.deepEqual(b.persisted(), { local: { until, strikes: 1, reason: "spawn failed: ENOENT" } });
-  assert.deepEqual(b.q.harnessState().local, { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT" });
+  assert.deepEqual(b.persisted(), { local: { until, strikes: 1, reason: "spawn failed: ENOENT", cause: "health" } });
+  assert.deepEqual(b.q.harnessState().local, { active: 0, max: 1, state: "down", until, reason: "spawn failed: ENOENT", cause: "health" });
   b.q.enqueue(job("B", "code"));
   assert.deepEqual(b.started, ["A:local", "B:cloud"], "the down harness is skipped though it has a free slot");
   await b.done("B");
@@ -700,7 +746,7 @@ test("breaker: a requeued job keeps its front spot while every harness is down",
   await b.done("A", b.trip("local", true));
   assert.deepEqual(b.q.state(), { active: 0, queued: 2, capped: 2, harnesses: b.q.harnessState() });
   b.advance(10 * MIN);
-  assert.equal(b.q.resetHarness("nope"), false);
+  assert.equal(b.q.resetHarness("nope").reset, false);
   b.q.resume(); // any pump after `until`
   assert.deepEqual(b.started, ["A:local", "A:local"]);
 });
@@ -710,8 +756,8 @@ test("breaker: health is seeded from the persisted record (unknown names dropped
   const past = new Date(Date.parse("2026-11-08T12:00:00Z") - MIN).toISOString();
   const b = breaker(4, { ...PAIR, health: { local: { until, strikes: 2, reason: "r" }, cloud: { until: past, strikes: 1, reason: "old" }, gone: { until, strikes: 1, reason: "x" } } });
   assert.deepEqual(b.q.harnessState(), {
-    local: { active: 0, max: 1, state: "down", until, reason: "r" },
-    cloud: { active: 0, max: 2, state: "probing", until: past, reason: "old" },
+    local: { active: 0, max: 1, state: "down", until, reason: "r", cause: "health" },
+    cloud: { active: 0, max: 2, state: "probing", until: past, reason: "old", cause: "health" },
   });
 });
 
@@ -721,9 +767,74 @@ test("breaker: resetHarness clears the entry, reports up, persists and starts wa
   await b.done("A", b.trip("local"));
   b.q.enqueue(job("B", "code"));
   assert.deepEqual(b.started, ["A:local"]);
-  assert.equal(b.q.resetHarness("local"), true);
+  assert.equal(b.q.resetHarness("local").reset, true);
   assert.deepEqual(b.log.at(-1), ["up", "local"]);
   assert.deepEqual(b.persisted(), {});
   assert.deepEqual(b.started, ["A:local", "B:local"]);
-  assert.equal(b.q.resetHarness("local"), false, "already up");
+  assert.equal(b.q.resetHarness("local").reset, false, "already up");
+});
+
+test("reconfigure: replaces caps/steps live and pumps — a raised cap starts waiting work, a removed harness stops new starts", async () => {
+  const caps = { qwen: 1, deepseek: 1 };
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["qwen", "deepseek"] } }, caps });
+  q.enqueue(job("A", "code"));
+  q.enqueue(job("B", "code"));
+  assert.deepEqual(started, ["A:qwen", "B:deepseek"]);
+  q.enqueue(job("C", "code"));
+  assert.equal(started.length, 2, "both harnesses full → C waits");
+  // Drop deepseek and raise qwen to 2: C re-routes to qwen (now with a free slot) and starts.
+  q.reconfigure({ max: 9, steps: { code: { harnesses: ["qwen"] } }, caps: { qwen: 2 } });
+  assert.deepEqual(started, ["A:qwen", "B:deepseek", "C:qwen"]);
+  assert.deepEqual(q.state().harnesses, { qwen: { active: 2, max: 2, state: "up" } }, "deepseek is gone from the config");
+  for (const r of ["A", "B", "C"]) await done(r);
+  await q.onIdle();
+});
+
+test("reconfigure: drops breaker entries for removed harnesses and persists", async () => {
+  const b = breaker(4, { ...PAIR, cooldowns: { local: 10 } });
+  b.q.enqueue(job("A", "code"));
+  await b.done("A", b.trip("local"));
+  assert.equal(b.q.harnessState().local.state, "down");
+  b.q.reconfigure({ steps: { code: { harnesses: ["cloud"] } }, caps: { cloud: 2 } });
+  assert.equal(b.q.harnessState().local, undefined, "local is gone from the config");
+  assert.deepEqual(b.persisted(), {}, "its breaker entry was dropped and persisted");
+});
+
+test("reconfigure: a job waiting on a quota-closed only-harness starts on a harness the reload adds", async () => {
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 } });
+  q.closeForQuota(["local"], { until: Date.now() + 60_000, reason: "closed for quota" });
+  q.enqueue(job("A", "code"));
+  assert.deepEqual(started, [], "the only harness is quota-closed → A waits");
+  q.reconfigure({ steps: { code: { harnesses: ["local", "cloud"] } }, caps: { local: 1, cloud: 2 } });
+  assert.deepEqual(started, ["A:cloud"], "the reload-added harness picks up the waiting job");
+  await done("A");
+  await q.onIdle();
+});
+
+test("reconfigure: an operator harness override (drained) is applied before the pump, so it wins over the new config cap", async () => {
+  const { q, started, done } = harnessed(9, { steps: { code: { harnesses: ["local"] } }, caps: { local: 1 } });
+  q.enqueue(job("A", "code"));
+  assert.deepEqual(started, ["A:local"]);
+  // Reload raises local to 4 and adds cloud; the operator drained local (override 0).
+  q.reconfigure({ steps: { code: { harnesses: ["local", "cloud"] } }, caps: { local: 4, cloud: 2 } }, { harnesses: { local: 0 } });
+  q.enqueue(job("B", "code"));
+  assert.deepEqual(started, ["A:local", "B:cloud"], "drained local stays drained; B routes to cloud");
+  await done("A");
+  await done("B");
+  await q.onIdle();
+});
+
+test("reconfigure: a global maxConcurrent override is applied before the pump, so it holds a waiting backlog", async () => {
+  const { q, started, done } = harnessed(1, { steps: { code: { harnesses: ["local"] } }, caps: { local: 4 } });
+  for (const r of ["A", "B", "C"]) q.enqueue(job(r, "code"));
+  assert.deepEqual(started, ["A:local"], "initial max 1 → only A runs");
+  q.reconfigure({ max: 4, steps: { code: { harnesses: ["local"] } }, caps: { local: 4 } }, { maxConcurrent: 1 });
+  assert.equal(q.max(), 1, "the override max 1 still holds after the reload");
+  assert.deepEqual(started, ["A:local"], "B and C stay waiting despite config max 4");
+  await done("A");
+  assert.deepEqual(started.slice(1), ["B:local"]);
+  await done("B");
+  assert.deepEqual(started.slice(2), ["C:local"]);
+  await done("C");
+  await q.onIdle();
 });

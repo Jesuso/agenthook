@@ -34,7 +34,7 @@ import { serviceImages } from "../sandbox/container.js";
 import { claudePermissionArgs, claudePolicyArgs, sandboxCredentialProblem } from "../agents/claude.js";
 import { agentSpawnEnv } from "../dispatch/spawn.js";
 import { hostGitFacts, inferredForgeEgressHosts } from "../dispatch/sandbox.js";
-import { harnessesOf } from "../dispatch/harness.js";
+import { harnessesOf, resolveHarness } from "../dispatch/harness.js";
 import { remoteProbeArgv, shQuote } from "../dispatch/executor-ssh.js";
 import { agentEnvAllow, buildAgentEnv, envNameMatches, looksSecret, strippedNames } from "../agent-env.js";
 import { TRACKER_AGENT_ENV, TRACKER_EGRESS_HOSTS } from "../trackers/index.js";
@@ -291,6 +291,25 @@ export function harnessLanLints(cfg) {
   return out;
 }
 
+/** Read + JSON-parse an opencodeConfig; `{error}` (never throws) on an unreadable or invalid
+ * file, else `{parsed}` (JSON.parse's own return type). Shared by opencodeConfigLints and
+ * opencodeEffortLints.
+ * @param {string} configPath @param {(path: string) => string} read */
+function readOpencodeJson(configPath, read) {
+  /** @type {string} */
+  let raw;
+  try {
+    raw = read(configPath);
+  } catch (e) {
+    return { parsed: undefined, error: `unreadable: ${e.message}` };
+  }
+  try {
+    return { parsed: JSON.parse(raw), error: undefined };
+  } catch (e) {
+    return { parsed: undefined, error: `invalid JSON: ${e.message}` };
+  }
+}
+
 /**
  * OpenCode provider baseURL lints (#647), parallel to harnessLanLints: for each sandboxed,
  * non-manual step and each harness it routes through, the effective `opencodeConfig` (the
@@ -317,20 +336,9 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
       if (seen.has(key)) continue;
       seen.add(key);
       const label = `opencodeConfig ${configPath}`;
-      /** @type {string} */
-      let raw;
-      try {
-        raw = read(configPath);
-      } catch (e) {
-        out.push({ level: "warn", label, note: `unreadable: ${e.message}` });
-        continue;
-      }
-      /** @type {any} */
-      let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        out.push({ level: "warn", label, note: `invalid JSON: ${e.message}` });
+      const { parsed, error } = readOpencodeJson(configPath, read);
+      if (error) {
+        out.push({ level: "warn", label, note: error });
         continue;
       }
       const providers = parsed && typeof parsed === "object" ? parsed.provider : undefined;
@@ -356,20 +364,76 @@ export function opencodeConfigLints(cfg, { read = (p) => fs.readFileSync(p, "utf
 }
 
 /**
+ * OpenCode effort lints (#731): a sandboxed, non-manual opencode step's `effort` only reaches
+ * the model when the step's effective `opencodeConfig` declares a matching `variants` entry on
+ * that model — OpenCode maps `--variant <effort>` through
+ * `provider.<id>.models.<model>.variants[effort]`, and with no entry it has nothing to resolve.
+ * For each (model, effort) pair the step's base/`lite`/each `escalate` tier could produce, when
+ * the model is declared in the config and lacks that variant (or it's `disabled: true`), emit
+ * one info line. Silently skipped: a model not declared in the config (built-in catalogs may
+ * define variants OpenCode already knows), a non-opencode step, a pair missing a model or
+ * effort, or a config that's unreadable/invalid (`opencodeConfigLints` already warns about
+ * that). `[]` without `cfg.sandbox`. Pure given `read`.
+ * @param {import('../types.js').Config} cfg
+ * @param {{read?: (path: string) => string}} [io]
+ * @returns {{ level: 'info', label: string, note: string }[]} */
+export function opencodeEffortLints(cfg, { read = (p) => fs.readFileSync(p, "utf8") } = {}) {
+  if (!cfg.sandbox) return [];
+  /** @type {{ level: 'info', label: string, note: string }[]} */
+  const out = [];
+  const steps = (cfg.pipeline ?? []).filter((s) => !s.manual && isSandboxed(cfg, s));
+  /** @type {Set<string>} one line per distinct (step, harness, model, effort) */
+  const seen = new Set();
+  for (const s of steps) {
+    const names = harnessesOf(s).length ? harnessesOf(s) : [undefined];
+    for (const name of names) {
+      const { step: eff } = resolveHarness(cfg, s, name);
+      if ((eff.agent ?? cfg.agent) !== "opencode" || !eff.opencodeConfig) continue;
+      /** @type {{model?: string, effort?: string}[]} */
+      const pairs = [{ model: eff.model, effort: eff.effort }];
+      if (eff.lite) pairs.push({ model: eff.lite.model ?? eff.model, effort: eff.lite.effort ?? eff.effort });
+      for (const esc of Object.values(eff.escalate ?? {})) pairs.push({ model: esc.model ?? eff.model, effort: esc.effort ?? eff.effort });
+      if (!pairs.some((p) => p.model && p.effort)) continue;
+
+      const { parsed, error } = readOpencodeJson(eff.opencodeConfig, read);
+      if (error) continue;
+      const providers = parsed && typeof parsed === "object" ? parsed.provider : undefined;
+      if (!providers || typeof providers !== "object") continue;
+
+      for (const { model, effort } of pairs) {
+        if (!model || !effort || !model.includes("/")) continue;
+        const key = `${s.id}\0${name ?? ""}\0${model}\0${effort}`;
+        if (seen.has(key)) continue;
+        const idx = model.indexOf("/");
+        const providerId = model.slice(0, idx);
+        const modelId = model.slice(idx + 1);
+        const modelCfg = providers[providerId]?.models?.[modelId];
+        if (!modelCfg) continue;
+        const variant = modelCfg.variants?.[effort];
+        if (variant && !variant.disabled) continue;
+        seen.add(key);
+        const label = `step ${JSON.stringify(s.id)}${name ? ` on ${JSON.stringify(name)}` : ""}: effort ${JSON.stringify(effort)}`;
+        out.push({ level: "info", label, note: `opencodeConfig ${eff.opencodeConfig} declares no ${JSON.stringify(effort)} variant for ${model} — OpenCode will not send a reasoning effort` });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Per-harness slots (#632): an ℹ line per harness naming its `maxConcurrent` ("N slot(s)" or
  * "unbounded"), plus a ⚠ when every harness a step's `harness` list names has an explicit cap
  * and their caps sum to 0 — the step can never run. With `overrides` (overrides.json), an
  * overridden harness shows "N slots (override; config M)" and a global pause/max override gets an
- * ℹ line; a harness entry not in the config is flagged as dropped-on-boot. `[]` without
- * `cfg.harnesses`. Pure.
+ * ℹ line; a harness entry not in the config is flagged as dropped-on-boot. `[]` only with neither
+ * `cfg.harnesses` nor a global override. Pure.
  * @param {Pick<import('../types.js').Config, 'harnesses'|'pipeline'|'maxConcurrent'>} cfg
  * @param {import('../types.js').Overrides} [overrides]
  * @returns {{ level: 'info'|'warn', label: string, note: string }[]} */
 export function harnessSlotLints(cfg, overrides = {}) {
-  if (!cfg.harnesses) return [];
   /** @type {{ level: 'info'|'warn', label: string, note: string }[]} */
   const out = [];
-  for (const [name, h] of Object.entries(cfg.harnesses)) {
+  for (const [name, h] of Object.entries(cfg.harnesses ?? {})) {
     const config = h.maxConcurrent == null ? null : h.maxConcurrent;
     const ov = overrides.harnesses?.[name];
     const note = ov !== undefined ? `${ov} slots (override; config ${config == null ? "unbounded" : config})` : config == null ? "unbounded" : `${config} slot(s)`;
@@ -377,16 +441,18 @@ export function harnessSlotLints(cfg, overrides = {}) {
   }
   if (overrides.paused === true) out.push({ level: "info", label: "operator pause", note: "paused (override; unpause to clear)" });
   if (overrides.maxConcurrent !== undefined) out.push({ level: "info", label: "global maxConcurrent", note: `${overrides.maxConcurrent} (override; config ${cfg.maxConcurrent})` });
-  for (const s of cfg.pipeline ?? []) {
-    const names = harnessesOf(s);
-    if (!names.length) continue;
-    const caps = names.map((n) => (overrides.harnesses?.[n] !== undefined ? overrides.harnesses[n] : cfg.harnesses?.[n]?.maxConcurrent));
-    if (caps.every((c) => c != null) && caps.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) === 0) {
-      out.push({ level: "warn", label: `step "${s.id}" harness slots`, note: `every harness it can use (${names.join(", ")}) is capped at 0 — this step can never run` });
+  if (cfg.harnesses) {
+    for (const s of cfg.pipeline ?? []) {
+      const names = harnessesOf(s);
+      if (!names.length) continue;
+      const caps = names.map((n) => (overrides.harnesses?.[n] !== undefined ? overrides.harnesses[n] : cfg.harnesses?.[n]?.maxConcurrent));
+      if (caps.every((c) => c != null) && caps.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) === 0) {
+        out.push({ level: "warn", label: `step "${s.id}" harness slots`, note: `every harness it can use (${names.join(", ")}) is capped at 0 — this step can never run` });
+      }
     }
   }
   for (const name of Object.keys(overrides.harnesses ?? {})) {
-    if (!Object.hasOwn(cfg.harnesses, name)) out.push({ level: "info", label: `override for harness "${name}"`, note: "not in the config — will be dropped on boot" });
+    if (!Object.hasOwn(cfg.harnesses ?? {}, name)) out.push({ level: "info", label: `override for harness "${name}"`, note: "not in the config — will be dropped on boot" });
   }
   return out;
 }
@@ -707,6 +773,23 @@ export function ingressLivenessLints(profile) {
       fix: { manual: "run `agenthook restart`" },
     },
   ];
+}
+
+/** A harness closed for quota (src/queue.js `cause:"quota"`) — expected, not a fault: an info line
+ * per one, so `doctor` shows its reopen time unprompted. Pure.
+ * @param {ReturnType<import('../heartbeat.js').readProfile>} profile
+ * @returns {Finding[]} */
+export function harnessQuotaLints(profile) {
+  const harnesses = profile.up ? profile.heartbeat?.queue?.harnesses : undefined;
+  if (!harnesses || typeof harnesses !== "object") return [];
+  /** @type {Finding[]} */
+  const out = [];
+  for (const [name, h] of Object.entries(harnesses)) {
+    if (!h || h.cause !== "quota") continue;
+    const when = typeof h.until === "string" ? `back at ${String(h.until).slice(11, 16)}Z` : "until the window resets";
+    out.push({ level: "info", label: `harness ${name} closed for quota`, note: `${when}${h.reason ? ` (${h.reason})` : ""}` });
+  }
+  return out;
 }
 
 /** The default image builder: `<bin> build -t <image> -` with the Dockerfile on stdin.
@@ -1527,6 +1610,7 @@ export async function runChecks(cfg, io = {}) {
 
   for (const c of ingressChecks(cfg.ingress, have)) add(c.ok, c.label, c.note, { manual: c.manual });
   ingressLivenessLints(profile).forEach(finding);
+  harnessQuotaLints(profile).forEach(finding);
   checks.push(...(await sandboxChecks(cfg, { run, has: have, build })));
   const rootFiles = (/** @type {string} */ dir) => {
     try {
@@ -1540,6 +1624,7 @@ export async function runChecks(cfg, io = {}) {
   for (const l of egressLints(cfg, { files, env, origins })) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
   for (const l of harnessLanLints(cfg)) warn(l.label, l.note);
   for (const l of opencodeConfigLints(cfg)) warn(l.label, l.note);
+  for (const l of opencodeEffortLints(cfg)) info(l.label, l.note);
   for (const l of harnessSlotLints(cfg, createStore(cfg.dataDir).getOverrides())) l.level === "info" ? info(l.label, l.note) : warn(l.label, l.note);
 
   const busy = await busyPort(cfg.port);

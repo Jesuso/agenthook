@@ -12,8 +12,8 @@ import { createQueue } from "../src/queue.js";
 import { startControl } from "../src/control.js";
 import { controlRequest } from "../src/ui/control-client.js";
 
-/** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any, onEpicChanged?: (reset: () => void) => void}} [o] */
-function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker, onEpicChanged, harnessing } = {}) {
+/** @param {{adapter?: any, forge?: any, locked?: boolean, pipeline?: any[], killed?: Set<string>, tracker?: any, onEpicChanged?: (reset: () => void) => void, reload?: () => Promise<{changed: string[], note: string}>}} [o] */
+function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = new Set(), accept = true, queueRun, tracker, onEpicChanged, harnessing, reload } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-ops-"));
   const cfg = /** @type {any} */ ({
     name: "t",
@@ -41,6 +41,7 @@ function setup({ adapter = {}, forge = null, locked = false, pipeline, killed = 
     pull: async () => void pulls.push("pull"),
     isLocked: () => locked,
     onEpicChanged,
+    reload,
   });
   const audit = () => fs.readFileSync(path.join(dir, "control-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   return { dir, cfg, store, queue, ops, intaken, events, beats, audit, pulls, left };
@@ -352,6 +353,21 @@ test("audit: every write is logged (ok and failed) with actor, never the comment
   assert.equal(a[1].ok, false);
   assert.match(a[1].error, /not running, queued or held/);
   if (process.platform !== "win32") assert.equal(fs.statSync(path.join(s.dir, "control-audit.jsonl")).mode & 0o777, 0o600);
+});
+
+test("reload: delegates to the engine's reload dep (audited); no dep → refused; a thrown error is audited failed", async () => {
+  let calls = 0;
+  const s = setup({ reload: async () => (calls++, { changed: ["maxConcurrent", "pipeline[code].model"], note: "reloaded 2 key(s)" }) });
+  const r = await s.ops.reload({ actor: "mcp" });
+  assert.equal(calls, 1);
+  assert.deepEqual(r, { changed: ["maxConcurrent", "pipeline[code].model"], note: "reloaded 2 key(s)" });
+  assert.deepEqual(s.audit().map((l) => [l.cmd, l.actor, l.ok]), [["reload", "mcp", true]]);
+
+  await assert.rejects(() => setup().ops.reload({}), /not available/);
+
+  const failing = setup({ reload: async () => { throw new Error("restart required for: pipeline"); } });
+  await assert.rejects(() => failing.ops.reload({ actor: "mcp" }), /restart required/);
+  assert.deepEqual(failing.audit().map((l) => [l.cmd, l.ok]), [["reload", false]]);
 });
 
 test("board: resting + backlog per step with refmeta labels, cached; prs needs a forge", async () => {

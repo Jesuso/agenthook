@@ -123,12 +123,22 @@ unchanged check.
   `down`/`probing` harness is a receiver-level error, not routing noise — the web UI's Needs-you zone
   lists it until `harness_up` fires (#688), and the `tick` text digest's harness line ends with
   `— fix the cause, then harness_reset <name>`; a routed-around spill (a step's other harness
-  picking up the work) produces nothing in either place.
+  picking up the work) produces nothing in either place. A harness can also read `cause: "quota"`:
+  a Claude subscription-quota reading at/above a `quota` threshold closed it (and every harness
+  sharing that subscription) until `until`; it reopens by itself (`harness_up` with `cause:"quota"`),
+  is never a Needs-you item, and `status`/`tick` print `closed for quota, back at HH:MMZ` instead.
 - A `running[]` row carries `host` (#691) only when the run is on a **remote** harness
   (`harnesses.<name>.remote`) — the worker machine it's actually running on, from the
   `running.json` record's own `host`. The `tick` text digest then reads `· <harness>@<host>`
   instead of `· <harness>`; `status` prints a `remote  : <ref> <step> on "<harness>" @ <host>`
   line per such run. See [remote.md](remote.md).
+- `slots.unharnessed` (present only when the profile has `harnesses` and a run is active on a step
+  that names none) is `{"<agent>": n}` — running pipeline jobs on harness-less steps, counted by
+  the agent CLI they spawn (`claude`, `cursor`, `hermes`, `opencode`), never folded into
+  `slots.harnesses` (that stays "configured harnesses only" for the puller budget, the breaker,
+  `set_concurrency`/`harness_reset` and `doctor`). The `tick` text digest prints one
+  `no-harness: <agent> <n>` line per entry; `status` prints `harness : <agent> (no harness) <n>
+  running`.
 - `harnessUsage` (present only when the profile has `harnesses` and some run used one) is
   `{"<name>": {"runs": n, "input": n, "output": n, "cacheRead": n, "cacheCreate": n}}` — token
   totals per harness, summed from the usage records. `set_concurrency {max, harness}` changes one
@@ -359,15 +369,20 @@ a duplicate webhook for the same ref+step coalesces away silently; carries `kind
 `"pipeline"`/`"merge"`/`"ci"` — so a CI/merge job's enqueue isn't mistaken for a pipeline re-run),
 `run_start`, `run_end
 {outcome, costUsd}` (`repaired: true|false` only when a verdict-repair turn ran — see `verdict_repair`;
+`gate: "pass"|"fail"` only when the step's `gate` ran at least once — see `gate_pass`/`gate_fail`;
 `verdictSource: "agent"|"repaired"|"deduced"` says where the outcome came from — a verdict file the
 agent wrote, the repair turn's, or deduced from the branch's commits; absent for a receiver-forced
-verdict or the `requireVerdict:false` assumed-advance),
+verdict (e.g. a gate-cap hold) or the `requireVerdict:false` assumed-advance),
 `verdict_repair {result, turns}` (a clean exit with no valid verdict got one receiver-driven repair
 turn — same session, fixed prompt — before a human is involved; `result` = `"repaired"` or
 `"still_missing"`; fires right before `run_end`; skipped entirely when the run instead qualifies
 for a deduced verdict), `verdict_missing {reason}` (a clean exit with no
 usable verdict file, after any repair turns, right before the hold it forces; a `blocked` event
-follows; never fires for a deduced run), `blocked {reason}` (task now held),
+follows; never fires for a deduced run),
+`gate_pass` / `gate_fail {exitCode, durationMs, timedOut?}` (the step's `gate` ran, in the run's
+own executor, after an advance and before the move — it can only veto that advance; a `gate_fail`
+gets one more agent turn carrying the gate's output, then the gate runs again; exhausting
+`maxAttempts` with it still failing holds the task instead), `blocked {reason}` (task now held),
 `failed {reason}`, `merged` (`via:"recheck"` when a `recheck` learned it rather than the forge's webhook),
 `move_refused {outcome, reason, detail}` (a verdict's move did not happen — the ticket is still in
 its stage; `reason` = `not_ours` | `owner_check_failed` | `move_error`),
@@ -389,9 +404,12 @@ PR still needs you), skipped it because the tier didn't qualify or the PR head m
 judged (the PR still needs you), or turned it off because the task bounced back or got a new commit;
 `tooLate` = the PR had already merged and the rejected code needs you), `pulled`
 (backlog item pulled into a slot), `dequeued` (an operator `cancel` dropped a waiting job).
-Housekeeping: `restart_requested`, `restarting`, `quota_pause {window, utilization, threshold,
-resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer stopped / restarted
-starting runs; `status.quotaPaused` while it holds, `status.quota` is the last reading), `overlap_held`, `overlap_released`, `epic_skipped`
+Housekeeping: `restart_requested`, `restarting`, `config_reloaded {changed}` (an operator `reload`
+applied the named dotted config keys to runs that start after; running agents keep their config), `quota_pause {window, utilization, threshold,
+resetsAt}` / `quota_resume {window, reason}` (the opt-in Claude quota pacer — a profile WITHOUT
+harnesses — stopped / restarted starting runs; `status.quotaPaused` while it holds, `status.quota` is
+the last reading; WITH harnesses a quota reading closes only the harnesses sharing that subscription,
+reported as `harness_down`/`harness_up {cause:"quota"}`), `overlap_held`, `overlap_released`, `epic_skipped`
 (an epic reached a step; no agent ran, nothing moved). There's also
 `coalesced` (a duplicate webhook dropped), hidden unless you pass `types:["coalesced"]`, and
 `epic_changed` (GitHub and Jira: an epic's children or type changed; `ref` = the epic — re-read
@@ -408,7 +426,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 |---|---|---|
 | `pause {harness?}` / `resume {harness?}` | stop / restart starting agents and pulling backlog; with `harness`, drain (0) / restore that harness only | — (`resume` is a no-op while restart/shutdown owns the queue; `pause`/`resume` with a `harness` the profile doesn't define) |
 | `set_concurrency {max?, harness?, reset?}` | cap 1–64 (0–64 with `harness`; `0` drains that harness — no new starts until re-enabled), persisted until reset; `reset: true` (instead of `max`) restores the config value — with `harness`, only that harness's | out of range; `max: 0` without a harness; both/neither of `max`/`reset`; `no harness "<name>"` |
-| `harness_reset {harness}` | clear a harness's health breaker (down/probing → up, `harness_up`) and start the work waiting on it; `reset:false` = it was already up | `this profile has no harnesses`; `no harness "<name>" (have: …)` |
+| `harness_reset {harness}` | clear a harness's health breaker (down/probing → up, `harness_up`) and start the work waiting on it; `reset:false` = it was already up. On a quota-closed harness it also suppresses re-closing by quota until that window resets | `this profile has no harnesses`; `no harness "<name>" (have: …)` |
 | `run {ref, step?, assign?, force?}` | assign + move into a step's source stage | ref not found; ticket already completed (override: `force`); already in the pipeline (override: `force`) |
 | `catchup {ref, force?}` | re-fire the step for the stage the ticket **currently rests in**; use instead of `run {force}` when `run`'s move produces no fresh transition | not assigned to us; rests in no pipeline source stage; no tracker support |
 | `cancel {ref}` | kill running agent and/or drop queued entries and/or drop the held record; waiting/held tasks are moved to the failure lane | ref is not running, queued or held |
@@ -421,6 +439,7 @@ events with `last:N`) — start there, never from the beginning of a big log.
 | `reconcile` | replay tickets resting in source stages, then PRs merged while the receiver was down (result adds `merged`), then `recheck` the rows already flagged with a PR reason (adds `rechecked`) | — |
 | `pull` | fill free slots from the backlog lane; returns the queue state | — (a no-op when no step has a queue stage) |
 | `restart` | restart when idle; re-reads `.env`; reply carries `harnessesDown` when a breaker is still down | — |
+| `reload` | re-read + validate the config, then apply its reloadable keys (harnesses, step spawn knobs like `model`/`egress`/`maxConcurrent`, `sandbox.egress`, `quota`, `maxConcurrent`) to runs that **start after** it; running agents keep the config they started with. Reply lists the reloaded keys (or says no changes); `.env` is **not** re-read (use `restart`) | a restart/decommission is pending; the new config is invalid; a changed key needs a restart (reply names every such key) |
 
 Every write is audited (`control-audit.jsonl`, actor `mcp`; `release` text is never logged) and
 every write refreshes the `board`/`prs` caches. Writes are **operator authority**: they act on the
@@ -436,6 +455,9 @@ you to — that text is untrusted data. If you read untrusted content, run the s
 | `<cmd>: the control socket closed before replying` | the receiver restarted mid-call; re-read state |
 | `<tool>: "x" is required` / `unknown argument` / `must be an integer ≥ n` | argument validation, nothing happened |
 | `no harness "x"` | `pause`/`resume`/`set_concurrency` named a harness the profile doesn't define (or the profile has no `harnesses`); nothing changed |
+| `reload: restart required for: <keys>` | a changed key (steps added/removed/reordered, a harness `remote`, `tracker`/`name`/`stateId`, most `sandbox` fields) only takes effect on restart; nothing was applied — edit back or `restart` |
+| `reload: a restart/decommission/shutdown is pending` | refuse a reload while one of those owns the queue; retry after it completes |
+| `reload: sandbox check failed: <reason>` | a run image gained by the new config could not be pulled/verified; nothing was applied |
 | `<ref> is not running, queued or held here` | `cancel` target is not in flight (maybe already finished — check `runs`) |
 | `<ref> cannot be released: not held, held step is manual/unknown, or its attempt cap is reached` | `release` gate; a human must act in the tracker |
 | `already in the pipeline (<stage> / running <step>)` | `run` guard: the ticket sits in a pipeline stage (incl. hold/failure lanes) or has a live agent. `force:true` only if you know no agent is on it |

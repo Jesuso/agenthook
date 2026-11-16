@@ -171,6 +171,15 @@ Extra step fields you'll want to know:
   run's session is already gone. Only fires on a clean exit that didn't end by asking a question
   (`#655`) and whose success target is another non-manual pipeline step. Set `false` to opt out.
   `run_end.verdictSource` is `"deduced"` on the run this resolves — see [events.md](events.md).
+- `gate` (default off) — a command the receiver runs, in this run's own executor (host, the
+  profile's sandbox, or a remote harness), after an `advance` (agent-written, repaired, or
+  deduced) and before the move. A string runs as `["sh", "-c", gate]`; an array runs verbatim as
+  argv. A non-zero exit or timeout vetoes the advance — one more agent turn gets the gate's
+  output and a chance to fix it (up to `maxAttempts`), then the task holds with the output tail
+  in the reason. Never runs for a hold/fail/changes/missing-verdict. `v1` retries no flaky test:
+  a suite that fails intermittently shows up as a hold carrying that run's output. Not valid on a
+  `manual` step. See the `gate_pass`/`gate_fail` events and `run_end.gate` in [events.md](events.md).
+- `gateTimeoutMinutes` (default 10) — kill `gate` and count it as a veto past this many minutes.
 - `sandbox` — `false` runs this step on the host even when the profile has a top-level `sandbox`
   block (needed for a `cursor`/`hermes`/`opencode` step, which the sandbox refuses). Not valid on a
   `manual` step. See [Sandboxed runs](sandbox.md#quick-start).
@@ -247,7 +256,7 @@ assigned to anyone else (see [assignee scoping](#assignee-scoping) below).
 Watch it happen:
 
 ```bash
-agenthook agents                 # the live claude -p process for that task
+agenthook agents                 # the live agent run for that task
 agenthook follow                 # tail the agent's transcript read-only
 agenthook status <profile>       # queue depth, recent runs, public URL
 ```

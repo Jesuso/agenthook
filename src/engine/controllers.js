@@ -1,7 +1,12 @@
 // The engine's pause controllers: the control-socket `restart` / `decommission` requesters
 // (pause, wait for 0 active agents, fire) and the opt-in quota pacer wiring.
 import { appendControlAudit } from "../ops.js";
-import { createQuotaPacer } from "../quota.js";
+import { createQuotaPacer, evaluateQuota } from "../quota.js";
+import { writeQuota } from "../quota-file.js";
+import { quotaGroupOf } from "../dispatch/harness.js";
+import { diffConfig } from "../config-reload.js";
+import { buildHarnessing } from "./harnessing.js";
+import { pruneOverrides, heartbeatOverrides } from "../overrides.js";
 
 /**
  * The control-socket `restart` request: validate, then pause the queue and fire once
@@ -154,4 +159,140 @@ export function createQuotaControl({ cfg, queue, heartbeat, emit, pull, isLocked
       audit("quota_resume", info);
     },
   });
+}
+
+/**
+ * The harnessed quota controller (profiles WITH `harnesses`; the receiver-wide `createQuotaControl`
+ * is not used in that mode). A reading at/above a `quota` threshold closes the run's subscription
+ * group — every harness that shares the run's subscription, plus the unharnessed claude steps for
+ * the shared group — until the trip's `resetsAt` (src/queue.js `closeForQuota` reopens on a
+ * one-shot timer). `quota.json` and `heartbeat.quota` keep only the shared-group reading; an
+ * own-credential harness's reading closes that harness alone and never overwrites the readout.
+ * `suppress` (from `harness_reset`) keeps a harness from re-closing by quota until its trip's
+ * `resetsAt`, mirroring `createQuotaPacer`'s operator resume override.
+ * @param {{
+ *   cfg: import('../types.js').Config,
+ *   queue: {closeForQuota(names: string[], opts: {until: number, reason: string, unharnessed?: boolean, window?: 'sevenDay'|'fiveHour', utilization?: number, threshold?: number}): void},
+ *   heartbeat: {update(p: object): void},
+ *   now?: () => number,
+ * }} deps
+ */
+export function createHarnessQuota({ cfg, queue, heartbeat, now }) {
+  const tnow = now ?? Date.now;
+  /** @type {Map<string, number>} harness name → quota override-until (resetsAt), in memory (harness_reset). */
+  const suppressed = new Map();
+  const stepById = (/** @type {string|undefined} */ stepId) => (cfg.pipeline ?? []).find((s) => s.id === stepId);
+  // The shared group, independent of any run: a claude, no-env step is the "default login".
+  const sharedGroup = () => quotaGroupOf(cfg, null, { agent: "claude" });
+
+  /** @param {import('../quota.js').QuotaReading|null} q @param {{harness: string|null, stepId: string}|undefined} [meta] */
+  function reading(q, meta) {
+    const group = meta === undefined ? sharedGroup() : quotaGroupOf(cfg, meta.harness ?? null, stepById(meta.stepId));
+    // The profile's readout follows the shared group only — an own-credential reading never overwrites it.
+    if (group.unharnessed && q) {
+      try {
+        writeQuota(cfg.stateDir, q);
+      } catch (e) {
+        console.error(`[quota] quota.json write failed (continuing): ${e.message}`);
+      }
+      heartbeat.update({ quota: q });
+    }
+    const ev = evaluateQuota(q, cfg.quota, tnow());
+    if (!ev.pause) return;
+    const { pause, ...trip } = ev;
+    const names = group.harnesses.filter((n) => (suppressed.get(n) ?? 0) <= tnow());
+    if (!names.length && !group.unharnessed) return;
+    const until = Date.parse(trip.resetsAt);
+    const label = trip.window === "sevenDay" ? "weekly" : "5h";
+    const reason = `quota: ${label} ${Math.round(trip.utilization * 100)}% ≥ ${Math.round(trip.threshold * 100)}%, back at ${trip.resetsAt}`;
+    queue.closeForQuota(names, { until, reason, unharnessed: group.unharnessed, window: trip.window, utilization: trip.utilization, threshold: trip.threshold });
+  }
+
+  return {
+    reading,
+    /** `harness_reset` on a quota-closed harness: don't re-close it until its trip's `resetsAt`. @param {string} name @param {number} until */
+    suppress(name, until) {
+      if (until > tnow()) suppressed.set(name, until);
+    },
+    stop() {},
+  };
+}
+
+/**
+ * The control-socket `reload` request (#725): re-read + validate the config, then apply only the
+ * reloadable keys to runs that start after. Running agents keep the config they started with — the
+ * shared `cfg` keys are *replaced*, never mutated in place. Refused while a restart/decommission/
+ * shutdown holds the queue; an invalid config or any restart-required key applies nothing (the
+ * error names every restart-required key). On success emits exactly one `config_reloaded` with the
+ * dotted `changed` keys; a no-op emits none. `.env` values already in the process are not re-read.
+ * @param {{
+ *   cfg: import('../types.js').Config,
+ *   loadConfig: () => import('../types.js').Config,
+ *   checkImages?: (next: import('../types.js').Config) => Promise<{ok: boolean, reason?: string}>,
+ *   isLocked: () => boolean,
+ *   store: { getOverrides(): import('../types.js').Overrides, setOverrides(o: import('../types.js').Overrides): void },
+ *   queue: { reconfigure(next: import('./harnessing.js').HarnessingShape & {max?: number}, overrides: {maxConcurrent?: number, harnesses?: Record<string, number>}): void, state(): {active: number, queued: number} },
+ *   quotaPacer?: { setThresholds(t: import('../quota.js').QuotaConfig | null | undefined): void },
+ *   heartbeat: { update(p: Record<string, unknown>): void },
+ *   emit: (event: string, ref: string, step: string, extra?: Record<string, unknown>) => void,
+ * }} deps  loadConfig throws on an invalid config (apply nothing); checkImages verifies a newly
+ *   gained run image before anything applies; isLocked reflects a restart/decommission/drain.
+ * @returns {() => Promise<{changed: string[], note: string}>}
+ */
+export function createReloadRequester({ cfg, loadConfig, checkImages, isLocked, store, queue, quotaPacer, heartbeat, emit }) {
+  return async function reload() {
+    if (isLocked()) throw new Error("reload: a restart/decommission/shutdown is pending");
+    const next = loadConfig(); // throws on an invalid config → apply nothing
+    const { changed, restartRequired } = diffConfig(cfg, next);
+    if (restartRequired.length) throw new Error(`reload: restart required for: ${restartRequired.join(", ")}`);
+    if (!changed.length) return { changed: [], note: "no changes" };
+
+    if (checkImages) {
+      const check = await checkImages(next);
+      if (!check.ok) throw new Error(`reload: sandbox check failed: ${check.reason}`);
+    }
+
+    // Apply: replace the reloadable keys with `next`'s values. A running run holds the step/harness
+    // objects it resolved at start, so replacing these references (never mutating the old objects)
+    // is what keeps "running agents keep their config" true.
+    cfg.maxConcurrent = next.maxConcurrent;
+    cfg.quota = next.quota;
+    cfg.harnesses = next.harnesses;
+    cfg.pipeline = next.pipeline;
+    cfg.tracker.pipeline = /** @type {import('../types.js').Step[]} */ (next.pipeline);
+    if (cfg.sandbox && next.sandbox) cfg.sandbox = { ...cfg.sandbox, egress: next.sandbox.egress };
+
+    quotaPacer?.setThresholds(next.quota ?? null); // the no-harness pacer re-checks its last reading
+
+    // Re-apply active operator overrides before the queue reconfigure pumps, so an override still
+    // wins over the new config value; a harness override for a harness removed from the config is
+    // dropped (and persisted).
+    const { overrides, dropped } = pruneOverrides(cfg, store.getOverrides());
+    for (const line of dropped) console.warn(line);
+    if (dropped.length) store.setOverrides(overrides);
+
+    const nextShape = buildHarnessing(cfg);
+    queue.reconfigure(
+      {
+        max: cfg.maxConcurrent,
+        stepCaps: nextShape.stepCaps,
+        steps: nextShape.steps,
+        caps: nextShape.caps,
+        cooldowns: nextShape.cooldowns,
+        unharnessedShared: nextShape.unharnessedShared,
+        unharnessedAgents: nextShape.unharnessedAgents,
+      },
+      { maxConcurrent: overrides.maxConcurrent, harnesses: overrides.harnesses },
+    );
+
+    heartbeat.update({
+      maxConcurrent: overrides.maxConcurrent !== undefined ? overrides.maxConcurrent : cfg.maxConcurrent,
+      overrides: heartbeatOverrides(cfg, overrides),
+      queue: queue.state(),
+    });
+
+    emit("config_reloaded", "", "", { changed });
+
+    return { changed, note: `reloaded ${changed.length} key(s)` };
+  };
 }
