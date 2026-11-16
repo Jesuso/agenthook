@@ -47,6 +47,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "harnesses.*": { label: "Harness", help: "Un backend: los ajustes de agente que recibe un paso donde no define los suyos, más su límite de ranuras." },
   "harnesses.*.agent": { label: "Agente", help: "La CLI de agente de código de este harness; sin definir usa el agente del perfil." },
   "harnesses.*.model": { label: "Modelo", help: "El --model del agente en este harness; gana el model propio del paso." },
+  "harnesses.*.effort": { label: "Esfuerzo de razonamiento", help: "El esfuerzo predeterminado de este harness; gana el effort propio del paso." },
   "harnesses.*.bin": { label: "Binario del agente", help: "La CLI del agente en este harness (un nombre en el PATH o una ruta absoluta); gana el bin propio del paso." },
   "harnesses.*.env": { label: "Entorno del agente", help: "Entorno extra para las ejecuciones en este harness (p. ej. ANTHROPIC_BASE_URL); ganan las claves env del paso." },
   "harnesses.*.provider": { label: "Proveedor", help: "Proveedor de inferencia en este harness (hermes --provider); los demás agentes lo ignoran." },
@@ -89,7 +90,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "tracker.auth.privateKey": { label: "Clave privada", help: "La clave privada PEM de la App; usa una referencia ${VAR} (un \\n literal se vuelve salto de línea)." },
   "tracker.auth.privateKeyPath": { label: "Archivo de clave privada", help: "O un archivo PEM con la clave privada de la App; relativo al archivo de configuración." },
   "tracker.userGid": { label: "Gid de usuario", help: "Tu gid de usuario de Asana; solo se actúa sobre las tareas asignadas a él." },
-  "tracker.assigneeFilter": { label: "Solo mis tareas", help: "Actúa solo sobre elementos asignados a la identidad del bot; false permite actuar en todo el proyecto." },
+  "tracker.assigneeFilter": { label: "Solo mis tickets", help: "Actúa solo sobre tickets asignados a la identidad del bot; false permite actuar en todo el proyecto." },
   "tracker.workspaceGid": { label: "Gid del espacio de trabajo", help: "El espacio de trabajo de Asana que contiene el proyecto." },
   "tracker.projectGid": { label: "Gid del proyecto", help: "El proyecto de Asana cuyas secciones mueven el pipeline." },
   "tracker.displayIdField": { label: "Campo de id visible", help: "Campo personalizado con el id legible de la tarea (sin distinguir mayúsculas)." },
@@ -166,7 +167,7 @@ export const SCHEMA_ES: SchemaOverlay = {
 
   // Pipeline steps — common + advanced
   "tracker.pipeline.*.maxConcurrent": { label: "Máximo de ejecuciones simultáneas", help: "Ejecuciones de este paso a la vez, contadas dentro del límite global; sin definir = solo ese límite." },
-  "tracker.pipeline.*.harness": { label: "Harness", help: "Nombre(s) de harnesses en los que corre este paso; la cola elige uno con una ranura libre al iniciar." },
+  "tracker.pipeline.*.harness": { label: "Harness", help: "Nombre(s) de harnesses, o entradas {name, model?, effort?}, en los que corre este paso; la cola elige uno con una ranura libre al iniciar." },
   "tracker.pipeline.*.routing": { label: "Enrutado de harness", help: "Cómo se elige de una lista de harnesses: first-free = el primero con hueco; round-robin = rotar, saltando los llenos." },
   "tracker.pipeline.*.completeOnMerge": { label: "Completar al fusionar", help: "Solo pasos manuales, como máximo uno: el puente para tableros que no se enteran de las fusiones; un PR del agente fusionado mueve la tarea aquí." },
   "tracker.pipeline.*.closeIssue": { label: "Cerrar issue", help: "Entrar en este paso (terminal) cierra el issue y libera los issues que bloqueaba." },

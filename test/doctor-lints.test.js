@@ -177,6 +177,18 @@ test("agentLints: warns only for a text-only agent (hermes) with requireVerdict:
   assert.equal(agentLints(/** @type {any} */ ({ agent: "hermes", pipeline: [{ id: "x", requireVerdict: false }] })).length, 1, "profile agent counts");
 });
 
+test("agentLints: warns when a step model is broadcast to 2+ harness list entries lacking an entry model", () => {
+  const warn = (s) => agentLints(/** @type {any} */ ({ pipeline: [s] }));
+  const lints = warn({ id: "review", model: "claude-opus-5-5", harness: ["qwen", "opus"] });
+  assert.deepEqual(lints, [{ level: "warn", label: `step "review" model`, note: `model "claude-opus-5-5" is sent to every harness in its list (qwen, opus); set a model per entry ({ "name": …, "model": … }) or on each harness` }]);
+  // no warning: a single string harness, a single-element list, or at most one entry lacking a model
+  assert.deepEqual(warn({ id: "review", model: "m", harness: "qwen" }), []);
+  assert.deepEqual(warn({ id: "review", model: "m", harness: ["qwen"] }), []);
+  assert.deepEqual(warn({ id: "review", model: "m", harness: [{ name: "qwen", model: "a" }, "opus"] }), [], "only one entry lacks a model");
+  assert.deepEqual(warn({ id: "review", model: "m", harness: [{ name: "qwen", model: "a" }, { name: "opus", model: "b" }] }), []);
+  assert.deepEqual(warn({ id: "review", harness: ["qwen", "opus"] }), [], "no step-level model");
+});
+
 test("policyLints: ✗ an unenforceable policy, ⚠ code runners / no sandbox / missing git, ℹ the claude rules", () => {
   /** @param {any} cfg */
   const lints = (cfg) => policyLints(cfg);

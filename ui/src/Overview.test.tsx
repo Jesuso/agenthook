@@ -42,9 +42,9 @@ describe("Overview", () => {
   });
 
   it("leads with Needs you: its count is the headline, before Now and the digest", () => {
-    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" })]);
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("h", { status: "held", heldReason: "?" }), ticket("r", { status: "running" })]);
     expect(html).toMatch(/text-stat[^>]*text-status-failed[^>]*>2<\/span> <span[^>]*>need you/);
-    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-now-row") === -1 ? html.indexOf("data-free-slots") : html.indexOf("data-now-row"));
+    expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-now-row"));
     expect(html.indexOf("data-needs-you-zone")).toBeLessThan(html.indexOf("data-digest"));
   });
 
@@ -56,9 +56,9 @@ describe("Overview", () => {
     expect(render(profile(), [])).toMatch(/data-needs-live[^>]*>All clear, nothing needs you</);
   });
 
-  it("narrow: Needs-you rows stack the title under the action line", () => {
-    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x" }), ticket("r", { status: "running" })]);
-    expect(html).toMatch(/data-needs-open="true" aria-label="[^"]*" class="[^"]*max-sm:order-last max-sm:basis-full/);
+  it("narrow: a Needs-you row puts its step and its action on one line under the title", () => {
+    const html = render(profile(), [ticket("f", { status: "failed", failReason: "x", step: "qa" }), ticket("r", { status: "running" })]);
+    expect(html).toMatch(/class="[^"]*@max-4xl:col-start-3 @max-4xl:col-end-\[-1\][^"]*"><span data-row-step="true" class="mr-auto @4xl:hidden">.*?qa.*?<\/span><button type="button" data-needs-dismiss/);
   });
 
   it("a Now row is one line of essentials: id, title, step, time — model, context, cost and the agent's sentence live in the drawer", () => {
@@ -297,23 +297,32 @@ describe("Overview", () => {
     expect(render(profile(), [], { epicFilter: "E1" })).toContain('data-open="true"');
     expect(render(profile(), [], { stepFilter: "code" })).toContain('data-open="true"');
     expect(render(profile(), [])).toMatch(/data-tickets-toggle[^>]*aria-expanded="false"/);
+    // A filter holds it open, and the way back (Hide) stays on screen.
+    expect(render(profile(), [], { statusFilter: "done" })).toMatch(/data-tickets-toggle[^>]*aria-expanded="true"/);
   });
 
-  it("Board|Table tabs: a filter forces Table, even while open (#697)", () => {
+  it("a filter opens All tickets on the table (#697)", () => {
     const withFilter = render(profile(), [], { statusFilter: "failed" });
-    expect(withFilter).toMatch(/<button[^>]*aria-checked="true"[^>]*>Table</);
-    // A status filter forces Table: the TicketsTable's own toolbar renders, not the Board's diagram.
     expect(withFilter).toContain("data-tickets-toolbar");
-    expect(withFilter).not.toContain("data-board");
     expect(render(profile(), [], { stepFilter: "code" })).toContain("step: code");
   });
 
-  it("keeps the page-level Needs you zone when the Board tab is saved but the section is collapsed (#703 regression)", () => {
-    vi.stubGlobal("localStorage", { getItem: (k: string) => (k === "ah.board.tab" ? "board" : null), setItem: () => {}, removeItem: () => {} } as unknown as Storage);
-    const html = render(profile(), [ticket("h", { status: "held", heldReason: "?" })]);
-    expect(html).toContain('data-all-tickets="true" data-open="false"'); // board tab saved, but section collapsed
-    expect(html.match(/data-needs-row=/g)).toHaveLength(1);
-    vi.unstubAllGlobals();
+  it("one board: the rows that need you first, then what runs, on the same grid (#696)", () => {
+    const html = render(profile(), [ticket("h", { status: "held", heldReason: "?" }), ticket("r", { status: "running", step: "code" })]);
+    expect(html.match(/data-board=/g)).toHaveLength(1);
+    const board = html.slice(html.indexOf("data-board="));
+    expect(board.indexOf("data-board-head")).toBeLessThan(board.indexOf('data-needs-row="h"'));
+    expect(board.indexOf('data-needs-row="h"')).toBeLessThan(board.indexOf('data-now-row="r"'));
+    // Until the pipeline's steps are read there are no step columns: each row names its step.
+    expect(html).toContain('data-board-steps="0"');
+    expect(html).not.toContain("data-track=");
+    expect(html).toMatch(/data-row-step="true" class="mt-1 block "/);
+  });
+
+  it("all clear still shows the board, under the verdict", () => {
+    const html = render(profile(), [ticket("r", { status: "running" })]);
+    expect(html.indexOf("data-all-clear")).toBeLessThan(html.indexOf("data-board="));
+    expect(html).toContain('data-now-row="r"');
   });
 
   it("leaves the quota readout to the app bar but keeps the quota-paused badge", () => {

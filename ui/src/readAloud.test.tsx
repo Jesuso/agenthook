@@ -55,7 +55,7 @@ function overview(profile: string, tickets: TicketRow[], extra: Partial<Overview
 }
 
 describe("Needs you rows", () => {
-  it("get no 🔊 by default; with Read aloud on, one per row right after its id, reading the title and the full second line", async () => {
+  it("get no 🔊 by default; with Read aloud on, one per row beside its title, reading the title and the full second line", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })));
     const long = "The agent wants to know which of the two public APIs the new endpoint should extend before it writes any code at all.";
     m = await mount(overview("rows", [t("rows", "1", "held", { plain: long }), t("rows", "2", "held")]));
@@ -63,7 +63,7 @@ describe("Needs you rows", () => {
     await on();
     const rows = [...document.querySelectorAll("[data-needs-row]")];
     expect(rows.map((r) => speakButtons(r).map((b) => b.getAttribute("aria-label")))).toEqual([["Read aloud #1"], ["Read aloud #2"]]);
-    expect(speakButtons(rows[0])[0].previousElementSibling?.textContent).toBe("#1");
+    expect(speakButtons(rows[0])[0].previousElementSibling?.querySelector("[data-needs-open]")).not.toBeNull();
     await click(speakButtons(rows[0])[0]);
     await click(speakButtons(rows[1])[0]);
     expect(synth.calls).toEqual(["cancel", `speak:Title 1. ${long}`, "cancel", "speak:Title 2. Which API?"]);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Markdown from "react-markdown";
 import type { InstructionFileView, PromptPreview as PromptPreviewBody } from "./contract";
 import { formatRelative } from "./format";
 import { instructionFileUrl } from "./instructions";
@@ -11,7 +12,8 @@ type PreviewState = { kind: "loading" } | { kind: "error"; status: number } | { 
 /**
  * "What the agent sees": recomposes dispatch's standing-instructions join live from the open
  * editor buffer (+ the sibling file's on-disk content) and appends the step's last real ticket.
- * Plain text, never markdown/HTML — this mirrors a literal prompt, not a rendered document.
+ * A reading view: the standing instructions render as Markdown so nobody takes it for an editor;
+ * the ticket below them stays literal text (it is tracker content, not ours).
  */
 export function PromptPreview(props: {
   profile: string;
@@ -109,17 +111,20 @@ export function PromptPreview(props: {
                 : t("preview.loading")}
         </span>
       </div>
-      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded border border-[var(--color-border)] px-4 py-2 font-mono text-sm">
-        {markerAt === -1 ? (
-          text
-        ) : (
-          <>
-            {text.slice(0, markerAt)}
-            <div className="my-2 border-t border-dashed border-[var(--color-border)] text-center text-xs text-[var(--color-muted)]">=== TICKET ===</div>
-            {text.slice(markerAt + TICKET_MARKER.length)}
-          </>
+      {/* A reading view, so it reads as a document, not as a second editor. The standing
+          instructions render as Markdown (raw HTML stays escaped: never add rehype-raw here). The
+          ticket is text from the tracker that anyone may have written: it stays literal. */}
+      <div className="min-h-0 flex-1 overflow-auto rounded border border-border px-4 py-2 text-sm" data-agent-prompt>
+        <div className="md-preview">
+          <Markdown>{markerAt === -1 ? text : text.slice(0, markerAt)}</Markdown>
+        </div>
+        {markerAt !== -1 && (
+          <section data-agent-ticket className="mt-4 border-t border-dashed border-border pt-2">
+            <h3 className="mb-2 text-label font-semibold uppercase tracking-wide text-muted">{t("preview.ticket")}</h3>
+            <pre className="whitespace-pre-wrap rounded bg-surface-raised px-3 py-2 font-mono text-xs text-muted">{text.slice(markerAt + TICKET_MARKER.length).replace(/^\n+/, "")}</pre>
+          </section>
         )}
-      </pre>
+      </div>
     </div>
   );
 }

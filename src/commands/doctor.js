@@ -468,7 +468,8 @@ export function harnessSlotLints(cfg, overrides = {}) {
 
 /** Per-step agent lints that pass loadConfig yet weaken the pipeline. Pure (config only).
  * Today: a text-only agent (no structured stream — hermes) with `requireVerdict: false`
- * set explicitly, so a run that wrote no verdict file advances unchecked.
+ * set explicitly, so a run that wrote no verdict file advances unchecked; and a step-level
+ * `model` that a multi-harness list broadcasts to every harness lacking its own entry `model`.
  * @param {Pick<import('../types.js').Config, 'agent'|'pipeline'>} cfg
  * @returns {{ level: 'warn', label: string, note: string }[]} */
 export function agentLints(cfg) {
@@ -479,6 +480,12 @@ export function agentLints(cfg) {
     const d = agentFor(cfg, s).describe();
     if (d.stdout !== "text") continue;
     out.push({ level: "warn", label: `step "${s.id}" requires a verdict`, note: `${d.name} output is plain text — with requireVerdict:false a run that wrote no verdict file advances` });
+  }
+  for (const s of cfg.pipeline ?? []) {
+    if (s.manual || !s.model || !Array.isArray(s.harness)) continue;
+    const lacking = s.harness.filter((e) => typeof e === "string" || !e || e.model == null || e.model === "");
+    if (lacking.length < 2) continue;
+    out.push({ level: "warn", label: `step "${s.id}" model`, note: `model ${JSON.stringify(s.model)} is sent to every harness in its list (${harnessesOf(s).join(", ")}); set a model per entry ({ "name": …, "model": … }) or on each harness` });
   }
   return out;
 }

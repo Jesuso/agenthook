@@ -20,6 +20,14 @@ All notable changes to this project are documented here. The format is based on
   probes the harness's actual resolved agent bin, with an OpenCode-specific install hint, and
   skips the claude-only credential probe for an opencode harness. See
   [docs/remote.md](docs/remote.md#opencode-on-the-worker).
+- A step that lists several `harness`es can now set `model` and `effort` per entry, not just once
+  for the whole list (#736): a `harness` list element may be `{ "name": …, "model": …, "effort": … }`
+  instead of a bare name, and its `model`/`effort` pin runs routed to that harness alone — they win
+  over the step's own `model`/`effort`, the harness's, `escalate` and `lite`. `harnesses.<name>` also
+  gains an `effort` default (a step's own effort beats it). Resolution order, per `model` and
+  `effort` independently, is now entry > escalate > lite > step > harness. The web UI keeps an
+  object entry intact (showing its pin read-only), and `ah doctor` warns when a step-level `model`
+  is broadcast to two or more list entries that lack their own entry `model`.
 
 - `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
   then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
@@ -326,6 +334,18 @@ All notable changes to this project are documented here. The format is based on
   reap/shutdown. No behaviour change.
 
 ### Fixed
+
+- `ah ui --host <addr>` now prints and opens the bound address, not a dead `127.0.0.1` link (#737).
+  A wildcard bind (`0.0.0.0`/`::`) prints the loopback link plus one "reachable on every interface"
+  line (listing the non-internal addresses) instead of one URL per interface.
+- `ah agents` now lists every running run, not only `claude -p` processes (#735). It read `ps`
+  and kept only lines whose command started with a known agent binary, so a sandboxed or remote
+  (ssh) run — whose local process is a container runtime or `ssh` client — never matched, and
+  `--all` only knew the binaries the discovered config named. Rows now come from each profile's
+  `running.json` (the state `tick` and the web UI read, written for every run whatever the agent
+  or executor), with `harness`/`model` columns, a `stale` marker for a leftover whose pid is
+  dead (excluded from the running count, `stale: true` in `--json`), and elapsed time derived
+  from `startedAt`.
 
 - A sandboxed opencode run no longer sends the step's standing instructions twice (#731): once
   in the run prompt, once more as the `agenthook-standing.md` instructions file added in #716.

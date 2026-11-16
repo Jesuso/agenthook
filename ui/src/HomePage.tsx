@@ -31,10 +31,10 @@ export function HomePage({ snapshot, now, menuItems, note }: HomePageProps) {
     );
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="sm:px-2 2xl:px-4">
       <h1 className="mb-4 text-title font-semibold">{t("home.profiles")}</h1>
       {active.length > 0 && (
-        <div data-home-grid className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div data-home-grid className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] gap-4">
           {active.map((c) => (
             <ProfileCard key={c.profile.name} card={c} now={now} lastEventId={displayId(c.profile)} items={menuItems(c.profile)} note={note(c.profile)} />
           ))}

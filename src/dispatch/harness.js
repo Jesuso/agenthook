@@ -2,24 +2,41 @@
 // a run spawns with once the queue picked one. Pure — no I/O.
 
 /** Spawn knobs a harness supplies where the step sets none of its own. */
-const HARNESS_KNOBS = /** @type {const} */ (["agent", "model", "bin", "provider", "toolsets", "opencodeConfig", "contextTokens"]);
+const HARNESS_KNOBS = /** @type {const} */ (["agent", "model", "effort", "bin", "provider", "toolsets", "opencodeConfig", "contextTokens"]);
 
 /**
  * The harness names a step routes through, in order (a string is a one-element list); [] when
- * the step names none.
+ * the step names none. An object entry (`{name, model?, effort?}`) contributes its `name`.
  * @param {Pick<import('../types.js').Step, 'harness'>} step
  * @returns {string[]}
  */
 export function harnessesOf(step) {
   const h = step.harness;
-  return h == null ? [] : typeof h === "string" ? [h] : [...h];
+  if (h == null) return [];
+  if (typeof h === "string") return [h];
+  return h.map((e) => (typeof e === "string" ? e : e.name));
 }
 
 /**
- * The step a run on `harnessName` spawns with: the step's inline agent/model/bin/provider/
+ * The object entry a step's `harness` list carries for `name`, or undefined (a string step
+ * `harness` has none). Pure.
+ * @param {Pick<import('../types.js').Step, 'harness'>} step
+ * @param {string} name
+ * @returns {import('../types.js').HarnessEntry|undefined}
+ */
+export function harnessEntryOf(step, name) {
+  const h = step.harness;
+  if (h == null || typeof h === "string") return undefined;
+  return /** @type {import('../types.js').HarnessEntry|undefined} */ (h.find((e) => typeof e === "object" && e !== null && e.name === name));
+}
+
+/**
+ * The step a run on `harnessName` spawns with: the step's inline agent/model/effort/bin/provider/
  * toolsets, else the harness's, else unset (the profile and adapter defaults apply as without a
- * harness). `env` is the harness's under the step's. effort/escalate/lite stay the step's own.
- * A null or unknown name returns the step unchanged with `harness: null`.
+ * harness). `env` is the harness's under the step's. An object entry for `harnessName` in the
+ * step's `harness` list pins its `model`/`effort` over everything else (escalate/lite included)
+ * for runs routed to that harness alone. A null or unknown name returns the step unchanged with
+ * `harness: null`. The input step is never mutated.
  * @param {Pick<import('../types.js').Config, 'harnesses'>} cfg
  * @param {import('../types.js').Step} step
  * @param {string|null|undefined} harnessName
@@ -36,6 +53,23 @@ export function resolveHarness(cfg, step, harnessName) {
   const env = { ...h.env, ...step.env };
   if (Object.keys(env).length) eff.env = env;
   else delete eff.env;
+  // A per-entry pin beats everything the step/harness/escalate/lite set for this harness only.
+  const entry = harnessEntryOf(step, harnessName);
+  if (entry) {
+    for (const k of /** @type {const} */ (["model", "effort"])) {
+      const v = entry[k];
+      if (v == null) continue;
+      Object.assign(eff, { [k]: v });
+      if (eff.lite && eff.lite[k] != null) eff.lite = { ...eff.lite, [k]: v };
+      if (eff.escalate) {
+        const esc = { ...eff.escalate };
+        for (const [tier, t] of Object.entries(esc)) {
+          if (t && t[k] != null) esc[tier] = { ...t, [k]: v };
+        }
+        eff.escalate = esc;
+      }
+    }
+  }
   return { step: eff, harness: harnessName, sandboxImage: h.sandbox?.image };
 }
 

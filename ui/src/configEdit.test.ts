@@ -10,6 +10,7 @@ import {
   removeHarness,
   renameHarness,
   stepHarnessEdit,
+  stepHarnessEntry,
   stepHarnessList,
   addRepo,
   addSink,
@@ -942,6 +943,40 @@ describe("harnesses: add / rename / remove keep the steps' references valid (#62
     expect(one).not.toHaveProperty("routing");
     const two = JSON.parse(stepHarnessEdit(text, 2, ["qwen", "opus"])).tracker.pipeline[2];
     expect(two.harness).toEqual(["qwen", "opus"]);
+  });
+
+  it("object entries stay intact: stepHarnessList/stepHarnessEntry read them, and edits keep them byte-for-byte", () => {
+    const withEntry = {
+      name: "p",
+      tracker: {
+        type: "github",
+        pipeline: [
+          { id: "code", sourceLabel: "agent:code", harness: [{ name: "qwen", model: "qwen3-coder", effort: "high" }, "opus"], routing: "round-robin" },
+        ],
+      },
+      harnesses: { qwen: { model: "qwen3-coder" }, opus: { model: "claude-opus-5-5" } },
+    };
+    const text = JSON.stringify(withEntry, null, 2);
+    expect(stepHarnessList(withEntry.tracker.pipeline[0].harness)).toEqual(["qwen", "opus"]);
+    expect(stepHarnessEntry(withEntry.tracker.pipeline[0].harness, "qwen")).toEqual({ name: "qwen", model: "qwen3-coder", effort: "high" });
+    expect(stepHarnessEntry(withEntry.tracker.pipeline[0].harness, "opus")).toBeUndefined();
+    // toggling off the string leaves the object entry as a single-element list
+    const oneLeft = JSON.parse(stepHarnessEdit(text, 0, [{ name: "qwen", model: "qwen3-coder", effort: "high" }])).tracker.pipeline[0];
+    expect(oneLeft.harness).toEqual([{ name: "qwen", model: "qwen3-coder", effort: "high" }]);
+    // toggling another harness on keeps the object verbatim
+    const reAdd = JSON.parse(stepHarnessEdit(text, 0, [{ name: "qwen", model: "qwen3-coder", effort: "high" }, "deepseek"])).tracker.pipeline[0];
+    expect(reAdd.harness).toEqual([{ name: "qwen", model: "qwen3-coder", effort: "high" }, "deepseek"]);
+    // renaming the harness updates only the object's name, keeping model/effort
+    const renamed = JSON.parse(renameHarness(text, "qwen", "local")).tracker.pipeline[0];
+    expect(renamed.harness).toEqual([{ name: "local", model: "qwen3-coder", effort: "high" }, "opus"]);
+    // removing the harness removes the object entry
+    const removed = JSON.parse(removeHarness(text, "qwen")).tracker.pipeline[0];
+    expect(removed.harness).toEqual(["opus"]);
+    expect(removed.routing).toBe("round-robin");
+    // removing a *different* harness keeps the object entry byte-for-byte, still a list
+    const removedOther = JSON.parse(removeHarness(text, "opus")).tracker.pipeline[0];
+    expect(removedOther.harness).toEqual([{ name: "qwen", model: "qwen3-coder", effort: "high" }]);
+    expect(removedOther.routing).toBe("round-robin");
   });
 
   it("envPathEdit / dropEmptyHarnessSandbox edit a harness's env and sandbox", () => {

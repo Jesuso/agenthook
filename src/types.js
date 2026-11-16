@@ -40,6 +40,16 @@
  */
 
 /**
+ * One element of a step's `harness` list (the object form): a harness name plus per-entry
+ * `model`/`effort` pins that apply only to runs routed to that harness — they beat the step's
+ * own `model`/`effort`, the harness's, `escalate` and `lite` for that harness alone.
+ * @typedef {object} HarnessEntry
+ * @property {string} name    the harness name (a key of `harnesses`)
+ * @property {string} [model] model for runs routed to this harness only
+ * @property {string} [effort] effort for runs routed to this harness only
+ */
+
+/**
  * One stage of a pipeline (cfg.pipeline[]). The platform-neutral fields are read by
  * the engine; the tracker adapter reads its own binding (e.g. Asana section gids)
  * off the same object. A step with `manual: true` has no agent — entering it only
@@ -58,7 +68,7 @@
  * @property {string} [bin]                    executable for this step's agent: a name on PATH or an absolute path (default the adapter's `defaults.bin`, else cfg.claudeBin)
  * @property {string} [provider]                inference provider for this step's agent (hermes `--provider`); other agents ignore it. Default cfg.agentProvider
  * @property {string[]} [toolsets]            hermes `-t`: the toolsets this step's agent may use (default ["terminal","file"] when isolated); other agents ignore it
- * @property {string|string[]} [harness]     name(s) from the profile's `harnesses` this step's runs use; the queue picks one with a free slot when a job starts. The step's own agent/model/bin/provider/toolsets/opencodeConfig win over the harness's; `env` merges (step keys win)
+ * @property {string|(string|HarnessEntry)[]} [harness]  name(s) from the profile's `harnesses` this step's runs use; the queue picks one with a free slot when a job starts. An element may instead be `{name, model?, effort?}`, whose `model`/`effort` pin only runs routed to that harness — they win over the step's, the harness's, `escalate` and `lite` for that harness alone. Otherwise the step's own agent/model/bin/provider/toolsets/opencodeConfig win over the harness's; `env` merges (step keys win)
  * @property {'first-free'|'round-robin'} [routing]  how a `harness` list is picked: first-free (default) = the first listed harness with room; round-robin = rotate, skipping full ones. Needs a list
  * @property {boolean} [energy]               opt-in: measure this step's runs with the profile's `energy` source (kWh + USD on usage.jsonl / run_end, src/energy.js); needs a profile `energy` block
  * @property {boolean} [isolated]             hermes: run in the profile's own HERMES_HOME (`<stateDir>/hermes-home`, only `config.yaml` copied) with `--ignore-rules --source tool` (default true); false = the user's real Hermes home. Other agents ignore it
@@ -735,6 +745,7 @@
  * @typedef {object} Harness
  * @property {string} [agent]                  agent adapter (src/agents/); default the profile's
  * @property {string} [model]                  the agent's model
+ * @property {string} [effort]                 the agent's reasoning effort (claude `--effort`, hermes `--reasoning`, opencode `--variant`); a step's own effort wins
  * @property {string} [bin]                    the agent's executable (a name on PATH or an absolute path)
  * @property {Record<string, string>} [env]   extra environment for the agent; a step's own `env` keys win
  * @property {string} [provider]               inference provider (hermes `--provider`); other agents ignore it
