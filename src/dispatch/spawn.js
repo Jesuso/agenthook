@@ -185,7 +185,7 @@ export function createSpawn(ctx) {
         if (promptFile) fs.rmSync(promptFile, { force: true });
       };
       try {
-        box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}), ...(sandboxed.hub ? { hub: sandboxed.hub } : {}) });
+        box = await executor.launch({ runId: path.basename(logPath, ".log"), ref, stepId: sandboxed.stepId, bin: agentBin, defaultBin: agent.defaults.bin, args, env: containerEnv(runEnv), cwd, mounts: sandboxed.mounts, step: sandboxed.step, prompt, ...(sandboxed.egress ? { egress: sandboxed.egress } : {}), ...(sandboxed.image ? { image: sandboxed.image } : {}), ...(sandboxed.files ? { files: sandboxed.files } : {}), ...(sandboxed.hub ? { hub: sandboxed.hub } : {}), ...(sandboxed.env ? { remoteEnv: sandboxed.env } : {}) });
       } catch (e) {
         const reason = executor.name === "sandbox" ? `sandbox (${sandbox?.describe().name}) could not start the run: ${e.message}` : `${executor.name} executor could not start the run: ${e.message}`;
         unspawned(reason);

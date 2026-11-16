@@ -5,8 +5,8 @@
 // + `worktree add` for a worktree step, a tracked-only `git archive` for a no-worktree step; after
 // every run (always, incl. timeout/cancel) any commits are fetched back and fast-forwarded into the
 // hub worktree. The hub worktree stays the only real copy; the worker's uncommitted edits never
-// travel either direction. Submodules/LFS are refused (not supported yet). Only claude is supported
-// (config refuses any other agent on a remote harness).
+// travel either direction. Submodules/LFS are refused (not supported yet). Claude and OpenCode are
+// supported (config refuses any other agent on a remote harness, #739).
 import fs from "node:fs";
 import path from "node:path";
 import { execFile, execFileSync, spawn } from "node:child_process";
@@ -61,6 +61,12 @@ const remoteWorktreePath = (remote, stateKey, ref) => `${remoteWorktreesDir(remo
 const remoteExportsDir = (remote, stateKey) => `${remoteBase(remote, stateKey)}/exports`;
 /** @param {import('../types.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
 const remoteExportPath = (remote, stateKey, ref, stepId) => `${remoteExportsDir(remote, stateKey)}/${safePart(ref)}-${safePart(stepId)}`;
+
+/** Per-run config dir (#739) an `AgentAdapter.remote` hook's `files` are written into — under
+ * `runs/`, outside the synced worktree/export dir, so it is never committed or synced back.
+ * Deterministic per ref+step (like `remoteVerdictDir`), so a verdict-repair resume turn's
+ * `OPENCODE_CONFIG` still points at a dir that exists. @param {import('../types.js').RemoteHarness} remote @param {string} stateKey @param {string} ref @param {string} stepId */
+const remoteConfigDir = (remote, stateKey, ref, stepId) => `${remoteRunsDir(remote, stateKey)}/${safePart(ref)}-${safePart(stepId)}.opencode`;
 
 /** The ssh option argv (no `-T`, no host) shared by the launcher's own ssh call and
  * `gitSshCommand`'s `GIT_SSH_COMMAND` (#690) — one source for host/port/identity/user. Never `-A`.
@@ -397,9 +403,13 @@ async function cleanupWorker(remote, gitPath, cwd, hub) {
  * tokens, per-run App tokens, ANTHROPIC_ and CLAUDE_ vars, SSH_AUTH_SOCK, an arbitrary harness `env` key)
  * is dropped. `AGENTHOOK_VERDICT_FILE` rides the `AGENTHOOK_` prefix. TERM/LANG/CI come straight
  * from the receiver's own env — containerEnv (spawn.js) already stripped them off `env` (it
- * treats TERM as host-only), so pulling them from `env` here would always miss. Pure (ignoring
- * the `process.env` read). @param {Record<string, string|undefined>} env @returns {Record<string, string>} */
-export function remoteEnvAllowlist(env) {
+ * treats TERM as host-only), so pulling them from `env` here would always miss. `extra` (#739) is
+ * an explicit, named addition — exactly the keys an `AgentAdapter.remote` hook returned (e.g.
+ * opencode's `OPENCODE_CONFIG`/`OPENCODE_DISABLE_*`) — never a prefix passthrough from `env`
+ * itself, so a hub-side `OPENCODE_*` value (unrelated to the hook's own return) never crosses just
+ * because its name matches. Pure (ignoring the `process.env` read).
+ * @param {Record<string, string|undefined>} env @param {Record<string, string>} [extra] @returns {Record<string, string>} */
+export function remoteEnvAllowlist(env, extra = {}) {
   /** @type {Record<string, string>} */
   const out = {};
   for (const [k, v] of Object.entries(env)) {
@@ -408,20 +418,30 @@ export function remoteEnvAllowlist(env) {
   for (const k of /** @type {const} */ (["TERM", "LANG", "CI"])) {
     if (typeof process.env[k] === "string") out[k] = /** @type {string} */ (process.env[k]);
   }
-  return out;
+  return { ...out, ...extra };
 }
 
 /** The stdin payload the remote launcher reads: a line-count header of `KEY=VALUE` env records,
- * then a byte-count line and exactly that many raw bytes of the prompt — never shell-quoted (it
- * travels as data, not argv), so any prompt content is safe. Env values must not contain a
- * newline (the allowlist's values never do: paths, TERM/LANG/CI). Pure.
- * @param {Record<string, string>} env @param {string} prompt @returns {string} */
-export function framePayload(env, prompt) {
+ * then — only when `files` is non-empty (#739; an EMPTY array adds nothing, so the claude path's
+ * frame stays byte-for-byte unchanged) — a file-count header followed by `path`/`mode`/byte-count
+ * lines and that many raw bytes per file (a config/contract/standing file an `AgentAdapter.remote`
+ * hook returned), then finally a byte-count line and exactly that many raw bytes of the prompt.
+ * Nothing here is shell-quoted (it travels as data, not argv), so any content is safe. Env/file
+ * path values must not contain a newline (the allowlist's env values never do: paths, TERM/LANG/
+ * CI; file paths are receiver-built, under a per-run dir). Pure.
+ * @param {Record<string, string>} env @param {string} prompt @param {{dst: string, content: string, mode?: number}[]} [files] @returns {string} */
+export function framePayload(env, prompt, files = []) {
   const entries = Object.entries(env);
   const lines = entries.map(([k, v]) => `${k}=${v}\n`).join("");
+  const filesSection = files.length
+    ? `${files.length}\n${files.map((f) => {
+        const bytes = Buffer.byteLength(f.content, "utf8");
+        return `${f.dst}\n${(f.mode ?? 0o600).toString(8)}\n${bytes}\n${f.content}`;
+      }).join("")}`
+    : "";
   const text = String(prompt ?? "");
   const plen = Buffer.byteLength(text, "utf8");
-  return `${entries.length}\n${lines}${plen}\n${text}`;
+  return `${entries.length}\n${lines}${filesSection}${plen}\n${text}`;
 }
 
 /**
@@ -432,20 +452,41 @@ export function framePayload(env, prompt) {
  * pgid file on exit and exits with the agent's own code. `head -c`/`setsid`/`/proc` are assumed
  * (Linux workers; a missing /proc falls back to the launcher's own pid as the pgid).
  * A `raw` launch (a gate, #710) never touches `verdictDir` — it has no verdict to write and must
- * not disturb whatever the agent's own launch already left there.
- * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string|undefined, execArgv: string[]}} o
+ * not disturb whatever the agent's own launch already left there. `hasFiles` (#739): when true, a
+ * file-count header followed by `path`/`mode`/byte-count-then-bytes per file is read right after
+ * the env section (written before the prompt by `framePayload`) and each written to disk with the
+ * given mode, before the agent is launched — so e.g. an OpenCode `OPENCODE_CONFIG` file exists
+ * before `opencode run` starts reading it. `configDir` (its dir, already created by the caller
+ * when `hasFiles`) is removed at the end alongside the pgid/pipe files, on every exit path.
+ * @param {{workDir: string, runsDir: string, pgidFile: string, promptPipe: string, verdictDir: string|undefined, configDir: string|undefined, hasFiles: boolean, execArgv: string[]}} o
  * @returns {string} */
-function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, execArgv }) {
+function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv }) {
   const exec = execArgv.map(shQuote).join(" ");
   return [
     `cd ${shQuote(workDir)} || exit 1`,
     `mkdir -p ${shQuote(runsDir)}`,
     ...(verdictDir ? [`rm -rf ${shQuote(verdictDir)}`, `mkdir -p -m 700 ${shQuote(verdictDir)}`] : []),
+    ...(configDir ? [`rm -rf ${shQuote(configDir)}`, `mkdir -p -m 700 ${shQuote(configDir)}`] : []),
     `rm -f ${shQuote(promptPipe)}`,
     `mkfifo ${shQuote(promptPipe)}`,
     `read -r n`,
     `i=0`,
     `while [ "$i" -lt "$n" ]; do IFS= read -r line; k=\${line%%=*}; v=\${line#*=}; export "$k=$v"; i=$((i+1)); done`,
+    ...(hasFiles
+      ? [
+          `read -r nf`,
+          `j=0`,
+          `while [ "$j" -lt "$nf" ]; do`,
+          `  IFS= read -r fpath`,
+          `  read -r fmode`,
+          `  read -r flen`,
+          `  mkdir -p "$(dirname "$fpath")"`,
+          `  head -c "$flen" > "$fpath"`,
+          `  chmod "$fmode" "$fpath"`,
+          `  j=$((j+1))`,
+          `done`,
+        ]
+      : []),
     `read -r plen`,
     `setsid ${exec} < ${shQuote(promptPipe)} &`,
     `agentpid=$!`,
@@ -459,6 +500,7 @@ function launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, ex
     `wait "$agentpid" 2>/dev/null`,
     `code=$?`,
     `rm -f ${shQuote(pgidFile)} ${shQuote(promptPipe)}`,
+    ...(configDir ? [`rm -rf ${shQuote(configDir)}`] : []),
     `exit "$code"`,
   ].join("\n");
 }
@@ -481,13 +523,31 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
         worktree: hasWorktree ? cwd : undefined,
         verdictFile: `${remoteVerdictDir(remote, stateKey, ref, stepId)}/verdict.json`,
         hubVerdictFile: spawnPaths.sandboxVerdictPathFor(stepId, ref),
+        configDir: remoteConfigDir(remote, stateKey, ref, stepId),
       };
     },
-    launch: async ({ runId, ref, stepId, bin, args, env, cwd, hub, raw }) => {
+    launch: async ({ runId, ref, stepId, bin, defaultBin, args, env, cwd, hub, raw, files, remoteEnv, prompt: expectedPrompt }) => {
       // `raw` (#710, a step's gate): the given argv runs on the worker verbatim — never the
-      // agent-launch assumption that `args[1]` is a prompt to pull off argv onto stdin.
-      const prompt = raw ? "" : args[1]; // buildClaudeArgs/resumeClaudeArgs always put the prompt at args[1]
-      const execArgv = raw ? [bin, ...args] : [remote.bin || "claude", args[0], ...args.slice(2)]; // drop the prompt — it travels on stdin, never argv
+      // agent-launch assumption that a known argv element is the prompt to pull off onto stdin.
+      let prompt = "";
+      let execArgv;
+      if (raw) {
+        execArgv = [bin, ...args];
+      } else {
+        // The prompt sits at args[1] (claude's `-p <prompt>`) or as the final element (opencode's
+        // trailing positional, behind `--`) — never assumed by agent name, so a mismatch (a future
+        // agent whose argv shape differs) refuses the run instead of leaking the prompt into argv.
+        if (args[1] === expectedPrompt) {
+          prompt = args[1];
+          execArgv = [args[0], ...args.slice(2)];
+        } else if (args.length > 0 && args[args.length - 1] === expectedPrompt) {
+          prompt = args[args.length - 1];
+          execArgv = args.slice(0, -1);
+        } else {
+          throw new Error("could not find the prompt at its expected argv position — refusing to risk it leaking into the worker's argv");
+        }
+        execArgv = [remote.bin || defaultBin || "claude", ...execArgv];
+      }
       const runsDir = remoteRunsDir(remote, stateKey);
       const safeRunId = safePart(runId);
       const pgidFile = `${runsDir}/${safeRunId}.pgid`;
@@ -498,19 +558,23 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
       // verdict out from under it.
       const verdictDir = raw ? undefined : remoteVerdictDir(remote, stateKey, ref, stepId);
       const hubVerdictFile = raw ? undefined : spawnPaths.sandboxVerdictPathFor(stepId, ref);
+      // Per-run config dir (#739): only created/written/removed when an AgentAdapter.remote hook
+      // actually returned files (opencode) — a plain claude run never touches it.
+      const hasFiles = !raw && Array.isArray(files) && files.length > 0;
+      const configDir = hasFiles ? remoteConfigDir(remote, stateKey, ref, stepId) : undefined;
       // The agent's own cwd: the worker path `paths()` already computed (worktree or export
       // dir) when a caller goes through step.js. A launch() with no `hub` (this module's own
       // low-level tests) skips the sync entirely and just cds into whatever `cwd` it was given.
       const workDir = cwd || remote.workDir;
       const gitPath = hub ? remoteRepoGitPath(remote, stateKey, hub.repoId) : undefined;
       const beforeSha = hub ? await syncBefore(cfg, remote, stateKey, hub, workDir) : undefined;
-      const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, execArgv });
+      const script = launcherScript({ workDir, runsDir, pgidFile, promptPipe, verdictDir, configDir, hasFiles, execArgv });
       return {
         bin: "ssh",
         args: [...sshBaseArgs(remote), shQuote("sh"), shQuote("-c"), shQuote(script)],
         env: /** @type {Record<string, string>} */ (process.env.SSH_AUTH_SOCK ? { SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK } : {}),
         id: safeRunId,
-        stdin: framePayload(remoteEnvAllowlist(env), prompt),
+        stdin: framePayload(remoteEnvAllowlist(env, raw ? {} : remoteEnv), prompt, hasFiles ? files : []),
         kill: async () => {
           await runRemote(remote, killScript(pgidFile));
         },
@@ -522,6 +586,10 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
             await cleanupWorker(remote, gitPath, workDir, hub);
             return {};
           }
+          // Belt-and-suspenders (#739): the launcher script already removes `configDir` itself
+          // once the agent exits, but a hard-dropped connection could leave the script's own
+          // cleanup unreached — best-effort, same as the worktree/export removal below.
+          if (configDir) await runRemote(remote, `rm -rf ${shQuote(configDir)}`);
           const resolvedHubVerdictFile = /** @type {string} */ (hubVerdictFile);
           const buf = await runRemote(remote, `head -c ${MAX_SANDBOX_VERDICT_BYTES + 1} ${shQuote(`${verdictDir}/verdict.json`)} 2>/dev/null`, { maxBuffer: MAX_SANDBOX_VERDICT_BYTES + 2 });
           if (buf && buf.length > 0 && buf.length <= MAX_SANDBOX_VERDICT_BYTES) {
@@ -555,9 +623,11 @@ export function createSshExecutor({ stateKey, remote, spawnPaths, cfg = {} }) {
         `  [ -n "$p" ] && kill -KILL "-$p" 2>/dev/null`,
         `  rm -f "$f"`,
         `done`,
-        // Leftover per-ref/export dirs a crashed run's done() never got to clean up (#690);
-        // never echoed — reap()'s `runs` list is the pgid names above, nothing else.
-        `for d in ${shQuote(remoteWorktreesDir(remote, stateKey))}/* ${shQuote(remoteExportsDir(remote, stateKey))}/*; do [ -e "$d" ] || continue; rm -rf "$d"; done`,
+        // Leftover per-ref/export dirs a crashed run's done() never got to clean up (#690), plus
+        // any leftover per-run config dir (#739, e.g. an opencode.json an interrupted run's
+        // launcherScript cleanup never reached) — never echoed, reap()'s `runs` list is the pgid
+        // names above, nothing else.
+        `for d in ${shQuote(remoteWorktreesDir(remote, stateKey))}/* ${shQuote(remoteExportsDir(remote, stateKey))}/* ${shQuote(runsDir)}/*.opencode; do [ -e "$d" ] || continue; rm -rf "$d"; done`,
         `for g in ${shQuote(remoteReposDir(remote, stateKey))}/*.git; do [ -d "$g" ] || continue; git -C "$g" worktree prune; done`,
       ].join("\n");
       const buf = await runRemote(remote, script);

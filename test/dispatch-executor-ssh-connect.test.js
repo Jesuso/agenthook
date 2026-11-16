@@ -199,7 +199,7 @@ test("ssh executor: kill() issues an explicit remote TERM-then-KILL via a fresh 
     fs.writeFileSync(path.join(workDir, ".agenthook", "p", "runs", "k1.pgid"), String(sleeper.pid));
     const remote = { host: "worker.test", workDir };
     const executor = createSshExecutor({ stateKey: "p", remote, spawnPaths: { sandboxVerdictPathFor: () => path.join(workDir, "hub.json") } });
-    const run = await executor.launch({ runId: "k1", ref: "1", stepId: "code", bin: "x", args: ["-p", "hi"], env: {} });
+    const run = await executor.launch({ runId: "k1", ref: "1", stepId: "code", bin: "x", args: ["-p", "hi"], prompt: "hi", env: {} });
     await run.kill();
     let alive = true;
     try {
@@ -279,14 +279,14 @@ test("ssh executor done(): copies the remote verdict back to hubVerdictFile; an 
     fs.mkdirSync(verdictDir, { recursive: true });
     fs.writeFileSync(path.join(verdictDir, "verdict.json"), JSON.stringify({ outcome: "advance", reason: "ok" }));
 
-    const run = await executor.launch({ runId: "r1", ref: "42", stepId: "code", bin: "x", args: ["-p", "hi"], env: {} });
+    const run = await executor.launch({ runId: "r1", ref: "42", stepId: "code", bin: "x", args: ["-p", "hi"], prompt: "hi", env: {} });
     await run.done();
     assert.ok(fs.existsSync(hubVerdictFile));
     assert.deepEqual(JSON.parse(fs.readFileSync(hubVerdictFile, "utf8")), { outcome: "advance", reason: "ok" });
 
     fs.rmSync(hubVerdictFile, { force: true });
     fs.writeFileSync(path.join(verdictDir, "verdict.json"), "x".repeat(MAX_SANDBOX_VERDICT_BYTES + 10));
-    const run2 = await executor.launch({ runId: "r1", ref: "42", stepId: "code", bin: "x", args: ["-p", "hi"], env: {} });
+    const run2 = await executor.launch({ runId: "r1", ref: "42", stepId: "code", bin: "x", args: ["-p", "hi"], prompt: "hi", env: {} });
     await run2.done();
     assert.ok(!fs.existsSync(hubVerdictFile), "an oversize verdict must be dropped, not copied");
 

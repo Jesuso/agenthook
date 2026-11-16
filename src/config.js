@@ -526,7 +526,7 @@ function remoteHarnessErrors(cfg, step, harnesses, where) {
   }
   for (const n of names) {
     const agent = step.agent ?? harnesses[n]?.agent ?? cfg.agent ?? DEFAULT_AGENT;
-    if (agent !== "claude") errors.push(`config: ${where} remote harness ${JSON.stringify(n)} resolves to agent ${JSON.stringify(agent)} — only claude is supported on a remote worker yet.`);
+    if (agent !== "claude" && agent !== "opencode") errors.push(`config: ${where} remote harness ${JSON.stringify(n)} resolves to agent ${JSON.stringify(agent)} — only claude and opencode are supported on a remote worker yet.`);
   }
   if (cfg.tracker?.type !== "local") {
     errors.push(`config: ${where} uses remote harness ${names.map((n) => JSON.stringify(n)).join("/")} but "tracker.type" is ${JSON.stringify(cfg.tracker?.type)} — only the local tracker is supported with a remote worker yet.`);

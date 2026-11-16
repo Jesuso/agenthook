@@ -256,6 +256,38 @@ to ask a question in this run.
 `;
 }
 
+/**
+ * The contract + standing-instructions files, and the `instructions` list that wires them in,
+ * shared by the sandbox `files` write (into a per-run HOME) and the remote `files` write (into a
+ * per-run worker dir, #739) — only the destination paths and the base config differ.
+ * @param {{step: import('../types.js').Step, verdictFile: string, standing?: string, contractDst: string, standingDst: string, rawConfig: string|null}} o
+ */
+function opencodeInstructionFiles({ step, verdictFile, standing, contractDst, standingDst, rawConfig }) {
+  /** @type {{dst: string, content: string, mode?: number}[]} */
+  const files = [];
+  files.push({ dst: contractDst, content: opencodeContract(verdictFile), mode: 0o600 });
+  const config = rawConfig ? JSON.parse(rawConfig) : {};
+  const existing = Array.isArray(config.instructions) ? config.instructions : [];
+  config.instructions = Array.from(new Set([...existing, contractDst]));
+
+  // Standing instructions (#716): a second `instructions` file so the step's standing text
+  // survives compaction. The ticket text is already in the one-shot prompt; only repo + step
+  // instructions go here. When this file is written, dispatch drops the standing text from the
+  // run prompt (#731) — `standingInInstructions` tells it that happened.
+  let standingInInstructions = false;
+  if (typeof standing === "string" && standing) {
+    const standingBytes = Buffer.byteLength(standing, "utf8");
+    if (standingBytes <= STANDING_MAX_BYTES) {
+      files.push({ dst: standingDst, content: standing, mode: 0o600 });
+      config.instructions = Array.from(new Set([...config.instructions, standingDst]));
+      standingInInstructions = true;
+    } else {
+      console.warn(`[dispatch] step ${step.id}: standing instructions are ${standingBytes} bytes (> ${STANDING_MAX_BYTES}) — not written to opencode instructions; they stay in the run prompt only`);
+    }
+  }
+  return { files, config, standingInInstructions };
+}
+
 /** @type {import('../types.js').AgentAdapter} */
 export const opencode = {
   // sandboxResume: false — a sandboxed run's session database lives in the per-run sandbox
@@ -294,34 +326,32 @@ export const opencode = {
     // The contract file (#712): survives compaction because OpenCode rebuilds its system
     // prompt from config `instructions` every step, unlike the one-shot run prompt.
     const contractDst = path.posix.join(home, ".config", "opencode", "agenthook-unattended.md");
-    files.push({ dst: contractDst, content: opencodeContract(verdictFile), mode: 0o600 });
-    const config = rawConfig ? JSON.parse(rawConfig) : {};
-    const existing = Array.isArray(config.instructions) ? config.instructions : [];
-    config.instructions = Array.from(new Set([...existing, contractDst]));
-
-    // Standing instructions (#716): a second `instructions` file so the step's standing
-    // text survives compaction in a sandboxed run. The ticket text is already in the
-    // one-shot prompt; only repo + step instructions go here. When this file is written,
-    // dispatch drops the standing text from the run prompt (#731) — `standingInInstructions`
-    // tells it that happened.
-    let standingInInstructions = false;
-    if (typeof standing === "string" && standing) {
-      const standingBytes = Buffer.byteLength(standing, "utf8");
-      if (standingBytes <= STANDING_MAX_BYTES) {
-        const standingDst = path.posix.join(home, ".config", "opencode", "agenthook-standing.md");
-        files.push({ dst: standingDst, content: standing, mode: 0o600 });
-        config.instructions = Array.from(new Set([...config.instructions, standingDst]));
-        standingInInstructions = true;
-      } else {
-        console.warn(`[dispatch] step ${step.id}: standing instructions are ${standingBytes} bytes (> ${STANDING_MAX_BYTES}) — not written to opencode instructions; they stay in the run prompt only`);
-      }
-    }
-
-    files.push({ dst: configDst, content: JSON.stringify(config, null, 2), mode: 0o600 });
+    const standingDst = path.posix.join(home, ".config", "opencode", "agenthook-standing.md");
+    const { files: instructionFiles, config, standingInInstructions } = opencodeInstructionFiles({ step, verdictFile, standing, contractDst, standingDst, rawConfig });
+    files.push(...instructionFiles, { dst: configDst, content: JSON.stringify(config, null, 2), mode: 0o600 });
     return {
       mounts: [],
       files,
       env: { OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" },
+      ...(standingInInstructions ? { standingInInstructions: true } : {}),
+    };
+  },
+  // Remote (#689/#739): the worker keeps its OWN global config, auth and session db — unlike
+  // the sandbox, nothing replaces HOME. `OPENCODE_CONFIG` points at a generated config in the
+  // per-run `dir` instead, which OpenCode merges on top of its own global config, so the model
+  // endpoint and credentials stay the worker's. `dir` is deleted by the executor after the run
+  // (unlike the sandbox HOME, there's no container teardown to rely on). No `opencodeConfig` →
+  // the generated config holds only `instructions`.
+  remote({ step, dir, verdictFile, standing }) {
+    const configDst = path.posix.join(dir, "opencode.json");
+    const contractDst = path.posix.join(dir, "agenthook-unattended.md");
+    const standingDst = path.posix.join(dir, "agenthook-standing.md");
+    const rawConfig = step.opencodeConfig ? readOpencodeConfig(step.opencodeConfig) : null;
+    const { files, config, standingInInstructions } = opencodeInstructionFiles({ step, verdictFile, standing, contractDst, standingDst, rawConfig });
+    files.push({ dst: configDst, content: JSON.stringify(config, null, 2), mode: 0o600 });
+    return {
+      files,
+      env: { OPENCODE_CONFIG: configDst, OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" },
       ...(standingInInstructions ? { standingInInstructions: true } : {}),
     };
   },

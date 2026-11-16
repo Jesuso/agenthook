@@ -134,7 +134,7 @@ const REMOTE_CREDENTIAL_PROBE = [
  * the SAME argv the ssh executor itself would build (`remoteProbeArgv`) — never a copy of the
  * ssh command. An unreachable worker reports one ✗ and skips the rest of that harness's probes,
  * rather than cascading failures from a host that was never going to answer.
- * @param {Pick<import('../types.js').Config, 'harnesses'>} cfg
+ * @param {Pick<import('../types.js').Config, 'harnesses'|'agent'>} cfg
  * @param {{run: import('../types.js').IngressRun}} io
  * @returns {Promise<Check[]>} */
 export async function remoteHarnessChecks(cfg, { run }) {
@@ -164,10 +164,16 @@ export async function remoteHarnessChecks(cfg, { run }) {
     const git = await probe("command -v git");
     out.push({ ok: git.code === 0, label: label("has git"), note: git.code === 0 ? "" : "not found on the worker", fix: { manual: "install git on the worker" } });
 
-    const bin = remote.bin || "claude";
+    // The harness's own resolved agent (#739) — its default bin, not a hard-coded "claude".
+    const agent = agentFor(cfg, { agent: h.agent });
+    const agentName = agent.describe().name;
+    const bin = remote.bin || agent.defaults.bin || DEFAULT_AGENT;
     const binCheck = await probe(`command -v ${shQuote(bin)}`);
     if (binCheck.code !== 0) {
-      out.push({ ok: false, label: label(`has agent bin ${JSON.stringify(bin)}`), note: "not found on the worker", fix: { manual: `install ${bin} on the worker, or set harnesses.${name}.remote.bin to its path there` } });
+      const fix = agentName === "opencode"
+        ? `install opencode on the worker — see https://opencode.ai — or set harnesses.${name}.remote.bin to its path there`
+        : `install ${bin} on the worker, or set harnesses.${name}.remote.bin to its path there`;
+      out.push({ ok: false, label: label(`has agent bin ${JSON.stringify(bin)}`), note: "not found on the worker", fix: { manual: fix } });
     } else {
       const ver = await probe(`${shQuote(bin)} --version`);
       out.push({ ok: true, label: label(`has agent bin ${JSON.stringify(bin)}`), note: (ver.stdout || "").trim().split("\n")[0] });
@@ -176,6 +182,9 @@ export async function remoteHarnessChecks(cfg, { run }) {
     const wd = await probe(`mkdir -p ${shQuote(remote.workDir)} && test -w ${shQuote(remote.workDir)}`);
     out.push({ ok: wd.code === 0, label: label(`workDir writable: ${remote.workDir}`), note: wd.code === 0 ? "" : "could not create it or it isn't writable", fix: { manual: `make ${remote.workDir} on the worker writable by ${remote.user || "the ssh user"}` } });
 
+    // The credential probe is claude-specific (ANTHROPIC_*/~/.claude) — an opencode harness's
+    // endpoint and credentials are the worker's own OpenCode config's business, not doctor's.
+    if (agentName !== "claude") continue;
     const cred = await probe(REMOTE_CREDENTIAL_PROBE);
     if (cred.code === 0) out.push({ ok: true, label: label("has agent credentials"), note: (cred.stdout || "").trim() });
     else {
