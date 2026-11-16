@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format is based on
   tick`/`agenthook status` (`why`/"waiting on a reserve") and `ah doctor` (the effective reserve
   per exclusive harness). `src/pull.js`'s queue-stage puller budget subtracts the reserve too.
 
+- Web UI: the board moves only when something happens (#699). A ticket that changes step slides
+  its mark to the new column; a row that turns up fades in; a row that starts needing you is washed
+  once (on your return, if the tab was in the background). Sections, tabs, step cards and the ticket
+  drawer answer a click with a short fade. Nothing loops, nothing plays on page load, and reduced
+  motion removes all travel.
+
 - A step that lists several `harness`es can now set `model` and `effort` per entry, not just once
   for the whole list (#736): a `harness` list element may be `{ "name": …, "model": …, "effort": … }`
   instead of a bare name, and its `model`/`effort` pin runs routed to that harness alone — they win

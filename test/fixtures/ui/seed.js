@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Seed a throwaway AGENTHOOK_HOME with fake profiles for `ah ui` visual checks (README.md here).
-// Writes the same state files a receiver does (shapes per test/ui-rows.test.js / src/ui/rows.js):
+// Writes the same state files a receiver does (shapes per test/ui-rows-*.test.js / src/ui/rows.js):
 // heartbeat.json, profile.json, server.pid, running.json, queue.json, held.json, refmeta.json,
 // events.jsonl and logs/. Every TicketStatus appears at least once; timestamps are relative to
 // now so nothing falls behind the dashboard's 24h stale filter. Not a test — `npm test` only

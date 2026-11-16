@@ -1,6 +1,7 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
 // `ah ui` profile removal — `POST /api/profile/remove` + `GET /api/profile/remove-preview`
-// (src/ui/server.js, src/archive.js). Same fake control-socket pattern as ui-control.test.js: a
+// (src/ui/server.js, src/archive.js). Same fake control-socket pattern as
+// test/_ui-control-helpers.js's setupUiControl() (see test/ui-control-protocol.test.js): a
 // running receiver is a socket that answers `decommission`; a stopped one is a state dir with no
 // socket, which the UI server archives into `<registry>-archive/`. Temp registry; ephemeral port.
 import test from "node:test";

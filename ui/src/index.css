@@ -240,6 +240,71 @@ html[data-ah-bg="warm"] {
   }
 }
 
+/* Motion (#699). Three jobs, each played once: answer the operator's own click (`enter-fade`,
+ * the drawer), show that something changed while they watched (`row-arrive`; the mark's slide is
+ * in motion.ts), and — the one that asks for attention — wash a row that starts needing them
+ * (`needs-arrive`). Under reduced motion nothing travels: fades stay, movement goes. */
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes needs-arrive {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+    box-shadow: inset 0 0 0 100vmax color-mix(in oklab, var(--color-status-held) 22%, transparent);
+  }
+  100% {
+    box-shadow: inset 0 0 0 100vmax transparent;
+  }
+}
+
+.enter-fade {
+  animation: enter-fade 160ms ease-out both;
+}
+
+.row-arrive {
+  animation: fade-in 320ms ease-out both;
+}
+
+.needs-arrive {
+  animation: needs-arrive 1500ms ease-out both;
+}
+
+.drawer-scrim {
+  animation: fade-in 160ms ease-out both;
+}
+
+.drawer-in {
+  animation: drawer-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter-fade,
+  .drawer-in {
+    animation-name: fade-in;
+    animation-duration: 120ms;
+  }
+}
+
 /* The epic stage bar's running segment: diagonal stripes sliding along it (a barber pole), so the
  * blue part reads as still in progress. The stripes sit on top of the segment's own colour; the
  * background-size equals one stripe period (12px / sin 45°), so the loop is seamless. Static
