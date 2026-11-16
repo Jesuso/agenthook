@@ -60,7 +60,7 @@ export function recorder(run = false) {
 /** Probes stubbed so only the filesystem/git state under test decides the outcome. A fixed
  * `env` keeps the agent-env lints from seeing the host's or sandbox's own vars (e.g. the
  * sandbox's injected GIT_CONFIG_*), which would otherwise plant an unplanned problem. @param {any} [over] */
-export const io = (over = {}) => ({ userClaudeSettings: null, onPath: () => true, portInUse: async () => false, uiBundle: () => ({ state: "fresh" }), spawn: recorder().spawn, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" }, ...over });
+export const io = (over = {}) => ({ userClaudeSettings: null, onPath: () => true, portInUse: async () => false, uiBundle: () => ({ state: "fresh" }), skills: () => [], spawn: recorder().spawn, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" }, ...over });
 
 /** @param {import('../src/commands/doctor.js').Check} c */
 export const problem = (c) => !c.info && (!c.ok || !!c.warn);
