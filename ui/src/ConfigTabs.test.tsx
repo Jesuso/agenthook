@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ForgeForm, IngressForm, TrackerForm } from "./ConfigForms";
+import { BasicsForm, ForgeForm, IngressForm, TrackerForm } from "./ConfigForms";
 import { answerConfirm, click, confirmDialog, mount } from "./domHarness";
 import { ConfirmProvider } from "./Modal";
 import type { Mounted } from "./domHarness";
@@ -18,14 +18,15 @@ afterEach(async () => {
 type Form = typeof TrackerForm;
 
 /** Mount `form` over a live buffer (each edit re-renders, like ConfigView); `texts` records every edit. */
-async function live(form: Form, raw: unknown) {
+async function live(form: Form, raw: unknown, extra: Record<string, unknown> = {}) {
   const texts: string[] = [];
   function Host() {
     const [text, setText] = useState(JSON.stringify(raw, null, 2));
     return createElement(
       ConfirmProvider,
       null,
-      createElement(form, {
+      createElement(form as any, {
+        ...extra,
         text,
         raw: JSON.parse(text),
         onEdit: (next: string) => {
@@ -58,11 +59,11 @@ const t = (k: string) => `tracker.${k}`;
 
 describe("TrackerForm fields per tracker type (from the schema's scope)", () => {
   const cases: [string, string[], string[]][] = [
-    ["asana", ["token", "userGid", "assigneeFilter", "workspaceGid", "projectGid"], ["displayIdField", "routeField", "epicType"]],
-    ["jira", ["token", "assigneeFilter", "site", "baseUrl", "email", "projectKey", "assigneeAccountId"], ["webhookSecret", "routeField", "epicType"]],
-    ["github", ["token", "assigneeFilter", "repository", "assigneeLogin"], ["webhookSecret", "owner", "repo", "routeField", "epicType", "epicLabel"]],
-    ["github-projects", ["token", "assigneeFilter", "repository", "assigneeLogin", "project"], ["webhookSecret", "routeField", "epicType", "epicLabel"]],
-    ["local", ["assigneeFilter"], ["routeField"]],
+    ["asana", ["token", "userGid", "workspaceGid", "projectGid"], ["displayIdField", "routeField", "epicType"]],
+    ["jira", ["token", "site", "baseUrl", "email", "projectKey", "assigneeAccountId"], ["webhookSecret", "routeField", "epicType"]],
+    ["github", ["token", "repository", "assigneeLogin"], ["webhookSecret", "owner", "repo", "routeField", "epicType", "epicLabel"]],
+    ["github-projects", ["token", "repository", "assigneeLogin", "project"], ["webhookSecret", "routeField", "epicType", "epicLabel"]],
+    ["local", [], ["routeField"]],
   ];
   for (const [type, common, advanced] of cases) {
     it(type, async () => {
@@ -106,7 +107,11 @@ describe("TrackerForm type", () => {
 
 describe("default-true checkboxes (assigneeFilter, redCi, greenCi)", () => {
   it("assigneeFilter: absent renders checked; unchecking writes false; checking removes the key", async () => {
-    const { root, last } = await live(TrackerForm, { tracker: { type: "github" } });
+    // The switch lives in Basics → Containment; the Tracker tab only points there.
+    const tracker = await live(TrackerForm, { tracker: { type: "github" } });
+    expect(tracker.root.querySelector('[name="tracker.assigneeFilter"]')).toBeNull();
+    expect(tracker.root.textContent).toContain("Basics → Containment");
+    const { root, last } = await live(BasicsForm as unknown as Form, { tracker: { type: "github" } }, { stateKey: "p" });
     expect(field(root, "tracker.assigneeFilter").checked).toBe(true);
     expect(root.textContent).toContain("not only the ones assigned to you");
     await click(field(root, "tracker.assigneeFilter"));

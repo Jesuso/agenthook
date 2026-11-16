@@ -43,6 +43,28 @@ type Pane = "raw" | "basics" | "pipeline" | "tracker" | "forge" | "ingress" | "i
 
 const PANES: readonly Pane[] = ["basics", "pipeline", "tracker", "forge", "ingress", "integrations", "repos", "raw"];
 // The form pane each card list renders on.
+/* Very wide (1800px+): steps on the left, the graph a sticky column on the right. */
+const PIPELINE_GRID = "min-[1800px]:grid min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-[1800px]:items-start min-[1800px]:gap-4";
+const GRAPH_SIDE = "min-[1800px]:sticky min-[1800px]:top-24 min-[1800px]:order-last";
+
+const SAVED_AT = (profile: string) => `ah.configSavedAt.${profile}`;
+function readSavedAt(profile: string): number | null {
+  try {
+    const n = Number(localStorage.getItem(SAVED_AT(profile)));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+function writeSavedAt(profile: string, at: number | null) {
+  try {
+    if (at === null) localStorage.removeItem(SAVED_AT(profile));
+    else localStorage.setItem(SAVED_AT(profile), String(at));
+  } catch {
+    /* a private window: the line then lasts only as long as the page */
+  }
+}
+
 const CARD_PANE: Record<CardList, Pane> = { sinks: "integrations", repos: "repos", steps: "pipeline" };
 type Pristine = Record<CardList, ReadonlySet<number>>;
 const NO_PRISTINE: Pristine = { sinks: new Set(), repos: new Set(), steps: new Set() };
@@ -103,6 +125,13 @@ export default function ConfigView(props: {
   const [diff, setDiff] = useState(false);
   const [ack, setAck] = useState(false);
   const [savedNote, setSavedNote] = useState(false);
+  // When this profile's config was last saved from here. Kept in the browser so the "not live yet"
+  // line outlives the saved band's ×, a tab switch and a reload; a receiver started after it clears it.
+  const [savedAt, setSavedAtState] = useState<number | null>(() => readSavedAt(props.initialProfile ?? props.profiles[0]?.name ?? ""));
+  const setSavedAt = (prof: string, at: number | null) => {
+    writeSavedAt(prof, at);
+    setSavedAtState(at);
+  };
   const [restart, dispatchRestart] = useReducer(restartReducer, RESTART_IDLE);
   const restartRef = useRef(restart);
   restartRef.current = restart;
@@ -303,7 +332,12 @@ export default function ConfigView(props: {
     const p = parseCheck(f.doc.buffer);
     if (!p.ok) return;
     clearPristine();
-    if (clientErrors(p.raw).length === 0) act({ type: "save" });
+    const blocking = clientErrors(p.raw);
+    if (blocking.length === 0) return void act({ type: "save" });
+    // Blocked: go to the first problem's tab and open the list, instead of a click that does nothing.
+    const card = cardFor(blocking[0], p.raw);
+    if (card) switchPane(CARD_PANE[card.list]);
+    setBannerOpen(true);
   };
 
   /** PUT the buffer — `confirm` claims the loaded hash, `overwrite` the conflict's on-disk hash. */
@@ -338,6 +372,7 @@ export default function ConfigView(props: {
           setMeta(target.profile, { errors: [], literalSecrets: secrets, as: "save" });
           refreshMeta(target.profile, b.hash);
           setSavedNote(true);
+          setSavedAt(target.profile, Date.now());
           // A finished/failed restart's line no longer describes this save.
           const r = restartRef.current.kind;
           if (r === "up" || r === "error") dispatchRestart({ type: "reset" });
@@ -389,6 +424,15 @@ export default function ConfigView(props: {
       // The raw editor is uncontrolled: remount it so it shows the reverted text.
       if (f.kind === "ok" && act({ type: "revert" }) !== f.doc) setEditorKey((k) => k + 1);
     });
+  };
+
+  /** The conflict band's Reload: the on-disk text replaces the buffer, after a yes when it has edits. */
+  const reloadFromDisk = () => {
+    const f = fileRef.current;
+    if (f.kind !== "ok") return;
+    const prof = f.doc.open.profile;
+    if (!isDirty(f.doc.buffer, f.doc.open)) return load(prof);
+    ask({ title: t("configView.revertTitle"), body: configDiscardPrompt(lang), confirmLabel: t("configView.discardChanges"), destructive: true }).then((ok) => ok && load(prof));
   };
 
   /** Diff on a conflict: the 409 carried the disk text; an SSE-raised one fetches it. */
@@ -468,6 +512,9 @@ export default function ConfigView(props: {
 
   const sensitive: SensitiveChange[] = doc?.phase.kind === "confirming" ? sensitiveDiff(doc.open.content, doc.buffer, lang) : [];
   const receiverUp = profileView?.up ?? false;
+  const bootedAt = profileView?.startedAt ? Date.parse(profileView.startedAt) : NaN;
+  /** The file was saved from here after the running receiver started: it still runs the old one. */
+  const notLive = savedAt !== null && receiverUp && !Number.isNaN(bootedAt) && bootedAt < savedAt;
   const restartBusy = restart.kind === "requesting" || restart.kind === "pending" || restart.kind === "restarting";
   const restartLine = restartText(restart, undefined, lang);
   const loadedRaw = open ? parseCheck(open.content) : null;
@@ -475,6 +522,7 @@ export default function ConfigView(props: {
   // The Raw editor needs a bounded height to scroll internally; the form panes scroll with the page.
   const showRaw = pane === "raw" || !parsed?.ok;
   const saveBlocked = checks.length > 0;
+  const onPipeline = pane === "pipeline" && !showRaw;
   /** The card a problem sits on, if that card is rendered on the open pane. */
   const shownCard = (e: string) => {
     const c = parsed?.ok && !showRaw ? cardFor(e, parsed.raw) : null;
@@ -484,7 +532,7 @@ export default function ConfigView(props: {
   return (
     <div className={`sm:px-2 2xl:px-4 ${showRaw ? "flex h-[calc(100vh-8rem)] min-h-[24rem] min-w-0 flex-col" : "flex min-w-0 flex-col"}`}>
       {/* Below `sm` the path drops to its own row under the title + actions; desktop is one row. */}
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm sm:flex-nowrap">
+      <div data-config-head className="z-20 mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 bg-[var(--color-bg)] py-2 text-sm sm:flex-nowrap xl:sticky xl:top-11">
         {/* The app bar picks the profile; this page edits the one it was given. */}
         {profileView && <ProfileMark p={profileView} />}
         <h1 className="shrink-0 text-title font-semibold">
@@ -515,7 +563,9 @@ export default function ConfigView(props: {
           // Client checks block with aria-disabled, not `disabled`: the click still lands, as a Save attempt.
           <button
             data-save
-            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            className={`shrink-0 rounded border px-2 py-0.5 disabled:cursor-not-allowed disabled:border-border disabled:bg-transparent disabled:text-muted aria-disabled:cursor-not-allowed ${
+              saveBlocked ? "border-border text-muted" : "border-accent bg-accent text-accent-fg"
+            }`}
             disabled={!dirty || phase !== "editing" || !parsed?.ok}
             aria-disabled={saveBlocked || undefined}
             title={
@@ -566,6 +616,15 @@ export default function ConfigView(props: {
               </span>
             </div>
           )}
+          {!savedNote && notLive && savedAt !== null && (
+            <p data-config-not-live className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-label text-muted">
+              <span>{t("configView.notLive", { time: new Date(savedAt).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}</span>
+              {restartLine && <span className={restart.kind === "error" ? "text-status-failed" : ""}>{restartLine}</span>}
+              <button type="button" className="rounded border border-border px-2 py-0.5 text-fg hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50" disabled={restartBusy} onClick={() => requestRestart()}>
+                {t("configView.restartIdle")}
+              </button>
+            </p>
+          )}
           {moving ? (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-sm sm:flex-nowrap">
               <span>
@@ -612,14 +671,17 @@ export default function ConfigView(props: {
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded border border-status-held bg-status-held-bg px-3 py-1.5 text-sm text-status-held sm:flex-nowrap">
               {t(phase === "deleted" ? "configView.deletedOnDisk" : "configView.changedOnDisk")}
               <span className="ml-auto flex gap-2">
-                <button className="rounded border border-status-held px-2 py-0.5" onClick={() => load(open.profile)}>
+                {/* Looking is safe, so Diff leads; Reload drops what was typed here, so it asks first. */}
+                {phase === "conflict" && (
+                  <button type="button" data-conflict-diff className="rounded border border-status-held px-2 py-0.5 font-semibold" onClick={showDiff}>
+                    {t("configView.diff")}
+                  </button>
+                )}
+                <button type="button" data-conflict-reload className="rounded border border-status-held px-2 py-0.5" onClick={reloadFromDisk}>
                   {t("configView.reload")}
                 </button>
                 {phase === "conflict" && (
                   <>
-                    <button className="rounded border border-status-held px-2 py-0.5" onClick={showDiff}>
-                      {t("configView.diff")}
-                    </button>
                     <button className="rounded border border-status-held px-2 py-0.5" onClick={overwrite}>
                       {t("configView.overwrite")}
                     </button>
@@ -656,12 +718,13 @@ export default function ConfigView(props: {
                 <div
                   data-config-banner
                   data-tone={tone}
-                  className={`flex h-8 items-center gap-2 rounded border px-3 text-sm ${
+                  className={`flex h-8 items-center gap-2 rounded border text-sm ${
                     tone === "ok"
-                      ? "border-status-done bg-status-done-bg text-status-done"
+                      ? // Calm looks calm: a valid config is a quiet line, not a band of colour.
+                        "border-transparent px-0 text-label text-muted"
                       : tone === "held"
-                        ? "border-status-held bg-status-held-bg text-status-held"
-                        : "border-status-failed bg-status-failed-bg text-status-failed"
+                        ? "border-status-held bg-status-held-bg px-3 text-status-held"
+                        : "border-status-failed bg-status-failed-bg px-3 text-status-failed"
                   }`}
                 >
                   {banner.ok ? (
@@ -746,17 +809,23 @@ export default function ConfigView(props: {
             {tabEdges.end && <span data-tab-fade="end" className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-linear-to-l from-[var(--color-bg)] to-transparent" />}
           </div>
           {!parsed?.ok && <p className="-mt-1 mb-2 text-xs text-[var(--color-muted)]">{t("configView.fixInRaw")}</p>}
-          <div className="mb-2 rounded border border-[var(--color-border)]">
+          {/* The map of the pipeline belongs to the Pipeline tab: on a very wide window it sits beside
+              the steps and stays in view while one is edited; elsewhere it leads them. */}
+          <div className={onPipeline ? PIPELINE_GRID : "contents"}>
+          {onPipeline && (
+          <div data-config-graph-box className={`mb-2 rounded border border-[var(--color-border)] ${GRAPH_SIDE}`}>
             <button
               className="flex min-h-10 w-full items-center gap-2 px-2 py-1 text-left text-xs uppercase tracking-wide text-[var(--color-muted)] sm:min-h-0"
+              type="button"
+              aria-expanded={graphOpen}
               onClick={() => setGraphOpen((o) => !o)}
             >
-              <span>{graphOpen ? "▾" : "▸"}</span>
+              <span aria-hidden="true">{graphOpen ? "▾" : "▸"}</span>
               {t("configView.graph")}
             </button>
             {graphOpen && (
-              // Height-capped on phones so the form below stays reachable; the graph scrolls inside.
-              <div data-config-graph className="max-h-64 overflow-auto border-t border-[var(--color-border)] p-2 sm:max-h-none sm:overflow-visible">
+              // Height-capped on phones so the form below stays reachable: the drawing scrolls inside, its legend stays put.
+              <div data-config-graph className="border-t border-[var(--color-border)] p-2">
                 {parsed?.ok ? (
                   <PipelineGraph
                     layout={layoutPipeline(
@@ -767,6 +836,7 @@ export default function ConfigView(props: {
                       lang,
                     )}
                     onSelectStep={selectStep}
+                    scrollClass="max-h-64 sm:max-h-none"
                   />
                 ) : (
                   <p className="text-sm text-[var(--color-muted)]">{t("configView.graphFix")}</p>
@@ -774,6 +844,7 @@ export default function ConfigView(props: {
               </div>
             )}
           </div>
+          )}
           <div className={showRaw ? "flex min-h-0 min-w-0 flex-1" : "flex min-w-0 flex-col"}>
             <div data-config-pane-host className={showRaw ? "min-w-0 flex-1 overflow-auto" : "min-w-0"}>
               <ConfirmContext.Provider value={ask}>
@@ -786,7 +857,7 @@ export default function ConfigView(props: {
                     onSave={requestSave}
                   />
                 ) : pane === "basics" ? (
-                  <BasicsForm text={doc.buffer} raw={parsed.raw} stateKey={profile} onEdit={(buffer) => act({ type: "edit", buffer })} />
+                  <BasicsForm text={doc.buffer} raw={parsed.raw} stateKey={profile} baseline={loadedRaw?.ok ? loadedRaw.raw : undefined} onEdit={(buffer) => act({ type: "edit", buffer })} />
                 ) : pane === "tracker" ? (
                   <TrackerForm text={doc.buffer} raw={parsed.raw} onEdit={(buffer) => act({ type: "edit", buffer })} />
                 ) : pane === "forge" ? (
@@ -811,6 +882,7 @@ export default function ConfigView(props: {
                 )}
               </ConfirmContext.Provider>
             </div>
+          </div>
           </div>
         </>
       )}

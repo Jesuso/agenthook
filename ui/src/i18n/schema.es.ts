@@ -89,7 +89,7 @@ export const SCHEMA_ES: SchemaOverlay = {
   "tracker.auth.privateKey": { label: "Clave privada", help: "La clave privada PEM de la App; usa una referencia ${VAR} (un \\n literal se vuelve salto de línea)." },
   "tracker.auth.privateKeyPath": { label: "Archivo de clave privada", help: "O un archivo PEM con la clave privada de la App; relativo al archivo de configuración." },
   "tracker.userGid": { label: "Gid de usuario", help: "Tu gid de usuario de Asana; solo se actúa sobre las tareas asignadas a él." },
-  "tracker.assigneeFilter": { label: "Solo mis tareas", help: "Actúa solo sobre elementos asignados a la identidad del bot; false permite actuar en todo el proyecto." },
+  "tracker.assigneeFilter": { label: "Solo mis tickets", help: "Actúa solo sobre tickets asignados a la identidad del bot; false permite actuar en todo el proyecto." },
   "tracker.workspaceGid": { label: "Gid del espacio de trabajo", help: "El espacio de trabajo de Asana que contiene el proyecto." },
   "tracker.projectGid": { label: "Gid del proyecto", help: "El proyecto de Asana cuyas secciones mueven el pipeline." },
   "tracker.displayIdField": { label: "Campo de id visible", help: "Campo personalizado con el id legible de la tarea (sin distinguir mayúsculas)." },

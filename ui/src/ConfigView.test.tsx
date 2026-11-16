@@ -158,20 +158,13 @@ describe("ConfigView graph → card", () => {
     expect(dirty).not.toHaveBeenCalledWith(true);
   });
 
-  it("from the Basics pane, Enter on a step node switches to Pipeline at that card", async () => {
+  it("the graph belongs to the Pipeline tab: other tabs don't carry it", async () => {
     m = await mount(view());
     await until(() => m!.root.querySelector("[data-step-card]"));
+    expect(m.root.querySelector("[data-config-graph-box]")).not.toBeNull();
     await click(tabs(m.root).find((t) => t.dataset.configPane === "basics")!);
     expect(activeTab(m.root)).toBe("basics");
-    // The graph collapses off Pipeline; open it to reach the nodes.
-    const graphToggle = [...m.root.querySelectorAll("button")].find((b) => b.textContent?.includes("Pipeline graph"))!;
-    await click(graphToggle);
-    await pressEnter(m.root.querySelector('[data-graph-step="review"]')!);
-    expect(activeTab(m.root)).toBe("pipeline");
-    const card = m.root.querySelector<HTMLElement>('[data-step-card="review"]')!;
-    expect(card.dataset.open).toBe("true");
-    expect((Element.prototype.scrollIntoView as any).mock.contexts.at(-1)).toBe(card);
-    expect(dirty).not.toHaveBeenCalledWith(true);
+    expect(m.root.querySelector("[data-config-graph-box]")).toBeNull();
   });
 });
 
