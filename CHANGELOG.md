@@ -314,6 +314,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- `ah ui --host <addr>` now prints and opens the bound address, not a dead `127.0.0.1` link (#737).
+  A wildcard bind (`0.0.0.0`/`::`) prints the loopback link plus one "reachable on every interface"
+  line (listing the non-internal addresses) instead of one URL per interface.
 - `ah agents` now lists every running run, not only `claude -p` processes (#735). It read `ps`
   and kept only lines whose command started with a known agent binary, so a sandboxed or remote
   (ssh) run — whose local process is a container runtime or `ssh` client — never matched, and

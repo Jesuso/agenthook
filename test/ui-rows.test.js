@@ -994,10 +994,10 @@ test("uiHost: default loopback; localhost → 127.0.0.1; ip literals pass; a DNS
   for (const bad of ["sarah.lan", "", true, "300.1.1.1"]) assert.throws(() => uiHost({ host: bad }), /invalid --host/, String(bad));
 });
 
-test("uiUrls: loopback first; a single address adds itself; 0.0.0.0 adds every non-internal v4 interface", () => {
+test("uiUrls: the bound address, or loopback for a wildcard bind (#737)", () => {
   assert.deepEqual(uiUrls("127.0.0.1", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
-  assert.deepEqual(uiUrls("192.168.68.2", 4180, "t"), ["http://127.0.0.1:4180/?token=t", "http://192.168.68.2:4180/?token=t"]);
-  const all = uiUrls("0.0.0.0", 4180, "t");
-  assert.equal(all[0], "http://127.0.0.1:4180/?token=t");
-  for (const u of all.slice(1)) assert.match(u, /^http:\/\/\d+\.\d+\.\d+\.\d+:4180\/\?token=t$/);
+  assert.deepEqual(uiUrls("192.168.68.2", 4180, "t"), ["http://192.168.68.2:4180/?token=t"]);
+  assert.deepEqual(uiUrls("::1", 4180, "t"), ["http://[::1]:4180/?token=t"]);
+  assert.deepEqual(uiUrls("0.0.0.0", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
+  assert.deepEqual(uiUrls("::", 4180, "t"), ["http://127.0.0.1:4180/?token=t"]);
 });

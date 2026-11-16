@@ -1,6 +1,7 @@
 // `agenthook ui [--port 4180] [--host 127.0.0.1] [--no-open]` — local web dashboard + editors over every
-// profile under ~/.agenthook (docs/web-ui.md). Binds 127.0.0.1 only (no flag to change
-// it), mints a per-launch token and prints/opens the `?token=` URL. Loads no config:
+// profile under ~/.agenthook (docs/web-ui.md). Binds 127.0.0.1 by default; `--host <ip>` binds one
+// address and `0.0.0.0` / `::` every interface, mints a per-launch token and prints/opens the
+// bound address's `?token=` URL (loopback for a wildcard bind). Loads no config:
 // like `ls`, it reads the state dirs directly.
 import crypto from "node:crypto";
 import net from "node:net";
@@ -45,17 +46,39 @@ export function uiHost(args) {
   throw new Error(`invalid --host "${args.host ?? ""}" — expected an IP address (127.0.0.1, 0.0.0.0, 192.168.1.5, ::)`);
 }
 
-/** The URLs the dashboard answers at for a bind address: loopback, plus each interface address when bound to all, or the one address.
+/** The `?token=` URL for an address (IPv6 is bracketed). @param {string} a @param {number} port @param {string} token */
+const url = (a, port, token) => `http://${a.includes(":") ? `[${a}]` : a}:${port}/?token=${token}`;
+
+/** Non-internal interface addresses for a wildcard bind — IPv4 only for `0.0.0.0`, both for `::`.
+ * @param {string} host */
+function wildcardAddresses(host) {
+  /** @type {string[]} */
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const i of list ?? []) if (!i.internal && (host === "::" || i.family === "IPv4")) out.push(i.address.replace(/%.*$/, ""));
+  }
+  return out;
+}
+
+/** The URL the dashboard answers at for a bind address: the address itself, or loopback when bound to every interface.
  * @param {string} host @param {number} port @param {string} token */
 export function uiUrls(host, port, token) {
-  const url = (/** @type {string} */ a) => `http://${a.includes(":") ? `[${a}]` : a}:${port}/?token=${token}`;
-  const out = [url("127.0.0.1")];
+  return [url(host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host, port, token)];
+}
+
+/** The stdout banner lines for a bind address: the single link to open, plus — for a wildcard
+ * bind — one line saying it is reachable on every interface (listing the non-internal addresses).
+ * @param {string} host @param {number} port @param {string} token
+ * @param {() => string[]} [ownAddresses] this machine's non-internal interface addresses (tests) */
+export function uiBanner(host, port, token, ownAddresses = () => wildcardAddresses(host)) {
+  const linkHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+  /** @type {string[]} */
+  const lines = [`agenthook ui at ${url(linkHost, port, token)}`];
   if (host === "0.0.0.0" || host === "::") {
-    for (const list of Object.values(os.networkInterfaces())) {
-      for (const i of list ?? []) if (!i.internal && (host === "::" || i.family === "IPv4")) out.push(url(i.address.replace(/%.*$/, "")));
-    }
-  } else if (host !== "127.0.0.1") out.push(url(host));
-  return out;
+    const addrs = ownAddresses();
+    lines.push(`reachable on every interface${addrs.length ? ` (${addrs.join(", ")})` : ""} at port ${port}`);
+  }
+  return lines;
 }
 
 /** Throw unless the frontend bundle is built. @param {string} distDir */
@@ -97,7 +120,7 @@ export async function ui(args) {
     server.listen(port, host, () => resolve(undefined));
   });
   const urls = uiUrls(host, port, token);
-  for (const u of urls) console.log(`agenthook ui at ${u}`);
+  for (const line of uiBanner(host, port, token)) console.log(line);
   if (host !== "127.0.0.1") {
     console.warn(`bound to ${host}: the dashboard is reachable from the network over plain HTTP, and the token above is its only credential — anyone who has it can edit configs and drive agents. Keep it to a trusted LAN.`);
   }
