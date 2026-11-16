@@ -128,7 +128,7 @@ function fakeOpencodeScript({ workDir, goFile }) {
     `printf '%s' "$*" > "${workDir}/argv.txt"`,
     `cat > "${workDir}/stdin.txt"`,
     `cp "$OPENCODE_CONFIG" "${workDir}/seen-config.json" 2>/dev/null || true`,
-    `env | grep -E '^(OPENCODE_|AGENTHOOK_|ANTHROPIC_|SSH_AUTH_SOCK)' > "${workDir}/env.txt" || true`,
+    `env | grep -E '^(OPENCODE_|AGENTHOOK_|ANTHROPIC_|SSH_AUTH_SOCK|GITHUB_)' > "${workDir}/env.txt" || true`,
     `touch "${workDir}/started"`,
     `while [ ! -f ${goFile} ]; do sleep 0.02; done`,
     `echo '{"type":"step_finish","sessionID":"sess-1","part":{"tokens":{"input":120,"output":40,"cache":{"read":0,"write":0}},"cost":0}}'`,
@@ -162,7 +162,7 @@ test("ssh executor + opencode.remote: worker argv carries no prompt, the prompt 
       cwd: workDir,
       logPath: path.join(root, "run.log"),
       verdictFile,
-      env: { OPENCODE_API_KEY: "hub-secret-must-not-cross", ANTHROPIC_API_KEY: "also-must-not-cross" },
+      env: { OPENCODE_API_KEY: "hub-secret-must-not-cross", OPENCODE_FOO: "bar", ANTHROPIC_API_KEY: "also-must-not-cross", GITHUB_TOKEN: "tracker-token-must-not-cross" },
       sandboxed: { ref: "9", stepId: "code", step: {}, mounts: [], files: own.files, env: own.env },
       executor,
     });
@@ -201,7 +201,9 @@ test("ssh executor + opencode.remote: worker argv carries no prompt, the prompt 
     assert.match(env, /^OPENCODE_DISABLE_AUTOUPDATE=1$/m);
     assert.match(env, /^OPENCODE_DISABLE_MODELS_FETCH=1$/m);
     assert.ok(!env.includes("OPENCODE_API_KEY"), "the hub's own OPENCODE_API_KEY must never cross");
+    assert.ok(!env.includes("OPENCODE_FOO"), "a hub-side OPENCODE_* value unrelated to the hook's return must never cross");
     assert.ok(!env.includes("ANTHROPIC_API_KEY"), "ANTHROPIC_* must never cross");
+    assert.ok(!env.includes("GITHUB_TOKEN"), "tracker tokens must never cross");
     assert.ok(!env.includes("SSH_AUTH_SOCK") || !process.env.SSH_AUTH_SOCK, "no agent-forward socket unless the host itself had one");
 
     assert.ok(fs.existsSync(hubVerdictFile), "the verdict must be copied back to the hub");
@@ -383,6 +385,74 @@ test("dispatch: a worktree step on an opencode remote harness runs through step.
     assert.equal(usage[0].input, 10);
     assert.equal(usage[0].output, 5);
   } finally {
+    ssh.restore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("dispatch: a remote opencode harness with no remote.bin defaults the worker bin to the agent's own default — a fake `opencode` on the worker PATH runs, not `claude`", async () => {
+  const ssh = withFakeSsh();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ssh-oc-defaultbin-"));
+  const workDir = path.join(root, "work");
+  const repoPath = path.join(root, "repo");
+  fs.mkdirSync(workDir, { recursive: true });
+  initGitRepo(repoPath);
+  // The fake ssh runs `sh -c <launcher>` locally with the test's own PATH, so a directory
+  // holding an executable literally named `opencode` stands in for the worker's installed CLI.
+  const bins = path.join(root, "bins");
+  fs.mkdirSync(bins, { recursive: true });
+  const marker = path.join(workDir, "argv0.txt");
+  fs.writeFileSync(
+    path.join(bins, "opencode"),
+    [
+      `#!/bin/sh`,
+      `printf '%s' "$0" > "${marker}"`,
+      `printf ' %s' "$*" >> "${marker}"`,
+      `cat > /dev/null`,
+      `[ -f "$OPENCODE_CONFIG" ] || { echo "no OPENCODE_CONFIG" >&2; exit 1; }`,
+      `echo '{"type":"step_finish","sessionID":"s2","part":{"tokens":{"input":7,"output":3,"cache":{"read":0,"write":0}},"cost":0}}'`,
+      `mkdir -p "$(dirname "$AGENTHOOK_VERDICT_FILE")"`,
+      `echo '{"outcome":"advance","reason":"ok"}' > "$AGENTHOOK_VERDICT_FILE"`,
+      `exit 0`,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bins}${path.delimiter}${savedPath}`;
+  try {
+    const cfg = /** @type {any} */ ({
+      pipeline: [{ id: "code", harness: "worker" }],
+      harnesses: { worker: { agent: "opencode", remote: { host: "worker.test", workDir } } },
+      repoPath,
+      stateKey: "p",
+      stateDir: root,
+      dataDir: root,
+      logDir: root,
+      instructionsFile: path.join(root, "none.md"),
+    });
+    const store = createStore(root);
+    const advanceCalls = [];
+    const adapter = /** @type {any} */ ({
+      describe: () => ({ platform: "GitHub", taskNoun: "issue", trigger: "@agent", commentHowTo: "comment" }),
+      fetchTask: async (ref) => ({ ref, name: "t", description: "d", url: "https://example.test/1", completed: false, assignedToUs: true }),
+      advance: async (...a) => advanceCalls.push(a),
+    });
+    const run = createDispatcher(cfg, adapter, undefined, store, () => {}, null, undefined, { killGraceMs: 300 });
+    const l = console.log;
+    console.log = () => {};
+    let result;
+    try {
+      result = await run({ kind: "pipeline", ref: "78", stepId: "code", dedupKey: "k:78", harness: "worker" });
+    } finally {
+      console.log = l;
+    }
+    assert.equal(result.code, 0, JSON.stringify(result));
+    assert.equal(advanceCalls.length, 1, "the fake opencode's verdict must route the run");
+    assert.ok(fs.existsSync(marker), "the fake `opencode` binary on the worker PATH must actually run");
+    const argv0 = fs.readFileSync(marker, "utf8");
+    assert.match(argv0, /\/opencode run --format json/, `the worker argv[0] must be opencode, not claude: ${argv0}`);
+  } finally {
+    process.env.PATH = savedPath;
     ssh.restore();
     fs.rmSync(root, { recursive: true, force: true });
   }
