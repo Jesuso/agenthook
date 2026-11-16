@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+**Upgrading from 0.15** — nothing to migrate, three behaviours to know about:
+
+- A `pause`, and a per-harness slot limit set at runtime, now **survive a restart**. Before, a
+  restart cleared them. `agenthook status` and `doctor` show them; `agenthook unpause` and
+  `agenthook concurrency` undo them.
+- With `harnesses` configured, quota pacing closes **only the harnesses that share the exhausted
+  subscription**, until it resets. Before, it paused the whole receiver. A profile without
+  `harnesses` behaves as before.
+- A harness that is the only harness of some step keeps one slot back from steps that list it as
+  one option among several. `doctor` prints the effective reserve; `harnesses.<name>.reserve: 0`
+  turns it off.
+
+Remote harnesses (`harnesses.<name>.remote`) are **experimental**: tested against a simulated ssh,
+not yet against a real worker.
+
 ### Added
 
 - A remote harness (`harnesses.<name>.remote`) can now run `opencode` on the worker, not just
@@ -156,12 +171,12 @@ All notable changes to this project are documented here. The format is based on
   [docs/remote.md](docs/remote.md): the trust model, worker setup, what never crosses, and
   current limits, linked from `README.md`, `docs/local-models.md` and the portable skill's
   `setup.md`.
-- Web UI: a **Board** tab on the profile page's ticket section (#697, ticket 1 of 3 of #696),
-  beside the existing table (now **Table**, still the default): one box per pipeline step holding
-  its running/queued tickets, joined by the Config graph's own connectors, plus a **Done today**
-  box and an **Other** box for stray tickets. Needs you sits fixed above it. A step's "+N more"
-  switches to Table with a new ticket step filter. No new server endpoint — reuses `GET
-  /api/config` and `GET /api/discover`. Stacks (no connectors) below 1024px. A box header shows the step name and its running/queued count.
+- Web UI: the profile Overview is now a board and uses the whole window (#696, #697, #746). One
+  row per ticket with the pipeline's steps as columns: each row is drawn up to the step its ticket
+  is in, with a mark for running, waiting, held or failed. The tickets that need you come first,
+  with their action on the row. What finished today is one count, opened on request. The catch-up
+  digest, progress figures and activity sit beside the board on a wide window and below it on a
+  narrow one. Stats, Epics, Instructions and Config use the whole window too.
 - A "New ticket" action on the web UI's profile overview for local-board profiles (#698): a button
   (and the `n` key) opens a dialog with a title, an optional markdown body, the starting step
   (defaulting to the pipeline's first non-manual step), and optional comma-separated blockers. It
