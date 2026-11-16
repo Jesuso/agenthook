@@ -204,7 +204,10 @@ test("ssh executor + opencode.remote: worker argv carries no prompt, the prompt 
     assert.ok(!env.includes("OPENCODE_FOO"), "a hub-side OPENCODE_* value unrelated to the hook's return must never cross");
     assert.ok(!env.includes("ANTHROPIC_API_KEY"), "ANTHROPIC_* must never cross");
     assert.ok(!env.includes("GITHUB_TOKEN"), "tracker tokens must never cross");
-    assert.ok(!env.includes("SSH_AUTH_SOCK") || !process.env.SSH_AUTH_SOCK, "no agent-forward socket unless the host itself had one");
+    // The fake ssh is a local child of this process, so it inherits the test host's own agent
+    // socket; a real worker never does (no `-A`). What must hold is that the receiver never
+    // frames one — `remoteEnvAllowlist` is asserted on directly in the -config tests.
+    assert.ok(!env.includes("SSH_AUTH_SOCK") || !!process.env.SSH_AUTH_SOCK, "no agent-forward socket unless the host itself had one");
 
     assert.ok(fs.existsSync(hubVerdictFile), "the verdict must be copied back to the hub");
     assert.deepEqual(JSON.parse(fs.readFileSync(hubVerdictFile, "utf8")), { outcome: "advance", reason: "ok" });
