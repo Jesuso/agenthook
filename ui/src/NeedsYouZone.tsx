@@ -8,6 +8,7 @@ import { prNumber } from "./tickets";
 import type { ReleaseOutcome } from "./config";
 import { ReleasePanel } from "./ReleasePanel";
 import { BoardFrame, ROW, SUBGRID, StepName, Track } from "./Departures";
+import { useArrivals } from "./motion";
 import { Ago, Menu, Pill, SpeakButton, TicketId } from "./components";
 import type { MenuItem } from "./components";
 import { useT } from "./i18n/react";
@@ -64,6 +65,9 @@ export function needsSpeech(item: NeedsItem, tr: T, lang: string): string {
 export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDismiss, onRelease, onRetry, onRecheck, onCloseOnBoard, board }: { board?: NeedsBoard; items: NeedsItem[]; attention: HarnessAttentionItem[]; profile: string; up: boolean; now: number; onOpen: (t: Ref) => void; onDismiss: (t: Ref) => void; onRelease: (t: Ref, comment: string) => Promise<ReleaseOutcome>; onRetry: (t: Ref) => Promise<ReleaseOutcome>; onRecheck?: (profile: string, ref: string | null) => Promise<ReleaseOutcome>; onCloseOnBoard?: (t: Ref) => Promise<ReleaseOutcome> }) {
   const { t: tr, lang } = useT();
   const [releasing, setReleasing] = useState<string | null>(null);
+  // The one place motion asks for attention: a row that starts needing the operator is washed
+  // once. Arrived while the tab was in the background → washed when the operator comes back.
+  const called = useArrivals([...attention.map((a) => `harness:${a.harness}`), ...items.map((i) => i.ticket.ref)], 1600, "defer");
   // Per-ref re-run progress. "started" holds until the row leaves (the receiver's enqueued event).
   const [retries, setRetries] = useState<Record<string, Retry>>({});
   const retry = (t: TicketRow) => {
@@ -154,7 +158,7 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
   );
   const rows = (
       <ul data-needs-you-zone className={`divide-y divide-border-subtle ${board ? SUBGRID : "overflow-hidden rounded-lg border border-border bg-surface"}`}>
-        {attention.map((a) => <HarnessAttentionRow key={a.harness} item={a} wide={!!board} />)}
+        {attention.map((a) => <HarnessAttentionRow key={a.harness} item={a} wide={!!board} called={called.has(`harness:${a.harness}`)} />)}
         {items.map((item) => {
           const { ticket: t, kind, since } = item;
           // The agent's plain sentence leads when it wrote one; the full reason moves to the tooltip.
@@ -181,7 +185,7 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
             </button>
           );
           return (
-            <li key={t.ref} data-needs-row={t.ref} data-kind={kind} className={board ? `${SUBGRID} ${TINT[kind]}` : undefined}>
+            <li key={t.ref} data-needs-row={t.ref} data-kind={kind} data-called={called.has(t.ref) || undefined} className={`${board ? `${SUBGRID} ${TINT[kind]}` : ""} ${called.has(t.ref) ? "needs-arrive" : ""}`}>
               {/* Narrow (a half-width window, a phone) the row stacks: kind, id and age on one line with
                   the title and its reason beside them, then its step and the action on a second line,
                   instead of squeezing to "…". */}
@@ -200,7 +204,7 @@ export function NeedsYouZone({ items, attention, profile, up, now, onOpen, onDis
                 ) : (
                   titleButton("min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-accent max-sm:order-last max-sm:basis-full", "block truncate text-label text-muted")
                 )}
-                {board && <Track columns={board.columns} step={t.step} mark={kind === "pr" ? "pr" : kind} />}
+                {board && <Track columns={board.columns} step={t.step} mark={kind === "pr" ? "pr" : kind} id={`${t.profile}:${t.ref}`} />}
                 <span className={board ? "whitespace-nowrap text-label text-muted" : "w-32 shrink-0 whitespace-nowrap text-right text-label text-muted max-sm:ml-auto max-sm:w-auto"}>
                   {!board && t.step ? `${t.step} · ` : ""}
                   <Ago iso={since} seed={now} />
@@ -294,10 +298,10 @@ function clockTime(iso: string): string {
  * is a diagnosis (name, pill, reason, until) plus the fix: run `harness_reset`. It disappears on
  * its own once `harness_up` fires — there is nothing to dismiss or click.
  */
-function HarnessAttentionRow({ item, wide }: { item: HarnessAttentionItem; wide: boolean }) {
+function HarnessAttentionRow({ item, wide, called }: { item: HarnessAttentionItem; wide: boolean; called?: boolean }) {
   const { t: tr } = useT();
   return (
-    <li data-needs-row={`harness:${item.harness}`} data-kind="harness" data-harness-state={item.state} className={wide ? `col-span-full ${TINT.failed}` : undefined}>
+    <li data-needs-row={`harness:${item.harness}`} data-kind="harness" data-harness-state={item.state} className={`${wide ? `col-span-full ${TINT.failed}` : ""} ${called ? "needs-arrive" : ""}`}>
       <div className="flex items-center gap-3 px-3 py-2 max-sm:flex-wrap max-sm:gap-y-1">
         <span className="w-[4.5rem] shrink-0 max-sm:w-auto">
           <Pill tone="failed">{tr(item.state === "down" ? "needs.harnessDown" : "needs.harnessProbing")}</Pill>

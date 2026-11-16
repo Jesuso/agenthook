@@ -343,6 +343,17 @@ follows this anatomy.
 ### Slot pips (signature)
 A row of small dots showing busy versus free agent slots for a profile, beside "n / max".
 
+## Motion
+Motion says one of three things and nothing else; each plays once, none loops.
+- **It answers you** (120–260 ms): a section you opened, a tab or view you picked, a step card you
+  expanded, the ticket drawer. A short fade; the drawer slides in from its edge.
+- **Something changed while you watched**: a ticket that changes step slides its mark to the new
+  column (420 ms); a row that turns up fades in. Never on the first paint, never in a hidden tab.
+- **It needs you**: a row that starts needing the operator is washed once in the held hue. This is
+  the only motion that asks for attention; if the tab was in the background it plays on return.
+The running dot's pulse and the epic bar's stripes are the only standing motion. Under reduced
+motion nothing travels: fades stay, slides and the drawer's travel go.
+
 ## Do's and Don'ts
 
 ### Do:
