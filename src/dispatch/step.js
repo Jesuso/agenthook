@@ -189,7 +189,7 @@ export function createStep(ctx) {
     // prompt, AGENTHOOK_VERDICT_FILE); for host/sandbox that's also the file the hub reads, but a
     // remote executor's agent-facing path lives on the worker, so `hubVerdictFile` names the local
     // copy `done()` writes back — every hub-side read/guard/clear below targets that instead.
-    const { cwd, worktree: promptWorktree, verdictFile, hubVerdictFile } = executor.paths({ stepId: step.id, ref: job.ref, worktree, hasWorktree, repoPath: repo.path });
+    const { cwd, worktree: promptWorktree, verdictFile, hubVerdictFile, configDir: remoteConfigDir } = executor.paths({ stepId: step.id, ref: job.ref, worktree, hasWorktree, repoPath: repo.path });
     const localVerdictFile = hubVerdictFile ?? verdictFile;
     // Clear any stale one first so a crashed prior run can't leave a verdict the agent didn't
     // write this time. A sandboxed run gets its own dir — the only part of the state dir its
@@ -340,6 +340,26 @@ export function createStep(ctx) {
       // export instead.
       const hub = { repoId: repo.id, repoPath: repo.path, ...(hasWorktree ? { worktree, branch } : {}) };
       sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts: [], hub };
+      // An agent with a `remote` hook (opencode, #739) needs files/env on the worker beyond the
+      // synced code — the contract/standing files and a generated OpenCode config pointed at by
+      // `OPENCODE_CONFIG`, written into the per-run dir the ssh executor's `paths()` computed.
+      // claude has no `remote` hook, so this is a no-op for it — same as before this feature.
+      if (agent.remote) {
+        try {
+          const own = agent.remote({ cfg, step: spawnStep, dir: /** @type {string} */ (remoteConfigDir), verdictFile, standing });
+          sandboxedRun = { ...sandboxedRun, env: own.env, ...(own.files ? { files: own.files } : {}) };
+          // #731: the standing text is already in a remote `instructions` file — drop it from the
+          // run prompt so the model doesn't see it twice, same dedupe the sandbox branch does.
+          if (own.standingInInstructions) prompt = `=== TICKET ===\n\n${base}`;
+        } catch (e) {
+          refused = `remote setup failed: ${e.message}`;
+          try {
+            fs.appendFileSync(logPath, `[agenthook] ${refused}\n`);
+          } catch {
+            /* best effort */
+          }
+        }
+      }
     }
     // Energy (#396): only an opted-in step that actually spawns is sampled; a remote run's power
     // draw is the worker's, not this host's.

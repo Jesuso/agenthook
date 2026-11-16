@@ -111,8 +111,9 @@ runs are never stored there).
 A harness with `remote: {host, user?, port?, identityFile?, workDir, bin?}` runs its agent under
 `<workDir>/.agenthook/<stateKey>/…` on that worker. Config validation refuses a step on a remote
 harness outright when: the step is sandboxed; per-run GitHub App credentials would be minted for
-it (scoped to the hub, not the worker); its effective agent isn't `claude`; or `tracker.type`
-isn't `local`.
+it (scoped to the hub, not the worker); its effective agent isn't `claude` or `opencode` (#739);
+or `tracker.type` isn't `local`. `remote.bin` defaults to the resolved agent's own `defaults.bin`
+(`defaultBin` on `launch()`), never a hard-coded `"claude"`.
 
 **Code transport (#690).** The hub worktree stays the only real copy. `paths({stepId, ref,
 hasWorktree})` returns a *deterministic per-ref(+step)* worker path — `worktrees/<ref>` when
@@ -161,15 +162,37 @@ verdict gets the same untrusted-writer guard (`guardSandboxVerdict`) a sandboxed
 `step.js`'s `branchHead`/`commitsSince` (deduced-verdict, #680) read the HUB worktree, not
 `executor.paths().cwd` — by the time they run, `done()` has already fast-forwarded it.
 
-`launch()` never puts the prompt in argv, on either side of the connection: `claude`'s own
-`-p <prompt>` becomes `-p` with the prompt dropped, and the dropped text plus a strict env
-allowlist (`AGENTHOOK_*` run metadata, `TERM`/`LANG`/`CI` from the receiver's own env — nothing
-else, never a tracker/forge token, a per-run App token, `ANTHROPIC_*`/`CLAUDE_*`, or
-`SSH_AUTH_SOCK`) travel framed over the ssh client's own stdin instead (`framePayload`: an env
-header then a byte-length-prefixed prompt, so any prompt content is safe). `shQuote` (POSIX
-single-quote) quotes every element of the trailing ssh argv — ssh joins them with spaces before
-the remote shell parses the line, so each one must already be a shell token on its own. The ssh
-argv itself is always `-T -o BatchMode=yes` (+ `-p`/`-i`/`-l` as configured) — never `-A`.
+`launch()` never puts the prompt in argv, on either side of the connection: it's given the exact
+`prompt` string `spawn.js` built `args` from, and removes that element — index 1 (`claude`'s own
+`-p <prompt>`) or the final element (`opencode`'s trailing positional, behind `--`) — rather than
+assuming either shape by agent name; a mismatch throws, refusing the run instead of risking the
+prompt leaking into the worker's argv. The dropped text plus a strict env allowlist (`AGENTHOOK_*`
+run metadata, `TERM`/`LANG`/`CI` from the receiver's own env, plus — #739 — an explicit, named
+`remoteEnv` addition of exactly whatever keys an `AgentAdapter.remote` hook returned, never a
+prefix passthrough — nothing else, never a tracker/forge token, a per-run App token,
+`ANTHROPIC_*`/`CLAUDE_*`/the hub's own `OPENCODE_*`, or `SSH_AUTH_SOCK`) travel framed over the
+ssh client's own stdin instead (`framePayload`: an env header, then — only when the hook returned
+`files` — a file-count header and each file's path/mode/bytes, then a byte-length-prefixed prompt;
+an empty `files` array adds nothing, so `claude`'s own frame is byte-for-byte unchanged). `shQuote`
+(POSIX single-quote) quotes every element of the trailing ssh argv — ssh joins them with spaces
+before the remote shell parses the line, so each one must already be a shell token on its own. The
+ssh argv itself is always `-T -o BatchMode=yes` (+ `-p`/`-i`/`-l` as configured) — never `-A`.
+
+**OpenCode on the worker (#739).** `AgentAdapter.remote({cfg, step, dir, verdictFile, standing})`
+(opencode's hook; claude has none) returns the same shape as the sandbox hook's `files`/`env`/
+`standingInInstructions`, but for a per-run directory on the worker (`paths().configDir`,
+deterministic per ref+step like `verdictDir`, outside the synced worktree/export dir) instead of a
+container HOME — the contract/standing files plus a generated `opencode.json` (any `opencodeConfig`
+read and validated on the **hub**, same cap as the sandbox) whose `instructions` name both as
+absolute worker paths, and `env: {OPENCODE_CONFIG: <that config>, OPENCODE_DISABLE_AUTOUPDATE: "1",
+OPENCODE_DISABLE_MODELS_FETCH: "1"}`. `OPENCODE_CONFIG` merges on top of the worker's own global
+config rather than replacing `HOME`, so the worker's own login/session db/model endpoint keep
+working. `step.js`'s remote branch calls the hook (when present) with `executor.paths().configDir`
+and puts the result on `sandboxedRun.files`/`.env`, reusing the exact same `executor.launch()`
+plumbing `files`/`sandboxed.env` already had for the sandbox path — a throw there refuses the run
+("remote setup failed: …"). The launcher script writes the files to disk (via `head -c`, from the
+same stdin frame) before starting the agent, and removes the directory on every exit path, plus a
+hub-side `done()` best-effort removal and a `reap()` sweep for anything a dropped connection missed.
 
 A small inline POSIX-sh script on the worker reads that framed stdin, `export`s the env, puts the
 agent in its own process group (`setsid`; the group's pgid is written to

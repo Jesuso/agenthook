@@ -550,21 +550,34 @@
  * (src/dispatch/executor.js).
  * @typedef {object} Executor
  * @property {'host'|'sandbox'|'ssh'|string} name
- * @property {(o: {stepId: string, ref: string, worktree: string, hasWorktree: boolean, repoPath: string}) => {cwd: string, worktree: string|undefined, verdictFile: string, hubVerdictFile?: string}} paths
+ * @property {(o: {stepId: string, ref: string, worktree: string, hasWorktree: boolean, repoPath: string}) => {cwd: string, worktree: string|undefined, verdictFile: string, hubVerdictFile?: string, configDir?: string}} paths
  *   the run's paths AS THE AGENT SEES THEM. For host and sandbox these equal the hub's own
  *   `worktree`/`repoPath` (host: `verdictPathFor`; sandbox: `sandboxVerdictPathFor`), and
- *   `hubVerdictFile` is unset — the agent-facing and hub-facing verdict path are the same file.
+ *   `hubVerdictFile`/`configDir` are unset — the agent-facing and hub-facing verdict path are the same file.
  * `ssh`'s `cwd`/`verdictFile` are paths on the remote worker (a deterministic per-ref(+step)
  *   worktree or export dir under the harness's `remote.workDir`, #690 — not `remote.workDir`
  *   itself, so a verdict-repair resume turn relaunches into the same cwd); `hubVerdictFile` is
- *   the local copy target `done()` writes the remote verdict back to, which the hub actually reads.
- * @property {(o: {runId: string, ref: string, stepId: string, bin: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}, raw?: boolean}) => Promise<ExecutorRun>} launch
+ *   the local copy target `done()` writes the remote verdict back to, which the hub actually
+ *   reads; `configDir` (#739) is a deterministic per-ref(+step) directory on the worker, outside
+ *   the synced worktree/export dir, an `AgentAdapter.remote` hook's returned `files` are written
+ *   under — removed by `done()`/`reap()`, never synced back.
+ * @property {(o: {runId: string, ref: string, stepId: string, bin: string, defaultBin?: string, args: string[], env: Record<string, string>, cwd: string, mounts: SandboxMount[], step: Step, egress?: SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}, raw?: boolean, prompt?: string, remoteEnv?: Record<string, string>}) => Promise<ExecutorRun>} launch
  *   `hub` (ssh only, #690): the HUB-side repo/worktree this run's code should be synced from/to
  *   before/after the run — `worktree`+`branch` set only for a worktree step; absent entirely for
  *   a launch with no code to sync (e.g. the low-level unit tests of this module)
  *   `raw` (ssh only, #710's gate): run the given `bin`/`args` on the worker verbatim (no prompt
  *   pulled off argv onto stdin) and never fetch the worker's edits back in `done()` — only host/
  *   sandbox/ssh-with-`raw` may run a gate; any other executor name refuses one
+ *   `prompt`/`defaultBin` (ssh only, #739): the exact prompt string `args` was built from (ssh
+ *   removes exactly that element from `args` — index 1 (claude's `-p <prompt>`) or the last
+ *   element (opencode's trailing positional) — rather than assuming a fixed shape; a mismatch
+ *   throws, refusing the run instead of risking the prompt leaking into the worker's argv) and
+ *   the resolved agent's own default bin (used as `remote.bin || defaultBin`, never a hard-coded
+ *   `"claude"`); host/sandbox ignore both.
+ *   `remoteEnv` (ssh only, #739): exactly the keys an `AgentAdapter.remote` hook returned (e.g.
+ *   opencode's `OPENCODE_CONFIG`) — added to the worker env allowlist by name, never scanned as a
+ *   prefix off `env` itself, so no hub-side env value with a matching name crosses just because
+ *   it's present on the hub.
  * @property {() => Promise<{containers: string[], networks: string[], runs: string[]}>} [reap]  force-remove anything this executor left running (sandbox: containers/networks; ssh: remote pgids, worktrees and exports under every run's harness `workDir`, #690)
  */
 
@@ -614,6 +627,7 @@
  * @property {(ctx: {cfg: Pick<Config, 'stateDir'|'dataDir'>, step: Step, provider?: string, sandboxed?: boolean, env?: Record<string, string>}) => string|undefined} [preflight]  run before spawn: a returned reason fails the run with no agent spawned (hermes: prepare the isolated home, refuse a provider it has no credentials for; claude: refuse a sandboxed run with no credential var in `env`, the spawn env)
  * @property {(env: Record<string, string>) => string[]} [egressHosts]  egress rules for the model API a run with this spawn env talks to (claude: api.anthropic.com, ANTHROPIC_BASE_URL's host, Bedrock/Vertex); a sandboxed run's allowlist includes them
  * @property {(ctx: {cfg: Config, step: Step, cwd: string, ownsCwd: boolean, home: string, verdictFile?: string, standing?: string}) => {mounts: SandboxMount[], env?: Record<string, string>, files?: {dst: string, content: string, mode?: number}[], standingInInstructions?: boolean}} [sandbox]  what a sandboxed run of this agent needs beyond the worktree (claude: its one transcript dir, under the container `home`; opencode: its `opencodeConfig` plus, when `verdictFile` is given, an unattended-contract file wired into `instructions`, and optionally a second standing-instructions file `agenthook-standing.md` if `standing` is provided and ≤ 16 KB, both written via `files`). `ownsCwd` = cwd is the run's own worktree; false = the operator's main checkout, so nothing keyed by it on the host may be mounted. `files[].dst` is an absolute container path under `home`, written into the per-run sandbox HOME (never mounted — it's gone at teardown). `verdictFile` is the agent-visible path the run must write its verdict JSON to. `standingInInstructions: true` = the standing text was written to a `files` entry wired into `instructions`, so dispatch drops it from the run prompt (deduped, not doubled). An agent without a `sandbox` hook is refused when sandboxed
+ * @property {(ctx: {cfg: Config, step: Step, dir: string, verdictFile: string, standing?: string}) => {files: {dst: string, content: string, mode?: number}[], env: Record<string, string>, standingInInstructions?: boolean}} [remote]  what a remote-harness run (#689/#739) of this agent needs on the worker beyond the synced code: `dir` is a per-run directory on the WORKER (the ssh executor's `paths().configDir`) the returned `files[].dst` paths must sit under — unlike `sandbox`'s `home`, there's no container teardown, so the executor itself removes `dir` after the run. `env` is an explicit, named addition to the worker env allowlist (never a prefix passthrough) — exactly the keys this run needs (opencode: `OPENCODE_CONFIG` pointing at a generated config in `dir`, plus `OPENCODE_DISABLE_AUTOUPDATE`/`OPENCODE_DISABLE_MODELS_FETCH`). `standingInInstructions` means the same as `sandbox`'s own. An agent with no `remote` hook can still run on a remote harness with no extra files/env (today: none do — claude needs none either). Throwing refuses the run ("remote setup failed: …") rather than spawning
  * @property {(ctx: {sessionId: string, bin: string, env: Record<string, string>, dir: string, timeoutMs: number}) => Promise<{input?: number, output?: number, cacheRead?: number, cacheCreate?: number, model?: string}|null>} [finalize]  best-effort, post-exit, bounded token capture (hermes: `sessions export`); may throw or return null — dispatch never lets it affect the verdict
  * @property {{requireVerdict?: boolean, bin?: string}} defaults  step `requireVerdict` / `bin` win over these
  * @property {string[]} [envPassthrough]  receiver env vars (NAME or PREFIX*) this CLI needs, added to the agent env allowlist (src/agent-env.js): auth keys, config vars
@@ -747,7 +761,7 @@
  * @property {number} [port]          ssh port; default 22
  * @property {string} [identityFile]  path to a private key, passed as ssh `-i`
  * @property {string} workDir         absolute path on the worker the agent runs in
- * @property {string} [bin]           the agent CLI on the worker; default "claude"
+ * @property {string} [bin]           the agent CLI on the worker; default the resolved agent's own bin ("claude" or "opencode")
  */
 
 /** A factory `(cfg, store) => Forge`.

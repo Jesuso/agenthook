@@ -116,7 +116,7 @@ export const CONFIG_SCHEMA = [
   entry("harnesses.*.remote.port", "number", "Port", "basics", "ssh port.", { min: 1, max: 65535, default: 22, advanced: true }),
   entry("harnesses.*.remote.identityFile", "string", "Identity file", "basics", "Path to a private key, passed as ssh -i.", { advanced: true, sensitive: true }),
   entry("harnesses.*.remote.workDir", "string", "Work dir", "basics", "Absolute path on the worker the agent runs in; its code and branches are the worker's own.", { advanced: true }),
-  entry("harnesses.*.remote.bin", "string", "Agent binary", "basics", "The agent CLI on the worker (a name on PATH or an absolute path); default \"claude\".", { advanced: true, sensitive: true }),
+  entry("harnesses.*.remote.bin", "string", "Agent binary", "basics", "The agent CLI on the worker (PATH name or absolute path); default the resolved agent's own.", { advanced: true, sensitive: true }),
 
   // Repos
   entry("repoPath", "string", "Repo path", "repos", "The checkout agents work in (single-repo profiles); relative to the config file."),

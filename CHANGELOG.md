@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- A remote harness (`harnesses.<name>.remote`) can now run `opencode` on the worker, not just
+  `claude` (#739). It gets the same unattended contract and standing-instructions files a
+  sandboxed local OpenCode run gets, plus any `opencodeConfig`, written into a per-run directory
+  on the worker and pointed at by `OPENCODE_CONFIG` — which OpenCode merges on top of the worker's
+  own global config, so its login, session database and model endpoint (incl. a local model
+  server on the worker's own loopback) stay the worker's own. The prompt still never touches
+  argv on either side of the connection; the agent's own stdin and a strict, named env allowlist
+  carry it and the three OpenCode-specific keys instead. `remote.bin` now defaults to the resolved
+  agent's own binary (`claude` or `opencode`), not a hard-coded `"claude"`. `agenthook doctor`
+  probes the harness's actual resolved agent bin, with an OpenCode-specific install hint, and
+  skips the claude-only credential probe for an opencode harness. See
+  [docs/remote.md](docs/remote.md#opencode-on-the-worker).
+
 - `agenthook reload` (and the `reload` control op / MCP tool) re-reads and validates the config,
   then applies its reloadable keys — `maxConcurrent`, `quota`, `sandbox.egress`, harnesses (add/
   remove/rename/any field except `remote`), and per-step spawn knobs (`harness`, `routing`,
