@@ -1,23 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import type { ProfileView, Snapshot, StatsGroup, StatsResult, TicketRow } from "./contract";
+import type { ProfileView, Snapshot, StatsGroup, StatsResult } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatSpend, ticketTitle } from "./format";
+import { formatCost, formatSpend } from "./format";
 import { harnessStatsUrl } from "./stats";
 import { scopeToProfile } from "./summary";
-import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, nowItems, progress } from "./zones";
+import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
 import { NeedsYouZone, needsSpeech } from "./NeedsYouZone";
 import type { Ref } from "./NeedsYouZone";
-import { BoardView } from "./BoardView";
-import { readBoardTab, writeBoardTab } from "./board";
-import type { BoardTab } from "./board";
+import { BoardHead, BoardRows, usePipelineSteps } from "./Departures";
+import { board as boardOf } from "./board";
 import { DigestPanel } from "./DigestPanel";
 import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
-import { CopyCommand, Elapsed, Menu, Pill, ProfileMark, ReceiverStatus, Segmented, ShortcutSheet, ShortcutsButton, ShowHide, TicketId, Waiting } from "./components";
+import { CopyCommand, Menu, ProfileMark, ReceiverStatus, ShortcutSheet, ShortcutsButton, ShowHide } from "./components";
 import type { MenuItem } from "./components";
 import type { ReleaseOutcome } from "./config";
 import { dismissKey } from "./deferredDismiss";
@@ -67,10 +66,12 @@ export type OverviewProps = {
 };
 
 /**
- * One profile's dashboard (docs/web-ui.md § v4), in the order a glance needs it: Needs you leads
- * (its count is the page's headline; empty says "All clear"), then Now (running agents, slots,
- * queue), the digest, and Progress (today vs yesterday over the events tail). The full ticket table
- * and the live activity feed are collapsed drill-downs.
+ * One profile's dashboard (docs/web-ui.md § v4), using the whole window. The board leads: the
+ * Needs-you count is the page's headline (empty says "All clear"), and under it one row per ticket
+ * — the ones that need you first, then what runs and what waits — each marked on the pipeline step
+ * it is in. Beside the board on a wide screen (below it otherwise): the digest, Progress (today vs
+ * yesterday over the events tail) and the live activity. The full ticket table is a collapsed
+ * drill-down under the board.
  */
 export function Overview(props: OverviewProps) {
   const { profile, snapshot, now, feed, onOpen } = props;
@@ -80,22 +81,29 @@ export function Overview(props: OverviewProps) {
   const needs = needsYouItems(scoped.tickets, forge, lang).filter((n) => !props.dismissing?.has(dismissKey(n.ticket)));
   const attention = harnessAttention(profile);
   const needsCount = attention.length + needs.length;
-  const { running, queued } = nowItems(scoped.tickets);
   const prog = progress(profile, scoped.tickets, now);
   const [help, setHelp] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
-  const [tab, setTab] = useState<BoardTab>(() => readBoardTab());
+  const pipeline = usePipelineSteps(profile.name, lang);
+  // Until the steps are known (or when they can't be read) the rows still list, each naming its step.
+  const board = boardOf(scoped.tickets, pipeline.kind === "ok" ? pipeline.ids : [], pipeline.kind === "ok" ? pipeline.manual : [], now, forge);
+  const free = profile.up ? Math.max(0, (profile.maxConcurrent ?? 0) - board.runningCount) : 0;
   const [newTicket, setNewTicket] = useState(false);
   const [blockedNotice, setBlockedNotice] = useState<{ ref: string; by: string[] } | null>(null);
   const newTicketBtn = useRef<HTMLButtonElement>(null);
   const filtered = props.statusFilter !== "" || props.epicFilter !== "" || props.stepFilter !== "";
   const ticketsShown = ticketsOpen || filtered;
-  // A filter forces the Table tab (it's the only one a status/epic/step filter can show), the same
-  // way it auto-opens the section; otherwise the browser's last choice (default Table).
-  const effectiveTab: BoardTab = filtered ? "table" : tab;
-  const selectTab = (v: BoardTab) => {
-    setTab(v);
-    writeBoardTab(v);
+  // Hiding a filtered table drops the filter too: a filter is what holds it open.
+  const hideOrShowTickets = () => {
+    if (filtered) {
+      props.setStatusFilter("");
+      props.setEpicFilter("");
+      props.setStepFilter("");
+    }
+    setTicketsOpen(!ticketsShown);
+  };
+  const openStatusInTable = (status: string) => {
+    props.setStatusFilter(status);
     setTicketsOpen(true);
   };
   const openStepInTable = (step: string) => {
@@ -116,7 +124,7 @@ export function Overview(props: OverviewProps) {
   }, [needsCount, profile.label]);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8">
+    <div className="flex flex-col gap-6 sm:px-2 2xl:px-4">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
           <ProfileMark p={profile} />
@@ -190,77 +198,72 @@ export function Overview(props: OverviewProps) {
         {needsCount === 0 ? t("overview.liveAllClear") : t("overview.liveNeeds", { count: needsCount })}
       </p>
 
-      {!(ticketsShown && effectiveTab === "board") && <NeedsYouZone items={needs} attention={attention} profile={profile.name} up={profile.up} now={now} onOpen={onOpen} onDismiss={props.onDismiss} onRelease={props.onRelease} onRetry={props.onRetry} onRecheck={props.onRecheck} onCloseOnBoard={props.onCloseOnBoard} />}
+      {/* Wide: the board and its drill-downs on the left, a rail of reading on the right. Narrower,
+          the rail's zones sit side by side under the board, as many as fit. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_clamp(22rem,20vw,30rem)] 2xl:grid-rows-[auto_1fr]">
+        <div data-overview-board className="flex min-w-0 flex-col gap-2">
+          <NeedsYouZone
+            items={needs}
+            attention={attention}
+            profile={profile.name}
+            up={profile.up}
+            now={now}
+            onOpen={onOpen}
+            onDismiss={props.onDismiss}
+            onRelease={props.onRelease}
+            onRetry={props.onRetry}
+            onRecheck={props.onRecheck}
+            onCloseOnBoard={props.onCloseOnBoard}
+            board={{
+              columns: board.columns,
+              head: <BoardHead board={board} free={free} up={profile.up} onStep={openStepInTable} />,
+              rest: <BoardRows board={board} now={now} onOpen={onOpen} onMore={openStatusInTable} />,
+            }}
+          />
+          {pipeline.kind === "error" && <p className="text-meta leading-4 text-muted" data-pipeline-unavailable>{t("board.unavailable")}</p>}
+        </div>
 
-      <NowZone profile={profile} running={running} queued={queued} now={now} onOpen={onOpen} />
+        <aside data-overview-rail aria-label={t("overview.railLabel")} className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] content-start items-start gap-6 2xl:col-start-2 2xl:row-span-2 2xl:row-start-1 2xl:grid-cols-1">
+          <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
+          <ProgressZone prog={prog} profile={profile.name} feed={feed} />
+          <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
+        </aside>
 
-      <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
-
-      <ProgressZone prog={prog} profile={profile.name} feed={feed} />
-
-      <HarnessesZone profile={profile} />
-
-      <div className="flex flex-col gap-3">
-        {/* A filter (set from Stats, Epics, a chip, or the Board's "+N more") opens it and forces
-            Table — the same filter the Board can't show cell-by-cell. */}
-        <section data-all-tickets data-open={ticketsShown} className="rounded-lg border border-border bg-surface">
-          <div className="flex items-center justify-between gap-2 px-3 py-2">
-            <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
-              {t("overview.allTickets")} <span className="font-mono normal-case">{scoped.tickets.length}</span>
-            </h2>
-            <div className="flex items-center gap-2">
-              <Segmented
-                value={effectiveTab}
-                options={[{ value: "board", label: t("board.tabBoard") }, { value: "table", label: t("board.tabTable") }]}
-                onChange={selectTab}
-                disabled={filtered}
-                label={t("overview.allTicketsLabel")}
-              />
-              {!filtered && <ShowHide open={ticketsOpen} onToggle={() => setTicketsOpen(!ticketsOpen)} controls="all-tickets" label={t("overview.allTicketsLabel")} data-tickets-toggle />}
+        <div className="flex min-w-0 flex-col gap-6">
+          <HarnessesZone profile={profile} />
+          {/* A filter (set from Stats, Epics, a chip, a step's name or the board's "+N more") opens it. */}
+          <section data-all-tickets data-open={ticketsShown} className="rounded-lg border border-border bg-surface">
+            <div className="flex items-center justify-between gap-2 px-3 py-2">
+              <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
+                {t("overview.allTickets")} <span className="font-mono normal-case">{scoped.tickets.length}</span>
+              </h2>
+              <ShowHide open={ticketsShown} onToggle={hideOrShowTickets} controls="all-tickets" label={t("overview.allTicketsLabel")} data-tickets-toggle />
             </div>
-          </div>
-          {ticketsShown && (
-          <div id="all-tickets" className="px-3 pb-3">
-            {effectiveTab === "board" ? (
-              <BoardView
-                profile={profile}
+            {ticketsShown && (
+            <div id="all-tickets" className="px-3 pb-3">
+              <TicketsTable
                 tickets={scoped.tickets}
+                profiles={scoped.profiles}
                 now={now}
+                profileFilter={profile.name}
+                onProfileFilter={() => {}}
+                lockProfile
+                statusFilter={props.statusFilter}
+                onStatusFilter={props.setStatusFilter}
+                epicFilter={props.epicFilter}
+                onEpicFilter={props.setEpicFilter}
+                stepFilter={props.stepFilter}
+                onStepFilter={props.setStepFilter}
+                showAll={props.showAll}
+                onShowAll={props.setShowAll}
+                open={props.open}
                 onOpen={onOpen}
-                onStepFilter={openStepInTable}
-                dismissing={props.dismissing}
                 onDismiss={props.onDismiss}
-                onRelease={props.onRelease}
-                onRetry={props.onRetry}
-                onRecheck={props.onRecheck}
-                onCloseOnBoard={props.onCloseOnBoard}
               />
-            ) : (
-            <TicketsTable
-              tickets={scoped.tickets}
-              profiles={scoped.profiles}
-              now={now}
-              profileFilter={profile.name}
-              onProfileFilter={() => {}}
-              lockProfile
-              statusFilter={props.statusFilter}
-              onStatusFilter={props.setStatusFilter}
-              epicFilter={props.epicFilter}
-              onEpicFilter={props.setEpicFilter}
-              stepFilter={props.stepFilter}
-              onStepFilter={props.setStepFilter}
-              showAll={props.showAll}
-              onShowAll={props.setShowAll}
-              open={props.open}
-              onOpen={onOpen}
-              onDismiss={props.onDismiss}
-            />
+            </div>
             )}
-          </div>
-          )}
-        </section>
-
-        <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
+          </section>
+        </div>
       </div>
 
       {newTicket && profile.tracker === "local" && (
@@ -406,7 +409,7 @@ function NewTicketModal({ profile, onCreated, onClose }: { profile: ProfileView;
 
 function Tile({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
   return (
-    <div title={title} className="min-w-32 rounded-lg border border-border bg-surface px-3 py-2">
+    <div title={title} className="rounded-lg border border-border bg-surface px-3 py-2">
       <div className="text-label uppercase tracking-wide text-muted">{label}</div>
       <div className="text-title font-semibold">{children}</div>
     </div>
@@ -508,13 +511,16 @@ function hhmm(iso: string): string {
   return Number.isNaN(t) ? "—" : `${new Date(t).toISOString().slice(11, 16)}Z`;
 }
 
-function Zone({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
+function Zone({ title, count, action, children }: { title: string; count?: number; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-2 text-label font-semibold uppercase tracking-wide text-muted">
-        {title}
-        {count !== undefined && <span className="ml-1.5 font-mono normal-case">{count}</span>}
-      </h2>
+      <div className="mb-2 flex min-h-6 items-center justify-between gap-2">
+        <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
+          {title}
+          {count !== undefined && <span className="ml-1.5 font-mono normal-case">{count}</span>}
+        </h2>
+        {action}
+      </div>
       {children}
     </section>
   );
@@ -594,70 +600,13 @@ function useAutoRead(profile: string, needs: NeedsItem[]) {
   }, [profile, keys.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/**
- * One line per ticket, only what a glance needs: is it moving (dot / queue position), which one
- * (id, title), where (step) and for how long. Model, context, cost and the agent's sentence are
- * a click away in the drawer — a figure that changes nothing the operator does next is not here.
- */
-function NowRow({ t, now, onOpen, position }: { t: TicketRow; now: number; onOpen: (r: Ref) => void; position?: number }) {
-  const { t: tr, lang } = useT();
-  const title = ticketTitle(t, lang);
-  const about = t.plain ?? t.summary;
-  return (
-    <li data-now-row={t.ref} className="flex items-center gap-3 px-3 py-2 focus-within:bg-surface-raised hover:bg-surface-raised">
-      {/* One leading column for both lists, so ids, steps and clocks line up down the whole card. */}
-      <span className="flex w-5 shrink-0 items-center font-mono text-label text-muted">
-        {position !== undefined ? position : <span aria-hidden="true" className="size-2 animate-status-pulse rounded-full bg-status-running" />}
-      </span>
-      <TicketId id={t.displayId} url={t.trackerUrl} />
-      <button type="button" data-now-open className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-accent" title={title.unknown ? tr("overview.openDetails") : tr("overview.titleOpenDetails", { title: `${title.text}${about ? ` — ${about}` : ""}` })} onClick={() => onOpen({ profile: t.profile, ref: t.ref })}>
-        <span className={title.unknown ? "text-muted" : ""}>{title.unknown ? tr("ticket.untitled") : title.text}</span>
-      </button>
-      {t.step && <Pill>{t.step}</Pill>}
-      {position === undefined ? <Elapsed iso={t.startedAt} seed={now} className="w-24 shrink-0 text-right text-label" /> : <Waiting iso={t.queuedAt} seed={now} className="w-24 shrink-0 text-right text-label" />}
-    </li>
-  );
-}
-
-function NowZone({ profile, running, queued, now, onOpen }: { profile: ProfileView; running: TicketRow[]; queued: TicketRow[]; now: number; onOpen: (t: Ref) => void }) {
-  const { t } = useT();
-  const max = profile.maxConcurrent ?? 0;
-  const free = profile.up ? Math.max(0, max - running.length) : 0;
-  return (
-    <Zone title={t("overview.now")} count={running.length}>
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
-        {running.length > 0 && <ul className="divide-y divide-border-subtle">{running.map((t) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} />)}</ul>}
-        {/* Idle capacity is one quiet line, not a row per slot: rows are for work. */}
-        {free > 0 && (
-          <p data-free-slots={free} className={`flex items-center gap-3 px-3 py-2 text-label text-muted ${running.length ? "border-t border-border-subtle" : ""}`}>
-            <span aria-hidden="true" className="flex w-5 shrink-0 items-center">
-              <span className="size-2 rounded-full border border-dashed border-border-strong" />
-            </span>
-            {running.length === 0 ? t("overview.nothingRunning") : ""}
-            {t("overview.freeSlots", { count: free })}
-          </p>
-        )}
-        {!profile.up && running.length === 0 && <p className="px-3 py-2 text-label text-muted">{t("overview.nothingIsRunning")}</p>}
-        {queued.length > 0 && (
-          <div className="border-t border-border-subtle">
-            <div className="px-3 pt-2 text-label text-muted">
-              {t("overview.queuedHeading")} · <span className="font-mono">{queued.length}</span>
-            </div>
-            <ul className="divide-y divide-border-subtle">{queued.map((t, i) => <NowRow key={t.ref} t={t} now={now} onOpen={onOpen} position={i + 1} />)}</ul>
-          </div>
-        )}
-      </div>
-    </Zone>
-  );
-}
-
 function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string; feed: FeedEntry[] }) {
   const { t, lang } = useT();
   const delta = (today: number, yesterday: number) => (yesterday === 0 && today === 0 ? "" : t("overview.yesterday", { value: yesterday }));
   const rate = prog.reworkRate;
   return (
     <Zone title={t("overview.progress")}>
-      <dl data-progress className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <dl data-progress className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
         <Tile label={t("overview.finishedToday")}>
           <span className="font-mono">{prog.finishedToday}</span> <span className="text-label font-normal text-muted">{delta(prog.finishedToday, prog.finishedYesterday)}</span>
         </Tile>

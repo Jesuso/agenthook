@@ -145,6 +145,16 @@ describe("ConfigView panes", () => {
 });
 
 describe("ConfigView graph → card", () => {
+  it("picking another node closes the step that was open", async () => {
+    m = await mount(view());
+    await until(() => m!.root.querySelector("[data-graph-step]"));
+    const open = (id: string) => m!.root.querySelector<HTMLElement>(`[data-step-card="${id}"]`)!.dataset.open;
+    await click(m.root.querySelector('[data-graph-step="code"]')!);
+    await click(m.root.querySelector('[data-graph-step="review"]')!);
+    expect(open("review")).toBe("true");
+    expect(open("code")).toBe("false");
+  });
+
   it("clicking a step node opens and scrolls to that card", async () => {
     m = await mount(view());
     await until(() => m!.root.querySelector("[data-graph-step]"));
@@ -158,20 +168,13 @@ describe("ConfigView graph → card", () => {
     expect(dirty).not.toHaveBeenCalledWith(true);
   });
 
-  it("from the Basics pane, Enter on a step node switches to Pipeline at that card", async () => {
+  it("the graph belongs to the Pipeline tab: other tabs don't carry it", async () => {
     m = await mount(view());
     await until(() => m!.root.querySelector("[data-step-card]"));
+    expect(m.root.querySelector("[data-config-graph-box]")).not.toBeNull();
     await click(tabs(m.root).find((t) => t.dataset.configPane === "basics")!);
     expect(activeTab(m.root)).toBe("basics");
-    // The graph collapses off Pipeline; open it to reach the nodes.
-    const graphToggle = [...m.root.querySelectorAll("button")].find((b) => b.textContent?.includes("Pipeline graph"))!;
-    await click(graphToggle);
-    await pressEnter(m.root.querySelector('[data-graph-step="review"]')!);
-    expect(activeTab(m.root)).toBe("pipeline");
-    const card = m.root.querySelector<HTMLElement>('[data-step-card="review"]')!;
-    expect(card.dataset.open).toBe("true");
-    expect((Element.prototype.scrollIntoView as any).mock.contexts.at(-1)).toBe(card);
-    expect(dirty).not.toHaveBeenCalledWith(true);
+    expect(m.root.querySelector("[data-config-graph-box]")).toBeNull();
   });
 });
 
@@ -257,6 +260,37 @@ describe("ConfigView revert + in-app confirms", () => {
     expect(m.root.textContent).not.toContain("● modified");
   });
 
+  it("Reload on a conflict asks before dropping the edits", async () => {
+    m = await mount(viewWith());
+    await until(() => m!.root.querySelector("[data-step-card]"));
+    await makeDirty(m.root);
+    await act(async () => sink.current!({ type: "config", profile: "demo", hash: "h2", source: "disk" }));
+    const loads = () => (fetch as any).mock.calls.filter(([u, init]: [string, RequestInit?]) => u.startsWith("/api/config") && !init?.method).length;
+    const before = loads();
+    await click(m.root.querySelector<HTMLButtonElement>("[data-conflict-reload]")!);
+    expect(confirmDialog()).not.toBeNull();
+    await answerConfirm(false);
+    expect(loads()).toBe(before);
+    expect(m.root.textContent).toContain("● modified");
+  });
+
+  it("saved after the receiver started: a line says it still runs the previous config, until a later start", async () => {
+    const saved = Date.now();
+    const up = (startedAt: number) => [{ name: "demo", label: "demo", up: true, pid: 1, startedAt: new Date(startedAt).toISOString() }] as unknown as ProfileView[];
+    try {
+      localStorage.setItem("ah.configSavedAt.demo", String(saved));
+      m = await mount(viewWith(up(saved - 60_000)));
+      await until(() => m!.root.querySelector("[data-step-card]"));
+      expect(m.root.querySelector("[data-config-not-live]")?.textContent).toContain("still runs the previous config");
+      await m.unmount();
+      m = await mount(viewWith(up(saved + 60_000)));
+      await until(() => m!.root.querySelector("[data-step-card]"));
+      expect(m.root.querySelector("[data-config-not-live]")).toBeNull();
+    } finally {
+      localStorage.removeItem("ah.configSavedAt.demo");
+    }
+  });
+
   it("Overwrite on a conflict PUTs only after the confirm", async () => {
     m = await mount(viewWith());
     await until(() => m!.root.querySelector("[data-step-card]"));
@@ -266,28 +300,6 @@ describe("ConfigView revert + in-app confirms", () => {
     await answerConfirm(true);
     await until(() => puts.length === 1);
     expect(puts[0]).toBe("/api/config");
-  });
-
-  it("a profile switch on a dirty buffer asks; cancel stays, Discard loads the other profile", async () => {
-    const two = [...profiles, { name: "other", label: "other", up: false }] as unknown as ProfileView[];
-    m = await mount(viewWith(two));
-    await until(() => m!.root.querySelector("[data-step-card]"));
-    await makeDirty(m.root);
-    const select = m.root.querySelector<HTMLSelectElement>("select")!;
-    const pick = (v: string) =>
-      act(async () => {
-        select.value = v;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-    await pick("other");
-    expect(confirmDialog()?.textContent).toContain("Discard unsaved changes to the open config?");
-    await answerConfirm(false);
-    expect(m.root.querySelector<HTMLSelectElement>("select")!.value).toBe("demo");
-    expect(m.root.textContent).toContain("● modified");
-    await pick("other");
-    await answerConfirm(true);
-    await until(() => (fetch as any).mock.calls.some(([u]: [string]) => u === "/api/config?profile=other"));
-    expect(m.root.querySelector<HTMLSelectElement>("select")!.value).toBe("other");
   });
 
   it("removing a step asks; cancel keeps it, confirm removes it", async () => {

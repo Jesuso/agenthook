@@ -142,7 +142,7 @@ export const CONFIG_SCHEMA = [
   entry("tracker.auth.privateKey", "string", "Private key", "tracker", "The App's PEM private key; use a ${VAR} reference (literal \\n becomes a newline).", { sensitive: true, scope: ["github", "github-projects"], advanced: true }),
   entry("tracker.auth.privateKeyPath", "string", "Private key file", "tracker", "Or a PEM file holding the App's private key; relative to the config file.", { scope: ["github", "github-projects"], advanced: true }),
   entry("tracker.userGid", "string", "User gid", "tracker", "Your Asana user gid; only tasks assigned to it are acted on.", { sensitive: true, scope: ["asana"] }),
-  entry("tracker.assigneeFilter", "boolean", "Only my tasks", "tracker", "Act only on items assigned to the bot identity; false opts into acting project-wide.", { sensitive: true, default: true }),
+  entry("tracker.assigneeFilter", "boolean", "Only my tickets", "tracker", "Act only on tickets assigned to the bot identity; false opts into acting project-wide.", { sensitive: true, default: true }),
   entry("tracker.workspaceGid", "string", "Workspace gid", "tracker", "The Asana workspace holding the project.", { scope: ["asana"] }),
   entry("tracker.projectGid", "string", "Project gid", "tracker", "The Asana project whose sections drive the pipeline.", { scope: ["asana"] }),
   entry("tracker.displayIdField", "string", "Display id field", "tracker", "Custom field holding the task's human id (case-insensitive).", { scope: ["asana"], default: "ID", advanced: true }),

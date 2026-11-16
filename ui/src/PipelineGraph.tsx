@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { STAGE_H, STEP_H, STEP_W } from "./pipelineGraph";
 import type { EdgeRoute, GraphEdge, PipelineLayout, StageNode, StepNode } from "./pipelineGraph";
 import { useT } from "./i18n/react";
@@ -7,8 +7,7 @@ import type { MessageKey } from "./i18n";
 /** Inline SVG render of `layoutPipeline`'s output (docs/web-ui.md § v3 "Pipeline graph"). Draws
  *  the routes the layout computed — no geometry decisions here. */
 
-/** Shared with `BoardView.tsx` (#697): the Board's connectors reuse these colours and labels
- * instead of a second copy. */
+/** One colour and dash per edge type, for the paths and the legend alike. */
 export const EDGE_STYLE: Record<GraphEdge["type"], { stroke: string; dash?: string }> = {
   advance: { stroke: "var(--color-accent)" },
   fail: { stroke: "var(--color-err)" },
@@ -150,7 +149,6 @@ function StagePill(props: { node: StageNode }) {
   );
 }
 
-/** Shared with `BoardView.tsx` (#697). */
 export function Legend() {
   const { t } = useT();
   const types: GraphEdge["type"][] = ["advance", "fail", "hold", "changes", "queue"];
@@ -169,18 +167,44 @@ export function Legend() {
   );
 }
 
-/** `onSelectStep` makes the step nodes clickable (the config editor opens that step's card); stage pills never are. */
-export function PipelineGraph(props: { layout: PipelineLayout; onSelectStep?: (id: string) => void }) {
+/** Whether a scroller has more to its right: the cue a phone's hidden scrollbar does not give. */
+function useMoreRight(): [React.RefObject<HTMLDivElement | null>, boolean] {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setMore(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro?.disconnect();
+    };
+  }, []);
+  return [ref, more];
+}
+
+/**
+ * `onSelectStep` makes the step nodes clickable (the config editor opens that step's card); stage
+ * pills never are. `scrollClass` goes on the box the drawing scrolls in (a height cap, say): the
+ * legend sits outside it, so it is never scrolled away.
+ */
+export function PipelineGraph(props: { layout: PipelineLayout; onSelectStep?: (id: string) => void; scrollClass?: string }) {
   const { layout } = props;
   const { t } = useT();
   const [hovered, setHovered] = useState<number | null>(null);
   if (!layout.nodes.length) return <p className="text-sm text-[var(--color-muted)]">{t("graph.empty")}</p>;
+  const [scroller, more] = useMoreRight();
   return (
     <div className="flex flex-col gap-2">
       {layout.unknownStageKeys && (
         <p className="text-xs text-[var(--color-warn)]">{t("graph.unknownStages")}</p>
       )}
-      <div className="overflow-auto">
+      {/* Cut off on the right, the drawing fades there: more of it is a swipe away. */}
+      <div ref={scroller} data-graph-scroll data-more={more || undefined} className={`overflow-auto [scrollbar-width:thin] ${more ? "[mask-image:linear-gradient(to_right,black_calc(100%-2.5rem),transparent)]" : ""} ${props.scrollClass ?? ""}`}>
         <svg className="mx-auto block" width={layout.width} height={layout.height} role="img" aria-label={t("graph.aria")}>
           <defs>
             {(["advance", "fail", "hold", "changes", "queue"] as const).map((t) => (
