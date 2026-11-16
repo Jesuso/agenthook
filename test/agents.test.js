@@ -1,112 +1,76 @@
 import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `node --test` runs
-// `agenthook agents` — pure-unit coverage (no `ps`, no config): parse `ps` stdout
-// and attribute each agent row to its owning profile via running.json fixtures,
-// asserting the default scope-to-active filter and the --all cross-profile view.
+// `agenthook agents` — pure-unit coverage (no `ps`, no config): rows come from each profile's
+// running.json (the state `tick` and the web UI read), written for every run whatever the agent
+// or executor — so a sandboxed/remote run whose local process is not the agent binary still
+// shows. Covers the default scope-to-active filter, the --all cross-profile view, dead-pid
+// `stale` marking, and the human/JSON row formats.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentMatcher, parsePsAgents, selectAgents, fmtTok, fmtCtx, formatAgentRow, agentRecord } from "../src/commands/agents.js";
+import { runningRows, fmtEtime, fmtTok, fmtCtx, formatAgentRow, agentRecord } from "../src/commands/agents.js";
 
-// Three `claude -p` agents (a dogfood GitHub issue, an Asana task, an orphan whose
-// ref is in no running.json) plus a non-agent process that must be ignored.
-const PS = [
-  `  12345 01:23 node /x/.bin/claude -p You are working the "code" stage Ref: 6 blah`,
-  `  67890 1-02:03:04 claude -p the "code" stage of an Asana task Ref: 1199887766 blah`,
-  `  33333 00:05 claude -p the "review" stage Ref: 999 orphan`,
-  `  22222 00:10 /usr/lib/firefox/firefox -contentproc`,
-].join("\n");
+const NOW = Date.parse("2026-09-24T11:00:00Z");
 
-const DOGFOOD = { stateKey: "agenthook-dogfood", running: { "6": { stepId: "code", pid: 12345 } } };
-const ACME = { stateKey: "acme", running: { "1199887766": { stepId: "code", pid: 67890 } } };
+// A sandboxed claude run (its local process is the container runtime, pid 12345) and a plain
+// opencode run (pid 67890), both in the same profile's running.json.
+const DOGFOOD = {
+  stateKey: "agenthook-dogfood",
+  running: {
+    "6": { stepId: "code", startedAt: "2026-09-24T10:00:00Z", model: "claude-opus-5-5", agent: "claude", harness: "sandbox", host: "worker-1", pid: 12345 },
+    "7": { stepId: "review", startedAt: "2026-09-24T10:59:30Z", agent: "opencode", pid: 67890 },
+  },
+};
+const ACME = { stateKey: "acme", running: { "1199887766": { stepId: "code", startedAt: "2026-09-24T10:00:00Z", agent: "claude", pid: 111 } } };
 
-// A shell that merely MENTIONS the string (claude isn't its binary) and a user's own
-// manual `claude -p` (real bin, but no agenthook step/ref markers) — neither is a
-// receiver-spawned agent, yet the old substring match counted both.
-const DECOYS = [
-  `  44444 00:02 bash -c echo running claude -p now`, // substring, but claude not the binary
-  `  55555 00:01 claude -p fix the bug in my code`, // real claude bin, no step/ref markers
-].join("\n");
-
-test("decoys: a shell mentioning 'claude -p' and a marker-less manual run are excluded", () => {
-  assert.equal(parsePsAgents(DECOYS).length, 0);
+test("runningRows: one row per running.json entry, whatever the agent/executor", () => {
+  const rows = runningRows([DOGFOOD], { all: true, now: NOW, isAlive: () => true });
+  assert.equal(rows.length, 2);
+  const byRef = Object.fromEntries(rows.map((r) => [r.ref, r]));
+  assert.deepEqual(byRef["6"], {
+    ref: "6", step: "code", harness: "sandbox", agent: "claude", host: "worker-1",
+    model: "claude-opus-5-5", pid: "12345", etime: "01:00:00", profile: "agenthook-dogfood", stale: false,
+  });
+  assert.equal(byRef["7"].pid, "67890");
+  assert.equal(byRef["7"].harness, null);
+  assert.equal(byRef["7"].host, null);
+  assert.equal(byRef["7"].model, null);
+  assert.equal(byRef["7"].etime, "00:00:30");
 });
 
-test("one real agent + one decoy shell → only the real one is counted", () => {
-  const real = PS.split("\n")[0]; // the dogfood `code` agent, ref 6
-  const rows = parsePsAgents([real, DECOYS.split("\n")[0]].join("\n"));
-  assert.equal(rows.length, 1);
-  assert.deepEqual([rows[0].step, rows[0].ref], ["code", "6"]);
+test("fmtEtime: ps-style [[dd-]hh:]mm:ss, ? when missing/unparseable", () => {
+  assert.equal(fmtEtime("2026-09-24T10:00:00Z", NOW), "01:00:00");
+  assert.equal(fmtEtime("2026-09-23T09:00:00Z", NOW), "1-02:00:00"); // 26 hours
+  assert.equal(fmtEtime(undefined, NOW), "?");
+  assert.equal(fmtEtime("not a date", NOW), "?");
 });
 
-test("parsePsAgents keeps only claude -p rows and extracts pid/step/ref", () => {
-  const rows = parsePsAgents(PS);
-  assert.equal(rows.length, 3); // firefox excluded
-  assert.deepEqual(
-    rows.map((r) => [r.pid, r.step, r.ref]),
-    [["12345", "code", "6"], ["67890", "code", "1199887766"], ["33333", "review", "999"]],
-  );
+test("runningRows: a dead pid is marked stale; a row with no pid yet counts as running", () => {
+  const prof = {
+    stateKey: "p",
+    running: {
+      "1": { stepId: "code", startedAt: "2026-09-24T10:00:00Z", pid: 999 },
+      "2": { stepId: "triage", startedAt: "2026-09-24T10:00:00Z" },
+    },
+  };
+  const rows = runningRows([prof], { all: true, now: NOW, isAlive: (pid) => String(pid) !== "999" });
+  const byRef = Object.fromEntries(rows.map((r) => [r.ref, r]));
+  assert.equal(byRef["1"].stale, true);
+  assert.equal(byRef["2"].stale, false);
+  assert.equal(byRef["2"].pid, null);
 });
 
-test("a step bin (claude-local) is recognised only when it is in the bin set", () => {
-  const line = `  77777 00:42 /home/x/bin/claude-local -p You are working the "code" stage of a GitHub issue Ref: 12`;
-  assert.deepEqual(parsePsAgents(line), [], "the default bin set is just claude");
-  const rows = parsePsAgents([line, PS].join("\n"), ["claude", "/home/x/bin/claude-local"]);
-  assert.deepEqual(rows.map((r) => [r.pid, r.step, r.ref]), [["77777", "code", "12"], ["12345", "code", "6"], ["67890", "code", "1199887766"], ["33333", "review", "999"]]);
-  assert.equal(selectAgents(line, [], { all: true, bins: ["claude-local"] }).length, 1);
-  // still path-anchored, and a regex metachar in a bin name is literal
-  assert.equal(parsePsAgents(`  1 00:01 bash -c echo claude-local -p the "code" stage Ref: 1`, ["claude-local"]).length, 0, "a mere mention is not the binary");
-  assert.equal(agentMatcher(["claude.x"]).test("claudeAx -p"), false);
-  assert.equal(agentMatcher(["claude.x"]).test("/b/claude.x -p"), true);
+test("default scope: only the active profile's rows", () => {
+  const rows = runningRows([DOGFOOD, ACME], { active: "agenthook-dogfood", now: NOW, isAlive: () => true });
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.profile === "agenthook-dogfood"));
 });
 
-test("a cursor agent (`agent -p … stream-json`) is listed once its default bin is in the set", () => {
-  const line = `  80001 00:30 /home/x/.local/bin/agent -p --output-format stream-json --force You are working the "review" stage of a GitHub issue Ref: 12`;
-  assert.deepEqual(parsePsAgents(line), []);
-  assert.deepEqual(parsePsAgents(line, ["claude", "agent"]).map((r) => [r.pid, r.step, r.ref]), [["80001", "review", "12"]]);
-});
-
-test("a hermes agent (prompt via --query-file) is attributed through its running.json pid", () => {
-  const line = `  80002 00:12 /usr/bin/hermes chat -Q --max-turns 200 --query-file /home/x/.agenthook/p/prompts/12-triage.md`;
-  const stray = `  80003 00:12 hermes chat -Q --max-turns 200 --query-file /tmp/mine.md`; // unknown pid: a manual run
-  const prof = { stateKey: "p", running: { "12": { stepId: "triage", pid: 80002 } } };
-  const rows = selectAgents([line, stray].join("\n"), [prof], { all: true, bins: ["claude", "hermes"] });
-  assert.deepEqual(rows.map((r) => [r.pid, r.step, r.ref, r.profile]), [["80002", "triage", "12", "p"]]);
-  assert.deepEqual(parsePsAgents(stray, ["hermes"]), [], "no stage/ref and no running pid → not ours");
-  // still path-anchored, and `hermes chat` without --query-file isn't the receiver's shape
-  assert.equal(agentMatcher(["hermes"]).test("bash -c echo xhermes chat --query-file f"), false);
-  assert.equal(agentMatcher(["hermes"]).test("hermes chat -Q"), false);
-});
-
-test("an opencode agent (`opencode run --format json … <prompt>`) is listed with its step and ref", () => {
-  const line = `  80004 01:02 /home/x/.opencode/bin/opencode run --format json --auto -m ollama/qwen3.8:27b-64k You are working the "code" stage of a GitHub issue Ref: 390`;
-  assert.deepEqual(parsePsAgents(line), []);
-  assert.deepEqual(parsePsAgents(line, ["claude", "opencode"]).map((r) => [r.pid, r.step, r.ref]), [["80004", "code", "390"]]);
-  // a hand-run `opencode run` (default format) or the TUI isn't the receiver's shape
-  assert.equal(agentMatcher(["opencode"]).test("opencode run hello"), false);
-  assert.equal(agentMatcher(["opencode"]).test("opencode -s ses_1"), false);
-  assert.equal(agentMatcher(["opencode"]).test("bash -c echo xopencode run --format json"), false);
-});
-
-test("default scope: only the active profile's agents (refs in its running.json)", () => {
-  const rows = selectAgents(PS, [DOGFOOD, ACME], { active: "agenthook-dogfood" });
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].ref, "6");
-  assert.equal(rows[0].profile, "agenthook-dogfood");
-});
-
-test("--all: every agent row, each labelled with its owning profile", () => {
-  const rows = selectAgents(PS, [DOGFOOD, ACME], { all: true });
+test("--all: every profile's rows, each labelled with its owner", () => {
+  const rows = runningRows([DOGFOOD, ACME], { all: true, now: NOW, isAlive: () => true });
   assert.equal(rows.length, 3);
-  const byRef = Object.fromEntries(rows.map((r) => [r.ref, r.profile]));
-  assert.equal(byRef["6"], "agenthook-dogfood");
-  assert.equal(byRef["1199887766"], "acme");
-  assert.equal(byRef["999"], "?"); // in no running.json
-});
-
-test("attribution prefers pid over ref when a ref collides across profiles", () => {
-  // Both profiles claim ref "6", but pid disambiguates: pid 12345 is dogfood's.
-  const other = { stateKey: "other", running: { "6": { stepId: "code", pid: 55555 } } };
-  const rows = selectAgents(PS, [other, DOGFOOD], { all: true });
-  assert.equal(rows.find((r) => r.pid === "12345")?.profile, "agenthook-dogfood");
+  /** @type {Record<string, string[]>} */
+  const byProfile = {};
+  for (const r of rows) (byProfile[r.profile] ??= []).push(r.ref);
+  assert.deepEqual(byProfile, { "agenthook-dogfood": ["6", "7"], acme: ["1199887766"] });
 });
 
 // --- fmtTok ---
@@ -160,18 +124,25 @@ test("fmtCtx: k formatting for sub-million context", () => {
   assert.equal(fmtCtx(0, 50000, 0, 2000, undefined), "ctx=50.0k out=2.0k");
 });
 
-// --- formatAgentRow / agentRecord: human id, title, PR instead of pid/ref ---
-const ROW = { pid: "1293223", etime: "00:51", step: "review", ref: "1200000000000001", profile: "acme" };
+// --- formatAgentRow / agentRecord: human id, title, PR, harness/model columns ---
+const ROW = { ref: "1200000000000001", step: "review", harness: "sandbox", agent: "claude", host: null, model: "claude-opus-5-5", pid: "1293223", etime: "00:51", profile: "acme", stale: false };
 const META = { displayId: "ID-1234", title: "Make the thing work across every profile and board at once", pr: 94 };
 
-test("formatAgentRow default: displayId, step, #pr, etime, truncated title, ctx — no pid/ref", () => {
+test("formatAgentRow default: displayId, step, #pr, etime, harness, model, title, ctx", () => {
   const line = formatAgentRow(ROW, META, "ctx=79.5k out=188");
-  assert.match(line, /^ID-1234\s+review\s+#94\s+00:51\s+Make the thing/);
+  assert.match(line, /^ID-1234\s+review\s+#94\s+00:51\s+sandbox\s+claude-opus-5-5\s+Make the thing/);
   assert.ok(line.endsWith("ctx=79.5k out=188"));
   assert.ok(line.includes("…"), "long title truncated");
   assert.ok(!line.includes("pid="), "no pid by default");
   assert.ok(!line.includes(ROW.ref), "no raw ref by default");
   assert.ok(!line.includes("profile="), "no profile label without --all");
+  assert.ok(!line.includes("[stale]"), "no stale marker on a live row");
+});
+
+test("formatAgentRow: harness@host, the [stale] marker, and a dash for unharnessed", () => {
+  assert.match(formatAgentRow({ ...ROW, host: "worker-1" }, META, "-"), /sandbox@worker-1\s+/);
+  assert.match(formatAgentRow({ ...ROW, stale: true }, META, "-"), /\[stale\]/);
+  assert.match(formatAgentRow({ ...ROW, harness: null }, META, "-"), /00:51\s+-\s+claude-opus-5-5\s+Make the thing/);
 });
 
 test("formatAgentRow --verbose appends pid + ref; --all keeps the profile label", () => {
@@ -186,34 +157,41 @@ test("formatAgentRow --all shows the owner's label (state key stays on the row)"
   assert.equal(ROW.profile, "acme");
 });
 
+test("formatAgentRow falls back to the ref and a — placeholder when nothing is known", () => {
+  const line = formatAgentRow({ ...ROW, harness: null, model: null }, undefined, "-");
+  assert.match(line, new RegExp(`^${ROW.ref}\\s+review\\s+—\\s+00:51\\s+-\\s+-\\s`));
+  assert.ok(!line.includes("#"), "no PR shown");
+});
+
 test("agentRecord --json: profile = state key, label alongside", () => {
   const rec = agentRecord(ROW, META, undefined, undefined, "Acme (acme)");
   assert.equal(rec.profile, "acme");
   assert.equal(rec.label, "Acme (acme)");
 });
 
-test("formatAgentRow falls back to the ref and a — placeholder when nothing is known", () => {
-  const line = formatAgentRow(ROW, undefined, "-");
-  assert.match(line, new RegExp(`^${ROW.ref}\\s+review\\s+—\\s+00:51`));
-  assert.ok(!line.includes("#"), "no PR shown");
-});
-
-test("agentRecord --json shape: live tally + running model/startedAt", () => {
-  const run = { stepId: "review", pid: 1293223, startedAt: "2026-09-24T10:00:00Z", model: "claude-opus-5-5", input: 5, cacheRead: 79000, cacheCreate: 495, output: 188 };
+test("agentRecord --json shape: live tally + model/startedAt + harness/agent/host/stale", () => {
+  const run = { stepId: "review", pid: 1293223, startedAt: "2026-09-24T10:00:00Z", input: 5, cacheRead: 79000, cacheCreate: 495, output: 188 };
   assert.deepEqual(agentRecord(ROW, META, run, undefined), {
     profile: "acme", label: "acme", pid: 1293223, ref: ROW.ref, displayId: "ID-1234", title: META.title, pr: 94,
-    step: "review", model: "claude-opus-5-5", startedAt: "2026-09-24T10:00:00Z", ctx: 79500, out: 188, etime: "00:51",
+    step: "review", harness: "sandbox", agent: "claude", host: null, model: "claude-opus-5-5", startedAt: "2026-09-24T10:00:00Z", ctx: 79500, out: 188, etime: "00:51", stale: false,
   });
 });
 
 test("agentRecord --json with no meta/running: nulls, last-run usage fallback", () => {
-  const rec = agentRecord(ROW, undefined, undefined, { input: 10, output: 3, cacheRead: 0, cacheCreate: 0 });
+  const rec = agentRecord({ ...ROW, harness: null, model: null }, undefined, undefined, { input: 10, output: 3, cacheRead: 0, cacheCreate: 0 });
   assert.equal(rec.displayId, null);
   assert.equal(rec.pr, null);
+  assert.equal(rec.harness, null);
   assert.equal(rec.model, null);
   assert.equal(rec.ctx, 10);
   assert.equal(rec.out, 3);
-  const none = agentRecord(ROW, undefined, undefined, undefined);
+  const none = agentRecord({ ...ROW, harness: null, model: null }, undefined, undefined, undefined);
   assert.equal(none.ctx, null);
   assert.equal(none.out, null);
+});
+
+test("agentRecord --json: pid null when unknown; stale from the row", () => {
+  const rec = agentRecord({ ...ROW, pid: null, stale: true }, undefined, { stepId: "review", startedAt: "2026-09-24T10:00:00Z" }, undefined);
+  assert.equal(rec.pid, null);
+  assert.equal(rec.stale, true);
 });
