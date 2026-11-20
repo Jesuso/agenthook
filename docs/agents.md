@@ -1,4 +1,4 @@
-# Agents: Claude, Cursor, Hermes, OpenCode
+# Agents: Claude, Cursor, Hermes, OpenCode, Pi
 
 Each pipeline step spawns a headless coding-agent CLI. By default that is Claude Code
 (`claude -p`), but a step can run another agent instead. The agent is picked per step:
@@ -27,16 +27,16 @@ and labels it with the steps that use it (e.g. `cursor binary on PATH: agent (st
 
 ## The adapters
 
-| | `claude` | `cursor` | `hermes` | `opencode` |
-|---|---|---|---|---|
-| Default binary | `claudeBin` (default `claude`) | `agent` | `hermes` | `opencode` |
-| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>] --ignore-rules --source tool -t terminal,file` (isolated, the default; see [Hermes isolation](#hermes-isolation)) | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] -- <prompt>` |
-| Stdout | stream-json | stream-json | plain text | JSONL events |
-| Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (best-effort, after the run — see below) | yes, per model step (`step_finish`) |
-| Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` | priced only when OpenCode reports a non-zero cost, else `unpriced` |
-| `follow` | yes | yes | no (no transcripts) | no (sessions live in OpenCode's database) |
-| `resume` | yes | yes (`agent --resume <id>`) | no | yes (`opencode -s <id>`, ids from `usage.jsonl`) |
-| `requireVerdict` default | `true` | `true` | `true` | `true` |
+| | `claude` | `cursor` | `hermes` | `opencode` | `pi` |
+|---|---|---|---|---|---|
+| Default binary | `claudeBin` (default `claude`) | `agent` | `hermes` | `opencode` | `pi` |
+| Invocation | `claude -p <prompt> --output-format stream-json --verbose …` | `agent -p --output-format stream-json --trust --model <m> … <prompt>` | `hermes chat -Q --max-turns 200 --query-file <file> [-m <m>] [--provider <p>] [--reasoning <e>] [--run-budget <s>] --ignore-rules --source tool -t terminal,file` (isolated, the default; see [Hermes isolation](#hermes-isolation)) | `opencode run --format json [--auto] [-m <provider/model>] [--variant <e>] -- <prompt>` | `pi -p --mode json --offline [--model <provider/id>] [--thinking <level>] -- <prompt>` |
+| Stdout | stream-json | stream-json | plain text | JSONL events | JSONL events |
+| Live token tally (`ah agents`, UI) | yes | at the end of the run (the `result` event) | no (best-effort, after the run — see below) | yes, per model step (`step_finish`) | yes, per turn (`message_end`) |
+| Cost | priced (`costUsd`), unless the run is on a local model | always `unpriced` | always `unpriced` | priced only when OpenCode reports a non-zero cost, else `unpriced` | priced only when pi reports a non-zero cost, else `unpriced` |
+| `follow` | yes | yes | no (no transcripts) | no (sessions live in OpenCode's database) | no (no transcripts) |
+| `resume` | yes | yes (`agent --resume <id>`) | no | yes (`opencode -s <id>`, ids from `usage.jsonl`) | yes (`pi -p --session <id>`, ids from `usage.jsonl`) |
+| `requireVerdict` default | `true` | `true` | `true` | `true` | `true` |
 
 An **unpriced** run has no `costUsd`: agenthook has no price table for that agent (or the run
 used a local model, see [Mixed pipelines / local models](local-models.md)). The UI shows
@@ -72,32 +72,36 @@ two stay apart: `$12.40 + ~$3.10 est.`, and a run's cost cell reads `~$0.42 est.
 
 ### Per-agent flags and limits
 
-- **`model`**: passed as `--model` (claude, cursor) or `-m` (hermes, opencode). OpenCode's model
-  names the provider too: `provider/model`, e.g. `ollama/qwen3.8:27b-64k`. Unset uses the CLI's
-  default; Cursor's default is `auto`.
-- **`effort`**: claude (`--effort`), hermes (`--reasoning`) and opencode (`--variant`). OpenCode's
-  variants are provider-specific, so the value is passed through as-is — but it only reaches the
-  model when the step's `opencodeConfig` declares a `variants` entry of that name on the model
-  (see [local-models.md](local-models.md#variant-opencode-on-the-same-ollama)); `ah doctor` flags a
-  model missing the variant a step's `effort` needs. Cursor has no effort flag, so dispatch drops
-  it with a warning; an out-of-set value (claude, hermes) is dropped with a warning too.
+- **`model`**: passed as `--model` (claude, cursor, pi) or `-m` (hermes, opencode). OpenCode's and
+  pi's model name the provider too: `provider/model` (OpenCode) / `provider/id` (pi), e.g.
+  `ollama/qwen3.8:27b-64k`. Unset uses the CLI's default; Cursor's default is `auto`.
+- **`effort`**: claude (`--effort`), hermes (`--reasoning`), opencode (`--variant`) and pi
+  (`--thinking`). OpenCode's variants are provider-specific, so the value is passed through as-is —
+  but it only reaches the model when the step's `opencodeConfig` declares a `variants` entry of that
+  name on the model (see [local-models.md](local-models.md#variant-opencode-on-the-same-ollama));
+  `ah doctor` flags a model missing the variant a step's `effort` needs. pi's `--thinking` takes one
+  of `off|minimal|low|medium|high|xhigh|max`; an out-of-set value is dropped with a warning. Cursor
+  has no effort flag, so dispatch drops it with a warning; an out-of-set value (claude, hermes) is
+  dropped with a warning too.
 - **`provider`** (step) / **`agentProvider`** (profile default): the inference provider hermes
   should use (`--provider`, a name from `config.yaml`'s `providers:`, or a built-in). A step's
-  `provider` overrides `agentProvider`. Claude, Cursor and OpenCode have no provider flag (OpenCode
-  takes it inside `-m provider/model`), so dispatch drops it with a warning. Without it, a step
+  `provider` overrides `agentProvider`. Claude, Cursor, OpenCode and pi have no provider flag
+  (OpenCode and pi take it inside the model name), so dispatch drops it with a warning. Without it, a step
   `model` hermes can't serve on your default provider (e.g. a local Ollama model under the user's
   `openai-codex` default) silently fails or no-ops — see the
   [local Qwen recipe](#a-local-qwen-recipe-hermes--ollama) below.
 - **`fullAuto`**: adds each CLI's skip-permissions flag. That is `--dangerously-skip-permissions`
   (claude), `--force` (cursor), `--yolo` (hermes) or `--auto` (opencode). It is code execution from
-  a webhook, unsandboxed unless the profile sets `sandbox` ([sandbox.md](sandbox.md); claude and
-  opencode run sandboxed — cursor and hermes are refused). Without `fullAuto`, claude runs pinned to `dontAsk`
+  a webhook, unsandboxed unless the profile sets `sandbox` ([sandbox.md](sandbox.md); claude,
+  opencode and pi run sandboxed — cursor and hermes are refused). pi's print mode has no permission
+  prompt at all, so `fullAuto` adds nothing for it — a pi step must run sandboxed to be safe.
+  Without `fullAuto`, claude runs pinned to `dontAsk`
   ([permissions](sandbox.md#permissions-inside-and-outside-the-sandbox)); the other CLIs keep their
   own default. See the security posture in the [README](../README.md).
 - **`bin`**: a step `bin` overrides the agent's default binary, e.g. a wrapper script.
 - **`maxMinutes`**: besides the receiver's own SIGTERM timer, hermes gets it as `--run-budget`
   (whole seconds, floored to at least 1) so it can wrap up on its own before the kill; the
-  receiver's timer stays authoritative regardless. Claude, Cursor and OpenCode ignore it.
+  receiver's timer stays authoritative regardless. Claude, Cursor, OpenCode and pi ignore it.
   `idleMinutes` and the receiver's `maxMinutes` timer apply to every agent.
 - **Background subagents (claude)**: claude's headless print mode otherwise kills a background
   subagent 10 minutes after its last turn, even mid-edit. Every claude run gets
@@ -131,8 +135,9 @@ started would otherwise read all of it with one `env` call. Instead it gets an a
    |---|---|---|
    | `claude` | `ANTHROPIC_*`, `CLAUDE_*` (minus the parent Claude Code session's own: `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_CODE_SESSION_*`/`MESSAGING_*`/`BRIDGE_*`, …) | `HOME` (`~/.claude`, macOS Keychain) |
    | `cursor` | `CURSOR_API_KEY` | `HOME` (`~/.cursor`) |
-   | `opencode` | `OPENCODE_*` | `HOME` / `XDG_*` (`opencode auth login`) |
-   | `hermes` | `HERMES_HOME` | `HOME` (`~/.hermes`); an isolated step gets its own `HERMES_HOME` |
+    | `opencode` | `OPENCODE_*` | `HOME` / `XDG_*` (`opencode auth login`) |
+    | `pi` | `PI_*` | `HOME` (`~/.pi`) |
+    | `hermes` | `HERMES_HOME` | `HOME` (`~/.hermes`); an isolated step gets its own `HERMES_HOME` |
 
 3. **The tracker token its prompt names**: `GITHUB_TOKEN` (github, github-projects),
    `JIRA_API_TOKEN`, `LINEAR_API_KEY`, `ASANA_TOKEN`; none for `local`. The prompts tell the agent
@@ -303,6 +308,35 @@ Sandboxed, OpenCode needs its own provider config seeded in — a fresh per-run 
 none. Set `opencodeConfig` (step or harness; the step's own wins) to a host path to an OpenCode
 JSON config; it's copied (never mounted) into that run's sandbox HOME. See
 [sandbox.md#opencode-in-the-sandbox](sandbox.md#opencode-in-the-sandbox).
+
+### A local model step (Pi + Ollama)
+
+Pi (Earendil's coding-agent CLI) reaches a model through its own provider config, so the model
+alone picks the provider:
+
+```jsonc
+{
+  "id": "code",
+  "agent": "pi",
+  "model": "ollama/qwen3.8:27b-64k",
+  "piConfigDir": "~/.pi/agent",   // optional; its models.json/settings.json are copied in
+  "requireVerdict": true
+}
+```
+
+`requireVerdict` defaults to `true`. Pi's print mode (`-p --mode json --offline`) has no permission
+prompt, so `fullAuto` adds nothing — **run a pi step sandboxed** (it is refused when the profile
+has no `sandbox`). Pi takes no allow/deny policy: a step that sets one is refused rather than run
+unrestricted. `ah follow` does not cover pi runs (no transcripts); read the run log in the UI or
+`logs/` instead. `ah resume <ref>` lists them from the session ids in `usage.jsonl` and prints
+`cd <worktree> && pi -p --session <id>`.
+
+Sandboxed, pi reads its provider config from `~/.pi/agent` inside the per-run sandbox HOME, which
+starts empty. Set `piConfigDir` (step or harness; the step's own wins) to a host dir holding pi's
+`models.json` and/or `settings.json` (each optional); it's copied (never mounted) into that run's
+sandbox HOME. A bad path (missing, not a directory, an oversized or invalid file) refuses the run
+before anything spawns. See [sandbox.md#pi-in-the-sandbox](sandbox.md#pi-in-the-sandbox). Pi has no
+remote harness (only claude and opencode do).
 
 ## Adding an adapter
 

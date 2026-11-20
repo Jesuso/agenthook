@@ -2,7 +2,7 @@
 
 Each pipeline step can run its agent on a different model. A common split: a local model for the
 cheap, read-only steps (`triage`, `review`), Claude for `code`. This page is the recipe. A step can
-also run a different agent CLI altogether (`agent: "cursor"`, `"hermes"` or `"opencode"`); see [Agents](agents.md).
+also run a different agent CLI altogether (`agent: "cursor"`, `"hermes"`, `"opencode"` or `"pi"`); see [Agents](agents.md).
 
 ## Pointing a step at a local model
 
@@ -385,6 +385,69 @@ need (web search, task delegation) — turn those off in the same `opencodeConfi
 agenthook copies `opencodeConfig` verbatim, so any key OpenCode's schema accepts works here with
 no agenthook change — verify key names against the installed CLI's own schema/docs before relying
 on one, since they can change between OpenCode versions.
+
+### Variant: Pi on the same Ollama
+
+Pi (Earendil's coding-agent CLI) also runs inside the sandbox (#752), so the same example can spill
+through a Pi harness on the same Ollama — the `harnesses` block gains an entry and the `code` step
+lists it:
+
+```jsonc
+{
+  "harnesses": {
+    "pi-local": {
+      "agent": "pi",
+      "model": "ollama/qwen3.8:27b-64k",
+      "piConfigDir": "~/.agenthook/<profile>/pi-lan",
+      "maxConcurrent": 1
+    },
+    "local": { "model": "qwen3.8:27b-64k", "env": { "ANTHROPIC_BASE_URL": "http://192.168.1.20:11434" }, "maxConcurrent": 1 },
+    "cloud": { "model": "claude-sonnet-5" }
+  },
+  "tracker": {
+    "pipeline": [
+      { "id": "code", "harness": ["pi-local", "local", "cloud"], "routing": "first-free", "createsWorktree": true, "maxMinutes": 180 }
+    ]
+  }
+}
+```
+
+The harness's `piConfigDir` is a host dir holding Pi's `models.json` (and optionally
+`settings.json`); the run's model is `provider/id`, naming the provider below:
+
+```jsonc
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://192.168.1.20:11434/v1",
+      "models": [
+        { "id": "qwen3.8:27b-64k", "name": "Qwen3.8 27B", "contextWindow": 65536, "api": "openai-completions" }
+      ]
+    }
+  }
+}
+```
+
+agenthook copies `piConfigDir`'s files verbatim — never mounted — into the run's per-run sandbox
+HOME at `.pi/agent/` (see [Pi in the sandbox](sandbox.md#pi-in-the-sandbox)). A bad `piConfigDir`
+(missing, not a directory, an oversized or invalid file) refuses the run before anything spawns.
+Pi takes no allow/deny policy and its print mode has no permission prompt, so a pi step must run
+sandboxed; see [Agents](agents.md#a-local-model-step-pi--ollama).
+
+#### Compaction survival (verified)
+
+The unattended contract and a step's standing instructions are written to files in the run's
+sandbox HOME and passed with `--append-system-prompt`, not appended to the one-shot run prompt.
+Unlike a run-prompt line, an `--append-system-prompt` file is re-read into the system prompt and
+**survives compaction** — verified on Pi 1.5.2 through a logging proxy across four compactions: the
+"never stop to ask" rule and the verdict-file path were still in the system prompt after the fourth.
+This is why a pi run gets its contract as an `--append-system-prompt` file (one per file) rather
+than in the run prompt.
+
+A `models.json` whose `contextWindow` leaves no room for output does not let pi compact: the turn
+ends with `stopReason: "length"` and pi exits 0. That is the existing `verdict_missing` path (the
+run log gets `⚠ turn ended: stopReason length (context window full)`, the task is held, and — because
+`sandboxResume` is false — there is no repair resume), so no special handling is needed.
 
 ### Small windows and compaction
 

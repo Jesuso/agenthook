@@ -148,7 +148,7 @@ export function createSpawn(ctx) {
    * else (env incl. AGENTHOOK_VERDICT_FILE, the sandbox wrap, timers, parser, the same `logPath`
    * appended to) is unchanged. Ignored when the agent has no `resumeArgs`.
    * @param {{agent: import('../types.js').AgentAdapter, prompt: string, cwd: string, logPath: string, model?: string, effort?: string, provider?: string, toolsets?: string[], isolated?: boolean, allow?: import('../types.js').StepPolicy, deny?: import('../types.js').StepPolicy, bin?: string, agentEnv?: Record<string, string>, creds?: import('../types.js').RunCredentials|null, env?: Record<string, string>, verdictFile?: string, promptFile?: string, maxMs?: number, idleMs?: number, onPid?: (pid: number|undefined) => void, onTally?: (tally: {input:number,output:number,cacheRead:number,cacheCreate:number,lastContext?:number}) => void,
-   *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}, executor?: import('../types.js').Executor, resumeSessionId?: string}} o
+    *   sandboxed?: {ref: string, stepId: string, step: import('../types.js').Step, mounts: import('../types.js').SandboxMount[], env?: Record<string, string>, egress?: import('../types.js').SandboxEgress, image?: string, files?: {dst: string, content: string, mode?: number}[], args?: string[], hub?: {repoId: string, repoPath: string, worktree?: string, branch?: string}}, executor?: import('../types.js').Executor, resumeSessionId?: string}} o
    * `lastText` is the run's last output the question-hold detector inspects: the final result text
    * when the parser captured one (a non-empty string), else the tail of the run's rendered stdout
    * (stdout only) — `undefined` when neither produced anything.
@@ -168,6 +168,13 @@ export function createSpawn(ctx) {
     }
     const argOpts = { prompt, model, effort, provider, fullAuto: cfg.fullAuto, attribution: cfg.attribution, promptFile, maxMs, toolsets, isolated, allow, deny, cwd, verdictFile };
     const args = resumeSessionId && agent.resumeArgs ? agent.resumeArgs({ ...argOpts, sessionId: resumeSessionId }) : agent.buildArgs(argOpts);
+    // The sandbox hook's extra agent flags (pi: --append-system-prompt files) go right before
+    // the argv's `--` separator (or at the end when there is none), applied to repair turns too.
+    if (sandboxed?.args?.length) {
+      const sep = args.indexOf("--");
+      if (sep === -1) args.push(...sandboxed.args);
+      else args.splice(sep, 0, ...sandboxed.args);
+    }
     const agentBin = bin || agent.defaults.bin || cfg.claudeBin;
     // AGENTHOOK_VERDICT_FILE: where the agent writes its structured verdict; we
     // read it after exit to route the step (advance/hold/changes/fail).

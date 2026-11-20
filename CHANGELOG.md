@@ -23,6 +23,25 @@ not yet against a real worker.
 
 ### Added
 
+- A `pi` agent adapter (`agent: "pi"`, #752): spawns `pi -p --mode json --offline [--model
+  provider/id] [--thinking <level>] -- <prompt>`, parses its JSONL stdout into a live token tally
+  (per-turn, summed), a usage record (`unpriced` unless pi reports a non-zero cost) and the run log,
+  and records turns, per-turn context and `compactions`. Pi's print mode has no permission prompt
+  and takes no allow/deny policy, so a pi step must run **sandboxed** (a step setting an
+  `allow`/`deny` is refused rather than run unrestricted). Set `piConfigDir` (step or harness; the
+  step's own wins) to a host dir holding pi's `models.json`/`settings.json` (each optional), copied
+  — never mounted — into the per-run sandbox HOME's `.pi/agent`. A sandboxed run gets its unattended
+  contract (and, ≤ 16 KB, its standing instructions) as `.pi/agent/agenthook-*.md` files passed with
+  `--append-system-prompt`, which survive compaction (verified on pi 1.5.2 across four compactions);
+  the sandbox hook's new `args` return field carries those flags before the argv's `--` separator.
+  The model-API egress allowlist picks up the `host:port` of each `providers.*.baseUrl` in
+  `piConfigDir`'s `models.json`. `ah doctor` reports the pi version (`pi --version`) for a pi step
+  whose bin is on PATH, or an install hint when it isn't. The agent image installs
+  `@earendil-works/pi-coding-agent` (default `1.5.2`). Pi has no remote harness and its session state
+  lives in the per-run HOME, so a sandboxed run can't be resumed (it still lists in `ah resume` from
+  `usage.jsonl`). See [docs/agents.md](docs/agents.md#agents-claude-cursor-hermes-opencode-pi) and
+  [docs/sandbox.md](docs/sandbox.md#pi-in-the-sandbox).
+
 - A remote harness (`harnesses.<name>.remote`) can now run `opencode` on the worker, not just
   `claude` (#739). It gets the same unattended contract and standing-instructions files a
   sandboxed local OpenCode run gets, plus any `opencodeConfig`, written into a per-run directory

@@ -85,6 +85,15 @@ test("pipeline step opencodeConfig: a non-empty string passes; an empty one or a
   assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", opencodeConfig: null }])), { ok: true });
 });
 
+test("pipeline step piConfigDir: a non-empty string passes; an empty one or a non-string fails", () => {
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", piConfigDir: "~/.pi" }])), { ok: true });
+  /** @param {any} step */
+  const errs = (step) => /** @type {any} */ (validateRawConfig(raw({}, [{ id: "code", ...step }]))).errors;
+  assert.deepEqual(errs({ piConfigDir: "" }), [`config: pipeline step "code" piConfigDir must be a non-empty string.`]);
+  assert.deepEqual(errs({ piConfigDir: 5 }), [`config: pipeline step "code" piConfigDir must be a non-empty string.`]);
+  assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", piConfigDir: null }])), { ok: true });
+});
+
 test("pipeline step contextTokens: a positive integer passes; 0, negative, non-integer or a string fails", () => {
   assert.deepEqual(validateRawConfig(raw({}, [{ id: "code", contextTokens: 64000 }])), { ok: true });
   /** @param {any} step */
@@ -99,10 +108,10 @@ test("agent: unset or \"claude\" passes at the top level and on a step; unknown 
   assert.deepEqual(validateRawConfig(raw({ agent: "opencode" }, [{ id: "code", agent: "opencode", model: "ollama/qwen3.8:27b-64k" }])), { ok: true });
   /** @param {any} r */
   const errs = (r) => /** @type {any} */ (validateRawConfig(r)).errors;
-  assert.deepEqual(errs(raw({ agent: "nope" })), [`config: "agent" "nope" is not a known agent (claude, cursor, hermes, opencode).`]);
-  assert.deepEqual(errs(raw({ agent: 5 })), [`config: "agent" 5 is not a known agent (claude, cursor, hermes, opencode).`]);
-  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "nope" }])), [`config: pipeline step "code" agent "nope" is not a known agent (claude, cursor, hermes, opencode).`]);
-  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "constructor" }])), [`config: pipeline step "code" agent "constructor" is not a known agent (claude, cursor, hermes, opencode).`]);
+  assert.deepEqual(errs(raw({ agent: "nope" })), [`config: "agent" "nope" is not a known agent (claude, cursor, hermes, opencode, pi).`]);
+  assert.deepEqual(errs(raw({ agent: 5 })), [`config: "agent" 5 is not a known agent (claude, cursor, hermes, opencode, pi).`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "nope" }])), [`config: pipeline step "code" agent "nope" is not a known agent (claude, cursor, hermes, opencode, pi).`]);
+  assert.deepEqual(errs(raw({}, [{ id: "code", agent: "constructor" }])), [`config: pipeline step "code" agent "constructor" is not a known agent (claude, cursor, hermes, opencode, pi).`]);
   assert.deepEqual(errs(raw({}, [{ id: "code" }, { id: "done", manual: true, agent: "claude" }])), [
     `config: pipeline step "done" agent has no effect on a manual step (no agent runs).`,
   ]);

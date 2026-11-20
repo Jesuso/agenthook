@@ -316,9 +316,9 @@ export function createStep(ctx) {
         // The network policy: the hosts come from the adapters dispatch holds, never from src/sandbox/.
         const policy = egressPolicy(cfg, step);
         const rules = policy.mode === "allowlist"
-          ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
+          ? egressRules({ agentHosts: agent.egressHosts?.(spawnEnv, { step: spawnStep }) ?? [], trackerHosts: meta?.egressHosts ?? [], forgeHosts: forge ? (forge.describe?.().egressHosts ?? []) : inferredForgeEgressHosts(facts.originUrl), originUrl: facts.originUrl, allow: policy.allow, deny: policy.deny })
           : [];
-        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}), ...(own.files ? { files: own.files } : {}) };
+        sandboxedRun = { ref: job.ref, stepId: step.id, step, mounts, env: { ...(own.env ?? {}), ...gitEnv }, egress: { mode: policy.mode, rules }, ...(sandboxImage ? { image: sandboxImage } : {}), ...(own.files ? { files: own.files } : {}), ...(own.args ? { args: own.args } : {}) };
         // #731: the standing text is already in the agent's `instructions` file (own.files) —
         // drop it from the run prompt so the model doesn't see it twice. Keep the marker: the
         // standing text itself refers to "the `=== TICKET ===` marker".

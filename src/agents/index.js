@@ -1,11 +1,12 @@
 // Agent registry — the axis that names the coding-agent CLI a step spawns (Claude Code,
-// Cursor, Hermes, OpenCode). dispatch builds argv / parses stdout / records usage through the
+// Cursor, Hermes, OpenCode, pi). dispatch builds argv / parses stdout / records usage through the
 // adapter; follow and resume find transcripts through its `sessions`. Keys must equal the
 // import-free AGENT_NAMES (src/agents/names.js) the config schema + validation use.
 import { claude } from "./claude.js";
 import { cursor } from "./cursor.js";
 import { hermes } from "./hermes.js";
 import { opencode } from "./opencode.js";
+import { pi } from "./pi.js";
 import { DEFAULT_AGENT } from "./names.js";
 
 /** @type {Record<string, import('../types.js').AgentAdapter>} */
@@ -14,6 +15,7 @@ export const AGENTS = {
   cursor,
   hermes,
   opencode,
+  pi,
 };
 
 /**
