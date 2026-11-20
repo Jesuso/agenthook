@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import type { ProfileView, Snapshot, StatsGroup, StatsResult } from "./contract";
+import type { ProfileView, Snapshot } from "./contract";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend } from "./format";
-import { harnessStatsUrl } from "./stats";
 import { scopeToProfile } from "./summary";
 import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, progress } from "./zones";
 import type { NeedsItem, Progress } from "./zones";
@@ -230,7 +229,6 @@ export function Overview(props: OverviewProps) {
         </aside>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <HarnessesZone profile={profile} />
           {/* A filter (set from Stats, Epics, a chip, a step's name or the board's "+N more") opens it. */}
           <section data-all-tickets data-open={ticketsShown} className="rounded-lg border border-border bg-surface">
             <div className="flex items-center justify-between gap-2 px-3 py-2">
@@ -625,91 +623,6 @@ function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string
       <p className="mt-1 text-meta leading-4 text-muted">{t("overview.progressFoot")}</p>
       <StatsStrip profile={profile} feed={feed} />
     </Zone>
-  );
-}
-
-/** "25s"/"1.4m" — a run_end-joined wall time; "—" when the group has none. */
-function fmtWallMs(ms: number | null): string {
-  if (ms === null) return "—";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const s = ms / 1000;
-  return s < 60 ? `${s.toFixed(1)}s` : `${(s / 60).toFixed(1)}m`;
-}
-
-/**
- * Which backend is worth routing to (#646): per-harness success rate, wall time, output
- * throughput and cost over the last 7 days. Shown when the profile configures named harnesses
- * (its slots chip is up, even with the receiver down) **or** the 7-day result already has a
- * group other than `(none)` (a harness ran before `harnesses` was removed from config, or before
- * the receiver booted this session) — otherwise there's nothing to route between, so it stays hidden.
- */
-/**
- * Shown when the profile configures named harnesses (its slots chip is up, even with the
- * receiver down), or when the 7-day result already has a group other than `(none)` (a harness
- * ran before `harnesses` was removed from config, or before the receiver booted this session —
- * data is read straight from the state dir, so it's available even then). Pulled out as a pure
- * function so both branches are unit-testable without waiting on the fetch effect below.
- */
-export function harnessesVisible(configured: boolean, groups: StatsGroup[]): boolean {
-  return configured || groups.some((g) => g.key !== "(none)");
-}
-
-function HarnessesZone({ profile }: { profile: ProfileView }) {
-  const { t, lang } = useT();
-  const [data, setData] = useState<StatsResult | null>(null);
-  useEffect(() => {
-    let live = true;
-    fetch(harnessStatsUrl(profile.name))
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((b: StatsResult) => live && setData(b))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [profile.name]);
-
-  const configured = !!profile.harnesses && Object.keys(profile.harnesses).length > 0;
-  const groups = data?.groups ?? [];
-  if (!harnessesVisible(configured, groups)) return null;
-
-  return (
-    <Zone title={t("overview.harnesses")}>
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
-        <table className="w-full border-collapse text-sm" data-harnesses-table>
-          <thead className="text-left text-muted">
-            <tr>
-              <th className="px-3 py-2">{t("overview.harnessesCol.harness")}</th>
-              <th className="px-3 py-2">{t("overview.harnessesCol.runs")}</th>
-              <th className="px-3 py-2">{t("overview.harnessesCol.success")}</th>
-              <th className="px-3 py-2">{t("overview.harnessesCol.p50")}</th>
-              <th className="px-3 py-2">{t("overview.harnessesCol.outPerMin")}</th>
-              <th className="px-3 py-2">{t("overview.harnessesCol.cost")}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-subtle">
-            {groups.map((g: StatsGroup) => (
-              <HarnessRow key={g.key} g={g} lang={lang} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-1 text-meta leading-4 text-muted">{t("overview.harnessesFoot")}</p>
-    </Zone>
-  );
-}
-
-function HarnessRow({ g, lang }: { g: StatsGroup; lang: string }) {
-  // Reported and estimated cost are shown apart, never summed (formatSpend, src/pricing.js).
-  const spend = formatSpend({ reported: g.costUsd, est: g.estUsd }) || formatCost(0, lang);
-  return (
-    <tr>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.key}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.runs}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.successRate === null ? "—" : `${Math.round(g.successRate * 100)}%`}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{fmtWallMs(g.wallP50Ms)}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{g.outPerMin === null ? "—" : Math.round(g.outPerMin).toLocaleString(lang)}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono">{spend}</td>
-    </tr>
   );
 }
 

@@ -606,6 +606,10 @@ plus total, per-day average, rework rate (from 10 runs) and best day.
      each day (spend since the ticket was previously marked done, counted once even if `pipeline_done`
      repeats; hand-done tickets have no agent spend and are not sampled). A candlestick has no
      open/close in our data, so this range chart stands in for it.
+  5. *Harnesses* — a per-harness table (runs, success, p50 wall, out tok/min, cost) from
+     `GET /api/harness-stats`, on a fixed 7-day window that ignores the range toggle above; shown
+     only when harnesses are configured or a named harness has run (the whole card — frame and
+     table — is absent otherwise). Moved off the Overview page in #754.
   Day payload (`DayStats`) gained `byStep`, `outcomes` and `ticketCost`; `days` may now be up to 366.
 - **Estimated spend** (#394): `DayStats` also carries `estUsd` (rate-table estimates, never in
   `costUsd`), `unestimatedRuns` (runs with neither), `byStep[step].estUsd` and `ticketEst` (the
