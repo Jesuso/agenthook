@@ -24,6 +24,8 @@ export const EDGE_LABEL: Record<GraphEdge["type"], MessageKey> = {
   queue: "graph.edge.queue",
 };
 
+/** Smallest scale the drawing may render at: the 12px step-id label must stay at or above 11px. */
+const MIN_SCALE = 11 / 12;
 /** Corner radius of an orthogonal route's bends. */
 const BEND_R = 6;
 /** Approximate glyph width at the 10px label size — sizes a label's backing rect and pill truncation. */
@@ -205,7 +207,8 @@ export function PipelineGraph(props: { layout: PipelineLayout; onSelectStep?: (i
       )}
       {/* Cut off on the right, the drawing fades there: more of it is a swipe away. */}
       <div ref={scroller} data-graph-scroll data-more={more || undefined} className={`overflow-auto [scrollbar-width:thin] ${more ? "[mask-image:linear-gradient(to_right,black_calc(100%-2.5rem),transparent)]" : ""} ${props.scrollClass ?? ""}`}>
-        <svg className="mx-auto block" width={layout.width} height={layout.height} role="img" aria-label={t("graph.aria")}>
+        {/* Scales down to fit its pane; below the floor, `min-width` wins over `max-width`, so the scroll box takes over. */}
+        <svg className="mx-auto block" width={layout.width} role="img" aria-label={t("graph.aria")} viewBox={`0 0 ${layout.width} ${layout.height}`} style={{ maxWidth: "100%", minWidth: layout.width * MIN_SCALE, height: "auto" }}>
           <defs>
             {(["advance", "fail", "hold", "changes", "queue"] as const).map((t) => (
               <marker key={t} id={`ah-arrow-${t}`} viewBox="0 0 10 10" refX={8} refY={5} markerUnits="userSpaceOnUse" markerWidth={10} markerHeight={10} orient="auto-start-reverse">

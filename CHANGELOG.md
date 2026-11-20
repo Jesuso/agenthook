@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: the Config pipeline graph now scales down to fit its pane (to 11/12 of full size, keeping
+  step names at or above 11px); panes narrower than that scroll as before (#756).
 - UI: the Harnesses table moved from Overview to the Statistics page (#754).
 
 **Upgrading from 0.15** — nothing to migrate, three behaviours to know about:

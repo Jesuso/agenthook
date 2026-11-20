@@ -33,6 +33,18 @@ describe("PipelineGraph — step card meta", () => {
   });
 });
 
+describe("PipelineGraph scales to its pane", () => {
+  it("caps the width at natural size and floors the shrink at 11/12", () => {
+    const steps = [{ id: "a", kind: "triage" }, { id: "b", kind: "implement" }, { id: "c", kind: "review" }, { id: "d", kind: "merge" }];
+    const layout = layoutPipeline(steps, GITHUB, null);
+    const html = render(steps);
+    expect(html).toContain(`viewBox="0 0 ${layout.width} ${layout.height}"`);
+    expect(html).toContain(`width="${layout.width}"`);
+    expect(html).toContain("max-width:100%;");
+    expect(html).toMatch(new RegExp(`min-width:${((layout.width * 11) / 12).toString().replace(".", "\\.")}`));
+  });
+});
+
 describe("PipelineGraph in Spanish", () => {
   afterEach(() => setLangSetting("en", []));
 
