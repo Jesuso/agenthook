@@ -4,6 +4,7 @@ import type { InstructionsView as InstructionsBody, ProfileView } from "./contra
 import { baseName, discardPrompt, formatBytes, groupFiles, initialFile, instructionFileUrl, instructionsUrl, isDirty } from "./instructions";
 import type { InstructionsEvent } from "./instructions";
 import { profileLabel } from "./format";
+import { usePageTitle } from "./usePageTitle";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { DiffView } from "./DiffView";
 import { DiffLegend, Modal, useConfirm } from "./Modal";
@@ -37,6 +38,7 @@ export default function InstructionsView(props: {
   const { t, lang } = useT();
   // The app bar picks the profile; this page edits the one it was given.
   const shown = props.profiles.find((p) => p.name === props.initialProfile) ?? props.profiles[0];
+  usePageTitle([t("instructions.title"), shown ? profileLabel(shown) : null]);
   const profile = shown?.name ?? "";
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);

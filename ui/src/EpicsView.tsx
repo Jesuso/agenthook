@@ -9,6 +9,7 @@ import { Chevron, Count, EpicPage, LiveNote, paceOf } from "./EpicPage";
 import { useDisclosure } from "./disclosure";
 import { CopyCommand, EmptyState, Pill, ProfileMark, ShortcutSheet, ShortcutsButton } from "./components";
 import { profileLabel } from "./format";
+import { usePageTitle } from "./usePageTitle";
 import { hashFor } from "./route";
 import { EPICS_SHORTCUTS, epicsAction, shortcutsEnabled } from "./shortcuts";
 import { rich, useT } from "./i18n/react";
@@ -70,12 +71,7 @@ export default function EpicsView({ profile, epic, rows, ticketsNonce, onOpen, o
   const body = shown?.kind === "ok" ? shown.body : good?.route === route ? good.body : null;
   const epicName = body && "epic" in body ? body.epic?.name : undefined;
 
-  useEffect(() => {
-    document.title = `${epicName ? `${epicName} · ` : ""}${t("epics.title")} · ${profileLabel(profile)} · agenthook`;
-    return () => {
-      document.title = "agenthook";
-    };
-  }, [epicName, profile, t]);
+  usePageTitle([epicName, t("epics.title"), profileLabel(profile)]);
 
   useEpicsKeys(setHelp, epic !== undefined ? listHref : null);
 

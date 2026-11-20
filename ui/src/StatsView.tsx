@@ -3,6 +3,7 @@ import type { DayStats, ProfileView, StatsView as StatsData } from "./contract";
 import { Segmented, ProfileMark } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
+import { usePageTitle } from "./usePageTitle";
 import { formatEnergy } from "../../src/energy.js";
 import { HarnessesCard } from "./HarnessesCard";
 import { latestChange, shortDate, statsUrl } from "./stats";
@@ -37,6 +38,8 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
   const [data, setData] = useState<StatsData | null>(null);
   const [failed, setFailed] = useState(false);
   const changed = latestChange(feed);
+
+  usePageTitle([t("statsView.title"), profileLabel(profile)]);
 
   useEffect(() => {
     let live = true;

@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 - UI: the Harnesses table moved from Overview to the Statistics page (#754).
+- UI: the browser tab title now names the Stats, Instructions and Config views and the profile, like Epics already did (#757).
 
 **Upgrading from 0.15** — nothing to migrate, three behaviours to know about:
 

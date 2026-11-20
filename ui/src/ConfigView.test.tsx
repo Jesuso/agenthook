@@ -341,3 +341,15 @@ describe("ConfigView in Spanish", () => {
     expect(m.root.textContent).toContain("Grafo del pipeline");
   });
 });
+
+describe("the tab title (#757)", () => {
+  it("Config · <profile> · agenthook, the profile drops with no profiles, agenthook after unmount", async () => {
+    m = await mount(createElement(I18nProvider, null, view()));
+    expect(document.title).toBe("Config · demo · agenthook");
+    await m.rerender(createElement(I18nProvider, null, createElement(ConfigView, { profiles: [], eventSink: { current: null }, onDirtyChange: dirty })));
+    expect(document.title).toBe("Config · agenthook");
+    await m.unmount();
+    m = null;
+    expect(document.title).toBe("agenthook");
+  });
+});

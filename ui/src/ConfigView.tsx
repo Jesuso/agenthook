@@ -4,6 +4,7 @@ import { rich, useT } from "./i18n/react";
 import { json } from "@codemirror/lang-json";
 import type { ConfigView as ConfigBody, ProfileView } from "./contract";
 import { profileLabel } from "./format";
+import { usePageTitle } from "./usePageTitle";
 import { ProfileMark } from "./components";
 import { isDirty } from "./instructions";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -119,6 +120,7 @@ export default function ConfigView(props: {
   const current = moving && picked === moving.from && !listed(moving.from) && listed(moving.to) ? moving.to : picked;
   const profile = listed(current) ? current : (props.profiles[0]?.name ?? "");
   const profileView = props.profiles.find((p) => p.name === profile) ?? null;
+  usePageTitle([t("configView.title"), profileView ? profileLabel(profileView) : null]);
   const [file, setFileState] = useState<FileState>({ kind: "loading" });
   // Remounts the editor on every load: fresh document, fresh undo history.
   const [editorKey, setEditorKey] = useState(0);
