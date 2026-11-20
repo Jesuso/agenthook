@@ -439,8 +439,10 @@ sandboxed; see [Agents](agents.md#a-local-model-step-pi--ollama).
 The unattended contract and a step's standing instructions are written to files in the run's
 sandbox HOME and passed with `--append-system-prompt`, not appended to the one-shot run prompt.
 Unlike a run-prompt line, an `--append-system-prompt` file is re-read into the system prompt and
-**survives compaction** — verified on Pi 1.5.2 through a logging proxy across four compactions: the
-"never stop to ask" rule and the verdict-file path were still in the system prompt after the fourth.
+**survives compaction** — verified on Pi 1.5.2 through a logging proxy across four compactions: a
+marker string in an `--append-system-prompt` file was still in the system prompt of every agent
+request after each one. The check used a marker, not the contract text itself; the contract and
+standing files travel by the same flag.
 This is why a pi run gets its contract as an `--append-system-prompt` file (one per file) rather
 than in the run prompt.
 

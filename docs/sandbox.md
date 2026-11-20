@@ -584,8 +584,10 @@ A `providers.*.baseUrl` in that `models.json` pointing at a LAN model server nee
 a harness's `ANTHROPIC_BASE_URL` (see [Network](#network) above): `localhost`/`127.0.0.1` never
 reaches your host from inside the container, so use the host's LAN IP. In allowlist mode the run's
 egress allowlist includes the `host:port` of each `providers.*.baseUrl` automatically (Pi's
-`egressHosts` reads the step's `piConfigDir`); a cloud provider still needs its own
-`sandbox.egress.allow` entry.
+`egressHosts` reads the step's `piConfigDir`). That automatic rule is a plain `host:port`, and the
+proxy refuses a private (RFC1918) address unless a rule ends in `!private`, so a LAN model server
+still needs its own entry in `sandbox.egress.allow`, e.g. `"192.168.1.20:11434!private"` — the same
+rule `ANTHROPIC_BASE_URL` needs. A cloud provider still needs its own `sandbox.egress.allow` entry.
 
 ## Alternative: run the receiver itself in a container
 
