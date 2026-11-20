@@ -128,6 +128,22 @@ describe("TicketDrawer", () => {
     await unmount();
   });
 
+  it("keeps the close button pinned top right and gives the title its own clamped line (#755)", async () => {
+    const longTitle = "Polish the receiver's webhook handshake path, and add coverage of all the ingress adapters"; // 90 chars
+    runs = [runView({ running: true })];
+    const m = await openDrawer({ ...row, title: longTitle, model: "ollama/qwen3.8:27b-160k-dflash", ctx: 212000, ctxMax: 200000 });
+    const header = m.root.querySelector("header")!;
+    const h2 = header.querySelector("h2")!;
+    // The title wraps to at most two lines on its own row: no single-line truncate, full title in the tooltip.
+    expect(h2.className).toContain("line-clamp-2");
+    expect(h2.className).not.toContain("truncate");
+    expect(h2.getAttribute("title")).toBe(longTitle);
+    // The × button is absolutely positioned in a relative header, so a long model name can't wrap it away.
+    expect(header.className).toContain("relative");
+    expect(header.querySelector('button[aria-label="Close"]')!.className).toContain("absolute");
+    await m.unmount();
+  });
+
   it("shows the full failure reason (or the held question) under the header", () => {
     expect(render({ ...row, status: "failed", failReason: 'service "bad" not ready within 5s' })).toMatch(/data-drawer-reason[\s\S]*Why it failed[\s\S]*service &quot;bad&quot; not ready within 5s/);
     expect(render({ ...row, status: "held", heldReason: "Which DB?" })).toMatch(/data-drawer-reason[\s\S]*What the agent is asking[\s\S]*Which DB\?/);
