@@ -45,15 +45,22 @@ describe("PipelineForm cards", () => {
     expect(m.root.querySelector('input[name="tracker.pipeline.0.id"]')).toBeNull();
     const summaries = [...m.root.querySelectorAll("[data-step-summary]")].map((e) => e.textContent);
     expect(summaries).toEqual(["triage · agent:triage → agent:code", "implement · agent:code → agent:review / agent:failed · worktree", "review · agent:review → agent:done"]);
+    expect((cards(m)[0].querySelector('[aria-label^="expand step"]') as HTMLButtonElement).getAttribute("aria-label")).toBe("expand step: triage");
   });
 
   it("the toggle opens and closes one card; the header keeps its summary when open", async () => {
     m = await mount(form());
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    let toggle = cards(m)[1].querySelector('[aria-label^="expand step"]') as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-label")).toBe("expand step: code");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await click(toggle);
     expect(openIds(m)).toEqual(["code"]);
     expect(m.root.querySelector('input[name="tracker.pipeline.1.id"]')).not.toBeNull();
+    toggle = cards(m)[1].querySelector('[aria-label^="collapse step"]') as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-label")).toBe("collapse step: code");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(cards(m)[1].querySelector("[data-step-summary]")!.textContent).toContain("agent:code → agent:review");
-    await click(cards(m)[1].querySelector('[aria-label="collapse step"]')!);
+    await click(toggle);
     expect(openIds(m)).toEqual([]);
   });
 
@@ -86,7 +93,7 @@ describe("PipelineForm cards", () => {
     const badge = cards(m)[2].querySelector<HTMLElement>("[data-step-error]");
     expect(badge?.dataset.stepError).toBe("1");
     expect(openIds(m)).toEqual(["review"]);
-    await click(cards(m)[2].querySelector('[aria-label="collapse step"]')!);
+    await click(cards(m)[2].querySelector('[aria-label^="collapse step"]')!);
     await m.rerender(form({ errors: new Map(errors) }));
     expect(openIds(m)).toEqual([]);
     expect(cards(m)[2].querySelector("[data-step-error]")).not.toBeNull();
@@ -94,7 +101,7 @@ describe("PipelineForm cards", () => {
 
   it("Advanced is collapsed by default and holds maxMinutes/idleMinutes/maxConcurrent/hold/queue; a middle step has no closeIssue", async () => {
     m = await mount(form());
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const card = cards(m)[1];
     const details = card.querySelector("[data-step-advanced]") as HTMLDetailsElement;
     expect(details).not.toBeNull();
@@ -131,7 +138,7 @@ describe("PipelineForm cards", () => {
 
   it("the last step of the github fixture shows closeIssue", async () => {
     m = await mount(form());
-    await click(cards(m)[2].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[2].querySelector('[aria-label^="expand step"]')!);
     expect(cards(m)[2].querySelector('input[name="tracker.pipeline.2.closeIssue"]')).not.toBeNull();
   });
 
@@ -140,27 +147,33 @@ describe("PipelineForm cards", () => {
       tracker: { type: "github", pipeline: [{ ...raw.tracker.pipeline[1], holdLabel: "agent:held" }] },
     };
     m = await mount(form({ text: JSON.stringify(withHold, null, 2), raw: withHold }));
-    expect(cards(m)[0].querySelector("[data-step-summary]")!.textContent).toContain("+1 advanced");
-    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    // The count is its own non-truncating element; the summary text never contains it.
+    expect(cards(m)[0].querySelector("[data-step-advanced-count]")!.textContent).toBe("+1 advanced");
+    const summaryEl = cards(m)[0].querySelector("[data-step-summary]") as HTMLElement;
+    expect(summaryEl.textContent).not.toContain("advanced");
+    expect(summaryEl.title).toContain("+1 advanced");
+    // The fixture has one step, so root-wide the count appears exactly once.
+    expect(m.root.querySelectorAll("[data-step-advanced-count]")).toHaveLength(1);
+    await click(cards(m)[0].querySelector('[aria-label^="expand step"]')!);
     expect(cards(m)[0].querySelector("[data-step-advanced] summary")!.textContent).toBe("Advanced · 1 set");
   });
 
   it("completeOnMerge shows only on manual steps, unless already set", async () => {
     m = await mount(form());
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     expect(cards(m)[1].querySelector('input[name="tracker.pipeline.1.completeOnMerge"]')).toBeNull();
 
     const manual = { tracker: { type: "github", pipeline: [{ ...raw.tracker.pipeline[1], manual: true }] } };
     {
       const m2 = await mount(form({ text: JSON.stringify(manual, null, 2), raw: manual }));
-      await click(m2.root.querySelector('[aria-label="expand step"]')!);
+      await click(m2.root.querySelector('[aria-label^="expand step"]')!);
       expect(m2.root.querySelector('input[name="tracker.pipeline.0.completeOnMerge"]')).not.toBeNull();
       await m2.unmount();
     }
 
     const alreadySet = { tracker: { type: "github", pipeline: [{ ...raw.tracker.pipeline[1], completeOnMerge: false }] } };
     const m3 = await mount(form({ text: JSON.stringify(alreadySet, null, 2), raw: alreadySet }));
-    await click(m3.root.querySelector('[aria-label="expand step"]')!);
+    await click(m3.root.querySelector('[aria-label^="expand step"]')!);
     expect(m3.root.querySelector('input[name="tracker.pipeline.0.completeOnMerge"]')).not.toBeNull();
     await m3.unmount();
   });
@@ -181,7 +194,7 @@ describe("PipelineForm Advanced: Escalation and Lite", () => {
     let buffer = text;
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(form({ onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const details = cards(m)[1].querySelector("[data-step-advanced]") as HTMLDetailsElement;
 
     const rows = ["easy", "medium", "hard"].map((d) => details.querySelector<HTMLElement>(`[data-escalate-row="${d}"]`));
@@ -209,7 +222,7 @@ describe("PipelineForm Advanced: Escalation and Lite", () => {
     let buffer = text;
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(form({ onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const headings = cards(m)[1].querySelector('[data-lite-headings]')!;
     const input = headings.querySelector<HTMLInputElement>("input")!;
     await act(async () => {
@@ -228,7 +241,7 @@ describe("PipelineForm Advanced: Escalation and Lite", () => {
     let buffer = JSON.stringify(rawWithLite, null, 2);
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(form({ text: buffer, raw: rawWithLite, onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const headings = cards(m)[1].querySelector('[data-lite-headings]')!;
     const row = headings.querySelectorAll("input")[0] as HTMLInputElement;
 
@@ -270,7 +283,7 @@ describe("PipelineForm Advanced: agent bin and env", () => {
     let buffer = text;
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(form({ onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const bin = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.bin"]')!;
     expect(bin).not.toBeNull();
     expect(bin.placeholder).toBe("claudeBin");
@@ -285,7 +298,7 @@ describe("PipelineForm Advanced: agent bin and env", () => {
     let buffer = text;
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(form({ onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const env = () => cards(m!)[1].querySelector<HTMLElement>("[data-step-env]")!;
     expect(env()).not.toBeNull();
     const add = [...env().querySelectorAll("button")].find((b) => b.textContent === "add variable")!;
@@ -312,13 +325,13 @@ describe("PipelineForm Advanced: provider", () => {
     let buffer = hermesText;
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(createElement(PipelineForm, { text: hermesText, raw: hermesRaw, stages: null, onRefresh: () => {}, onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const provider = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.provider"]');
     expect(provider).not.toBeNull();
     await typeInto(provider!, "ollama-launch");
     expect(JSON.parse(buffer).tracker.pipeline[1].provider).toBe("ollama-launch");
 
-    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[0].querySelector('[aria-label^="expand step"]')!);
     const claudeProvider = cards(m)[0].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.0.provider"]');
     expect(claudeProvider).toBeNull();
   });
@@ -328,7 +341,7 @@ describe("PipelineForm Advanced: provider", () => {
     let buffer = JSON.stringify(hermesRaw, null, 2);
     const onEdit = vi.fn((t: string) => (buffer = t));
     m = await mount(createElement(PipelineForm, { text: buffer, raw: hermesRaw, stages: null, onRefresh: () => {}, onEdit }));
-    await click(cards(m)[1].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expand step"]')!);
     const isolated = cards(m)[1].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.1.isolated"]');
     expect(isolated).not.toBeNull();
     expect(isolated!.checked).toBe(true);
@@ -341,7 +354,7 @@ describe("PipelineForm Advanced: provider", () => {
     await blur(toolsets!);
     expect(JSON.parse(buffer).tracker.pipeline[1].toolsets).toEqual(["terminal"]);
 
-    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[0].querySelector('[aria-label^="expand step"]')!);
     expect(cards(m)[0].querySelector('[data-step-advanced] input[name="tracker.pipeline.0.isolated"]')).toBeNull();
     expect(cards(m)[0].querySelector('[data-step-advanced] input[name="tracker.pipeline.0.toolsets"]')).toBeNull();
   });
@@ -349,7 +362,7 @@ describe("PipelineForm Advanced: provider", () => {
   it("stays visible for a claude step when provider is already set", async () => {
     const withProvider = { ...raw, tracker: { ...raw.tracker, pipeline: raw.tracker.pipeline.map((s, i) => (i === 0 ? { ...s, provider: "custom" } : s)) } };
     m = await mount(createElement(PipelineForm, { text: JSON.stringify(withProvider), raw: withProvider, stages: null, onRefresh: () => {}, onEdit: () => {} }));
-    await click(cards(m)[0].querySelector('[aria-label="expand step"]')!);
+    await click(cards(m)[0].querySelector('[aria-label^="expand step"]')!);
     const provider = cards(m)[0].querySelector<HTMLInputElement>('[data-step-advanced] input[name="tracker.pipeline.0.provider"]');
     expect(provider).not.toBeNull();
     expect(provider!.value).toBe("custom");
@@ -368,7 +381,7 @@ describe("PipelineForm in Spanish (#562)", () => {
     m = await mount(createElement(I18nProvider, null, form()));
     expect(m.root.textContent).toContain("Actualizar etapas");
     expect(m.root.textContent).toContain("+ Agregar paso");
-    await click(cards(m)[1].querySelector('[aria-label="expandir paso"]')!);
+    await click(cards(m)[1].querySelector('[aria-label^="expandir paso"]')!);
     const titles = [...cards(m)[1].querySelectorAll("h4")].map((h) => h.textContent);
     expect(titles).toContain("Disparadores y carriles");
     expect(cards(m)[1].querySelector("[data-step-advanced] summary")!.textContent).toBe("Avanzado · 0 definidos");

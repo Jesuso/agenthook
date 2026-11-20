@@ -113,7 +113,7 @@ describe("PipelineForm step help", () => {
 
   it("every step field shows its schema help and raw key; stage roles keep their labels with the tracker key's help", async () => {
     m = await mount(form());
-    await click(m.root.querySelector('[aria-label="expand step"]')!);
+    await click(m.root.querySelector('[aria-label^="expand step"]')!);
     for (const key of ["id", "kind", "manual", "model", "effort", "instructionsFile", "maxAttempts", "maxMinutes", "idleMinutes", "createsWorktree", "drainWorktree"]) {
       const e = stepEntry(key)!;
       expectHelp(m.root.querySelector(`[name="tracker.pipeline.0.${key}"]`)!, key, e.label, e.help);
@@ -130,7 +130,7 @@ describe("PipelineForm step help", () => {
 
   it("placeholders, min and options come from the schema", async () => {
     m = await mount(form());
-    await click(m.root.querySelector('[aria-label="expand step"]')!);
+    await click(m.root.querySelector('[aria-label^="expand step"]')!);
     const input = (k: string) => m!.root.querySelector<HTMLInputElement>(`[name="tracker.pipeline.0.${k}"]`)!;
     expect(input("maxAttempts").placeholder).toBe("3 (default)");
     expect(input("maxAttempts").getAttribute("min")).toBe("1");
@@ -143,7 +143,7 @@ describe("PipelineForm step help", () => {
   it("text and number edits produce the same buffer as the edit functions", async () => {
     const onEdit = vi.fn();
     m = await mount(form(onEdit));
-    await click(m.root.querySelector('[aria-label="expand step"]')!);
+    await click(m.root.querySelector('[aria-label^="expand step"]')!);
     await setInput(m.root.querySelector<HTMLInputElement>('[name="tracker.pipeline.0.maxMinutes"]')!, "45");
     const n = numberEdit(text, ["tracker", "pipeline", 0, "maxMinutes"], "45");
     expect(n.ok && onEdit.mock.calls.at(-1)?.[0]).toBe(n.ok && n.text);

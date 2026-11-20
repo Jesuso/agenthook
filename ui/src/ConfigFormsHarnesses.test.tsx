@@ -135,7 +135,7 @@ describe("HarnessesField (Basics → Advanced)", () => {
 describe("step harness pick (PipelineForm)", () => {
   const openCard = async (root: Element, id: string) => {
     const c = root.querySelector<HTMLElement>(`[data-step-card="${id}"]`)!;
-    await click(c.querySelector('[aria-label="expand step"]')!);
+    await click(c.querySelector('[aria-label^="expand step"]')!);
     return c;
   };
   const option = (c: Element, name: string) => c.querySelector<HTMLInputElement>(`[data-harness-option="${name}"]`)!;

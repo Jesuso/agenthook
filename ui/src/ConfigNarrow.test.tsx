@@ -180,7 +180,7 @@ describe("PipelineForm at phone width (#372)", () => {
     const root = m.root.querySelector<HTMLElement>("[data-pipeline-form]")!;
     expect(classes(root)).toContain("@container");
     const card = m.root.querySelectorAll<HTMLElement>("[data-step-card]")[1];
-    await click(card.querySelector('[aria-label="expand step"]')!);
+    await click(card.querySelector('[aria-label^="expand step"]')!);
     card.querySelector("details")!.open = true;
     const all = [card, ...card.querySelectorAll<HTMLElement>("*")];
     const grids = all.filter((el) => classes(el).includes("grid"));
@@ -196,9 +196,9 @@ describe("PipelineForm at phone width (#372)", () => {
     const card = m.root.querySelectorAll<HTMLElement>("[data-step-card]")[1];
     const header = card.querySelector<HTMLElement>("[data-step-header]")!;
     expect(classes(header)).toEqual(expect.arrayContaining(["flex-wrap", "sm:flex-nowrap"]));
-    await click(card.querySelector('[aria-label="expand step"]')!);
+    await click(card.querySelector('[aria-label^="expand step"]')!);
     const buttons = [
-      card.querySelector('[aria-label="collapse step"]')!,
+      card.querySelector('[aria-label^="collapse step"]')!,
       card.querySelector('[aria-label^="move up"]')!,
       card.querySelector('[aria-label^="move down"]')!,
       [...card.querySelectorAll("button")].find((b) => b.textContent === "remove")!,

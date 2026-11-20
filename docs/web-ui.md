@@ -268,7 +268,11 @@ disabled with "fix the JSON in Raw first"). Raw stays the escape hatch — nothi
 Every Pipeline stage card starts **collapsed** to its header: `#n`, the step id and a one-line
 summary (`summarizeStep`) — `kind · <source> → <success> / <failure> · manual · worktree · drain ·
 <model> · <effort>`, each part omitted when absent, lanes as the discovered stage names (the raw
-value without a list), model / effort only when the step overrides them. "+ Add step" opens the new
+value without a list), model / effort only when the step overrides them. A "+N advanced" count,
+when a step sets advanced keys, sits beside that summary as its own non-truncating element (`[data-step-advanced-count]`,
+`shrink-0`); the summary text and its tooltip keep the full form. The expand/collapse button is
+named per step ("expand step: triage" / "collapse step: triage") so a screen reader can tell the
+cards apart. "+ Add step" opens the new
 card; **Expand all** / **Collapse all** sit beside Refresh stages. Errors are attributed per step
 (`stepErrors` in `configEdit.ts`: the client checks by index — a duplicate id on the later step —
 plus the server's by `tracker.pipeline[i]` or `pipeline step "<id>"`; anything else stays only in
