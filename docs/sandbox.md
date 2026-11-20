@@ -568,9 +568,10 @@ directory, an oversized or invalid file) throws and the run is refused before an
 Pi reads your own `~/.pi` as usual.
 
 Pi's session state also lives under `~/.pi/agent` in the per-run HOME, deleted at teardown, so a
-sandboxed pi run **cannot be resumed** (`sandboxResume` is false): a verdict-repair turn starts a
-fresh session rather than resuming the dead one. `ah resume` still lists pi sessions from the
-session ids in `usage.jsonl` and prints `cd <worktree> && pi -p --session <id>` for a host run.
+sandboxed pi run **cannot be resumed** (`sandboxResume` is false): a verdict-repair turn is never
+attempted for a sandboxed pi run (it would find no session to resume), and a gate-repair turn
+starts a fresh session rather than resuming the dead one. `ah resume` still lists pi sessions from
+the session ids in `usage.jsonl` and prints `cd <worktree> && pi -p --session <id>` for a host run.
 
 A sandboxed pi run also gets `.pi/agent/agenthook-unattended.md` (and, when standing instructions
 are provided and ≤ 16 KB, `.pi/agent/agenthook-standing.md`), each passed with its own

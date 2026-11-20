@@ -120,6 +120,9 @@ test("parser: renders tool calls (🔧) and assistant text; thinking items and t
   // turn_end repeats each assistant message (with its usage) — counting it would double the tally,
   // so a fixture full of turn_end events still sums to the message_end numbers above.
   assert.equal((log.match(/🔧/g) ?? []).length, 7);
+  // thinking items render nothing: none of the fixture's thinking text reaches the log.
+  assert.doesNotMatch(log, /Let's start by examining the repository/);
+  assert.doesNotMatch(log, /Verdict already written\. Just to be safe/);
 });
 
 test("parser: message_update / message_start / agent events carry no log text and no tokens", () => {
@@ -147,6 +150,14 @@ test("parser: message_update / message_start / agent events carry no log text an
   assert.equal(p.sessionId, SID);
   // a session id alone yields a zero-tally result (a killed run still records its session)
   assert.deepEqual(p.result, { session_id: SID, tokens: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, compactions: 0 }, cost: 0 });
+});
+
+test("parser: the fixture's own message_update lines (assistantMessageEvent deltas) render nothing", () => {
+  const updates = FIXTURE.split("\n").filter((l) => l.includes('"type": "message_update"'));
+  assert.ok(updates.length > 0, "the fixture has message_update lines");
+  const p = createPiParser();
+  assert.equal(p.push(updates.join("\n") + "\n") + p.flush(), "");
+  assert.equal(p.result, null);
 });
 
 test("parser: unknown events and non-JSON lines are ignored, never throw", () => {
@@ -310,6 +321,43 @@ test("sandbox: verdictFile → contract file + one --append-system-prompt; stand
   assert.equal(withStanding.standingInInstructions, true);
 });
 
+test("sandbox: piConfigDir + verdictFile + standing → all four files under <home>/.pi/agent, mode 0o600", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-sb-all-"));
+  try {
+    fs.writeFileSync(path.join(dir, "models.json"), '{"providers":{}}');
+    fs.writeFileSync(path.join(dir, "settings.json"), '{"theme":"dark"}');
+    const standing = "# standing";
+    const own = pi.sandbox({
+      step: /** @type {any} */ ({ id: "code", piConfigDir: dir }),
+      home: "/home/agent",
+      verdictFile: "/verdict/run-752/verdict.json",
+      standing,
+    });
+    const base = "/home/agent/.pi/agent/";
+    const byDst = /** @type {Record<string, {content: string, mode: number}>} */ ({});
+    for (const f of own.files) byDst[f.dst] = f;
+    // all four files, each under <home>/.pi/agent with mode 0o600
+    assert.deepEqual(own.files.map((f) => f.dst).sort(), [
+      base + "agenthook-standing.md",
+      base + "agenthook-unattended.md",
+      base + "models.json",
+      base + "settings.json",
+    ]);
+    assert.deepEqual(byDst[base + "models.json"].content, '{"providers":{}}');
+    assert.deepEqual(byDst[base + "settings.json"].content, '{"theme":"dark"}');
+    assert.deepEqual(byDst[base + "agenthook-standing.md"].content, standing);
+    assert.match(byDst[base + "agenthook-unattended.md"].content, /\/verdict\/run-752\/verdict\.json/);
+    for (const f of own.files) assert.equal(f.mode, 0o600, `mode of ${f.dst}`);
+    // one --append-system-prompt per written prompt file (the contract and the standing), no config file
+    assert.deepEqual(own.args, ["--append-system-prompt", base + "agenthook-unattended.md", "--append-system-prompt", base + "agenthook-standing.md"]);
+    assert.equal(own.standingInInstructions, true);
+    assert.deepEqual(own.mounts, []);
+    assert.deepEqual(own.env, {});
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("sandbox: standing over 16KB → no standing file, one warn; empty standing → contract only", () => {
   const verdictFile = "/verdict/run-752/verdict.json";
   const w = warns(() => {
@@ -346,6 +394,40 @@ test("dispatch e2e: a sandboxed pi step runs through the runtime and its --appen
     assert.ok(flag < sep);
     assert.match(run[flag + 1], /agenthook-unattended\.md$/);
     assert.ok(run.includes("-p") && run.includes("--mode") && run.includes("json"), "the pi argv is intact");
+  } finally {
+    h.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dispatch e2e: a sandboxed pi run that prints the fixture but writes no verdict → verdict_missing hold, one run, pi usage record", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-noverdict-"));
+  const h = sandboxHarness(
+    [{ id: "code", agent: "pi", createsWorktree: true }, { id: "done", manual: true }],
+    { inner: `#!/bin/sh\ncat ${JSON.stringify(new URL("./fixtures/pi-run.jsonl", import.meta.url).pathname)}\n` },
+  );
+  // The harness's claudeBin stub doubles as the pi binary here — the stub is agent-agnostic.
+  h.cfg.pipeline[0].bin = h.cfg.claudeBin;
+  try {
+    await h.go("code");
+    assert.equal(h.advanced[0]?.outcome, "hold", JSON.stringify(h.advanced));
+    const vm = h.events.find((e) => e.event === "verdict_missing");
+    assert.ok(vm, "verdict_missing was emitted");
+    assert.match(vm.data.reason, /no valid verdict/);
+    const held = h.store.getHeld("42");
+    assert.ok(held && held.stepId === "code", JSON.stringify(held));
+    assert.equal(h.events.find((e) => e.event === "verdict_repair"), undefined, "no repair turn (sandboxResume: false)");
+    assert.equal(h.calls().filter(isAgentRun).length, 1, "exactly one agent run");
+    // usage.jsonl got the pi record: the fixture's per-turn tallies, unpriced, with the turn stats
+    const usageFile = path.join(h.state, "usage.jsonl");
+    const recs = fs.readFileSync(usageFile, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.equal(recs.length, 1);
+    const r = recs[0];
+    assert.deepEqual([r.ref, r.stepId, r.input, r.output, r.cacheRead, r.cacheCreate], ["42", "code", 79847, 6166, 193632, 0]);
+    assert.equal(r.unpriced, true);
+    assert.equal("costUsd" in r, false);
+    assert.deepEqual([r.turns, r.firstContext, r.peakContext, r.lastContext, r.compactions], [6, 8219, 113348, 40805, 1]);
+    assert.equal(r.sessionId, SID);
   } finally {
     h.restore();
     fs.rmSync(dir, { recursive: true, force: true });
