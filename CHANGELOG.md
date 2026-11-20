@@ -389,6 +389,9 @@ not yet against a real worker.
 
 ### Fixed
 
+- UI: the ticket drawer shows the title on its own line (up to two lines, `line-clamp-2`), and the
+  close button stays at the top right instead of wrapping with the header facts when the model name
+  is long (#755).
 - `ah ui --host <addr>` now prints and opens the bound address, not a dead `127.0.0.1` link (#737).
   A wildcard bind (`0.0.0.0`/`::`) prints the loopback link plus one "reachable on every interface"
   line (listing the non-internal addresses) instead of one URL per interface.

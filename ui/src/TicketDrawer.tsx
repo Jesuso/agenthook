@@ -177,7 +177,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
         aria-label={t("drawer.aria", { id: label })}
         className="drawer-in fixed inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-xl outline-none md:w-[720px]"
       >
-        <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-3">
+        <header className="relative flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pl-4 pr-10 py-3">
           {ticket?.trackerUrl ? (
             <a className="shrink-0 font-mono text-accent hover:underline" href={ticket.trackerUrl} target="_blank" rel="noopener noreferrer">
               {label} ↗
@@ -185,7 +185,9 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
           ) : (
             <span className="shrink-0 font-mono">{label}</span>
           )}
-          <h2 className="min-w-0 flex-1 basis-40 truncate text-title font-semibold" title={ticket?.title ?? undefined}>
+          {/* The title gets its own full line below the facts: `order-last` keeps it right after
+              the id in the DOM (screen readers read the id, then the title) while it renders last. */}
+          <h2 className="order-last basis-full line-clamp-2 break-words text-title font-semibold" title={ticket?.title ?? undefined}>
             {ticket ? (
               ticketTitle(ticket, lang).unknown ? (
                 <>
@@ -222,7 +224,7 @@ export function TicketDrawer(props: { profile: string; ticketRef: string; ticket
               {t("drawer.totalCost", { cost: formatTicketSpend(ticket) })}
             </span>
           )}
-          <IconButton label={t("drawer.close")} onClick={props.onClose}>
+          <IconButton label={t("drawer.close")} onClick={props.onClose} className="absolute top-3 right-3">
             ×
           </IconButton>
         </header>
