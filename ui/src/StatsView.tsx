@@ -4,6 +4,7 @@ import { Segmented, ProfileMark } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
 import { formatEnergy } from "../../src/energy.js";
+import { HarnessesCard } from "./HarnessesCard";
 import { latestChange, shortDate, statsUrl } from "./stats";
 import { axisDollars } from "./statsChart";
 import { DOWN, OTHER_STEPS, UP, calendarModel, divergingModel, nearestDay, rangeModel, stackedModel } from "./statsModels";
@@ -80,6 +81,8 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
             <Card wide title={t("statsView.ticketCost")} note={t("statsView.ticketCostNote")}>
               <Range days={days} />
             </Card>
+            {/* Own 7-day fetch; returns null (no card frame) when there's nothing to route between. */}
+            <HarnessesCard profile={profile} />
           </div>
           {empty && <p className="text-label text-muted">{t("statsView.empty")}</p>}
           <p className="text-meta text-muted">{data.since ? `${t("statsView.since", { date: shortDate(data.since.slice(0, 10), lang) })} ` : ""}{t("statsView.midnight")}</p>

@@ -3,8 +3,9 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import StatsView, { Calendar, Diverging, Range, Stacked } from "./StatsView";
+import { harnessesVisible } from "./HarnessesCard";
 import { day } from "./statsFixtures";
-import type { ProfileView } from "./contract";
+import type { ProfileView, StatsGroup } from "./contract";
 import { I18nProvider } from "./i18n/react";
 import { setLangSetting } from "./i18n";
 import { mount, until } from "./domHarness";
@@ -17,6 +18,12 @@ const days = [
   day("2026-10-14", { finished: 9, runs: 10, costUsd: 5, estUsd: 0, byStep: { code: { runs: 10, costUsd: 5, estUsd: 0 } }, outcomes: { advance: 9, changes: 1, hold: 0, fail: 0, other: 0 }, ticketCost: { n: 9, p10: 0.4, p50: 0.5, p90: 0.9 } }),
 ];
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+
+const group = (over: Partial<StatsGroup> = {}): StatsGroup => ({
+  key: "(none)", runs: 1, outcomes: { advance: 1, changes: 0, hold: 0, fail: 0, timeout: 0, requeued: 0, unknown: 0 },
+  successRate: 1, wallP50Ms: 1000, wallP90Ms: 1000, turns: null, firstContext: null, peakContext: null, compactions: null,
+  input: 0, output: 0, cacheRead: 0, outPerMin: null, costUsd: 0, estUsd: 0, unpriced: 0, ...over,
+});
 
 describe("StatsView", () => {
   it("renders its frame and range control before any data arrives (fetch runs in an effect)", () => {
@@ -68,6 +75,49 @@ describe("the four charts", () => {
   it("every chart survives no data at all", () => {
     for (const C of [Stacked, Diverging, Calendar, Range]) expect(() => html(createElement(C, { days: [] }))).not.toThrow();
     for (const C of [Stacked, Diverging, Range]) expect(() => html(createElement(C, { days: [day("2026-10-12")] }))).not.toThrow();
+  });
+});
+
+describe("the Harnesses card (moved from Overview, #754; the table is #646)", () => {
+  let m: Mounted;
+  afterEach(async () => {
+    await m.unmount();
+    vi.unstubAllGlobals();
+  });
+
+  // HarnessesCard fetches /api/harness-stats in its own effect, so route by URL against the
+  // stats stub: the card's visibility is decided from its own 7-day result, not /api/stats.
+  const fetchStub = (harnessGroups: StatsGroup[]) =>
+    vi.fn(async (url: string) =>
+      String(url).includes("harness-stats")
+        ? { ok: true, json: async () => ({ groups: harnessGroups }) }
+        : { ok: true, json: async () => ({ days, since: "2026-10-12T08:00:00Z" }) },
+    );
+
+  it("shows the table with a Harnesses heading when the profile configures named harnesses (#646)", async () => {
+    vi.stubGlobal("fetch", fetchStub([group({ key: "qwen", runs: 4, costUsd: 2.5 })]));
+    m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile: { ...profile, harnesses: { qwen: { active: 1, max: 2 } } } as ProfileView, feed: [] })));
+    await until(() => m.root.querySelector("[data-harnesses-table]")?.innerHTML.includes("qwen") ?? false);
+    const card = m.root.querySelector("[data-harnesses-card]")!;
+    expect(card.querySelector("h2")!.textContent).toContain("Harnesses");
+    expect(card.innerHTML).toContain("qwen");
+    expect(card.innerHTML).toContain("Last 7 days");
+  });
+
+  it("shows no card at all with no harnesses configured and only a (none) group (#646)", async () => {
+    vi.stubGlobal("fetch", fetchStub([group()]));
+    m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile, feed: [] })));
+    await until(() => m.root.querySelector('[data-chart="outcomes"]'));
+    await new Promise((r) => setTimeout(r, 0)); // let the harness fetch resolve too
+    expect(m.root.querySelector("[data-harnesses-card]")).toBeNull();
+    expect(m.root.querySelector("[data-harnesses-table]")).toBeNull();
+  });
+
+  it("harnessesVisible: shown when harnesses are configured, or a named group exists even without config (#646)", () => {
+    expect(harnessesVisible(true, [])).toBe(true);
+    expect(harnessesVisible(false, [])).toBe(false);
+    expect(harnessesVisible(false, [group({ key: "(none)" })])).toBe(false);
+    expect(harnessesVisible(false, [group({ key: "qwen" })])).toBe(true);
   });
 });
 

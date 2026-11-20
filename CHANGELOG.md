@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- UI: the Harnesses table moved from Overview to the Statistics page (#754).
+
 **Upgrading from 0.15** — nothing to migrate, three behaviours to know about:
 
 - A `pause`, and a per-harness slot limit set at runtime, now **survive a restart**. Before, a
