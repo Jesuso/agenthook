@@ -129,7 +129,7 @@ async function policyRun(step) {
 }
 
 test("dispatch: a step allow/deny policy on an agent that can't enforce it is refused, nothing spawned", async () => {
-  for (const agent of ["cursor", "opencode"]) {
+  for (const agent of ["cursor", "opencode", "pi"]) {
     const { advanced, argv } = await policyRun({ agent, allow: { commands: ["git"] } });
     assert.equal(argv, null, `${agent} was spawned`);
     assert.equal(advanced[0]?.outcome, "fail");

@@ -978,7 +978,7 @@ export function egressLints(cfg, { files = [], env = process.env, origins = [] }
     }
     try {
       const rules = egressRules({
-        agentHosts: agent.egressHosts?.(spawnEnv) ?? [],
+        agentHosts: agent.egressHosts?.(spawnEnv, { step: s }) ?? [],
         trackerHosts: TRACKER_EGRESS_HOSTS[cfg.provider]?.(cfg.providerConfig) ?? [],
         forgeHosts: cfg.forge ? (FORGE_EGRESS_HOSTS[cfg.forge.type]?.(cfg.forge) ?? []) : origins.flatMap(inferredForgeEgressHosts),
         allow: policy.allow,
@@ -1625,7 +1625,22 @@ export async function runChecks(cfg, io = {}) {
   instructionLints(cfg).forEach(finding);
 
   const binChecks = agentBinChecks(cfg);
-  for (const { bin, agent, steps } of binChecks) add(have(bin), `${agent} binary on PATH: ${bin} (steps: ${steps.join(", ")})`, undefined, { manual: `install ${bin} or put it on PATH` });
+  for (const { bin, agent, steps } of binChecks) {
+    const label = `${agent} binary on PATH: ${bin} (steps: ${steps.join(", ")})`;
+    if (agent === "pi") {
+      // pi's version is the first `--version` stdout line (it prints a banner); the injectable
+      // runner keeps tests from spawning a real `pi`. Missing bin → the npm install hint.
+      if (!have(bin)) {
+        add(false, label, "not found", { manual: "npm i -g @earendil-works/pi-coding-agent (or set the step/harness bin)" });
+        continue;
+      }
+      const ver = await run(bin, ["--version"], { timeoutMs: 5000 }).catch(() => null);
+      const line = (ver?.stdout || "").trim().split("\n")[0];
+      add(true, label, line || "on PATH");
+      continue;
+    }
+    add(have(bin), label, undefined, { manual: `install ${bin} or put it on PATH` });
+  }
   // No step spawns claudeBin, but the on-demand Digest still does — missing it is a warning only.
   if (!binChecks.some((c) => c.bin === cfg.claudeBin) && !have(cfg.claudeBin)) {
     warn(`claude binary on PATH: ${cfg.claudeBin}`, "not found — no step uses it, but the Digest does");

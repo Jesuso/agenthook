@@ -84,6 +84,28 @@ test("opencodeConfig: resolved against the config dir for a step and a harness, 
   }
 });
 
+test("piConfigDir: resolved against the config dir for a step and a harness, like instructionsFile", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ah-cfg-pi-"));
+  const file = path.join(dir, "agenthook.config.json");
+  const home = os.homedir();
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      name: "ah-cfg-test-pi",
+      repoPath: dir,
+      harnesses: { local: { agent: "pi", piConfigDir: "~/pi-harness" } },
+      tracker: { type: "asana", pipeline: [{ id: "code", piConfigDir: "./pi-step" }] },
+    }),
+  );
+  try {
+    const cfg = loadConfig({ configPath: file });
+    assert.equal(cfg.pipeline?.[0].piConfigDir, path.join(dir, "pi-step"));
+    assert.equal(cfg.harnesses?.local.piConfigDir, path.join(home, "pi-harness"));
+  } finally {
+    fs.rmSync(path.join(registryDir, "ah-cfg-test-pi"), { recursive: true, force: true });
+  }
+});
+
 test("a queue key on a manual step is rejected", () => {
   assert.throws(load([{ id: "done", manual: true, queueLabel: "queue:done" }]), /queueLabel is not allowed on a manual step/);
 });

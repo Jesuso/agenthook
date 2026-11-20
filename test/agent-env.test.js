@@ -68,7 +68,7 @@ test("agentEnvAllow: base, then agent, tracker, forge, operator, in order", () =
 test("declarations: each agent's envPassthrough, each tracker's and forge's agentEnv", () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(AGENTS).map(([k, a]) => [k, a.envPassthrough])),
-    { claude: ["ANTHROPIC_*", "CLAUDE_*"], cursor: ["CURSOR_API_KEY"], hermes: ["HERMES_HOME"], opencode: ["OPENCODE_*"] },
+    { claude: ["ANTHROPIC_*", "CLAUDE_*"], cursor: ["CURSOR_API_KEY"], hermes: ["HERMES_HOME"], opencode: ["OPENCODE_*"], pi: ["PI_*"] },
   );
   assert.deepEqual(Object.keys(TRACKER_AGENT_ENV).sort(), Object.keys(TRACKERS).sort());
   assert.deepEqual(TRACKER_AGENT_ENV, { asana: ["ASANA_TOKEN"], jira: ["JIRA_API_TOKEN"], github: ["GITHUB_TOKEN"], "github-projects": ["GITHUB_TOKEN"], local: [], linear: ["LINEAR_API_KEY"] });

@@ -129,7 +129,7 @@ name can't be pointed at your LAN. A `!private` rule for a `host:port` replaces 
 
 | Source | Hosts |
 |--------|-------|
-| model API (the agent) | `api.anthropic.com`; the host of `ANTHROPIC_BASE_URL` when set; `bedrock-runtime.<AWS_REGION>.amazonaws.com` with `CLAUDE_CODE_USE_BEDROCK`; `<CLOUD_ML_REGION>-aiplatform.googleapis.com` + `oauth2.googleapis.com` with `CLAUDE_CODE_USE_VERTEX` |
+ | model API (the agent) | claude: `api.anthropic.com`; the host of `ANTHROPIC_BASE_URL` when set; `bedrock-runtime.<AWS_REGION>.amazonaws.com` with `CLAUDE_CODE_USE_BEDROCK`; `<CLOUD_ML_REGION>-aiplatform.googleapis.com` + `oauth2.googleapis.com` with `CLAUDE_CODE_USE_VERTEX`. pi: the `host:port` of each `providers.*.baseUrl` in its `piConfigDir`'s `models.json` ([Pi in the sandbox](#pi-in-the-sandbox)). opencode: none added automatically — allowlist the server's `host:port!private` yourself |
 | tracker (the prompt tells the agent to read and post comments) | asana `app.asana.com`, jira the `baseUrl` host, linear `api.linear.app`, github / github-projects `api.github.com`; local: none |
 | forge | github `github.com`, `api.github.com`, `uploads.github.com`, `*.githubusercontent.com`; gitlab the `baseUrl` host. With no `forge` block, inferred from the origin the same way (a `github.com` origin gets the github hosts, so `gh pr …` still works) |
 | origin | the host of the repo's `origin` remote (an SSH origin is pushed over HTTPS, so port 443) |
@@ -461,7 +461,7 @@ build commands against this list before turning it on:
 | a database or cache on your machine (`localhost:5432`, Redis, MinIO, LocalStack, a `docker compose` stack) | the container's network is `--internal`; it has no route to your host's loopback or private networks, and the proxy refuses loopback and RFC1918 targets even when a rule names them | a [Service](#services) (`sandbox.services` + the step's `services`) gives the run its own throwaway database/cache instead — see the [compose recipe](#docker-compose--sandboxservices) to carry over an existing stack, or fall back to an in-memory fake (`sqlite`, `ioredis-mock`) or `"sandbox": false` |
 | the Docker socket (Testcontainers, `docker build`, `docker compose` from the agent) | not mounted, on purpose: it would give the run root-equivalent control of the host | there is no flag to mount it; the [Testcontainers recipe](#testcontainers-or-any-start-it-myself-test-library) points the test at a [Service](#services) instead, or run that step with `"sandbox": false` |
 | a browser (Cypress, Playwright) | the default image has none | the [browser recipe](#browser-e2e-playwright--cypress): a custom image that installs the browser at build time, plus the app under test as a [Service](#services) |
-| a toolchain other than node 22, git, gh, curl, claude and opencode (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
+ | a toolchain other than node 22, git, gh, curl, claude, opencode and pi (Python, Java, Go, Rust) | not in the default image | a custom `image` built `FROM` the default |
 | packages from a registry | blocked unless allowed | `"egress": {"allow": ["@npm"]}` (see [Network](#network)) |
 | a package whose install script downloads a binary from its own host (e.g. a headless-browser package fetching its browser from a CDN) | that host isn't allowlisted, and the package's own fetcher may not honour the proxy | set the package's skip-download env var in the step's `env`, or add the host to `egress.allow` |
 | cloud or database credentials in your shell or home (`~/.aws`, `~/.pgpass`, `AWS_PROFILE`, an SSM tunnel on localhost) | none of them reach the container | by design: they are what a hijacked run would use |
@@ -520,8 +520,8 @@ are never structurally enforced.
   reviewer catch it. Treat a `.claude/` change in an agent PR as a red flag.
 - **Steps with `"sandbox": false`** run on the host with your user's full reach.
 - **Unsupported agents** are refused, not run unsandboxed: a sandboxed `cursor` or `hermes` step
-  fails; set `"sandbox": false` on it to run it on the host. `claude` and `opencode` both support
-  the sandbox.
+  fails; set `"sandbox": false` on it to run it on the host. `claude`, `opencode` and `pi` all
+  support the sandbox.
 
 ## OpenCode in the sandbox
 
@@ -553,6 +553,41 @@ A `provider.*.options.baseURL` pointing at a LAN model server needs the same car
 host from inside the container, so use the host's LAN IP, and allowlist mode needs a
 `host:port!private` rule for it (`agenthook doctor` lints both). The provider's own host (a cloud
 API) still needs a place in `sandbox.egress.allow` — `opencodeConfig` never adds one for you.
+
+## Pi in the sandbox
+
+A harness (or step) with `"agent": "pi"` runs sandboxed like `claude`. Pi reads its provider config
+from `~/.pi/agent` inside the per-run sandbox HOME, which starts empty: set `piConfigDir` (on the
+harness, or the step — the step's own wins) to a host dir holding Pi's `models.json` and/or
+`settings.json` (each optional). Each present file is read and **copied** into that run's sandbox
+HOME at `.pi/agent/<file>`, mode 0600, never mounted — `models.json` can name providers with
+credentials, so a mount persisting across runs would let one run plant config the next run uses. The
+copy is gone with the rest of the per-run HOME at teardown. A bad `piConfigDir` (missing, not a
+directory, an oversized or invalid file) throws and the run is refused before anything spawns
+(`sandbox setup failed: piConfigDir …`). `piConfigDir` only applies to sandboxed runs; on the host
+Pi reads your own `~/.pi` as usual.
+
+Pi's session state also lives under `~/.pi/agent` in the per-run HOME, deleted at teardown, so a
+sandboxed pi run **cannot be resumed** (`sandboxResume` is false): a verdict-repair turn is never
+attempted for a sandboxed pi run (it would find no session to resume), and a gate-repair turn
+starts a fresh session rather than resuming the dead one. `ah resume` still lists pi sessions from
+the session ids in `usage.jsonl` and prints `cd <worktree> && pi -p --session <id>` for a host run.
+
+A sandboxed pi run also gets `.pi/agent/agenthook-unattended.md` (and, when standing instructions
+are provided and ≤ 16 KB, `.pi/agent/agenthook-standing.md`), each passed with its own
+`--append-system-prompt` flag. Unlike OpenCode (which wires its contract file into a config
+`instructions` list), Pi takes its system-prompt files as argv flags, and they survive compaction —
+see [Compaction survival](local-models.md#compaction-survival-verified) for the verified result. When
+the standing file is written, the standing text is dropped from the run prompt.
+
+A `providers.*.baseUrl` in that `models.json` pointing at a LAN model server needs the same care as
+a harness's `ANTHROPIC_BASE_URL` (see [Network](#network) above): `localhost`/`127.0.0.1` never
+reaches your host from inside the container, so use the host's LAN IP. In allowlist mode the run's
+egress allowlist includes the `host:port` of each `providers.*.baseUrl` automatically (Pi's
+`egressHosts` reads the step's `piConfigDir`). That automatic rule is a plain `host:port`, and the
+proxy refuses a private (RFC1918) address unless a rule ends in `!private`, so a LAN model server
+still needs its own entry in `sandbox.egress.allow`, e.g. `"192.168.1.20:11434!private"` — the same
+rule `ANTHROPIC_BASE_URL` needs. A cloud provider still needs its own `sandbox.egress.allow` entry.
 
 ## Alternative: run the receiver itself in a container
 

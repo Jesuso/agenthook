@@ -1,6 +1,6 @@
 {
   "src": {
-    "total": 635,
+    "total": 646,
     "files": {
       "src/actionable.js": 3,
       "src/agent-api.js": 21,
@@ -8,6 +8,7 @@
       "src/agents/cursor.js": 6,
       "src/agents/hermes.js": 3,
       "src/agents/opencode.js": 3,
+      "src/agents/pi.js": 11,
       "src/auto-merge.js": 8,
       "src/board-done.js": 3,
       "src/ci-green.js": 2,

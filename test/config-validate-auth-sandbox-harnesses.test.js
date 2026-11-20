@@ -194,7 +194,7 @@ test("harnesses: not an object fails", () => {
 
 test("harnesses: a bad agent, bin, provider, toolsets, env, model, maxConcurrent or sandbox.image fails", () => {
   const one = (/** @type {any} */ h) => hErrs({ x: h });
-  assert.deepEqual(one({ agent: "gpt" }), [`config: harness "x" agent "gpt" is not a known agent (claude, cursor, hermes, opencode).`]);
+  assert.deepEqual(one({ agent: "gpt" }), [`config: harness "x" agent "gpt" is not a known agent (claude, cursor, hermes, opencode, pi).`]);
   assert.deepEqual(one({ bin: " " }), [`config: harness "x" bin must be a non-empty string (a name on PATH or an absolute path).`]);
   assert.deepEqual(one({ provider: "" }), [`config: harness "x" provider must be a non-empty string.`]);
   assert.deepEqual(one({ toolsets: [] }), [`config: harness "x" toolsets must be a non-empty array of non-empty strings.`]);
@@ -203,6 +203,7 @@ test("harnesses: a bad agent, bin, provider, toolsets, env, model, maxConcurrent
   assert.deepEqual(one({ env: { A: 1 } }), [`config: harness "x" env.A must be a string.`]);
   assert.deepEqual(one({ model: "" }), [`config: harness "x" model must be a non-empty string.`]);
   assert.deepEqual(one({ opencodeConfig: "" }), [`config: harness "x" opencodeConfig must be a non-empty string.`]);
+  assert.deepEqual(one({ piConfigDir: "" }), [`config: harness "x" piConfigDir must be a non-empty string.`]);
   for (const v of [0, -1, 1.5, "2"]) assert.deepEqual(one({ maxConcurrent: v }), [`config: harness "x" maxConcurrent must be a positive integer.`], `maxConcurrent ${JSON.stringify(v)}`);
   assert.deepEqual(one({ sandbox: { image: "" } }), [`config: harness "x" sandbox.image must be a non-empty string.`]);
   assert.deepEqual(one({ sandbox: "img" }), [`config: harness "x" sandbox must be an object ({ "image": "…" }).`]);
