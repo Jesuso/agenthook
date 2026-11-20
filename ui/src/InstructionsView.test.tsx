@@ -136,3 +136,15 @@ describe("InstructionsView in Spanish", () => {
     await answerConfirm(false);
   });
 });
+
+describe("the tab title (#757)", () => {
+  it("Instructions · <profile> · agenthook, the profile drops with no profiles, agenthook after unmount", async () => {
+    m = await mount(createElement(I18nProvider, null, view()));
+    expect(document.title).toBe("Instructions · demo · agenthook");
+    await m.rerender(createElement(I18nProvider, null, createElement(InstructionsView, { profiles: [], eventSink: sink as any, onDirtyChange: () => {} })));
+    expect(document.title).toBe("Instructions · agenthook");
+    await m.unmount();
+    m = null;
+    expect(document.title).toBe("agenthook");
+  });
+});

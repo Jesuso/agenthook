@@ -141,3 +141,24 @@ describe("StatsView in Spanish", () => {
     expect(out).toContain(">L</text>"); // Monday 2026-10-12 under the band charts
   });
 });
+
+describe("the tab title (#757)", () => {
+  let m: Mounted;
+  afterEach(async () => {
+    await m.unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it("Stats · <profile> · agenthook while mounted, agenthook after unmount", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("harness-stats") ? { ok: true, json: async () => ({ groups: [] }) } : { ok: true, json: async () => ({ days: [], since: "2026-10-12T08:00:00Z" }) },
+      ),
+    );
+    m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile, feed: [] })));
+    expect(document.title).toBe("Stats · dev · agenthook");
+    await m.unmount();
+    expect(document.title).toBe("agenthook");
+  });
+});
