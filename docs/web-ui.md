@@ -483,7 +483,9 @@ Protocol: NDJSON `{id, cmd, args}` → `{id, ok, result|error}`, allowlisted com
 step cards with advance / fail / hold / changes / queue edges from the buffer's stage bindings, and
 owns all the geometry: node positions plus one route per edge (`routes`, parallel to `edges`).
 `ui/src/PipelineGraph.tsx` only draws it, centered, in a panel on the Pipeline tab: above the steps,
-or beside them and sticky from 1800px. Picking a node opens that step's card and closes the others. The layout is layered:
+or beside them and sticky from 1800px. The drawing carries a `viewBox` and scales down to fit its
+pane — to 11/12 of full size at the floor, so the 12px step names stay at or above 11px; panes
+narrower than that scroll horizontally. Picking a node opens that step's card and closes the others. The layout is layered:
 
 - a queue-stage row on top, only when a step has a queue stage;
 - the step row — at the top margin when there are no queue stages and no `changes` arc (no empty
