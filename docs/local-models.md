@@ -348,6 +348,7 @@ The harness's `opencodeConfig` is a minimal OpenCode config with the one provide
       "models": {
         "qwen3.8:27b-64k": {
           "limit": { "context": 65536 },
+          "interleaved": { "field": "reasoning" },
           "variants": {
             "low": { "reasoningEffort": "low" },
             "medium": { "reasoningEffort": "medium" },
@@ -359,6 +360,21 @@ The harness's `opencodeConfig` is a minimal OpenCode config with the one provide
   }
 }
 ```
+
+The `interleaved` entry lets a reasoning model see its own earlier thinking: OpenCode only sends
+the model's earlier reasoning back on later turns when the model entry declares `interleaved`, and
+it is off by default for a model under an OpenAI-compatible provider — without it, the model no
+longer sees what it already reasoned and tends to write its plan again. On one replayed ticket
+(Qwen3.8 27B, same prompt, hidden tests 94/94 in every run), two runs with the setting took 17.4
+and 21.2 minutes with 81,025 and 95,292 reasoning characters; two default runs took 24.4 and 30.8
+minutes with 120,993 and 138,863. That is about 30% less time and reasoning on average, from two
+runs per side on a single ticket, and runs of the same setup differ from each other by about 20%
+— read it as a direction, not a precise figure. The trade is context: with the reasoning staying
+in the prompt, peak context was 112k and 119k tokens with the setting against 95k in the first
+default run, so a long ticket reaches compaction sooner (see
+[Small windows and compaction](#small-windows-and-compaction)). The field name `reasoning` is what
+an Ollama OpenAI-compatible endpoint returns; another server may use `reasoning_content` — match
+the server.
 
 A step's `effort` becomes `opencode run --variant <effort>`, which OpenCode resolves against
 this `variants` map — with no matching entry it has nothing to resolve, and no reasoning effort

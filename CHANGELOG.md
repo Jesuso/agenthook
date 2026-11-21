@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Docs: local models — the OpenCode example config sets `"interleaved": {"field": "reasoning"}` so a
+  reasoning model sees its earlier thinking on later turns; the measured effect and the
+  context/compaction trade-off are documented (#784).
 - ui: in the Epics list, an **open** epic with no tickets now shows the muted "no tickets" text
   (like a closed empty epic already did) instead of an empty progress bar and "0/0"; the row's
   note column stays aligned and the link still names its state for screen readers (#776).
