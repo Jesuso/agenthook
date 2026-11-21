@@ -50,6 +50,25 @@ describe("ActivityRail", () => {
     el.props.onClick();
     expect(onOpen).toHaveBeenCalledWith({ profile: "agenthook", ref: "42" });
   });
+
+  it("does not repeat the profile name in a line (the panel is already one profile)", () => {
+    const html = renderToStaticMarkup(ActivityLine({ entry: entry("42", { event: "run_start", step: "code" }, "agenthook"), displayId: null, onOpen: () => {} }));
+    expect(html).not.toContain("agenthook");
+    expect(html).toContain("42");
+    expect(html).toContain("started code");
+    expect(html).toMatch(/05:00/);
+  });
+
+  it("shows the count in the heading at zero unread, and only the badge when unread", async () => {
+    const feed = [entry("1"), entry("2"), entry("3")];
+    const props = { feed, displayIdFor: () => null, open: true, onToggle: () => {}, onOpen: () => {}, variant: "rail" as const };
+    const withNew = await mount(createElement(I18nProvider, null, createElement(ActivityRail, { ...props, unread: 3 })));
+    expect((withNew.root.querySelector("h2") as HTMLElement).textContent).toBe("Activity 3 new");
+    await withNew.unmount();
+    const zero = await mount(createElement(I18nProvider, null, createElement(ActivityRail, { ...props, unread: 0 })));
+    expect((zero.root.querySelector("h2") as HTMLElement).textContent).toBe("Activity 3");
+    await zero.unmount();
+  });
 });
 
 describe("ActivityRail in Spanish", () => {
