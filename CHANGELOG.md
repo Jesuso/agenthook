@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- `restart`: a refusal now reaches the CLI, MCP and UI with its reason (bounded) instead of the
+  opaque `restart failed`. A config-check failure is worded as a check that ran in the **running**
+  receiver — whose in-memory code may be older than the code on disk — and names the escape, `agenthook
+  stop && agenthook start` (#767).
 - UI: the open ticket drawer now lives in the URL as `?t=<ref>` — a ticket is bookmarkable,
   survives a reload, and Back/× close it without losing the view; a cold load with an unknown
   `?t=` quietly drops it (#766).

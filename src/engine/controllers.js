@@ -10,7 +10,10 @@ import { pruneOverrides, heartbeatOverrides } from "../overrides.js";
 
 /**
  * The control-socket `restart` request: validate, then pause the queue and fire once
- * active agents reach 0. Returns immediately; the fire runs in the background. An optional
+ * active agents reach 0. Returns immediately; the fire runs in the background. Every refusal is
+ * thrown exposed (bounded), so the client sees the reason, not the socket's opaque "restart
+ * failed"; the config-check refusal additionally names `agenthook stop && agenthook start` as the
+ * escape, because that check runs in the running receiver's in-memory code. An optional
  * `moveTo` (a state key) is validated up front too and handed to `fire`; while one restart is
  * pending, a request naming a different `moveTo` is rejected (a plain one is alreadyPending).
  * @param {{
@@ -37,25 +40,51 @@ export function createRestartRequester({ queue, isDraining, validateConfig, vali
     const list = harnessesDown?.() ?? [];
     return list.length ? { harnessesDown: list } : {};
   };
+  // Refusals are the operator's answer — expose them to the client (bounded, like ops.js does for
+  // operator commands), never the opaque "<cmd> failed" the control socket defaults to.
+  const MAX_REASON_CHARS = 500;
+  const MAX_CONFIG_REASON_CHARS = 300;
+  /** @param {unknown} msg @returns {Error & {expose: boolean}} */
+  const exposed = (msg) => {
+    const s = String(msg);
+    return Object.assign(new Error(s.length > MAX_REASON_CHARS ? s.slice(0, MAX_REASON_CHARS - 1) + "…" : s), { expose: true });
+  };
+  /** @param {string} msg @returns {never} */
+  const refuse = (msg) => {
+    throw exposed(msg);
+  };
   return {
     isPending: () => pending,
     async request(args) {
-      if (args?.when !== "idle") throw new Error(`restart: unsupported when ${JSON.stringify(args?.when)} (only "idle")`);
+      if (args?.when !== "idle") refuse(`restart: unsupported when ${JSON.stringify(args?.when)} (only "idle")`);
       const moveTo = args.moveTo;
-      if (moveTo !== undefined && typeof moveTo !== "string") throw new Error("restart: moveTo must be a string");
-      if (isDraining()) throw new Error("restart: shutdown already in progress");
-      if (isDecommissionPending?.()) throw new Error("restart: a decommission is pending");
+      if (moveTo !== undefined && typeof moveTo !== "string") refuse("restart: moveTo must be a string");
+      if (isDraining()) refuse("restart: shutdown already in progress");
+      if (isDecommissionPending?.()) refuse("restart: a decommission is pending");
       const { active, queued } = queue.state();
       if (pending) {
         if (moveTo !== undefined && moveTo !== pendingMove) {
-          throw new Error(`restart: a restart ${pendingMove ? `moving to "${pendingMove}"` : "without a move"} is already pending`);
+          refuse(`restart: a restart ${pendingMove ? `moving to "${pendingMove}"` : "without a move"} is already pending`);
         }
         return { accepted: true, alreadyPending: true, active, queued, ...down() };
       }
-      validateConfig(); // a bad config on disk rejects the restart — nothing changes
+      try {
+        validateConfig(); // a bad config on disk rejects the restart — nothing changes
+      } catch (e) {
+        // This check ran in the RUNNING receiver (its in-memory code), so a config valid for the
+        // code on disk can still fail it — name the escape. The reason is bounded BEFORE the hint
+        // is appended so the hint is never cut off. Never loosen the check or auto stop/start.
+        const reason = String(e?.message ?? e);
+        const bound = reason.length > MAX_CONFIG_REASON_CHARS ? reason.slice(0, MAX_CONFIG_REASON_CHARS - 1) + "…" : reason;
+        throw exposed(`restart: config check failed in the running receiver (its code may be older than the code on disk): ${bound} — if the config is valid for the code on disk, run \`agenthook stop && agenthook start\``);
+      }
       if (moveTo !== undefined) {
-        if (!validateMove) throw new Error("restart: moveTo is not supported");
-        validateMove(moveTo); // a bad target rejects the restart — nothing paused
+        if (!validateMove) refuse("restart: moveTo is not supported");
+        try {
+          validateMove(moveTo); // a bad target rejects the restart — nothing paused
+        } catch (e) {
+          throw exposed(e?.message ?? e);
+        }
       }
       pending = true;
       pendingMove = moveTo;
