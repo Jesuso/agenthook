@@ -28,7 +28,7 @@
 //   agenthook ui [--port <n>] [--host <ip>] [--no-open]  local web dashboard + editors (127.0.0.1 unless --host)
 //   agenthook mcp [--read-only]    MCP server (stdio) for external agents — docs/mcp.md
 //   agenthook tick [name] [--json] one-call status+board+PRs+events digest for agents
-//   agenthook top --once [name]  one-shot terminal glance: needs-you + running
+//   agenthook top [name]      full-screen live terminal glance: needs-you + running (local state only; --once = one snapshot and exit)
 //   agenthook epics [name] [--ref <epic>] [--fresh] [--json]  epics list / one epic's tickets
 //   agenthook digest [name] [--json] write + print a profile's Digest (no receiver needed)
 //   agenthook watch [name] [--event a,b] [--ref r] [--timeout s] [--follow]  block until the next event (--follow: stream JSON lines)
@@ -202,7 +202,9 @@ usage: agenthook <command> [args] [--config <path>]
   mcp [--read-only]         MCP server over stdio: read+manage the pipeline from an agent (all profiles)
   tick [name…|--all] [--json] [--cursor <n|json>] [--no-board] [--no-prs] [--epics]  status+board+PRs+new events in one call
                             (--all / ≥2 names: one per profile; --cursor '{"<key>":<n>}')
-  top --once [name]       one-shot terminal glance: needs-you + running (local state only; the live loop is a later ticket)
+  top [name]                live full-screen terminal glance: needs-you + running, redrawn on bus events, 1 s elapsed
+                            times, follows terminal resize, q/Ctrl-C quits (local state only — no board/PR reads; --once
+                            or a non-TTY prints one snapshot and exits)
   epics [name] [--ref <epic>] [--fresh] [--json]  every epic's progress, or one epic's tickets
   digest [name] [--json]    write + print a profile's Digest (no receiver needed)
   watch [name…|--all] [--event a,b] [--ref r] [--cursor <n|json>] [--timeout <s>] [--json] [--follow|--stream [--heartbeat <s>]]  block until the next event (exit 2 on timeout); --follow stays attached, one JSON line per event with its resume cursor, then a final watch_end line

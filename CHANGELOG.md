@@ -6,12 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- New: `agenthook top [name]` — the full-screen live terminal glance (#795): enters the
+  alternate screen and hides the cursor, redraws the #794 renderer on the profile's event bus
+  (`waitForEvents`, bounded rounds — no polling), re-reads local state once on every no-event
+  round (that is what notices the receiver going down or coming back), repaints elapsed times
+  from cached data once per second, follows terminal resizes, and quits on `q`/Ctrl-C/SIGINT/
+  SIGTERM restoring the cursor and main screen exactly once. `--once`, or a non-TTY stdout,
+  still print one snapshot and exit 0. The loop's data source is local-only
+  (`readTick` with `board:false, prs:false`) — no tracker/forge reads from the loop.
 - New: `agenthook top --once [name]` — a one-shot terminal glance of a profile: a header
   (`up|down`, `active/max` agents, queued, needs-you count) plus one row per needs-you item
   (held → failed → open-PR) and per running agent, rendered by the pure `src/top.js` renderer.
   It reads local state only (no board/PR reads — no polling). `status`/`tick` gain an optional
   `prWaiting[]` key (forge profiles only) — the PR half of the needs-you list (held + failed +
-  prWaiting). The live loop is a later ticket; `top` without `--once` exits 1 saying so (#794).
+  prWaiting). The live loop landed with #795 (above) (#794).
 - Docs / UI wording: **Done** now means one thing — closed on the tracker — and "Finished" is
   retired as a state name (it still works as a verb about a run). PRODUCT.md and DESIGN.md are
   aligned with CONTEXT.md (Done replaces Finished in the binding terms; "done" leaves the avoid
