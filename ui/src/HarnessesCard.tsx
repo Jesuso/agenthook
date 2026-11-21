@@ -109,7 +109,7 @@ function HarnessRow({ name, g, lang, slotText, slotTitle }: { name: string; g: S
   return (
     <tr>
       <td className="whitespace-nowrap px-3 py-2 font-mono">{name}</td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono" {...(slotTitle ? { title: slotTitle } : {})}>{slotText}</td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono" data-harness-slots-cell {...(slotTitle ? { title: slotTitle } : {})}>{slotText}</td>
       <td className="whitespace-nowrap px-3 py-2 font-mono">{g ? g.runs : 0}</td>
       <td className="whitespace-nowrap px-3 py-2 font-mono">{g === null || g.successRate === null ? "—" : `${Math.round(g.successRate * 100)}%`}</td>
       <td className="whitespace-nowrap px-3 py-2 font-mono">{fmtWallMs(g?.wallP50Ms ?? null)}</td>

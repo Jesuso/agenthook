@@ -480,8 +480,8 @@ function HarnessChips({ harnesses }: { harnesses: NonNullable<ProfileView["harne
             className={`rounded border px-1.5 font-mono ${quota ? "border-status-held/40 bg-status-held-bg text-status-held" : "border-status-failed/40 bg-status-failed-bg text-status-failed"}`}
             title={quotaBack ?? (h.reason ?? t(h.state === "down" ? "needs.harnessDown" : "needs.harnessProbing"))}
           >
-            {name} {h.active}
-            <span className="text-muted">/{h.max ?? "∞"}</span>
+            {name} <span>{h.active}</span>
+            <span>/{h.max ?? "∞"}</span>
             {quotaBack ? <span className="ml-1 text-muted">· {quotaBack}</span> : null}
           </span>
         );

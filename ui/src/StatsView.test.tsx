@@ -155,23 +155,32 @@ describe("the Harnesses card (moved from Overview, #754; the table is #646)", ()
     const html = m.root.querySelector("[data-harnesses-table]")!.innerHTML;
     expect(html).toContain(">Slots</th>");
     const row = (key: string) => html.slice(html.indexOf(`>${key}</td>`), html.indexOf("</tr>", html.indexOf(`>${key}</td>`)));
-    expect(row("qwen")).toContain(">1/2<");
+    // the live slot is its own cell — assert on it, not on any — in the row (out/min reads — too)
+    const slotCell = (key: string) => {
+      const rowHtml = row(key);
+      const i = rowHtml.indexOf("data-harness-slots-cell");
+      expect(i).toBeGreaterThan(-1);
+      return rowHtml.slice(i, rowHtml.indexOf("</td>", i));
+    };
+    expect(slotCell("qwen")).toContain(">1/2");
     expect(row("qwen")).toContain('title="harness qwen: 1 of 2 slots in use"');
-    expect(row("opus")).toContain(">0/∞<");
+    expect(slotCell("opus")).toContain(">0/∞");
     // configured, but no 7-day group yet: its own row, runs 0, other metrics —, slots still live
-    expect(row("fresh")).toContain(">2/3<");
+    expect(slotCell("fresh")).toContain(">2/3");
     expect(row("fresh")).toMatch(">0</td>");
     expect(row("fresh")).toContain(">—</td>");
     // a (none) group has no configured harness behind it: no live slots
-    expect(row("(none)")).toContain(">—</td>");
+    expect(slotCell("(none)")).toContain(">—");
   });
 
   it("slots read — when the receiver is down (#788)", async () => {
     vi.stubGlobal("fetch", fetchStub([group({ key: "qwen", runs: 2, costUsd: 1 })]));
     m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile: { ...profile, up: false, harnesses: { qwen: { active: 1, max: 2 } } } as ProfileView, feed: [] })));
-    await until(() => (m.root.querySelector("[data-harnesses-table]")?.innerHTML ?? "").includes(">—</td>"));
+    await until(() => /data-harness-slots-cell[^>]*>—<\/td>/.test(m.root.querySelector("[data-harnesses-table]")?.innerHTML ?? ""));
     const html = m.root.querySelector("[data-harnesses-table]")!.innerHTML;
-    expect(html.slice(html.indexOf(">qwen</td>"), html.indexOf("</tr>", html.indexOf(">qwen</td>")))).toContain(">—</td>");
+    // the slot cell itself reads — (the row's out/min cell reads — too), and no live 1/2 anywhere
+    expect(html).toMatch(/data-harness-slots-cell[^>]*>—<\/td>/);
+    expect(html).not.toContain("1/2");
   });
 
   it("harnessesVisible: shown when harnesses are configured, or a named group exists even without config (#646)", () => {
