@@ -114,14 +114,15 @@ describe("TicketsTable", () => {
     const reason = "y".repeat(150);
     const html = render([ticket({ ref: "2", status: "held", heldReason: reason, title: "A long title" })]);
     expect(html).toContain(`<span title="${reason}"><span class="block max-w-64 truncate">${reason}</span></span>`);
-    expect(html).toMatch(/<button type="button" data-ticket-open="true" title="A long title" class="block min-w-40 max-w-\[60ch\] 2xl:max-w-\[90ch\] truncate [^"]*">A long title<\/button>/);
+    expect(html).toMatch(/<button type="button" data-ticket-open="true" title="A long title" class="block w-full min-w-0 truncate [^"]*">A long title<\/button>/);
+    expect(html).not.toMatch(/max-w-\[\d+ch\]/);
     expect(html).not.toContain("max-w-md");
   });
 
   it("gives the title column the table's free width", () => {
     const html = render([ticket({ ref: "1" })]);
     expect(html).toContain('<th class="px-2 py-1 whitespace-nowrap w-full">');
-    expect(html).toContain('<td class="px-2 py-1 w-full">');
+    expect(html).toContain('<td class="px-2 py-1 w-full min-w-40 lg:max-w-0">');
   });
 
   it("hides the profile column (and picker) when lockProfile is set", () => {

@@ -20,8 +20,8 @@ All notable changes to this project are documented here. The format is based on
   Tab stop instead of one per option; Arrow keys (wrapping), Home and End move the selection, and
   the range and status-filter groups carry an accessible name (#765).
 - UI: on a profile's Overview the All tickets table drops the redundant profile column (the
-  `lockProfile` doc now matches the behaviour), and the ticket title takes the table's free width
-  (`max-w-[60ch]` / 90ch at 2xl) instead of being capped at 448 px (#759).
+  `lockProfile` doc now matches the behaviour), and the ticket title cell shrinks to the table's
+  free width and truncates inside it, so no horizontal scroll appears at laptop widths (#759, #770).
 - UI: the Config pipeline graph now scales down to fit its pane (to 11/12 of full size, keeping
   step names at or above 11px); panes narrower than that scroll as before (#756).
 - UI: the Harnesses table moved from Overview to the Statistics page (#754).
