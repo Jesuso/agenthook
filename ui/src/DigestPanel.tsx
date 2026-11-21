@@ -2,7 +2,6 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { DigestView } from "./contract";
 import { digestOutcome, digestRequest, digestUrl, eventsSince } from "./digest";
 import type { FeedEntry } from "./feed";
-import { formatCost } from "./format";
 import { ShowHide, SpeakButton, useAgo } from "./components";
 import { useT } from "./i18n/react";
 
@@ -65,7 +64,6 @@ export function DigestPanel({ profile, up, feed, now }: { profile: string; up: b
         {digest && (
           <p className="text-label text-muted" data-digest-meta>
             {t("digest.snapshotFrom", { when: generatedAgo })}
-            {digest.costUsd !== undefined && ` · ${t("digest.cost", { cost: formatCost(digest.costUsd, lang) })}`}
             {since > 0 && <span className="text-fg"> · {t("digest.newEvents", { count: since })}</span>}
           </p>
         )}

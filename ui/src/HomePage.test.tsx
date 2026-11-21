@@ -85,12 +85,24 @@ describe("HomePage", () => {
     expect(html).not.toContain("<dl");
   });
 
-  it("keeps the cost stat on a down card even when agents and queued are hidden", () => {
+  it("keeps the agents and queued stats on an up card, and shows no cost there either (glance level, #786)", () => {
+    const cost = { at: new Date(NOW - 3600e3).toISOString(), costUsd: 1.5, estUsd: 0 };
+    const html = render({ profiles: [profile("dev", { recentCosts: [cost] })], tickets: [] });
+    expect(html).toContain("<dt>agents</dt>");
+    expect(html).toMatch(/>1 \/ 2</);
+    expect(html).toContain("<dt>queued</dt>");
+    expect(html).not.toContain("cost today");
+    expect(html).not.toContain("$");
+  });
+
+  it("shows no cost stat on a down card (no cost at the glance level, #786) and no empty dl", () => {
     const cost = { at: new Date(NOW - 3600e3).toISOString(), costUsd: 1.5, estUsd: 0 };
     const html = render({ profiles: [profile("spent", { up: false, pid: null, recentCosts: [cost] })], tickets: [held("spent", "9")] });
-    expect(html).toContain("<dt>cost today</dt>");
+    expect(html).toContain('data-profile-card="spent"');
+    expect(html).not.toContain("cost today");
     expect(html).not.toContain("<dt>agents</dt>");
     expect(html).not.toContain("<dt>queued</dt>");
+    expect(html).not.toContain("<dl");
   });
 
   it("still renders an up card's agents and queued stats exactly as before", () => {

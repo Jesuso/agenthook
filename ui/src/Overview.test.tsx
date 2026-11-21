@@ -265,10 +265,23 @@ describe("Overview", () => {
     expect(render(profile(), [])).not.toContain("data-stopped-banner");
   });
 
-  it("hides the rework rate until there are enough runs, then shows it", () => {
-    const runs = (n: number) => Array.from({ length: n }, (_, i) => ({ at: local(9), outcome: i < 2 ? "changes" : "advance" }));
-    expect(render(profile({ recentRuns: runs(9) }), [])).toContain("needs 10+ runs (9 so far)");
-    expect(render(profile({ recentRuns: runs(10) }), [])).toContain("20%");
+  it("keeps cost off the glance (\u0023786): no Progress zone, no cost figure, no History strip on the page", () => {
+    const html = render(profile({ recentCosts: [{ at: local(9), costUsd: 4, estUsd: 1 }] }), [ticket("d", { status: "done", finishedAt: local(10) })]);
+    expect(html).not.toContain("data-progress");
+    expect(html).not.toContain("data-stats");
+    expect(html).not.toContain("Progress");
+    expect(html).not.toContain("cost today");
+    expect(html).not.toMatch(/\$[0-9]/);
+  });
+
+  it("shows one quiet 'N done today' line by the headline, with 'yesterday N' muted when either count is non-zero", () => {
+    const done = (at: string) => ticket("d", { status: "done", finishedAt: at });
+    expect(render(profile(), [done(local(10))])).toMatch(/data-done-today[^>]*>\s*<span><span class="font-mono text-fg">1\u003c\/span> done today/);
+    expect(render(profile(), [done(local(10)), done(local(20, 7))])).toContain("yesterday 1");
+    expect(render(profile(), [done(local(20, 7))])).toContain("yesterday 1");
+    expect(render(profile(), [])).not.toContain("yesterday");
+    expect(render(profile(), [done(local(10))])).toContain("done today");
+    expect(render(profile(), [])).not.toContain("finished today");
   });
 
   it("opens the All tickets drill-down only while a status filter is active", () => {

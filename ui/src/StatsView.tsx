@@ -3,9 +3,11 @@ import type { DayStats, ProfileView, StatsView as StatsData } from "./contract";
 import { Segmented, ProfileMark } from "./components";
 import type { FeedEntry } from "./feed";
 import { formatCost, formatSpend, profileLabel } from "./format";
+import { MIN_RUNS_FOR_RATES, progress } from "./zones";
 import { usePageTitle } from "./usePageTitle";
 import { formatEnergy } from "../../src/energy.js";
 import { HarnessesCard } from "./HarnessesCard";
+import { StatsStrip } from "./StatsStrip";
 import { latestChange, shortDate, statsUrl } from "./stats";
 import { axisDollars } from "./statsChart";
 import { DOWN, OTHER_STEPS, UP, calendarModel, divergingModel, nearestDay, rangeModel, stackedModel } from "./statsModels";
@@ -30,7 +32,9 @@ const OUTCOME_LABEL: Record<Outcome, MessageKey> = { advance: "statsView.outcome
 /**
  * The profile's deeper history (docs/web-ui.md § Daily stats): four charts over the day buckets
  * `GET /api/stats` derives from the whole events log. d3 does the geometry (`statsModels.ts`,
- * unit-tested); these components only draw it. One profile at a time (ADR 0001).
+ * unit-tested); these components only draw it. One profile at a time (ADR 0001). The glance-level
+ * figures that used to sit on the Overview's Progress zone — cost today and the 48 h rework rate,
+ * plus the History strip — live here too (PRODUCT.md: no cost at the glance level).
  */
 export default function StatsView({ profile, feed }: { profile: ProfileView; feed: FeedEntry[] }) {
   const { t, lang } = useT();
@@ -68,6 +72,7 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
         </span>
       </div>
       {failed && !data && <p className="text-label text-muted">{t("stats.loadFailed")}</p>}
+      <Today profile={profile} />
       {data && (
         <>
           {/* Two charts a row from lg; from 2xl the calendar and the cost chart share rows too. */}
@@ -91,7 +96,45 @@ export default function StatsView({ profile, feed }: { profile: ProfileView; fee
           <p className="text-meta text-muted">{data.since ? `${t("statsView.since", { date: shortDate(data.since.slice(0, 10), lang) })} ` : ""}{t("statsView.midnight")}</p>
         </>
       )}
+      <StatsStrip profile={profile.name} feed={feed} />
     </div>
+  );
+}
+
+/**
+ * The two glance figures the Overview's Progress zone used to carry (docs/web-ui.md § Daily
+ * stats): cost today (vs yesterday) and the 48 h rework rate, from the profile's events tail —
+ * no fetch of its own.
+ */
+function Today({ profile }: { profile: ProfileView }) {
+  const { t, lang } = useT();
+  const p = progress(profile, [], Date.now());
+  const rate = p.reworkRate;
+  return (
+    <section data-stats-today className="min-w-0 rounded-lg border border-border bg-surface px-3 py-3">
+      <h2 className="mb-1 text-label font-semibold uppercase tracking-wide text-muted">{t("statsView.today")}</h2>
+      <dl className="flex flex-wrap gap-x-10 gap-y-2 text-label">
+        <div>
+          <dt className="text-meta uppercase tracking-wide text-muted">{t("statsView.costToday")}</dt>
+          <dd className="font-mono text-body text-fg">
+            {formatSpend({ reported: p.costToday, est: p.estToday }) || formatCost(0, lang)}
+            {(p.costYesterday > 0 || p.estYesterday > 0) && (
+              <span className="text-meta text-muted"> {t("overview.yesterday", { value: formatSpend({ reported: p.costYesterday, est: p.estYesterday }) || formatCost(0, lang) })}</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-meta uppercase tracking-wide text-muted" title={t("statsView.reworkTitle")}>{t("statsView.rework")}</dt>
+          <dd className="font-mono text-body text-fg">
+            {rate === null ? (
+              <span className="text-meta font-normal text-muted">{t("statsView.needsRuns", { min: MIN_RUNS_FOR_RATES, runs: p.runs })}</span>
+            ) : (
+              `${Math.round(rate * 100)}%`
+            )}
+          </dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 

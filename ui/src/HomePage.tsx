@@ -1,5 +1,5 @@
 import type { ProfileView, Snapshot } from "./contract";
-import { formatAgents, formatLastEvent, formatSpend, profileBadge, profileLabel, quotaPausedTitle } from "./format";
+import { formatAgents, formatLastEvent, profileBadge, profileLabel, quotaPausedTitle } from "./format";
 import { buildHome } from "./home";
 import type { CardModel } from "./home";
 import { hashFor } from "./route";
@@ -81,7 +81,6 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
   const badge = profileBadge(p, lang);
   const last = formatLastEvent(p.lastEvent, lastEventId, now, lang);
   const asOf = useAgo(p.lastSeenAt, now);
-  const showCost = summary.costToday + summary.estToday > 0;
   return (
     <article
       data-profile-card={p.name}
@@ -134,12 +133,12 @@ function ProfileCard({ card, now, lastEventId, items, note }: { card: CardModel;
         <NeedsYou n={summary.needsYou} hasFailed={hasFailed} stale={stale} asOf={stale ? asOf : null} />
       </div>
 
-      {/* Down: the status says it; dashes for agents and queue would only repeat it (as in Overview). */}
-      {(p.up || showCost) && (
+      {/* Down: the status says it; dashes for agents and queue would only repeat it (as in Overview).
+          No cost here either — the glance level (PRODUCT.md) shows no cost; it lives on Statistics. */}
+      {p.up && (
         <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label text-muted">
-          {p.up && <Stat label={t("common.agents")}>{formatAgents(p)}</Stat>}
-          {p.up && <Stat label={t("common.queued")}>{p.queued ?? "—"}</Stat>}
-          {showCost && <Stat label={t("home.costToday")}>{formatSpend({ reported: summary.costToday, est: summary.estToday })}</Stat>}
+          <Stat label={t("common.agents")}>{formatAgents(p)}</Stat>
+          <Stat label={t("common.queued")}>{p.queued ?? "—"}</Stat>
         </dl>
       )}
 

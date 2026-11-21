@@ -2,16 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { ProfileView, Snapshot } from "./contract";
 import type { FeedEntry } from "./feed";
-import { formatCost, formatSpend } from "./format";
 import { scopeToProfile } from "./summary";
-import { MIN_RUNS_FOR_RATES, harnessAttention, needsYouItems, progress } from "./zones";
-import type { NeedsItem, Progress } from "./zones";
+import { harnessAttention, needsYouItems, progress } from "./zones";
+import type { NeedsItem } from "./zones";
 import { NeedsYouZone, needsSpeech } from "./NeedsYouZone";
 import type { Ref } from "./NeedsYouZone";
 import { BoardHead, BoardRows, usePipelineSteps } from "./Departures";
 import { board as boardOf } from "./board";
 import { DigestPanel } from "./DigestPanel";
-import { StatsStrip } from "./StatsStrip";
 import { ActivityRail } from "./ActivityRail";
 import { ProfileNameCell } from "./ProfileNameCell";
 import { TicketsTable } from "./TicketsTable";
@@ -68,8 +66,9 @@ export type OverviewProps = {
  * One profile's dashboard (docs/web-ui.md § v4), using the whole window. The board leads: the
  * Needs-you count is the page's headline (empty says "All clear"), and under it one row per ticket
  * — the ones that need you first, then what runs and what waits — each marked on the pipeline step
- * it is in. Beside the board on a wide screen (below it otherwise): the digest, Progress (today vs
- * yesterday over the events tail) and the live activity. The full ticket table is a collapsed
+ * it is in. Beside the board on a wide screen (below it otherwise): the digest and the live
+ * activity. The glance level (PRODUCT.md) shows no cost — one quiet "N done today" line sits by
+ * the headline; cost and the rework rate live on Statistics. The full ticket table is a collapsed
  * drill-down under the board.
  */
 export function Overview(props: OverviewProps) {
@@ -133,6 +132,13 @@ export function Overview(props: OverviewProps) {
             <h1 className="text-title font-semibold">
               <ProfileNameCell p={profile} path={false} />
             </h1>
+            {/* The one quiet number the glance keeps (no cost here — Statistics owns that). */}
+            <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-label text-muted" data-done-today>
+              <span><span className="font-mono text-fg">{prog.finishedToday}</span> {t("overview.doneToday")}</span>
+              {(prog.finishedToday !== 0 || prog.finishedYesterday !== 0) && (
+                <span className="text-meta">{t("overview.yesterday", { value: prog.finishedYesterday })}</span>
+              )}
+            </div>
             {profile.configPath && (
               <p className="max-w-[40ch] truncate font-mono text-label text-muted max-lg:max-w-[24ch]" title={profile.configPath}>
                 {profile.configPath}
@@ -224,7 +230,6 @@ export function Overview(props: OverviewProps) {
 
         <aside data-overview-rail aria-label={t("overview.railLabel")} className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] content-start items-start gap-6 2xl:col-start-2 2xl:row-span-2 2xl:row-start-1 2xl:grid-cols-1">
           <DigestPanel profile={profile.name} up={profile.up} feed={feed} now={now} />
-          <ProgressZone prog={prog} profile={profile.name} feed={feed} />
           <ActivityPanel feed={feed} displayIdFor={props.displayIdFor} onOpen={onOpen} />
         </aside>
 
@@ -405,15 +410,6 @@ function NewTicketModal({ profile, onCreated, onClose }: { profile: ProfileView;
   );
 }
 
-function Tile({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
-  return (
-    <div title={title} className="rounded-lg border border-border bg-surface px-3 py-2">
-      <div className="text-label uppercase tracking-wide text-muted">{label}</div>
-      <div className="text-title font-semibold">{children}</div>
-    </div>
-  );
-}
-
 /**
  * A stopped receiver, said once at the top: nothing runs, what happens to tickets meanwhile, and the
  * two commands that recover (start, then reconcile to fire tickets that moved while it was down).
@@ -509,21 +505,6 @@ function hhmm(iso: string): string {
   return Number.isNaN(t) ? "—" : `${new Date(t).toISOString().slice(11, 16)}Z`;
 }
 
-function Zone({ title, count, action, children }: { title: string; count?: number; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section>
-      <div className="mb-2 flex min-h-6 items-center justify-between gap-2">
-        <h2 className="text-label font-semibold uppercase tracking-wide text-muted">
-          {title}
-          {count !== undefined && <span className="ml-1.5 font-mono normal-case">{count}</span>}
-        </h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 /**
  * j/k walk the Needs-you rows, then the Now rows (focusing each title, so Enter opens its drawer and
  * its live log), r opens the focused held row's answer box or re-runs the focused failed one, d
@@ -596,34 +577,6 @@ function useAutoRead(profile: string, needs: NeedsItem[]) {
     for (const n of needs) if (fresh.has(dismissKey(n.ticket))) speak(speechText(needsSpeech(n, tr, lang)), { rate: Number(reading.rate) || 1, interrupt: false });
     // The keys stand for `needs`: re-run when the list changes, not on every render.
   }, [profile, keys.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
-}
-
-function ProgressZone({ prog, profile, feed }: { prog: Progress; profile: string; feed: FeedEntry[] }) {
-  const { t, lang } = useT();
-  const delta = (today: number, yesterday: number) => (yesterday === 0 && today === 0 ? "" : t("overview.yesterday", { value: yesterday }));
-  const rate = prog.reworkRate;
-  return (
-    <Zone title={t("overview.progress")}>
-      <dl data-progress className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
-        <Tile label={t("overview.finishedToday")}>
-          <span className="font-mono">{prog.finishedToday}</span> <span className="text-label font-normal text-muted">{delta(prog.finishedToday, prog.finishedYesterday)}</span>
-        </Tile>
-        <Tile label={t("overview.costToday")}>
-          <span className="font-mono">{formatSpend({ reported: prog.costToday, est: prog.estToday }) || formatCost(0, lang)}</span>{" "}
-          <span className="text-label font-normal text-muted">{prog.costYesterday || prog.estYesterday ? t("overview.yesterday", { value: formatSpend({ reported: prog.costYesterday, est: prog.estYesterday }) }) : ""}</span>
-        </Tile>
-        <Tile label={t("overview.rework")} title={t("overview.reworkTitle")}>
-          {rate === null ? (
-            <span className="text-label font-normal text-muted">{t("overview.needsRuns", { min: MIN_RUNS_FOR_RATES, runs: prog.runs })}</span>
-          ) : (
-            <span className="font-mono">{Math.round(rate * 100)}%</span>
-          )}
-        </Tile>
-      </dl>
-      <p className="mt-1 text-meta leading-4 text-muted">{t("overview.progressFoot")}</p>
-      <StatsStrip profile={profile} feed={feed} />
-    </Zone>
-  );
 }
 
 /** The live feed as a collapsed bottom panel: the count beside it is what arrived since it was last open. */
