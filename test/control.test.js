@@ -6,6 +6,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { startControl, listenPrivate, checkSockPath } from "../src/control.js";
+import { createRestartRequester } from "../src/engine.js";
+import { createQueue } from "../src/queue.js";
 
 /** @param {string} dir */
 function cfgIn(dir) {
@@ -484,6 +486,36 @@ test("control protocol: injected restart gets args; result -> ok, throw -> ok:fa
     const r3 = await reader.waitFor(3);
     assert.equal(r3.result.alreadyPending, true);
     assert.deepEqual(calls, [{ when: "now" }, { when: "idle" }, { when: "idle" }]);
+    socket.end();
+  } finally {
+    control?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("control protocol: an exposed restart refusal keeps its reason (config check failure gets the stop/start escape)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-control-"));
+  const cfg = cfgIn(dir);
+  const run = () => Promise.resolve({ kind: "pipeline", ref: "A", name: "A", url: "", code: 0 });
+  const restarter = createRestartRequester({
+    queue: createQueue(1, run),
+    isDraining: () => false,
+    validateConfig: () => {
+      throw new Error('config: harness "pi-local" agent "pi" is not a known agent (claude, cursor, hermes, opencode).');
+    },
+    onPending: () => {},
+    fire: () => {},
+  });
+  const control = await startControl(cfg, { startedAt: "x", restart: restarter.request });
+  try {
+    const { socket, rest } = await connectAfterHello(cfg.controlSock);
+    const reader = replyReader(socket, rest);
+    socket.write(JSON.stringify({ id: 1, cmd: "restart", args: { when: "idle" } }) + "\n");
+    const reply = await reader.waitFor(1);
+    assert.equal(reply.ok, false);
+    assert.notEqual(reply.error, "restart failed", "the opaque default must not survive an exposed refusal");
+    assert.match(reply.error, /agent "pi" is not a known agent/);
+    assert.match(reply.error, /agenthook stop && agenthook start/);
     socket.end();
   } finally {
     control?.close();

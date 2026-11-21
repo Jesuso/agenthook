@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- `restart`: a refusal now reaches the CLI, MCP and UI with its reason (bounded) instead of the
+  opaque `restart failed`. A config-check failure is worded as a check that ran in the **running**
+  receiver — whose in-memory code may be older than the code on disk — and names the escape, `agenthook
+  stop && agenthook start` (#767).
 - UI: segmented controls (the stats ranges, the tickets status filter, view switches) are now one
   Tab stop instead of one per option; Arrow keys (wrapping), Home and End move the selection, and
   the range and status-filter groups carry an accessible name (#765).
