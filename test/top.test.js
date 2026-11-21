@@ -187,4 +187,20 @@ test("readStatus: prWaiting lists the PR rows on a forge profile, omitted otherw
     refmeta: { 43: { title: "Nothing to wait on" } },
   });
   assert.ok(!("prWaiting" in readStatus(quiet)));
+
+  // A mergedOpen row (the board is still open, so the row's finishedAt is null) — its at is
+  // the merged event's ts, so the top renderer shows a real age instead of "-".
+  const merged = profileDir(r, "merged", {
+    hb: { forge: true, repository: "acme/web" },
+    refmeta: { 55: { title: "Shipped, board open", pr: 9 } },
+    events: [
+      { event: "run_start", ref: "55", step: "code", ts: "2025-05-30T10:00:00Z" },
+      { event: "run_end", ref: "55", step: "code", outcome: "advance", ts: "2025-05-30T11:00:00Z" },
+      { event: "run_start", ref: "55", step: "code", ts: "2025-05-31T10:00:00Z" }, // a re-run: the board is known open
+      { event: "merged", ref: "55", ts: "2025-06-02T09:00:00Z" },
+    ],
+  });
+  assert.deepEqual(readStatus(merged).prWaiting, [
+    { ref: "55", title: "Shipped, board open", step: "code", pr: "https://github.com/acme/web/pull/9", kind: "mergedOpen", at: "2025-06-02T09:00:00Z" },
+  ]);
 });

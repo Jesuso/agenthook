@@ -202,7 +202,12 @@ export function readStatus(entry, { now = Date.now() } = {}) {
   // Tickets whose last word is a real failure (the dashboard's "needs you" minus held): not an
   // operator cancel, not dismissed, not re-run since. Newest first, from the events tail.
   const lastFailed = new Map();
-  for (const e of state.events) if (e.event === "failed") lastFailed.set(e.ref, e);
+  /** The ref's last `merged` event — a mergedOpen PR row's board is open, so `finishedAt` is null there; the merge is its finish. */
+  const lastMerged = new Map();
+  for (const e of state.events) {
+    if (e.event === "failed") lastFailed.set(e.ref, e);
+    else if (e.event === "merged") lastMerged.set(e.ref, e);
+  }
   // Rows with the repository, so `failed` (below) and `prWaiting` both see the PR facts —
   // the local view of "PR awaiting a person" (ADR 0008) the dashboard's needs-you needs.
   const rows = buildRows(entry.stateKey, state, { up: entry.up, repository: hb.repository ?? null });
@@ -219,7 +224,9 @@ export function readStatus(entry, { now = Date.now() } = {}) {
     label({ ref, checks: checks.map((c) => clip(c, REASON_MAX)), ...(tier ? { tier } : {}), ...(pr ? { pr } : {}), ...(since ? { since } : {}) }, state.refmeta[ref]),
   );
   // Open PRs awaiting a person (forge profiles only) — the third needs-you input beside held/failed.
-  const prWaiting = hb.forge ? rows.filter((r) => r.prNeeds).map((r) => label({ ref: r.ref, step: r.step, pr: r.prUrl, kind: r.prNeeds, at: r.finishedAt }, state.refmeta[r.ref])) : [];
+  const prWaiting = hb.forge
+    ? rows.filter((r) => r.prNeeds).map((r) => label({ ref: r.ref, step: r.step, pr: r.prUrl, kind: r.prNeeds, at: r.finishedAt ?? (r.prNeeds === "mergedOpen" ? (lastMerged.get(r.ref)?.ts ?? null) : null) }, state.refmeta[r.ref]))
+    : [];
   const active = entry.up ? running.length : 0;
   const queued = entry.up ? queue.length : 0;
   // Queued jobs waiting on their step's own maxConcurrent, not on a slot (heartbeat; only set with step caps).

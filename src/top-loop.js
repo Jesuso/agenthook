@@ -34,7 +34,7 @@ const RESTORE = "\u001b[?25h\u001b[?1049l";
  * `readData`/rendering throws; a clean quit resolves `{ok:true}` with exit code untouched.
  * @param {{
  *   out: {isTTY?: boolean, columns?: number, rows?: number, write: (s: string) => unknown, on: (e: string, f: (...a: Array<unknown>) => void) => unknown, removeListener: (e: string, f: (...a: Array<unknown>) => void) => unknown},
- *   input: {isTTY?: boolean, setRawMode?: (b: boolean) => void, on: (e: string, f: (...a: Array<unknown>) => void) => unknown, removeListener: (e: string, f: (...a: Array<unknown>) => void) => unknown, resume: () => unknown},
+ *   input: {isTTY?: boolean, setRawMode?: (b: boolean) => void, on: (e: string, f: (...a: Array<unknown>) => void) => unknown, removeListener: (e: string, f: (...a: Array<unknown>) => void) => unknown, resume: () => unknown, pause?: () => unknown},
  *   readData: () => Promise<Parameters<typeof renderTop>[0]>,
  *   nextEvent: (signal: AbortSignal, timeoutMs: number) => Promise<unknown>,
  *   now?: () => number,
@@ -149,6 +149,8 @@ export async function runTop(o) {
   } finally {
     if (interval !== null) clearInt(interval);
     input.removeListener("data", onKey);
+    // A resumed stdin keeps the event loop alive: pause it or the process never exits after a quit.
+    if (typeof input.pause === "function") input.pause();
     out.removeListener("resize", onResize);
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);

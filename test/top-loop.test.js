@@ -2,7 +2,9 @@ import "./_setup.js"; // first: isolate AGENTHOOK_HOME even for single-file `nod
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { runTop, TOP_WAIT_MS, PAINT_MS } from "../src/top-loop.js";
 import { topReadData } from "../src/commands/top.js";
@@ -56,12 +58,20 @@ function makeOut({ columns = 60, rows = 20, isTTY = true } = {}) {
 /** A fake key stream (not a TTY — no raw mode). */
 function makeInput() {
   const ee = new EventEmitter();
+  /** @type {{resume: number, pause: number}} */
+  const calls = { resume: 0, pause: 0 };
   return {
     isTTY: false,
     on: (/** @type {string} */ e, /** @type {Function} */ f) => ee.on(e, f),
     removeListener: (/** @type {string} */ e, /** @type {Function} */ f) => ee.removeListener(e, f),
     listenerCount: (/** @type {string} */ e) => ee.listenerCount(e),
-    resume: () => {},
+    resume: () => {
+      calls.resume += 1;
+    },
+    pause: () => {
+      calls.pause += 1;
+    },
+    calls,
     key: (/** @type {number} */ b) => ee.emit("data", Buffer.from([b])),
   };
 }
@@ -228,12 +238,14 @@ class FakeSignal {
   }
 }
 
-test("top-loop: quit on q, Ctrl-C and signal abort — restore exactly once, listeners and interval removed", async () => {
+test("top-loop: quit on q, Ctrl-C, SIGINT, SIGTERM and signal abort — restore once, input paused, listeners and interval removed", async () => {
   const sigintBefore = process.listenerCount("SIGINT");
   const sigtermBefore = process.listenerCount("SIGTERM");
   const cases = [
     ["q key", async (s, /** @type {any} */ sig) => s.input.key(0x71)],
     ["Ctrl-C byte", async (s, /** @type {any} */ sig) => s.input.key(0x03)],
+    ["SIGINT", async (s, /** @type {any} */ sig) => process.emit("SIGINT")],
+    ["SIGTERM", async (s, /** @type {any} */ sig) => process.emit("SIGTERM")],
     ["signal abort", async (s, /** @type {any} */ sig) => sig.abort()],
   ];
   for (const [name, fire] of cases) {
@@ -244,6 +256,7 @@ test("top-loop: quit on q, Ctrl-C and signal abort — restore exactly once, lis
     const buf = s.out.text();
     assert.equal(buf.split(RESTORE).length - 1, 1, `${name}: the restore sequence is written exactly once`);
     assert.equal(s.input.listenerCount("data"), 0, `${name}: key listener removed`);
+    assert.equal(s.input.calls.pause, 1, `${name}: the input stream was paused (a resumed stdin keeps the process alive)`);
     assert.equal(s.out.listenerCount("resize"), 0, `${name}: resize listener removed`);
     assert.equal(process.listenerCount("SIGINT"), sigintBefore, `${name}: SIGINT handler removed`);
     assert.equal(process.listenerCount("SIGTERM"), sigtermBefore, `${name}: SIGTERM handler removed`);
@@ -282,6 +295,7 @@ test("top-loop: readData throwing — restore first, error to stderr, exit code 
     assert.equal(sawRestoreBefore, true, "the terminal was restored before the error came out");
     assert.equal(ne.calls.length, 0, "the error happened before the first wait");
     assert.equal(out.text().split(RESTORE).length - 1, 1);
+    assert.equal(input.calls.pause, 1, "the error path pauses the input too");
     assert.ok(errors.some((e) => e.includes("state dir unreadable")), `stderr got the error: ${errors}`);
     assert.equal(process.exitCode, 1);
   } finally {
@@ -320,6 +334,44 @@ test("top-loop: draw never throws a frame past the terminal height", async () =>
   assert.ok(lines.length <= 3, `cut to out.rows lines: ${lines.length}`);
   s.input.key(0x71);
   await s.p;
+});
+
+test("top: the process exits by itself within 2 s of q — real runTop, piped stdin", async (t) => {
+  // The #795 rework repro without a pty: the real loop with piped stdin as the input. A
+  // resumed stdin keeps the event loop alive, so on the broken quit path this child hangs
+  // and the 2 s deadline below fails it. One profile in a fresh registry root: it is the
+  // only up profile, so the helper's name-less pick resolves it.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "agenthook-topexit-home-"));
+  const dir = path.join(home, "topexit");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "heartbeat.json"), JSON.stringify({ name: "topexit", maxConcurrent: 2, tracker: "github" }));
+  fs.writeFileSync(path.join(dir, "server.pid"), String(process.pid));
+  const prevHome = process.env.AGENTHOOK_HOME;
+  process.env.AGENTHOOK_HOME = home;
+  try {
+    const helper = path.join(path.dirname(new URL(import.meta.url).pathname), "_top-exit-helper.js");
+    const child = spawn(process.execPath, [helper], { stdio: ["pipe", "pipe", "pipe"] });
+    let seen = "";
+    child.stdout.on("data", (d) => {
+      seen += String(d);
+    });
+    const t0 = Date.now();
+    while (!seen.includes(ENTER) && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(seen.includes(ENTER), "the child entered the alternate screen");
+    child.stdin.write("q");
+    const code = await new Promise((resolve) => {
+      const to = setTimeout(() => resolve("TIMEOUT"), 2000);
+      child.on("close", (c) => {
+        clearTimeout(to);
+        resolve(c);
+      });
+    });
+    if (code !== 0) child.kill("SIGKILL");
+    assert.equal(code, 0, `the child exited by itself with 0, got: ${code}`);
+    assert.ok(seen.includes(RESTORE), "the child wrote the restore sequence before exiting");
+  } finally {
+    process.env.AGENTHOOK_HOME = prevHome;
+  }
 });
 
 test("topReadData: the loop's data source is local-only — an up receiver gets no board/PR live read", async () => {
