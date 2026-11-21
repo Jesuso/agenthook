@@ -12,7 +12,6 @@ All notable changes to this project are documented here. The format is based on
 - ui: the Statistics "Done per day" heatmap caption now reads "stronger colour = more tickets"
   (es: "color más intenso = más tickets") instead of "darker = more tickets", which was only true in
   the light theme — in dark theme busy days are brighter, not darker (#775).
-
 - UI: Config step cards — the expand/collapse button is named per step ("expand step: triage" /
   "collapse step: triage") instead of a bare "expand step", and the "+N advanced" count is its own
   non-truncating element beside the header summary, so it is never the part that gets cut off (#758).
