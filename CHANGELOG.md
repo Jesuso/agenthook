@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- ui: in the Epics list, an **open** epic with no tickets now shows the muted "no tickets" text
+  (like a closed empty epic already did) instead of an empty progress bar and "0/0"; the row's
+  note column stays aligned and the link still names its state for screen readers (#776).
 - UI: Home cards hide the agents / queued stats row while the receiver is down (as the profile
   Overview already does) — no more `— / —` dashes repeating the stopped status; the cost stat is
   unchanged, and a down card with no cost renders no empty stats row at all (#777).
