@@ -7,7 +7,7 @@ import { harnessesVisible } from "./HarnessesCard";
 import { day } from "./statsFixtures";
 import type { ProfileView, StatsGroup } from "./contract";
 import { I18nProvider } from "./i18n/react";
-import { setLangSetting } from "./i18n";
+import { setLangSetting, translate } from "./i18n";
 import { mount, until } from "./domHarness";
 import type { Mounted } from "./domHarness";
 
@@ -139,6 +139,25 @@ describe("StatsView in Spanish", () => {
     for (const s of ["30 d", "Gasto por paso", "Cómo terminaron las ejecuciones", "avanzadas", "devueltas (changes)", "percentil 10–90", "Historial desde 12 oct. Los días se cortan a tu medianoche local."]) expect(out).toContain(s);
     expect(out).toContain('aria-label="Tickets terminados por día, como calendario"');
     expect(out).toContain(">L</text>"); // Monday 2026-10-12 under the band charts
+    expect(out).toContain("color más intenso = más tickets"); // #775
+  });
+});
+
+describe("the calendar caption (#775)", () => {
+  let m: Mounted;
+  afterEach(async () => {
+    await m.unmount();
+    vi.unstubAllGlobals();
+    setLangSetting("en", []);
+  });
+
+  it("says stronger colour = more tickets in English, in both plural forms", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ days, since: "2026-10-12T08:00:00Z" }) })));
+    m = await mount(createElement(I18nProvider, null, createElement(StatsView, { profile, feed: [] })));
+    await until(() => m.root.querySelector('[data-chart="outcomes"]'));
+    expect(m.root.innerHTML).toContain("stronger colour = more tickets");
+    expect(translate("en", "statsView.calendarNote", { count: 1 })).toBe("last 1 week · stronger colour = more tickets");
+    expect(translate("en", "statsView.calendarNote", { count: 5 })).toBe("last 5 weeks · stronger colour = more tickets");
   });
 });
 

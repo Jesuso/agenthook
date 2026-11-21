@@ -479,7 +479,7 @@ export const messages = {
   // StatsView
   "statsView.title": "Stats",
   "statsView.finishedPerDay": "Done per day",
-  "statsView.calendarNote": { one: "last {count} week · darker = more tickets", other: "last {count} weeks · darker = more tickets" },
+  "statsView.calendarNote": { one: "last {count} week · stronger colour = more tickets", other: "last {count} weeks · stronger colour = more tickets" },
   "statsView.spendByStep": "Spend by step",
   "statsView.spendByStepNote": "what each pipeline step cost per day",
   "statsView.howRunsEnded": "How runs ended",

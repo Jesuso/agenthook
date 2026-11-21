@@ -481,7 +481,7 @@ export const messages: Record<MessageKey, Message> = {
   // StatsView
   "statsView.title": "Estadísticas",
   "statsView.finishedPerDay": "Terminados por día",
-  "statsView.calendarNote": { one: "última {count} semana · más oscuro = más tickets", other: "últimas {count} semanas · más oscuro = más tickets" },
+  "statsView.calendarNote": { one: "última {count} semana · color más intenso = más tickets", other: "últimas {count} semanas · color más intenso = más tickets" },
   "statsView.spendByStep": "Gasto por paso",
   "statsView.spendByStepNote": "lo que costó cada paso del pipeline por día",
   "statsView.howRunsEnded": "Cómo terminaron las ejecuciones",
